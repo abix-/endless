@@ -1,0 +1,43 @@
+[gd_scene load_steps=3 format=3 uid="uid://bdg5d4ydcde6x"]
+
+[ext_resource type="Script" path="res://scripts/Clock_UI.gd" id="1_m2w3n"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_xm6wd"]
+bg_color = Color(0.0784314, 0.0784314, 0.0784314, 0.462745)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[node name="ClockUI" type="Control"]
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+grow_horizontal = 0
+script = ExtResource("1_m2w3n")
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -100.0
+offset_bottom = 40.0
+grow_horizontal = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_xm6wd")
+
+[node name="TimeLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -95.0
+offset_top = 5.0
+offset_right = -5.0
+offset_bottom = 35.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 18
+text = "12:00AM"
+horizontal_alignment = 1
+vertical_alignment = 1
