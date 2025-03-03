@@ -13,6 +13,8 @@ class_name Farmer
 # Food properties
 @export_group("Food")
 @export var food_recovery_rate: float = 33.33  # Recover full food in ~3 hours
+var eating_start_minute: int = 0  # Track precise start time of eating in minutes
+var last_eating_report_hour: int = -1  # Track the last hour an eating report was generated
 
 # Decision thresholds
 @export_group("Decision Thresholds")
@@ -22,7 +24,7 @@ class_name Farmer
 
 # Debug options
 @export_group("Debug Options")
-@export var enable_hourly_eating_reports: bool = false  # Toggle for hourly eating reports
+@export var enable_hourly_eating_reports: bool = true  # Toggle for hourly eating reports
 
 # Time tracking
 var last_decision_time = 0
@@ -109,7 +111,9 @@ func _process_current_state(delta):
 	# Debug state periodically
 	if debug_timer >= 5.0 and debug_mode:
 		debug_timer = 0.0
-		print("Current farmer state: ", state_machine.get_state_name(current_state))
+		print("Current farmer state: ", state_machine.get_state_name(current_state), 
+			  " | Food: ", "%.2f" % food, "/", "%.2f" % max_food, 
+			  " (", "%.1f" % ((food / max_food) * 100), "%)")
 	
 	# Use the state handler dictionary for cleaner code organization
 	if state_handlers.has(current_state):
@@ -159,8 +163,12 @@ func _handle_idle(delta):
 	if decision_cooldown <= 0:
 		_make_decisions()
 
-# Handle eating behavior
+# Handle eating behavior with improved tracking and reporting
 func _handle_eating(delta):
+	# Debug print to verify method is being called
+	if debug_mode:
+		print("DEBUG: _handle_eating called. Current state: %s" % state_machine.get_state_name(state_machine.current_state))
+	
 	# Recover food while eating
 	var old_food = food
 	food = min(max_food, food + delta * food_recovery_rate)
@@ -169,42 +177,116 @@ func _handle_eating(delta):
 	if food >= full_threshold * max_food / 100.0 and decision_cooldown <= 0:
 		_handle_eating_complete()
 	
-	# Check if the hour has changed while eating for hourly reports
+	# Get current time details
 	var current_hour = time_manager.hours
-	if current_hour != last_eating_hour and state_machine.current_state == NPCStates.FarmerState.EATING:
+	var current_minute = current_hour * 60 + time_manager.minutes
+	
+	# Ensure we're tracking eating start correctly
+	if eating_start_minute == 0:
+		eating_start_minute = current_minute
+		eating_start_food = food
 		last_eating_hour = current_hour
+	
+	# Calculate minutes spent eating
+	var minutes_eating = current_minute - eating_start_minute
+	
+	# Handle day wrapping
+	if minutes_eating < 0:
+		minutes_eating += 24 * 60
+	
+	# Only process report if we've been eating for at least a minute
+	# and we're still in the eating state
+	if (minutes_eating > 0 and 
+		state_machine.current_state == NPCStates.FarmerState.EATING and
+		current_hour != last_eating_report_hour):
 		
-		# Only show hourly reports if enabled
-		if enable_hourly_eating_reports:
-			_show_eating_report(current_hour)
+		# Update last report hour to prevent duplicate reports
+		last_eating_report_hour = current_hour
+		
+		# Calculate detailed eating metrics
+		var food_gained = food - eating_start_food
+		var food_percent = (food / max_food) * 100
+		var food_gain_rate = food_gained / max(1.0, minutes_eating)
+		
+		# Always generate a report in debug mode, respect hourly report flag otherwise
+		if debug_mode or enable_hourly_eating_reports:
+			print("HOURLY EATING REPORT - Hour %d: Food %.2f/%.2f (%.2f%%), Eating Time: %d mins, Food Gained: %.2f (%.2f/min), Est. Time to Full: %.2f hrs" % [
+				current_hour, 
+				food, 
+				max_food, 
+				food_percent, 
+				minutes_eating, 
+				food_gained, 
+				food_gain_rate, 
+				(max_food - food) / food_recovery_rate
+			])
+	
+		# Additional debug information
+		# Explicitly convert minutes_eating to an integer before using modulo
+		if debug_mode and int(minutes_eating) % 10 == 0:
+			print("EATING DEBUG: Current food: %.2f, Food gained: %.2f, Eating duration: %d mins" % [
+				food, 
+				food - eating_start_food, 
+				int(minutes_eating)  # Explicitly convert to integer
+			])
 
 # Show eating progress report
+# Optional: Update _show_eating_report method for consistency
 func _show_eating_report(current_hour):
-	var hours_eating = current_hour - eating_start_hour
-	if hours_eating < 0:  # Handle day wrapping
-		hours_eating += 24
+	# Calculate current total minutes
+	var current_minute = current_hour * 60 + time_manager.minutes
+	
+	# Calculate minutes spent eating
+	var minutes_eating = current_minute - eating_start_minute
+	
+	# Handle day wrapping
+	if minutes_eating < 0:
+		minutes_eating += 24 * 60
+	
+	# Convert minutes to fractional hours
+	var hours_eating = minutes_eating / 60.0
+	
+	# Calculate other metrics
 	var food_gained = food - eating_start_food
 	var food_percent = (food / max_food) * 100
 	
-	print("HOURLY EATING REPORT - Hour ", current_hour)
-	print("  Food level: ", "%.2f" % food, "/", "%.2f" % max_food, " (", "%.2f" % food_percent, "%)")
-	print("  Hours spent eating: ", hours_eating)
-	print("  Food gained since starting: ", "%.2f" % food_gained)
-	print("  Food gained per hour: ", "%.2f" % (food_gained / max(1.0, hours_eating)))
-	print("  Estimated time until full: ", "%.2f" % ((max_food - food) / food_recovery_rate), " hours")
-
-# Handle eating completion
+	# Updated print statement with minutes and hours
+	print("HOURLY EATING REPORT - Hour %d: Food %.2f/%.2f (%.2f%%), Eating Time: %.2f hrs (%d mins), Food Gained: %.2f (%.2f/hr), Est. Time to Full: %.2f hrs" % [
+		current_hour, 
+		food, 
+		max_food, 
+		food_percent, 
+		hours_eating, 
+		minutes_eating, 
+		food_gained, 
+		food_gained / max(1.0, hours_eating), 
+		(max_food - food) / food_recovery_rate
+	])
+	
+# Updated _handle_eating_complete method for precise time tracking
+# Updated _handle_eating_complete method
 func _handle_eating_complete():
-	var hours_eating = time_manager.hours - eating_start_hour
-	if hours_eating < 0:  # Handle day wrapping
-		hours_eating += 24
+	# Calculate current total minutes
+	var current_minute = time_manager.hours * 60 + time_manager.minutes
+	
+	# Calculate minutes spent eating
+	var minutes_eating = current_minute - eating_start_minute
+	
+	# Handle day wrapping (if eating spans midnight)
+	if minutes_eating < 0:
+		minutes_eating += 24 * 60
+	
+	# Calculate food gained
 	var food_gained = food - eating_start_food
 	
-	print("EATING COMPLETE:")
-	print("  Farmer finished eating in approximately ", hours_eating, " hours")
-	print("  Started with ", "%.2f" % eating_start_food, " food, now at ", "%.2f" % food)
-	print("  Gained ", "%.2f" % food_gained, " food (", "%.2f" % (food_gained / max(1.0, hours_eating)), " per hour)")
-	print("Farmer is full and ready to work")
+	# Comprehensive debug output focused on minutes
+	print("EATING COMPLETE: Farmer finished eating in %d minutes, started with %.2f food, now at %.2f food, gained %.2f food (%.2f per minute). Farmer is full and ready to work" % [
+		minutes_eating, 
+		eating_start_food, 
+		food, 
+		food_gained, 
+		food_gained / max(1.0, minutes_eating)
+	])
 	
 	state_machine.change_state(NPCStates.FarmerState.WALKING_TO_FIELD)
 
@@ -255,7 +337,6 @@ func _on_navigation_finished():
 		else:
 			state_machine.change_state(NPCStates.FarmerState.EATING)
 
-# Handle state changes
 func _handle_state_change(old_state, new_state):
 	# Set a cooldown to prevent rapid state changes
 	decision_cooldown = 1.0
@@ -273,11 +354,19 @@ func _handle_state_change(old_state, new_state):
 				print("Setting destination to home: ", home_position)
 			navigate_to(home_position)
 		NPCStates.FarmerState.EATING:
-			eating_start_food = food  # Track starting food level
-			eating_start_hour = time_manager.hours  # Track hour when eating started
-			last_eating_hour = time_manager.hours
-			print("Starting to eat at hour ", last_eating_hour)
-			print("  Initial food level: ", "%.2f" % food, "/", "%.2f" % max_food, " (", "%.2f" % (food/max_food*100), "%)")
+			# Only log eating start if not already logged this hour
+			if time_manager.hours != last_eating_report_hour:
+				eating_start_food = food  # Track starting food level
+				eating_start_hour = time_manager.hours  # Track hour when eating started
+				last_eating_hour = time_manager.hours
+				
+				# Track precise start minute of eating
+				eating_start_minute = time_manager.hours * 60 + time_manager.minutes
+				
+				print("Starting to eat at hour %d: Initial food level %.2f/%.2f (%.2f%%)" % [last_eating_hour, food, max_food, food/max_food*100])
+				
+				# Reset the last eating report hour to prevent duplicate reports
+				last_eating_report_hour = time_manager.hours
 
 # Make decisions based on current needs
 func _make_decisions():
