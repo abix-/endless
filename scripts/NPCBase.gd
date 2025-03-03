@@ -3,11 +3,17 @@
 extends CharacterBody3D
 class_name NPCBase
 
+# Debug flags to control verbosity and optimization
+@export var debug_mode: bool = false
+@export var debug_navigation: bool = false
+@export var debug_position: bool = false
+@export var draw_navigation_path: bool = true
+
 # Navigation properties
 @export_group("Navigation")
 @export var movement_speed: float = 10.0
 @export var obstacle_avoidance_speed: float = 5.0
-@export var repath_interval: float = 1.0
+@export var repath_interval: float = 2.5  # Increased from 1.0 for better performance
 @export var stuck_threshold: float = 0.2
 @export var arrival_distance: float = 1.0
 @export var blocked_path_wait_time: float = 3.0
@@ -15,9 +21,6 @@ class_name NPCBase
 @export var obstacle_avoidance_radius: float = 3.0
 @export var collision_recovery_time: float = 1.0
 @export var collision_cooldown: float = 2.0
-@export var debug_navigation: bool = false
-@export var debug_position: bool = false
-@export var draw_navigation_path: bool = true
 
 # Ignore collisions with these object names
 @export var ignored_colliders: Array[String] = ["Ground", "Terrain", "Floor", "Land"]
@@ -54,6 +57,14 @@ var has_moved = false
 var recovery_attempts = 0
 var max_recovery_attempts = 3
 
+# Path optimization variables
+var last_path_points = 0
+var last_path_update_time = 0.0
+
+# State persistence - allows returning to previous state after interruptions
+var persistent_state = null
+var persistent_destination = null
+
 # Obstacle detection
 @onready var obstacle_raycasts = []
 var raycast_directions = [
@@ -68,7 +79,8 @@ var raycast_directions = [
 ]
 
 func _ready():
-	print("NPCBase._ready called for ", get_npc_type())
+	if debug_mode:
+		print("NPCBase._ready called for ", get_npc_type())
 	
 	# Note: State machine is now initialized in derived classes
 	
@@ -93,19 +105,21 @@ func _ready():
 		navigation_path_line = _create_path_visualization()
 	
 	# Initialize NPC-specific behavior
-	print("NPCBase calling _init_npc")
+	if debug_mode:
+		print("NPCBase calling _init_npc")
 	_init_npc()
 	
 	# Print state machine info if it exists
-	if state_machine:
+	if state_machine and debug_mode:
 		print("State machine initialization complete. Current state: ", 
 			 state_machine.get_state_name(state_machine.current_state))
-	else:
+	elif not state_machine:
 		print("WARNING: No state machine initialized!")
 
 # Virtual method to be overridden by derived classes
 func _init_npc():
-	print("NPCBase._init_npc called - should be overridden by derived class")
+	if debug_mode:
+		print("NPCBase._init_npc called - should be overridden by derived class")
 	pass
 
 func _physics_process(delta):
@@ -130,7 +144,8 @@ func _physics_process(delta):
 	if state_machine:  # Check if state machine exists
 		state_machine.update(delta)
 	else:
-		print("WARNING: No state machine in _physics_process!")
+		if debug_mode: 
+			print("WARNING: No state machine in _physics_process!")
 		return
 	
 	# Process behavior based on current state
@@ -186,12 +201,20 @@ func _create_path_visualization():
 	add_child(line)
 	return line
 
-# Update the navigation path visualization
+# Update the navigation path visualization - optimized to only update when needed
 func _update_path_visualization():
 	if not draw_navigation_path or not navigation_path_line:
 		return
 	
 	var path = nav_agent.get_current_navigation_path()
+	
+	# Skip update if path hasn't changed and we're not debugging
+	if not debug_navigation and path.size() == last_path_points:
+		return
+	
+	last_path_points = path.size()
+	last_path_update_time = Time.get_ticks_msec()
+	
 	var immediate_mesh = navigation_path_line.mesh as ImmediateMesh
 	
 	immediate_mesh.clear_surfaces()
@@ -241,7 +264,8 @@ func _check_for_collisions():
 					break
 			
 			if not should_ignore:
-				print("Collision detected with: ", collider.name)
+				if debug_mode:
+					print("Collision detected with: ", collider.name)
 				last_collider = collider
 				collision_cooldown_timer = collision_cooldown
 				
@@ -251,15 +275,21 @@ func _check_for_collisions():
 				if abs(normal.y) < 0.8:  # Not a mostly vertical collision
 					_handle_collision_event(current_collision)
 
-# Handle collision event
+# Handle collision event - Now with state persistence
 func _handle_collision_event(collision):
+	# Save current state before handling collision
+	if state_machine and state_machine.current_state != NPCStates.BaseState.COLLISION_RECOVERY:
+		persistent_state = state_machine.current_state
+		persistent_destination = destination_position
+		
 	# Save the direction we were moving in when the collision occurred
 	collision_direction = velocity.normalized()
 	if collision_direction.length() == 0:
 		# If we weren't moving, use the direction from us to the collider
 		collision_direction = (global_position - collision.get_position()).normalized()
 	
-	print("Collision occurred while moving in direction: ", collision_direction)
+	if debug_mode:
+		print("Collision occurred while moving in direction: ", collision_direction)
 	
 	# Check if we're already in recovery and increment attempts counter
 	if state_machine and state_machine.is_in_state(NPCStates.BaseState.COLLISION_RECOVERY):
@@ -267,7 +297,8 @@ func _handle_collision_event(collision):
 		
 		# If we've tried too many times, take more drastic action
 		if recovery_attempts >= max_recovery_attempts:
-			print("Multiple collision recovery attempts failed. Taking evasive action!")
+			if debug_mode:
+				print("Multiple collision recovery attempts failed. Taking evasive action!")
 			_handle_persistent_collision()
 			return
 	else:
@@ -286,16 +317,24 @@ func _handle_persistent_collision():
 	var teleport_distance = 3.0
 	var new_position = global_position + random_direction * teleport_distance
 	
-	print("Emergency teleport to escape persistent collision. New position: ", new_position)
+	if debug_mode:
+		print("Emergency teleport to escape persistent collision. New position: ", new_position)
 	global_position = new_position
 	
 	# Reset recovery attempts and proceed with previous route
 	recovery_attempts = 0
 	collision_cooldown_timer = collision_cooldown * 2  # Double cooldown for teleport
 	
-	# Return to previous movement state or idle
+	# Return to previous persistent state if available, otherwise IDLE
 	if state_machine:
-		state_machine.change_state(NPCStates.BaseState.IDLE)
+		if persistent_state and state_machine.is_valid_state(persistent_state):
+			state_machine.change_state(persistent_state)
+			
+			# Restore destination if needed
+			if persistent_destination:
+				navigate_to(persistent_destination)
+		else:
+			state_machine.change_state(NPCStates.BaseState.IDLE)
 
 # Handle collision recovery state
 func _handle_collision_recovery(delta):
@@ -305,9 +344,19 @@ func _handle_collision_recovery(delta):
 		# We've backed up enough, try to navigate around the obstacle
 		collision_recovery_timer = 0
 		recovery_attempts = 0  # Reset attempts counter
-		print("Collision recovery complete, finding new path")
+		if debug_mode:
+			print("Collision recovery complete, finding new path")
+		
+		# Try to restore previous state if possible
 		if state_machine:
-			state_machine.change_state(NPCStates.BaseState.NAVIGATING_OBSTACLE)
+			if persistent_state and state_machine.is_valid_state(persistent_state):
+				state_machine.change_state(persistent_state)
+				
+				# Restore destination if needed
+				if persistent_destination:
+					navigate_to(persistent_destination)
+			else:
+				state_machine.change_state(NPCStates.BaseState.NAVIGATING_OBSTACLE)
 		return
 	
 	# Move away from the collision in the opposite direction
@@ -344,7 +393,8 @@ func _handle_collision_recovery(delta):
 			# Calculate a new avoidance direction
 			_calculate_randomized_avoidance_direction()
 			collision_direction = -avoidance_direction
-			print("Hit something while backing up, changing direction to: ", collision_direction)
+			if debug_mode:
+				print("Hit something while backing up, changing direction to: ", collision_direction)
 			last_collider = collider
 			collision_cooldown_timer = collision_cooldown
 
@@ -412,10 +462,11 @@ func _calculate_randomized_avoidance_direction():
 	# Calculate a target position to move toward
 	avoidance_target = global_position + avoidance_direction * obstacle_avoidance_radius
 	
-	print("Calculated avoidance direction: ", avoidance_direction)
-	print("Setting temporary avoidance target: ", avoidance_target)
+	if debug_mode:
+		print("Calculated avoidance direction: ", avoidance_direction)
+		print("Setting temporary avoidance target: ", avoidance_target)
 
-# Handle obstacle avoidance state
+# Handle obstacle avoidance state with state persistence
 func _handle_obstacle_avoidance(delta):
 	# If we don't have an avoidance direction yet, pick one
 	if avoidance_direction == Vector3.ZERO:
@@ -423,11 +474,19 @@ func _handle_obstacle_avoidance(delta):
 	
 	# Check if we've reached our temporary avoidance target
 	if global_position.distance_to(avoidance_target) < 1.0:
-		print("Reached temporary avoidance target. Retrying main navigation.")
+		if debug_mode:
+			print("Reached temporary avoidance target. Retrying main navigation.")
 		
-		# Try normal navigation again - return to previous movement state
+		# Try to return to previous state if available
 		if state_machine:
-			state_machine.change_state(NPCStates.BaseState.IDLE)
+			if persistent_state and state_machine.is_valid_state(persistent_state):
+				state_machine.change_state(persistent_state)
+				
+				# Restore destination if needed
+				if persistent_destination:
+					navigate_to(persistent_destination)
+			else:
+				state_machine.change_state(NPCStates.BaseState.IDLE)
 		return
 	
 	# Move toward our avoidance target
@@ -459,7 +518,8 @@ func _handle_obstacle_avoidance(delta):
 				
 		if not should_ignore and collider != last_collider:
 			# If we hit something while avoiding, try a different direction
-			print("Hit something while avoiding obstacles, recalculating...")
+			if debug_mode:
+				print("Hit something while avoiding obstacles, recalculating...")
 			avoidance_direction = Vector3.ZERO  # Reset so we'll recalculate
 			_calculate_randomized_avoidance_direction()
 			last_collider = collider
@@ -471,13 +531,25 @@ func _handle_obstacle_avoidance(delta):
 		obstacle_check_timer = 0
 		
 		# See if we can now find a path to the destination
-		nav_agent.target_position = destination_position
+		if persistent_destination:
+			nav_agent.target_position = persistent_destination
+		else:
+			nav_agent.target_position = destination_position
 		
-		# If path is clear now, return to previous movement state
+		# If path is clear now, return to previous state
 		if nav_agent.is_target_reachable():
-			print("Path is now clear! Returning to normal navigation.")
+			if debug_mode:
+				print("Path is now clear! Returning to normal navigation.")
+			
 			if state_machine:
-				state_machine.change_state(NPCStates.BaseState.IDLE)
+				if persistent_state and state_machine.is_valid_state(persistent_state):
+					state_machine.change_state(persistent_state)
+					
+					# Restore destination if needed
+					if persistent_destination:
+						navigate_to(persistent_destination)
+				else:
+					state_machine.change_state(NPCStates.BaseState.IDLE)
 
 # Handle waiting for a path to clear
 func _handle_path_waiting(delta):
@@ -486,19 +558,34 @@ func _handle_path_waiting(delta):
 		path_blocked_timer = 0
 		
 		# Check if path is now clear
-		print("Checking if path is clear now...")
+		if debug_mode:
+			print("Checking if path is clear now...")
+		
+		# Try original destination first
+		var dest = persistent_destination if persistent_destination else destination_position
+		nav_agent.target_position = dest
+		
 		if nav_agent.is_target_reachable():
-			print("Path is now clear! Resuming navigation.")
+			if debug_mode:
+				print("Path is now clear! Resuming navigation.")
 			
-			# Return to previous movement state
+			# Return to persistent state if available
 			if state_machine:
-				state_machine.change_state(NPCStates.BaseState.IDLE)
+				if persistent_state and state_machine.is_valid_state(persistent_state):
+					state_machine.change_state(persistent_state)
+					
+					# Restore destination if needed
+					if persistent_destination:
+						navigate_to(persistent_destination)
+				else:
+					state_machine.change_state(NPCStates.BaseState.IDLE)
 		else:
-			print("Path is still blocked. Trying to find an alternate route...")
+			if debug_mode:
+				print("Path is still blocked. Trying to find an alternate route...")
 			if state_machine:
 				state_machine.change_state(NPCStates.BaseState.NAVIGATING_OBSTACLE)
 
-# Handle standard navigation
+# Handle standard navigation with optimized path updates
 func _handle_navigation(delta):
 	# Check if we've reached the destination
 	if nav_agent.is_navigation_finished():
@@ -506,7 +593,7 @@ func _handle_navigation(delta):
 		return
 	
 	# Update the path visualization if needed
-	if draw_navigation_path:
+	if draw_navigation_path and Time.get_ticks_msec() - last_path_update_time > 500:  # 0.5 second throttle
 		_update_path_visualization()
 	
 	# Check if the path needs to be recalculated
@@ -528,13 +615,20 @@ func _handle_navigation(delta):
 		
 		# If we've been stuck for a while, something might be blocking our path
 		if same_position_time > 1.0:
-			print("NPC appears to be stuck, checking for obstacles...")
-			print("Current position: ", global_position, " Target position: ", nav_agent.target_position)
+			if debug_mode:
+				print("NPC appears to be stuck, checking for obstacles...")
+				print("Current position: ", global_position, " Target position: ", nav_agent.target_position)
 			same_position_time = 0.0
 			
 			# Check if we can't find a path to the destination anymore
 			if not nav_agent.is_target_reachable():
-				print("Target is no longer reachable. Waiting for path to clear...")
+				if debug_mode:
+					print("Target is no longer reachable. Waiting for path to clear...")
+				
+				# Save state before waiting
+				persistent_state = state_machine.current_state
+				persistent_destination = destination_position
+				
 				if state_machine:
 					state_machine.change_state(NPCStates.BaseState.WAITING_FOR_PATH)
 				return
@@ -548,8 +642,8 @@ func _handle_navigation(delta):
 	# Debug the path
 	if debug_navigation:
 		print("Nav debug - Target:", nav_agent.target_position, 
-			  " Next:", next_position,
-			  " Distance:", nav_agent.distance_to_target())
+			" Next:", next_position,
+			" Distance:", nav_agent.distance_to_target())
 	
 	# Calculate direction to the next position
 	var direction = (next_position - global_position).normalized()
@@ -593,7 +687,13 @@ func _check_for_obstacles():
 					var distance = global_position.distance_to(collision_point)
 					
 					if distance < obstacle_detection_distance:
-						print("Detected obstacle: ", collider.name, " at distance ", distance)
+						if debug_mode:
+							print("Detected obstacle: ", collider.name, " at distance ", distance)
+						
+						# Save state before obstacle avoidance
+						if state_machine:
+							persistent_state = state_machine.current_state
+							persistent_destination = destination_position
 						
 						# Only perform avoidance if we're actually moving
 						if velocity.length() > 0.5 and state_machine:
@@ -605,7 +705,8 @@ func _check_for_obstacles():
 
 # Called when navigation finishes
 func _on_navigation_finished():
-	print("Navigation finished at position: ", global_position)
+	if debug_mode:
+		print("Navigation finished at position: ", global_position)
 	# To be implemented by derived classes
 
 # Called when the navigation path changes
@@ -613,8 +714,9 @@ func _on_path_changed():
 	if debug_navigation:
 		print("Path changed. Path size: ", nav_agent.get_current_navigation_path().size())
 	
-	# Update the path visualization
-	_update_path_visualization()
+	# Update the path visualization right away when the path changes
+	if draw_navigation_path:
+		_update_path_visualization()
 
 # Called when navigation computes a new velocity
 func _on_velocity_computed(safe_velocity):
@@ -654,6 +756,6 @@ func _handle_state_change(old_state, new_state):
 func _get_location_name(position):
 	return "unknown location"
 
-# Return class name for debugging 
+# Return specific NPC type for debugging
 func get_npc_type():
 	return "NPCBase"

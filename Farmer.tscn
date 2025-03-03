@@ -12,9 +12,10 @@ material = SubResource("StandardMaterial3D_mir0x")
 
 [node name="Farmer" type="CharacterBody3D"]
 script = ExtResource("1_upxv6")
-max_food = null
-food = null
-food_depletion_rate = null
+home_position = null
+bed_position = null
+kitchen_position = null
+field_position = null
 food_recovery_rate = null
 hungry_threshold = null
 starving_threshold = null
@@ -34,10 +35,9 @@ obstacle_avoidance_radius = null
 collision_recovery_time = null
 collision_cooldown = null
 ignored_colliders = null
-home_position = null
-bed_position = null
-kitchen_position = null
-field_position = null
+max_food = null
+food = null
+food_depletion_rate = null
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 mesh = SubResource("CapsuleMesh_mnm3a")
@@ -50,3 +50,5 @@ shape = SubResource("CapsuleShape3D_fr205")
 [node name="AnimationPlayer" type="AnimationPlayer" parent="."]
 
 [node name="NavigationObstacle3D" type="NavigationObstacle3D" parent="."]
+radius = 0.5
+height = 2.0

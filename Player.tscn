@@ -47,3 +47,7 @@ shape = SubResource("SphereShape3D_kml18")
 [node name="AttackVisual" type="MeshInstance3D" parent="AttackArea"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
 mesh = SubResource("CylinderMesh_ddakh")
+
+[node name="NavigationObstacle3D" type="NavigationObstacle3D" parent="."]
+radius = 0.5
+height = 2.0

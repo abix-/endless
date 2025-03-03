@@ -32,45 +32,73 @@ var eating_start_hour = 0
 var last_eating_hour = -1
 var at_field: bool = false
 
+# Dictionary of state handlers for more efficient state processing
+var state_handlers = {}
+
 func _init_npc():
-	print("FARMER INIT: Starting initialization")
+	if debug_mode:
+		print("FARMER INIT: Starting initialization")
 	
 	# Get time manager reference
 	time_manager = Clock
 	
 	# Create the state machine with FARMER type explicitly
-	print("FARMER INIT: Creating state machine with type: ", NPCStates.NPCType.FARMER)
+	if debug_mode:
+		print("FARMER INIT: Creating state machine with type: ", NPCStates.NPCType.FARMER)
 	state_machine = NPCStates.new(self, NPCStates.NPCType.FARMER)
+	state_machine.verbose_debugging = debug_mode  # Set debugging based on NPC setting
+	
+	# Setup state handler dictionary for cleaner code
+	_setup_state_handlers()
 	
 	# Debug: Print all enum values to check for overlap
-	state_machine.print_state_values()
-	
-	print("FARMER INIT: Created state machine with type: ", 
-		  "FARMER" if state_machine.npc_type == NPCStates.NPCType.FARMER else "BANDIT")
-	print("FARMER INIT: Initial state value: ", state_machine.current_state, 
-		  " (", state_machine.get_state_name(state_machine.current_state), ")")
+	if debug_mode:
+		state_machine.print_state_values()
+		print("FARMER INIT: Created state machine with type: ", 
+			"FARMER" if state_machine.npc_type == NPCStates.NPCType.FARMER else "BANDIT")
+		print("FARMER INIT: Initial state value: ", state_machine.current_state, 
+			" (", state_machine.get_state_name(state_machine.current_state), ")")
 	
 	# Connect to hour changed signal
 	time_manager.hour_changed.connect(_on_hour_changed)
 	
 	# Determine starting state based on time
-	print("FARMER INIT: About to determine starting state")
+	if debug_mode:
+		print("FARMER INIT: About to determine starting state")
 	_determine_starting_state()
 	
-	print("FARMER INIT: Completed state determination. Current state: ", 
-		  state_machine.get_state_name(state_machine.current_state))
-	print("Initial state: ", state_machine.get_state_name(state_machine.current_state))
-	print("Initial food level: ", "%.2f" % food)
+	if debug_mode:
+		print("FARMER INIT: Completed state determination. Current state: ", 
+			state_machine.get_state_name(state_machine.current_state))
+		print("Initial state: ", state_machine.get_state_name(state_machine.current_state))
+		print("Initial food level: ", "%.2f" % food)
 	
-	# Debug information
-	if debug_position:
-		print("Starting at position: ", global_position)
-		print("Field is at: ", field_position)
-		print("Home is at: ", home_position)
-		print("Kitchen is at: ", kitchen_position)
-		print("Bed is at: ", bed_position)
+		# Debug information
+		if debug_position:
+			print("Starting at position: ", global_position)
+			print("Field is at: ", field_position)
+			print("Home is at: ", home_position)
+			print("Kitchen is at: ", kitchen_position)
+			print("Bed is at: ", bed_position)
 
-# Process farmer behavior based on current state
+# Setup dictionary of state handlers for cleaner code organization
+func _setup_state_handlers():
+	# Base states
+	state_handlers[NPCStates.BaseState.NAVIGATING_OBSTACLE] = _handle_obstacle_avoidance
+	state_handlers[NPCStates.BaseState.WAITING_FOR_PATH] = _handle_path_waiting
+	state_handlers[NPCStates.BaseState.COLLISION_RECOVERY] = _handle_collision_recovery
+	state_handlers[NPCStates.BaseState.IDLE] = _handle_idle
+	
+	# Farmer-specific states
+	state_handlers[NPCStates.FarmerState.WALKING_TO_FIELD] = _handle_navigation
+	state_handlers[NPCStates.FarmerState.WALKING_HOME] = _handle_navigation
+	state_handlers[NPCStates.FarmerState.SLEEPING] = _handle_sleeping
+	state_handlers[NPCStates.FarmerState.WORKING] = _handle_working
+	state_handlers[NPCStates.FarmerState.EATING] = _handle_eating
+	state_handlers[NPCStates.FarmerState.WAKING_UP] = _handle_waking_up
+	state_handlers[NPCStates.FarmerState.GOING_TO_BED] = _handle_going_to_bed
+
+# Process farmer behavior based on current state using state handlers dictionary
 func _process_current_state(delta):
 	if state_machine == null:
 		print("ERROR: No state machine in _process_current_state!")
@@ -79,43 +107,24 @@ func _process_current_state(delta):
 	var current_state = state_machine.current_state
 	
 	# Debug state periodically
-	if debug_timer >= 5.0:
+	if debug_timer >= 5.0 and debug_mode:
 		debug_timer = 0.0
 		print("Current farmer state: ", state_machine.get_state_name(current_state))
 	
-	# Process standard navigation states with base class
-	if current_state == NPCStates.BaseState.NAVIGATING_OBSTACLE:
-		_handle_obstacle_avoidance(delta)
-	elif current_state == NPCStates.BaseState.WAITING_FOR_PATH:
-		_handle_path_waiting(delta)
-	elif current_state == NPCStates.BaseState.COLLISION_RECOVERY:
-		_handle_collision_recovery(delta)
-	# Process farmer-specific states
-	elif current_state == NPCStates.FarmerState.WALKING_TO_FIELD or \
-		 current_state == NPCStates.FarmerState.WALKING_HOME:
-		_handle_navigation(delta)
-	elif current_state == NPCStates.FarmerState.SLEEPING:
-		# Food still depletes while sleeping, but much slower
-		food -= delta * food_depletion_rate * 0.1
-	elif current_state == NPCStates.FarmerState.WORKING:
-		# Working depletes food faster
-		food -= delta * food_depletion_rate * 1.5
-	elif current_state == NPCStates.FarmerState.EATING:
-		_handle_eating(delta)
-	elif current_state == NPCStates.FarmerState.WAKING_UP:
-		_handle_waking_up(delta)
-	elif current_state == NPCStates.FarmerState.GOING_TO_BED:
-		_handle_going_to_bed(delta)
-	elif current_state == NPCStates.BaseState.IDLE:
-		# Handle idle state - consider transitioning to a more meaningful state
-		if decision_cooldown <= 0:
-			_make_decisions()
+	# Use the state handler dictionary for cleaner code organization
+	if state_handlers.has(current_state):
+		state_handlers[current_state].call(delta)
 	# Detect if we somehow got into an invalid state (like Bandit states)
 	elif current_state in NPCStates.BanditState.values():
 		print("ERROR: Farmer is in Bandit state: ", state_machine.get_state_name(current_state))
-		# Emergency recovery - force to IDLE state
-		state_machine.current_state = NPCStates.BaseState.IDLE
-		print("Emergency state recovery to IDLE")
+		# Emergency recovery - intelligently choose state based on time and needs
+		if time_manager.hours >= 22 or time_manager.hours < 7:
+			state_machine.change_state(NPCStates.FarmerState.SLEEPING)
+		elif food < hungry_threshold:
+			state_machine.change_state(NPCStates.FarmerState.EATING)
+		else:
+			state_machine.change_state(NPCStates.FarmerState.WORKING)
+		print("Emergency state recovery completed")
 	else:
 		print("WARNING: Unhandled state in _process_current_state: ", state_machine.get_state_name(current_state))
 	
@@ -135,6 +144,20 @@ func _process_current_state(delta):
 		if time_manager.minutes - last_decision_time >= 2 and decision_cooldown <= 0:  # Check every 2 game minutes
 			last_decision_time = time_manager.minutes
 			_make_decisions()
+
+# Handlers for each state
+func _handle_sleeping(delta):
+	# Food still depletes while sleeping, but much slower
+	food -= delta * food_depletion_rate * 0.1
+
+func _handle_working(delta):
+	# Working depletes food faster
+	food -= delta * food_depletion_rate * 1.5
+
+func _handle_idle(delta):
+	# Handle idle state - consider transitioning to a more meaningful state
+	if decision_cooldown <= 0:
+		_make_decisions()
 
 # Handle eating behavior
 func _handle_eating(delta):
@@ -207,7 +230,8 @@ func _handle_going_to_bed(delta):
 # Handle navigation finished event
 func _on_navigation_finished():
 	var current_location = _get_location_name(global_position)
-	print("Navigation finished at: ", current_location)
+	if debug_mode:
+		print("Navigation finished at: ", current_location)
 	
 	# Take action based on where we arrived
 	if state_machine.current_state == NPCStates.FarmerState.WALKING_TO_FIELD:
@@ -215,10 +239,12 @@ func _on_navigation_finished():
 		var distance_to_field = global_position.distance_to(field_position)
 		if distance_to_field <= arrival_distance:
 			at_field = true
-			print("Farmer has reached the field!")
+			if debug_mode:
+				print("Farmer has reached the field!")
 		else:
 			at_field = false
-			print("Farmer isn't quite at the field center. Distance: ", distance_to_field)
+			if debug_mode:
+				print("Farmer isn't quite at the field center. Distance: ", distance_to_field)
 		
 		state_machine.change_state(NPCStates.FarmerState.WORKING)
 	elif state_machine.current_state == NPCStates.FarmerState.WALKING_HOME:
@@ -238,11 +264,13 @@ func _handle_state_change(old_state, new_state):
 	match new_state:
 		NPCStates.FarmerState.WALKING_TO_FIELD:
 			current_destination = "Field"
-			print("Setting destination to field: ", field_position)
+			if debug_mode:
+				print("Setting destination to field: ", field_position)
 			navigate_to(field_position)
 		NPCStates.FarmerState.WALKING_HOME:
 			current_destination = "Home"
-			print("Setting destination to home: ", home_position)
+			if debug_mode:
+				print("Setting destination to home: ", home_position)
 			navigate_to(home_position)
 		NPCStates.FarmerState.EATING:
 			eating_start_food = food  # Track starting food level
@@ -254,9 +282,9 @@ func _handle_state_change(old_state, new_state):
 # Make decisions based on current needs
 func _make_decisions():
 	# Print current stats only for active states (not sleeping)
-	if state_machine.current_state != NPCStates.FarmerState.SLEEPING:
+	if state_machine.current_state != NPCStates.FarmerState.SLEEPING and debug_mode:
 		print("Making decisions. Current state: ", state_machine.get_state_name(state_machine.current_state), 
-			  " Food: ", "%.2f" % food, "/", "%.2f" % max_food)
+			" Food: ", "%.2f" % food, "/", "%.2f" % max_food)
 	
 	# Don't make decisions on cooldown
 	if state_machine.is_on_cooldown():
@@ -265,7 +293,8 @@ func _make_decisions():
 	# Handle extreme need
 	if food <= starving_threshold and state_machine.current_state != NPCStates.FarmerState.EATING:
 		# Too hungry, need to eat
-		print("Farmer is too hungry to continue working")
+		if debug_mode:
+			print("Farmer is too hungry to continue working")
 		if state_machine.current_state != NPCStates.FarmerState.WALKING_HOME and state_machine.current_state != NPCStates.FarmerState.EATING:
 			state_machine.change_state(NPCStates.FarmerState.WALKING_HOME)
 		return
@@ -280,7 +309,8 @@ func _make_decisions():
 		NPCStates.FarmerState.WORKING:
 			# If getting hungry, go home to eat
 			if food < hungry_threshold:
-				print("Farmer is getting hungry and heading home")
+				if debug_mode:
+					print("Farmer is getting hungry and heading home")
 				state_machine.change_state(NPCStates.FarmerState.WALKING_HOME)
 				
 		NPCStates.BaseState.IDLE:
@@ -342,33 +372,39 @@ func _get_location_name(position):
 func _determine_starting_state():
 	var hour = time_manager.hours
 	
-	print("FARMER: Determining starting state based on hour: ", hour)
+	if debug_mode:
+		print("FARMER: Determining starting state based on hour: ", hour)
 	
 	# Place character in appropriate location & state for the time
 	if hour >= 0 and hour < 7:
 		global_position = bed_position
-		print("FARMER: It's nighttime (", hour, "), should be sleeping")
+		if debug_mode:
+			print("FARMER: It's nighttime (", hour, "), should be sleeping")
 		state_machine.change_state(NPCStates.FarmerState.SLEEPING)
 	elif hour >= 7 and hour < 22:
 		# During the day, decide based on needs
 		if food < hungry_threshold:
 			global_position = kitchen_position
-			print("FARMER: Daytime and hungry, should be eating")
+			if debug_mode:
+				print("FARMER: Daytime and hungry, should be eating")
 			state_machine.change_state(NPCStates.FarmerState.EATING)
 			eating_start_food = food
 			eating_start_hour = hour
 			last_eating_hour = hour
 		else:
 			global_position = field_position
-			print("FARMER: Daytime and not hungry, should be working")
+			if debug_mode:
+				print("FARMER: Daytime and not hungry, should be working")
 			state_machine.change_state(NPCStates.FarmerState.WORKING)
 	else: # 22 or 23
 		global_position = home_position
-		print("FARMER: Evening, should be going to bed")
+		if debug_mode:
+			print("FARMER: Evening, should be going to bed")
 		state_machine.change_state(NPCStates.FarmerState.GOING_TO_BED)
 		
-	print("FARMER: After determining state: ", 
-		  state_machine.get_state_name(state_machine.current_state))
+	if debug_mode:
+		print("FARMER: After determining state: ", 
+			state_machine.get_state_name(state_machine.current_state))
 			
 # Return the current time as a formatted string (for debugging or UI)
 func get_formatted_time() -> String:
