@@ -27,7 +27,6 @@ var last_eating_report_hour: int = -1  # Track the last hour an eating report wa
 @export var enable_hourly_eating_reports: bool = true  # Toggle for hourly eating reports
 
 # Time tracking
-var last_decision_time = 0
 var decision_cooldown = 0.0
 var eating_start_food = 0.0
 var eating_start_hour = 0
@@ -136,7 +135,7 @@ func _process_current_state(delta):
 	if decision_cooldown > 0:
 		decision_cooldown -= delta
 	
-	# Make decisions every few seconds (except during transitions or sleeping)
+	# Make decisions periodically (except during transitions or sleeping)
 	if current_state not in [NPCStates.FarmerState.WAKING_UP, 
 							NPCStates.FarmerState.GOING_TO_BED, 
 							NPCStates.FarmerState.WALKING_HOME, 
@@ -145,9 +144,9 @@ func _process_current_state(delta):
 							NPCStates.BaseState.NAVIGATING_OBSTACLE,
 							NPCStates.BaseState.WAITING_FOR_PATH,
 							NPCStates.BaseState.COLLISION_RECOVERY]:
-		if time_manager.minutes - last_decision_time >= 2 and decision_cooldown <= 0:  # Check every 2 game minutes
-			last_decision_time = time_manager.minutes
+		if decision_cooldown <= 0:
 			_make_decisions()
+			decision_cooldown = 2.0  # Set cooldown for 2 seconds (equivalent to 2 game minutes)
 
 # Handlers for each state
 func _handle_sleeping(delta):
