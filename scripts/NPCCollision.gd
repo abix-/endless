@@ -12,6 +12,9 @@ class_name NPCCollision
 @export var collision_recovery_time: float = 1.0
 @export var collision_cooldown: float = 2.0
 
+# Debug options
+@export var debug_mode: bool = false
+
 # Ignore collisions with these object names
 @export var ignored_colliders: Array[String] = ["Ground", "Terrain", "Floor", "Land"]
 
@@ -45,6 +48,9 @@ var raycast_directions = [
 
 # Initialize with owner reference
 func initialize(npc):
+	if debug_mode:
+		print("Initializing NPCCollision for " + npc.get_npc_type())
+		
 	owner_npc = npc
 	
 	# Set up raycasts for obstacle detection
@@ -60,7 +66,8 @@ func process_collisions(delta):
 		collision_cooldown_timer -= delta
 	
 	# Check for collisions if we've moved
-	if owner_npc.get_slide_collision_count() > 0:
+	# CharacterBody3D methods need to be called on owner directly
+	if owner_npc && owner_npc is CharacterBody3D && owner_npc.get_slide_collision_count() > 0:
 		_check_for_collisions()
 
 # Set up raycasts for obstacle detection
@@ -81,7 +88,8 @@ func _setup_obstacle_detection():
 		add_child(ray)
 		obstacle_raycasts.append(ray)
 	
-	print("Set up ", obstacle_raycasts.size(), " obstacle detection raycasts")
+	if debug_mode:
+		print("Set up ", obstacle_raycasts.size(), " obstacle detection raycasts")
 
 # Check for obstacles in the path
 func check_for_obstacles():
@@ -110,6 +118,10 @@ func check_for_obstacles():
 
 # Check for collisions
 func _check_for_collisions():
+	# Make sure we have a valid owner before proceeding
+	if not owner_npc || not (owner_npc is CharacterBody3D) || owner_npc.get_slide_collision_count() <= 0:
+		return
+		
 	var current_collision = owner_npc.get_slide_collision(0)
 	var collider = current_collision.get_collider()
 	
@@ -142,6 +154,10 @@ func _handle_collision_event(collision):
 	if collision_direction.length() == 0:
 		# If we weren't moving, use the direction from us to the collider
 		collision_direction = (owner_npc.global_position - collision.get_position()).normalized()
+	
+	if debug_mode:
+		print("COLLISION: Detected collision with " + str(collision.get_collider().name) + 
+			" moving in direction " + str(collision_direction))
 	
 	# Emit signal with collision information
 	emit_signal("collision_detected", collision, collision_direction)
