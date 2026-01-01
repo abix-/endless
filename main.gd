@@ -3,9 +3,11 @@ extends Node2D
 var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
 var player_scene: PackedScene = preload("res://entities/player.tscn")
 var location_scene: PackedScene = preload("res://world/location.tscn")
+var hud_scene: PackedScene = preload("res://ui/hud.tscn")
 
 var npc_manager: Node
 var player: Node
+var hud: Node
 
 var farms: Array = []
 var guard_posts: Array = []
@@ -28,6 +30,7 @@ func _ready() -> void:
 	_create_locations()
 	_setup_npc_manager()
 	_setup_player()
+	_setup_hud()
 	_spawn_many_npcs(2000)
 
 func _create_locations() -> void:
@@ -86,6 +89,10 @@ func _setup_player() -> void:
 	player = player_scene.instantiate()
 	player.global_position = Vector2(village_center_x, village_center_y)
 	add_child(player)
+
+func _setup_hud() -> void:
+	hud = hud_scene.instantiate()
+	add_child(hud)
 
 func _spawn_many_npcs(total: int) -> void:
 	var raider_count = total * 2 / 5
