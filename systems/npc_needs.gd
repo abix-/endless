@@ -93,6 +93,9 @@ func on_arrival(i: int) -> void:
 	var state: int = manager.states[i]
 	
 	if state == NPCState.State.WANDERING:
+		# Raiders update wander center to current position
+		if manager.jobs[i] == NPCState.Job.RAIDER:
+			manager.wander_centers[i] = manager.positions[i]
 		manager._state.set_state(i, NPCState.State.IDLE)
 		decide_what_to_do(i)
 	elif state == NPCState.State.WALKING:

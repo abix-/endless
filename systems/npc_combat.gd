@@ -112,7 +112,7 @@ func _process_fleeing(i: int) -> void:
 func _attack(attacker: int, victim: int) -> void:
 	manager.attack_timers[attacker] = manager.ATTACK_COOLDOWN
 	manager.healths[victim] -= manager.attack_damages[attacker]
-	manager.mark_health_dirty(victim)  # Flag for health bar update
+	manager.mark_health_dirty(victim)
 	
 	if manager.healths[victim] <= 0:
 		_die(victim)
@@ -129,6 +129,7 @@ func _attack(attacker: int, victim: int) -> void:
 func _die(i: int) -> void:
 	var victim_faction: int = manager.factions[i]
 	manager.record_kill(victim_faction)
+	manager.record_death(i)  # Record death time for respawn
 	
 	manager.healths[i] = 0
 	manager._state.set_state(i, NPCState.State.IDLE)

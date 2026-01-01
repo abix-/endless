@@ -137,10 +137,7 @@ func _on_day_changed(day: int) -> void:
 	print("=== DAY %d ===" % day)
 
 func _process(_delta: float) -> void:
-	var time_str := "%02d:%02d" % [WorldClock.current_hour, WorldClock.current_minute]
-	var period := "Day" if WorldClock.is_daytime() else "Night"
-	var fps := Engine.get_frames_per_second()
-	get_window().title = "Day %d - %s (%s) | NPCs: %d | FPS: %d" % [WorldClock.current_day, time_str, period, npc_manager.count, fps]
+	pass
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:

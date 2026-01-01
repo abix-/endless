@@ -8,6 +8,7 @@ extends CharacterBody2D
 @onready var camera: Camera2D = $Camera2D
 
 func _ready() -> void:
+	add_to_group("player")
 	if not camera:
 		camera = Camera2D.new()
 		camera.zoom = Vector2(2, 2)

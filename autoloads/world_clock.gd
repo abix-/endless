@@ -49,6 +49,10 @@ func _advance_time() -> void:
 func get_time_float() -> float:
 	return current_hour + (current_minute / 60.0)
 
+# Get total minutes since game start (for respawn timing)
+func get_total_minutes() -> int:
+	return (current_day - 1) * 24 * 60 + current_hour * 60 + current_minute
+
 # Check if current time is within a range
 func is_time_between(start_hour: float, end_hour: float) -> bool:
 	var current := get_time_float()
@@ -59,7 +63,7 @@ func is_time_between(start_hour: float, end_hour: float) -> bool:
 
 func is_daytime() -> bool:
 	return is_time_between(6.0, 20.0)
-
+	
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		match event.keycode:

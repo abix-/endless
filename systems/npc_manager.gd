@@ -12,6 +12,7 @@ const MOVE_SPEED := 50.0
 const ATTACK_RANGE := 30.0
 const ATTACK_COOLDOWN := 1.0
 const SCAN_INTERVAL := 0.2
+const RESPAWN_MINUTES := 720  # 12 hours = 720 minutes
 
 # Data arrays
 var count := 0
@@ -28,6 +29,7 @@ var energies: PackedFloat32Array
 var attack_damages: PackedFloat32Array
 var attack_timers: PackedFloat32Array
 var scan_timers: PackedFloat32Array
+var death_times: PackedInt32Array  # When NPC died (in total minutes), -1 if alive
 
 var states: PackedInt32Array
 var factions: PackedInt32Array
@@ -40,6 +42,7 @@ var last_rendered: PackedInt32Array
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
+var spawn_positions: PackedVector2Array  # Original spawn position for raiders
 
 # Spatial grid - flat typed arrays
 var grid_cells: PackedInt32Array
@@ -102,6 +105,7 @@ func _init_arrays() -> void:
 	wander_centers.resize(max_count)
 	home_positions.resize(max_count)
 	work_positions.resize(max_count)
+	spawn_positions.resize(max_count)
 	
 	healths.resize(max_count)
 	max_healths.resize(max_count)
@@ -109,6 +113,7 @@ func _init_arrays() -> void:
 	attack_damages.resize(max_count)
 	attack_timers.resize(max_count)
 	scan_timers.resize(max_count)
+	death_times.resize(max_count)
 	
 	states.resize(max_count)
 	factions.resize(max_count)
@@ -118,6 +123,10 @@ func _init_arrays() -> void:
 	works_at_night.resize(max_count)
 	health_dirty.resize(max_count)
 	last_rendered.resize(max_count)
+	
+	# Initialize death_times to -1 (alive)
+	for i in max_count:
+		death_times[i] = -1
 
 
 func _init_grid() -> void:
@@ -288,6 +297,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	wander_centers[i] = pos
 	home_positions[i] = home_pos
 	work_positions[i] = work_pos
+	spawn_positions[i] = pos  # Remember original spawn
 	
 	healths[i] = hp
 	max_healths[i] = hp
@@ -295,6 +305,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	attack_damages[i] = damage
 	attack_timers[i] = 0.0
 	scan_timers[i] = randf() * SCAN_INTERVAL
+	death_times[i] = -1  # Alive
 	
 	states[i] = State.IDLE
 	factions[i] = faction
@@ -340,11 +351,66 @@ func spawn_raider(pos: Vector2) -> int:
 
 
 # ============================================================
+# RESPAWNING
+# ============================================================
+
+func _check_respawns() -> void:
+	var current_time: int = WorldClock.get_total_minutes()
+	
+	for i in count:
+		if healths[i] > 0:
+			continue
+		if death_times[i] < 0:
+			continue
+		
+		var time_dead: int = current_time - death_times[i]
+		if time_dead >= RESPAWN_MINUTES:
+			_respawn(i)
+
+
+func _respawn(i: int) -> void:
+	var job: int = jobs[i]
+	
+	# Reset position based on job type
+	if job == Job.RAIDER:
+		positions[i] = spawn_positions[i]
+		wander_centers[i] = spawn_positions[i]
+	else:
+		positions[i] = home_positions[i]
+		wander_centers[i] = home_positions[i]
+	
+	# Reset stats
+	healths[i] = max_healths[i]
+	energies[i] = 100.0
+	attack_timers[i] = 0.0
+	scan_timers[i] = randf() * SCAN_INTERVAL
+	death_times[i] = -1  # Alive again
+	
+	states[i] = State.IDLE
+	current_targets[i] = -1
+	health_dirty[i] = 1
+	last_rendered[i] = 0
+	
+	# Reset multimesh
+	multimesh.set_instance_transform_2d(i, Transform2D(0, positions[i]))
+	multimesh.set_instance_custom_data(i, Color(1, 0, 0, 0))
+	
+	_decide_what_to_do(i)
+
+
+func record_death(i: int) -> void:
+	death_times[i] = WorldClock.get_total_minutes()
+
+
+# ============================================================
 # CALLBACKS
 # ============================================================
 
 func _on_time_tick(hour: int, minute: int) -> void:
 	_needs.on_time_tick(hour, minute)
+	
+	# Check respawns every game minute
+	_check_respawns()
 
 
 func _on_npc_arrived(i: int) -> void:
