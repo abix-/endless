@@ -1,0 +1,110 @@
+# npc_navigation.gd
+# Handles movement toward targets, fleeing, and arrival
+extends RefCounted
+class_name NPCNavigation
+
+var manager: Node
+
+signal arrived(npc_index: int)
+
+# LOD thresholds (squared distances to avoid sqrt)
+const LOD_NEAR_SQ := 160000.0    # 400px - update every frame
+const LOD_MID_SQ := 640000.0     # 800px - update every 2 frames
+const LOD_FAR_SQ := 1440000.0    # 1200px - update every 4 frames
+								  # Beyond - update every 8 frames
+
+func _init(npc_manager: Node) -> void:
+	manager = npc_manager
+
+func process(delta: float) -> void:
+	var frame: int = Engine.get_process_frames()
+	
+	# Get camera position for LOD
+	var cam_pos := Vector2.ZERO
+	var camera: Camera2D = manager.get_viewport().get_camera_2d()
+	if camera:
+		cam_pos = camera.global_position
+	
+	for i in manager.count:
+		if manager.healths[i] <= 0:
+			continue
+		
+		# LOD: skip distant NPCs on some frames
+		var dist_sq: float = manager.positions[i].distance_squared_to(cam_pos)
+		if not _should_update(i, frame, dist_sq):
+			continue
+		
+		var state: int = manager.states[i]
+		var lod_delta: float = _get_lod_delta(delta, dist_sq)
+		
+		match state:
+			NPCState.State.WALKING, NPCState.State.WANDERING:
+				_move_toward_target(i, lod_delta)
+			NPCState.State.FIGHTING:
+				_move_toward_enemy(i, lod_delta)
+			NPCState.State.FLEEING:
+				_move_away_from_enemy(i, lod_delta)
+
+
+func _should_update(i: int, frame: int, dist_sq: float) -> bool:
+	if dist_sq < LOD_NEAR_SQ:
+		return true  # Every frame
+	elif dist_sq < LOD_MID_SQ:
+		return i % 2 == frame % 2  # Every 2 frames
+	elif dist_sq < LOD_FAR_SQ:
+		return i % 4 == frame % 4  # Every 4 frames
+	else:
+		return i % 8 == frame % 8  # Every 8 frames
+
+
+func _get_lod_delta(delta: float, dist_sq: float) -> float:
+	# Compensate for skipped frames so movement speed stays correct
+	if dist_sq < LOD_NEAR_SQ:
+		return delta
+	elif dist_sq < LOD_MID_SQ:
+		return delta * 2.0
+	elif dist_sq < LOD_FAR_SQ:
+		return delta * 4.0
+	else:
+		return delta * 8.0
+
+
+func _move_toward_target(i: int, delta: float) -> void:
+	var my_pos: Vector2 = manager.positions[i]
+	var target_pos: Vector2 = manager.targets[i]
+	var dist: float = my_pos.distance_to(target_pos)
+	
+	if dist < 5.0:
+		arrived.emit(i)
+	else:
+		var move_dist: float = minf(manager.MOVE_SPEED * delta, dist)
+		var dir: Vector2 = my_pos.direction_to(target_pos)
+		manager.positions[i] = my_pos + dir * move_dist
+
+
+func _move_toward_enemy(i: int, delta: float) -> void:
+	var target_idx: int = manager.current_targets[i]
+	
+	if target_idx < 0 or manager.healths[target_idx] <= 0:
+		return
+	
+	var my_pos: Vector2 = manager.positions[i]
+	var enemy_pos: Vector2 = manager.positions[target_idx]
+	var dist: float = my_pos.distance_to(enemy_pos)
+	
+	if dist > manager.ATTACK_RANGE:
+		var move_dist: float = minf(manager.MOVE_SPEED * delta, dist - manager.ATTACK_RANGE)
+		var dir: Vector2 = my_pos.direction_to(enemy_pos)
+		manager.positions[i] = my_pos + dir * move_dist
+
+
+func _move_away_from_enemy(i: int, delta: float) -> void:
+	var target_idx: int = manager.current_targets[i]
+	
+	if target_idx < 0 or manager.healths[target_idx] <= 0:
+		return
+	
+	var my_pos: Vector2 = manager.positions[i]
+	var enemy_pos: Vector2 = manager.positions[target_idx]
+	var dir: Vector2 = enemy_pos.direction_to(my_pos)
+	manager.positions[i] = my_pos + dir * manager.MOVE_SPEED * 1.2 * delta

@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3 uid="uid://hhh20cbu4dvi"]
+
+[ext_resource type="Script" uid="uid://c6qup70q4sksq" path="res://world/location.gd" id="1_vy4ij"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_vy4ij"]
+size = Vector2(32, 32)
+
+[node name="Location" type="Area2D"]
+script = ExtResource("1_vy4ij")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_vy4ij")
+
+[node name="Label" type="Label" parent="."]
+offset_left = -30.0
+offset_top = -30.0
+offset_right = 10.0
+offset_bottom = -7.0

@@ -1,0 +1,23 @@
+[gd_scene load_steps=4 format=3 uid="uid://c8ea8dtbpii17"]
+
+[ext_resource type="Script" uid="uid://b21se8yv8igux" path="res://entities/npc.gd" id="1_kdwfn"]
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_34xg4"]
+size = Vector2(16, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_0u2uj"]
+size = Vector2(16, 16)
+
+[node name="NPC" type="CharacterBody2D"]
+script = ExtResource("1_kdwfn")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = SubResource("PlaceholderTexture2D_34xg4")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_0u2uj")
+
+[node name="Label" type="Label" parent="."]
+offset_top = -30.0
+offset_right = 40.0
+offset_bottom = -7.0

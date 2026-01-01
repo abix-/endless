@@ -1,0 +1,19 @@
+[gd_scene load_steps=4 format=3 uid="uid://bx7kttnl0henb"]
+
+[ext_resource type="Script" uid="uid://t5wj6fxyg4jg" path="res://entities/player.gd" id="1_merdl"]
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_b0kkn"]
+size = Vector2(16, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_e4p34"]
+size = Vector2(16, 16)
+
+[node name="Player" type="CharacterBody2D"]
+script = ExtResource("1_merdl")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+modulate = Color(0.021172477, 0, 0.6234334, 1)
+texture = SubResource("PlaceholderTexture2D_b0kkn")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_e4p34")
