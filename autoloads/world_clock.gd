@@ -63,7 +63,7 @@ func is_time_between(start_hour: float, end_hour: float) -> bool:
 
 func is_daytime() -> bool:
 	return is_time_between(6.0, 20.0)
-	
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		match event.keycode:

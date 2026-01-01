@@ -84,6 +84,11 @@ func _create_locations() -> void:
 func _setup_npc_manager() -> void:
 	npc_manager = npc_manager_scene.instantiate()
 	add_child(npc_manager)
+	
+	# Pass world info to npc_manager
+	npc_manager.village_center = Vector2(village_center_x, village_center_y)
+	for farm in farms:
+		npc_manager.farm_positions.append(farm.global_position)
 
 func _setup_player() -> void:
 	player = player_scene.instantiate()

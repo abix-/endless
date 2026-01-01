@@ -12,7 +12,11 @@ const MOVE_SPEED := 50.0
 const ATTACK_RANGE := 30.0
 const ATTACK_COOLDOWN := 1.0
 const SCAN_INTERVAL := 0.2
-const RESPAWN_MINUTES := 720  # 12 hours = 720 minutes
+const RESPAWN_MINUTES := 720  # 12 hours
+
+# World info (set by main.gd)
+var village_center := Vector2.ZERO
+var farm_positions: Array[Vector2] = []
 
 # Data arrays
 var count := 0
@@ -29,7 +33,7 @@ var energies: PackedFloat32Array
 var attack_damages: PackedFloat32Array
 var attack_timers: PackedFloat32Array
 var scan_timers: PackedFloat32Array
-var death_times: PackedInt32Array  # When NPC died (in total minutes), -1 if alive
+var death_times: PackedInt32Array
 
 var states: PackedInt32Array
 var factions: PackedInt32Array
@@ -42,7 +46,7 @@ var last_rendered: PackedInt32Array
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
-var spawn_positions: PackedVector2Array  # Original spawn position for raiders
+var spawn_positions: PackedVector2Array
 
 # Spatial grid - flat typed arrays
 var grid_cells: PackedInt32Array
@@ -65,14 +69,14 @@ var alive_farmers := 0
 var alive_guards := 0
 var alive_raiders := 0
 
-# Stats - totals (for "X / Y" display)
+# Stats - totals
 var total_farmers := 0
 var total_guards := 0
 var total_raiders := 0
 
 # Stats - kills
-var villager_kills := 0  # Villagers killed by raiders
-var raider_kills := 0    # Raiders killed by villagers
+var villager_kills := 0
+var raider_kills := 0
 
 # Stats - dead awaiting respawn
 var dead_farmers := 0
@@ -124,7 +128,6 @@ func _init_arrays() -> void:
 	health_dirty.resize(max_count)
 	last_rendered.resize(max_count)
 	
-	# Initialize death_times to -1 (alive)
 	for i in max_count:
 		death_times[i] = -1
 
@@ -212,13 +215,11 @@ func _update_rendering() -> void:
 	
 	var visible_cells: PackedInt32Array = _get_cells_in_rect(min_x, max_x, min_y, max_y)
 	
-	# Hide NPCs that were rendered last frame but aren't visible now
 	for i in count:
 		if last_rendered[i] == 1:
 			last_rendered[i] = 0
 			multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
 	
-	# Render only NPCs in visible cells
 	for cell_idx in visible_cells:
 		var start: int = grid_cell_starts[cell_idx]
 		var cell_count: int = grid_cell_counts[cell_idx]
@@ -297,7 +298,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	wander_centers[i] = pos
 	home_positions[i] = home_pos
 	work_positions[i] = work_pos
-	spawn_positions[i] = pos  # Remember original spawn
+	spawn_positions[i] = pos
 	
 	healths[i] = hp
 	max_healths[i] = hp
@@ -305,7 +306,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	attack_damages[i] = damage
 	attack_timers[i] = 0.0
 	scan_timers[i] = randf() * SCAN_INTERVAL
-	death_times[i] = -1  # Alive
+	death_times[i] = -1
 	
 	states[i] = State.IDLE
 	factions[i] = faction
@@ -316,7 +317,6 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	health_dirty[i] = 1
 	last_rendered[i] = 0
 	
-	# Track totals
 	match job:
 		Job.FARMER: total_farmers += 1
 		Job.GUARD: total_guards += 1
@@ -371,7 +371,6 @@ func _check_respawns() -> void:
 func _respawn(i: int) -> void:
 	var job: int = jobs[i]
 	
-	# Reset position based on job type
 	if job == Job.RAIDER:
 		positions[i] = spawn_positions[i]
 		wander_centers[i] = spawn_positions[i]
@@ -379,19 +378,17 @@ func _respawn(i: int) -> void:
 		positions[i] = home_positions[i]
 		wander_centers[i] = home_positions[i]
 	
-	# Reset stats
 	healths[i] = max_healths[i]
 	energies[i] = 100.0
 	attack_timers[i] = 0.0
 	scan_timers[i] = randf() * SCAN_INTERVAL
-	death_times[i] = -1  # Alive again
+	death_times[i] = -1
 	
 	states[i] = State.IDLE
 	current_targets[i] = -1
 	health_dirty[i] = 1
 	last_rendered[i] = 0
 	
-	# Reset multimesh
 	multimesh.set_instance_transform_2d(i, Transform2D(0, positions[i]))
 	multimesh.set_instance_custom_data(i, Color(1, 0, 0, 0))
 	
@@ -403,13 +400,94 @@ func record_death(i: int) -> void:
 
 
 # ============================================================
+# RAIDER HELPERS
+# ============================================================
+
+func count_nearby_raiders(i: int, radius: float = 200.0) -> int:
+	var my_pos: Vector2 = positions[i]
+	var nearby: Array = _grid_get_nearby(my_pos)
+	var radius_sq: float = radius * radius
+	var count_found := 0
+	
+	for other_idx in nearby:
+		if other_idx == i:
+			continue
+		if healths[other_idx] <= 0:
+			continue
+		if jobs[other_idx] != Job.RAIDER:
+			continue
+		
+		var dist_sq: float = my_pos.distance_squared_to(positions[other_idx])
+		if dist_sq < radius_sq:
+			count_found += 1
+	
+	return count_found
+
+
+func find_nearest_raider(i: int) -> int:
+	var my_pos: Vector2 = positions[i]
+	var nearest := -1
+	var nearest_dist_sq := INF
+	
+	# Search wider area
+	for other_idx in count:
+		if other_idx == i:
+			continue
+		if healths[other_idx] <= 0:
+			continue
+		if jobs[other_idx] != Job.RAIDER:
+			continue
+		
+		var dist_sq: float = my_pos.distance_squared_to(positions[other_idx])
+		if dist_sq < nearest_dist_sq:
+			nearest_dist_sq = dist_sq
+			nearest = other_idx
+	
+	return nearest
+
+
+func get_raider_group_center(i: int, radius: float = 200.0) -> Vector2:
+	var my_pos: Vector2 = positions[i]
+	var nearby: Array = _grid_get_nearby(my_pos)
+	var radius_sq: float = radius * radius
+	var center := my_pos
+	var count_found := 1
+	
+	for other_idx in nearby:
+		if other_idx == i:
+			continue
+		if healths[other_idx] <= 0:
+			continue
+		if jobs[other_idx] != Job.RAIDER:
+			continue
+		
+		var dist_sq: float = my_pos.distance_squared_to(positions[other_idx])
+		if dist_sq < radius_sq:
+			center += positions[other_idx]
+			count_found += 1
+	
+	return center / count_found
+
+
+func find_nearest_farm(pos: Vector2) -> Vector2:
+	var nearest := Vector2.ZERO
+	var nearest_dist_sq := INF
+	
+	for farm_pos in farm_positions:
+		var dist_sq: float = pos.distance_squared_to(farm_pos)
+		if dist_sq < nearest_dist_sq:
+			nearest_dist_sq = dist_sq
+			nearest = farm_pos
+	
+	return nearest
+
+
+# ============================================================
 # CALLBACKS
 # ============================================================
 
 func _on_time_tick(hour: int, minute: int) -> void:
 	_needs.on_time_tick(hour, minute)
-	
-	# Check respawns every game minute
 	_check_respawns()
 
 
