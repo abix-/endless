@@ -1,0 +1,58 @@
+[gd_scene load_steps=2 format=3 uid="uid://hud001"]
+
+[ext_resource type="Script" path="res://ui/hud.gd" id="1_hud"]
+
+[node name="HUD" type="CanvasLayer"]
+layer = 10
+script = ExtResource("1_hud")
+
+[node name="Panel" type="PanelContainer" parent="."]
+offset_right = 200.0
+offset_bottom = 180.0
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="Panel/MarginContainer"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "=== STATS ==="
+
+[node name="Sep1" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="FarmersLabel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Farmers: 0 / 0"
+
+[node name="GuardsLabel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Guards: 0 / 0"
+
+[node name="RaidersLabel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Raiders: 0 / 0"
+
+[node name="Sep2" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="KillsLabel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Kills - V: 0  R: 0"
+
+[node name="Sep3" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="TimeLabel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Day 1 - 06:00"
+
+[node name="FPSLabel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "FPS: 60 | Loop: 0.0ms"

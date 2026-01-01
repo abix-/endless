@@ -36,7 +36,7 @@ var current_targets: PackedInt32Array
 var will_flee: PackedInt32Array
 var works_at_night: PackedInt32Array
 var health_dirty: PackedInt32Array
-var last_rendered: PackedInt32Array  # Track which NPCs were rendered last frame
+var last_rendered: PackedInt32Array
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
@@ -57,10 +57,27 @@ var selected_npc := -1
 @onready var info_label: Label = $InfoLabel
 var multimesh: MultiMesh
 
-# Stats
+# Stats - alive counts
 var alive_farmers := 0
 var alive_guards := 0
 var alive_raiders := 0
+
+# Stats - totals (for "X / Y" display)
+var total_farmers := 0
+var total_guards := 0
+var total_raiders := 0
+
+# Stats - kills
+var villager_kills := 0  # Villagers killed by raiders
+var raider_kills := 0    # Raiders killed by villagers
+
+# Stats - dead awaiting respawn
+var dead_farmers := 0
+var dead_guards := 0
+var dead_raiders := 0
+
+# Performance tracking
+var last_loop_time := 0.0
 
 # Systems
 var _state: NPCState
@@ -70,6 +87,7 @@ var _needs: NPCNeeds
 
 
 func _ready() -> void:
+	add_to_group("npc_manager")
 	_init_arrays()
 	_init_grid()
 	_init_multimesh()
@@ -153,20 +171,17 @@ func _process(delta: float) -> void:
 	_update_rendering()
 	
 	var t2 := Time.get_ticks_usec()
+	last_loop_time = (t2 - t1) / 1000.0
 	
 	_update_selection()
 	
 	if Engine.get_process_frames() % 30 == 0:
 		_update_counts()
-	
-	if Engine.get_process_frames() % 60 == 0:
-		print("Loop: %.2f ms | FPS: %d" % [(t2 - t1) / 1000.0, Engine.get_frames_per_second()])
 
 
 func _update_rendering() -> void:
 	var camera: Camera2D = get_viewport().get_camera_2d()
 	if not camera:
-		# Fallback: render all
 		for i in count:
 			if healths[i] <= 0:
 				continue
@@ -186,7 +201,6 @@ func _update_rendering() -> void:
 	var min_y: float = cam_pos.y - view_size.y / 2 - margin
 	var max_y: float = cam_pos.y + view_size.y / 2 + margin
 	
-	# Get visible grid cells
 	var visible_cells: PackedInt32Array = _get_cells_in_rect(min_x, max_x, min_y, max_y)
 	
 	# Hide NPCs that were rendered last frame but aren't visible now
@@ -239,13 +253,22 @@ func _update_counts() -> void:
 	alive_farmers = 0
 	alive_guards = 0
 	alive_raiders = 0
+	dead_farmers = 0
+	dead_guards = 0
+	dead_raiders = 0
+	
 	for i in count:
+		var job: int = jobs[i]
 		if healths[i] > 0:
-			var job: int = jobs[i]
 			match job:
 				Job.FARMER: alive_farmers += 1
 				Job.GUARD: alive_guards += 1
 				Job.RAIDER: alive_raiders += 1
+		else:
+			match job:
+				Job.FARMER: dead_farmers += 1
+				Job.GUARD: dead_guards += 1
+				Job.RAIDER: dead_raiders += 1
 
 
 # ============================================================
@@ -281,6 +304,12 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	works_at_night[i] = 1 if night_worker else 0
 	health_dirty[i] = 1
 	last_rendered[i] = 0
+	
+	# Track totals
+	match job:
+		Job.FARMER: total_farmers += 1
+		Job.GUARD: total_guards += 1
+		Job.RAIDER: total_raiders += 1
 	
 	var color: Color
 	match job:
@@ -328,6 +357,13 @@ func _decide_what_to_do(i: int) -> void:
 
 func mark_health_dirty(i: int) -> void:
 	health_dirty[i] = 1
+
+
+func record_kill(victim_faction: int) -> void:
+	if victim_faction == Faction.VILLAGER:
+		villager_kills += 1
+	else:
+		raider_kills += 1
 
 
 # ============================================================

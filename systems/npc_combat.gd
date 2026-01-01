@@ -127,6 +127,9 @@ func _attack(attacker: int, victim: int) -> void:
 				manager._state.set_state(victim, NPCState.State.FIGHTING)
 
 func _die(i: int) -> void:
+	var victim_faction: int = manager.factions[i]
+	manager.record_kill(victim_faction)
+	
 	manager.healths[i] = 0
 	manager._state.set_state(i, NPCState.State.IDLE)
 	manager.current_targets[i] = -1

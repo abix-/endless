@@ -11,7 +11,7 @@ signal arrived(npc_index: int)
 const LOD_NEAR_SQ := 160000.0    # 400px - update every frame
 const LOD_MID_SQ := 640000.0     # 800px - update every 2 frames
 const LOD_FAR_SQ := 1440000.0    # 1200px - update every 4 frames
-								  # Beyond - update every 8 frames
+                                  # Beyond - update every 8 frames
 
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager

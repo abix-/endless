@@ -76,7 +76,7 @@ func _decide_raider(i: int) -> void:
 	
 	if state != NPCState.State.WANDERING:
 		var angle: float = randf() * TAU
-		var dist: float = randf_range(150.0, 400.0)
+		var dist: float = randf_range(150.0, 400.0)  # Longer wander range
 		var center: Vector2 = manager.wander_centers[i]
 		manager.targets[i] = center + Vector2(cos(angle), sin(angle)) * dist
 		manager._state.set_state(i, NPCState.State.WANDERING)
