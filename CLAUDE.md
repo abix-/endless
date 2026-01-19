@@ -42,3 +42,28 @@ User preferences in `autoloads/user_settings.gd`. When adding settings:
 2. Add setter that emits `settings_changed`
 3. Add to `_save()` and `_load()`
 4. Connect listeners via `UserSettings.settings_changed.connect()`
+
+## Shaders
+
+Shader uniforms for per-instance data use INSTANCE_CUSTOM (Color with r,g,b,a packed values).
+Example from `npc_sprite.gdshader`:
+- r = health percent
+- g = flash intensity
+- b = sprite frame X / 255
+- a = sprite frame Y / 255
+
+HP bar modes: 0=off, 1=when damaged, 2=always (uniform int, set via ShaderMaterial)
+
+## MultiMesh Rendering
+
+NPCs and overlays (loot icons) use separate MultiMesh instances in `npc_renderer.gd`.
+Each MultiMesh needs: mesh, transform_format, instance_count, optional use_colors/use_custom_data.
+Hide instances by setting transform position to (-9999, -9999).
+
+## Location Types
+
+Valid types for `location_type` export:
+- `"field"` - farm (3x3)
+- `"camp"` - raider camp (2x2 tent)
+- `"home"` - house (2x2 composed)
+- `"guard_post"` - guard tower (1x1)
