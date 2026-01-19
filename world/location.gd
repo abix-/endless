@@ -88,7 +88,7 @@ func _add_sprite_at(coords: Vector2i, offset: Vector2, z: int) -> void:
 	sprite.region_rect = Rect2(coords.x * CELL, coords.y * CELL, 16, 16)
 	sprite.scale = Vector2(SCALE, SCALE)
 	sprite.position = offset * SCALE
-	sprite.z_index = z
+	sprite.z_index = -100 + z  # Behind NPCs
 	add_child(sprite)
 
 
