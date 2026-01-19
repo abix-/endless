@@ -11,10 +11,11 @@ func _ready() -> void:
 	hp_bars_checkbox.toggled.connect(_on_hp_bars_toggled)
 
 
-func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+func _unhandled_key_input(event: InputEvent) -> void:
+	if event.keycode == KEY_ESCAPE and event.pressed:
 		panel.visible = not panel.visible
 		get_tree().paused = panel.visible
+		get_viewport().set_input_as_handled()
 
 
 func _on_hp_bars_toggled(pressed: bool) -> void:
