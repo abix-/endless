@@ -91,6 +91,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Camera culling (only render visible NPCs)
 - [x] Staggered scanning (1/8 NPCs per frame)
 - [x] Combat log batching
+- [x] TCP-like collision avoidance (index-based symmetry breaking for head-on NPCs)
 
 ---
 
