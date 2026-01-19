@@ -237,14 +237,16 @@ func _spawn_npcs() -> void:
 			total_farmers += 1
 
 		# Spawn guards (live in homes, patrol at posts)
+		# Alternate day/night shifts for even coverage
 		for i in Config.GUARDS_PER_TOWN:
 			var home = homes[i % homes.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
+			var night_shift: bool = i % 2 == 1  # Odd = night, even = day
 			npc_manager.spawn_guard(
 				home.global_position + spawn_offset,
 				home.global_position,  # home center
 				home.global_position,  # unused - guards patrol all posts
-				randf() > 0.5,  # Random day/night shift
+				night_shift,
 				town_idx
 			)
 			total_guards += 1
