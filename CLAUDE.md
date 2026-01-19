@@ -80,3 +80,25 @@ Valid types for `location_type` export:
 - `"camp"` - raider camp (2x2 tent)
 - `"home"` - house (2x2 composed)
 - `"guard_post"` - guard tower (1x1)
+
+## README Maintenance
+
+The README serves as both documentation and a development roadmap.
+
+**Structure:**
+- Short description with inspirations (LOTR2, RimWorld, Factorio)
+- Gameplay loop overview (6-step cycle)
+- Features section with categorized checkboxes
+- Architecture tree showing file purposes
+- Controls and configuration tables
+
+**Feature checkboxes:**
+- `[x]` = implemented and working
+- `[ ]` = planned but not started
+- Update checkboxes as features are completed
+- Keep items concise (one line each)
+- Group by category: World, Economy, Combat, AI, Player Controls, etc.
+
+**When changing config values** (world size, NPC counts, etc.), update the Configuration table to match.
+
+**Don't over-document:** README shows what exists and what's planned. Implementation details go in CLAUDE.md or code comments.

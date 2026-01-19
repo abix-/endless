@@ -140,7 +140,7 @@ Key values in `autoloads/config.gd`:
 | GUARDS_PER_TOWN | 30 | Town defense |
 | RAIDERS_PER_CAMP | 30 | Enemy forces |
 | GUARD_POSTS_PER_TOWN | 6 | Patrol points |
-| WORLD_SIZE | 6000x4500 | Play area |
+| WORLD_SIZE | 8000x8000 | Play area |
 | MAX_NPC_COUNT | 3000 | Engine limit |
 
 ## Credits

@@ -3306,3 +3306,16 @@ EOF
 10:06:39 - Running Unsanitize...
 10:06:39 - Unsanitize done
 10:06:39 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "camps positioned away from all town centers" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:06:42 - Event: PostToolUse
+10:06:42 - Tool: Bash
+10:06:42 - Command: (cd C:/code/endless && git add -A && git commit -m "camps positioned away from all town centers" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:06:42 - Processing PostToolUse for: (cd C:/code/endless && git add -A && git commit -m "camps positioned away from all town centers" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:06:42 - Running Sanitize...
+10:06:43 - Sanitize done
+10:07:50 - Event: PreToolUse
+10:07:50 - Tool: Bash
+10:07:50 - Command: cd C:/code/endless && git add -A && git commit -m "document readme maintenance conventions" && git push
+10:07:50 - Processing PreToolUse for: cd C:/code/endless && git add -A && git commit -m "document readme maintenance conventions" && git push
+10:07:50 - Running Unsanitize...
+10:07:50 - Unsanitize done
+10:07:50 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "document readme maintenance conventions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
