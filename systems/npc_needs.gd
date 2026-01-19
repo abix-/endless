@@ -46,11 +46,13 @@ func on_time_tick(_hour: int, minute: int) -> void:
 			_:
 				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
 
-		# HP regen (3x faster when sleeping, 10x on fountain)
+		# HP regen (3x faster when sleeping, 10x fountain, 5x camp)
 		if manager.healths[i] < max_hp:
 			var regen: float = Config.HP_REGEN_SLEEP if state == NPCState.State.SLEEPING else Config.HP_REGEN_AWAKE
 			if _is_on_fountain(i):
 				regen *= 10.0
+			elif _is_at_camp(i):
+				regen *= 5.0
 			manager.healths[i] = minf(max_hp, manager.healths[i] + regen)
 			manager.mark_health_dirty(i)
 
@@ -292,10 +294,19 @@ func _raider_deliver_food(i: int) -> void:
 
 
 func _is_on_fountain(i: int) -> bool:
-	# Fountain radius: 2x2 cells * 16px * 3.0 scale / 2 = 48px
+	# Fountain radius: 16px * 2.0 extra_scale * 3.0 scale / 2 = 48px
 	const FOUNTAIN_RADIUS := 48.0
 	var my_pos: Vector2 = manager.positions[i]
 	for center in manager.town_centers:
 		if my_pos.distance_to(center) < FOUNTAIN_RADIUS:
 			return true
 	return false
+
+
+func _is_at_camp(i: int) -> bool:
+	# Only raiders get camp regen
+	if manager.jobs[i] != NPCState.Job.RAIDER:
+		return false
+	var my_pos: Vector2 = manager.positions[i]
+	var home_pos: Vector2 = manager.home_positions[i]
+	return my_pos.distance_to(home_pos) < manager._arrival_camp
