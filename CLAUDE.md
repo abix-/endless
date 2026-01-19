@@ -13,20 +13,16 @@ var radius = Location.get_interaction_radius("camp", 1.5)   # custom buffer
 
 The radius is calculated from sprite definitions (cell size × scale × diagonal) with configurable buffer.
 
-Two types of radii are cached at load in `npc_manager.gd`:
-- **Interaction radii** (`_radius_*`): with 1.25 buffer, for `on_arrival()` building detection
-- **Arrival radii** (`_arrival_*`): edge-based, for entering sprite boundary
+Arrival radii (`_arrival_*`) are cached at load - edge-based, for entering sprite boundary.
 
-Per-NPC arrays set at spawn:
-- `home_radii[i]`, `work_radii[i]` - interaction radii for on_arrival checks
-- `arrival_radii[i]` - current arrival radius (edge-based)
+Per-NPC `arrival_radii[i]` is set when walking to a target.
 
 NPCs target building CENTERS (no offset). Arrival triggers when entering sprite boundary:
 ```gdscript
 manager.targets[i] = manager.work_positions[i]  # building center
-manager.arrival_radii[i] = manager._arrival_farm  # edge radius
+manager.arrival_radii[i] = manager._arrival_farm  # edge radius (72px for 3x3 farm)
 ```
-Navigation triggers arrival when within `arrival_radii[i]` of target (sprite edge). Separation forces spread NPCs naturally.
+Separation forces spread NPCs naturally once inside the building.
 
 ## Sprite Definitions
 

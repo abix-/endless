@@ -14,13 +14,7 @@ signal raider_delivered_food(town_idx: int)
 const Location = preload("res://world/location.gd")
 const MAX_LEVEL := 9999
 
-# Building radii for on_arrival checks (cached at load, with buffer)
-var _radius_farm: float
-var _radius_home: float
-var _radius_camp: float
-var _radius_guard_post: float
-
-# Arrival radii - edge-based, for entering sprite boundary
+# Arrival radii - edge-based, for entering sprite boundary (cached at load)
 var _arrival_farm: float
 var _arrival_home: float
 var _arrival_camp: float
@@ -78,8 +72,6 @@ var town_indices: PackedInt32Array  # Which town/camp this NPC belongs to
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
 var spawn_positions: PackedVector2Array
-var home_radii: PackedFloat32Array  # Arrival radius for home building
-var work_radii: PackedFloat32Array  # Arrival radius for work building
 
 # Selection
 var selected_npc := -1
@@ -134,12 +126,6 @@ func _ready() -> void:
 
 
 func _init_radii() -> void:
-	# Interaction radii (with buffer) for on_arrival building detection
-	_radius_farm = Location.get_interaction_radius("field")
-	_radius_home = Location.get_interaction_radius("home")
-	_radius_camp = Location.get_interaction_radius("camp")
-	_radius_guard_post = Location.get_interaction_radius("guard_post")
-	# Arrival radii (edge-based) for entering sprite boundary
 	_arrival_farm = Location.get_arrival_radius("field")
 	_arrival_home = Location.get_arrival_radius("home")
 	_arrival_camp = Location.get_arrival_radius("camp")
@@ -154,8 +140,6 @@ func _init_arrays() -> void:
 	home_positions.resize(max_count)
 	work_positions.resize(max_count)
 	spawn_positions.resize(max_count)
-	home_radii.resize(max_count)
-	work_radii.resize(max_count)
 
 	healths.resize(max_count)
 	max_healths.resize(max_count)
@@ -264,19 +248,11 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	work_positions[i] = work_pos
 	spawn_positions[i] = pos
 
-	# Set building radii based on job type
+	# Set initial arrival radius (home building)
 	match job:
-		Job.FARMER:
-			home_radii[i] = _radius_home
-			work_radii[i] = _radius_farm
-			arrival_radii[i] = _arrival_home
-		Job.GUARD:
-			home_radii[i] = _radius_home
-			work_radii[i] = _radius_guard_post
+		Job.FARMER, Job.GUARD:
 			arrival_radii[i] = _arrival_home
 		Job.RAIDER:
-			home_radii[i] = _radius_camp
-			work_radii[i] = _radius_farm
 			arrival_radii[i] = _arrival_camp
 
 	healths[i] = hp

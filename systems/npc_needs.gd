@@ -118,7 +118,7 @@ func _raider_return_to_camp(i: int) -> void:
 	var my_pos: Vector2 = manager.positions[i]
 
 	# If already at camp, deliver immediately instead of walking
-	if my_pos.distance_to(home_pos) < manager.home_radii[i]:
+	if my_pos.distance_to(home_pos) < manager._arrival_camp:
 		_raider_deliver_food(i)
 		manager.wander_centers[i] = my_pos
 		manager._state.set_state(i, NPCState.State.RESTING)
@@ -176,13 +176,14 @@ func on_arrival(i: int) -> void:
 		var work_pos: Vector2 = manager.work_positions[i]
 		var home_pos: Vector2 = manager.home_positions[i]
 		var energy: float = manager.energies[i]
+		var radius: float = manager.arrival_radii[i]
 
-		# Check if arrived at work (position within work building radius)
-		if my_pos.distance_to(work_pos) < manager.work_radii[i] and job != NPCState.Job.RAIDER:
+		# Check if arrived at work or home (using current arrival radius)
+		if my_pos.distance_to(work_pos) < radius and job != NPCState.Job.RAIDER:
 			manager._state.set_state(i, NPCState.State.WORKING)
 			if job == NPCState.Job.GUARD:
 				manager.wander_centers[i] = my_pos
-		elif my_pos.distance_to(home_pos) < manager.home_radii[i]:
+		elif my_pos.distance_to(home_pos) < radius:
 			if job == NPCState.Job.RAIDER:
 				manager.wander_centers[i] = my_pos
 				_raider_deliver_food(i)
@@ -197,10 +198,9 @@ func on_arrival(i: int) -> void:
 
 func _raider_check_steal_food(i: int) -> void:
 	var my_pos: Vector2 = manager.positions[i]
-	var farm_radius: float = manager.work_radii[i]  # Raiders' work_radii = farm
 
 	for farm_pos in manager.farm_positions:
-		if my_pos.distance_to(farm_pos) < farm_radius:
+		if my_pos.distance_to(farm_pos) < manager._arrival_farm:
 			manager.carrying_food[i] = 1
 			return
 

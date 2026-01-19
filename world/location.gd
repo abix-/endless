@@ -76,12 +76,6 @@ static func get_arrival_radius(location_type: String) -> float:
 	return get_sprite_edge_radius(sprite_name)
 
 
-# Get interaction radius for a location type (with buffer)
-static func get_interaction_radius(location_type: String, buffer: float = 1.25) -> float:
-	var sprite_name: String = LOCATION_SPRITES.get(location_type, "bed")
-	return get_sprite_radius(sprite_name) * buffer
-
-
 func _ready() -> void:
 	texture = preload("res://assets/roguelikeSheet_transparent.png")
 
