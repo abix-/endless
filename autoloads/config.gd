@@ -82,3 +82,7 @@ const ENERGY_REST_GAIN := 5.0
 const ENERGY_ACTIVITY_DRAIN := 6.0
 const ENERGY_EXHAUSTED := 20.0
 const ENERGY_FARM_RESTORE := 30.0
+
+# HP Regen (per hour)
+const HP_REGEN_AWAKE := 2.0
+const HP_REGEN_SLEEP := 6.0  # 3x faster when sleeping

@@ -25,8 +25,11 @@ func on_time_tick(_hour: int, minute: int) -> void:
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
-		
+
 		var state: int = manager.states[i]
+		var max_hp: float = manager.get_scaled_max_health(i)
+
+		# Energy update
 		match state:
 			NPCState.State.SLEEPING:
 				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_SLEEP_GAIN)
@@ -34,6 +37,13 @@ func on_time_tick(_hour: int, minute: int) -> void:
 				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_REST_GAIN)
 			_:
 				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
+
+		# HP regen (3x faster when sleeping)
+		if manager.healths[i] < max_hp:
+			var regen: float = Config.HP_REGEN_SLEEP if state == NPCState.State.SLEEPING else Config.HP_REGEN_AWAKE
+			manager.healths[i] = minf(max_hp, manager.healths[i] + regen)
+			manager.mark_health_dirty(i)
+
 
 func decide_what_to_do(i: int) -> void:
 	if manager.healths[i] <= 0:
