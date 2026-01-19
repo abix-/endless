@@ -85,9 +85,9 @@ func fire(from_pos: Vector2, target_pos: Vector2, damage: float, faction: int, s
 	# Set color based on faction
 	var color: Color
 	if faction == 0:  # Villager
-		color = Color.CYAN
+		color = Color.DODGER_BLUE
 	else:  # Raider
-		color = Color.ORANGE
+		color = Color.RED
 	multimesh.set_instance_color(i, color)
 
 	count += 1
