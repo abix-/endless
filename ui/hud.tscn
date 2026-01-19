@@ -7,8 +7,8 @@ layer = 10
 script = ExtResource("1_hud")
 
 [node name="Panel" type="PanelContainer" parent="."]
-offset_right = 240.0
-offset_bottom = 180.0
+offset_right = 260.0
+offset_bottom = 340.0
 
 [node name="MarginContainer" type="MarginContainer" parent="Panel"]
 layout_mode = 2

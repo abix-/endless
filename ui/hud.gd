@@ -115,14 +115,22 @@ func _update_zoom() -> void:
 func _update_food() -> void:
 	if not main_node or not "town_food" in main_node:
 		return
+	if not "towns" in main_node or main_node.towns.is_empty():
+		return
 
+	var lines: Array[String] = []
 	var town_total := 0
 	var camp_total := 0
-	for i in main_node.town_food.size():
-		town_total += main_node.town_food[i]
-		camp_total += main_node.camp_food[i]
 
-	food_label.text = "Food: Towns %d | Camps %d" % [town_total, camp_total]
+	for i in main_node.towns.size():
+		var town_name: String = main_node.towns[i].name
+		var tf: int = main_node.town_food[i]
+		var cf: int = main_node.camp_food[i]
+		town_total += tf
+		camp_total += cf
+		lines.append("%s: %d | Raiders: %d" % [town_name, tf, cf])
+
+	food_label.text = "Food (%d vs %d):\n%s" % [town_total, camp_total, "\n".join(lines)]
 
 
 func _on_npc_leveled_up(_npc_index: int, job: int, old_level: int, new_level: int) -> void:

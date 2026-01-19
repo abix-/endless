@@ -38,4 +38,8 @@ func _ready() -> void:
 		else:
 			$Sprite2D.region_rect = Rect2(pos.x * CELL, pos.y * CELL, SPRITE_SIZE, SPRITE_SIZE)
 
-	label.text = location_name
+	# Only show labels for major locations (towns/camps), not individual homes/farms
+	if "Farm" in location_name or "Home" in location_name:
+		label.visible = false
+	else:
+		label.text = location_name

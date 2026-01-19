@@ -22,6 +22,12 @@ const NUM_TOWNS := 7
 const MIN_TOWN_DISTANCE := 800  # Minimum distance between town centers
 const FOOD_PER_WORK_HOUR := 1  # Food generated per farmer per work hour
 
+const TOWN_NAMES := [
+	"Millbrook", "Ashford", "Willowdale", "Ironhaven", "Thornwick",
+	"Redmoor", "Foxhollow", "Stonebridge", "Pinecrest", "Dustwell",
+	"Bramblewood", "Ravenhill", "Clearwater", "Goleli", "Highmeadow"
+]
+
 
 func _ready() -> void:
 	WorldClock.day_changed.connect(_on_day_changed)
@@ -64,10 +70,16 @@ func _generate_world() -> void:
 		if valid:
 			town_positions.append(pos)
 
+	# Shuffle town names for variety
+	var available_names := TOWN_NAMES.duplicate()
+	available_names.shuffle()
+
 	# Create each town with its structures
 	for i in town_positions.size():
 		var town_center: Vector2 = town_positions[i]
+		var town_name: String = available_names[i % available_names.size()]
 		var town_data := {
+			"name": town_name,
 			"center": town_center,
 			"farms": [],
 			"homes": [],
@@ -82,7 +94,7 @@ func _generate_world() -> void:
 			var farm_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
 
 			var farm = location_scene.instantiate()
-			farm.location_name = "Farm %d-%d" % [i, f]
+			farm.location_name = "%s Farm" % town_name
 			farm.location_type = "field"
 			farm.global_position = farm_pos
 			add_child(farm)
@@ -96,7 +108,7 @@ func _generate_world() -> void:
 			var home_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
 
 			var home = location_scene.instantiate()
-			home.location_name = "Home %d-%d" % [i, h]
+			home.location_name = "%s Home" % town_name
 			home.location_type = "home"
 			home.global_position = home_pos
 			add_child(home)
@@ -111,7 +123,7 @@ func _generate_world() -> void:
 		camp_pos.y = clampf(camp_pos.y, Config.WORLD_MARGIN, Config.WORLD_HEIGHT - Config.WORLD_MARGIN)
 
 		var camp = location_scene.instantiate()
-		camp.location_name = "Camp %d" % i
+		camp.location_name = "%s Raiders" % town_name
 		camp.location_type = "camp"
 		camp.global_position = camp_pos
 		add_child(camp)
@@ -119,8 +131,8 @@ func _generate_world() -> void:
 
 		# Create town center marker
 		var town_marker = location_scene.instantiate()
-		town_marker.location_name = "Town %d" % i
-		town_marker.location_type = "home"  # Use home icon for now
+		town_marker.location_name = town_name
+		town_marker.location_type = "home"
 		town_marker.global_position = town_center
 		add_child(town_marker)
 
