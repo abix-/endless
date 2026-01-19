@@ -10,6 +10,7 @@ var grid_cell_counts: PackedInt32Array
 var grid_cell_starts: PackedInt32Array
 
 
+
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
 	_init_grid()
@@ -51,8 +52,8 @@ func _cell_index(pos: Vector2) -> int:
 	return y * Config.GRID_SIZE + x
 
 
-func get_nearby(pos: Vector2) -> Array:
-	var results := []
+func get_nearby(pos: Vector2) -> Array[int]:
+	var results: Array[int] = []
 
 	@warning_ignore("narrowing_conversion")
 	var cx: int = clampi(int(pos.x / Config.GRID_CELL_SIZE), 0, Config.GRID_SIZE - 1)
@@ -78,9 +79,8 @@ func get_nearby(pos: Vector2) -> Array:
 	return results
 
 
-func get_nearby_in_radius(pos: Vector2, radius: float) -> Array:
-	# Expanding search from center outward
-	var results := []
+func get_nearby_in_radius(pos: Vector2, radius: float) -> Array[int]:
+	var results: Array[int] = []
 	var radius_cells: int = ceili(radius / Config.GRID_CELL_SIZE)
 
 	@warning_ignore("narrowing_conversion")
