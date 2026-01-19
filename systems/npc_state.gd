@@ -5,17 +5,16 @@ class_name NPCState
 
 enum State {
 	IDLE,        # Not doing anything
-	SLEEPING,    # At home, asleep
+	SLEEPING,    # At home/camp, asleep
 	FIGHTING,    # In combat
 	FLEEING,     # Running from combat
 	WALKING,     # Generic movement (farmer to/from places)
 	FARMING,     # Farmer at farm
-	OFF_DUTY,    # Farmer/guard at home, awake
+	OFF_DUTY,    # At home/camp, awake
 	ON_DUTY,     # Guard at post
 	PATROLLING,  # Guard moving between posts
 	RAIDING,     # Raider going to/at farm
 	RETURNING,   # Raider going home
-	RESTING,     # Raider at camp
 }
 
 enum Faction { VILLAGER, RAIDER }
@@ -25,7 +24,7 @@ enum Job { FARMER, GUARD, RAIDER }
 const VALID_STATES := {
 	Job.FARMER: [State.IDLE, State.SLEEPING, State.FLEEING, State.WALKING, State.FARMING, State.OFF_DUTY],
 	Job.GUARD: [State.IDLE, State.SLEEPING, State.FIGHTING, State.WALKING, State.OFF_DUTY, State.ON_DUTY, State.PATROLLING],
-	Job.RAIDER: [State.IDLE, State.SLEEPING, State.FIGHTING, State.RAIDING, State.RETURNING, State.RESTING],
+	Job.RAIDER: [State.IDLE, State.SLEEPING, State.FIGHTING, State.RAIDING, State.RETURNING, State.OFF_DUTY],
 }
 
 const STATE_NAMES := {
@@ -40,7 +39,6 @@ const STATE_NAMES := {
 	State.PATROLLING: "Patrolling",
 	State.RAIDING: "Raiding",
 	State.RETURNING: "Returning",
-	State.RESTING: "Resting",
 }
 
 const JOB_NAMES := ["Farmer", "Guard", "Raider"]

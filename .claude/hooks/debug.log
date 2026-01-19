@@ -3696,3 +3696,16 @@ EOF
 11:07:48 - Running Unsanitize...
 11:07:49 - Unsanitize done
 11:07:49 - Wrapped: (git add -A && git commit -m "fix NPCState enum access in main.gd" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:07:51 - Event: PostToolUse
+11:07:51 - Tool: Bash
+11:07:51 - Command: (git add -A && git commit -m "fix NPCState enum access in main.gd" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:07:51 - Processing PostToolUse for: (git add -A && git commit -m "fix NPCState enum access in main.gd" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:07:51 - Running Sanitize...
+11:07:52 - Sanitize done
+11:09:45 - Event: PreToolUse
+11:09:45 - Tool: Bash
+11:09:45 - Command: git add -A && git commit -m "merge RESTING into OFF_DUTY" && git push
+11:09:45 - Processing PreToolUse for: git add -A && git commit -m "merge RESTING into OFF_DUTY" && git push
+11:09:45 - Running Unsanitize...
+11:09:45 - Unsanitize done
+11:09:45 - Wrapped: (git add -A && git commit -m "merge RESTING into OFF_DUTY" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

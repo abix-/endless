@@ -3,7 +3,7 @@
 extends RefCounted
 class_name NPCNavigation
 
-const STATIONARY_STATES := [NPCState.State.IDLE, NPCState.State.SLEEPING, NPCState.State.FARMING, NPCState.State.OFF_DUTY, NPCState.State.ON_DUTY, NPCState.State.RESTING]
+const STATIONARY_STATES := [NPCState.State.IDLE, NPCState.State.SLEEPING, NPCState.State.FARMING, NPCState.State.OFF_DUTY, NPCState.State.ON_DUTY]
 
 var manager: Node
 var separation_velocities: PackedVector2Array  # Smooth separation

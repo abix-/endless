@@ -41,7 +41,7 @@ func on_time_tick(_hour: int, minute: int) -> void:
 		match state:
 			NPCState.State.SLEEPING:
 				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_SLEEP_GAIN)
-			NPCState.State.OFF_DUTY, NPCState.State.RESTING:
+			NPCState.State.OFF_DUTY:
 				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_REST_GAIN)
 			_:
 				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
@@ -180,7 +180,7 @@ func _raider_return_to_camp(i: int) -> void:
 	if my_pos.distance_to(home_pos) < manager._arrival_camp:
 		_raider_deliver_food(i)
 		manager.wander_centers[i] = my_pos
-		manager._state.set_state(i, NPCState.State.RESTING)
+		manager._state.set_state(i, NPCState.State.OFF_DUTY)
 		return
 
 	manager.targets[i] = home_pos
@@ -266,7 +266,7 @@ func on_arrival(i: int) -> void:
 				if energy <= Config.ENERGY_EXHAUSTED:
 					manager._state.set_state(i, NPCState.State.SLEEPING)
 				else:
-					manager._state.set_state(i, NPCState.State.RESTING)
+					manager._state.set_state(i, NPCState.State.OFF_DUTY)
 
 
 func _raider_check_steal_food(i: int) -> void:
