@@ -2,7 +2,10 @@
 
 A village siege simulation built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
 
-**Inspired by Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, and conquer rival towns. Watch the world simulate in real-time or take control and dominate.
+**Inspirations:**
+- **Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, conquer rival towns
+- **RimWorld** - colonist needs, AI storytelling, emergent chaos
+- **Factorio** - scale to thousands of entities, optimize production chains
 
 ## Features
 
