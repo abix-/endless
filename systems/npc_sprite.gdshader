@@ -43,8 +43,9 @@ void fragment() {
 
         COLOR = bar_color;
     } else {
-        // Apply flash effect
-        vec4 final_color = mix(tex_color, vec4(1.0, 1.0, 1.0, tex_color.a), flash);
+        // Apply tint from instance color, then flash effect
+        vec4 tinted = tex_color * COLOR;
+        vec4 final_color = mix(tinted, vec4(1.0, 1.0, 1.0, tinted.a), flash);
         COLOR = final_color;
     }
 }

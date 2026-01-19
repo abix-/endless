@@ -15,6 +15,11 @@ const SPRITE_FARMER := Vector2i(0, 5)
 const SPRITE_GUARD := Vector2i(0, 2)
 const SPRITE_RAIDER := Vector2i(0, 7)
 
+# Job tint colors
+const COLOR_FARMER := Color(1.0, 1.0, 1.0)        # White (neutral)
+const COLOR_GUARD := Color(0.6, 0.8, 1.0)         # Blue tint
+const COLOR_RAIDER := Color(1.0, 0.6, 0.6)        # Red tint
+
 
 func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D) -> void:
 	manager = npc_manager
@@ -123,6 +128,16 @@ func set_npc_sprite(i: int, job: int) -> void:
 	var flash: float = manager.flash_timers[i]
 	# Pack: r=health, g=flash, b=frame_x/255, a=frame_y/255
 	multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
+	# Set tint color based on job
+	multimesh.set_instance_color(i, get_job_color(job))
+
+
+func get_job_color(job: int) -> Color:
+	match job:
+		0: return COLOR_FARMER
+		1: return COLOR_GUARD
+		2: return COLOR_RAIDER
+		_: return COLOR_FARMER
 
 
 func set_npc_health_display(i: int, health_pct: float) -> void:
