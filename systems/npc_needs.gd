@@ -98,7 +98,8 @@ func _raider_return_to_camp(i: int) -> void:
 	var my_pos: Vector2 = manager.positions[i]
 
 	# If already at camp, deliver immediately instead of walking
-	if my_pos.distance_to(home_pos) < 30.0:
+	# Camp visual is ~96px across, raiders spawn with ±80px offset
+	if my_pos.distance_to(home_pos) < 80.0:
 		_raider_deliver_food(i)
 		manager.wander_centers[i] = my_pos
 		manager._state.set_state(i, NPCState.State.RESTING)
