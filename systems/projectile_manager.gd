@@ -119,8 +119,8 @@ func process(delta: float) -> void:
 
 		# Update rendering
 		var angle: float = velocities[i].angle()
-		var transform := Transform2D(angle, positions[i])
-		multimesh.set_instance_transform_2d(i, transform)
+		var xform := Transform2D(angle, positions[i])
+		multimesh.set_instance_transform_2d(i, xform)
 
 
 func _check_collision(proj_idx: int) -> int:
