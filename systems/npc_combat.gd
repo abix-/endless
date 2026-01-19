@@ -93,18 +93,20 @@ func _process_fighting(i: int) -> void:
 
 func _process_fleeing(i: int) -> void:
 	var target_idx: int = manager.current_targets[i]
-	
+
+	# Enemy dead - stop fleeing
 	if target_idx < 0 or manager.healths[target_idx] <= 0:
 		manager.current_targets[i] = -1
 		manager._state.set_state(i, NPCState.State.IDLE)
 		manager._decide_what_to_do(i)
 		return
-	
+
+	# Check if reached flee destination
 	var my_pos: Vector2 = manager.positions[i]
-	var enemy_pos: Vector2 = manager.positions[target_idx]
-	var dist: float = my_pos.distance_to(enemy_pos)
-	
-	if dist > Config.FLEE_DISTANCE:
+	var flee_target: Vector2 = _get_flee_target(i)
+	var dist_to_target: float = my_pos.distance_to(flee_target)
+
+	if dist_to_target < manager._arrival_home:
 		manager.current_targets[i] = -1
 		manager._state.set_state(i, NPCState.State.IDLE)
 		manager._decide_what_to_do(i)
@@ -234,3 +236,16 @@ func _should_flee(i: int) -> bool:
 	if job == NPCState.Job.RAIDER and health_pct < Config.RAIDER_WOUNDED_THRESHOLD:
 		return true
 	return false
+
+
+func _get_flee_target(i: int) -> Vector2:
+	var job: int = manager.jobs[i]
+	if job == NPCState.Job.RAIDER:
+		# Raiders flee to camp
+		return manager.home_positions[i]
+	else:
+		# Farmers/guards flee to town center (fountain)
+		var town_idx: int = manager.town_indices[i]
+		if town_idx >= 0 and town_idx < manager.town_centers.size():
+			return manager.town_centers[town_idx]
+		return manager.home_positions[i]  # Fallback

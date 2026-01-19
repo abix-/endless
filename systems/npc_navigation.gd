@@ -41,7 +41,7 @@ func process(delta: float) -> void:
 			NPCState.State.FIGHTING:
 				_move_toward_enemy(i, lod_delta)
 			NPCState.State.FLEEING:
-				_move_away_from_enemy(i, lod_delta)
+				_move_toward_flee_target(i, lod_delta)
 
 		# Apply separation smoothly every frame
 		manager.positions[i] += separation_velocities[i] * lod_delta
@@ -105,15 +105,24 @@ func _move_toward_enemy(i: int, delta: float) -> void:
 		manager.positions[i] = my_pos + dir * move_dist
 
 
-func _move_away_from_enemy(i: int, delta: float) -> void:
-	var target_idx: int = manager.current_targets[i]
-
-	if target_idx < 0 or manager.healths[target_idx] <= 0:
-		return
-
+func _move_toward_flee_target(i: int, delta: float) -> void:
 	var my_pos: Vector2 = manager.positions[i]
-	var enemy_pos: Vector2 = manager.positions[target_idx]
-	var dir: Vector2 = enemy_pos.direction_to(my_pos)
+	var job: int = manager.jobs[i]
+
+	# Determine flee destination
+	var flee_target: Vector2
+	if job == NPCState.Job.RAIDER:
+		# Raiders flee to camp
+		flee_target = manager.home_positions[i]
+	else:
+		# Farmers/guards flee to town center (fountain)
+		var town_idx: int = manager.town_indices[i]
+		if town_idx >= 0 and town_idx < manager.town_centers.size():
+			flee_target = manager.town_centers[town_idx]
+		else:
+			flee_target = manager.home_positions[i]  # Fallback
+
+	var dir: Vector2 = my_pos.direction_to(flee_target)
 	manager.positions[i] = my_pos + dir * Config.MOVE_SPEED * 1.2 * delta
 
 

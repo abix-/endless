@@ -191,6 +191,10 @@ func _setup_managers() -> void:
 			posts.append(post.global_position)
 		npc_manager.guard_posts_by_town.append(posts)
 
+	# Pass town centers (fountains) for flee destinations
+	for town in towns:
+		npc_manager.town_centers.append(town.center)
+
 	# Set village center to world center (for compatibility)
 	@warning_ignore("integer_division")
 	npc_manager.village_center = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)

@@ -35,6 +35,7 @@ static func get_xp_for_next_level(level: int) -> int:
 var village_center := Vector2.ZERO
 var farm_positions: Array[Vector2] = []
 var guard_posts_by_town: Array[Array] = []  # Per-town arrays of guard post positions
+var town_centers: Array[Vector2] = []  # Fountain at center of each town
 
 # Data arrays
 var count := 0
