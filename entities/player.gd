@@ -14,7 +14,7 @@ func _ready() -> void:
 		camera.zoom = Vector2(2, 2)
 		add_child(camera)
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	var input := Vector2.ZERO
 	
 	if Input.is_action_pressed("move_left"):
