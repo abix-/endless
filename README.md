@@ -7,6 +7,15 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - **RimWorld** - colonist needs, AI storytelling, emergent chaos
 - **Factorio** - scale to thousands of entities, optimize production chains
 
+## Gameplay Loop
+
+1. **Produce** - Assign villagers to generate resources (food, wood, iron, gold)
+2. **Build** - Construct and upgrade production buildings
+3. **Train** - Convert villagers into guards and army units
+4. **Defend** - Protect your towns from raider attacks
+5. **Conquer** - March armies to enemy towns, siege and capture
+6. **Expand** - Manage your growing empire, repeat
+
 ## Features
 
 ### World
