@@ -14,8 +14,37 @@ const VALID_STATES := {
 	Job.RAIDER: [State.IDLE, State.WALKING, State.SLEEPING, State.WANDERING, State.RESTING, State.FIGHTING],
 }
 
-const STATE_NAMES := ["Idle", "Walk", "Zzz", "Work", "Rest", "Wander", "Fight", "Flee"]
+const STATE_NAMES := ["Idle", "Walking", "Sleeping", "Working", "Resting", "Wandering", "Fighting", "Fleeing"]
 const JOB_NAMES := ["Farmer", "Guard", "Raider"]
+
+# Job-specific activity descriptions
+const ACTIVITY_NAMES := {
+	Job.FARMER: {
+		State.IDLE: "Idle",
+		State.WALKING: "Walking",
+		State.SLEEPING: "Sleeping",
+		State.WORKING: "Farming",
+		State.RESTING: "Off Duty",
+		State.FLEEING: "Fleeing",
+	},
+	Job.GUARD: {
+		State.IDLE: "Idle",
+		State.WALKING: "Patrolling",
+		State.SLEEPING: "Sleeping",
+		State.WORKING: "On Duty",
+		State.RESTING: "Off Duty",
+		State.WANDERING: "Patrolling",
+		State.FIGHTING: "Fighting",
+	},
+	Job.RAIDER: {
+		State.IDLE: "Idle",
+		State.WALKING: "Returning",
+		State.SLEEPING: "Sleeping",
+		State.WANDERING: "Raiding",
+		State.RESTING: "Resting",
+		State.FIGHTING: "Fighting",
+	},
+}
 
 var manager: Node
 
@@ -48,3 +77,9 @@ func get_job_name(job: int) -> String:
 	if job >= 0 and job < JOB_NAMES.size():
 		return JOB_NAMES[job]
 	return "Unknown"
+
+
+func get_activity_name(job: int, state: int) -> String:
+	if job in ACTIVITY_NAMES and state in ACTIVITY_NAMES[job]:
+		return ACTIVITY_NAMES[job][state]
+	return get_state_name(state)
