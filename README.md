@@ -1,137 +1,105 @@
 # Endless
 
-A village siege simulation built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management. Inspired by DOTA-style gameplay where guards and raiders act as "creeps" fighting over resources.
+A village siege simulation built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management. Inspired by Lords of the Realm 2 - build your economy, raise armies, conquer the world.
 
-## Overview
+## Features
 
-The world consists of 7 scattered towns, each with:
-- **Town center** with farmers and guards
-- **Farms** that generate food when worked
-- **Raider camp** that sends raiders to steal food
+### World
+- [x] Procedural town generation (7 towns, 1200px minimum spacing)
+- [x] Named towns from pool of 15 (Millbrook, Ashford, Willowdale, etc.)
+- [x] Farms (2 per town, 200-300px from center)
+- [x] Homes for NPCs (ring 350-450px from center)
+- [x] Guard posts (6 per town, 500-600px perimeter)
+- [x] Raider camps (900px from target town)
+- [ ] Destructible buildings
+- [ ] Build new structures
 
-The player observes (and can eventually influence) the ongoing conflict between towns and raiders.
-
-## Current Features
-
-### World Generation
-- 7 procedurally placed towns with minimum 1200px distance between centers
-- Each town has: 10 farmers, 30 guards, 2 farms, 6 guard posts, 1 raider camp (30 raiders)
-- ~490 NPCs total across the world
-- Towns have unique names from pool of 15 (Millbrook, Ashford, Willowdale, etc.)
-- World size: 6000x4500 with 400px margin from edges
-- Farms placed 200-300px from town center, homes in ring 350-450px out
-- Guard posts placed 500-600px from town center (perimeter defense)
-- Raider camps placed 900px from their target town
-
-### NPC System (Data-Oriented Design)
-- Supports 3000+ NPCs at 60 FPS
-- All NPC data stored in parallel PackedArrays for cache efficiency
-- MultiMesh rendering with shader-based sprite atlas sampling
-- Spatial grid (64x64 cells, 100px each) for O(1) neighbor queries
-- Staggered updates to distribute CPU load across frames
+### Economy
+- [x] Food production (farmers generate 1 food/hour when working)
+- [x] Food theft (raiders steal within 100px of farm)
+- [x] Food delivery (raiders return loot to camp)
+- [x] Loot icon above raiders carrying food
+- [x] Per-town and per-camp food tracking in HUD
+- [ ] Food consumption (NPCs eat from faction supply)
+- [ ] Starvation effects (HP drain, desertion)
+- [ ] Multiple resources (wood, iron, gold)
+- [ ] Production buildings (lumber mill, mine, blacksmith)
 
 ### Combat
-- Guards and raiders fight on sight (scan every 0.2s, staggered across 8 frames)
-- Ranged projectile combat: blue (guards), red (raiders) - 500 projectile pool
-- Farmers do melee damage and flee when threatened
-- Level scaling: sqrt-based stats (level 9999 = 100x damage/HP), 50x visual size
-- XP system: killing grants XP equal to victim's level
-- Level-up notifications batched in combat log
-- Damage flash effect (white overlay, fades in ~0.12s)
-- Leash system: farmers/raiders return home if combat drags too far (400px, raiders 1.5x)
-- Guards have no leash - they fight anywhere
+- [x] Faction-based auto-targeting (villagers vs raiders)
+- [x] Ranged projectile combat (guards, raiders)
+- [x] Melee combat (farmers)
+- [x] Level/XP system (sqrt scaling, level 9999 = 100x stats)
+- [x] Damage flash effect
+- [x] Leash system (farmers/raiders return home if combat drags 400px+)
+- [x] Guards have no leash - fight anywhere
+- [x] Alert nearby allies when combat starts
+- [x] 500 projectile pool with faction coloring
+- [ ] Player combat abilities
+- [ ] Army units (peasant levy, archers, knights)
 
 ### AI Behaviors
+- [x] Farmers: day/night work schedule, flee from enemies
+- [x] Guards: patrol at guard posts, day/night shifts
+- [x] Raiders: priority system (wounded → exhausted → deliver loot → steal)
+- [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
+- [x] 15-minute decision cycles
+- [ ] AI lords that expand and compete
 
-**Farmers:**
-- Work farms during day (6 AM - 8 PM), sleep at night
-- Flee from enemies (until 150px away)
-- Generate 1 food/hour when in WORKING state
+### Player Controls
+- [x] WASD camera movement
+- [x] Mouse wheel zoom (0.1x - 4.0x, centers on cursor)
+- [x] Click to select and inspect NPCs
+- [x] Time controls (+/- speed, SPACE pause)
+- [x] Settings menu (ESC)
+- [ ] Claim a town as capital
+- [ ] Villager role assignment UI
+- [ ] Build/upgrade buildings
+- [ ] Train guards from population
+- [ ] Equipment crafting
+- [ ] Army recruitment and movement
+- [ ] Attack and capture enemy towns
 
-**Guards:**
-- Patrol at guard posts around town perimeter
-- Day/night shifts (randomly assigned)
-- Alert nearby guards when combat starts
-- No leash - fight anywhere until threat eliminated
+### Victory Conditions
+- [ ] Domination (conquer all towns)
+- [ ] Economic (accumulate wealth threshold)
+- [ ] Survival mode (endless waves)
 
-**Raiders:**
-- Priority 1: Retreat to camp when wounded (<50% HP), drop any food
-- Priority 2: Sleep when exhausted (<20 energy)
-- Priority 3: Return to camp if carrying stolen food
-- Priority 4: Go steal food from nearest farm
-- Alert nearby raiders (200px) when one starts fighting
-- Visual loot icon appears above raiders carrying food
+### Performance (supports 3000+ NPCs at 60 FPS)
+- [x] Data-Oriented Design with PackedArrays
+- [x] MultiMesh rendering (single draw call)
+- [x] Spatial grid for O(1) neighbor queries
+- [x] LOD system (distant NPCs update less often)
+- [x] Camera culling (only render visible NPCs)
+- [x] Staggered scanning (1/8 NPCs per frame)
+- [x] Combat log batching
 
-### Energy System
-- Max energy: 100
-- Sleeping: +12/hour
-- Resting: +5/hour
-- Active (walking, working, fighting): -6/hour
-- Exhausted threshold: 20 (triggers sleep)
-- Successful raid delivery: +30 energy
-
-### Food Economy
-- Farmers generate 1 food/hour when working at farms
-- Raiders steal food when within 100px of farm
-- Raiders deliver food to camp, credited to camp's total
-- Per-town and per-camp food tracking displayed in HUD
-- Immediate delivery if raider returns to camp already nearby
-
-### LOD System (Level of Detail)
-NPCs update at different rates based on camera distance:
-| Distance | Update Rate | Delta Multiplier |
-|----------|-------------|------------------|
-| < 400px | Every frame | 1.0x |
-| 400-800px | Every 2 frames | 2.0x |
-| 800-1200px | Every 4 frames | 4.0x |
-| > 1200px | Every 8 frames | 8.0x |
-
-### UI
-- HUD showing: unit counts (alive/dead/kills), time, FPS, loop time, zoom
-- Per-town food breakdown with town names and raider camp totals
-- Combat log for level-up events (batched to prevent lag)
-- Settings menu (ESC) with HP bar visibility option
-- Click NPCs to see: job, level, HP, energy, current state
-- Raiders carrying food show "Loot" status
-
-### Time System
-- Day: 6 AM - 8 PM, Night: 8 PM - 6 AM
-- Default speed: 10 game minutes per real second
-- Time controls: +/- to double/halve speed, SPACE to pause
-- 12-hour (720 minute) respawn timer for dead NPCs
-- NPC decisions reconsidered every 15 game minutes
-
-### Rendering
-- Sprite tinting: Farmers (green), Guards (blue), Raiders (red)
-- HP bars in top 15% of sprite (green >50%, yellow >25%, red <25%)
-- HP bars hidden at full health unless setting enabled
-- Camera culling: only visible NPCs rendered (with 100px margin)
+---
 
 ## Architecture
 
 ```
 main.gd                 # World generation, food tracking, game setup
 autoloads/
-  config.gd             # All tunable constants (~50 values)
+  config.gd             # All tunable constants
   world_clock.gd        # Day/night cycle, time signals
   user_settings.gd      # Persistent user preferences
 systems/
-  npc_manager.gd        # Core NPC orchestration, data arrays, signals
-  npc_state.gd          # State machine logic, valid states per job
-  npc_navigation.gd     # Movement, LOD updates, separation forces
+  npc_manager.gd        # Core NPC orchestration, data arrays
+  npc_state.gd          # State machine, valid states per job
+  npc_navigation.gd     # Movement, LOD, separation forces
   npc_combat.gd         # Scanning, targeting, damage, leashing
-  npc_needs.gd          # Energy, schedules, raider AI priorities
-  npc_grid.gd           # Spatial partitioning (64x64 grid)
-  npc_renderer.gd       # MultiMesh rendering, culling, flash effects
-  npc_sprite.gdshader   # Sprite atlas, HP bars, tinting, flash
-  projectile_manager.gd # Projectile pooling (500), collision
+  npc_needs.gd          # Energy, schedules, raider AI
+  npc_grid.gd           # Spatial partitioning (64x64)
+  npc_renderer.gd       # MultiMesh rendering, culling
+  projectile_manager.gd # Projectile pooling, collision
 entities/
-  player.gd             # Camera controls, movement
+  player.gd             # Camera controls
 world/
-  location.gd           # Town/farm/camp markers with labels
+  location.gd           # Town/farm/camp markers
 ui/
-  hud.gd                # Stats display, food tracking, combat log
-  settings_menu.gd      # ESC menu, HP bar toggle
+  hud.gd                # Stats, food tracking, combat log
+  settings_menu.gd      # Options menu
 ```
 
 ## Controls
@@ -139,124 +107,25 @@ ui/
 | Key | Action |
 |-----|--------|
 | WASD / Arrows | Move camera |
-| Mouse Wheel | Zoom in/out (0.1x - 4.0x) |
+| Mouse Wheel | Zoom (centers on cursor) |
 | Left Click | Select NPC |
 | + / = | Speed up time (2x) |
 | - | Slow down time (0.5x) |
 | SPACE | Pause/unpause |
 | ESC | Settings menu |
 
-## NPC States
-
-| State | Farmer | Guard | Raider |
-|-------|--------|-------|--------|
-| IDLE | Yes | Yes | Yes |
-| WALKING | Yes | Yes | Yes |
-| SLEEPING | Yes | Yes | Yes |
-| WORKING | Yes | Yes | No |
-| RESTING | Yes | Yes | Yes |
-| WANDERING | No | Yes | Yes |
-| FIGHTING | No | Yes | Yes |
-| FLEEING | Yes | No | No |
-
-## Performance Optimizations
-
-- **MultiMesh**: All NPCs in single draw call
-- **Spatial grid**: O(1) neighbor queries vs O(n) brute force
-- **Staggered scanning**: 1/8 of NPCs check for enemies per frame
-- **LOD updates**: Distant NPCs update less often with delta compensation
-- **Velocity separation**: Calculate force every 4 frames, apply smoothly every frame
-- **Camera culling**: Only render visible NPCs, track rendered set for efficient hiding
-- **Combat log batching**: Accumulate level-ups, flush once per frame
-- **Projectile pooling**: Reuse 500 projectiles instead of create/destroy
-
----
-
-## Roadmap
-
-- [x] Guard posts around town perimeter
-- [x] Loot icon for raiders carrying food
-- [x] Raiders target nearest farm (not random)
-- [ ] Food consumption (NPCs eat from their faction's supply)
-- [ ] Starvation effects (HP drain, desertion)
-- [ ] UI to show town details when clicking markers
-- [ ] Player claims a town as capital
-- [ ] Villager role assignment UI
-- [ ] Multiple resource types (wood, iron, gold)
-- [ ] Production buildings (lumber mill, mine, blacksmith)
-- [ ] Build/upgrade buildings
-- [ ] Train guards from villager pool
-- [ ] Equipment crafting (weapons improve stats)
-- [ ] Recruit army units (peasant levy, archers, knights)
-- [ ] Army movement between towns
-- [ ] Attack enemy towns (siege, destroy buildings)
-- [ ] Capture territories
-- [ ] AI lords that expand and compete
-- [ ] Domination victory (conquer all towns)
-- [ ] Economic victory (wealth threshold)
-- [ ] Survival mode (endless waves)
-
----
-
 ## Configuration
 
-All tunable values are in `autoloads/config.gd`:
+Key values in `autoloads/config.gd`:
 
-```gdscript
-# NPC counts per town
-FARMERS_PER_TOWN := 10
-GUARDS_PER_TOWN := 30
-GUARD_POSTS_PER_TOWN := 6
-RAIDERS_PER_CAMP := 30
-
-# Combat stats
-FARMER_HP := 50.0
-FARMER_DAMAGE := 5.0
-FARMER_RANGE := 30.0      # Melee
-GUARD_HP := 150.0
-GUARD_DAMAGE := 15.0
-GUARD_RANGE := 150.0      # Ranged
-RAIDER_HP := 120.0
-RAIDER_DAMAGE := 15.0
-RAIDER_RANGE := 150.0     # Ranged
-
-# Combat distances
-LEASH_DISTANCE := 400.0
-FLEE_DISTANCE := 150.0
-ALERT_RADIUS := 200.0
-
-# Energy
-ENERGY_MAX := 100.0
-ENERGY_SLEEP_GAIN := 12.0
-ENERGY_REST_GAIN := 5.0
-ENERGY_ACTIVITY_DRAIN := 6.0
-ENERGY_EXHAUSTED := 20.0
-
-# World
-WORLD_WIDTH := 6000
-WORLD_HEIGHT := 4500
-WORLD_MARGIN := 400
-CAMP_DISTANCE := 900
-
-# Performance
-MAX_NPC_COUNT := 3000
-MAX_PROJECTILES := 500
-GRID_SIZE := 64
-GRID_CELL_SIZE := 100.0
-SCAN_STAGGER := 8
-```
-
-## Signals
-
-| Signal | Source | Data |
-|--------|--------|------|
-| `time_tick` | WorldClock | hour, minute |
-| `hour_changed` | WorldClock | hour |
-| `day_changed` | WorldClock | day |
-| `npc_leveled_up` | NPCManager | index, job, old_level, new_level |
-| `raider_delivered_food` | NPCManager | town_idx |
-| `arrived` | NPCNavigation | npc_index |
-| `settings_changed` | UserSettings | (none) |
+| Setting | Value | Notes |
+|---------|-------|-------|
+| FARMERS_PER_TOWN | 10 | Food producers |
+| GUARDS_PER_TOWN | 30 | Town defense |
+| RAIDERS_PER_CAMP | 30 | Enemy forces |
+| GUARD_POSTS_PER_TOWN | 6 | Patrol points |
+| WORLD_SIZE | 6000x4500 | Play area |
+| MAX_NPC_COUNT | 3000 | Engine limit |
 
 ## Credits
 
