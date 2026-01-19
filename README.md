@@ -64,11 +64,11 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [ ] AI lords that expand and compete
 
 ### Player Controls
-- [x] WASD camera movement
+- [x] WASD camera movement (configurable speed 100-2000)
 - [x] Mouse wheel zoom (0.1x - 4.0x, centers on cursor)
 - [x] Click to select and inspect NPCs
 - [x] Time controls (+/- speed, SPACE pause)
-- [x] Settings menu (ESC)
+- [x] Settings menu (ESC) with HP bar modes, scroll speed
 - [ ] Claim a town as capital
 - [ ] Villager role assignment UI
 - [ ] Build/upgrade buildings
