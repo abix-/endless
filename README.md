@@ -169,54 +169,11 @@ ui/
 
 ## TODO / Roadmap
 
-### High Priority
-- [ ] Win/lose conditions based on food totals
-- [ ] Player combat abilities (tip the balance)
-- [ ] Minimap showing town/camp locations
-- [ ] Sound effects for combat, level-ups
-
-### Gameplay
+- [ ] Player combat abilities (tip the balance like a DOTA hero)
 - [ ] Food consumption (NPCs eat from their faction's supply)
-- [ ] Starvation effects when food runs out
-- [ ] Raider confidence system (config exists but not implemented)
-- [ ] Guard reinforcement calls
-- [ ] Farmer defense (hide in homes during raids)
-- [ ] Inter-town raiding (raiders attack other towns, not just local farms)
-
-### World
-- [ ] Different town sizes (small/medium/large)
-- [ ] Roads connecting towns
-- [ ] Terrain features (forests, rivers, mountains)
-- [ ] Day/night visual changes (lighting, colors)
-- [ ] Building sprites for town centers
-
-### NPCs
-- [ ] More NPC types (merchants, healers, archers)
-- [ ] Equipment/weapons affecting stats
-- [ ] NPC names and personalities
-- [ ] Formation movement for groups
-- [ ] Visible "carrying food" indicator for raiders
-
-### UI/UX
-- [ ] Town info panel on click
-- [ ] Battle notifications ("Millbrook is under attack!")
-- [ ] Statistics screen (graphs over time)
-- [ ] Tutorial/help overlay
-- [ ] Keybinding configuration
-
-### Technical
-- [ ] Save/load game state
-- [ ] Performance profiling tools
-- [ ] Unit tests for combat math
-- [ ] External config file for easy tuning
-- [ ] Implement RAIDER_CONFIDENCE_THRESHOLD logic
-- [ ] Implement RAIDER_HUNGRY_THRESHOLD logic
-
-### Polish
-- [ ] Particle effects (dust, blood, magic)
-- [ ] Death animations
-- [ ] Weather effects
-- [ ] Screen shake on big hits
+- [ ] UI to show per-town food when clicking on town/camp markers
+- [ ] Implement RAIDER_CONFIDENCE_THRESHOLD logic (config exists but unused)
+- [ ] Implement RAIDER_HUNGRY_THRESHOLD logic (config exists but unused)
 
 ---
 
