@@ -11,8 +11,35 @@ var _camp_radius: float
 
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
-	_farm_radius = Location.get_interaction_radius("field")
+	_farm_radius = Location.get_interaction_radius("field", 1.5)  # Generous buffer for stealing
 	_camp_radius = Location.get_interaction_radius("camp")
+
+
+func process(_delta: float) -> void:
+	# Check raiders wandering near farms - steal without needing exact arrival
+	var frame: int = Engine.get_process_frames()
+	for i in manager.count:
+		# Stagger: only check 1/8 of raiders per frame
+		if i % 8 != frame % 8:
+			continue
+		if manager.healths[i] <= 0:
+			continue
+		if manager.jobs[i] != NPCState.Job.RAIDER:
+			continue
+		if manager.states[i] != NPCState.State.WANDERING:
+			continue
+		if manager.carrying_food[i] == 1:
+			continue
+
+		# Check if near any farm
+		var my_pos: Vector2 = manager.positions[i]
+		for farm_pos in manager.farm_positions:
+			if my_pos.distance_to(farm_pos) < _farm_radius:
+				manager.carrying_food[i] = 1
+				manager._state.set_state(i, NPCState.State.IDLE)
+				decide_what_to_do(i)  # Will trigger return to camp
+				break
+
 
 func on_time_tick(_hour: int, minute: int) -> void:
 	# Every 15 minutes - reconsider decisions

@@ -3150,3 +3150,42 @@ EOF
 09:44:22 - Running Unsanitize...
 09:44:22 - Unsanitize done
 09:44:22 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "interaction radii derived from sprite definitions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:44:25 - Event: PostToolUse
+09:44:25 - Tool: Bash
+09:44:25 - Command: (cd C:/code/endless && git add -A && git commit -m "interaction radii derived from sprite definitions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:44:25 - Processing PostToolUse for: (cd C:/code/endless && git add -A && git commit -m "interaction radii derived from sprite definitions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:44:25 - Running Sanitize...
+09:44:26 - Sanitize done
+09:45:41 - Event: PreToolUse
+09:45:41 - Tool: Bash
+09:45:41 - Command: cd C:/code/endless && git add CLAUDE.md && git commit -m "add project conventions" && git push
+09:45:41 - Processing PreToolUse for: cd C:/code/endless && git add CLAUDE.md && git commit -m "add project conventions" && git push
+09:45:41 - Running Unsanitize...
+09:45:41 - Unsanitize done
+09:45:41 - Wrapped: (cd C:/code/endless && git add CLAUDE.md && git commit -m "add project conventions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:45:44 - Event: PostToolUse
+09:45:44 - Tool: Bash
+09:45:44 - Command: (cd C:/code/endless && git add CLAUDE.md && git commit -m "add project conventions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:45:44 - Processing PostToolUse for: (cd C:/code/endless && git add CLAUDE.md && git commit -m "add project conventions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:45:44 - Running Sanitize...
+09:45:45 - Sanitize done
+09:47:03 - Event: PreToolUse
+09:47:03 - Tool: Bash
+09:47:03 - Command: cd C:/code/endless && git add CLAUDE.md && git commit -m "expand project conventions" && git push
+09:47:03 - Processing PreToolUse for: cd C:/code/endless && git add CLAUDE.md && git commit -m "expand project conventions" && git push
+09:47:03 - Running Unsanitize...
+09:47:03 - Unsanitize done
+09:47:03 - Wrapped: (cd C:/code/endless && git add CLAUDE.md && git commit -m "expand project conventions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:47:05 - Event: PostToolUse
+09:47:05 - Tool: Bash
+09:47:05 - Command: (cd C:/code/endless && git add CLAUDE.md && git commit -m "expand project conventions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:47:05 - Processing PostToolUse for: (cd C:/code/endless && git add CLAUDE.md && git commit -m "expand project conventions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:47:05 - Running Sanitize...
+09:47:06 - Sanitize done
+09:51:40 - Event: PreToolUse
+09:51:40 - Tool: Bash
+09:51:40 - Command: cd C:/code/endless && git add -A && git commit -m "continuous proximity check for raider food stealing" && git push
+09:51:40 - Processing PreToolUse for: cd C:/code/endless && git add -A && git commit -m "continuous proximity check for raider food stealing" && git push
+09:51:40 - Running Unsanitize...
+09:51:41 - Unsanitize done
+09:51:41 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "continuous proximity check for raider food stealing" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

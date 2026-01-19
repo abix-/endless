@@ -7,12 +7,13 @@ Never hardcode pixel distances for building interactions. Use `Location.get_inte
 ```gdscript
 const Location = preload("res://world/location.gd")
 
-var radius = Location.get_interaction_radius("field")  # farm
-var radius = Location.get_interaction_radius("camp")   # raider camp
-var radius = Location.get_interaction_radius("home")   # house
+var radius = Location.get_interaction_radius("field")       # farm (1.25x buffer)
+var radius = Location.get_interaction_radius("camp", 1.5)   # custom buffer
 ```
 
-The radius is calculated from sprite definitions (cell size × scale × diagonal) with a 1.25x buffer.
+The radius is calculated from sprite definitions (cell size × scale × diagonal) with configurable buffer.
+
+For interactions that should trigger while moving (not just on arrival), use continuous proximity checks in a process function with staggered updates to spread load across frames.
 
 ## Sprite Definitions
 

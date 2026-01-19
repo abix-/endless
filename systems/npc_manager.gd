@@ -175,6 +175,7 @@ func _process(delta: float) -> void:
 	_combat.process_scanning(delta)
 	_combat.process(delta)
 	_nav.process(delta)
+	_needs.process(delta)
 
 	if _projectiles:
 		_projectiles.process(delta)
