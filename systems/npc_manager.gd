@@ -550,7 +550,7 @@ func _update_selection() -> void:
 		var job: int = jobs[selected_npc]
 		var state: int = states[selected_npc]
 		var lvl: int = levels[selected_npc]
-		var status: String = _state.get_activity_name(job, state)
+		var status: String = _state.get_state_name(state)
 		if job == Job.RAIDER and carrying_food[selected_npc] == 1:
 			status = "Looting"
 		info_label.text = "%s Lv.%d | H:%.0f E:%.0f | %s" % [

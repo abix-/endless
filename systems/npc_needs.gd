@@ -19,17 +19,17 @@ func on_time_tick(_hour: int, minute: int) -> void:
 			var state: int = manager.states[i]
 			var job: int = manager.jobs[i]
 
-			# Increment patrol timer for working guards
-			if job == NPCState.Job.GUARD and state == NPCState.State.WORKING:
+			# Increment patrol timer for on-duty guards
+			if job == NPCState.Job.GUARD and state == NPCState.State.ON_DUTY:
 				manager.patrol_timer[i] += 15
 
 			if state not in [NPCState.State.FIGHTING, NPCState.State.FLEEING]:
 				manager._decide_what_to_do(i)
-	
+
 	# On the hour - update energy
 	if minute != 0:
 		return
-	
+
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
@@ -41,7 +41,7 @@ func on_time_tick(_hour: int, minute: int) -> void:
 		match state:
 			NPCState.State.SLEEPING:
 				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_SLEEP_GAIN)
-			NPCState.State.RESTING:
+			NPCState.State.OFF_DUTY, NPCState.State.RESTING:
 				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_REST_GAIN)
 			_:
 				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
@@ -80,12 +80,12 @@ func decide_what_to_do(i: int) -> void:
 	var is_work_time: bool = _is_work_time(i)
 
 	if is_work_time:
-		if state not in [NPCState.State.WORKING, NPCState.State.WALKING]:
+		if state not in [NPCState.State.FARMING, NPCState.State.WALKING]:
 			manager.targets[i] = manager.work_positions[i]
 			manager.arrival_radii[i] = manager._arrival_farm
 			manager._state.set_state(i, NPCState.State.WALKING)
 	else:
-		if state not in [NPCState.State.RESTING, NPCState.State.WALKING]:
+		if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING]:
 			manager.targets[i] = manager.home_positions[i]
 			manager.arrival_radii[i] = manager._arrival_home
 			manager._state.set_state(i, NPCState.State.WALKING)
@@ -107,12 +107,12 @@ func _decide_guard(i: int) -> void:
 
 	if is_work_time:
 		# Check if at post and waited long enough - move to next
-		if state == NPCState.State.WORKING and manager.patrol_timer[i] >= Config.GUARD_PATROL_WAIT:
+		if state == NPCState.State.ON_DUTY and manager.patrol_timer[i] >= Config.GUARD_PATROL_WAIT:
 			_guard_go_to_next_post(i)
-		elif state not in [NPCState.State.WORKING, NPCState.State.WALKING]:
+		elif state not in [NPCState.State.ON_DUTY, NPCState.State.PATROLLING]:
 			_guard_go_to_next_post(i)
 	else:
-		if state not in [NPCState.State.RESTING, NPCState.State.WALKING]:
+		if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING]:
 			manager.targets[i] = manager.home_positions[i]
 			manager.arrival_radii[i] = manager._arrival_home
 			manager._state.set_state(i, NPCState.State.WALKING)
@@ -141,7 +141,7 @@ func _guard_go_to_next_post(i: int) -> void:
 
 	manager.targets[i] = posts[next_idx]
 	manager.arrival_radii[i] = manager._arrival_guard_post
-	manager._state.set_state(i, NPCState.State.WALKING)
+	manager._state.set_state(i, NPCState.State.PATROLLING)
 
 
 func _decide_raider(i: int) -> void:
@@ -160,7 +160,7 @@ func _decide_raider(i: int) -> void:
 		if state != NPCState.State.SLEEPING:
 			manager.targets[i] = manager.home_positions[i]
 			manager.arrival_radii[i] = manager._arrival_camp
-			manager._state.set_state(i, NPCState.State.WALKING)
+			manager._state.set_state(i, NPCState.State.RETURNING)
 		return
 
 	# Priority 3: Carrying food - return to camp
@@ -186,7 +186,7 @@ func _raider_return_to_camp(i: int) -> void:
 	manager.targets[i] = home_pos
 	manager.arrival_radii[i] = manager._arrival_camp
 	manager.wander_centers[i] = my_pos
-	manager._state.set_state(i, NPCState.State.WALKING)
+	manager._state.set_state(i, NPCState.State.RETURNING)
 
 
 func _raider_go_to_farm(i: int) -> void:
@@ -207,7 +207,7 @@ func _raider_go_to_farm(i: int) -> void:
 	manager.targets[i] = best_farm
 	manager.arrival_radii[i] = manager._arrival_farm
 	manager.wander_centers[i] = my_pos
-	manager._state.set_state(i, NPCState.State.WANDERING)
+	manager._state.set_state(i, NPCState.State.RAIDING)
 
 
 func _is_work_time(i: int) -> bool:
@@ -223,14 +223,13 @@ func on_arrival(i: int) -> void:
 	var state: int = manager.states[i]
 	var job: int = manager.jobs[i]
 
-	if state == NPCState.State.WANDERING:
+	if state == NPCState.State.RAIDING:
 		# Raiders check if at farm to steal food
-		if job == NPCState.Job.RAIDER:
-			manager.wander_centers[i] = manager.positions[i]
-			_raider_check_steal_food(i)
+		manager.wander_centers[i] = manager.positions[i]
+		_raider_check_steal_food(i)
 		manager._state.set_state(i, NPCState.State.IDLE)
 		decide_what_to_do(i)
-	elif state == NPCState.State.WALKING:
+	elif state in [NPCState.State.WALKING, NPCState.State.PATROLLING, NPCState.State.RETURNING]:
 		var my_pos: Vector2 = manager.positions[i]
 		var home_pos: Vector2 = manager.home_positions[i]
 		var energy: float = manager.energies[i]
@@ -239,25 +238,25 @@ func on_arrival(i: int) -> void:
 		# Guard arrived at patrol post
 		if job == NPCState.Job.GUARD:
 			var target: Vector2 = manager.targets[i]
-			if my_pos.distance_to(target) < radius:
-				manager._state.set_state(i, NPCState.State.WORKING)
+			if state == NPCState.State.PATROLLING and my_pos.distance_to(target) < radius:
+				manager._state.set_state(i, NPCState.State.ON_DUTY)
 				manager.wander_centers[i] = my_pos
 				manager.patrol_timer[i] = 0
 			elif my_pos.distance_to(home_pos) < radius:
 				if energy <= Config.ENERGY_EXHAUSTED:
 					manager._state.set_state(i, NPCState.State.SLEEPING)
 				else:
-					manager._state.set_state(i, NPCState.State.RESTING)
+					manager._state.set_state(i, NPCState.State.OFF_DUTY)
 		# Farmer arrived at work or home
 		elif job == NPCState.Job.FARMER:
 			var work_pos: Vector2 = manager.work_positions[i]
 			if my_pos.distance_to(work_pos) < radius:
-				manager._state.set_state(i, NPCState.State.WORKING)
+				manager._state.set_state(i, NPCState.State.FARMING)
 			elif my_pos.distance_to(home_pos) < radius:
 				if energy <= Config.ENERGY_EXHAUSTED:
 					manager._state.set_state(i, NPCState.State.SLEEPING)
 				else:
-					manager._state.set_state(i, NPCState.State.RESTING)
+					manager._state.set_state(i, NPCState.State.OFF_DUTY)
 					decide_what_to_do(i)
 		# Raider arrived at camp
 		elif job == NPCState.Job.RAIDER:

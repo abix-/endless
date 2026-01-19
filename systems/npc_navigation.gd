@@ -3,7 +3,7 @@
 extends RefCounted
 class_name NPCNavigation
 
-const STATIONARY_STATES := [NPCState.State.WORKING, NPCState.State.SLEEPING, NPCState.State.RESTING, NPCState.State.IDLE]
+const STATIONARY_STATES := [NPCState.State.IDLE, NPCState.State.SLEEPING, NPCState.State.FARMING, NPCState.State.OFF_DUTY, NPCState.State.ON_DUTY, NPCState.State.RESTING]
 
 var manager: Node
 var separation_velocities: PackedVector2Array  # Smooth separation
@@ -36,7 +36,7 @@ func process(delta: float) -> void:
 		var lod_delta: float = _get_lod_delta(delta, dist_sq)
 
 		match state:
-			NPCState.State.WALKING, NPCState.State.WANDERING:
+			NPCState.State.WALKING, NPCState.State.PATROLLING, NPCState.State.RETURNING, NPCState.State.RAIDING:
 				_move_toward_target(i, lod_delta)
 			NPCState.State.FIGHTING:
 				_move_toward_enemy(i, lod_delta)

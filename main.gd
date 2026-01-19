@@ -278,7 +278,7 @@ func _on_time_tick(_hour: int, minute: int) -> void:
 			continue
 		if npc_manager.jobs[i] != npc_manager.Job.FARMER:
 			continue
-		if npc_manager.states[i] != npc_manager.State.WORKING:
+		if npc_manager.states[i] != npc_manager.State.FARMING:
 			continue
 
 		var town_idx: int = npc_manager.town_indices[i]
