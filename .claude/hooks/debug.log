@@ -3865,3 +3865,16 @@ EOF
 11:39:30 - Running Unsanitize...
 11:39:31 - Unsanitize done
 11:39:31 - Wrapped: (git add -A && git commit -m "guards/raiders 1:1 stats, 5x camp regen for raiders" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:39:32 - Event: PostToolUse
+11:39:32 - Tool: Bash
+11:39:32 - Command: (git add -A && git commit -m "guards/raiders 1:1 stats, 5x camp regen for raiders" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:39:32 - Processing PostToolUse for: (git add -A && git commit -m "guards/raiders 1:1 stats, 5x camp regen for raiders" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:39:32 - Running Sanitize...
+11:39:33 - Sanitize done
+11:40:48 - Event: PreToolUse
+11:40:48 - Tool: Bash
+11:40:48 - Command: git add -A && git commit -m "raiders excluded from fountain healing" && git push
+11:40:48 - Processing PreToolUse for: git add -A && git commit -m "raiders excluded from fountain healing" && git push
+11:40:48 - Running Unsanitize...
+11:40:48 - Unsanitize done
+11:40:48 - Wrapped: (git add -A && git commit -m "raiders excluded from fountain healing" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

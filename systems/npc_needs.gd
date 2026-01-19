@@ -294,6 +294,9 @@ func _raider_deliver_food(i: int) -> void:
 
 
 func _is_on_fountain(i: int) -> bool:
+	# Raiders don't get fountain healing
+	if manager.jobs[i] == NPCState.Job.RAIDER:
+		return false
 	# Fountain radius: 16px * 2.0 extra_scale * 3.0 scale / 2 = 48px
 	const FOUNTAIN_RADIUS := 48.0
 	var my_pos: Vector2 = manager.positions[i]
