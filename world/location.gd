@@ -60,6 +60,22 @@ static func get_sprite_radius(sprite_name: String) -> float:
 	return (max_cells * 16.0 * SCALE) / 2.0 * sqrt(2.0)
 
 
+# Calculate edge radius (center to edge, not corner) - used for arrival
+static func get_sprite_edge_radius(sprite_name: String) -> float:
+	if sprite_name not in SPRITES:
+		return 24.0  # Default fallback
+	var size: Vector2i = SPRITES[sprite_name].size
+	var max_cells := maxi(size.x, size.y)
+	# Half width: (cells * 16px * scale) / 2
+	return (max_cells * 16.0 * SCALE) / 2.0
+
+
+# Get arrival radius for a location type (edge-based, for entering sprite)
+static func get_arrival_radius(location_type: String) -> float:
+	var sprite_name: String = LOCATION_SPRITES.get(location_type, "bed")
+	return get_sprite_edge_radius(sprite_name)
+
+
 # Get interaction radius for a location type (with buffer)
 static func get_interaction_radius(location_type: String, buffer: float = 1.25) -> float:
 	var sprite_name: String = LOCATION_SPRITES.get(location_type, "bed")

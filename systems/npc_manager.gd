@@ -14,11 +14,17 @@ signal raider_delivered_food(town_idx: int)
 const Location = preload("res://world/location.gd")
 const MAX_LEVEL := 9999
 
-# Building radii for arrival checks (cached at load)
+# Building radii for on_arrival checks (cached at load, with buffer)
 var _radius_farm: float
 var _radius_home: float
 var _radius_camp: float
 var _radius_guard_post: float
+
+# Arrival radii - edge-based, for entering sprite boundary
+var _arrival_farm: float
+var _arrival_home: float
+var _arrival_camp: float
+var _arrival_guard_post: float
 
 # Scaling functions
 static func get_stat_scale(level: int) -> float:
@@ -128,10 +134,16 @@ func _ready() -> void:
 
 
 func _init_radii() -> void:
+	# Interaction radii (with buffer) for on_arrival building detection
 	_radius_farm = Location.get_interaction_radius("field")
 	_radius_home = Location.get_interaction_radius("home")
 	_radius_camp = Location.get_interaction_radius("camp")
 	_radius_guard_post = Location.get_interaction_radius("guard_post")
+	# Arrival radii (edge-based) for entering sprite boundary
+	_arrival_farm = Location.get_arrival_radius("field")
+	_arrival_home = Location.get_arrival_radius("home")
+	_arrival_camp = Location.get_arrival_radius("camp")
+	_arrival_guard_post = Location.get_arrival_radius("guard_post")
 
 
 func _init_arrays() -> void:
@@ -252,18 +264,20 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	work_positions[i] = work_pos
 	spawn_positions[i] = pos
 
-	# Set arrival radii based on job's building types
+	# Set building radii based on job type
 	match job:
 		Job.FARMER:
 			home_radii[i] = _radius_home
 			work_radii[i] = _radius_farm
+			arrival_radii[i] = _arrival_home
 		Job.GUARD:
 			home_radii[i] = _radius_home
 			work_radii[i] = _radius_guard_post
+			arrival_radii[i] = _arrival_home
 		Job.RAIDER:
 			home_radii[i] = _radius_camp
-			work_radii[i] = _radius_farm  # Raiders target farms
-	arrival_radii[i] = Config.ARRIVAL_RADIUS
+			work_radii[i] = _radius_farm
+			arrival_radii[i] = _arrival_camp
 
 	healths[i] = hp
 	max_healths[i] = hp

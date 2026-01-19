@@ -216,16 +216,15 @@ func _spawn_npcs() -> void:
 		var farms: Array = town.farms
 		var camp = town.camp
 
-		# Spawn farmers
+		# Spawn farmers (target building centers, spawn with small offset)
 		for i in Config.FARMERS_PER_TOWN:
 			var home = homes[i % homes.size()]
 			var farm = farms[i % farms.size()]
-			var home_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
-			var work_offset := Vector2(randf_range(-30, 30), randf_range(-30, 30))
+			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
 			npc_manager.spawn_farmer(
-				home.global_position + home_offset,
-				home.global_position,
-				farm.global_position + work_offset,
+				home.global_position + spawn_offset,
+				home.global_position,  # home center
+				farm.global_position,  # farm center
 				town_idx
 			)
 			total_farmers += 1
@@ -234,12 +233,11 @@ func _spawn_npcs() -> void:
 		var guard_posts: Array = town.guard_posts
 		for i in Config.GUARDS_PER_TOWN:
 			var post = guard_posts[i % guard_posts.size()]
-			var sleep_offset := Vector2(randf_range(-50, 50), randf_range(-50, 50))
-			var patrol_offset := Vector2(randf_range(-30, 30), randf_range(-30, 30))
+			var spawn_offset := Vector2(randf_range(-30, 30), randf_range(-30, 30))
 			npc_manager.spawn_guard(
-				post.global_position + patrol_offset,
-				town_center + sleep_offset,  # Sleep near town center
-				post.global_position + patrol_offset,
+				post.global_position + spawn_offset,
+				town_center,  # sleep at town center
+				post.global_position,  # patrol at post center
 				randf() > 0.5,  # Random day/night shift
 				town_idx
 			)
@@ -247,10 +245,10 @@ func _spawn_npcs() -> void:
 
 		# Spawn raiders at camp
 		for i in Config.RAIDERS_PER_CAMP:
-			var camp_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
+			var spawn_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
 			npc_manager.spawn_raider(
-				camp.global_position + camp_offset,
-				camp.global_position,
+				camp.global_position + spawn_offset,
+				camp.global_position,  # camp center
 				town_idx
 			)
 			total_raiders += 1

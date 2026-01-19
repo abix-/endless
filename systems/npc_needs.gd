@@ -63,7 +63,7 @@ func decide_what_to_do(i: int) -> void:
 	if energy <= Config.ENERGY_EXHAUSTED:
 		if state != NPCState.State.SLEEPING:
 			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
+			manager.arrival_radii[i] = manager._arrival_home
 			manager._state.set_state(i, NPCState.State.WALKING)
 		return
 
@@ -72,12 +72,16 @@ func decide_what_to_do(i: int) -> void:
 	if is_work_time:
 		if state not in [NPCState.State.WORKING, NPCState.State.WALKING]:
 			manager.targets[i] = manager.work_positions[i]
-			manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
+			# Arrival radius based on job's work building
+			if job == NPCState.Job.GUARD:
+				manager.arrival_radii[i] = manager._arrival_guard_post
+			else:
+				manager.arrival_radii[i] = manager._arrival_farm
 			manager._state.set_state(i, NPCState.State.WALKING)
 	else:
 		if state not in [NPCState.State.RESTING, NPCState.State.WALKING]:
 			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
+			manager.arrival_radii[i] = manager._arrival_home
 			manager._state.set_state(i, NPCState.State.WALKING)
 
 
@@ -96,7 +100,7 @@ func _decide_raider(i: int) -> void:
 		var state: int = manager.states[i]
 		if state != NPCState.State.SLEEPING:
 			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
+			manager.arrival_radii[i] = manager._arrival_camp
 			manager._state.set_state(i, NPCState.State.WALKING)
 		return
 
@@ -121,7 +125,7 @@ func _raider_return_to_camp(i: int) -> void:
 		return
 
 	manager.targets[i] = home_pos
-	manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
+	manager.arrival_radii[i] = manager._arrival_camp
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.WALKING)
 
@@ -142,7 +146,7 @@ func _raider_go_to_farm(i: int) -> void:
 			best_farm = farm_pos
 
 	manager.targets[i] = best_farm
-	manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
+	manager.arrival_radii[i] = manager._arrival_farm
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.WANDERING)
 
