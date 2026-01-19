@@ -6,6 +6,7 @@ class_name NPCRenderer
 var manager: Node
 var multimesh: MultiMesh
 var multimesh_instance: MultiMeshInstance2D
+var rendered_npcs: PackedInt32Array  # Track which NPCs were rendered last frame
 
 const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
 
@@ -59,11 +60,10 @@ func update(delta: float) -> void:
 
 	var visible_cells: PackedInt32Array = manager._grid.get_cells_in_rect(min_x, max_x, min_y, max_y)
 
-	# Hide previously rendered NPCs
-	for i in manager.count:
-		if manager.last_rendered[i] == 1:
-			manager.last_rendered[i] = 0
-			multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
+	# Hide previously rendered NPCs (only those we tracked)
+	for i in rendered_npcs:
+		multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
+	rendered_npcs.clear()
 
 	# Render visible NPCs
 	for cell_idx in visible_cells:
@@ -80,7 +80,7 @@ func update(delta: float) -> void:
 			var size_scale: float = manager.get_size_scale(manager.levels[i])
 			var xform := Transform2D(0, pos).scaled_local(Vector2(size_scale, size_scale))
 			multimesh.set_instance_transform_2d(i, xform)
-			manager.last_rendered[i] = 1
+			rendered_npcs.append(i)
 
 			if manager.health_dirty[i] == 1:
 				var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
