@@ -55,9 +55,9 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [ ] Army units (peasant levy, archers, knights)
 
 ### AI Behaviors
-- [x] Farmers: day/night work schedule, flee from enemies
-- [x] Guards: patrol between all 6 posts (30min each), live in homes, day/night shifts, flee below 33% health
-- [x] Raiders: priority system (wounded → exhausted → deliver loot → steal), flee below 50% health
+- [x] Farmers: day/night work schedule, always flee to town center
+- [x] Guards: patrol between all 6 posts (30min each), day/night shifts, flee to town center below 33% health
+- [x] Raiders: priority system (wounded → exhausted → deliver loot → steal), flee to camp below 50% health
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
 - [x] HP regen (2/hr awake, 6/hr sleeping)
 - [x] 15-minute decision cycles
