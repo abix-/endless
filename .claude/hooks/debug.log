@@ -3345,3 +3345,16 @@ EOF
 10:10:04 - Running Unsanitize...
 10:10:04 - Unsanitize done
 10:10:04 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "readme: settings details, scroll speed range" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:10:07 - Event: PostToolUse
+10:10:07 - Tool: Bash
+10:10:07 - Command: (cd C:/code/endless && git add -A && git commit -m "readme: settings details, scroll speed range" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:10:07 - Processing PostToolUse for: (cd C:/code/endless && git add -A && git commit -m "readme: settings details, scroll speed range" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:10:07 - Running Sanitize...
+10:10:08 - Sanitize done
+10:11:05 - Event: PreToolUse
+10:11:05 - Tool: Bash
+10:11:05 - Command: cd C:/code/endless && git add -A && git commit -m "readme: sprite-based arrival system" && git push
+10:11:05 - Processing PreToolUse for: cd C:/code/endless && git add -A && git commit -m "readme: sprite-based arrival system" && git push
+10:11:05 - Running Unsanitize...
+10:11:05 - Unsanitize done
+10:11:05 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "readme: sprite-based arrival system" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

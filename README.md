@@ -61,6 +61,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
 - [x] HP regen (2/hr awake, 6/hr sleeping)
 - [x] 15-minute decision cycles
+- [x] Building arrival based on sprite size (not pixel coordinates)
 - [ ] AI lords that expand and compete
 
 ### Player Controls
