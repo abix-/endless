@@ -121,9 +121,9 @@ func _setup_hud() -> void:
 	add_child(hud)
 
 func _spawn_many_npcs(total: int) -> void:
-	var raider_count = total * 2 / 5
-	var guard_count = total * 2 / 5
-	var farmer_count = total / 5
+	var raider_count = total * 3 / 10  # 30%
+	var guard_count = total / 2        # 50%
+	var farmer_count = total / 5       # 20%
 	
 	# Farmers
 	for i in range(farmer_count):
