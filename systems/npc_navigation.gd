@@ -78,8 +78,9 @@ func _move_toward_target(i: int, delta: float) -> void:
 	var my_pos: Vector2 = manager.positions[i]
 	var target_pos: Vector2 = manager.targets[i]
 	var dist: float = my_pos.distance_to(target_pos)
-	
-	if dist < 5.0:
+	var arrival_radius: float = manager.arrival_radii[i]
+
+	if dist < arrival_radius:
 		arrived.emit(i)
 	else:
 		var move_dist: float = minf(Config.MOVE_SPEED * delta, dist)

@@ -13,7 +13,12 @@ var radius = Location.get_interaction_radius("camp", 1.5)   # custom buffer
 
 The radius is calculated from sprite definitions (cell size × scale × diagonal) with configurable buffer.
 
-For interactions that should trigger while moving (not just on arrival), use continuous proximity checks in a process function with staggered updates to spread load across frames.
+When targeting a building, set `arrival_radii[i]` so NPCs "arrive" when on the sprite, not at the exact center:
+```gdscript
+manager.targets[i] = building_pos
+manager.arrival_radii[i] = Location.get_interaction_radius("field")
+```
+Default arrival radius is 5.0 (for exact positions like work spots).
 
 ## Sprite Definitions
 

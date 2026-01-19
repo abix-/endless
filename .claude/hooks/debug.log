@@ -3189,3 +3189,42 @@ EOF
 09:51:40 - Running Unsanitize...
 09:51:41 - Unsanitize done
 09:51:41 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "continuous proximity check for raider food stealing" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:42 - Event: PostToolUse
+09:51:42 - Tool: Bash
+09:51:42 - Command: (cd C:/code/endless && git add -A && git commit -m "continuous proximity check for raider food stealing" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:42 - Processing PostToolUse for: (cd C:/code/endless && git add -A && git commit -m "continuous proximity check for raider food stealing" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:42 - Running Sanitize...
+09:51:43 - Sanitize done
+09:51:48 - Event: PreToolUse
+09:51:48 - Tool: Bash
+09:51:48 - Command: cd C:/code/endless && git status
+09:51:48 - Processing PreToolUse for: cd C:/code/endless && git status
+09:51:48 - Running Unsanitize...
+09:51:48 - Unsanitize done
+09:51:48 - Wrapped: (cd C:/code/endless && git status) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:50 - Event: PostToolUse
+09:51:50 - Tool: Bash
+09:51:50 - Command: (cd C:/code/endless && git status) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:50 - Processing PostToolUse for: (cd C:/code/endless && git status) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:50 - Running Sanitize...
+09:51:50 - Sanitize done
+09:51:55 - Event: PreToolUse
+09:51:55 - Tool: Bash
+09:51:55 - Command: cd C:/code/endless && git push
+09:51:55 - Processing PreToolUse for: cd C:/code/endless && git push
+09:51:55 - Running Unsanitize...
+09:51:55 - Unsanitize done
+09:51:55 - Wrapped: (cd C:/code/endless && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:58 - Event: PostToolUse
+09:51:58 - Tool: Bash
+09:51:58 - Command: (cd C:/code/endless && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:58 - Processing PostToolUse for: (cd C:/code/endless && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+09:51:58 - Running Sanitize...
+09:51:58 - Sanitize done
+09:55:25 - Event: PreToolUse
+09:55:25 - Tool: Bash
+09:55:25 - Command: cd C:/code/endless && git add -A && git commit -m "per-npc arrival radius for building interactions" && git push
+09:55:25 - Processing PreToolUse for: cd C:/code/endless && git add -A && git commit -m "per-npc arrival radius for building interactions" && git push
+09:55:25 - Running Unsanitize...
+09:55:26 - Unsanitize done
+09:55:26 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "per-npc arrival radius for building interactions" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

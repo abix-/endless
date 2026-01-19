@@ -15,32 +15,6 @@ func _init(npc_manager: Node) -> void:
 	_camp_radius = Location.get_interaction_radius("camp")
 
 
-func process(_delta: float) -> void:
-	# Check raiders wandering near farms - steal without needing exact arrival
-	var frame: int = Engine.get_process_frames()
-	for i in manager.count:
-		# Stagger: only check 1/8 of raiders per frame
-		if i % 8 != frame % 8:
-			continue
-		if manager.healths[i] <= 0:
-			continue
-		if manager.jobs[i] != NPCState.Job.RAIDER:
-			continue
-		if manager.states[i] != NPCState.State.WANDERING:
-			continue
-		if manager.carrying_food[i] == 1:
-			continue
-
-		# Check if near any farm
-		var my_pos: Vector2 = manager.positions[i]
-		for farm_pos in manager.farm_positions:
-			if my_pos.distance_to(farm_pos) < _farm_radius:
-				manager.carrying_food[i] = 1
-				manager._state.set_state(i, NPCState.State.IDLE)
-				decide_what_to_do(i)  # Will trigger return to camp
-				break
-
-
 func on_time_tick(_hour: int, minute: int) -> void:
 	# Every 15 minutes - reconsider decisions
 	if minute % 15 == 0:
@@ -148,6 +122,7 @@ func _raider_return_to_camp(i: int) -> void:
 		return
 
 	manager.targets[i] = home_pos
+	manager.arrival_radii[i] = _camp_radius  # Arrive when on camp sprite
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.WALKING)
 
@@ -167,9 +142,8 @@ func _raider_go_to_farm(i: int) -> void:
 			best_dist_sq = dist_sq
 			best_farm = farm_pos
 
-	# Small offset so raiders spread across the farm
-	var offset := Vector2(randf_range(-20, 20), randf_range(-20, 20))
-	manager.targets[i] = best_farm + offset
+	manager.targets[i] = best_farm
+	manager.arrival_radii[i] = _farm_radius  # Arrive when on farm sprite
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.WANDERING)
 

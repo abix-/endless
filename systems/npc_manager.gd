@@ -44,6 +44,7 @@ var attack_damages: PackedFloat32Array
 var attack_ranges: PackedFloat32Array
 var attack_timers: PackedFloat32Array
 var scan_timers: PackedFloat32Array
+var arrival_radii: PackedFloat32Array
 var death_times: PackedInt32Array
 
 var states: PackedInt32Array
@@ -132,6 +133,7 @@ func _init_arrays() -> void:
 	attack_ranges.resize(max_count)
 	attack_timers.resize(max_count)
 	scan_timers.resize(max_count)
+	arrival_radii.resize(max_count)
 	death_times.resize(max_count)
 
 	states.resize(max_count)
@@ -175,7 +177,6 @@ func _process(delta: float) -> void:
 	_combat.process_scanning(delta)
 	_combat.process(delta)
 	_nav.process(delta)
-	_needs.process(delta)
 
 	if _projectiles:
 		_projectiles.process(delta)
@@ -239,6 +240,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	attack_ranges[i] = attack_range
 	attack_timers[i] = 0.0
 	scan_timers[i] = randf() * Config.SCAN_INTERVAL
+	arrival_radii[i] = 5.0  # Default for exact positions, override for buildings
 	death_times[i] = -1
 
 	states[i] = State.IDLE
