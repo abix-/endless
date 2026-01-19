@@ -97,7 +97,7 @@ func _update_time() -> void:
 
 
 func _update_fps() -> void:
-	var fps: int = Engine.get_frames_per_second()
+	var fps: int = int(Engine.get_frames_per_second())
 	fps_label.text = "FPS: %d | Loop: %.1fms" % [fps, npc_manager.last_loop_time]
 
 
