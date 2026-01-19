@@ -114,6 +114,19 @@ func _generate_world() -> void:
 			add_child(home)
 			town_data.homes.append(home)
 
+		# Create guard posts (perimeter around town, between homes and camp)
+		for g in Config.GUARD_POSTS_PER_TOWN:
+			var angle: float = (g / float(Config.GUARD_POSTS_PER_TOWN)) * TAU
+			var dist: float = randf_range(500, 600)
+			var post_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
+
+			var post = location_scene.instantiate()
+			post.location_name = "%s Post" % town_name
+			post.location_type = "guard_post"
+			post.global_position = post_pos
+			add_child(post)
+			town_data.guard_posts.append(post)
+
 		# Create raider camp (away from town, toward edge or other direction)
 		var camp_angle: float = randf() * TAU
 		var camp_pos: Vector2 = town_center + Vector2(cos(camp_angle), sin(camp_angle)) * Config.CAMP_DISTANCE
@@ -204,16 +217,18 @@ func _spawn_npcs() -> void:
 			total_farmers += 1
 
 		# Spawn guards
+		var guard_posts: Array = town.guard_posts
 		for i in Config.GUARDS_PER_TOWN:
 			var home_idx: int = Config.FARMERS_PER_TOWN + i
 			var home = homes[home_idx % homes.size()]
 			var home_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
-			# Guards patrol near town center
-			var patrol_offset := Vector2(randf_range(-100, 100), randf_range(-100, 100))
+			# Guards patrol at guard posts
+			var post = guard_posts[i % guard_posts.size()]
+			var patrol_offset := Vector2(randf_range(-30, 30), randf_range(-30, 30))
 			npc_manager.spawn_guard(
 				home.global_position + home_offset,
 				home.global_position,
-				town_center + patrol_offset,
+				post.global_position + patrol_offset,
 				randf() > 0.5,  # Random day/night shift
 				town_idx
 			)

@@ -37,6 +37,10 @@ const CAMP_PIECES := [
 	{"sprite": "tent", "offset": Vector2(0, 0)},
 ]
 
+const GUARD_POST_PIECES := [
+	{"sprite": "wall", "offset": Vector2(0, 0)},
+]
+
 var texture: Texture2D
 
 
@@ -59,6 +63,8 @@ func _build_location() -> void:
 			_build_from_pieces(HOME_PIECES)
 		"field":
 			_add_named_sprite("farm", Vector2.ZERO)
+		"guard_post":
+			_build_from_pieces(GUARD_POST_PIECES)
 		_:
 			_build_from_pieces(HOME_PIECES)
 
@@ -105,7 +111,7 @@ func _add_sprite_at(coords: Vector2i, offset: Vector2, z: int) -> void:
 
 
 func _setup_label() -> void:
-	if "Farm" in location_name or "Home" in location_name:
+	if "Farm" in location_name or "Home" in location_name or "Post" in location_name:
 		label.visible = false
 	else:
 		label.text = location_name
