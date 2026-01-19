@@ -50,7 +50,7 @@ const GUARDS_PER_TOWN := 30
 const FARMS_PER_TOWN := 2
 const GUARD_POSTS_PER_TOWN := 6
 const RAIDERS_PER_CAMP := 30
-const CAMP_DISTANCE := 900  # Distance from town to raider camp
+const CAMP_DISTANCE := 1100  # Distance from town to raider camp (past guard posts)
 
 # Rendering
 const RENDER_MARGIN := 100.0

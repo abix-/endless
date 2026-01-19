@@ -100,8 +100,8 @@ func _generate_world() -> void:
 			add_child(farm)
 			town_data.farms.append(farm)
 
-		# Create homes (ring around center)
-		var num_homes: int = Config.FARMERS_PER_TOWN + Config.GUARDS_PER_TOWN
+		# Create homes (ring around center) - just for farmers, guards patrol from posts
+		var num_homes: int = Config.FARMERS_PER_TOWN
 		for h in num_homes:
 			var angle: float = (h / float(num_homes)) * TAU
 			var dist: float = randf_range(350, 450)
@@ -216,18 +216,15 @@ func _spawn_npcs() -> void:
 			)
 			total_farmers += 1
 
-		# Spawn guards
+		# Spawn guards (sleep near town center, patrol at posts)
 		var guard_posts: Array = town.guard_posts
 		for i in Config.GUARDS_PER_TOWN:
-			var home_idx: int = Config.FARMERS_PER_TOWN + i
-			var home = homes[home_idx % homes.size()]
-			var home_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
-			# Guards patrol at guard posts
 			var post = guard_posts[i % guard_posts.size()]
+			var sleep_offset := Vector2(randf_range(-50, 50), randf_range(-50, 50))
 			var patrol_offset := Vector2(randf_range(-30, 30), randf_range(-30, 30))
 			npc_manager.spawn_guard(
-				home.global_position + home_offset,
-				home.global_position,
+				post.global_position + patrol_offset,
+				town_center + sleep_offset,  # Sleep near town center
 				post.global_position + patrol_offset,
 				randf() > 0.5,  # Random day/night shift
 				town_idx
