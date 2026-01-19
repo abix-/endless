@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 Config="*res://autoloads/config.gd"
 WorldClock="*res://autoloads/world_clock.gd"
+UserSettings="*res://autoloads/user_settings.gd"
 
 [input]
 

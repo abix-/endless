@@ -5,11 +5,13 @@ var projectile_manager_scene: PackedScene = preload("res://systems/projectile_ma
 var player_scene: PackedScene = preload("res://entities/player.tscn")
 var location_scene: PackedScene = preload("res://world/location.tscn")
 var hud_scene: PackedScene = preload("res://ui/hud.tscn")
+var settings_menu_scene: PackedScene = preload("res://ui/settings_menu.tscn")
 
 var npc_manager: Node
 var projectile_manager: Node
 var player: Node
 var hud: Node
+var settings_menu: Node
 
 var farms: Array = []
 var guard_posts: Array = []
@@ -30,6 +32,7 @@ func _ready() -> void:
 	_setup_npc_manager()
 	_setup_player()
 	_setup_hud()
+	_setup_settings_menu()
 	_spawn_many_npcs(500)
 
 func _create_locations() -> void:
@@ -119,6 +122,11 @@ func _setup_player() -> void:
 func _setup_hud() -> void:
 	hud = hud_scene.instantiate()
 	add_child(hud)
+
+
+func _setup_settings_menu() -> void:
+	settings_menu = settings_menu_scene.instantiate()
+	add_child(settings_menu)
 
 func _spawn_many_npcs(total: int) -> void:
 	var raider_count = total * 3 / 10  # 30%

@@ -25,6 +25,22 @@ func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D) -> void:
 	manager = npc_manager
 	multimesh_instance = mm_instance
 	_init_multimesh()
+	_connect_settings()
+
+
+func _connect_settings() -> void:
+	UserSettings.settings_changed.connect(_on_settings_changed)
+	_apply_settings()
+
+
+func _on_settings_changed() -> void:
+	_apply_settings()
+
+
+func _apply_settings() -> void:
+	var mat: ShaderMaterial = multimesh_instance.material as ShaderMaterial
+	if mat:
+		mat.set_shader_parameter("show_hp_always", UserSettings.show_hp_bars_always)
 
 
 func _init_multimesh() -> void:
