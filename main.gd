@@ -146,8 +146,8 @@ func _generate_world() -> void:
 			add_child(post)
 			town_data.guard_posts.append(post)
 
-		# Create raider camp (away from town, in direction with most room)
-		var camp_pos := _find_camp_position(town_center)
+		# Create raider camp (away from all towns, in direction with most room)
+		var camp_pos := _find_camp_position(town_center, town_positions)
 
 		var camp = location_scene.instantiate()
 		camp.location_name = "%s Raiders" % town_name
@@ -300,15 +300,14 @@ func _input(event: InputEvent) -> void:
 				WorldClock.paused = not WorldClock.paused
 
 
-func _find_camp_position(town_center: Vector2) -> Vector2:
-	# Try to place camp at CAMP_DISTANCE, ensuring it stays outside guard post radius
-	var min_dist_from_town := 700.0  # Must be past guard posts (500-600px)
+func _find_camp_position(town_center: Vector2, all_town_centers: Array[Vector2]) -> Vector2:
+	var min_dist_from_any_town := 700.0  # Must be past guard posts (500-600px)
 	var best_pos := town_center
-	var best_dist := 0.0
+	var best_score := -999999.0
 
-	# Try 8 directions, pick the one that gives most distance from town after clamping
-	for i in 8:
-		var angle: float = i * TAU / 8.0 + randf_range(-0.2, 0.2)
+	# Try 16 directions, pick the one furthest from all towns
+	for i in 16:
+		var angle: float = i * TAU / 16.0 + randf_range(-0.1, 0.1)
 		var dir := Vector2(cos(angle), sin(angle))
 		var pos: Vector2 = town_center + dir * Config.CAMP_DISTANCE
 
@@ -316,16 +315,28 @@ func _find_camp_position(town_center: Vector2) -> Vector2:
 		pos.x = clampf(pos.x, Config.WORLD_MARGIN, Config.WORLD_WIDTH - Config.WORLD_MARGIN)
 		pos.y = clampf(pos.y, Config.WORLD_MARGIN, Config.WORLD_HEIGHT - Config.WORLD_MARGIN)
 
-		var dist: float = pos.distance_to(town_center)
-		if dist > best_dist:
-			best_dist = dist
+		# Score = minimum distance to any town (higher is better)
+		var min_dist := 999999.0
+		for tc in all_town_centers:
+			min_dist = minf(min_dist, pos.distance_to(tc))
+
+		if min_dist > best_score:
+			best_score = min_dist
 			best_pos = pos
 
-	# If best position is still too close, push it away from town center
-	if best_dist < min_dist_from_town:
-		var dir: Vector2 = (best_pos - town_center).normalized()
-		if dir.length_squared() < 0.1:
-			dir = Vector2.RIGHT
-		best_pos = town_center + dir * min_dist_from_town
+	# If best position is still too close to any town, try to push it away
+	if best_score < min_dist_from_any_town:
+		# Find direction away from nearest town
+		var nearest_town := town_center
+		var nearest_dist := 999999.0
+		for tc in all_town_centers:
+			var d := best_pos.distance_to(tc)
+			if d < nearest_dist:
+				nearest_dist = d
+				nearest_town = tc
+		var away_dir: Vector2 = (best_pos - nearest_town).normalized()
+		if away_dir.length_squared() < 0.1:
+			away_dir = Vector2.RIGHT
+		best_pos = nearest_town + away_dir * min_dist_from_any_town
 
 	return best_pos
