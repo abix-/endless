@@ -12,7 +12,7 @@ var rendered_npcs: PackedInt32Array  # Track which NPCs were rendered last frame
 var rendered_loot: PackedInt32Array  # Track which loot icons were rendered
 
 const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
-const LOOT_ICON_OFFSET := Vector2(0, -20)  # Offset above raider
+const LOOT_ICON_OFFSET := Vector2(0, -12)  # Offset on raider's head
 const LOOT_ICON_SCALE := 1.5
 
 # Sprite frames (column, row) in the character sheet
