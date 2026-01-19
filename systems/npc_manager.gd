@@ -3,13 +3,18 @@
 extends Node2D
 
 # Re-export enums for external access (main.gd uses these)
-enum State { IDLE, WALKING, SLEEPING, WORKING, RESTING, WANDERING, FIGHTING, FLEEING }
+enum State { IDLE, WALKING, RESTING, WORKING, WANDERING, FIGHTING, FLEEING }
 enum Faction { VILLAGER, RAIDER }
 enum Job { FARMER, GUARD, RAIDER }
 
 signal npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int)
 @warning_ignore("unused_signal")  # Emitted from npc_needs.gd
 signal raider_delivered_food(town_idx: int)
+@warning_ignore("unused_signal")  # Emitted from npc_needs.gd
+signal npc_ate_food(town_idx: int, is_raider: bool)
+@warning_ignore("unused_signal")  # Emitted from npc_combat.gd
+signal npc_died(npc_index: int, job: int, level: int, town_idx: int, killer_job: int, killer_level: int)
+signal npc_spawned(job: int, town_idx: int)
 
 const Location = preload("res://world/location.gd")
 const MAX_LEVEL := 9999
@@ -42,6 +47,8 @@ var farm_positions: Array[Vector2] = []
 var guard_posts_by_town: Array[Array] = []  # Per-town arrays of guard post positions
 var town_centers: Array[Vector2] = []  # Fountain at center of each town
 var town_upgrades: Array = []  # Reference to main's upgrade data
+var town_food: PackedInt32Array  # Reference to main's town food (set by main.gd)
+var camp_food: PackedInt32Array  # Reference to main's camp food (set by main.gd)
 
 # Data arrays
 var count := 0
@@ -88,6 +95,10 @@ var patrol_target_idx: PackedInt32Array   # Current target post index in town's 
 var patrol_last_idx: PackedInt32Array     # Last visited post index (-1 = none)
 var patrol_timer: PackedInt32Array        # Minutes waited at current post
 
+# Predicted movement (Factorio-style optimization)
+var last_logic_frame: PackedInt32Array    # Frame when logic was last calculated
+var intended_velocities: PackedVector2Array  # Cached velocity from last logic update
+
 # Selection
 var selected_npc := -1
 
@@ -95,6 +106,7 @@ var selected_npc := -1
 @onready var multimesh_instance: MultiMeshInstance2D = $MultiMeshInstance2D
 @onready var loot_icon_instance: MultiMeshInstance2D = $LootIconMultiMesh
 @onready var halo_instance: MultiMeshInstance2D = $HaloMultiMesh
+@onready var sleep_icon_instance: MultiMeshInstance2D = $SleepIconMultiMesh
 @onready var info_label: Label = $InfoLabel
 
 # Stats - alive counts
@@ -185,6 +197,8 @@ func _init_arrays() -> void:
 	patrol_target_idx.resize(max_count)
 	patrol_last_idx.resize(max_count)
 	patrol_timer.resize(max_count)
+	last_logic_frame.resize(max_count)
+	intended_velocities.resize(max_count)
 
 	for i in max_count:
 		death_times[i] = -1
@@ -193,7 +207,7 @@ func _init_arrays() -> void:
 
 func _init_systems() -> void:
 	_grid = NPCGrid.new(self)
-	_renderer = NPCRenderer.new(self, multimesh_instance, loot_icon_instance, halo_instance)
+	_renderer = NPCRenderer.new(self, multimesh_instance, loot_icon_instance, halo_instance, sleep_icon_instance)
 	_state = NPCState.new(self)
 	_nav = NPCNavigation.new(self)
 	_combat = NPCCombat.new(self)
@@ -489,7 +503,6 @@ func find_nearest_farm(pos: Vector2) -> Vector2:
 
 func _on_time_tick(_hour: int, _minute: int) -> void:
 	_needs.on_time_tick(_hour, _minute)
-	_check_respawns()
 
 
 func _on_npc_arrived(i: int) -> void:
@@ -552,29 +565,43 @@ func apply_town_upgrade(town_idx: int, upgrade_type: String, new_level: int) -> 
 			bonus = Config.UPGRADE_GUARD_RANGE_BONUS * new_level
 		"guard_size":
 			bonus = Config.UPGRADE_GUARD_SIZE_BONUS * new_level
+		"farmer_hp":
+			bonus = Config.UPGRADE_FARMER_HP_BONUS * new_level
 
-	# Apply to all guards in this town
+	# Apply to NPCs in this town
 	for i in count:
 		if healths[i] <= 0:
-			continue
-		if jobs[i] != Job.GUARD:
 			continue
 		if town_indices[i] != town_idx:
 			continue
 
 		match upgrade_type:
 			"guard_health":
+				if jobs[i] != Job.GUARD:
+					continue
 				var old_max: float = max_healths[i]
 				max_healths[i] = Config.GUARD_HP * (1.0 + bonus)
-				# Heal proportionally
 				healths[i] = healths[i] * max_healths[i] / old_max
 				health_dirty[i] = 1
 			"guard_attack":
+				if jobs[i] != Job.GUARD:
+					continue
 				attack_damages[i] = Config.GUARD_DAMAGE * (1.0 + bonus)
 			"guard_range":
+				if jobs[i] != Job.GUARD:
+					continue
 				attack_ranges[i] = Config.GUARD_RANGE * (1.0 + bonus)
 			"guard_size":
+				if jobs[i] != Job.GUARD:
+					continue
 				size_bonuses[i] = bonus
+			"farmer_hp":
+				if jobs[i] != Job.FARMER:
+					continue
+				var old_max: float = max_healths[i]
+				max_healths[i] = Config.FARMER_HP * (1.0 + bonus)
+				healths[i] = healths[i] * max_healths[i] / old_max
+				health_dirty[i] = 1
 
 
 # ============================================================

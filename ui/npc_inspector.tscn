@@ -1,0 +1,138 @@
+[gd_scene load_steps=2 format=3 uid="uid://npc_inspector001"]
+
+[ext_resource type="Script" path="res://ui/npc_inspector.gd" id="1_script"]
+
+[node name="NPCInspector" type="CanvasLayer"]
+layer = 10
+script = ExtResource("1_script")
+
+[node name="Panel" type="PanelContainer" parent="."]
+visible = false
+offset_top = 360.0
+offset_right = 200.0
+offset_bottom = 700.0
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="Panel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Title" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "NPC Inspector"
+horizontal_alignment = 1
+
+[node name="Sep1" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="JobLevel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Guard Lv.1"
+
+[node name="Town" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Town: -"
+
+[node name="Sep2" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="HealthRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/HealthRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "Health"
+
+[node name="Bar" type="ProgressBar" parent="Panel/MarginContainer/VBox/HealthRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+value = 1.0
+show_percentage = false
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/HealthRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "100/100"
+horizontal_alignment = 2
+
+[node name="EnergyRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/EnergyRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "Energy"
+
+[node name="Bar" type="ProgressBar" parent="Panel/MarginContainer/VBox/EnergyRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+value = 1.0
+show_percentage = false
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/EnergyRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "100/100"
+horizontal_alignment = 2
+
+[node name="XP" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "XP: 0/100"
+
+[node name="Sep3" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="State" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "State: Idle"
+
+[node name="Target" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Target: None"
+
+[node name="Sep4" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Attack" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Attack: 0"
+
+[node name="Range" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Range: 0"
+
+[node name="Position" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Pos: 0, 0"
+
+[node name="Sep5" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Extra" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = ""
+
+[node name="ButtonRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="PinButton" type="Button" parent="Panel/MarginContainer/VBox/ButtonRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "Pin"
+
+[node name="CopyButton" type="Button" parent="Panel/MarginContainer/VBox/ButtonRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Copy"

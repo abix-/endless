@@ -2,7 +2,7 @@
 
 A game about fighting entropy. Raiders steal your food. Guards die in combat. Farms lie fallow. Everything tends toward chaos and collapse. Can you build something that lasts?
 
-Built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
+Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimizations for high-performance NPC management.
 
 **Inspirations:**
 - **Asimov's "The Last Question"** - entropy as the ultimate antagonist
@@ -10,7 +10,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC man
   - Farming: villagers work fields → grain → rations, weather affects yield, starvation causes unrest
   - Balance farming vs other jobs (woodcutting, mining, blacksmithing, army)
 - **RimWorld** - colonist needs, AI storytelling, emergent chaos
-- **Factorio** - scale to thousands of entities, optimize production chains
+- **Factorio** - scale to thousands of entities, predicted rendering, dormant states, spatial partitioning
 
 ## The Struggle
 
@@ -40,7 +40,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC man
 - [x] Food delivery (raiders return loot to camp)
 - [x] Loot icon above raiders carrying food
 - [x] Per-town and per-camp food tracking in HUD
-- [ ] Food consumption (NPCs eat from faction supply)
+- [x] Food consumption (NPCs eat from faction supply)
 - [ ] Starvation effects (HP drain, desertion)
 - [ ] Multiple resources (wood, iron, gold)
 - [ ] Production buildings (lumber mill, mine, blacksmith)
@@ -61,13 +61,14 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC man
 
 ### AI Behaviors
 - [x] Farmers: day/night work schedule, always flee to town center
-- [x] Guards: patrol between all 6 posts (30min each), day/night shifts, flee to town center below 33% health
-- [x] Raiders: priority system (wounded → exhausted → deliver loot → steal), flee to camp below 50% health
+- [x] Guards: patrol between all 6 posts (30min each), day/night shifts, flee to town center below 33% HP
+- [x] Raiders: priority system (wounded → exhausted → deliver loot → steal), flee to camp below 50% HP
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
-- [x] HP regen (2/hr awake, 6/hr sleeping, 10x at fountain/camp)
+- [x] HP regen (2/hr awake, 6/hr sleeping, 10x at fountain/camp with upgrade scaling)
 - [x] Recovery system (fleeing NPCs heal until 75% before resuming)
-- [x] 15-minute decision cycles
+- [x] 15-minute decision cycles (event-driven override on state changes)
 - [x] Building arrival based on sprite size (not pixel coordinates)
+- [x] Permadeath (no respawning, population spawn waves only)
 - [ ] AI lords that expand and compete
 
 ### NPC States
@@ -76,7 +77,7 @@ Activity-specific states (no translation layer):
 | State | Jobs | Description |
 |-------|------|-------------|
 | IDLE | All | Between decisions |
-| SLEEPING | All | At home/camp, asleep |
+| RESTING | All | At home/camp, recovering |
 | OFF_DUTY | All | At home/camp, awake |
 | FIGHTING | Guard, Raider | In combat |
 | FLEEING | All | Running from combat |
@@ -90,11 +91,12 @@ Activity-specific states (no translation layer):
 ### Player Controls
 - [x] WASD camera movement (configurable speed 100-2000)
 - [x] Mouse wheel zoom (0.1x - 4.0x, centers on cursor)
-- [ ] Click to select and inspect NPCs
+- [x] Click to select and inspect NPCs (left panel with pin/copy)
 - [x] Time controls (+/- speed, SPACE pause)
 - [x] Settings menu (ESC) with HP bar modes, scroll speed
 - [x] First town is player-controlled (click fountain for upgrades)
 - [x] Guard upgrades: health, attack, range, size (10 levels each, costs food)
+- [x] Town management panel with population stats and spawn timer
 - [ ] Villager role assignment UI
 - [ ] Build/upgrade buildings
 - [ ] Train guards from population
@@ -106,15 +108,28 @@ Activity-specific states (no translation layer):
 There is no victory. Only the endless struggle against entropy.
 
 ### Performance (supports 3000+ NPCs at 60 FPS)
+
+**Factorio-inspired optimizations:**
+- [x] Predicted movement rendering (logic every 2-30 frames, render interpolates)
+- [x] Dormant states (stationary NPCs skip navigation entirely)
+- [x] Spatial threat registration (skip enemy scans when no threats in cell)
+- [x] Event-driven wake-ups (state changes force immediate logic update)
+- [x] LOD-based intervals (combat 2f, moving 5f, idle 30f, distance multiplied)
+
+**Core architecture:**
 - [x] Data-Oriented Design with PackedArrays
-- [x] MultiMesh rendering (single draw call)
-- [x] Spatial grid for O(1) neighbor queries
-- [x] LOD system (distant NPCs update less often)
+- [x] MultiMesh rendering (single draw call per layer)
+- [x] Spatial grid for O(1) neighbor queries (64x64 cells)
 - [x] Camera culling (only render visible NPCs)
-- [x] Staggered scanning (1/8 NPCs per frame)
+- [x] Staggered scanning (1/8 NPCs per frame for combat)
+- [x] Independent separation stagger (1/4 NPCs per frame for collision)
+- [x] TCP-like collision avoidance (head-on, crossing, overtaking)
 - [x] Combat log batching
-- [x] TCP-like collision avoidance (head-on, crossing, overtaking - index-based symmetry breaking)
-- [x] Golden halo shader effect for NPCs receiving healing bonus
+
+**Visual effects:**
+- [x] Golden halo shader for fountain/camp healing
+- [x] Sleep "z" indicator for resting NPCs
+- [x] Loot icon for raiders carrying food
 
 ---
 
@@ -127,22 +142,23 @@ autoloads/
   world_clock.gd        # Day/night cycle, time signals
   user_settings.gd      # Persistent user preferences
 systems/
-  npc_manager.gd        # Core NPC orchestration, data arrays
+  npc_manager.gd        # Core orchestration, 30+ parallel data arrays
   npc_state.gd          # Activity-specific states, validation per job
-  npc_navigation.gd     # Movement, LOD, separation forces
-  npc_combat.gd         # Scanning, targeting, damage, leashing
-  npc_needs.gd          # Energy, schedules, raider AI
-  npc_grid.gd           # Spatial partitioning (64x64)
-  npc_renderer.gd       # MultiMesh rendering, culling
+  npc_navigation.gd     # Predicted movement, LOD intervals, separation
+  npc_combat.gd         # Threat detection, targeting, damage, leashing
+  npc_needs.gd          # Energy, schedules, decision trees
+  npc_grid.gd           # Spatial partitioning (64x64 cells)
+  npc_renderer.gd       # MultiMesh rendering, culling, indicators
   projectile_manager.gd # Projectile pooling, collision
 entities/
   player.gd             # Camera controls
 world/
-  location.gd           # Town/farm/camp markers
+  location.gd           # Sprite definitions, interaction radii
 ui/
   hud.gd                # Stats, food tracking, combat log
   settings_menu.gd      # Options menu
-  upgrade_menu.gd       # Town upgrade UI
+  upgrade_menu.gd       # Town management, population stats
+  npc_inspector.gd      # Selected NPC details, pin/copy
 ```
 
 ## Controls
@@ -151,6 +167,7 @@ ui/
 |-----|--------|
 | WASD / Arrows | Move camera |
 | Mouse Wheel | Zoom (centers on cursor) |
+| Left Click (NPC) | Select and inspect |
 | Left Click (fountain) | Open upgrade menu |
 | + / = | Speed up time (2x) |
 | - | Slow down time (0.5x) |

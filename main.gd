@@ -7,6 +7,7 @@ var location_scene: PackedScene = preload("res://world/location.tscn")
 var hud_scene: PackedScene = preload("res://ui/hud.tscn")
 var settings_menu_scene: PackedScene = preload("res://ui/settings_menu.tscn")
 var upgrade_menu_scene: PackedScene = preload("res://ui/upgrade_menu.tscn")
+var npc_inspector_scene: PackedScene = preload("res://ui/npc_inspector.tscn")
 
 var npc_manager: Node
 var projectile_manager: Node
@@ -14,11 +15,13 @@ var player: Node
 var hud: Node
 var settings_menu: Node
 var upgrade_menu: Node
+var npc_inspector: Node
 
 # World data
 var towns: Array = []  # Array of {center, farms, homes, camp, food}
 var town_food: PackedInt32Array  # Food stored in each town
 var camp_food: PackedInt32Array  # Food stored in each raider camp
+var spawn_timers: PackedInt32Array  # Hours since last spawn per town
 var player_town_idx: int = 0  # First town is player-controlled
 var town_upgrades: Array = []  # Per-town upgrade levels
 
@@ -70,12 +73,14 @@ func _draw() -> void:
 
 
 func _generate_world() -> void:
-	# Initialize food arrays
+	# Initialize food and spawn arrays
 	town_food.resize(NUM_TOWNS)
 	camp_food.resize(NUM_TOWNS)
+	spawn_timers.resize(NUM_TOWNS)
 	for i in NUM_TOWNS:
 		town_food[i] = 0
 		camp_food[i] = 0
+		spawn_timers[i] = 0
 
 	# Initialize town upgrades
 	for i in NUM_TOWNS:
@@ -83,7 +88,12 @@ func _generate_world() -> void:
 			"guard_health": 0,
 			"guard_attack": 0,
 			"guard_range": 0,
-			"guard_size": 0
+			"guard_size": 0,
+			"farm_yield": 0,
+			"farmer_hp": 0,
+			"healing_rate": 0,
+			"alert_radius": 0,
+			"food_efficiency": 0
 		})
 
 	# Generate scattered town positions
@@ -217,6 +227,11 @@ func _setup_managers() -> void:
 	# Pass town upgrades reference
 	npc_manager.town_upgrades = town_upgrades
 
+	# Pass food references for eating
+	npc_manager.town_food = town_food
+	npc_manager.camp_food = camp_food
+	npc_manager.npc_ate_food.connect(_on_npc_ate_food)
+
 	# Set village center to world center (for compatibility)
 	@warning_ignore("integer_division")
 	npc_manager.village_center = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)
@@ -239,6 +254,9 @@ func _setup_ui() -> void:
 	upgrade_menu = upgrade_menu_scene.instantiate()
 	upgrade_menu.upgrade_purchased.connect(_on_upgrade_purchased)
 	add_child(upgrade_menu)
+
+	npc_inspector = npc_inspector_scene.instantiate()
+	add_child(npc_inspector)
 
 
 func _spawn_npcs() -> void:
@@ -299,10 +317,11 @@ func _on_day_changed(day: int) -> void:
 
 
 func _on_time_tick(_hour: int, minute: int) -> void:
-	# Generate food every hour when farmers are working
+	# Only process on the hour
 	if minute != 0:
 		return
 
+	# Generate food when farmers are working
 	for i in npc_manager.count:
 		if npc_manager.healths[i] <= 0:
 			continue
@@ -313,12 +332,69 @@ func _on_time_tick(_hour: int, minute: int) -> void:
 
 		var town_idx: int = npc_manager.town_indices[i]
 		if town_idx >= 0 and town_idx < town_food.size():
-			town_food[town_idx] += FOOD_PER_WORK_HOUR
+			var yield_level: int = town_upgrades[town_idx].farm_yield
+			var yield_mult: float = 1.0 + yield_level * Config.UPGRADE_FARM_YIELD_BONUS
+			town_food[town_idx] += int(FOOD_PER_WORK_HOUR * yield_mult)
+
+	# Spawn new NPCs at regular intervals
+	for town_idx in towns.size():
+		spawn_timers[town_idx] += 1
+		if spawn_timers[town_idx] >= Config.SPAWN_INTERVAL_HOURS:
+			spawn_timers[town_idx] = 0
+			_spawn_town_npcs(town_idx)
+
+
+func _spawn_town_npcs(town_idx: int) -> void:
+	var town: Dictionary = towns[town_idx]
+	var homes: Array = town.homes
+	var farms: Array = town.farms
+	var camp = town.camp
+	var town_center: Vector2 = town.center
+
+	# Spawn 1 farmer at fountain
+	var home = homes[randi() % homes.size()]
+	var farm = farms[randi() % farms.size()]
+	npc_manager.spawn_farmer(
+		town_center,
+		home.global_position,
+		farm.global_position,
+		town_idx
+	)
+	npc_manager.npc_spawned.emit(NPCState.Job.FARMER, town_idx)
+
+	# Spawn 1 guard at fountain
+	home = homes[randi() % homes.size()]
+	var night_shift: bool = randi() % 2 == 1
+	npc_manager.spawn_guard(
+		town_center,
+		home.global_position,
+		home.global_position,
+		night_shift,
+		town_idx
+	)
+	npc_manager.npc_spawned.emit(NPCState.Job.GUARD, town_idx)
+
+	# Spawn 1 raider at camp
+	npc_manager.spawn_raider(
+		camp.global_position,
+		camp.global_position,
+		town_idx
+	)
+	npc_manager.npc_spawned.emit(NPCState.Job.RAIDER, town_idx)
 
 
 func _on_raider_delivered_food(town_idx: int) -> void:
 	if town_idx >= 0 and town_idx < camp_food.size():
 		camp_food[town_idx] += 1
+
+
+func _on_npc_ate_food(town_idx: int, is_raider: bool) -> void:
+	if is_raider:
+		if town_idx >= 0 and town_idx < camp_food.size():
+			camp_food[town_idx] -= Config.FOOD_PER_MEAL
+	else:
+		if town_idx >= 0 and town_idx < town_food.size():
+			town_food[town_idx] -= Config.FOOD_PER_MEAL
 
 
 func _process(_delta: float) -> void:
@@ -334,25 +410,6 @@ func _input(event: InputEvent) -> void:
 				WorldClock.ticks_per_real_second /= 2.0
 			KEY_SPACE:
 				WorldClock.paused = not WorldClock.paused
-
-	# Click on player's town fountain to open upgrade menu
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if upgrade_menu.is_open():
-			return
-		var click_pos: Vector2 = _get_world_mouse_position()
-		var town_center: Vector2 = towns[player_town_idx].center
-		if click_pos.distance_to(town_center) < 48.0:  # Fountain radius
-			upgrade_menu.open(self, player_town_idx)
-
-
-func _get_world_mouse_position() -> Vector2:
-	var camera: Camera2D = player.get_node("Camera2D")
-	var viewport := get_viewport()
-	var mouse_screen := viewport.get_mouse_position()
-	var viewport_size := viewport.get_visible_rect().size
-	var screen_center := viewport_size / 2.0
-	var mouse_offset := mouse_screen - screen_center
-	return player.global_position + mouse_offset / camera.zoom
 
 
 func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:

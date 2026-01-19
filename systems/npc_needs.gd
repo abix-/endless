@@ -47,18 +47,21 @@ func on_time_tick(_hour: int, minute: int) -> void:
 
 		# Energy update
 		match state:
-			NPCState.State.SLEEPING:
+			NPCState.State.RESTING:
 				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_SLEEP_GAIN)
 			NPCState.State.OFF_DUTY:
 				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_REST_GAIN)
 			_:
 				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
 
-		# HP regen (3x faster when sleeping, 10x fountain/camp)
+		# HP regen (3x faster when resting, 10x fountain/camp with healing upgrade)
 		if manager.healths[i] < max_hp:
-			var regen: float = Config.HP_REGEN_SLEEP if state == NPCState.State.SLEEPING else Config.HP_REGEN_AWAKE
+			var regen: float = Config.HP_REGEN_SLEEP if state == NPCState.State.RESTING else Config.HP_REGEN_AWAKE
 			if _is_on_fountain(i) or _is_at_camp(i):
-				regen *= 10.0
+				var town_idx: int = manager.town_indices[i]
+				var heal_level: int = manager.town_upgrades[town_idx].healing_rate if town_idx >= 0 else 0
+				var heal_mult: float = 10.0 * (1.0 + heal_level * Config.UPGRADE_HEALING_RATE_BONUS)
+				regen *= heal_mult
 			manager.healths[i] = minf(max_hp, manager.healths[i] + regen)
 			manager.mark_health_dirty(i)
 
@@ -79,53 +82,47 @@ func decide_what_to_do(i: int) -> void:
 	var energy: float = manager.energies[i]
 	var state: int = manager.states[i]
 
-	# Low energy - go home to sleep
-	if energy <= Config.ENERGY_EXHAUSTED:
-		if state != NPCState.State.SLEEPING:
-			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = manager._arrival_home
-			manager._state.set_state(i, NPCState.State.WALKING)
+	# Priority 1: Low energy - go home to rest
+	if energy < Config.ENERGY_HUNGRY:
+		if state not in [NPCState.State.RESTING, NPCState.State.WALKING]:
+			_go_home(i)
 		return
 
-	var is_work_time: bool = _is_work_time(i)
-
-	if is_work_time:
+	# Priority 2: Work time - go farm
+	if _is_work_time(i):
 		if state not in [NPCState.State.FARMING, NPCState.State.WALKING]:
 			manager.targets[i] = manager.work_positions[i]
 			manager.arrival_radii[i] = manager._arrival_farm
 			manager._state.set_state(i, NPCState.State.WALKING)
-	else:
-		if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING]:
-			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = manager._arrival_home
-			manager._state.set_state(i, NPCState.State.WALKING)
+			manager._nav.force_logic_update(i)
+		return
+
+	# Priority 3: Off duty - go home
+	if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING]:
+		_go_home(i)
 
 
 func _decide_guard(i: int) -> void:
 	var energy: float = manager.energies[i]
 	var state: int = manager.states[i]
 
-	# Low energy - go home to sleep
-	if energy <= Config.ENERGY_EXHAUSTED:
-		if state != NPCState.State.SLEEPING:
-			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = manager._arrival_home
-			manager._state.set_state(i, NPCState.State.WALKING)
+	# Priority 1: Low energy - go home to rest
+	if energy < Config.ENERGY_HUNGRY:
+		if state not in [NPCState.State.RESTING, NPCState.State.WALKING]:
+			_go_home(i)
 		return
 
-	var is_work_time: bool = _is_work_time(i)
-
-	if is_work_time:
-		# Check if at post and waited long enough - move to next
+	# Priority 2: Work time - patrol
+	if _is_work_time(i):
 		if state == NPCState.State.ON_DUTY and manager.patrol_timer[i] >= Config.GUARD_PATROL_WAIT:
 			_guard_go_to_next_post(i)
 		elif state not in [NPCState.State.ON_DUTY, NPCState.State.PATROLLING]:
 			_guard_go_to_next_post(i)
-	else:
-		if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING]:
-			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = manager._arrival_home
-			manager._state.set_state(i, NPCState.State.WALKING)
+		return
+
+	# Priority 3: Off duty - go home
+	if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING]:
+		_go_home(i)
 
 
 func _guard_go_to_next_post(i: int) -> void:
@@ -152,11 +149,13 @@ func _guard_go_to_next_post(i: int) -> void:
 	manager.targets[i] = posts[next_idx]
 	manager.arrival_radii[i] = manager._arrival_guard_post
 	manager._state.set_state(i, NPCState.State.PATROLLING)
+	manager._nav.force_logic_update(i)
 
 
 func _decide_raider(i: int) -> void:
 	var health_pct: float = manager.healths[i] / manager.max_healths[i]
 	var energy: float = manager.energies[i]
+	var state: int = manager.states[i]
 
 	# Priority 1: Wounded - retreat to camp
 	if health_pct < Config.RAIDER_WOUNDED_THRESHOLD:
@@ -164,39 +163,45 @@ func _decide_raider(i: int) -> void:
 		_raider_return_to_camp(i)
 		return
 
-	# Priority 2: Exhausted - go home to sleep
-	if energy <= Config.ENERGY_EXHAUSTED:
-		var state: int = manager.states[i]
-		if state != NPCState.State.SLEEPING:
-			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = manager._arrival_camp
-			manager._state.set_state(i, NPCState.State.RETURNING)
+	# Priority 2: Carrying food - return to camp (before energy check)
+	if manager.carrying_food[i] == 1:
+		if state != NPCState.State.RETURNING:
+			_raider_return_to_camp(i)
 		return
 
-	# Priority 3: Carrying food - return to camp
-	if manager.carrying_food[i] == 1:
-		_raider_return_to_camp(i)
+	# Priority 3: Low energy - go home to rest
+	if energy < Config.ENERGY_HUNGRY:
+		if state not in [NPCState.State.RESTING, NPCState.State.RETURNING]:
+			_raider_return_to_camp(i)
 		return
 
 	# Priority 4: Go steal food from farms
 	_raider_go_to_farm(i)
 
 
+func _go_home(i: int) -> void:
+	manager.targets[i] = manager.home_positions[i]
+	manager.arrival_radii[i] = manager._arrival_home
+	manager._state.set_state(i, NPCState.State.WALKING)
+	manager._nav.force_logic_update(i)
+
+
 func _raider_return_to_camp(i: int) -> void:
 	var home_pos: Vector2 = manager.home_positions[i]
 	var my_pos: Vector2 = manager.positions[i]
 
-	# If already at camp, deliver immediately instead of walking
+	# If already at camp, handle arrival immediately
 	if my_pos.distance_to(home_pos) < manager._arrival_camp:
 		_raider_deliver_food(i)
+		_try_eat_at_home(i)
 		manager.wander_centers[i] = my_pos
-		manager._state.set_state(i, NPCState.State.OFF_DUTY)
 		return
 
 	manager.targets[i] = home_pos
 	manager.arrival_radii[i] = manager._arrival_camp
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.RETURNING)
+	manager._nav.force_logic_update(i)
 
 
 func _raider_go_to_farm(i: int) -> void:
@@ -218,6 +223,7 @@ func _raider_go_to_farm(i: int) -> void:
 	manager.arrival_radii[i] = manager._arrival_farm
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.RAIDING)
+	manager._nav.force_logic_update(i)
 
 
 func _is_work_time(i: int) -> bool:
@@ -237,15 +243,18 @@ func on_arrival(i: int) -> void:
 		# Raiders check if at farm to steal food
 		manager.wander_centers[i] = manager.positions[i]
 		_raider_check_steal_food(i)
-		manager._state.set_state(i, NPCState.State.IDLE)
-		decide_what_to_do(i)
+		# Go directly to returning if carrying food, otherwise reconsider
+		if manager.carrying_food[i] == 1:
+			_raider_return_to_camp(i)
+		else:
+			manager._state.set_state(i, NPCState.State.IDLE)
+			decide_what_to_do(i)
 	elif state in [NPCState.State.WALKING, NPCState.State.PATROLLING, NPCState.State.RETURNING]:
 		var my_pos: Vector2 = manager.positions[i]
 		var home_pos: Vector2 = manager.home_positions[i]
-		var energy: float = manager.energies[i]
 		var radius: float = manager.arrival_radii[i]
 
-		# Guard arrived at patrol post
+		# Guard arrived at patrol post or home
 		if job == NPCState.Job.GUARD:
 			var target: Vector2 = manager.targets[i]
 			if state == NPCState.State.PATROLLING and my_pos.distance_to(target) < radius:
@@ -253,30 +262,66 @@ func on_arrival(i: int) -> void:
 				manager.wander_centers[i] = my_pos
 				manager.patrol_timer[i] = 0
 			elif my_pos.distance_to(home_pos) < radius:
-				if energy <= Config.ENERGY_EXHAUSTED:
-					manager._state.set_state(i, NPCState.State.SLEEPING)
-				else:
-					manager._state.set_state(i, NPCState.State.OFF_DUTY)
+				_try_eat_at_home(i)
 		# Farmer arrived at work or home
 		elif job == NPCState.Job.FARMER:
 			var work_pos: Vector2 = manager.work_positions[i]
 			if my_pos.distance_to(work_pos) < radius:
 				manager._state.set_state(i, NPCState.State.FARMING)
 			elif my_pos.distance_to(home_pos) < radius:
-				if energy <= Config.ENERGY_EXHAUSTED:
-					manager._state.set_state(i, NPCState.State.SLEEPING)
-				else:
-					manager._state.set_state(i, NPCState.State.OFF_DUTY)
-					decide_what_to_do(i)
+				_try_eat_at_home(i)
 		# Raider arrived at camp
 		elif job == NPCState.Job.RAIDER:
 			if my_pos.distance_to(home_pos) < radius:
 				manager.wander_centers[i] = my_pos
 				_raider_deliver_food(i)
-				if energy <= Config.ENERGY_EXHAUSTED:
-					manager._state.set_state(i, NPCState.State.SLEEPING)
-				else:
-					manager._state.set_state(i, NPCState.State.OFF_DUTY)
+				_try_eat_at_home(i)
+
+
+func _try_eat_at_home(i: int) -> void:
+	# Try to consume food for instant recovery, otherwise rest slowly
+	if _has_food_available(i):
+		_consume_food(i)
+		manager._state.set_state(i, NPCState.State.OFF_DUTY)
+		decide_what_to_do(i)
+	else:
+		manager._state.set_state(i, NPCState.State.RESTING)
+
+
+func _has_food_available(i: int) -> bool:
+	var town_idx: int = manager.town_indices[i]
+	if town_idx < 0:
+		return false
+	var is_raider: bool = manager.jobs[i] == NPCState.Job.RAIDER
+	if is_raider:
+		if town_idx >= manager.camp_food.size():
+			return false
+		return manager.camp_food[town_idx] >= Config.FOOD_PER_MEAL
+	else:
+		if town_idx >= manager.town_food.size():
+			return false
+		return manager.town_food[town_idx] >= Config.FOOD_PER_MEAL
+
+
+func _consume_food(i: int) -> void:
+	var town_idx: int = manager.town_indices[i]
+	if town_idx < 0:
+		return
+
+	var is_raider: bool = manager.jobs[i] == NPCState.Job.RAIDER
+
+	# Food efficiency upgrade gives chance of free meal
+	var efficiency_level: int = manager.town_upgrades[town_idx].food_efficiency if town_idx >= 0 else 0
+	var free_chance: float = efficiency_level * Config.UPGRADE_FOOD_EFFICIENCY
+	if randf() >= free_chance:
+		# Signal main.gd to decrement food
+		manager.npc_ate_food.emit(town_idx, is_raider)
+
+	# Restore to full health and energy
+	var max_hp: float = manager.get_scaled_max_health(i)
+	manager.healths[i] = max_hp
+	manager.energies[i] = Config.ENERGY_MAX
+	manager.mark_health_dirty(i)
 
 
 func _raider_check_steal_food(i: int) -> void:
@@ -291,8 +336,6 @@ func _raider_check_steal_food(i: int) -> void:
 func _raider_deliver_food(i: int) -> void:
 	if manager.carrying_food[i] == 1:
 		manager.carrying_food[i] = 0
-		# Restore some energy from successful raid
-		manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_FARM_RESTORE)
 		# Notify main.gd to credit the camp
 		var town_idx: int = manager.town_indices[i]
 		if town_idx >= 0:

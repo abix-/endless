@@ -10,15 +10,20 @@ var loot_multimesh: MultiMesh
 var loot_multimesh_instance: MultiMeshInstance2D
 var halo_multimesh: MultiMesh
 var halo_multimesh_instance: MultiMeshInstance2D
+var sleep_multimesh: MultiMesh
+var sleep_multimesh_instance: MultiMeshInstance2D
 var rendered_npcs: PackedInt32Array  # Track which NPCs were rendered last frame
 var rendered_loot: PackedInt32Array  # Track which loot icons were rendered
 var rendered_halos: PackedInt32Array  # Track which halos were rendered
+var rendered_sleep: PackedInt32Array  # Track which sleep icons were rendered
 
 const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
 const LOOT_ICON_OFFSET := Vector2(0, -12)  # Offset on raider's head
 const LOOT_ICON_SCALE := 1.5
 const HALO_SCALE := 3.0  # Size of healing halo
 const FOUNTAIN_RADIUS := 48.0  # Match npc_needs.gd
+const SLEEP_ICON_OFFSET := Vector2(8, -12)  # Offset above/right of head
+const SLEEP_ICON_SCALE := 1.0
 
 # Sprite frames (column, row) in the character sheet
 const SPRITE_FARMER := Vector2i(1, 6)
@@ -31,14 +36,16 @@ const COLOR_GUARD := Color(0.6, 0.8, 1.0)         # Blue tint
 const COLOR_RAIDER := Color(1.0, 0.6, 0.6)        # Red tint
 
 
-func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D, loot_instance: MultiMeshInstance2D, halo_inst: MultiMeshInstance2D) -> void:
+func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D, loot_instance: MultiMeshInstance2D, halo_inst: MultiMeshInstance2D, sleep_inst: MultiMeshInstance2D) -> void:
 	manager = npc_manager
 	multimesh_instance = mm_instance
 	loot_multimesh_instance = loot_instance
 	halo_multimesh_instance = halo_inst
+	sleep_multimesh_instance = sleep_inst
 	_init_multimesh()
 	_init_loot_multimesh()
 	_init_halo_multimesh()
+	_init_sleep_multimesh()
 	_connect_settings()
 
 
@@ -99,6 +106,19 @@ func _init_halo_multimesh() -> void:
 	halo_multimesh_instance.multimesh = halo_multimesh
 
 
+func _init_sleep_multimesh() -> void:
+	sleep_multimesh = MultiMesh.new()
+	sleep_multimesh.transform_format = MultiMesh.TRANSFORM_2D
+	sleep_multimesh.instance_count = manager.max_count
+	sleep_multimesh.visible_instance_count = 0
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2(Config.NPC_SPRITE_SIZE, Config.NPC_SPRITE_SIZE)
+	sleep_multimesh.mesh = quad
+
+	sleep_multimesh_instance.multimesh = sleep_multimesh
+
+
 func update(delta: float) -> void:
 	# Decay flash timers
 	for i in manager.count:
@@ -137,8 +157,14 @@ func update(delta: float) -> void:
 		halo_multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
 	rendered_halos.clear()
 
+	# Hide previously rendered sleep icons
+	for i in rendered_sleep.size():
+		sleep_multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
+	rendered_sleep.clear()
+
 	var loot_idx := 0
 	var halo_idx := 0
+	var sleep_idx := 0
 
 	# Render visible NPCs
 	for cell_idx in visible_cells:
@@ -181,13 +207,24 @@ func update(delta: float) -> void:
 					rendered_halos.append(halo_idx)
 					halo_idx += 1
 
+			# Render sleep z for resting NPCs
+			if manager.states[i] == NPCState.State.RESTING:
+				if sleep_idx < sleep_multimesh.instance_count:
+					var sleep_pos: Vector2 = pos + SLEEP_ICON_OFFSET * size_scale
+					var sleep_xform := Transform2D(0, sleep_pos).scaled_local(Vector2(SLEEP_ICON_SCALE * size_scale, SLEEP_ICON_SCALE * size_scale))
+					sleep_multimesh.set_instance_transform_2d(sleep_idx, sleep_xform)
+					rendered_sleep.append(sleep_idx)
+					sleep_idx += 1
+
 	loot_multimesh.visible_instance_count = loot_idx
 	halo_multimesh.visible_instance_count = halo_idx
+	sleep_multimesh.visible_instance_count = sleep_idx
 
 
 func _update_all() -> void:
 	var loot_idx := 0
 	var halo_idx := 0
+	var sleep_idx := 0
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
@@ -217,8 +254,17 @@ func _update_all() -> void:
 				halo_multimesh.set_instance_transform_2d(halo_idx, halo_xform)
 				halo_idx += 1
 
+		# Render sleep z for resting NPCs
+		if manager.states[i] == NPCState.State.RESTING:
+			if sleep_idx < sleep_multimesh.instance_count:
+				var sleep_pos: Vector2 = pos + SLEEP_ICON_OFFSET * size_scale
+				var sleep_xform := Transform2D(0, sleep_pos).scaled_local(Vector2(SLEEP_ICON_SCALE * size_scale, SLEEP_ICON_SCALE * size_scale))
+				sleep_multimesh.set_instance_transform_2d(sleep_idx, sleep_xform)
+				sleep_idx += 1
+
 	loot_multimesh.visible_instance_count = loot_idx
 	halo_multimesh.visible_instance_count = halo_idx
+	sleep_multimesh.visible_instance_count = sleep_idx
 
 
 func set_npc_color(i: int, color: Color) -> void:

@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://b1odj02yipt1"]
+[gd_scene load_steps=11 format=3 uid="uid://b1odj02yipt1"]
 
 [ext_resource type="Script" uid="uid://dr01kjjave0j0" path="res://systems/npc_manager.gd" id="1"]
 [ext_resource type="Shader" path="res://systems/npc_sprite.gdshader" id="2"]
@@ -6,6 +6,7 @@
 [ext_resource type="Shader" path="res://systems/loot_icon.gdshader" id="4"]
 [ext_resource type="Texture2D" path="res://assets/roguelikeSheet_transparent.png" id="5"]
 [ext_resource type="Shader" path="res://systems/halo.gdshader" id="6"]
+[ext_resource type="Shader" path="res://systems/sleep_icon.gdshader" id="7"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_1"]
 shader = ExtResource("2")
@@ -25,6 +26,9 @@ shader_parameter/sprite_frame = Vector2(31, 9)
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_3"]
 shader = ExtResource("6")
 
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_4"]
+shader = ExtResource("7")
+
 [node name="NPCManager" type="Node2D"]
 script = ExtResource("1")
 
@@ -37,6 +41,9 @@ material = SubResource("ShaderMaterial_1")
 
 [node name="LootIconMultiMesh" type="MultiMeshInstance2D" parent="."]
 material = SubResource("ShaderMaterial_2")
+
+[node name="SleepIconMultiMesh" type="MultiMeshInstance2D" parent="."]
+material = SubResource("ShaderMaterial_4")
 
 [node name="InfoLabel" type="Label" parent="."]
 offset_right = 100.0

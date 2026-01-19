@@ -12,8 +12,8 @@ extends CanvasLayer
 const MAX_LOG_LINES := 20
 const JOB_NAMES := ["Farmer", "Guard", "Raider"]
 
-# Batch level-up messages to avoid per-frame string operations
-var _pending_levelups: Array[String] = []
+# Batch log messages to avoid per-frame string operations
+var _pending_messages: Array[String] = []
 var _log_dirty := false
 
 # Grid cells (set in _ready after grid is populated)
@@ -40,6 +40,8 @@ func _ready() -> void:
 
 	if npc_manager:
 		npc_manager.npc_leveled_up.connect(_on_npc_leveled_up)
+		npc_manager.npc_died.connect(_on_npc_died)
+		npc_manager.npc_spawned.connect(_on_npc_spawned)
 
 	# Get grid cell references (row by row, skipping headers)
 	var cells := stats_grid.get_children()
@@ -133,20 +135,67 @@ func _update_food() -> void:
 	food_label.text = "Food (%d vs %d):\n%s" % [town_total, camp_total, "\n".join(lines)]
 
 
-func _on_npc_leveled_up(_npc_index: int, job: int, old_level: int, new_level: int) -> void:
+func _on_npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int) -> void:
+	if not _should_log_npc(npc_index, UserSettings.level_log_mode):
+		return
 	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
-	_pending_levelups.append("%s %d → %d" % [job_name, old_level, new_level])
+	_pending_messages.append("%s %d → %d" % [job_name, old_level, new_level])
 	_log_dirty = true
 
 
+func _on_npc_died(npc_index: int, job: int, level: int, town_idx: int, killer_job: int, killer_level: int) -> void:
+	if not _should_log_town(town_idx, UserSettings.death_log_mode):
+		return
+	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
+	var msg: String
+	if killer_job >= 0:
+		var killer_name: String = JOB_NAMES[killer_job] if killer_job < JOB_NAMES.size() else "NPC"
+		msg = "%s L%d killed by %s L%d" % [job_name, level, killer_name, killer_level]
+	else:
+		msg = "%s L%d died" % [job_name, level]
+	_pending_messages.append(msg)
+	_log_dirty = true
+
+
+func _on_npc_spawned(job: int, town_idx: int) -> void:
+	if not _should_log_town(town_idx, UserSettings.spawn_log_mode):
+		return
+	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
+	_pending_messages.append("%s spawned" % job_name)
+	_log_dirty = true
+
+
+func _should_log_npc(npc_index: int, mode: int) -> bool:
+	if mode == UserSettings.LogMode.OFF:
+		return false
+	if mode == UserSettings.LogMode.ALL:
+		return true
+	# OWN_FACTION - check if NPC belongs to player's town
+	if not npc_manager or not main_node:
+		return false
+	var town_idx: int = npc_manager.town_indices[npc_index]
+	return town_idx == main_node.player_town_idx
+
+
+func _should_log_town(town_idx: int, mode: int) -> bool:
+	if mode == UserSettings.LogMode.OFF:
+		return false
+	if mode == UserSettings.LogMode.ALL:
+		return true
+	# OWN_FACTION
+	if not main_node:
+		return false
+	return town_idx == main_node.player_town_idx
+
+
 func _flush_combat_log() -> void:
-	if _pending_levelups.is_empty():
+	if _pending_messages.is_empty():
 		_log_dirty = false
 		return
 
 	# Build new text efficiently
 	var lines := combat_log.text.split("\n", false)
-	lines.append_array(_pending_levelups)
+	lines.append_array(_pending_messages)
 
 	# Keep only last MAX_LOG_LINES
 	if lines.size() > MAX_LOG_LINES:
@@ -155,5 +204,5 @@ func _flush_combat_log() -> void:
 	combat_log.text = "\n".join(lines)
 	combat_log.scroll_to_line(combat_log.get_line_count())
 
-	_pending_levelups.clear()
+	_pending_messages.clear()
 	_log_dirty = false

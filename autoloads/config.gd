@@ -56,6 +56,7 @@ const FARMS_PER_TOWN := 2
 const GUARD_POSTS_PER_TOWN := 6
 const RAIDERS_PER_CAMP := 30
 const CAMP_DISTANCE := 1100  # Distance from town to raider camp (past guard posts)
+const SPAWN_INTERVAL_HOURS := 4  # Hours between spawning new NPCs
 
 # Rendering
 const RENDER_MARGIN := 100.0
@@ -85,8 +86,10 @@ const ENERGY_MAX := 100.0
 const ENERGY_SLEEP_GAIN := 12.0
 const ENERGY_REST_GAIN := 5.0
 const ENERGY_ACTIVITY_DRAIN := 6.0
-const ENERGY_EXHAUSTED := 20.0
-const ENERGY_FARM_RESTORE := 30.0
+const ENERGY_HUNGRY := 50.0  # Go home to rest/eat when below this
+
+# Food
+const FOOD_PER_MEAL := 1
 
 # HP Regen (per hour)
 const HP_REGEN_AWAKE := 2.0
@@ -95,7 +98,16 @@ const HP_REGEN_SLEEP := 6.0  # 3x faster when sleeping
 # Town Upgrades
 const UPGRADE_MAX_LEVEL := 10
 const UPGRADE_COSTS := [10, 25, 50, 100, 200, 400, 800, 1500, 3000, 5000]  # Food cost per level
+# Guard upgrades
 const UPGRADE_GUARD_HEALTH_BONUS := 0.1   # +10% HP per level
 const UPGRADE_GUARD_ATTACK_BONUS := 0.1   # +10% damage per level
 const UPGRADE_GUARD_RANGE_BONUS := 0.05   # +5% range per level
 const UPGRADE_GUARD_SIZE_BONUS := 0.05    # +5% size per level
+# Economy upgrades
+const UPGRADE_FARM_YIELD_BONUS := 0.15    # +15% food per level
+const UPGRADE_FARMER_HP_BONUS := 0.2      # +20% farmer HP per level
+# Defense upgrades
+const UPGRADE_HEALING_RATE_BONUS := 0.2   # +20% HP regen per level
+const UPGRADE_ALERT_RADIUS_BONUS := 0.1   # +10% alert radius per level
+# Utility upgrades
+const UPGRADE_FOOD_EFFICIENCY := 0.1      # -10% food cost per level (1.0, 0.9, 0.8...)

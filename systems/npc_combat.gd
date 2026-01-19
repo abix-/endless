@@ -25,24 +25,33 @@ func process(delta: float) -> void:
 
 func process_scanning(delta: float) -> void:
 	var frame: int = Engine.get_process_frames()
-	
+
 	for i in manager.count:
-		# Stagger: only process 1/4 of NPCs per frame
+		# Stagger: only process 1/8 of NPCs per frame
 		if i % Config.SCAN_STAGGER != frame % Config.SCAN_STAGGER:
 			continue
-		
+
 		if manager.healths[i] <= 0:
 			continue
-		
+
 		var state: int = manager.states[i]
-		if state in [NPCState.State.FIGHTING, NPCState.State.FLEEING, NPCState.State.SLEEPING]:
+
+		# Skip states that don't need enemy scanning
+		# FIGHTING/FLEEING already have targets
+		# RESTING NPCs are at home, not looking for fights
+		if state in [NPCState.State.FIGHTING, NPCState.State.FLEEING, NPCState.State.RESTING]:
 			continue
-		
+
+		# Optimization: Only scan if there's a threat nearby (cell has enemies)
+		var my_cell: int = manager._grid._cell_index(manager.positions[i])
+		if not _cell_has_threat(i, my_cell):
+			continue
+
 		manager.scan_timers[i] -= delta * Config.SCAN_STAGGER  # Compensate for stagger
 		if manager.scan_timers[i] <= 0:
 			manager.scan_timers[i] = Config.SCAN_INTERVAL
 			var enemy: int = _find_enemy_for(i)
-			
+
 			if enemy >= 0:
 				manager.current_targets[i] = enemy
 				if _should_flee(i):
@@ -51,6 +60,36 @@ func process_scanning(delta: float) -> void:
 					manager._state.set_state(i, NPCState.State.FIGHTING)
 					if manager.jobs[i] == NPCState.Job.RAIDER:
 						_alert_nearby_raiders(i, enemy)
+				# Force immediate navigation update
+				manager._nav.force_logic_update(i)
+
+
+func _cell_has_threat(i: int, cell_idx: int) -> bool:
+	# Check this cell and adjacent cells for enemies
+	var my_faction: int = manager.factions[i]
+	var cx: int = cell_idx % Config.GRID_SIZE
+	var cy: int = cell_idx / Config.GRID_SIZE
+
+	for dy in range(-1, 2):
+		var ny: int = cy + dy
+		if ny < 0 or ny >= Config.GRID_SIZE:
+			continue
+		for dx in range(-1, 2):
+			var nx: int = cx + dx
+			if nx < 0 or nx >= Config.GRID_SIZE:
+				continue
+
+			var check_cell: int = ny * Config.GRID_SIZE + nx
+			var start: int = manager._grid.grid_cell_starts[check_cell]
+			var cell_count: int = manager._grid.grid_cell_counts[check_cell]
+
+			# Quick check: any enemy faction in this cell?
+			for j in cell_count:
+				var other_idx: int = manager._grid.grid_cells[start + j]
+				if manager.factions[other_idx] != my_faction:
+					return true
+
+	return false
 
 func _process_fighting(i: int) -> void:
 	var target_idx: int = manager.current_targets[i]
@@ -163,11 +202,17 @@ func _aggro_victim(attacker: int, victim: int) -> void:
 			manager._state.set_state(victim, NPCState.State.FLEEING)
 		else:
 			manager._state.set_state(victim, NPCState.State.FIGHTING)
+		# Force immediate navigation update on state change
+		manager._nav.force_logic_update(victim)
 
 func _die(i: int, killer: int = -1) -> void:
 	var victim_faction: int = manager.factions[i]
 	manager.record_kill(victim_faction)
-	manager.record_death(i)  # Record death time for respawn
+
+	# Emit death signal for logging
+	var killer_job: int = manager.jobs[killer] if killer >= 0 else -1
+	var killer_level: int = manager.levels[killer] if killer >= 0 else 0
+	manager.npc_died.emit(i, manager.jobs[i], manager.levels[i], manager.town_indices[i], killer_job, killer_level)
 
 	# Grant XP to killer based on victim's level
 	if killer >= 0 and manager.healths[killer] > 0:
@@ -203,37 +248,51 @@ func _alert_nearby_raiders(alerter_idx: int, target_idx: int) -> void:
 		
 		manager.current_targets[other_idx] = target_idx
 		manager._state.set_state(other_idx, NPCState.State.FIGHTING)
+		manager._nav.force_logic_update(other_idx)
 
 func _find_enemy_for(i: int) -> int:
 	var my_pos: Vector2 = manager.positions[i]
 	var my_faction: int = manager.factions[i]
 	var nearby: Array = manager._grid_get_nearby(my_pos)
-	
+
+	# Calculate detection range (guards get upgraded alert radius)
+	var detect_range: float = Config.ALERT_RADIUS
+	if my_faction == NPCState.Faction.VILLAGER:
+		var town_idx: int = manager.town_indices[i]
+		if town_idx >= 0 and town_idx < manager.town_upgrades.size():
+			var alert_level: int = manager.town_upgrades[town_idx].alert_radius
+			detect_range *= 1.0 + alert_level * Config.UPGRADE_ALERT_RADIUS_BONUS
+	var detect_range_sq: float = detect_range * detect_range
+
 	var nearest: int = -1
 	var nearest_dist_sq: float = INF
 	var checked: int = 0
-	
+
 	for other_idx in nearby:
 		if other_idx == i:
 			continue
 		if manager.healths[other_idx] <= 0:
 			continue
-		
+
 		var other_faction: int = manager.factions[other_idx]
 		if not _is_hostile(my_faction, other_faction):
 			continue
-		
+
 		checked += 1
 		if checked >= Config.MAX_SCAN:
 			break
-		
+
 		var other_pos: Vector2 = manager.positions[other_idx]
 		var dist_sq: float = my_pos.distance_squared_to(other_pos)
-		
+
+		# Only detect within range
+		if dist_sq > detect_range_sq:
+			continue
+
 		if dist_sq < nearest_dist_sq:
 			nearest_dist_sq = dist_sq
 			nearest = other_idx
-	
+
 	return nearest
 
 func _is_hostile(faction_a: int, faction_b: int) -> bool:

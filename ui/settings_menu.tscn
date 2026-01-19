@@ -51,6 +51,42 @@ text = "HP Bars"
 layout_mode = 2
 size_flags_horizontal = 3
 
+[node name="DeathLogRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/DeathLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Death Log"
+
+[node name="Dropdown" type="OptionButton" parent="Panel/MarginContainer/VBox/DeathLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LevelLogRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/LevelLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Level Log"
+
+[node name="Dropdown" type="OptionButton" parent="Panel/MarginContainer/VBox/LevelLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SpawnLogRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/SpawnLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Spawn Log"
+
+[node name="Dropdown" type="OptionButton" parent="Panel/MarginContainer/VBox/SpawnLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
 [node name="ScrollRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 
