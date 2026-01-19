@@ -63,7 +63,7 @@ func decide_what_to_do(i: int) -> void:
 	if energy <= Config.ENERGY_EXHAUSTED:
 		if state != NPCState.State.SLEEPING:
 			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = manager.home_radii[i]
+			manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
 			manager._state.set_state(i, NPCState.State.WALKING)
 		return
 
@@ -72,12 +72,12 @@ func decide_what_to_do(i: int) -> void:
 	if is_work_time:
 		if state not in [NPCState.State.WORKING, NPCState.State.WALKING]:
 			manager.targets[i] = manager.work_positions[i]
-			manager.arrival_radii[i] = manager.work_radii[i]
+			manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
 			manager._state.set_state(i, NPCState.State.WALKING)
 	else:
 		if state not in [NPCState.State.RESTING, NPCState.State.WALKING]:
 			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = manager.home_radii[i]
+			manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
 			manager._state.set_state(i, NPCState.State.WALKING)
 
 
@@ -96,7 +96,7 @@ func _decide_raider(i: int) -> void:
 		var state: int = manager.states[i]
 		if state != NPCState.State.SLEEPING:
 			manager.targets[i] = manager.home_positions[i]
-			manager.arrival_radii[i] = manager.home_radii[i]
+			manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
 			manager._state.set_state(i, NPCState.State.WALKING)
 		return
 
@@ -112,17 +112,16 @@ func _decide_raider(i: int) -> void:
 func _raider_return_to_camp(i: int) -> void:
 	var home_pos: Vector2 = manager.home_positions[i]
 	var my_pos: Vector2 = manager.positions[i]
-	var home_radius: float = manager.home_radii[i]
 
 	# If already at camp, deliver immediately instead of walking
-	if my_pos.distance_to(home_pos) < home_radius:
+	if my_pos.distance_to(home_pos) < manager.home_radii[i]:
 		_raider_deliver_food(i)
 		manager.wander_centers[i] = my_pos
 		manager._state.set_state(i, NPCState.State.RESTING)
 		return
 
 	manager.targets[i] = home_pos
-	manager.arrival_radii[i] = home_radius
+	manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.WALKING)
 
@@ -143,7 +142,7 @@ func _raider_go_to_farm(i: int) -> void:
 			best_farm = farm_pos
 
 	manager.targets[i] = best_farm
-	manager.arrival_radii[i] = manager.work_radii[i]  # Raiders' work_radii = farm
+	manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.WANDERING)
 

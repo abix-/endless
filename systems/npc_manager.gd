@@ -263,7 +263,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 		Job.RAIDER:
 			home_radii[i] = _radius_camp
 			work_radii[i] = _radius_farm  # Raiders target farms
-	arrival_radii[i] = home_radii[i]  # Start with home radius
+	arrival_radii[i] = Config.ARRIVAL_RADIUS
 
 	healths[i] = hp
 	max_healths[i] = hp
