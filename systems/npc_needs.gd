@@ -105,13 +105,18 @@ func _raider_go_to_farm(i: int) -> void:
 	if manager.farm_positions.size() == 0:
 		return
 
-	# Pick a random farm (not always nearest - spreads raiders out)
-	var farm_idx: int = randi() % manager.farm_positions.size()
-	var farm_pos: Vector2 = manager.farm_positions[farm_idx]
+	# Find nearest farm
+	var best_farm: Vector2 = manager.farm_positions[0]
+	var best_dist_sq: float = my_pos.distance_squared_to(best_farm)
+	for farm_pos in manager.farm_positions:
+		var dist_sq: float = my_pos.distance_squared_to(farm_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_farm = farm_pos
 
-	# Add offset so raiders spread across the farm
-	var offset := Vector2(randf_range(-40, 40), randf_range(-40, 40))
-	manager.targets[i] = farm_pos + offset
+	# Small offset so raiders spread across the farm
+	var offset := Vector2(randf_range(-20, 20), randf_range(-20, 20))
+	manager.targets[i] = best_farm + offset
 	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.WANDERING)
 
@@ -162,8 +167,9 @@ func on_arrival(i: int) -> void:
 func _raider_check_steal_food(i: int) -> void:
 	var my_pos: Vector2 = manager.positions[i]
 
+	# Farm visual is ~144px across (3x3 cells * 16px * scale 3)
 	for farm_pos in manager.farm_positions:
-		if my_pos.distance_to(farm_pos) < 60.0:
+		if my_pos.distance_to(farm_pos) < 100.0:
 			manager.carrying_food[i] = 1
 			return
 
