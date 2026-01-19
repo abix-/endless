@@ -154,7 +154,9 @@ func on_arrival(i: int) -> void:
 				manager._state.set_state(i, NPCState.State.SLEEPING)
 			else:
 				manager._state.set_state(i, NPCState.State.RESTING)
-				decide_what_to_do(i)  # Raiders go back out after brief rest
+				# Raiders rest until next 15-min tick, others reconsider immediately
+				if job != NPCState.Job.RAIDER:
+					decide_what_to_do(i)
 
 
 func _raider_check_steal_food(i: int) -> void:
