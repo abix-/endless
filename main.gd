@@ -132,8 +132,11 @@ func _setup_settings_menu() -> void:
 	add_child(settings_menu)
 
 func _spawn_many_npcs(total: int) -> void:
+	@warning_ignore("integer_division")
 	var raider_count = total * 3 / 10  # 30%
+	@warning_ignore("integer_division")
 	var guard_count = total / 2        # 50%
+	@warning_ignore("integer_division")
 	var farmer_count = total / 5       # 20%
 	
 	# Farmers
