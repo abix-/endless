@@ -14,9 +14,21 @@ const SCALE := 3.0
 const SPRITE_HOME := Vector2i(34, 0)    # Brown house
 const SPRITE_FIELD := Vector2i(0, 7)    # Crop field
 
+# ============================================================
+# SPRITE REFERENCE - discovered via sprite_browser tool
+# ============================================================
+# Tent (2x2):
+#   (48, 10) top-left     (49, 10) top-right
+#   (48, 11) bottom-left  (49, 11) bottom-right
+# ============================================================
+
 # Camp pieces - build this up
 const CAMP_PIECES := [
-	{"coords": Vector2i(45, 4), "offset": Vector2(0, 0)},  # Main tent
+	# Tent (2x2 grid, offset so pieces align)
+	{"coords": Vector2i(48, 10), "offset": Vector2(-8, -8)},   # tent top-left
+	{"coords": Vector2i(49, 10), "offset": Vector2(8, -8)},    # tent top-right
+	{"coords": Vector2i(48, 11), "offset": Vector2(-8, 8)},    # tent bottom-left
+	{"coords": Vector2i(49, 11), "offset": Vector2(8, 8)},     # tent bottom-right
 ]
 
 var texture: Texture2D
