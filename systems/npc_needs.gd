@@ -8,7 +8,7 @@ var manager: Node
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
 
-func on_time_tick(hour: int, minute: int) -> void:
+func on_time_tick(_hour: int, minute: int) -> void:
 	# Every 15 minutes - reconsider decisions
 	if minute % 15 == 0:
 		for i in manager.count:
