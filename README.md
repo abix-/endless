@@ -59,7 +59,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Guards: patrol between all 6 posts (30min each), day/night shifts, flee to town center below 33% health
 - [x] Raiders: priority system (wounded → exhausted → deliver loot → steal), flee to camp below 50% health
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
-- [x] HP regen (2/hr awake, 6/hr sleeping)
+- [x] HP regen (2/hr awake, 6/hr sleeping, 5x on town fountain)
 - [x] 15-minute decision cycles
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [ ] AI lords that expand and compete
@@ -108,7 +108,7 @@ Activity-specific states (no translation layer):
 - [x] Camera culling (only render visible NPCs)
 - [x] Staggered scanning (1/8 NPCs per frame)
 - [x] Combat log batching
-- [x] TCP-like collision avoidance (index-based symmetry breaking for head-on NPCs)
+- [x] TCP-like collision avoidance (head-on, crossing, overtaking - index-based symmetry breaking)
 
 ---
 
