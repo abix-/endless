@@ -167,26 +167,46 @@ func _calc_separation(i: int) -> void:
 
 			separation += diff.normalized() / sqrt(dist_sq) * push_strength
 
-		# TCP-like collision avoidance: detect head-on approach
+		# TCP-like collision avoidance: detect approach and yield
 		var approach_radius_sq: float = combined_radius_sq * 4.0  # Look ahead further
 		if i_am_moving and dist_sq > 0 and dist_sq < approach_radius_sq:
 			var other_state: int = manager.states[other_idx]
 			var other_moving: bool = other_state not in STATIONARY_STATES
 
 			if other_moving:
+				var to_other: Vector2 = diff.normalized() * -1.0  # Direction toward other
 				var other_dir: Vector2 = other_pos.direction_to(manager.targets[other_idx])
-				# Check if heading toward each other (dot product < 0 means opposite directions)
-				var heading_toward: float = my_dir.dot(diff.normalized())
-				var other_heading_toward: float = other_dir.dot(-diff.normalized())
 
-				if heading_toward < -0.3 and other_heading_toward < -0.3:
-					# Head-on collision course - one must yield
-					# Lower index yields right, higher yields left (breaks symmetry)
+				# Am I heading toward them? (dot > 0.3 means approaching)
+				var i_approach: float = my_dir.dot(to_other)
+				# Are they heading toward me?
+				var they_approach: float = other_dir.dot(-to_other)
+
+				# Collision scenarios:
+				# Head-on: both approaching (i_approach > 0.3, they_approach > 0.3)
+				# Crossing: I'm approaching, they're moving across (i_approach > 0.3, abs(they_approach) < 0.7)
+				# Overtaking: same direction, I'm catching up (i_approach > 0.3, they_approach < -0.3)
+
+				if i_approach > 0.3:
+					# I'm heading toward them - need to consider dodging
 					var perp: Vector2 = Vector2(-my_dir.y, my_dir.x)
-					if i < other_idx:
-						dodge += perp * 0.5
+					var dodge_strength: float = 0.0
+
+					if they_approach > 0.3:
+						# Head-on - strong dodge
+						dodge_strength = 0.5
+					elif they_approach < -0.3:
+						# Overtaking - light dodge to pass
+						dodge_strength = 0.3
 					else:
-						dodge -= perp * 0.5
+						# Crossing paths - medium dodge
+						dodge_strength = 0.4
+
+					# Lower index yields right, higher yields left
+					if i < other_idx:
+						dodge += perp * dodge_strength
+					else:
+						dodge -= perp * dodge_strength
 
 	# Combine separation push with dodge maneuver
 	var final_vel := Vector2.ZERO
