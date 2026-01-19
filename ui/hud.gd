@@ -6,6 +6,10 @@ extends CanvasLayer
 @onready var time_label: Label = $Panel/MarginContainer/VBox/TimeLabel
 @onready var fps_label: Label = $Panel/MarginContainer/VBox/FPSLabel
 @onready var zoom_label: Label = $Panel/MarginContainer/VBox/ZoomLabel
+@onready var combat_log: RichTextLabel = $CombatLog
+
+const MAX_LOG_LINES := 20
+const JOB_NAMES := ["Farmer", "Guard", "Raider"]
 
 # Grid cells (set in _ready after grid is populated)
 var farmer_alive: Label
@@ -26,7 +30,10 @@ func _ready() -> void:
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	player = get_tree().get_first_node_in_group("player")
-	
+
+	if npc_manager:
+		npc_manager.npc_leveled_up.connect(_on_npc_leveled_up)
+
 	# Get grid cell references (row by row, skipping headers)
 	var cells := stats_grid.get_children()
 	# Row 0: headers (4 cells: blank, Alive, Dead, Kills)
@@ -91,3 +98,17 @@ func _update_zoom() -> void:
 		var camera: Camera2D = player.get_node_or_null("Camera2D")
 		if camera:
 			zoom_label.text = "Zoom: %.1fx" % camera.zoom.x
+
+
+func _on_npc_leveled_up(_npc_index: int, job: int, new_level: int) -> void:
+	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
+	var msg := "%s → Lv.%d\n" % [job_name, new_level]
+	combat_log.text += msg
+
+	# Trim old lines
+	var lines := combat_log.text.split("\n")
+	if lines.size() > MAX_LOG_LINES:
+		combat_log.text = "\n".join(lines.slice(-MAX_LOG_LINES))
+
+	# Auto-scroll to bottom
+	combat_log.scroll_to_line(combat_log.get_line_count())

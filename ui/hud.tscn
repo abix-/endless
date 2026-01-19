@@ -102,3 +102,18 @@ text = "Zoom: 1.0x"
 [node name="FPSLabel" type="Label" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 text = "FPS: 60 | Loop: 0.0ms"
+
+[node name="CombatLog" type="RichTextLabel" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -200.0
+offset_top = -300.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/default_color = Color(0.8, 0.8, 0.8, 1)
+theme_override_font_sizes/normal_font_size = 12
+text = ""
+scroll_following = true

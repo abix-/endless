@@ -7,6 +7,8 @@ enum State { IDLE, WALKING, SLEEPING, WORKING, RESTING, WANDERING, FIGHTING, FLE
 enum Faction { VILLAGER, RAIDER }
 enum Job { FARMER, GUARD, RAIDER }
 
+signal npc_leveled_up(npc_index: int, job: int, new_level: int)
+
 const MAX_LEVEL := 9999
 
 # Scaling functions
@@ -445,6 +447,7 @@ func grant_xp(i: int, amount: int) -> void:
 		# Heal proportionally to new max HP
 		healths[i] = healths[i] * new_scale / old_scale
 		health_dirty[i] = 1  # Trigger size/health bar update
+		npc_leveled_up.emit(i, jobs[i], levels[i])
 
 
 func get_scaled_damage(i: int) -> float:
@@ -493,8 +496,10 @@ func _update_selection() -> void:
 		info_label.global_position = pos + Vector2(-40, -40)
 		var job: int = jobs[selected_npc]
 		var state: int = states[selected_npc]
-		info_label.text = "%s | H:%.0f E:%.0f | %s" % [
+		var lvl: int = levels[selected_npc]
+		info_label.text = "%s Lv.%d | H:%.0f E:%.0f | %s" % [
 			_state.get_job_name(job),
+			lvl,
 			healths[selected_npc],
 			energies[selected_npc],
 			_state.get_state_name(state)
