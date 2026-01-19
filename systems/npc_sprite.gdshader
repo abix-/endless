@@ -27,8 +27,8 @@ void fragment() {
     vec2 tex_uv = sprite_offset + flipped_uv * sprite_uv_size;
     vec4 tex_color = texture(sprite_sheet, tex_uv);
 
-    // Health bar in top 15% of sprite
-    if (UV.y < 0.15) {
+    // Health bar in top 15% of sprite (only show if damaged)
+    if (UV.y < 0.15 && health < 0.99) {
         vec4 bar_color = vec4(0.2, 0.2, 0.2, 1.0);
 
         if (UV.x < health) {
