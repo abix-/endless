@@ -1,6 +1,5 @@
 extends CharacterBody2D
 
-@export var move_speed := 200.0
 @export var zoom_speed := 0.1
 @export var min_zoom := 0.1
 @export var max_zoom := 4.0
@@ -16,7 +15,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	var input := Vector2.ZERO
-	
+
 	if Input.is_action_pressed("move_left"):
 		input.x -= 1
 	if Input.is_action_pressed("move_right"):
@@ -25,8 +24,8 @@ func _process(_delta: float) -> void:
 		input.y -= 1
 	if Input.is_action_pressed("move_down"):
 		input.y += 1
-	
-	velocity = input.normalized() * move_speed
+
+	velocity = input.normalized() * UserSettings.scroll_speed
 	move_and_slide()
 
 func _input(event: InputEvent) -> void:

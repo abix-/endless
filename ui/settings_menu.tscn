@@ -13,10 +13,10 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -150.0
-offset_top = -100.0
-offset_right = 150.0
-offset_bottom = 100.0
+offset_left = -180.0
+offset_top = -120.0
+offset_right = 180.0
+offset_bottom = 120.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -39,9 +39,35 @@ horizontal_alignment = 1
 [node name="Sep" type="HSeparator" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 
-[node name="HpBarsCheck" type="CheckBox" parent="Panel/MarginContainer/VBox"]
+[node name="HpBarsRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
-text = "Always show HP bars"
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/HpBarsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "HP Bars"
+
+[node name="Dropdown" type="OptionButton" parent="Panel/MarginContainer/VBox/HpBarsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ScrollRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/ScrollRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Scroll Speed"
+
+[node name="Slider" type="HSlider" parent="Panel/MarginContainer/VBox/ScrollRow"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/ScrollRow"]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+horizontal_alignment = 2
 
 [node name="CloseHint" type="Label" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2

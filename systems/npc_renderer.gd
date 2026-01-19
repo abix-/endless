@@ -47,7 +47,8 @@ func _on_settings_changed() -> void:
 func _apply_settings() -> void:
 	var mat: ShaderMaterial = multimesh_instance.material as ShaderMaterial
 	if mat:
-		mat.set_shader_parameter("show_hp_always", UserSettings.show_hp_bars_always)
+		# 0 = off, 1 = when damaged, 2 = always
+		mat.set_shader_parameter("hp_bar_mode", UserSettings.hp_bar_mode)
 
 
 func _init_multimesh() -> void:

@@ -4,7 +4,7 @@ uniform sampler2D sprite_sheet;
 uniform vec2 sheet_size = vec2(918.0, 203.0);  // Texture dimensions
 uniform vec2 sprite_size = vec2(16.0, 16.0);
 uniform float margin = 1.0;
-uniform bool show_hp_always = false;
+uniform int hp_bar_mode = 1;  // 0 = off, 1 = when damaged, 2 = always
 
 varying float health;
 varying float flash;
@@ -28,8 +28,10 @@ void fragment() {
     vec2 tex_uv = sprite_offset + flipped_uv * sprite_uv_size;
     vec4 tex_color = texture(sprite_sheet, tex_uv);
 
-    // Health bar in top 15% of sprite (only show if damaged, or always if setting enabled)
-    if (UV.y < 0.15 && (show_hp_always || health < 0.99)) {
+    // Health bar in top 15% of sprite
+    // hp_bar_mode: 0 = off, 1 = when damaged, 2 = always
+    bool show_hp_bar = (hp_bar_mode == 2) || (hp_bar_mode == 1 && health < 0.99);
+    if (UV.y < 0.15 && show_hp_bar) {
         vec4 bar_color = vec4(0.2, 0.2, 0.2, 1.0);
 
         if (UV.x < health) {
