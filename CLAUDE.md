@@ -13,19 +13,16 @@ var radius = Location.get_interaction_radius("camp", 1.5)   # custom buffer
 
 The radius is calculated from sprite definitions (cell size × scale × diagonal) with configurable buffer.
 
-Arrival radii are set per-NPC at spawn based on job type:
+Building radii are set per-NPC at spawn based on job type:
 - `home_radii[i]` - radius for home building (house, camp)
 - `work_radii[i]` - radius for work building (farm, guard post)
 
-When setting a target, also set `arrival_radii[i]`:
+When setting a target, use `Config.ARRIVAL_RADIUS` (small, ~10px) to walk close:
 ```gdscript
-manager.targets[i] = manager.home_positions[i]
-manager.arrival_radii[i] = manager.home_radii[i]
-
 manager.targets[i] = manager.work_positions[i]
-manager.arrival_radii[i] = manager.work_radii[i]
+manager.arrival_radii[i] = Config.ARRIVAL_RADIUS
 ```
-Navigation triggers arrival when NPC is within `arrival_radii[i]` of target.
+Navigation triggers arrival when within `arrival_radii[i]` of target. Then `on_arrival()` uses `work_radii`/`home_radii` to determine what building type the NPC reached.
 
 ## Sprite Definitions
 
