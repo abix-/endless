@@ -61,11 +61,12 @@ func _process_fighting(i: int) -> void:
 		manager._decide_what_to_do(i)
 		return
 
-	# Guards flee when health drops below threshold
-	var job: int = manager.jobs[i]
-	if job == NPCState.Job.GUARD and _should_flee(i):
+	# Guards/raiders flee when health drops below threshold
+	if _should_flee(i):
 		manager._state.set_state(i, NPCState.State.FLEEING)
 		return
+
+	var job: int = manager.jobs[i]
 
 	var my_pos: Vector2 = manager.positions[i]
 	var enemy_pos: Vector2 = manager.positions[target_idx]
@@ -224,9 +225,12 @@ func _should_flee(i: int) -> bool:
 	# Farmers always flee
 	if manager.will_flee[i] == 1:
 		return true
-	# Guards flee when health drops below threshold
-	if manager.jobs[i] == NPCState.Job.GUARD:
-		var health_pct: float = manager.healths[i] / manager.max_healths[i]
-		if health_pct < Config.GUARD_FLEE_THRESHOLD:
-			return true
+	var health_pct: float = manager.healths[i] / manager.max_healths[i]
+	var job: int = manager.jobs[i]
+	# Guards flee below 33%
+	if job == NPCState.Job.GUARD and health_pct < Config.GUARD_FLEE_THRESHOLD:
+		return true
+	# Raiders flee below 50%
+	if job == NPCState.Job.RAIDER and health_pct < Config.RAIDER_WOUNDED_THRESHOLD:
+		return true
 	return false
