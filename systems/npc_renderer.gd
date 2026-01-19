@@ -6,9 +6,14 @@ class_name NPCRenderer
 var manager: Node
 var multimesh: MultiMesh
 var multimesh_instance: MultiMeshInstance2D
+var loot_multimesh: MultiMesh
+var loot_multimesh_instance: MultiMeshInstance2D
 var rendered_npcs: PackedInt32Array  # Track which NPCs were rendered last frame
+var rendered_loot: PackedInt32Array  # Track which loot icons were rendered
 
 const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
+const LOOT_ICON_OFFSET := Vector2(0, -20)  # Offset above raider
+const LOOT_ICON_SCALE := 1.5
 
 # Sprite frames (column, row) in the character sheet
 const SPRITE_FARMER := Vector2i(1, 6)
@@ -21,10 +26,12 @@ const COLOR_GUARD := Color(0.6, 0.8, 1.0)         # Blue tint
 const COLOR_RAIDER := Color(1.0, 0.6, 0.6)        # Red tint
 
 
-func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D) -> void:
+func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D, loot_instance: MultiMeshInstance2D) -> void:
 	manager = npc_manager
 	multimesh_instance = mm_instance
+	loot_multimesh_instance = loot_instance
 	_init_multimesh()
+	_init_loot_multimesh()
 	_connect_settings()
 
 
@@ -58,6 +65,19 @@ func _init_multimesh() -> void:
 	multimesh_instance.multimesh = multimesh
 
 
+func _init_loot_multimesh() -> void:
+	loot_multimesh = MultiMesh.new()
+	loot_multimesh.transform_format = MultiMesh.TRANSFORM_2D
+	loot_multimesh.instance_count = Config.RAIDERS_PER_CAMP * 10  # Max possible raiders with loot
+	loot_multimesh.visible_instance_count = 0
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2(Config.NPC_SPRITE_SIZE, Config.NPC_SPRITE_SIZE)
+	loot_multimesh.mesh = quad
+
+	loot_multimesh_instance.multimesh = loot_multimesh
+
+
 func update(delta: float) -> void:
 	# Decay flash timers
 	for i in manager.count:
@@ -86,6 +106,13 @@ func update(delta: float) -> void:
 		multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
 	rendered_npcs.clear()
 
+	# Hide previously rendered loot icons
+	for i in rendered_loot.size():
+		loot_multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
+	rendered_loot.clear()
+
+	var loot_idx := 0
+
 	# Render visible NPCs
 	for cell_idx in visible_cells:
 		var start: int = manager._grid.grid_cell_starts[cell_idx]
@@ -110,13 +137,26 @@ func update(delta: float) -> void:
 				multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
 				manager.health_dirty[i] = 0
 
+			# Render loot icon for raiders carrying food
+			if manager.jobs[i] == manager.Job.RAIDER and manager.carrying_food[i] == 1:
+				if loot_idx < loot_multimesh.instance_count:
+					var loot_pos: Vector2 = pos + LOOT_ICON_OFFSET * size_scale
+					var loot_xform := Transform2D(0, loot_pos).scaled_local(Vector2(LOOT_ICON_SCALE, LOOT_ICON_SCALE))
+					loot_multimesh.set_instance_transform_2d(loot_idx, loot_xform)
+					rendered_loot.append(loot_idx)
+					loot_idx += 1
+
+	loot_multimesh.visible_instance_count = loot_idx
+
 
 func _update_all() -> void:
+	var loot_idx := 0
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
+		var pos: Vector2 = manager.positions[i]
 		var size_scale: float = manager.get_size_scale(manager.levels[i])
-		var xform := Transform2D(0, manager.positions[i]).scaled_local(Vector2(size_scale, size_scale))
+		var xform := Transform2D(0, pos).scaled_local(Vector2(size_scale, size_scale))
 		multimesh.set_instance_transform_2d(i, xform)
 		if manager.health_dirty[i] == 1:
 			var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
@@ -124,6 +164,16 @@ func _update_all() -> void:
 			var frame: Vector2i = get_sprite_frame(manager.jobs[i])
 			multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
 			manager.health_dirty[i] = 0
+
+		# Render loot icon for raiders carrying food
+		if manager.jobs[i] == manager.Job.RAIDER and manager.carrying_food[i] == 1:
+			if loot_idx < loot_multimesh.instance_count:
+				var loot_pos: Vector2 = pos + LOOT_ICON_OFFSET * size_scale
+				var loot_xform := Transform2D(0, loot_pos).scaled_local(Vector2(LOOT_ICON_SCALE, LOOT_ICON_SCALE))
+				loot_multimesh.set_instance_transform_2d(loot_idx, loot_xform)
+				loot_idx += 1
+
+	loot_multimesh.visible_instance_count = loot_idx
 
 
 func set_npc_color(i: int, color: Color) -> void:

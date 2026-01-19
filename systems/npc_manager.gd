@@ -69,6 +69,7 @@ var selected_npc := -1
 
 # Rendering
 @onready var multimesh_instance: MultiMeshInstance2D = $MultiMeshInstance2D
+@onready var loot_icon_instance: MultiMeshInstance2D = $LootIconMultiMesh
 @onready var info_label: Label = $InfoLabel
 
 # Stats - alive counts
@@ -152,7 +153,7 @@ func _init_arrays() -> void:
 
 func _init_systems() -> void:
 	_grid = NPCGrid.new(self)
-	_renderer = NPCRenderer.new(self, multimesh_instance)
+	_renderer = NPCRenderer.new(self, multimesh_instance, loot_icon_instance)
 	_state = NPCState.new(self)
 	_nav = NPCNavigation.new(self)
 	_combat = NPCCombat.new(self)
