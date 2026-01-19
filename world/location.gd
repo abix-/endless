@@ -10,25 +10,19 @@ extends Area2D
 const CELL := 17  # 16px sprite + 1px margin
 const SCALE := 3.0
 
-# Sprite coordinates: Vector2i(col, row)
-const SPRITE_HOME := Vector2i(34, 0)    # Brown house
-const SPRITE_FIELD := Vector2i(0, 7)    # Crop field
+# ============================================================
+# SPRITE DEFINITIONS - discovered via sprite_browser tool
+# ============================================================
+# Format: "name": {top_left, size} where size is grid cells (1x1, 2x2, etc.)
+const SPRITES := {
+	"home": {"pos": Vector2i(34, 0), "size": Vector2i(1, 1)},
+	"field": {"pos": Vector2i(0, 7), "size": Vector2i(1, 1)},
+	"tent": {"pos": Vector2i(48, 10), "size": Vector2i(2, 2)},
+}
 
-# ============================================================
-# SPRITE REFERENCE - discovered via sprite_browser tool
-# ============================================================
-# Tent (2x2):
-#   (48, 10) top-left     (49, 10) top-right
-#   (48, 11) bottom-left  (49, 11) bottom-right
-# ============================================================
-
-# Camp pieces - build this up
+# Camp composition - list of {sprite_name, offset}
 const CAMP_PIECES := [
-	# Tent (2x2 grid, offset so pieces align)
-	{"coords": Vector2i(48, 10), "offset": Vector2(-8, -8)},   # tent top-left
-	{"coords": Vector2i(49, 10), "offset": Vector2(8, -8)},    # tent top-right
-	{"coords": Vector2i(48, 11), "offset": Vector2(-8, 8)},    # tent bottom-left
-	{"coords": Vector2i(49, 11), "offset": Vector2(8, 8)},     # tent bottom-right
+	{"sprite": "tent", "offset": Vector2(0, 0)},
 ]
 
 var texture: Texture2D
@@ -50,21 +44,43 @@ func _build_location() -> void:
 		"camp":
 			_build_camp()
 		"home":
-			_add_sprite(SPRITE_HOME, Vector2.ZERO)
+			_add_named_sprite("home", Vector2.ZERO)
 		"field":
-			_add_sprite(SPRITE_FIELD, Vector2.ZERO)
+			_add_named_sprite("field", Vector2.ZERO)
 		_:
-			_add_sprite(SPRITE_HOME, Vector2.ZERO)
+			_add_named_sprite("home", Vector2.ZERO)
 
 
 func _build_camp() -> void:
-	for i in CAMP_PIECES.size():
-		var piece: Dictionary = CAMP_PIECES[i]
-		var sprite := _add_sprite(piece.coords, piece.offset)
-		sprite.z_index = i
+	var z := 0
+	for piece in CAMP_PIECES:
+		z = _add_named_sprite(piece.sprite, piece.offset, z)
 
 
-func _add_sprite(coords: Vector2i, offset: Vector2) -> Sprite2D:
+func _add_named_sprite(sprite_name: String, offset: Vector2, z_start: int = 0) -> int:
+	if sprite_name not in SPRITES:
+		return z_start
+
+	var def: Dictionary = SPRITES[sprite_name]
+	var pos: Vector2i = def.pos
+	var size: Vector2i = def.size
+
+	# Build grid of sprites for multi-cell definitions
+	var z := z_start
+	for row in size.y:
+		for col in size.x:
+			var coords := Vector2i(pos.x + col, pos.y + row)
+			# Offset each cell: center the whole sprite, then position each cell
+			var cell_offset := Vector2(
+				(col - (size.x - 1) / 2.0) * 16,
+				(row - (size.y - 1) / 2.0) * 16
+			)
+			_add_sprite_at(coords, offset + cell_offset, z)
+			z += 1
+	return z
+
+
+func _add_sprite_at(coords: Vector2i, offset: Vector2, z: int) -> void:
 	var sprite := Sprite2D.new()
 	sprite.texture = texture
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -72,8 +88,8 @@ func _add_sprite(coords: Vector2i, offset: Vector2) -> Sprite2D:
 	sprite.region_rect = Rect2(coords.x * CELL, coords.y * CELL, 16, 16)
 	sprite.scale = Vector2(SCALE, SCALE)
 	sprite.position = offset * SCALE
+	sprite.z_index = z
 	add_child(sprite)
-	return sprite
 
 
 func _setup_label() -> void:
