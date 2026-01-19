@@ -123,11 +123,15 @@ func _calc_separation(i: int) -> void:
 	var my_size: float = manager.get_size_scale(manager.levels[i])
 	var nearby: Array = manager._grid.get_nearby(my_pos)
 	var separation := Vector2.ZERO
+	var dodge := Vector2.ZERO
 
 	# Scale separation radius by size
 	var my_radius: float = Config.SEPARATION_RADIUS * my_size
 
 	var i_am_moving: bool = my_state not in STATIONARY_STATES
+	var my_dir := Vector2.ZERO
+	if i_am_moving:
+		my_dir = my_pos.direction_to(manager.targets[i])
 
 	for other_idx in nearby:
 		if other_idx == i:
@@ -154,8 +158,32 @@ func _calc_separation(i: int) -> void:
 
 			separation += diff.normalized() / sqrt(dist_sq) * push_strength
 
-	# Store as velocity for smooth per-frame application
+		# TCP-like collision avoidance: detect head-on approach
+		var approach_radius_sq: float = combined_radius_sq * 4.0  # Look ahead further
+		if i_am_moving and dist_sq > 0 and dist_sq < approach_radius_sq:
+			var other_state: int = manager.states[other_idx]
+			var other_moving: bool = other_state not in STATIONARY_STATES
+
+			if other_moving:
+				var other_dir: Vector2 = other_pos.direction_to(manager.targets[other_idx])
+				# Check if heading toward each other (dot product < 0 means opposite directions)
+				var heading_toward: float = my_dir.dot(diff.normalized())
+				var other_heading_toward: float = other_dir.dot(-diff.normalized())
+
+				if heading_toward < -0.3 and other_heading_toward < -0.3:
+					# Head-on collision course - one must yield
+					# Lower index yields right, higher yields left (breaks symmetry)
+					var perp: Vector2 = Vector2(-my_dir.y, my_dir.x)
+					if i < other_idx:
+						dodge += perp * 0.5
+					else:
+						dodge -= perp * 0.5
+
+	# Combine separation push with dodge maneuver
+	var final_vel := Vector2.ZERO
 	if separation.length_squared() > 0:
-		separation_velocities[i] = separation.normalized() * Config.SEPARATION_STRENGTH
-	else:
-		separation_velocities[i] = Vector2.ZERO
+		final_vel = separation.normalized() * Config.SEPARATION_STRENGTH
+	if dodge.length_squared() > 0:
+		final_vel += dodge.normalized() * Config.SEPARATION_STRENGTH * 0.7
+
+	separation_velocities[i] = final_vel

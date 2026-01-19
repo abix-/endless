@@ -3410,3 +3410,16 @@ EOF
 10:16:47 - Running Unsanitize...
 10:16:48 - Unsanitize done
 10:16:48 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "guard post 20,20, home is bed 15,2" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:16:51 - Event: PostToolUse
+10:16:51 - Tool: Bash
+10:16:51 - Command: (cd C:/code/endless && git add -A && git commit -m "guard post 20,20, home is bed 15,2" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:16:51 - Processing PostToolUse for: (cd C:/code/endless && git add -A && git commit -m "guard post 20,20, home is bed 15,2" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:16:51 - Running Sanitize...
+10:16:51 - Sanitize done
+10:18:55 - Event: PreToolUse
+10:18:55 - Tool: Bash
+10:18:55 - Command: cd C:/code/endless && git add -A && git commit -m "tcp-like collision avoidance: symmetric dodge for head-on npcs" && git push
+10:18:55 - Processing PreToolUse for: cd C:/code/endless && git add -A && git commit -m "tcp-like collision avoidance: symmetric dodge for head-on npcs" && git push
+10:18:55 - Running Unsanitize...
+10:18:56 - Unsanitize done
+10:18:56 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "tcp-like collision avoidance: symmetric dodge for head-on npcs" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
