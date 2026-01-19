@@ -7,6 +7,8 @@ var manager: Node
 var multimesh: MultiMesh
 var multimesh_instance: MultiMeshInstance2D
 
+const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
+
 
 func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D) -> void:
 	manager = npc_manager
@@ -29,7 +31,13 @@ func _init_multimesh() -> void:
 	multimesh_instance.multimesh = multimesh
 
 
-func update() -> void:
+func update(delta: float) -> void:
+	# Decay flash timers
+	for i in manager.count:
+		if manager.flash_timers[i] > 0:
+			manager.flash_timers[i] = maxf(0.0, manager.flash_timers[i] - delta * FLASH_DECAY)
+			manager.health_dirty[i] = 1  # Force custom_data update
+
 	var camera: Camera2D = manager.get_viewport().get_camera_2d()
 	if not camera:
 		_update_all()
@@ -69,7 +77,8 @@ func update() -> void:
 
 			if manager.health_dirty[i] == 1:
 				var health_pct: float = manager.healths[i] / manager.max_healths[i]
-				multimesh.set_instance_custom_data(i, Color(health_pct, 0, 0, 0))
+				var flash: float = manager.flash_timers[i]
+				multimesh.set_instance_custom_data(i, Color(health_pct, flash, 0, 0))
 				manager.health_dirty[i] = 0
 
 
@@ -80,7 +89,8 @@ func _update_all() -> void:
 		multimesh.set_instance_transform_2d(i, Transform2D(0, manager.positions[i]))
 		if manager.health_dirty[i] == 1:
 			var health_pct: float = manager.healths[i] / manager.max_healths[i]
-			multimesh.set_instance_custom_data(i, Color(health_pct, 0, 0, 0))
+			var flash: float = manager.flash_timers[i]
+			multimesh.set_instance_custom_data(i, Color(health_pct, flash, 0, 0))
 			manager.health_dirty[i] = 0
 
 
@@ -89,7 +99,13 @@ func set_npc_color(i: int, color: Color) -> void:
 
 
 func set_npc_health_display(i: int, health_pct: float) -> void:
-	multimesh.set_instance_custom_data(i, Color(health_pct, 0, 0, 0))
+	var flash: float = manager.flash_timers[i]
+	multimesh.set_instance_custom_data(i, Color(health_pct, flash, 0, 0))
+
+
+func trigger_flash(i: int) -> void:
+	manager.flash_timers[i] = 1.0
+	manager.health_dirty[i] = 1
 
 
 func set_visible_count(new_count: int) -> void:

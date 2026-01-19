@@ -27,47 +27,47 @@ func _ready() -> void:
 	_setup_npc_manager()
 	_setup_player()
 	_setup_hud()
-	_spawn_many_npcs(2000)
+	_spawn_many_npcs(500)
 
 func _create_locations() -> void:
-	# Farms in center (grid)
-	for i in range(40):
-		var x = village_center_x - 400 + (i % 8) * 100
-		var y = village_center_y - 250 + (i / 8) * 100
+	# Farms in center (5x2 grid)
+	for i in range(10):
+		var x = village_center_x - 200 + (i % 5) * 100
+		var y = village_center_y - 50 + (i / 5) * 100
 		var loc = location_scene.instantiate()
 		loc.location_name = "Farm %d" % i
 		loc.location_type = "field"
 		loc.global_position = Vector2(x, y)
 		add_child(loc)
 		farms.append(loc)
-	
+
 	# Guard posts on border (spread around perimeter)
 	var border_positions := []
 	# Top edge
-	for i in range(25):
-		border_positions.append(Vector2(Config.VILLAGE_LEFT + i * 80, Config.VILLAGE_TOP))
+	for i in range(13):
+		border_positions.append(Vector2(Config.VILLAGE_LEFT + i * 160, Config.VILLAGE_TOP))
 	# Bottom edge
-	for i in range(25):
-		border_positions.append(Vector2(Config.VILLAGE_LEFT + i * 80, Config.VILLAGE_BOTTOM))
+	for i in range(13):
+		border_positions.append(Vector2(Config.VILLAGE_LEFT + i * 160, Config.VILLAGE_BOTTOM))
 	# Left edge
-	for i in range(19):
-		border_positions.append(Vector2(Config.VILLAGE_LEFT, Config.VILLAGE_TOP + (i + 1) * 80))
+	for i in range(12):
+		border_positions.append(Vector2(Config.VILLAGE_LEFT, Config.VILLAGE_TOP + (i + 1) * 125))
 	# Right edge
-	for i in range(19):
-		border_positions.append(Vector2(Config.VILLAGE_RIGHT, Config.VILLAGE_TOP + (i + 1) * 80))
-	
-	for i in range(mini(100, border_positions.size())):
+	for i in range(12):
+		border_positions.append(Vector2(Config.VILLAGE_RIGHT, Config.VILLAGE_TOP + (i + 1) * 125))
+
+	for i in range(mini(50, border_positions.size())):
 		var loc = location_scene.instantiate()
 		loc.location_name = "Post %d" % i
 		loc.location_type = "guardpost"
 		loc.global_position = border_positions[i]
 		add_child(loc)
 		guard_posts.append(loc)
-	
+
 	# Homes inside village (ring between farms and border)
-	for i in range(200):
-		var angle = (i / 200.0) * TAU
-		var radius = randf_range(500, 700)
+	for i in range(75):
+		var angle = (i / 75.0) * TAU
+		var radius = randf_range(400, 600)
 		var x = village_center_x + cos(angle) * radius
 		var y = village_center_y + sin(angle) * radius
 		var loc = location_scene.instantiate()

@@ -107,6 +107,7 @@ func _attack(attacker: int, victim: int) -> void:
 	manager.attack_timers[attacker] = Config.ATTACK_COOLDOWN
 	manager.healths[victim] -= manager.attack_damages[attacker]
 	manager.mark_health_dirty(victim)
+	manager._renderer.trigger_flash(attacker)
 	
 	if manager.healths[victim] <= 0:
 		_die(victim)

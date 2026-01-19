@@ -36,6 +36,7 @@ var will_flee: PackedInt32Array
 var works_at_night: PackedInt32Array
 var health_dirty: PackedInt32Array
 var last_rendered: PackedInt32Array
+var flash_timers: PackedFloat32Array
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
@@ -111,6 +112,7 @@ func _init_arrays() -> void:
 	works_at_night.resize(max_count)
 	health_dirty.resize(max_count)
 	last_rendered.resize(max_count)
+	flash_timers.resize(max_count)
 
 	for i in max_count:
 		death_times[i] = -1
@@ -140,7 +142,7 @@ func _process(delta: float) -> void:
 	_combat.process(delta)
 	_nav.process(delta)
 
-	_renderer.update()
+	_renderer.update(delta)
 
 	var t2 := Time.get_ticks_usec()
 	last_loop_time = (t2 - t1) / 1000.0
