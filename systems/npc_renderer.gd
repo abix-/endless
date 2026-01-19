@@ -16,7 +16,7 @@ const SPRITE_GUARD := Vector2i(0, 11)
 const SPRITE_RAIDER := Vector2i(0, 6)
 
 # Job tint colors
-const COLOR_FARMER := Color(1.0, 1.0, 1.0)        # White (neutral)
+const COLOR_FARMER := Color(0.6, 1.0, 0.6)        # Green tint
 const COLOR_GUARD := Color(0.6, 0.8, 1.0)         # Blue tint
 const COLOR_RAIDER := Color(1.0, 0.6, 0.6)        # Red tint
 
