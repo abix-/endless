@@ -169,18 +169,19 @@ func on_arrival(i: int) -> void:
 		manager._state.set_state(i, NPCState.State.IDLE)
 		decide_what_to_do(i)
 	elif state == NPCState.State.WALKING:
-		var target: Vector2 = manager.targets[i]
+		var my_pos: Vector2 = manager.positions[i]
 		var work_pos: Vector2 = manager.work_positions[i]
 		var home_pos: Vector2 = manager.home_positions[i]
 		var energy: float = manager.energies[i]
 
-		if target.distance_to(work_pos) < 10 and job != NPCState.Job.RAIDER:
+		# Check if arrived at work (position within work building radius)
+		if my_pos.distance_to(work_pos) < manager.work_radii[i] and job != NPCState.Job.RAIDER:
 			manager._state.set_state(i, NPCState.State.WORKING)
 			if job == NPCState.Job.GUARD:
-				manager.wander_centers[i] = manager.positions[i]
-		elif target.distance_to(home_pos) < 10:
+				manager.wander_centers[i] = my_pos
+		elif my_pos.distance_to(home_pos) < manager.home_radii[i]:
 			if job == NPCState.Job.RAIDER:
-				manager.wander_centers[i] = manager.positions[i]
+				manager.wander_centers[i] = my_pos
 				_raider_deliver_food(i)
 			if energy <= Config.ENERGY_EXHAUSTED:
 				manager._state.set_state(i, NPCState.State.SLEEPING)
