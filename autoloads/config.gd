@@ -57,9 +57,9 @@ const FARMER_RANGE := 30.0  # Melee
 const GUARD_HP := 150.0
 const GUARD_DAMAGE := 15.0
 const GUARD_RANGE := 150.0  # Ranged
-const RAIDER_HP := 100.0
-const RAIDER_DAMAGE := 12.0
-const RAIDER_RANGE := 120.0  # Ranged
+const RAIDER_HP := 120.0
+const RAIDER_DAMAGE := 15.0
+const RAIDER_RANGE := 150.0  # Ranged
 
 # Projectiles
 const MAX_PROJECTILES := 500
