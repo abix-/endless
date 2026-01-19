@@ -143,10 +143,10 @@ func _spawn_many_npcs(total: int) -> void:
 		var night = randf() > 0.5
 		npc_manager.spawn_guard(pos, home.global_position, post.global_position, night)
 	
-	# Raiders at camps
+	# Raiders at camps (50 per camp, 16x16 each, need ~200x200 area)
 	for i in range(raider_count):
 		var camp = raider_camps[i % raider_camps.size()]
-		var offset = Vector2(randf_range(-60, 60), randf_range(-60, 60))
+		var offset = Vector2(randf_range(-100, 100), randf_range(-100, 100))
 		var pos = camp.global_position + offset
 		npc_manager.spawn_raider(pos, camp.global_position)
 	
