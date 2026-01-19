@@ -19,7 +19,7 @@ var town_food: PackedInt32Array  # Food stored in each town
 var camp_food: PackedInt32Array  # Food stored in each raider camp
 
 const NUM_TOWNS := 7
-const MIN_TOWN_DISTANCE := 800  # Minimum distance between town centers
+const MIN_TOWN_DISTANCE := 1200  # Minimum distance between town centers
 const FOOD_PER_WORK_HOUR := 1  # Food generated per farmer per work hour
 
 const TOWN_NAMES := [

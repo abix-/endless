@@ -40,9 +40,9 @@ const LOD_MID_SQ := 640000.0     # 800px
 const LOD_FAR_SQ := 1440000.0    # 1200px
 
 # World bounds
-const WORLD_WIDTH := 4000
-const WORLD_HEIGHT := 3000
-const WORLD_MARGIN := 300  # Keep towns away from edges
+const WORLD_WIDTH := 6000
+const WORLD_HEIGHT := 4500
+const WORLD_MARGIN := 400  # Keep towns away from edges
 
 # Town settings
 const FARMERS_PER_TOWN := 10
