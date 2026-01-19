@@ -236,15 +236,14 @@ func _spawn_npcs() -> void:
 			)
 			total_farmers += 1
 
-		# Spawn guards (sleep near town center, patrol at posts)
-		var guard_posts: Array = town.guard_posts
+		# Spawn guards (live in homes, patrol at posts)
 		for i in Config.GUARDS_PER_TOWN:
-			var post = guard_posts[i % guard_posts.size()]
-			var spawn_offset := Vector2(randf_range(-30, 30), randf_range(-30, 30))
+			var home = homes[i % homes.size()]
+			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
 			npc_manager.spawn_guard(
-				post.global_position + spawn_offset,
-				town_center,  # sleep at town center
-				post.global_position,  # patrol at post center
+				home.global_position + spawn_offset,
+				home.global_position,  # home center
+				home.global_position,  # unused - guards patrol all posts
 				randf() > 0.5,  # Random day/night shift
 				town_idx
 			)

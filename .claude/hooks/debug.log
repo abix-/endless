@@ -3605,3 +3605,16 @@ EOF
 10:51:02 - Running Unsanitize...
 10:51:02 - Unsanitize done
 10:51:02 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "double guards per town: 30 -> 60" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:51:05 - Event: PostToolUse
+10:51:05 - Tool: Bash
+10:51:05 - Command: (cd /c/code/endless && git add -A && git commit -m "double guards per town: 30 -> 60" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:51:05 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "double guards per town: 30 -> 60" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:51:05 - Running Sanitize...
+10:51:05 - Sanitize done
+10:54:02 - Event: PreToolUse
+10:54:02 - Tool: Bash
+10:54:02 - Command: cd /c/code/endless && git add -A && git commit -m "guards spawn and sleep at homes like farmers" && git push
+10:54:02 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "guards spawn and sleep at homes like farmers" && git push
+10:54:02 - Running Unsanitize...
+10:54:02 - Unsanitize done
+10:54:02 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "guards spawn and sleep at homes like farmers" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
