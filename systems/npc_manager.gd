@@ -34,6 +34,7 @@ static func get_xp_for_next_level(level: int) -> int:
 # World info (set by main.gd)
 var village_center := Vector2.ZERO
 var farm_positions: Array[Vector2] = []
+var guard_posts_by_town: Array[Array] = []  # Per-town arrays of guard post positions
 
 # Data arrays
 var count := 0
@@ -72,6 +73,11 @@ var town_indices: PackedInt32Array  # Which town/camp this NPC belongs to
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
 var spawn_positions: PackedVector2Array
+
+# Guard patrol data
+var patrol_target_idx: PackedInt32Array   # Current target post index in town's guard_posts
+var patrol_last_idx: PackedInt32Array     # Last visited post index (-1 = none)
+var patrol_timer: PackedInt32Array        # Minutes waited at current post
 
 # Selection
 var selected_npc := -1
@@ -164,9 +170,13 @@ func _init_arrays() -> void:
 	xp.resize(max_count)
 	carrying_food.resize(max_count)
 	town_indices.resize(max_count)
+	patrol_target_idx.resize(max_count)
+	patrol_last_idx.resize(max_count)
+	patrol_timer.resize(max_count)
 
 	for i in max_count:
 		death_times[i] = -1
+		patrol_last_idx[i] = -1
 
 
 func _init_systems() -> void:
@@ -276,6 +286,11 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	xp[i] = 0
 	carrying_food[i] = 0
 	town_indices[i] = town_idx
+
+	# Guard patrol initialization
+	patrol_target_idx[i] = 0
+	patrol_last_idx[i] = -1
+	patrol_timer[i] = 0
 
 	match job:
 		Job.FARMER: total_farmers += 1

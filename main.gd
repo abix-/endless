@@ -184,6 +184,13 @@ func _setup_managers() -> void:
 		for farm in town.farms:
 			npc_manager.farm_positions.append(farm.global_position)
 
+	# Pass guard post positions per town
+	for town in towns:
+		var posts: Array[Vector2] = []
+		for post in town.guard_posts:
+			posts.append(post.global_position)
+		npc_manager.guard_posts_by_town.append(posts)
+
 	# Set village center to world center (for compatibility)
 	@warning_ignore("integer_division")
 	npc_manager.village_center = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)

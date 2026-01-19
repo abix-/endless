@@ -29,6 +29,9 @@ const RAIDER_GROUP_RADIUS := 200.0
 const RAIDER_RETREAT_DIST := 400.0
 const RAIDER_LEASH_MULTIPLIER := 1.5
 
+# Guard patrol
+const GUARD_PATROL_WAIT := 30  # Minutes to wait at each post
+
 # Spatial grid
 const GRID_SIZE := 64
 const GRID_CELL_SIZE := 100.0
