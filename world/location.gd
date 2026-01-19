@@ -11,10 +11,13 @@ const CELL := 17  # 16px sprite + 1px margin
 const SCALE := 3.0
 
 # Sprite coordinates: Vector2i(col, row)
-# Tweak these to find the right sprites
 const SPRITE_HOME := Vector2i(34, 0)    # Brown house
 const SPRITE_FIELD := Vector2i(0, 7)    # Crop field
-const SPRITE_CAMP := Vector2i(45, 4)    # Green tent
+
+# Camp pieces - build this up
+const CAMP_PIECES := [
+	{"coords": Vector2i(45, 4), "offset": Vector2(0, 0)},  # Main tent
+]
 
 var texture: Texture2D
 
@@ -31,25 +34,34 @@ func _ready() -> void:
 
 
 func _build_location() -> void:
-	var coords: Vector2i
-
 	match location_type:
-		"home":
-			coords = SPRITE_HOME
-		"field":
-			coords = SPRITE_FIELD
 		"camp":
-			coords = SPRITE_CAMP
+			_build_camp()
+		"home":
+			_add_sprite(SPRITE_HOME, Vector2.ZERO)
+		"field":
+			_add_sprite(SPRITE_FIELD, Vector2.ZERO)
 		_:
-			coords = SPRITE_HOME
+			_add_sprite(SPRITE_HOME, Vector2.ZERO)
 
+
+func _build_camp() -> void:
+	for i in CAMP_PIECES.size():
+		var piece: Dictionary = CAMP_PIECES[i]
+		var sprite := _add_sprite(piece.coords, piece.offset)
+		sprite.z_index = i
+
+
+func _add_sprite(coords: Vector2i, offset: Vector2) -> Sprite2D:
 	var sprite := Sprite2D.new()
 	sprite.texture = texture
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.region_enabled = true
 	sprite.region_rect = Rect2(coords.x * CELL, coords.y * CELL, 16, 16)
 	sprite.scale = Vector2(SCALE, SCALE)
+	sprite.position = offset * SCALE
 	add_child(sprite)
+	return sprite
 
 
 func _setup_label() -> void:
