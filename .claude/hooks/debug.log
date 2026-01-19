@@ -3735,3 +3735,16 @@ EOF
 11:14:06 - Running Unsanitize...
 11:14:06 - Unsanitize done
 11:14:06 - Wrapped: (git add -A && git commit -m "fix state table accuracy" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:14:09 - Event: PostToolUse
+11:14:09 - Tool: Bash
+11:14:09 - Command: (git add -A && git commit -m "fix state table accuracy" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:14:09 - Processing PostToolUse for: (git add -A && git commit -m "fix state table accuracy" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:14:09 - Running Sanitize...
+11:14:09 - Sanitize done
+11:17:39 - Event: PreToolUse
+11:17:39 - Tool: Bash
+11:17:39 - Command: git add -A && git commit -m "guards flee below 33% health" && git push
+11:17:39 - Processing PreToolUse for: git add -A && git commit -m "guards flee below 33% health" && git push
+11:17:39 - Running Unsanitize...
+11:17:39 - Unsanitize done
+11:17:39 - Wrapped: (git add -A && git commit -m "guards flee below 33% health" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

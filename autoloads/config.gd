@@ -20,6 +20,7 @@ const RESPAWN_MINUTES := 720  # 12 hours
 const LEASH_DISTANCE := 400.0
 const FLEE_DISTANCE := 150.0
 const ALERT_RADIUS := 200.0
+const GUARD_FLEE_THRESHOLD := 0.33  # Guards flee below 33% health
 
 # Raider AI
 const RAIDER_CONFIDENCE_THRESHOLD := 3

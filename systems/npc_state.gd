@@ -23,7 +23,7 @@ enum Job { FARMER, GUARD, RAIDER }
 # Valid states per job type
 const VALID_STATES := {
 	Job.FARMER: [State.IDLE, State.SLEEPING, State.FLEEING, State.WALKING, State.FARMING, State.OFF_DUTY],
-	Job.GUARD: [State.IDLE, State.SLEEPING, State.FIGHTING, State.WALKING, State.OFF_DUTY, State.ON_DUTY, State.PATROLLING],
+	Job.GUARD: [State.IDLE, State.SLEEPING, State.FIGHTING, State.FLEEING, State.WALKING, State.OFF_DUTY, State.ON_DUTY, State.PATROLLING],
 	Job.RAIDER: [State.IDLE, State.SLEEPING, State.FIGHTING, State.RAIDING, State.RETURNING, State.OFF_DUTY],
 }
 

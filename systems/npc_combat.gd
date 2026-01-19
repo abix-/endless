@@ -45,8 +45,7 @@ func process_scanning(delta: float) -> void:
 			
 			if enemy >= 0:
 				manager.current_targets[i] = enemy
-				var will_flee: int = manager.will_flee[i]
-				if will_flee == 1:
+				if _should_flee(i):
 					manager._state.set_state(i, NPCState.State.FLEEING)
 				else:
 					manager._state.set_state(i, NPCState.State.FIGHTING)
@@ -55,18 +54,23 @@ func process_scanning(delta: float) -> void:
 
 func _process_fighting(i: int) -> void:
 	var target_idx: int = manager.current_targets[i]
-	
+
 	if target_idx < 0 or manager.healths[target_idx] <= 0:
 		manager.current_targets[i] = -1
 		manager._state.set_state(i, NPCState.State.IDLE)
 		manager._decide_what_to_do(i)
 		return
-	
+
+	# Guards flee when health drops below threshold
+	var job: int = manager.jobs[i]
+	if job == NPCState.Job.GUARD and _should_flee(i):
+		manager._state.set_state(i, NPCState.State.FLEEING)
+		return
+
 	var my_pos: Vector2 = manager.positions[i]
 	var enemy_pos: Vector2 = manager.positions[target_idx]
-	
+
 	# Guards don't leash - they fight wherever they are
-	var job: int = manager.jobs[i]
 	if job != NPCState.Job.GUARD:
 		var home_pos: Vector2 = manager.wander_centers[i]
 		var leash: float = Config.LEASH_DISTANCE
@@ -134,8 +138,7 @@ func _aggro_victim(attacker: int, victim: int) -> void:
 	var victim_target: int = manager.current_targets[victim]
 	if victim_target < 0:
 		manager.current_targets[victim] = attacker
-		var will_flee: int = manager.will_flee[victim]
-		if will_flee == 1:
+		if _should_flee(victim):
 			manager._state.set_state(victim, NPCState.State.FLEEING)
 		else:
 			manager._state.set_state(victim, NPCState.State.FIGHTING)
@@ -215,3 +218,15 @@ func _find_enemy_for(i: int) -> int:
 func _is_hostile(faction_a: int, faction_b: int) -> bool:
 	return (faction_a == NPCState.Faction.VILLAGER and faction_b == NPCState.Faction.RAIDER) or \
 		   (faction_a == NPCState.Faction.RAIDER and faction_b == NPCState.Faction.VILLAGER)
+
+
+func _should_flee(i: int) -> bool:
+	# Farmers always flee
+	if manager.will_flee[i] == 1:
+		return true
+	# Guards flee when health drops below threshold
+	if manager.jobs[i] == NPCState.Job.GUARD:
+		var health_pct: float = manager.healths[i] / manager.max_healths[i]
+		if health_pct < Config.GUARD_FLEE_THRESHOLD:
+			return true
+	return false
