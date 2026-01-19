@@ -140,7 +140,7 @@ Key values in `autoloads/config.gd`:
 | Setting | Value | Notes |
 |---------|-------|-------|
 | FARMERS_PER_TOWN | 10 | Food producers |
-| GUARDS_PER_TOWN | 30 | Town defense |
+| GUARDS_PER_TOWN | 60 | Town defense |
 | RAIDERS_PER_CAMP | 30 | Enemy forces |
 | GUARD_POSTS_PER_TOWN | 6 | Patrol points |
 | WORLD_SIZE | 8000x8000 | Play area |

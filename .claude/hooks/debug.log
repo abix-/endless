@@ -3579,3 +3579,29 @@ EOF
 10:48:49 - Running Unsanitize...
 10:48:50 - Unsanitize done
 10:48:50 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "guards patrol between town guard posts, 30min wait at each" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:48:52 - Event: PostToolUse
+10:48:52 - Tool: Bash
+10:48:52 - Command: (cd /c/code/endless && git add -A && git commit -m "guards patrol between town guard posts, 30min wait at each" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:48:52 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "guards patrol between town guard posts, 30min wait at each" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:48:52 - Running Sanitize...
+10:48:53 - Sanitize done
+10:49:14 - Event: PreToolUse
+10:49:14 - Tool: Bash
+10:49:14 - Command: cd /c/code/endless && git add README.md && git commit -m "readme: update guard patrol description" && git push
+10:49:14 - Processing PreToolUse for: cd /c/code/endless && git add README.md && git commit -m "readme: update guard patrol description" && git push
+10:49:14 - Running Unsanitize...
+10:49:14 - Unsanitize done
+10:49:14 - Wrapped: (cd /c/code/endless && git add README.md && git commit -m "readme: update guard patrol description" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:49:17 - Event: PostToolUse
+10:49:17 - Tool: Bash
+10:49:17 - Command: (cd /c/code/endless && git add README.md && git commit -m "readme: update guard patrol description" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:49:17 - Processing PostToolUse for: (cd /c/code/endless && git add README.md && git commit -m "readme: update guard patrol description" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:49:17 - Running Sanitize...
+10:49:17 - Sanitize done
+10:51:02 - Event: PreToolUse
+10:51:02 - Tool: Bash
+10:51:02 - Command: cd /c/code/endless && git add -A && git commit -m "double guards per town: 30 -> 60" && git push
+10:51:02 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "double guards per town: 30 -> 60" && git push
+10:51:02 - Running Unsanitize...
+10:51:02 - Unsanitize done
+10:51:02 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "double guards per town: 30 -> 60" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

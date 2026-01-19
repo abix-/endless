@@ -49,7 +49,7 @@ const WORLD_MARGIN := 400  # Keep towns away from edges
 
 # Town settings
 const FARMERS_PER_TOWN := 10
-const GUARDS_PER_TOWN := 30
+const GUARDS_PER_TOWN := 60
 const FARMS_PER_TOWN := 2
 const GUARD_POSTS_PER_TOWN := 6
 const RAIDERS_PER_CAMP := 30
