@@ -14,12 +14,14 @@ The player observes (and can eventually influence) the ongoing conflict between 
 ## Current Features
 
 ### World Generation
-- 7 procedurally placed towns with minimum 800px distance between centers
-- Each town has: 10 farmers, 5 guards, 2 farms, 1 raider camp (5 raiders)
+- 7 procedurally placed towns with minimum 1200px distance between centers
+- Each town has: 10 farmers, 30 guards, 2 farms, 6 guard posts, 1 raider camp (30 raiders)
+- ~490 NPCs total across the world
 - Towns have unique names from pool of 15 (Millbrook, Ashford, Willowdale, etc.)
-- World size: 4000x3000 with 300px margin from edges
-- Farms placed 80-150px from town center, homes in ring 150-250px out
-- Raider camps placed 500px from their target town
+- World size: 6000x4500 with 400px margin from edges
+- Farms placed 200-300px from town center, homes in ring 350-450px out
+- Guard posts placed 500-600px from town center (perimeter defense)
+- Raider camps placed 900px from their target town
 
 ### NPC System (Data-Oriented Design)
 - Supports 3000+ NPCs at 60 FPS
@@ -47,16 +49,18 @@ The player observes (and can eventually influence) the ongoing conflict between 
 - Generate 1 food/hour when in WORKING state
 
 **Guards:**
-- Patrol near town center, engage raiders on sight
+- Patrol at guard posts around town perimeter
 - Day/night shifts (randomly assigned)
 - Alert nearby guards when combat starts
+- No leash - fight anywhere until threat eliminated
 
 **Raiders:**
 - Priority 1: Retreat to camp when wounded (<50% HP), drop any food
 - Priority 2: Sleep when exhausted (<20 energy)
 - Priority 3: Return to camp if carrying stolen food
-- Priority 4: Go steal food from random farm
+- Priority 4: Go steal food from nearest farm
 - Alert nearby raiders (200px) when one starts fighting
+- Visual loot icon appears above raiders carrying food
 
 ### Energy System
 - Max energy: 100
@@ -68,9 +72,10 @@ The player observes (and can eventually influence) the ongoing conflict between 
 
 ### Food Economy
 - Farmers generate 1 food/hour when working at farms
-- Raiders steal food when within 60px of farm
+- Raiders steal food when within 100px of farm
 - Raiders deliver food to camp, credited to camp's total
 - Per-town and per-camp food tracking displayed in HUD
+- Immediate delivery if raider returns to camp already nearby
 
 ### LOD System (Level of Detail)
 NPCs update at different rates based on camera distance:
@@ -169,8 +174,33 @@ ui/
 
 ## TODO / Roadmap
 
-- [ ] Player combat abilities (tip the balance like a DOTA hero)
+### Phase 1: Economy Foundation
 - [ ] Food consumption (NPCs eat from their faction's supply)
+- [ ] Starvation effects (HP drain, morale, desertion)
+- [ ] Multiple resource types (food, wood, iron, gold)
+- [ ] Production buildings (lumber mill, mine, blacksmith)
+- [ ] Villager role assignment (player chooses who farms vs mines vs crafts)
+
+### Phase 2: Player Control
+- [ ] Player claims a town as their capital
+- [ ] UI to manage villager assignments
+- [ ] Build/upgrade production buildings
+- [ ] Train guards from villager pool
+- [ ] Equipment crafting (weapons improve guard stats)
+
+### Phase 3: Military & Conquest
+- [ ] Recruit army units from population (peasant levy, archers, knights)
+- [ ] Army movement between towns
+- [ ] Attack enemy towns (siege, raid farms, destroy buildings)
+- [ ] Capture territories (town switches to your faction)
+- [ ] AI lords that expand and compete
+
+### Phase 4: Victory Conditions
+- [ ] Conquer all towns for domination victory
+- [ ] Economic victory (accumulate wealth threshold)
+- [ ] Survival mode (endless waves, see how long you last)
+
+### Near-term Improvements
 - [ ] UI to show per-town food when clicking on town/camp markers
 - [ ] Implement RAIDER_CONFIDENCE_THRESHOLD logic (config exists but unused)
 - [ ] Implement RAIDER_HUNGRY_THRESHOLD logic (config exists but unused)
@@ -184,8 +214,9 @@ All tunable values are in `autoloads/config.gd`:
 ```gdscript
 # NPC counts per town
 FARMERS_PER_TOWN := 10
-GUARDS_PER_TOWN := 5
-RAIDERS_PER_CAMP := 5
+GUARDS_PER_TOWN := 30
+GUARD_POSTS_PER_TOWN := 6
+RAIDERS_PER_CAMP := 30
 
 # Combat stats
 FARMER_HP := 50.0
@@ -211,10 +242,10 @@ ENERGY_ACTIVITY_DRAIN := 6.0
 ENERGY_EXHAUSTED := 20.0
 
 # World
-WORLD_WIDTH := 4000
-WORLD_HEIGHT := 3000
-WORLD_MARGIN := 300
-CAMP_DISTANCE := 500
+WORLD_WIDTH := 6000
+WORLD_HEIGHT := 4500
+WORLD_MARGIN := 400
+CAMP_DISTANCE := 900
 
 # Performance
 MAX_NPC_COUNT := 3000
