@@ -46,9 +46,11 @@ func on_time_tick(_hour: int, minute: int) -> void:
 			_:
 				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
 
-		# HP regen (3x faster when sleeping)
+		# HP regen (3x faster when sleeping, 5x on fountain)
 		if manager.healths[i] < max_hp:
 			var regen: float = Config.HP_REGEN_SLEEP if state == NPCState.State.SLEEPING else Config.HP_REGEN_AWAKE
+			if _is_on_fountain(i):
+				regen *= 5.0
 			manager.healths[i] = minf(max_hp, manager.healths[i] + regen)
 			manager.mark_health_dirty(i)
 
@@ -287,3 +289,13 @@ func _raider_deliver_food(i: int) -> void:
 		var town_idx: int = manager.town_indices[i]
 		if town_idx >= 0:
 			manager.raider_delivered_food.emit(town_idx)
+
+
+func _is_on_fountain(i: int) -> bool:
+	# Fountain radius: 2x2 cells * 16px * 3.0 scale / 2 = 48px
+	const FOUNTAIN_RADIUS := 48.0
+	var my_pos: Vector2 = manager.positions[i]
+	for center in manager.town_centers:
+		if my_pos.distance_to(center) < FOUNTAIN_RADIUS:
+			return true
+	return false
