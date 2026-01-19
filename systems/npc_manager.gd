@@ -11,7 +11,14 @@ signal npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int)
 @warning_ignore("unused_signal")  # Emitted from npc_needs.gd
 signal raider_delivered_food(town_idx: int)
 
+const Location = preload("res://world/location.gd")
 const MAX_LEVEL := 9999
+
+# Building radii for arrival checks (cached at load)
+var _radius_farm: float
+var _radius_home: float
+var _radius_camp: float
+var _radius_guard_post: float
 
 # Scaling functions
 static func get_stat_scale(level: int) -> float:
@@ -65,6 +72,8 @@ var town_indices: PackedInt32Array  # Which town/camp this NPC belongs to
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
 var spawn_positions: PackedVector2Array
+var home_radii: PackedFloat32Array  # Arrival radius for home building
+var work_radii: PackedFloat32Array  # Arrival radius for work building
 
 # Selection
 var selected_npc := -1
@@ -112,9 +121,17 @@ func set_projectile_manager(pm: Node) -> void:
 
 func _ready() -> void:
 	add_to_group("npc_manager")
+	_init_radii()
 	_init_arrays()
 	_init_systems()
 	WorldClock.time_tick.connect(_on_time_tick)
+
+
+func _init_radii() -> void:
+	_radius_farm = Location.get_interaction_radius("field")
+	_radius_home = Location.get_interaction_radius("home")
+	_radius_camp = Location.get_interaction_radius("camp")
+	_radius_guard_post = Location.get_interaction_radius("guard_post")
 
 
 func _init_arrays() -> void:
@@ -125,6 +142,8 @@ func _init_arrays() -> void:
 	home_positions.resize(max_count)
 	work_positions.resize(max_count)
 	spawn_positions.resize(max_count)
+	home_radii.resize(max_count)
+	work_radii.resize(max_count)
 
 	healths.resize(max_count)
 	max_healths.resize(max_count)
@@ -233,6 +252,19 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	work_positions[i] = work_pos
 	spawn_positions[i] = pos
 
+	# Set arrival radii based on job's building types
+	match job:
+		Job.FARMER:
+			home_radii[i] = _radius_home
+			work_radii[i] = _radius_farm
+		Job.GUARD:
+			home_radii[i] = _radius_home
+			work_radii[i] = _radius_guard_post
+		Job.RAIDER:
+			home_radii[i] = _radius_camp
+			work_radii[i] = _radius_farm  # Raiders target farms
+	arrival_radii[i] = home_radii[i]  # Start with home radius
+
 	healths[i] = hp
 	max_healths[i] = hp
 	energies[i] = Config.ENERGY_MAX
@@ -240,7 +272,6 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	attack_ranges[i] = attack_range
 	attack_timers[i] = 0.0
 	scan_timers[i] = randf() * Config.SCAN_INTERVAL
-	arrival_radii[i] = 5.0  # Default for exact positions, override for buildings
 	death_times[i] = -1
 
 	states[i] = State.IDLE
