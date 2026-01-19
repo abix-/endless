@@ -1,6 +1,8 @@
 # Endless
 
-A village siege simulation built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management. Inspired by Lords of the Realm 2 - build your economy, raise armies, conquer the world.
+A village siege simulation built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
+
+**Inspired by Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, and conquer rival towns. Watch the world simulate in real-time or take control and dominate.
 
 ## Features
 
