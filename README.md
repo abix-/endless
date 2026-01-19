@@ -72,12 +72,12 @@ Activity-specific states (no translation layer):
 | IDLE | All | Between decisions |
 | SLEEPING | All | At home/camp, asleep |
 | OFF_DUTY | All | At home/camp, awake |
-| FARMING | Farmer | Working at farm |
-| WALKING | Farmer | Moving to/from locations |
+| FIGHTING | Guard, Raider | In combat |
 | FLEEING | Farmer | Running from combat |
+| WALKING | Farmer, Guard | Moving (to farm/home) |
+| FARMING | Farmer | Working at farm |
 | ON_DUTY | Guard | Stationed at post |
 | PATROLLING | Guard | Moving between posts |
-| FIGHTING | Guard, Raider | In combat |
 | RAIDING | Raider | Going to/at farm |
 | RETURNING | Raider | Heading back to camp |
 
