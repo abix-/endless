@@ -81,7 +81,8 @@ func _process_fighting(i: int) -> void:
 			return
 	
 	var dist_to_enemy: float = my_pos.distance_to(enemy_pos)
-	if dist_to_enemy <= Config.ATTACK_RANGE:
+	var attack_range: float = manager.attack_ranges[i]
+	if dist_to_enemy <= attack_range:
 		if manager.attack_timers[i] <= 0:
 			_attack(i, target_idx)
 
@@ -105,21 +106,38 @@ func _process_fleeing(i: int) -> void:
 
 func _attack(attacker: int, victim: int) -> void:
 	manager.attack_timers[attacker] = Config.ATTACK_COOLDOWN
-	manager.healths[victim] -= manager.attack_damages[attacker]
-	manager.mark_health_dirty(victim)
 	manager._renderer.trigger_flash(attacker)
-	
-	if manager.healths[victim] <= 0:
-		_die(victim)
+
+	var job: int = manager.jobs[attacker]
+	var is_ranged: bool = job == NPCState.Job.GUARD or job == NPCState.Job.RAIDER
+
+	if is_ranged and manager._projectiles:
+		# Fire projectile - damage happens on hit
+		var from_pos: Vector2 = manager.positions[attacker]
+		var target_pos: Vector2 = manager.positions[victim]
+		var damage: float = manager.attack_damages[attacker]
+		var faction: int = manager.factions[attacker]
+		manager._projectiles.fire(from_pos, target_pos, damage, faction, attacker)
 	else:
-		var victim_target: int = manager.current_targets[victim]
-		if victim_target < 0:
-			manager.current_targets[victim] = attacker
-			var will_flee: int = manager.will_flee[victim]
-			if will_flee == 1:
-				manager._state.set_state(victim, NPCState.State.FLEEING)
-			else:
-				manager._state.set_state(victim, NPCState.State.FIGHTING)
+		# Melee instant damage
+		manager.healths[victim] -= manager.attack_damages[attacker]
+		manager.mark_health_dirty(victim)
+
+		if manager.healths[victim] <= 0:
+			_die(victim)
+		else:
+			_aggro_victim(attacker, victim)
+
+
+func _aggro_victim(attacker: int, victim: int) -> void:
+	var victim_target: int = manager.current_targets[victim]
+	if victim_target < 0:
+		manager.current_targets[victim] = attacker
+		var will_flee: int = manager.will_flee[victim]
+		if will_flee == 1:
+			manager._state.set_state(victim, NPCState.State.FLEEING)
+		else:
+			manager._state.set_state(victim, NPCState.State.FIGHTING)
 
 func _die(i: int) -> void:
 	var victim_faction: int = manager.factions[i]

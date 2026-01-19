@@ -51,10 +51,20 @@ const NPC_CLICK_RADIUS := 16.0
 # NPC stats
 const FARMER_HP := 50.0
 const FARMER_DAMAGE := 5.0
+const FARMER_RANGE := 30.0  # Melee
 const GUARD_HP := 150.0
 const GUARD_DAMAGE := 15.0
+const GUARD_RANGE := 150.0  # Ranged
 const RAIDER_HP := 100.0
 const RAIDER_DAMAGE := 12.0
+const RAIDER_RANGE := 120.0  # Ranged
+
+# Projectiles
+const MAX_PROJECTILES := 500
+const PROJECTILE_SPEED := 200.0
+const PROJECTILE_SIZE := 6.0
+const PROJECTILE_LIFETIME := 3.0
+const PROJECTILE_HIT_RADIUS := 10.0
 
 # Energy
 const ENERGY_MAX := 100.0

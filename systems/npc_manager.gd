@@ -24,6 +24,7 @@ var healths: PackedFloat32Array
 var max_healths: PackedFloat32Array
 var energies: PackedFloat32Array
 var attack_damages: PackedFloat32Array
+var attack_ranges: PackedFloat32Array
 var attack_timers: PackedFloat32Array
 var scan_timers: PackedFloat32Array
 var death_times: PackedInt32Array
@@ -78,6 +79,11 @@ var _combat: NPCCombat
 var _needs: NPCNeeds
 var _grid: NPCGrid
 var _renderer: NPCRenderer
+var _projectiles: Node  # Set by main.gd
+
+
+func set_projectile_manager(pm: Node) -> void:
+	_projectiles = pm
 
 
 func _ready() -> void:
@@ -100,6 +106,7 @@ func _init_arrays() -> void:
 	max_healths.resize(max_count)
 	energies.resize(max_count)
 	attack_damages.resize(max_count)
+	attack_ranges.resize(max_count)
 	attack_timers.resize(max_count)
 	scan_timers.resize(max_count)
 	death_times.resize(max_count)
@@ -142,6 +149,9 @@ func _process(delta: float) -> void:
 	_combat.process(delta)
 	_nav.process(delta)
 
+	if _projectiles:
+		_projectiles.process(delta)
+
 	_renderer.update(delta)
 
 	var t2 := Time.get_ticks_usec()
@@ -179,7 +189,7 @@ func _update_counts() -> void:
 # SPAWNING
 # ============================================================
 
-func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worker: bool, flee: bool, hp: float, damage: float) -> int:
+func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worker: bool, flee: bool, hp: float, damage: float, attack_range: float) -> int:
 	if count >= max_count:
 		return -1
 
@@ -198,6 +208,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	max_healths[i] = hp
 	energies[i] = Config.ENERGY_MAX
 	attack_damages[i] = damage
+	attack_ranges[i] = attack_range
 	attack_timers[i] = 0.0
 	scan_timers[i] = randf() * Config.SCAN_INTERVAL
 	death_times[i] = -1
@@ -233,15 +244,15 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 
 
 func spawn_farmer(pos: Vector2, home_pos: Vector2, work_pos: Vector2) -> int:
-	return spawn_npc(Job.FARMER, Faction.VILLAGER, pos, home_pos, work_pos, false, true, Config.FARMER_HP, Config.FARMER_DAMAGE)
+	return spawn_npc(Job.FARMER, Faction.VILLAGER, pos, home_pos, work_pos, false, true, Config.FARMER_HP, Config.FARMER_DAMAGE, Config.FARMER_RANGE)
 
 
 func spawn_guard(pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worker: bool) -> int:
-	return spawn_npc(Job.GUARD, Faction.VILLAGER, pos, home_pos, work_pos, night_worker, false, Config.GUARD_HP, Config.GUARD_DAMAGE)
+	return spawn_npc(Job.GUARD, Faction.VILLAGER, pos, home_pos, work_pos, night_worker, false, Config.GUARD_HP, Config.GUARD_DAMAGE, Config.GUARD_RANGE)
 
 
 func spawn_raider(pos: Vector2) -> int:
-	return spawn_npc(Job.RAIDER, Faction.RAIDER, pos, pos, pos, false, false, Config.RAIDER_HP, Config.RAIDER_DAMAGE)
+	return spawn_npc(Job.RAIDER, Faction.RAIDER, pos, pos, pos, false, false, Config.RAIDER_HP, Config.RAIDER_DAMAGE, Config.RAIDER_RANGE)
 
 
 # ============================================================

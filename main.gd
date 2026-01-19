@@ -1,11 +1,13 @@
 extends Node2D
 
 var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
+var projectile_manager_scene: PackedScene = preload("res://systems/projectile_manager.tscn")
 var player_scene: PackedScene = preload("res://entities/player.tscn")
 var location_scene: PackedScene = preload("res://world/location.tscn")
 var hud_scene: PackedScene = preload("res://ui/hud.tscn")
 
 var npc_manager: Node
+var projectile_manager: Node
 var player: Node
 var hud: Node
 
@@ -80,7 +82,14 @@ func _create_locations() -> void:
 func _setup_npc_manager() -> void:
 	npc_manager = npc_manager_scene.instantiate()
 	add_child(npc_manager)
-	
+
+	projectile_manager = projectile_manager_scene.instantiate()
+	add_child(projectile_manager)
+
+	# Connect managers
+	projectile_manager.set_npc_manager(npc_manager)
+	npc_manager.set_projectile_manager(projectile_manager)
+
 	# Pass world info to npc_manager
 	npc_manager.village_center = Vector2(village_center_x, village_center_y)
 	for farm in farms:
