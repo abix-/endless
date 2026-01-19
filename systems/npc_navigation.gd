@@ -3,6 +3,8 @@
 extends RefCounted
 class_name NPCNavigation
 
+const STATIONARY_STATES := [NPCState.State.WORKING, NPCState.State.SLEEPING, NPCState.State.RESTING, NPCState.State.IDLE]
+
 var manager: Node
 
 signal arrived(npc_index: int)
@@ -39,7 +41,9 @@ func process(delta: float) -> void:
 			NPCState.State.FLEEING:
 				_move_away_from_enemy(i, lod_delta)
 
-		_apply_separation(i, lod_delta)
+		# Stagger separation: only 1/4 of NPCs per frame
+		if i % 4 == frame % 4:
+			_apply_separation(i, lod_delta * 4.0)
 
 
 func _should_update(i: int, frame: int, dist_sq: float) -> bool:
@@ -118,9 +122,7 @@ func _apply_separation(i: int, delta: float) -> void:
 	var my_radius: float = Config.SEPARATION_RADIUS * my_size
 	var radius_sq: float = my_radius * my_radius
 
-	# Stationary NPCs don't push others
-	var stationary_states := [NPCState.State.WORKING, NPCState.State.SLEEPING, NPCState.State.RESTING, NPCState.State.IDLE]
-	var i_am_moving: bool = my_state not in stationary_states
+	var i_am_moving: bool = my_state not in STATIONARY_STATES
 
 	for other_idx in nearby:
 		if other_idx == i:
@@ -138,7 +140,7 @@ func _apply_separation(i: int, delta: float) -> void:
 
 		if dist_sq > 0 and dist_sq < combined_radius_sq:
 			var other_state: int = manager.states[other_idx]
-			var other_stationary: bool = other_state in stationary_states
+			var other_stationary: bool = other_state in STATIONARY_STATES
 
 			# Push strength based on relative size (bigger pushes smaller)
 			var push_strength: float = other_size / my_size
