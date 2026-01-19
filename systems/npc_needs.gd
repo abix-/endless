@@ -142,7 +142,7 @@ func on_arrival(i: int) -> void:
 		var home_pos: Vector2 = manager.home_positions[i]
 		var energy: float = manager.energies[i]
 
-		if target.distance_to(work_pos) < 10:
+		if target.distance_to(work_pos) < 10 and job != NPCState.Job.RAIDER:
 			manager._state.set_state(i, NPCState.State.WORKING)
 			if job == NPCState.Job.GUARD:
 				manager.wander_centers[i] = manager.positions[i]
