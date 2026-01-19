@@ -3683,3 +3683,16 @@ EOF
 11:06:04 - Running Unsanitize...
 11:06:04 - Unsanitize done
 11:06:04 - Wrapped: (git add -A && git commit -m "specific activity states instead of translation layer" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:06:07 - Event: PostToolUse
+11:06:07 - Tool: Bash
+11:06:07 - Command: (git add -A && git commit -m "specific activity states instead of translation layer" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:06:07 - Processing PostToolUse for: (git add -A && git commit -m "specific activity states instead of translation layer" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:06:07 - Running Sanitize...
+11:06:07 - Sanitize done
+11:07:48 - Event: PreToolUse
+11:07:48 - Tool: Bash
+11:07:48 - Command: git add -A && git commit -m "fix NPCState enum access in main.gd" && git push
+11:07:48 - Processing PreToolUse for: git add -A && git commit -m "fix NPCState enum access in main.gd" && git push
+11:07:48 - Running Unsanitize...
+11:07:49 - Unsanitize done
+11:07:49 - Wrapped: (git add -A && git commit -m "fix NPCState enum access in main.gd" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
