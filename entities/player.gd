@@ -38,10 +38,21 @@ func _input(event: InputEvent) -> void:
 
 
 func _zoom_toward_mouse(zoom_factor: float) -> void:
-	var mouse_world_before := get_global_mouse_position()
+	var viewport := get_viewport()
+	var mouse_screen := viewport.get_mouse_position()
+	var viewport_size := viewport.get_visible_rect().size
 
+	# Mouse offset from screen center
+	var screen_center := viewport_size / 2.0
+	var mouse_offset := mouse_screen - screen_center
+
+	# World position under mouse before zoom
+	var world_pos := global_position + mouse_offset / camera.zoom
+
+	# Apply zoom
+	var old_zoom := camera.zoom
 	camera.zoom *= zoom_factor
 	camera.zoom = camera.zoom.clamp(Vector2(min_zoom, min_zoom), Vector2(max_zoom, max_zoom))
 
-	var mouse_world_after := get_global_mouse_position()
-	global_position += mouse_world_before - mouse_world_after
+	# Move camera so world_pos stays under mouse
+	global_position = world_pos - mouse_offset / camera.zoom
