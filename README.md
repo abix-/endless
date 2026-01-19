@@ -22,9 +22,9 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Procedural town generation (7 towns, 1200px minimum spacing)
 - [x] Named towns from pool of 15 (Millbrook, Ashford, Willowdale, etc.)
 - [x] Farms (2 per town, 200-300px from center)
-- [x] Homes for NPCs (ring 350-450px from center)
+- [x] Homes for farmers (ring 350-450px from center)
 - [x] Guard posts (6 per town, 500-600px perimeter)
-- [x] Raider camps (900px from target town)
+- [x] Raider camps (1100px from target town, past guard posts)
 - [ ] Destructible buildings
 - [ ] Build new structures
 - [ ] Structure upgrades (increase output, capacity, defense)
@@ -55,7 +55,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 
 ### AI Behaviors
 - [x] Farmers: day/night work schedule, flee from enemies
-- [x] Guards: patrol at guard posts, day/night shifts
+- [x] Guards: patrol at posts, sleep near town center, day/night shifts
 - [x] Raiders: priority system (wounded → exhausted → deliver loot → steal)
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
 - [x] HP regen (2/hr awake, 6/hr sleeping)
