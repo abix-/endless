@@ -11,6 +11,10 @@ extends CanvasLayer
 const MAX_LOG_LINES := 20
 const JOB_NAMES := ["Farmer", "Guard", "Raider"]
 
+# Batch level-up messages to avoid per-frame string operations
+var _pending_levelups: Array[String] = []
+var _log_dirty := false
+
 # Grid cells (set in _ready after grid is populated)
 var farmer_alive: Label
 var farmer_dead: Label
@@ -54,10 +58,14 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if not npc_manager:
 		return
-	
+
+	# Flush pending level-up messages (batched)
+	if _log_dirty:
+		_flush_combat_log()
+
 	if Engine.get_process_frames() % 10 != 0:
 		return
-	
+
 	_update_stats()
 	_update_time()
 	_update_fps()
@@ -102,13 +110,25 @@ func _update_zoom() -> void:
 
 func _on_npc_leveled_up(_npc_index: int, job: int, new_level: int) -> void:
 	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
-	var msg := "%s → Lv.%d\n" % [job_name, new_level]
-	combat_log.text += msg
+	_pending_levelups.append("%s → Lv.%d" % [job_name, new_level])
+	_log_dirty = true
 
-	# Trim old lines
-	var lines := combat_log.text.split("\n")
+
+func _flush_combat_log() -> void:
+	if _pending_levelups.is_empty():
+		_log_dirty = false
+		return
+
+	# Build new text efficiently
+	var lines := combat_log.text.split("\n", false)
+	lines.append_array(_pending_levelups)
+
+	# Keep only last MAX_LOG_LINES
 	if lines.size() > MAX_LOG_LINES:
-		combat_log.text = "\n".join(lines.slice(-MAX_LOG_LINES))
+		lines = lines.slice(-MAX_LOG_LINES)
 
-	# Auto-scroll to bottom
+	combat_log.text = "\n".join(lines)
 	combat_log.scroll_to_line(combat_log.get_line_count())
+
+	_pending_levelups.clear()
+	_log_dirty = false
