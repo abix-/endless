@@ -13,7 +13,7 @@ const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
 # Sprite frames (column, row) in the character sheet
 const SPRITE_FARMER := Vector2i(0, 5)
 const SPRITE_GUARD := Vector2i(0, 11)
-const SPRITE_RAIDER := Vector2i(0, 7)
+const SPRITE_RAIDER := Vector2i(0, 8)
 
 # Job tint colors
 const COLOR_FARMER := Color(1.0, 1.0, 1.0)        # White (neutral)
