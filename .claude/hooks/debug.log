@@ -3787,3 +3787,16 @@ EOF
 11:26:18 - Running Unsanitize...
 11:26:18 - Unsanitize done
 11:26:18 - Wrapped: (git add -A && git commit -m "update readme with flee destinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:26:21 - Event: PostToolUse
+11:26:21 - Tool: Bash
+11:26:21 - Command: (git add -A && git commit -m "update readme with flee destinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:26:21 - Processing PostToolUse for: (git add -A && git commit -m "update readme with flee destinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:26:21 - Running Sanitize...
+11:26:22 - Sanitize done
+11:28:46 - Event: PreToolUse
+11:28:46 - Tool: Bash
+11:28:46 - Command: git add -A && git commit -m "switch targets if current target is fleeing and closer threat exists" && git push
+11:28:46 - Processing PreToolUse for: git add -A && git commit -m "switch targets if current target is fleeing and closer threat exists" && git push
+11:28:46 - Running Unsanitize...
+11:28:47 - Unsanitize done
+11:28:47 - Wrapped: (git add -A && git commit -m "switch targets if current target is fleeing and closer threat exists" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

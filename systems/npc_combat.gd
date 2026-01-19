@@ -66,10 +66,19 @@ func _process_fighting(i: int) -> void:
 		manager._state.set_state(i, NPCState.State.FLEEING)
 		return
 
-	var job: int = manager.jobs[i]
-
 	var my_pos: Vector2 = manager.positions[i]
 	var enemy_pos: Vector2 = manager.positions[target_idx]
+
+	# If target is fleeing, check for closer non-fleeing enemies
+	var target_state: int = manager.states[target_idx]
+	if target_state == NPCState.State.FLEEING:
+		var closer_enemy: int = _find_closer_non_fleeing_enemy(i, target_idx)
+		if closer_enemy >= 0:
+			manager.current_targets[i] = closer_enemy
+			target_idx = closer_enemy
+			enemy_pos = manager.positions[target_idx]
+
+	var job: int = manager.jobs[i]
 
 	# Guards don't leash - they fight wherever they are
 	if job != NPCState.Job.GUARD:
@@ -249,3 +258,30 @@ func _get_flee_target(i: int) -> Vector2:
 		if town_idx >= 0 and town_idx < manager.town_centers.size():
 			return manager.town_centers[town_idx]
 		return manager.home_positions[i]  # Fallback
+
+
+func _find_closer_non_fleeing_enemy(i: int, current_target: int) -> int:
+	var my_pos: Vector2 = manager.positions[i]
+	var my_faction: int = manager.factions[i]
+	var current_dist_sq: float = my_pos.distance_squared_to(manager.positions[current_target])
+	var nearby: Array = manager._grid_get_nearby(my_pos)
+
+	var best: int = -1
+	var best_dist_sq: float = current_dist_sq
+
+	for other_idx in nearby:
+		if other_idx == i or other_idx == current_target:
+			continue
+		if manager.healths[other_idx] <= 0:
+			continue
+		if manager.states[other_idx] == NPCState.State.FLEEING:
+			continue
+		if not _is_hostile(my_faction, manager.factions[other_idx]):
+			continue
+
+		var dist_sq: float = my_pos.distance_squared_to(manager.positions[other_idx])
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best = other_idx
+
+	return best
