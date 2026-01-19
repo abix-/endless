@@ -24,7 +24,8 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Farms (2 per town, 200-300px from center)
 - [x] Homes for farmers (ring 350-450px from center)
 - [x] Guard posts (6 per town, 500-600px perimeter)
-- [x] Raider camps (1100px from target town, past guard posts)
+- [x] Raider camps (positioned away from all towns)
+- [x] Visible world border with corner markers
 - [ ] Destructible buildings
 - [ ] Build new structures
 - [ ] Structure upgrades (increase output, capacity, defense)
