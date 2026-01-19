@@ -5,13 +5,6 @@ class_name NPCNeeds
 
 var manager: Node
 
-# Raider behavior constants
-const RAIDER_CONFIDENCE_THRESHOLD := 3    # Need 3+ allies to raid
-const RAIDER_WOUNDED_THRESHOLD := 0.5     # 50% health = wounded
-const RAIDER_HUNGRY_THRESHOLD := 50.0     # Energy below this = hungry
-const RAIDER_GROUP_RADIUS := 200.0        # How far to look for allies
-const RAIDER_RETREAT_DIST := 400.0        # How far to retreat when wounded
-
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
 
@@ -36,11 +29,11 @@ func on_time_tick(hour: int, minute: int) -> void:
 		var state: int = manager.states[i]
 		match state:
 			NPCState.State.SLEEPING:
-				manager.energies[i] = minf(100.0, manager.energies[i] + 12.0)
+				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_SLEEP_GAIN)
 			NPCState.State.RESTING:
-				manager.energies[i] = minf(100.0, manager.energies[i] + 5.0)
+				manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_REST_GAIN)
 			_:
-				manager.energies[i] = maxf(0.0, manager.energies[i] - 6.0)
+				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
 
 func decide_what_to_do(i: int) -> void:
 	if manager.healths[i] <= 0:
@@ -55,7 +48,7 @@ func decide_what_to_do(i: int) -> void:
 	var state: int = manager.states[i]
 	
 	# Low energy - go home to sleep
-	if energy <= 20.0:
+	if energy <= Config.ENERGY_EXHAUSTED:
 		if state != NPCState.State.SLEEPING:
 			manager.targets[i] = manager.home_positions[i]
 			manager._state.set_state(i, NPCState.State.WALKING)
@@ -77,20 +70,20 @@ func _decide_raider(i: int) -> void:
 	var my_pos: Vector2 = manager.positions[i]
 	var health_pct: float = manager.healths[i] / manager.max_healths[i]
 	var energy: float = manager.energies[i]
-	var nearby_allies: int = manager.count_nearby_raiders(i, RAIDER_GROUP_RADIUS)
+	var nearby_allies: int = manager.count_nearby_raiders(i, Config.RAIDER_GROUP_RADIUS)
 	
 	# Priority 1: Wounded - retreat away from village
-	if health_pct < RAIDER_WOUNDED_THRESHOLD:
+	if health_pct < Config.RAIDER_WOUNDED_THRESHOLD:
 		_raider_retreat(i)
 		return
 	
 	# Priority 2: Exhausted - rest
-	if energy <= 20.0:
+	if energy <= Config.ENERGY_EXHAUSTED:
 		manager._state.set_state(i, NPCState.State.RESTING)
 		return
 	
 	# Priority 3: Hungry - find food at farm
-	if energy < RAIDER_HUNGRY_THRESHOLD:
+	if energy < Config.RAIDER_HUNGRY_THRESHOLD:
 		_raider_seek_food(i)
 		return
 	
@@ -100,7 +93,7 @@ func _decide_raider(i: int) -> void:
 		return
 	
 	# Priority 5: Confident (3+ allies) - raid the village
-	if nearby_allies >= RAIDER_CONFIDENCE_THRESHOLD:
+	if nearby_allies >= Config.RAIDER_CONFIDENCE_THRESHOLD:
 		_raider_raid_village(i)
 		return
 	
@@ -114,7 +107,7 @@ func _raider_retreat(i: int) -> void:
 	
 	# Move away from village
 	var retreat_dir: Vector2 = my_pos.direction_to(village_center) * -1
-	var retreat_target: Vector2 = my_pos + retreat_dir * RAIDER_RETREAT_DIST
+	var retreat_target: Vector2 = my_pos + retreat_dir * Config.RAIDER_RETREAT_DIST
 	
 	manager.targets[i] = retreat_target
 	manager.wander_centers[i] = retreat_target
@@ -172,7 +165,7 @@ func _raider_wander_with_cohesion(i: int) -> void:
 	var village_center: Vector2 = manager.village_center
 	
 	# Get group center (cohesion)
-	var group_center: Vector2 = manager.get_raider_group_center(i, RAIDER_GROUP_RADIUS)
+	var group_center: Vector2 = manager.get_raider_group_center(i, Config.RAIDER_GROUP_RADIUS)
 	
 	# Random direction
 	var angle: float = randf() * TAU
@@ -239,7 +232,7 @@ func on_arrival(i: int) -> void:
 			if job == NPCState.Job.GUARD:
 				manager.wander_centers[i] = manager.positions[i]
 		elif target.distance_to(home_pos) < 10:
-			if energy <= 20:
+			if energy <= Config.ENERGY_EXHAUSTED:
 				manager._state.set_state(i, NPCState.State.SLEEPING)
 			else:
 				manager._state.set_state(i, NPCState.State.RESTING)
@@ -252,5 +245,5 @@ func _raider_check_farm_food(i: int) -> void:
 	for farm_pos in manager.farm_positions:
 		if my_pos.distance_to(farm_pos) < 60.0:
 			# Steal food! Restore energy
-			manager.energies[i] = minf(100.0, manager.energies[i] + 30.0)
+			manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_FARM_RESTORE)
 			return

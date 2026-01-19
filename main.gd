@@ -13,17 +13,13 @@ var farms: Array = []
 var guard_posts: Array = []
 var homes: Array = []
 
-# Village bounds
-var village_left := 500
-var village_right := 2500
-var village_top := 500
-var village_bottom := 2000
+# Village bounds (from Config)
 var village_center_x: int
 var village_center_y: int
 
 func _ready() -> void:
-	village_center_x = (village_left + village_right) / 2
-	village_center_y = (village_top + village_bottom) / 2
+	village_center_x = (Config.VILLAGE_LEFT + Config.VILLAGE_RIGHT) / 2
+	village_center_y = (Config.VILLAGE_TOP + Config.VILLAGE_BOTTOM) / 2
 	
 	WorldClock.day_changed.connect(_on_day_changed)
 	
@@ -49,16 +45,16 @@ func _create_locations() -> void:
 	var border_positions := []
 	# Top edge
 	for i in range(25):
-		border_positions.append(Vector2(village_left + i * 80, village_top))
+		border_positions.append(Vector2(Config.VILLAGE_LEFT + i * 80, Config.VILLAGE_TOP))
 	# Bottom edge
 	for i in range(25):
-		border_positions.append(Vector2(village_left + i * 80, village_bottom))
+		border_positions.append(Vector2(Config.VILLAGE_LEFT + i * 80, Config.VILLAGE_BOTTOM))
 	# Left edge
 	for i in range(19):
-		border_positions.append(Vector2(village_left, village_top + (i + 1) * 80))
+		border_positions.append(Vector2(Config.VILLAGE_LEFT, Config.VILLAGE_TOP + (i + 1) * 80))
 	# Right edge
 	for i in range(19):
-		border_positions.append(Vector2(village_right, village_top + (i + 1) * 80))
+		border_positions.append(Vector2(Config.VILLAGE_RIGHT, Config.VILLAGE_TOP + (i + 1) * 80))
 	
 	for i in range(mini(100, border_positions.size())):
 		var loc = location_scene.instantiate()
@@ -127,13 +123,13 @@ func _spawn_many_npcs(total: int) -> void:
 		var pos: Vector2
 		match side:
 			0:  # Above
-				pos = Vector2(randf_range(village_left, village_right), randf_range(0, village_top - 100))
+				pos = Vector2(randf_range(Config.VILLAGE_LEFT, Config.VILLAGE_RIGHT), randf_range(0, Config.VILLAGE_TOP - 100))
 			1:  # Below
-				pos = Vector2(randf_range(village_left, village_right), randf_range(village_bottom + 100, village_bottom + 600))
+				pos = Vector2(randf_range(Config.VILLAGE_LEFT, Config.VILLAGE_RIGHT), randf_range(Config.VILLAGE_BOTTOM + 100, Config.VILLAGE_BOTTOM + 600))
 			2:  # Left
-				pos = Vector2(randf_range(0, village_left - 100), randf_range(village_top, village_bottom))
+				pos = Vector2(randf_range(0, Config.VILLAGE_LEFT - 100), randf_range(Config.VILLAGE_TOP, Config.VILLAGE_BOTTOM))
 			3:  # Right
-				pos = Vector2(randf_range(village_right + 100, village_right + 600), randf_range(village_top, village_bottom))
+				pos = Vector2(randf_range(Config.VILLAGE_RIGHT + 100, Config.VILLAGE_RIGHT + 600), randf_range(Config.VILLAGE_TOP, Config.VILLAGE_BOTTOM))
 		npc_manager.spawn_raider(pos)
 	
 	print("Spawned %d NPCs: %d farmers, %d guards, %d raiders" % [total, farmer_count, guard_count, raider_count])

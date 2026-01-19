@@ -5,12 +5,6 @@ class_name NPCCombat
 
 var manager: Node
 
-const MAX_SCAN := 50
-const LEASH_DISTANCE := 400.0
-const FLEE_DISTANCE := 150.0
-const ALERT_RADIUS := 200.0
-const SCAN_STAGGER := 4  # Only scan 1/4 of NPCs per frame
-
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
 
@@ -34,7 +28,7 @@ func process_scanning(delta: float) -> void:
 	
 	for i in manager.count:
 		# Stagger: only process 1/4 of NPCs per frame
-		if i % SCAN_STAGGER != frame % SCAN_STAGGER:
+		if i % Config.SCAN_STAGGER != frame % Config.SCAN_STAGGER:
 			continue
 		
 		if manager.healths[i] <= 0:
@@ -44,9 +38,9 @@ func process_scanning(delta: float) -> void:
 		if state in [NPCState.State.FIGHTING, NPCState.State.FLEEING, NPCState.State.SLEEPING]:
 			continue
 		
-		manager.scan_timers[i] -= delta * SCAN_STAGGER  # Compensate for stagger
+		manager.scan_timers[i] -= delta * Config.SCAN_STAGGER  # Compensate for stagger
 		if manager.scan_timers[i] <= 0:
-			manager.scan_timers[i] = manager.SCAN_INTERVAL
+			manager.scan_timers[i] = Config.SCAN_INTERVAL
 			var enemy: int = _find_enemy_for(i)
 			
 			if enemy >= 0:
@@ -75,9 +69,9 @@ func _process_fighting(i: int) -> void:
 	var job: int = manager.jobs[i]
 	if job != NPCState.Job.GUARD:
 		var home_pos: Vector2 = manager.wander_centers[i]
-		var leash: float = LEASH_DISTANCE
+		var leash: float = Config.LEASH_DISTANCE
 		if job == NPCState.Job.RAIDER:
-			leash = LEASH_DISTANCE * 1.5
+			leash = Config.LEASH_DISTANCE * Config.RAIDER_LEASH_MULTIPLIER
 		
 		var dist_to_home: float = my_pos.distance_to(home_pos)
 		if dist_to_home > leash:
@@ -87,7 +81,7 @@ func _process_fighting(i: int) -> void:
 			return
 	
 	var dist_to_enemy: float = my_pos.distance_to(enemy_pos)
-	if dist_to_enemy <= manager.ATTACK_RANGE:
+	if dist_to_enemy <= Config.ATTACK_RANGE:
 		if manager.attack_timers[i] <= 0:
 			_attack(i, target_idx)
 
@@ -104,13 +98,13 @@ func _process_fleeing(i: int) -> void:
 	var enemy_pos: Vector2 = manager.positions[target_idx]
 	var dist: float = my_pos.distance_to(enemy_pos)
 	
-	if dist > FLEE_DISTANCE:
+	if dist > Config.FLEE_DISTANCE:
 		manager.current_targets[i] = -1
 		manager._state.set_state(i, NPCState.State.IDLE)
 		manager._decide_what_to_do(i)
 
 func _attack(attacker: int, victim: int) -> void:
-	manager.attack_timers[attacker] = manager.ATTACK_COOLDOWN
+	manager.attack_timers[attacker] = Config.ATTACK_COOLDOWN
 	manager.healths[victim] -= manager.attack_damages[attacker]
 	manager.mark_health_dirty(victim)
 	
@@ -130,17 +124,17 @@ func _die(i: int) -> void:
 	var victim_faction: int = manager.factions[i]
 	manager.record_kill(victim_faction)
 	manager.record_death(i)  # Record death time for respawn
-	
+
 	manager.healths[i] = 0
 	manager._state.set_state(i, NPCState.State.IDLE)
 	manager.current_targets[i] = -1
 	manager.positions[i] = Vector2(-9999, -9999)
-	manager.multimesh.set_instance_transform_2d(i, Transform2D(0, manager.positions[i]))
+	manager._renderer.hide_npc(i)
 
 func _alert_nearby_raiders(alerter_idx: int, target_idx: int) -> void:
 	var pos: Vector2 = manager.positions[alerter_idx]
 	var nearby: Array = manager._grid_get_nearby(pos)
-	var alert_range_sq: float = ALERT_RADIUS * ALERT_RADIUS
+	var alert_range_sq: float = Config.ALERT_RADIUS * Config.ALERT_RADIUS
 	
 	for other_idx in nearby:
 		if other_idx == alerter_idx:
@@ -181,7 +175,7 @@ func _find_enemy_for(i: int) -> int:
 			continue
 		
 		checked += 1
-		if checked >= MAX_SCAN:
+		if checked >= Config.MAX_SCAN:
 			break
 		
 		var other_pos: Vector2 = manager.positions[other_idx]
