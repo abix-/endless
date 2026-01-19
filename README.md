@@ -172,38 +172,29 @@ ui/
 
 ---
 
-## TODO / Roadmap
+## Roadmap
 
-### Phase 1: Economy Foundation
+- [x] Guard posts around town perimeter
+- [x] Loot icon for raiders carrying food
+- [x] Raiders target nearest farm (not random)
 - [ ] Food consumption (NPCs eat from their faction's supply)
-- [ ] Starvation effects (HP drain, morale, desertion)
-- [ ] Multiple resource types (food, wood, iron, gold)
+- [ ] Starvation effects (HP drain, desertion)
+- [ ] UI to show town details when clicking markers
+- [ ] Player claims a town as capital
+- [ ] Villager role assignment UI
+- [ ] Multiple resource types (wood, iron, gold)
 - [ ] Production buildings (lumber mill, mine, blacksmith)
-- [ ] Villager role assignment (player chooses who farms vs mines vs crafts)
-
-### Phase 2: Player Control
-- [ ] Player claims a town as their capital
-- [ ] UI to manage villager assignments
-- [ ] Build/upgrade production buildings
+- [ ] Build/upgrade buildings
 - [ ] Train guards from villager pool
-- [ ] Equipment crafting (weapons improve guard stats)
-
-### Phase 3: Military & Conquest
-- [ ] Recruit army units from population (peasant levy, archers, knights)
+- [ ] Equipment crafting (weapons improve stats)
+- [ ] Recruit army units (peasant levy, archers, knights)
 - [ ] Army movement between towns
-- [ ] Attack enemy towns (siege, raid farms, destroy buildings)
-- [ ] Capture territories (town switches to your faction)
+- [ ] Attack enemy towns (siege, destroy buildings)
+- [ ] Capture territories
 - [ ] AI lords that expand and compete
-
-### Phase 4: Victory Conditions
-- [ ] Conquer all towns for domination victory
-- [ ] Economic victory (accumulate wealth threshold)
-- [ ] Survival mode (endless waves, see how long you last)
-
-### Near-term Improvements
-- [ ] UI to show per-town food when clicking on town/camp markers
-- [ ] Implement RAIDER_CONFIDENCE_THRESHOLD logic (config exists but unused)
-- [ ] Implement RAIDER_HUNGRY_THRESHOLD logic (config exists but unused)
+- [ ] Domination victory (conquer all towns)
+- [ ] Economic victory (wealth threshold)
+- [ ] Survival mode (endless waves)
 
 ---
 
