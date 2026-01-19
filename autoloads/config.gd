@@ -39,11 +39,17 @@ const LOD_NEAR_SQ := 160000.0    # 400px
 const LOD_MID_SQ := 640000.0     # 800px
 const LOD_FAR_SQ := 1440000.0    # 1200px
 
-# Village bounds
-const VILLAGE_LEFT := 500
-const VILLAGE_RIGHT := 2500
-const VILLAGE_TOP := 500
-const VILLAGE_BOTTOM := 2000
+# World bounds
+const WORLD_WIDTH := 4000
+const WORLD_HEIGHT := 3000
+const WORLD_MARGIN := 300  # Keep towns away from edges
+
+# Town settings
+const FARMERS_PER_TOWN := 10
+const GUARDS_PER_TOWN := 5
+const FARMS_PER_TOWN := 2
+const RAIDERS_PER_CAMP := 5
+const CAMP_DISTANCE := 500  # Distance from town to raider camp
 
 # Rendering
 const RENDER_MARGIN := 100.0

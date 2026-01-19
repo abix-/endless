@@ -13,164 +13,204 @@ var player: Node
 var hud: Node
 var settings_menu: Node
 
-var farms: Array = []
-var guard_posts: Array = []
-var homes: Array = []
-var raider_camps: Array = []
+# World data
+var towns: Array = []  # Array of {center, farms, homes, camp}
 
-# Village bounds (from Config)
-var village_center_x: int
-var village_center_y: int
+const NUM_TOWNS := 7
+const MIN_TOWN_DISTANCE := 800  # Minimum distance between town centers
+
 
 func _ready() -> void:
-	@warning_ignore("integer_division")
-	village_center_x = (Config.VILLAGE_LEFT + Config.VILLAGE_RIGHT) / 2
-	@warning_ignore("integer_division")
-	village_center_y = (Config.VILLAGE_TOP + Config.VILLAGE_BOTTOM) / 2
-	
 	WorldClock.day_changed.connect(_on_day_changed)
-	
-	_create_locations()
-	_setup_npc_manager()
+
+	_generate_world()
+	_setup_managers()
 	_setup_player()
-	_setup_hud()
-	_setup_settings_menu()
-	_spawn_many_npcs(500)
+	_setup_ui()
+	_spawn_npcs()
 
-func _create_locations() -> void:
-	# Farms in center (5x4 grid = 20 farms, 5 farmers each)
-	for i in range(20):
-		var x = village_center_x - 200 + (i % 5) * 100
-		@warning_ignore("integer_division")
-		var y = village_center_y - 100 + (i / 5) * 80
-		var loc = location_scene.instantiate()
-		loc.location_name = "Farm %d" % i
-		loc.location_type = "field"
-		loc.global_position = Vector2(x, y)
-		add_child(loc)
-		farms.append(loc)
 
-	# Guard posts on border (spread around perimeter)
-	var border_positions := []
-	# Top edge
-	for i in range(13):
-		border_positions.append(Vector2(Config.VILLAGE_LEFT + i * 160, Config.VILLAGE_TOP))
-	# Bottom edge
-	for i in range(13):
-		border_positions.append(Vector2(Config.VILLAGE_LEFT + i * 160, Config.VILLAGE_BOTTOM))
-	# Left edge
-	for i in range(12):
-		border_positions.append(Vector2(Config.VILLAGE_LEFT, Config.VILLAGE_TOP + (i + 1) * 125))
-	# Right edge
-	for i in range(12):
-		border_positions.append(Vector2(Config.VILLAGE_RIGHT, Config.VILLAGE_TOP + (i + 1) * 125))
+func _generate_world() -> void:
+	# Generate scattered town positions
+	var town_positions: Array[Vector2] = []
+	var attempts := 0
+	var max_attempts := 1000
 
-	for i in range(mini(50, border_positions.size())):
-		var loc = location_scene.instantiate()
-		loc.location_name = "Post %d" % i
-		loc.location_type = "guardpost"
-		loc.global_position = border_positions[i]
-		add_child(loc)
-		guard_posts.append(loc)
+	while town_positions.size() < NUM_TOWNS and attempts < max_attempts:
+		attempts += 1
+		var pos := Vector2(
+			randf_range(Config.WORLD_MARGIN, Config.WORLD_WIDTH - Config.WORLD_MARGIN),
+			randf_range(Config.WORLD_MARGIN, Config.WORLD_HEIGHT - Config.WORLD_MARGIN)
+		)
 
-	# Homes inside village (ring between farms and border)
-	for i in range(75):
-		var angle = (i / 75.0) * TAU
-		var radius = randf_range(400, 600)
-		var x = village_center_x + cos(angle) * radius
-		var y = village_center_y + sin(angle) * radius
-		var loc = location_scene.instantiate()
-		loc.location_name = "Home %d" % i
-		loc.location_type = "home"
-		loc.global_position = Vector2(x, y)
-		add_child(loc)
-		homes.append(loc)
+		# Check distance from existing towns
+		var valid := true
+		for existing in town_positions:
+			if pos.distance_to(existing) < MIN_TOWN_DISTANCE:
+				valid = false
+				break
 
-	# Raider camps outside village (one per side)
-	var camp_positions := [
-		Vector2(village_center_x, Config.VILLAGE_TOP - 300),      # North
-		Vector2(village_center_x, Config.VILLAGE_BOTTOM + 300),   # South
-		Vector2(Config.VILLAGE_LEFT - 300, village_center_y),     # West
-		Vector2(Config.VILLAGE_RIGHT + 300, village_center_y),    # East
-	]
-	for i in range(camp_positions.size()):
-		var loc = location_scene.instantiate()
-		loc.location_name = "Camp %d" % i
-		loc.location_type = "camp"
-		loc.global_position = camp_positions[i]
-		add_child(loc)
-		raider_camps.append(loc)
+		if valid:
+			town_positions.append(pos)
 
-func _setup_npc_manager() -> void:
+	# Create each town with its structures
+	for i in town_positions.size():
+		var town_center: Vector2 = town_positions[i]
+		var town_data := {
+			"center": town_center,
+			"farms": [],
+			"homes": [],
+			"guard_posts": [],
+			"camp": null
+		}
+
+		# Create farms (close to town center)
+		for f in Config.FARMS_PER_TOWN:
+			var angle: float = (f / float(Config.FARMS_PER_TOWN)) * TAU + randf_range(-0.3, 0.3)
+			var dist: float = randf_range(80, 150)
+			var farm_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
+
+			var farm = location_scene.instantiate()
+			farm.location_name = "Farm %d-%d" % [i, f]
+			farm.location_type = "field"
+			farm.global_position = farm_pos
+			add_child(farm)
+			town_data.farms.append(farm)
+
+		# Create homes (ring around center)
+		var num_homes: int = Config.FARMERS_PER_TOWN + Config.GUARDS_PER_TOWN
+		for h in num_homes:
+			var angle: float = (h / float(num_homes)) * TAU
+			var dist: float = randf_range(150, 250)
+			var home_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
+
+			var home = location_scene.instantiate()
+			home.location_name = "Home %d-%d" % [i, h]
+			home.location_type = "home"
+			home.global_position = home_pos
+			add_child(home)
+			town_data.homes.append(home)
+
+		# Create raider camp (away from town, toward edge or other direction)
+		var camp_angle: float = randf() * TAU
+		var camp_pos: Vector2 = town_center + Vector2(cos(camp_angle), sin(camp_angle)) * Config.CAMP_DISTANCE
+
+		# Clamp to world bounds
+		camp_pos.x = clampf(camp_pos.x, Config.WORLD_MARGIN, Config.WORLD_WIDTH - Config.WORLD_MARGIN)
+		camp_pos.y = clampf(camp_pos.y, Config.WORLD_MARGIN, Config.WORLD_HEIGHT - Config.WORLD_MARGIN)
+
+		var camp = location_scene.instantiate()
+		camp.location_name = "Camp %d" % i
+		camp.location_type = "camp"
+		camp.global_position = camp_pos
+		add_child(camp)
+		town_data.camp = camp
+
+		# Create town center marker
+		var town_marker = location_scene.instantiate()
+		town_marker.location_name = "Town %d" % i
+		town_marker.location_type = "home"  # Use home icon for now
+		town_marker.global_position = town_center
+		add_child(town_marker)
+
+		towns.append(town_data)
+
+	print("Generated %d towns" % towns.size())
+
+
+func _setup_managers() -> void:
 	npc_manager = npc_manager_scene.instantiate()
 	add_child(npc_manager)
 
 	projectile_manager = projectile_manager_scene.instantiate()
 	add_child(projectile_manager)
 
-	# Connect managers
 	projectile_manager.set_npc_manager(npc_manager)
 	npc_manager.set_projectile_manager(projectile_manager)
 
-	# Pass world info to npc_manager
-	npc_manager.village_center = Vector2(village_center_x, village_center_y)
-	for farm in farms:
-		npc_manager.farm_positions.append(farm.global_position)
+	# Pass farm positions to npc_manager
+	for town in towns:
+		for farm in town.farms:
+			npc_manager.farm_positions.append(farm.global_position)
+
+	# Set village center to world center (for compatibility)
+	@warning_ignore("integer_division")
+	npc_manager.village_center = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)
+
 
 func _setup_player() -> void:
 	player = player_scene.instantiate()
-	player.global_position = Vector2(village_center_x, village_center_y)
+	@warning_ignore("integer_division")
+	player.global_position = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)
 	add_child(player)
 
-func _setup_hud() -> void:
+
+func _setup_ui() -> void:
 	hud = hud_scene.instantiate()
 	add_child(hud)
 
-
-func _setup_settings_menu() -> void:
 	settings_menu = settings_menu_scene.instantiate()
 	add_child(settings_menu)
 
-func _spawn_many_npcs(total: int) -> void:
-	@warning_ignore("integer_division")
-	var raider_count = total * 3 / 10  # 30%
-	@warning_ignore("integer_division")
-	var guard_count = total / 2        # 50%
-	@warning_ignore("integer_division")
-	var farmer_count = total / 5       # 20%
-	
-	# Farmers
-	for i in range(farmer_count):
-		var farm = farms[i % farms.size()]
-		var home = homes[i % homes.size()]
-		var home_offset = Vector2(randf_range(-20, 20), randf_range(-20, 20))
-		var work_offset = Vector2(randf_range(-40, 40), randf_range(-40, 40))
-		var pos = home.global_position + home_offset
-		npc_manager.spawn_farmer(pos, home.global_position, farm.global_position + work_offset)
-	
-	# Guards
-	for i in range(guard_count):
-		var post = guard_posts[i % guard_posts.size()]
-		var home = homes[(farmer_count + i) % homes.size()]
-		var offset = Vector2(randf_range(-20, 20), randf_range(-20, 20))
-		var pos = home.global_position + offset
-		var night = randf() > 0.5
-		npc_manager.spawn_guard(pos, home.global_position, post.global_position, night)
-	
-	# Raiders at camps (50 per camp, 16x16 each, need ~200x200 area)
-	for i in range(raider_count):
-		var camp = raider_camps[i % raider_camps.size()]
-		var offset = Vector2(randf_range(-100, 100), randf_range(-100, 100))
-		var pos = camp.global_position + offset
-		npc_manager.spawn_raider(pos, camp.global_position)
-	
-	print("Spawned %d NPCs: %d farmers, %d guards, %d raiders" % [total, farmer_count, guard_count, raider_count])
+
+func _spawn_npcs() -> void:
+	var total_farmers := 0
+	var total_guards := 0
+	var total_raiders := 0
+
+	for town in towns:
+		var town_center: Vector2 = town.center
+		var homes: Array = town.homes
+		var farms: Array = town.farms
+		var camp = town.camp
+
+		# Spawn farmers
+		for i in Config.FARMERS_PER_TOWN:
+			var home = homes[i % homes.size()]
+			var farm = farms[i % farms.size()]
+			var home_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
+			var work_offset := Vector2(randf_range(-30, 30), randf_range(-30, 30))
+			npc_manager.spawn_farmer(
+				home.global_position + home_offset,
+				home.global_position,
+				farm.global_position + work_offset
+			)
+			total_farmers += 1
+
+		# Spawn guards
+		for i in Config.GUARDS_PER_TOWN:
+			var home_idx: int = Config.FARMERS_PER_TOWN + i
+			var home = homes[home_idx % homes.size()]
+			var home_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
+			# Guards patrol near town center
+			var patrol_offset := Vector2(randf_range(-100, 100), randf_range(-100, 100))
+			npc_manager.spawn_guard(
+				home.global_position + home_offset,
+				home.global_position,
+				town_center + patrol_offset,
+				randf() > 0.5  # Random day/night shift
+			)
+			total_guards += 1
+
+		# Spawn raiders at camp
+		for i in Config.RAIDERS_PER_CAMP:
+			var camp_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
+			npc_manager.spawn_raider(
+				camp.global_position + camp_offset,
+				camp.global_position
+			)
+			total_raiders += 1
+
+	print("Spawned: %d farmers, %d guards, %d raiders" % [total_farmers, total_guards, total_raiders])
+
 
 func _on_day_changed(day: int) -> void:
 	print("=== DAY %d ===" % day)
 
+
 func _process(_delta: float) -> void:
 	pass
+
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
