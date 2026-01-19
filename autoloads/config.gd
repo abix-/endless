@@ -45,10 +45,10 @@ const WORLD_HEIGHT := 4500
 const WORLD_MARGIN := 400  # Keep towns away from edges
 
 # Town settings
-const FARMERS_PER_TOWN := 10
-const GUARDS_PER_TOWN := 5
-const FARMS_PER_TOWN := 2
-const RAIDERS_PER_CAMP := 5
+const FARMERS_PER_TOWN := 35
+const GUARDS_PER_TOWN := 15
+const FARMS_PER_TOWN := 4
+const RAIDERS_PER_CAMP := 20
 const CAMP_DISTANCE := 500  # Distance from town to raider camp
 
 # Rendering
