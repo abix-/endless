@@ -1,6 +1,6 @@
 # Endless
 
-A game about fighting entropy. Raiders steal your food. Guards die in combat. Farms lie fallow. Everything tends toward chaos and collapse. Your job is to push back—to build order from disorder, to grow where decay wants to take hold.
+A game about fighting entropy. Raiders steal your food. Guards die in combat. Farms lie fallow. Everything tends toward chaos and collapse. Can you build something that lasts?
 
 Built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
 
