@@ -17,7 +17,7 @@ const SCALE := 3.0
 const SPRITES := {
 	"farm": {"pos": Vector2i(2, 15), "size": Vector2i(3, 3)},
 	"tent": {"pos": Vector2i(48, 10), "size": Vector2i(2, 2)},
-	"fountain": {"pos": Vector2i(50, 9), "size": Vector2i(2, 2)},
+	"fountain": {"pos": Vector2i(50, 9), "size": Vector2i(1, 1), "scale": 2.0},
 	"bed": {"pos": Vector2i(15, 2), "size": Vector2i(1, 1)},
 	"guard_post": {"pos": Vector2i(20, 20), "size": Vector2i(1, 1)},
 }
@@ -54,20 +54,24 @@ var texture: Texture2D
 static func get_sprite_radius(sprite_name: String) -> float:
 	if sprite_name not in SPRITES:
 		return 48.0  # Default fallback
-	var size: Vector2i = SPRITES[sprite_name].size
+	var def: Dictionary = SPRITES[sprite_name]
+	var size: Vector2i = def.size
+	var extra_scale: float = def.get("scale", 1.0)
 	var max_cells := maxi(size.x, size.y)
-	# Half the diagonal: (cells * 16px * scale) / 2 * sqrt(2)
-	return (max_cells * 16.0 * SCALE) / 2.0 * sqrt(2.0)
+	# Half the diagonal: (cells * 16px * scale * extra_scale) / 2 * sqrt(2)
+	return (max_cells * 16.0 * SCALE * extra_scale) / 2.0 * sqrt(2.0)
 
 
 # Calculate edge radius (center to edge, not corner) - used for arrival
 static func get_sprite_edge_radius(sprite_name: String) -> float:
 	if sprite_name not in SPRITES:
 		return 24.0  # Default fallback
-	var size: Vector2i = SPRITES[sprite_name].size
+	var def: Dictionary = SPRITES[sprite_name]
+	var size: Vector2i = def.size
+	var extra_scale: float = def.get("scale", 1.0)
 	var max_cells := maxi(size.x, size.y)
-	# Half width: (cells * 16px * scale) / 2
-	return (max_cells * 16.0 * SCALE) / 2.0
+	# Half width: (cells * 16px * scale * extra_scale) / 2
+	return (max_cells * 16.0 * SCALE * extra_scale) / 2.0
 
 
 # Get arrival radius for a location type (edge-based, for entering sprite)
@@ -116,6 +120,7 @@ func _add_named_sprite(sprite_name: String, offset: Vector2, z_start: int = 0) -
 	var def: Dictionary = SPRITES[sprite_name]
 	var pos: Vector2i = def.pos
 	var size: Vector2i = def.size
+	var extra_scale: float = def.get("scale", 1.0)
 
 	# Build grid of sprites for multi-cell definitions
 	var z := z_start
@@ -127,19 +132,20 @@ func _add_named_sprite(sprite_name: String, offset: Vector2, z_start: int = 0) -
 				(col - (size.x - 1) / 2.0) * 16,
 				(row - (size.y - 1) / 2.0) * 16
 			)
-			_add_sprite_at(coords, offset + cell_offset, z)
+			_add_sprite_at(coords, offset + cell_offset, z, extra_scale)
 			z += 1
 	return z
 
 
-func _add_sprite_at(coords: Vector2i, offset: Vector2, z: int) -> void:
+func _add_sprite_at(coords: Vector2i, offset: Vector2, z: int, extra_scale: float = 1.0) -> void:
 	var sprite := Sprite2D.new()
 	sprite.texture = texture
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.region_enabled = true
 	sprite.region_rect = Rect2(coords.x * CELL, coords.y * CELL, 16, 16)
-	sprite.scale = Vector2(SCALE, SCALE)
-	sprite.position = offset * SCALE
+	var total_scale: float = SCALE * extra_scale
+	sprite.scale = Vector2(total_scale, total_scale)
+	sprite.position = offset * total_scale
 	sprite.z_index = -100 + z  # Behind NPCs
 	add_child(sprite)
 

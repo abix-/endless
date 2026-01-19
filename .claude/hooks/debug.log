@@ -3839,3 +3839,16 @@ EOF
 11:35:37 - Running Unsanitize...
 11:35:37 - Unsanitize done
 11:35:37 - Wrapped: (git add -A && git commit -m "update readme with fountain healing and collision avoidance" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:35:40 - Event: PostToolUse
+11:35:40 - Tool: Bash
+11:35:40 - Command: (git add -A && git commit -m "update readme with fountain healing and collision avoidance" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:35:40 - Processing PostToolUse for: (git add -A && git commit -m "update readme with fountain healing and collision avoidance" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:35:40 - Running Sanitize...
+11:35:41 - Sanitize done
+11:37:39 - Event: PreToolUse
+11:37:39 - Tool: Bash
+11:37:39 - Command: git add -A && git commit -m "fountain 10x healing, 16x16 sprite scaled to 32x32" && git push
+11:37:39 - Processing PreToolUse for: git add -A && git commit -m "fountain 10x healing, 16x16 sprite scaled to 32x32" && git push
+11:37:39 - Running Unsanitize...
+11:37:40 - Unsanitize done
+11:37:40 - Wrapped: (git add -A && git commit -m "fountain 10x healing, 16x16 sprite scaled to 32x32" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

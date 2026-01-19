@@ -46,11 +46,11 @@ func on_time_tick(_hour: int, minute: int) -> void:
 			_:
 				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
 
-		# HP regen (3x faster when sleeping, 5x on fountain)
+		# HP regen (3x faster when sleeping, 10x on fountain)
 		if manager.healths[i] < max_hp:
 			var regen: float = Config.HP_REGEN_SLEEP if state == NPCState.State.SLEEPING else Config.HP_REGEN_AWAKE
 			if _is_on_fountain(i):
-				regen *= 5.0
+				regen *= 10.0
 			manager.healths[i] = minf(max_hp, manager.healths[i] + regen)
 			manager.mark_health_dirty(i)
 
