@@ -8,6 +8,7 @@ enum Faction { VILLAGER, RAIDER }
 enum Job { FARMER, GUARD, RAIDER }
 
 signal npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int)
+@warning_ignore("unused_signal")  # Emitted from npc_needs.gd
 signal raider_delivered_food(town_idx: int)
 
 const MAX_LEVEL := 9999
