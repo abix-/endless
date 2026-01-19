@@ -90,7 +90,7 @@ func _generate_world() -> void:
 		# Create farms (close to town center)
 		for f in Config.FARMS_PER_TOWN:
 			var angle: float = (f / float(Config.FARMS_PER_TOWN)) * TAU + randf_range(-0.3, 0.3)
-			var dist: float = randf_range(80, 150)
+			var dist: float = randf_range(200, 300)
 			var farm_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
 
 			var farm = location_scene.instantiate()
@@ -104,7 +104,7 @@ func _generate_world() -> void:
 		var num_homes: int = Config.FARMERS_PER_TOWN + Config.GUARDS_PER_TOWN
 		for h in num_homes:
 			var angle: float = (h / float(num_homes)) * TAU
-			var dist: float = randf_range(150, 250)
+			var dist: float = randf_range(350, 450)
 			var home_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
 
 			var home = location_scene.instantiate()
