@@ -94,8 +94,18 @@ func _decide_raider(i: int) -> void:
 
 
 func _raider_return_to_camp(i: int) -> void:
-	manager.targets[i] = manager.home_positions[i]
-	manager.wander_centers[i] = manager.positions[i]
+	var home_pos: Vector2 = manager.home_positions[i]
+	var my_pos: Vector2 = manager.positions[i]
+
+	# If already at camp, deliver immediately instead of walking
+	if my_pos.distance_to(home_pos) < 30.0:
+		_raider_deliver_food(i)
+		manager.wander_centers[i] = my_pos
+		manager._state.set_state(i, NPCState.State.RESTING)
+		return
+
+	manager.targets[i] = home_pos
+	manager.wander_centers[i] = my_pos
 	manager._state.set_state(i, NPCState.State.WALKING)
 
 
