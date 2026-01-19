@@ -3358,3 +3358,16 @@ EOF
 10:11:05 - Running Unsanitize...
 10:11:05 - Unsanitize done
 10:11:05 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "readme: sprite-based arrival system" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:11:08 - Event: PostToolUse
+10:11:08 - Tool: Bash
+10:11:08 - Command: (cd C:/code/endless && git add -A && git commit -m "readme: sprite-based arrival system" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:11:08 - Processing PostToolUse for: (cd C:/code/endless && git add -A && git commit -m "readme: sprite-based arrival system" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:11:08 - Running Sanitize...
+10:11:08 - Sanitize done
+10:15:09 - Event: PreToolUse
+10:15:09 - Tool: Bash
+10:15:09 - Command: cd C:/code/endless && git add -A && git commit -m "fountain sprite for town center marker" && git push
+10:15:09 - Processing PreToolUse for: cd C:/code/endless && git add -A && git commit -m "fountain sprite for town center marker" && git push
+10:15:09 - Running Unsanitize...
+10:15:09 - Unsanitize done
+10:15:09 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "fountain sprite for town center marker" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

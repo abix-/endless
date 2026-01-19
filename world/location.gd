@@ -17,6 +17,7 @@ const SCALE := 3.0
 const SPRITES := {
 	"farm": {"pos": Vector2i(2, 15), "size": Vector2i(3, 3)},
 	"tent": {"pos": Vector2i(48, 10), "size": Vector2i(2, 2)},
+	"fountain": {"pos": Vector2i(50, 9), "size": Vector2i(1, 1)},
 	# House parts (scattered, used in HOME_PIECES)
 	"roof_left": {"pos": Vector2i(22, 21), "size": Vector2i(1, 1)},
 	"roof_right": {"pos": Vector2i(23, 21), "size": Vector2i(1, 1)},
@@ -41,11 +42,16 @@ const GUARD_POST_PIECES := [
 	{"sprite": "wall", "offset": Vector2(0, 0)},
 ]
 
+const FOUNTAIN_PIECES := [
+	{"sprite": "fountain", "offset": Vector2(0, 0)},
+]
+
 # Map location types to their primary sprite for radius calculation
 const LOCATION_SPRITES := {
 	"field": "farm",
 	"camp": "tent",
 	"home": "wall",  # 2x2 composed, but wall is 1x1
+	"fountain": "fountain",
 	"guard_post": "wall",
 }
 
@@ -92,6 +98,8 @@ func _build_location() -> void:
 			_add_named_sprite("farm", Vector2.ZERO)
 		"guard_post":
 			_build_from_pieces(GUARD_POST_PIECES)
+		"fountain":
+			_build_from_pieces(FOUNTAIN_PIECES)
 		_:
 			_build_from_pieces(HOME_PIECES)
 

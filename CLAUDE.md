@@ -80,6 +80,7 @@ Valid types for `location_type` export:
 - `"camp"` - raider camp (2x2 tent)
 - `"home"` - house (2x2 composed)
 - `"guard_post"` - guard tower (1x1)
+- `"fountain"` - town center marker (1x1)
 
 ## README Maintenance
 

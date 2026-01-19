@@ -159,7 +159,7 @@ func _generate_world() -> void:
 		# Create town center marker
 		var town_marker = location_scene.instantiate()
 		town_marker.location_name = town_name
-		town_marker.location_type = "home"
+		town_marker.location_type = "fountain"
 		town_marker.global_position = town_center
 		add_child(town_marker)
 
