@@ -16,7 +16,7 @@ const SCALE := 3.0
 # Format: "name": {top_left, size} where size is grid cells (1x1, 2x2, etc.)
 const SPRITES := {
 	"home": {"pos": Vector2i(34, 0), "size": Vector2i(1, 1)},
-	"field": {"pos": Vector2i(0, 7), "size": Vector2i(1, 1)},
+	"farm": {"pos": Vector2i(2, 15), "size": Vector2i(3, 3)},
 	"tent": {"pos": Vector2i(48, 10), "size": Vector2i(2, 2)},
 }
 
@@ -46,7 +46,7 @@ func _build_location() -> void:
 		"home":
 			_add_named_sprite("home", Vector2.ZERO)
 		"field":
-			_add_named_sprite("field", Vector2.ZERO)
+			_add_named_sprite("farm", Vector2.ZERO)
 		_:
 			_add_named_sprite("home", Vector2.ZERO)
 
