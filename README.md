@@ -1,6 +1,6 @@
 # Endless
 
-A medieval conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
+A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
 
 **Inspirations:**
 - **Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, conquer rival towns
