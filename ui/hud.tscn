@@ -7,8 +7,8 @@ layer = 10
 script = ExtResource("1_hud")
 
 [node name="Panel" type="PanelContainer" parent="."]
-offset_right = 220.0
-offset_bottom = 160.0
+offset_right = 240.0
+offset_bottom = 180.0
 
 [node name="MarginContainer" type="MarginContainer" parent="Panel"]
 layout_mode = 2
@@ -98,6 +98,10 @@ text = "Day 1 - 06:00"
 [node name="ZoomLabel" type="Label" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 text = "Zoom: 1.0x"
+
+[node name="FoodLabel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Food: Towns 0 | Camps 0"
 
 [node name="FPSLabel" type="Label" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2

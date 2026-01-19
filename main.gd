@@ -14,14 +14,18 @@ var hud: Node
 var settings_menu: Node
 
 # World data
-var towns: Array = []  # Array of {center, farms, homes, camp}
+var towns: Array = []  # Array of {center, farms, homes, camp, food}
+var town_food: PackedInt32Array  # Food stored in each town
+var camp_food: PackedInt32Array  # Food stored in each raider camp
 
 const NUM_TOWNS := 7
 const MIN_TOWN_DISTANCE := 800  # Minimum distance between town centers
+const FOOD_PER_WORK_HOUR := 1  # Food generated per farmer per work hour
 
 
 func _ready() -> void:
 	WorldClock.day_changed.connect(_on_day_changed)
+	WorldClock.time_tick.connect(_on_time_tick)
 
 	_generate_world()
 	_setup_managers()
@@ -31,6 +35,13 @@ func _ready() -> void:
 
 
 func _generate_world() -> void:
+	# Initialize food arrays
+	town_food.resize(NUM_TOWNS)
+	camp_food.resize(NUM_TOWNS)
+	for i in NUM_TOWNS:
+		town_food[i] = 0
+		camp_food[i] = 0
+
 	# Generate scattered town positions
 	var town_positions: Array[Vector2] = []
 	var attempts := 0
@@ -121,6 +132,7 @@ func _generate_world() -> void:
 func _setup_managers() -> void:
 	npc_manager = npc_manager_scene.instantiate()
 	add_child(npc_manager)
+	npc_manager.raider_delivered_food.connect(_on_raider_delivered_food)
 
 	projectile_manager = projectile_manager_scene.instantiate()
 	add_child(projectile_manager)
@@ -158,7 +170,8 @@ func _spawn_npcs() -> void:
 	var total_guards := 0
 	var total_raiders := 0
 
-	for town in towns:
+	for town_idx in towns.size():
+		var town: Dictionary = towns[town_idx]
 		var town_center: Vector2 = town.center
 		var homes: Array = town.homes
 		var farms: Array = town.farms
@@ -173,7 +186,8 @@ func _spawn_npcs() -> void:
 			npc_manager.spawn_farmer(
 				home.global_position + home_offset,
 				home.global_position,
-				farm.global_position + work_offset
+				farm.global_position + work_offset,
+				town_idx
 			)
 			total_farmers += 1
 
@@ -188,7 +202,8 @@ func _spawn_npcs() -> void:
 				home.global_position + home_offset,
 				home.global_position,
 				town_center + patrol_offset,
-				randf() > 0.5  # Random day/night shift
+				randf() > 0.5,  # Random day/night shift
+				town_idx
 			)
 			total_guards += 1
 
@@ -197,7 +212,8 @@ func _spawn_npcs() -> void:
 			var camp_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
 			npc_manager.spawn_raider(
 				camp.global_position + camp_offset,
-				camp.global_position
+				camp.global_position,
+				town_idx
 			)
 			total_raiders += 1
 
@@ -206,6 +222,29 @@ func _spawn_npcs() -> void:
 
 func _on_day_changed(day: int) -> void:
 	print("=== DAY %d ===" % day)
+
+
+func _on_time_tick(_hour: int, minute: int) -> void:
+	# Generate food every hour when farmers are working
+	if minute != 0:
+		return
+
+	for i in npc_manager.count:
+		if npc_manager.healths[i] <= 0:
+			continue
+		if npc_manager.jobs[i] != npc_manager.Job.FARMER:
+			continue
+		if npc_manager.states[i] != npc_manager.State.WORKING:
+			continue
+
+		var town_idx: int = npc_manager.town_indices[i]
+		if town_idx >= 0 and town_idx < town_food.size():
+			town_food[town_idx] += FOOD_PER_WORK_HOUR
+
+
+func _on_raider_delivered_food(town_idx: int) -> void:
+	if town_idx >= 0 and town_idx < camp_food.size():
+		camp_food[town_idx] += 1
 
 
 func _process(_delta: float) -> void:

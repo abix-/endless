@@ -8,6 +8,7 @@ enum Faction { VILLAGER, RAIDER }
 enum Job { FARMER, GUARD, RAIDER }
 
 signal npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int)
+signal raider_delivered_food(town_idx: int)
 
 const MAX_LEVEL := 9999
 
@@ -57,6 +58,7 @@ var flash_timers: PackedFloat32Array
 var levels: PackedInt32Array
 var xp: PackedInt32Array
 var carrying_food: PackedInt32Array  # Raiders carrying stolen food
+var town_indices: PackedInt32Array  # Which town/camp this NPC belongs to
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
@@ -142,6 +144,7 @@ func _init_arrays() -> void:
 	levels.resize(max_count)
 	xp.resize(max_count)
 	carrying_food.resize(max_count)
+	town_indices.resize(max_count)
 
 	for i in max_count:
 		death_times[i] = -1
@@ -211,7 +214,7 @@ func _update_counts() -> void:
 # SPAWNING
 # ============================================================
 
-func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worker: bool, flee: bool, hp: float, damage: float, attack_range: float) -> int:
+func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worker: bool, flee: bool, hp: float, damage: float, attack_range: float, town_idx: int = -1) -> int:
 	if count >= max_count:
 		return -1
 
@@ -246,6 +249,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	levels[i] = 1
 	xp[i] = 0
 	carrying_food[i] = 0
+	town_indices[i] = town_idx
 
 	match job:
 		Job.FARMER: total_farmers += 1
@@ -260,16 +264,16 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	return i
 
 
-func spawn_farmer(pos: Vector2, home_pos: Vector2, work_pos: Vector2) -> int:
-	return spawn_npc(Job.FARMER, Faction.VILLAGER, pos, home_pos, work_pos, false, true, Config.FARMER_HP, Config.FARMER_DAMAGE, Config.FARMER_RANGE)
+func spawn_farmer(pos: Vector2, home_pos: Vector2, work_pos: Vector2, town_idx: int) -> int:
+	return spawn_npc(Job.FARMER, Faction.VILLAGER, pos, home_pos, work_pos, false, true, Config.FARMER_HP, Config.FARMER_DAMAGE, Config.FARMER_RANGE, town_idx)
 
 
-func spawn_guard(pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worker: bool) -> int:
-	return spawn_npc(Job.GUARD, Faction.VILLAGER, pos, home_pos, work_pos, night_worker, false, Config.GUARD_HP, Config.GUARD_DAMAGE, Config.GUARD_RANGE)
+func spawn_guard(pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worker: bool, town_idx: int) -> int:
+	return spawn_npc(Job.GUARD, Faction.VILLAGER, pos, home_pos, work_pos, night_worker, false, Config.GUARD_HP, Config.GUARD_DAMAGE, Config.GUARD_RANGE, town_idx)
 
 
-func spawn_raider(pos: Vector2, camp_pos: Vector2) -> int:
-	return spawn_npc(Job.RAIDER, Faction.RAIDER, pos, camp_pos, camp_pos, false, false, Config.RAIDER_HP, Config.RAIDER_DAMAGE, Config.RAIDER_RANGE)
+func spawn_raider(pos: Vector2, camp_pos: Vector2, town_idx: int) -> int:
+	return spawn_npc(Job.RAIDER, Faction.RAIDER, pos, camp_pos, camp_pos, false, false, Config.RAIDER_HP, Config.RAIDER_DAMAGE, Config.RAIDER_RANGE, town_idx)
 
 
 # ============================================================

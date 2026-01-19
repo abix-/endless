@@ -171,3 +171,7 @@ func _raider_deliver_food(i: int) -> void:
 		manager.carrying_food[i] = 0
 		# Restore some energy from successful raid
 		manager.energies[i] = minf(Config.ENERGY_MAX, manager.energies[i] + Config.ENERGY_FARM_RESTORE)
+		# Notify main.gd to credit the camp
+		var town_idx: int = manager.town_indices[i]
+		if town_idx >= 0:
+			manager.raider_delivered_food.emit(town_idx)

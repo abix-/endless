@@ -6,6 +6,7 @@ extends CanvasLayer
 @onready var time_label: Label = $Panel/MarginContainer/VBox/TimeLabel
 @onready var fps_label: Label = $Panel/MarginContainer/VBox/FPSLabel
 @onready var zoom_label: Label = $Panel/MarginContainer/VBox/ZoomLabel
+@onready var food_label: Label = $Panel/MarginContainer/VBox/FoodLabel
 @onready var combat_log: RichTextLabel = $CombatLog
 
 const MAX_LOG_LINES := 20
@@ -28,12 +29,14 @@ var raider_kills: Label
 
 var npc_manager: Node
 var player: Node
+var main_node: Node
 
 
 func _ready() -> void:
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	player = get_tree().get_first_node_in_group("player")
+	main_node = get_parent()
 
 	if npc_manager:
 		npc_manager.npc_leveled_up.connect(_on_npc_leveled_up)
@@ -70,6 +73,7 @@ func _process(_delta: float) -> void:
 	_update_time()
 	_update_fps()
 	_update_zoom()
+	_update_food()
 
 
 func _update_stats() -> void:
@@ -106,6 +110,19 @@ func _update_zoom() -> void:
 		var camera: Camera2D = player.get_node_or_null("Camera2D")
 		if camera:
 			zoom_label.text = "Zoom: %.1fx" % camera.zoom.x
+
+
+func _update_food() -> void:
+	if not main_node or not "town_food" in main_node:
+		return
+
+	var town_total := 0
+	var camp_total := 0
+	for i in main_node.town_food.size():
+		town_total += main_node.town_food[i]
+		camp_total += main_node.camp_food[i]
+
+	food_label.text = "Food: Towns %d | Camps %d" % [town_total, camp_total]
 
 
 func _on_npc_leveled_up(_npc_index: int, job: int, old_level: int, new_level: int) -> void:
