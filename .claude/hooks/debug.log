@@ -3878,3 +3878,16 @@ EOF
 11:40:48 - Running Unsanitize...
 11:40:48 - Unsanitize done
 11:40:48 - Wrapped: (git add -A && git commit -m "raiders excluded from fountain healing" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:40:51 - Event: PostToolUse
+11:40:51 - Tool: Bash
+11:40:51 - Command: (git add -A && git commit -m "raiders excluded from fountain healing" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:40:51 - Processing PostToolUse for: (git add -A && git commit -m "raiders excluded from fountain healing" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:40:51 - Running Sanitize...
+11:40:52 - Sanitize done
+11:43:28 - Event: PreToolUse
+11:43:28 - Tool: Bash
+11:43:28 - Command: git add -A && git commit -m "readme: lotr2 farming notes, balance updates" && git push
+11:43:28 - Processing PreToolUse for: git add -A && git commit -m "readme: lotr2 farming notes, balance updates" && git push
+11:43:28 - Running Unsanitize...
+11:43:29 - Unsanitize done
+11:43:29 - Wrapped: (git add -A && git commit -m "readme: lotr2 farming notes, balance updates" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

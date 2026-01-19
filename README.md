@@ -4,6 +4,8 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 
 **Inspirations:**
 - **Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, conquer rival towns
+  - Farming: villagers work fields → grain → rations, weather affects yield, starvation causes unrest
+  - Balance farming vs other jobs (woodcutting, mining, blacksmithing, army)
 - **RimWorld** - colonist needs, AI storytelling, emergent chaos
 - **Factorio** - scale to thousands of entities, optimize production chains
 
@@ -43,13 +45,14 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 
 ### Combat
 - [x] Faction-based auto-targeting (villagers vs raiders)
-- [x] Ranged projectile combat (guards, raiders)
+- [x] Ranged projectile combat (guards and raiders have equal stats: 120 HP, 15 dmg, 150 range)
 - [x] Melee combat (farmers)
 - [x] Level/XP system (sqrt scaling, level 9999 = 100x stats)
 - [x] Damage flash effect
 - [x] Leash system (farmers/raiders return home if combat drags 400px+)
 - [x] Guards have no leash - fight anywhere
 - [x] Alert nearby allies when combat starts
+- [x] Target switching (stop chasing fleeing enemies if closer threat exists)
 - [x] 500 projectile pool with faction coloring
 - [ ] Player combat abilities
 - [ ] Army units (peasant levy, archers, knights)
@@ -59,7 +62,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Guards: patrol between all 6 posts (30min each), day/night shifts, flee to town center below 33% health
 - [x] Raiders: priority system (wounded → exhausted → deliver loot → steal), flee to camp below 50% health
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
-- [x] HP regen (2/hr awake, 6/hr sleeping, 5x on town fountain)
+- [x] HP regen (2/hr awake, 6/hr sleeping, 10x fountain for villagers, 5x camp for raiders)
 - [x] 15-minute decision cycles
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [ ] AI lords that expand and compete
