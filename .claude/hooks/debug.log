@@ -3709,3 +3709,16 @@ EOF
 11:09:45 - Running Unsanitize...
 11:09:45 - Unsanitize done
 11:09:45 - Wrapped: (git add -A && git commit -m "merge RESTING into OFF_DUTY" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:09:48 - Event: PostToolUse
+11:09:48 - Tool: Bash
+11:09:48 - Command: (git add -A && git commit -m "merge RESTING into OFF_DUTY" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:09:48 - Processing PostToolUse for: (git add -A && git commit -m "merge RESTING into OFF_DUTY" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+11:09:48 - Running Sanitize...
+11:09:48 - Sanitize done
+11:11:36 - Event: PreToolUse
+11:11:36 - Tool: Bash
+11:11:36 - Command: git add -A && git commit -m "document npc states in readme" && git push
+11:11:36 - Processing PreToolUse for: git add -A && git commit -m "document npc states in readme" && git push
+11:11:36 - Running Unsanitize...
+11:11:36 - Unsanitize done
+11:11:36 - Wrapped: (git add -A && git commit -m "document npc states in readme" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

@@ -64,6 +64,23 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [ ] AI lords that expand and compete
 
+### NPC States
+Activity-specific states (no translation layer):
+
+| State | Jobs | Description |
+|-------|------|-------------|
+| IDLE | All | Between decisions |
+| SLEEPING | All | At home/camp, asleep |
+| OFF_DUTY | All | At home/camp, awake |
+| FARMING | Farmer | Working at farm |
+| WALKING | Farmer | Moving to/from locations |
+| FLEEING | Farmer | Running from combat |
+| ON_DUTY | Guard | Stationed at post |
+| PATROLLING | Guard | Moving between posts |
+| FIGHTING | Guard, Raider | In combat |
+| RAIDING | Raider | Going to/at farm |
+| RETURNING | Raider | Heading back to camp |
+
 ### Player Controls
 - [x] WASD camera movement (configurable speed 100-2000)
 - [x] Mouse wheel zoom (0.1x - 4.0x, centers on cursor)
@@ -105,7 +122,7 @@ autoloads/
   user_settings.gd      # Persistent user preferences
 systems/
   npc_manager.gd        # Core NPC orchestration, data arrays
-  npc_state.gd          # State machine, valid states per job
+  npc_state.gd          # Activity-specific states, validation per job
   npc_navigation.gd     # Movement, LOD, separation forces
   npc_combat.gd         # Scanning, targeting, damage, leashing
   npc_needs.gd          # Energy, schedules, raider AI
