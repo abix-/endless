@@ -15,10 +15,22 @@ const SCALE := 3.0
 # ============================================================
 # Format: "name": {top_left, size} where size is grid cells (1x1, 2x2, etc.)
 const SPRITES := {
-	"home": {"pos": Vector2i(34, 0), "size": Vector2i(1, 1)},
 	"farm": {"pos": Vector2i(2, 15), "size": Vector2i(3, 3)},
 	"tent": {"pos": Vector2i(48, 10), "size": Vector2i(2, 2)},
+	# House parts (scattered, used in HOME_PIECES)
+	"roof_left": {"pos": Vector2i(22, 21), "size": Vector2i(1, 1)},
+	"roof_right": {"pos": Vector2i(23, 21), "size": Vector2i(1, 1)},
+	"wall": {"pos": Vector2i(34, 12), "size": Vector2i(1, 1)},
+	"door": {"pos": Vector2i(33, 0), "size": Vector2i(1, 1)},
 }
+
+# House composition - 2x2
+const HOME_PIECES := [
+	{"sprite": "roof_left", "offset": Vector2(-8, -8)},
+	{"sprite": "roof_right", "offset": Vector2(8, -8)},
+	{"sprite": "wall", "offset": Vector2(-8, 8)},
+	{"sprite": "door", "offset": Vector2(8, 8)},
+]
 
 # Camp composition - list of {sprite_name, offset}
 const CAMP_PIECES := [
@@ -42,18 +54,18 @@ func _ready() -> void:
 func _build_location() -> void:
 	match location_type:
 		"camp":
-			_build_camp()
+			_build_from_pieces(CAMP_PIECES)
 		"home":
-			_add_named_sprite("home", Vector2.ZERO)
+			_build_from_pieces(HOME_PIECES)
 		"field":
 			_add_named_sprite("farm", Vector2.ZERO)
 		_:
-			_add_named_sprite("home", Vector2.ZERO)
+			_build_from_pieces(HOME_PIECES)
 
 
-func _build_camp() -> void:
+func _build_from_pieces(pieces: Array) -> void:
 	var z := 0
-	for piece in CAMP_PIECES:
+	for piece in pieces:
 		z = _add_named_sprite(piece.sprite, piece.offset, z)
 
 
