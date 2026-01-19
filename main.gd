@@ -40,6 +40,25 @@ func _ready() -> void:
 	_spawn_npcs()
 
 
+func _draw() -> void:
+	# World border
+	var border_color := Color(0.4, 0.4, 0.4, 0.8)
+	var border_width := 4.0
+	var rect := Rect2(0, 0, Config.WORLD_WIDTH, Config.WORLD_HEIGHT)
+	draw_rect(rect, border_color, false, border_width)
+
+	# Corner markers for visibility
+	var marker_size := 50.0
+	var corners := [
+		Vector2(0, 0),
+		Vector2(Config.WORLD_WIDTH, 0),
+		Vector2(Config.WORLD_WIDTH, Config.WORLD_HEIGHT),
+		Vector2(0, Config.WORLD_HEIGHT)
+	]
+	for corner in corners:
+		draw_circle(corner, marker_size, border_color)
+
+
 func _generate_world() -> void:
 	# Initialize food arrays
 	town_food.resize(NUM_TOWNS)

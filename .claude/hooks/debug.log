@@ -3280,3 +3280,16 @@ EOF
 10:02:21 - Running Unsanitize...
 10:02:22 - Unsanitize done
 10:02:22 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "fix camp placement: pick direction with most room" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:02:24 - Event: PostToolUse
+10:02:24 - Tool: Bash
+10:02:24 - Command: (cd C:/code/endless && git add -A && git commit -m "fix camp placement: pick direction with most room" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:02:24 - Processing PostToolUse for: (cd C:/code/endless && git add -A && git commit -m "fix camp placement: pick direction with most room" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:02:24 - Running Sanitize...
+10:02:25 - Sanitize done
+10:04:45 - Event: PreToolUse
+10:04:45 - Tool: Bash
+10:04:45 - Command: cd C:/code/endless && git add -A && git commit -m "8000x8000 world with visible border" && git push
+10:04:45 - Processing PreToolUse for: cd C:/code/endless && git add -A && git commit -m "8000x8000 world with visible border" && git push
+10:04:45 - Running Unsanitize...
+10:04:45 - Unsanitize done
+10:04:45 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "8000x8000 world with visible border" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
