@@ -56,7 +56,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 
 ### AI Behaviors
 - [x] Farmers: day/night work schedule, flee from enemies
-- [x] Guards: patrol at posts, sleep near town center, day/night shifts
+- [x] Guards: patrol between all 6 posts (30min each), sleep at town center, day/night shifts
 - [x] Raiders: priority system (wounded → exhausted → deliver loot → steal)
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
 - [x] HP regen (2/hr awake, 6/hr sleeping)
