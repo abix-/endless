@@ -58,6 +58,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Guards: patrol at guard posts, day/night shifts
 - [x] Raiders: priority system (wounded → exhausted → deliver loot → steal)
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
+- [x] HP regen (2/hr awake, 6/hr sleeping)
 - [x] 15-minute decision cycles
 - [ ] AI lords that expand and compete
 
