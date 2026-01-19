@@ -41,6 +41,7 @@ func _create_locations() -> void:
 	# Farms in center (5x4 grid = 20 farms, 5 farmers each)
 	for i in range(20):
 		var x = village_center_x - 200 + (i % 5) * 100
+		@warning_ignore("integer_division")
 		var y = village_center_y - 100 + (i / 5) * 80
 		var loc = location_scene.instantiate()
 		loc.location_name = "Farm %d" % i
