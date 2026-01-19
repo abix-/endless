@@ -115,16 +115,17 @@ func _attack(attacker: int, victim: int) -> void:
 		# Fire projectile - damage happens on hit
 		var from_pos: Vector2 = manager.positions[attacker]
 		var target_pos: Vector2 = manager.positions[victim]
-		var damage: float = manager.attack_damages[attacker]
+		var damage: float = manager.get_scaled_damage(attacker)
 		var faction: int = manager.factions[attacker]
 		manager._projectiles.fire(from_pos, target_pos, damage, faction, attacker)
 	else:
-		# Melee instant damage
-		manager.healths[victim] -= manager.attack_damages[attacker]
+		# Melee instant damage (scaled)
+		var damage: float = manager.get_scaled_damage(attacker)
+		manager.healths[victim] -= damage
 		manager.mark_health_dirty(victim)
 
 		if manager.healths[victim] <= 0:
-			_die(victim)
+			_die(victim, attacker)
 		else:
 			_aggro_victim(attacker, victim)
 
@@ -139,10 +140,15 @@ func _aggro_victim(attacker: int, victim: int) -> void:
 		else:
 			manager._state.set_state(victim, NPCState.State.FIGHTING)
 
-func _die(i: int) -> void:
+func _die(i: int, killer: int = -1) -> void:
 	var victim_faction: int = manager.factions[i]
 	manager.record_kill(victim_faction)
 	manager.record_death(i)  # Record death time for respawn
+
+	# Grant XP to killer based on victim's level
+	if killer >= 0 and manager.healths[killer] > 0:
+		var xp_gained: int = manager.levels[i]
+		manager.grant_xp(killer, xp_gained)
 
 	manager.healths[i] = 0
 	manager._state.set_state(i, NPCState.State.IDLE)

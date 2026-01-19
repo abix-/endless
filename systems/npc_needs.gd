@@ -77,9 +77,12 @@ func _decide_raider(i: int) -> void:
 		_raider_retreat(i)
 		return
 	
-	# Priority 2: Exhausted - rest
+	# Priority 2: Exhausted - go home to sleep
 	if energy <= Config.ENERGY_EXHAUSTED:
-		manager._state.set_state(i, NPCState.State.RESTING)
+		var state: int = manager.states[i]
+		if state != NPCState.State.SLEEPING:
+			manager.targets[i] = manager.home_positions[i]
+			manager._state.set_state(i, NPCState.State.WALKING)
 		return
 	
 	# Priority 3: Hungry - find food at farm
@@ -232,6 +235,9 @@ func on_arrival(i: int) -> void:
 			if job == NPCState.Job.GUARD:
 				manager.wander_centers[i] = manager.positions[i]
 		elif target.distance_to(home_pos) < 10:
+			# Raiders update wander center to camp
+			if job == NPCState.Job.RAIDER:
+				manager.wander_centers[i] = manager.positions[i]
 			if energy <= Config.ENERGY_EXHAUSTED:
 				manager._state.set_state(i, NPCState.State.SLEEPING)
 			else:

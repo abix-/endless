@@ -14,6 +14,7 @@ var hud: Node
 var farms: Array = []
 var guard_posts: Array = []
 var homes: Array = []
+var raider_camps: Array = []
 
 # Village bounds (from Config)
 var village_center_x: int
@@ -32,10 +33,10 @@ func _ready() -> void:
 	_spawn_many_npcs(500)
 
 func _create_locations() -> void:
-	# Farms in center (5x2 grid)
-	for i in range(10):
+	# Farms in center (5x4 grid = 20 farms, 5 farmers each)
+	for i in range(20):
 		var x = village_center_x - 200 + (i % 5) * 100
-		var y = village_center_y - 50 + (i / 5) * 100
+		var y = village_center_y - 100 + (i / 5) * 80
 		var loc = location_scene.instantiate()
 		loc.location_name = "Farm %d" % i
 		loc.location_type = "field"
@@ -79,6 +80,21 @@ func _create_locations() -> void:
 		add_child(loc)
 		homes.append(loc)
 
+	# Raider camps outside village (one per side)
+	var camp_positions := [
+		Vector2(village_center_x, Config.VILLAGE_TOP - 300),      # North
+		Vector2(village_center_x, Config.VILLAGE_BOTTOM + 300),   # South
+		Vector2(Config.VILLAGE_LEFT - 300, village_center_y),     # West
+		Vector2(Config.VILLAGE_RIGHT + 300, village_center_y),    # East
+	]
+	for i in range(camp_positions.size()):
+		var loc = location_scene.instantiate()
+		loc.location_name = "Camp %d" % i
+		loc.location_type = "camp"
+		loc.global_position = camp_positions[i]
+		add_child(loc)
+		raider_camps.append(loc)
+
 func _setup_npc_manager() -> void:
 	npc_manager = npc_manager_scene.instantiate()
 	add_child(npc_manager)
@@ -113,9 +129,10 @@ func _spawn_many_npcs(total: int) -> void:
 	for i in range(farmer_count):
 		var farm = farms[i % farms.size()]
 		var home = homes[i % homes.size()]
-		var offset = Vector2(randf_range(-20, 20), randf_range(-20, 20))
-		var pos = home.global_position + offset
-		npc_manager.spawn_farmer(pos, home.global_position, farm.global_position)
+		var home_offset = Vector2(randf_range(-20, 20), randf_range(-20, 20))
+		var work_offset = Vector2(randf_range(-40, 40), randf_range(-40, 40))
+		var pos = home.global_position + home_offset
+		npc_manager.spawn_farmer(pos, home.global_position, farm.global_position + work_offset)
 	
 	# Guards
 	for i in range(guard_count):
@@ -126,20 +143,12 @@ func _spawn_many_npcs(total: int) -> void:
 		var night = randf() > 0.5
 		npc_manager.spawn_guard(pos, home.global_position, post.global_position, night)
 	
-	# Raiders outside village
+	# Raiders at camps
 	for i in range(raider_count):
-		var side = randi() % 4
-		var pos: Vector2
-		match side:
-			0:  # Above
-				pos = Vector2(randf_range(Config.VILLAGE_LEFT, Config.VILLAGE_RIGHT), randf_range(0, Config.VILLAGE_TOP - 100))
-			1:  # Below
-				pos = Vector2(randf_range(Config.VILLAGE_LEFT, Config.VILLAGE_RIGHT), randf_range(Config.VILLAGE_BOTTOM + 100, Config.VILLAGE_BOTTOM + 600))
-			2:  # Left
-				pos = Vector2(randf_range(0, Config.VILLAGE_LEFT - 100), randf_range(Config.VILLAGE_TOP, Config.VILLAGE_BOTTOM))
-			3:  # Right
-				pos = Vector2(randf_range(Config.VILLAGE_RIGHT + 100, Config.VILLAGE_RIGHT + 600), randf_range(Config.VILLAGE_TOP, Config.VILLAGE_BOTTOM))
-		npc_manager.spawn_raider(pos)
+		var camp = raider_camps[i % raider_camps.size()]
+		var offset = Vector2(randf_range(-60, 60), randf_range(-60, 60))
+		var pos = camp.global_position + offset
+		npc_manager.spawn_raider(pos, camp.global_position)
 	
 	print("Spawned %d NPCs: %d farmers, %d guards, %d raiders" % [total, farmer_count, guard_count, raider_count])
 

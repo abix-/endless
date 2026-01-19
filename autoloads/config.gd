@@ -5,6 +5,8 @@ extends Node
 # NPC movement and combat
 const MOVE_SPEED := 50.0
 const ATTACK_RANGE := 30.0
+const SEPARATION_RADIUS := 18.0
+const SEPARATION_STRENGTH := 120.0
 const ATTACK_COOLDOWN := 1.0
 const SCAN_INTERVAL := 0.2
 const MAX_SCAN := 50

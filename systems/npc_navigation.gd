@@ -12,25 +12,25 @@ func _init(npc_manager: Node) -> void:
 
 func process(delta: float) -> void:
 	var frame: int = Engine.get_process_frames()
-	
+
 	# Get camera position for LOD
 	var cam_pos := Vector2.ZERO
 	var camera: Camera2D = manager.get_viewport().get_camera_2d()
 	if camera:
 		cam_pos = camera.global_position
-	
+
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
-		
+
 		# LOD: skip distant NPCs on some frames
 		var dist_sq: float = manager.positions[i].distance_squared_to(cam_pos)
 		if not _should_update(i, frame, dist_sq):
 			continue
-		
+
 		var state: int = manager.states[i]
 		var lod_delta: float = _get_lod_delta(delta, dist_sq)
-		
+
 		match state:
 			NPCState.State.WALKING, NPCState.State.WANDERING:
 				_move_toward_target(i, lod_delta)
@@ -38,6 +38,8 @@ func process(delta: float) -> void:
 				_move_toward_enemy(i, lod_delta)
 			NPCState.State.FLEEING:
 				_move_away_from_enemy(i, lod_delta)
+
+		_apply_separation(i, lod_delta)
 
 
 func _should_update(i: int, frame: int, dist_sq: float) -> bool:
@@ -78,27 +80,72 @@ func _move_toward_target(i: int, delta: float) -> void:
 
 func _move_toward_enemy(i: int, delta: float) -> void:
 	var target_idx: int = manager.current_targets[i]
-	
+
 	if target_idx < 0 or manager.healths[target_idx] <= 0:
 		return
-	
+
 	var my_pos: Vector2 = manager.positions[i]
 	var enemy_pos: Vector2 = manager.positions[target_idx]
 	var dist: float = my_pos.distance_to(enemy_pos)
-	
-	if dist > Config.ATTACK_RANGE:
-		var move_dist: float = minf(Config.MOVE_SPEED * delta, dist - Config.ATTACK_RANGE)
+	var attack_range: float = manager.attack_ranges[i]
+
+	if dist > attack_range:
+		var move_dist: float = minf(Config.MOVE_SPEED * delta, dist - attack_range)
 		var dir: Vector2 = my_pos.direction_to(enemy_pos)
 		manager.positions[i] = my_pos + dir * move_dist
 
 
 func _move_away_from_enemy(i: int, delta: float) -> void:
 	var target_idx: int = manager.current_targets[i]
-	
+
 	if target_idx < 0 or manager.healths[target_idx] <= 0:
 		return
-	
+
 	var my_pos: Vector2 = manager.positions[i]
 	var enemy_pos: Vector2 = manager.positions[target_idx]
 	var dir: Vector2 = enemy_pos.direction_to(my_pos)
 	manager.positions[i] = my_pos + dir * Config.MOVE_SPEED * 1.2 * delta
+
+
+func _apply_separation(i: int, delta: float) -> void:
+	var my_pos: Vector2 = manager.positions[i]
+	var my_state: int = manager.states[i]
+	var my_size: float = manager.get_size_scale(manager.levels[i])
+	var nearby: Array = manager._grid.get_nearby(my_pos)
+	var separation := Vector2.ZERO
+
+	# Scale separation radius by size
+	var my_radius: float = Config.SEPARATION_RADIUS * my_size
+	var radius_sq: float = my_radius * my_radius
+
+	# Stationary NPCs don't push others
+	var stationary_states := [NPCState.State.WORKING, NPCState.State.SLEEPING, NPCState.State.RESTING, NPCState.State.IDLE]
+	var i_am_moving: bool = my_state not in stationary_states
+
+	for other_idx in nearby:
+		if other_idx == i:
+			continue
+		if manager.healths[other_idx] <= 0:
+			continue
+
+		var other_pos: Vector2 = manager.positions[other_idx]
+		var other_size: float = manager.get_size_scale(manager.levels[other_idx])
+		var combined_radius: float = (my_radius + Config.SEPARATION_RADIUS * other_size) * 0.5
+		var combined_radius_sq: float = combined_radius * combined_radius
+
+		var diff: Vector2 = my_pos - other_pos
+		var dist_sq: float = diff.length_squared()
+
+		if dist_sq > 0 and dist_sq < combined_radius_sq:
+			var other_state: int = manager.states[other_idx]
+			var other_stationary: bool = other_state in stationary_states
+
+			# Push strength based on relative size (bigger pushes smaller)
+			var push_strength: float = other_size / my_size
+			if i_am_moving and other_stationary:
+				push_strength *= 3.0  # Push harder past workers
+
+			separation += diff.normalized() / sqrt(dist_sq) * push_strength
+
+	if separation.length_squared() > 0:
+		manager.positions[i] = my_pos + separation.normalized() * Config.SEPARATION_STRENGTH * delta

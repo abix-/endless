@@ -9,6 +9,11 @@ var multimesh_instance: MultiMeshInstance2D
 
 const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
 
+# Sprite frames (column, row) in the character sheet
+const SPRITE_FARMER := Vector2i(0, 5)
+const SPRITE_GUARD := Vector2i(0, 2)
+const SPRITE_RAIDER := Vector2i(0, 7)
+
 
 func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D) -> void:
 	manager = npc_manager
@@ -72,13 +77,16 @@ func update(delta: float) -> void:
 				continue
 
 			var pos: Vector2 = manager.positions[i]
-			multimesh.set_instance_transform_2d(i, Transform2D(0, pos))
+			var size_scale: float = manager.get_size_scale(manager.levels[i])
+			var xform := Transform2D(0, pos).scaled_local(Vector2(size_scale, size_scale))
+			multimesh.set_instance_transform_2d(i, xform)
 			manager.last_rendered[i] = 1
 
 			if manager.health_dirty[i] == 1:
-				var health_pct: float = manager.healths[i] / manager.max_healths[i]
+				var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
 				var flash: float = manager.flash_timers[i]
-				multimesh.set_instance_custom_data(i, Color(health_pct, flash, 0, 0))
+				var frame: Vector2i = get_sprite_frame(manager.jobs[i])
+				multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
 				manager.health_dirty[i] = 0
 
 
@@ -86,11 +94,14 @@ func _update_all() -> void:
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
-		multimesh.set_instance_transform_2d(i, Transform2D(0, manager.positions[i]))
+		var size_scale: float = manager.get_size_scale(manager.levels[i])
+		var xform := Transform2D(0, manager.positions[i]).scaled_local(Vector2(size_scale, size_scale))
+		multimesh.set_instance_transform_2d(i, xform)
 		if manager.health_dirty[i] == 1:
-			var health_pct: float = manager.healths[i] / manager.max_healths[i]
+			var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
 			var flash: float = manager.flash_timers[i]
-			multimesh.set_instance_custom_data(i, Color(health_pct, flash, 0, 0))
+			var frame: Vector2i = get_sprite_frame(manager.jobs[i])
+			multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
 			manager.health_dirty[i] = 0
 
 
@@ -98,9 +109,27 @@ func set_npc_color(i: int, color: Color) -> void:
 	multimesh.set_instance_color(i, color)
 
 
-func set_npc_health_display(i: int, health_pct: float) -> void:
+func get_sprite_frame(job: int) -> Vector2i:
+	match job:
+		0: return SPRITE_FARMER  # Job.FARMER
+		1: return SPRITE_GUARD   # Job.GUARD
+		2: return SPRITE_RAIDER  # Job.RAIDER
+		_: return SPRITE_FARMER
+
+
+func set_npc_sprite(i: int, job: int) -> void:
+	var frame: Vector2i = get_sprite_frame(job)
+	var health_pct: float = manager.healths[i] / manager.max_healths[i]
 	var flash: float = manager.flash_timers[i]
-	multimesh.set_instance_custom_data(i, Color(health_pct, flash, 0, 0))
+	# Pack: r=health, g=flash, b=frame_x/255, a=frame_y/255
+	multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
+
+
+func set_npc_health_display(i: int, health_pct: float) -> void:
+	var job: int = manager.jobs[i]
+	var frame: Vector2i = get_sprite_frame(job)
+	var flash: float = manager.flash_timers[i]
+	multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
 
 
 func trigger_flash(i: int) -> void:

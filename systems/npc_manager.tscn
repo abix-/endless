@@ -1,10 +1,15 @@
-[gd_scene load_steps=4 format=3 uid="uid://b1odj02yipt1"]
+[gd_scene load_steps=5 format=3 uid="uid://b1odj02yipt1"]
 
 [ext_resource type="Script" uid="uid://dr01kjjave0j0" path="res://systems/npc_manager.gd" id="1"]
 [ext_resource type="Shader" path="res://systems/npc_sprite.gdshader" id="2"]
+[ext_resource type="Texture2D" path="res://assets/roguelikeChar_transparent.png" id="3"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_1"]
 shader = ExtResource("2")
+shader_parameter/sprite_sheet = ExtResource("3")
+shader_parameter/sheet_size = Vector2(918, 203)
+shader_parameter/sprite_size = Vector2(16, 16)
+shader_parameter/margin = 1.0
 
 [node name="NPCManager" type="Node2D"]
 script = ExtResource("1")

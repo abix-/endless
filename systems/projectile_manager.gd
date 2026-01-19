@@ -157,7 +157,7 @@ func _on_hit(proj_idx: int, npc_idx: int) -> void:
 	npc_manager._renderer.trigger_flash(npc_idx)
 
 	if npc_manager.healths[npc_idx] <= 0:
-		npc_manager._combat._die(npc_idx)
+		npc_manager._combat._die(npc_idx, shooter)
 	else:
 		npc_manager._combat._aggro_victim(shooter, npc_idx)
 

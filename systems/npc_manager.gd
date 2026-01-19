@@ -7,6 +7,19 @@ enum State { IDLE, WALKING, SLEEPING, WORKING, RESTING, WANDERING, FIGHTING, FLE
 enum Faction { VILLAGER, RAIDER }
 enum Job { FARMER, GUARD, RAIDER }
 
+const MAX_LEVEL := 9999
+
+# Scaling functions
+static func get_stat_scale(level: int) -> float:
+	return sqrt(float(level))  # Level 1 = 1x, Level 9999 = 100x
+
+static func get_size_scale(level: int) -> float:
+	# Level 1 = 1x, Level 9999 = 50x
+	return 1.0 + (sqrt(float(level)) - 1.0) * 0.495
+
+static func get_xp_for_next_level(level: int) -> int:
+	return level  # Need 'level' XP to go from level to level+1
+
 # World info (set by main.gd)
 var village_center := Vector2.ZERO
 var farm_positions: Array[Vector2] = []
@@ -38,6 +51,9 @@ var works_at_night: PackedInt32Array
 var health_dirty: PackedInt32Array
 var last_rendered: PackedInt32Array
 var flash_timers: PackedFloat32Array
+
+var levels: PackedInt32Array
+var xp: PackedInt32Array
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
@@ -120,6 +136,8 @@ func _init_arrays() -> void:
 	health_dirty.resize(max_count)
 	last_rendered.resize(max_count)
 	flash_timers.resize(max_count)
+	levels.resize(max_count)
+	xp.resize(max_count)
 
 	for i in max_count:
 		death_times[i] = -1
@@ -221,21 +239,15 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	works_at_night[i] = 1 if night_worker else 0
 	health_dirty[i] = 1
 	last_rendered[i] = 0
+	levels[i] = 1
+	xp[i] = 0
 
 	match job:
 		Job.FARMER: total_farmers += 1
 		Job.GUARD: total_guards += 1
 		Job.RAIDER: total_raiders += 1
 
-	var color: Color
-	match job:
-		Job.FARMER: color = Color.GREEN
-		Job.GUARD: color = Color.BLUE
-		Job.RAIDER: color = Color.RED
-		_: color = Color.WHITE
-
-	_renderer.set_npc_color(i, color)
-	_renderer.set_npc_health_display(i, 1.0)
+	_renderer.set_npc_sprite(i, job)
 	_renderer.set_visible_count(count)
 
 	_decide_what_to_do(i)
@@ -251,8 +263,8 @@ func spawn_guard(pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worke
 	return spawn_npc(Job.GUARD, Faction.VILLAGER, pos, home_pos, work_pos, night_worker, false, Config.GUARD_HP, Config.GUARD_DAMAGE, Config.GUARD_RANGE)
 
 
-func spawn_raider(pos: Vector2) -> int:
-	return spawn_npc(Job.RAIDER, Faction.RAIDER, pos, pos, pos, false, false, Config.RAIDER_HP, Config.RAIDER_DAMAGE, Config.RAIDER_RANGE)
+func spawn_raider(pos: Vector2, camp_pos: Vector2) -> int:
+	return spawn_npc(Job.RAIDER, Faction.RAIDER, pos, camp_pos, camp_pos, false, false, Config.RAIDER_HP, Config.RAIDER_DAMAGE, Config.RAIDER_RANGE)
 
 
 # ============================================================
@@ -274,14 +286,9 @@ func _check_respawns() -> void:
 
 
 func _respawn(i: int) -> void:
-	var job: int = jobs[i]
-
-	if job == Job.RAIDER:
-		positions[i] = spawn_positions[i]
-		wander_centers[i] = spawn_positions[i]
-	else:
-		positions[i] = home_positions[i]
-		wander_centers[i] = home_positions[i]
+	# All NPCs respawn at home (camp for raiders)
+	positions[i] = home_positions[i]
+	wander_centers[i] = home_positions[i]
 
 	healths[i] = max_healths[i]
 	energies[i] = Config.ENERGY_MAX
@@ -421,6 +428,31 @@ func record_kill(victim_faction: int) -> void:
 		villager_kills += 1
 	else:
 		raider_kills += 1
+
+
+func grant_xp(i: int, amount: int) -> void:
+	if levels[i] >= MAX_LEVEL:
+		return
+
+	xp[i] += amount
+
+	# Check for level ups
+	while xp[i] >= get_xp_for_next_level(levels[i]) and levels[i] < MAX_LEVEL:
+		xp[i] -= get_xp_for_next_level(levels[i])
+		var old_scale: float = get_stat_scale(levels[i])
+		levels[i] += 1
+		var new_scale: float = get_stat_scale(levels[i])
+		# Heal proportionally to new max HP
+		healths[i] = healths[i] * new_scale / old_scale
+		health_dirty[i] = 1  # Trigger size/health bar update
+
+
+func get_scaled_damage(i: int) -> float:
+	return attack_damages[i] * get_stat_scale(levels[i])
+
+
+func get_scaled_max_health(i: int) -> float:
+	return max_healths[i] * get_stat_scale(levels[i])
 
 
 # ============================================================
