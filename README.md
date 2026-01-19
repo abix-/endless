@@ -18,6 +18,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Raider camps (900px from target town)
 - [ ] Destructible buildings
 - [ ] Build new structures
+- [ ] Structure upgrades (increase output, capacity, defense)
 
 ### Economy
 - [x] Food production (farmers generate 1 food/hour when working)
