@@ -11,7 +11,7 @@ enum Job { FARMER, GUARD, RAIDER }
 const VALID_STATES := {
 	Job.FARMER: [State.IDLE, State.WALKING, State.SLEEPING, State.WORKING, State.RESTING, State.FLEEING],
 	Job.GUARD: [State.IDLE, State.WALKING, State.SLEEPING, State.WORKING, State.RESTING, State.FIGHTING, State.WANDERING],
-	Job.RAIDER: [State.IDLE, State.WANDERING, State.RESTING, State.FIGHTING],
+	Job.RAIDER: [State.IDLE, State.WALKING, State.SLEEPING, State.WANDERING, State.RESTING, State.FIGHTING],
 }
 
 const STATE_NAMES := ["Idle", "Walk", "Zzz", "Work", "Rest", "Wander", "Fight", "Flee"]

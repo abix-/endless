@@ -56,6 +56,7 @@ var flash_timers: PackedFloat32Array
 
 var levels: PackedInt32Array
 var xp: PackedInt32Array
+var carrying_food: PackedInt32Array  # Raiders carrying stolen food
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
@@ -140,6 +141,7 @@ func _init_arrays() -> void:
 	flash_timers.resize(max_count)
 	levels.resize(max_count)
 	xp.resize(max_count)
+	carrying_food.resize(max_count)
 
 	for i in max_count:
 		death_times[i] = -1
@@ -243,6 +245,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	last_rendered[i] = 0
 	levels[i] = 1
 	xp[i] = 0
+	carrying_food[i] = 0
 
 	match job:
 		Job.FARMER: total_farmers += 1
@@ -302,6 +305,7 @@ func _respawn(i: int) -> void:
 	current_targets[i] = -1
 	health_dirty[i] = 1
 	last_rendered[i] = 0
+	carrying_food[i] = 0
 
 	_renderer.show_npc(i, positions[i])
 	_renderer.set_npc_health_display(i, 1.0)
@@ -497,12 +501,15 @@ func _update_selection() -> void:
 		var job: int = jobs[selected_npc]
 		var state: int = states[selected_npc]
 		var lvl: int = levels[selected_npc]
+		var status: String = _state.get_state_name(state)
+		if job == Job.RAIDER and carrying_food[selected_npc] == 1:
+			status = "Loot"
 		info_label.text = "%s Lv.%d | H:%.0f E:%.0f | %s" % [
 			_state.get_job_name(job),
 			lvl,
 			healths[selected_npc],
 			energies[selected_npc],
-			_state.get_state_name(state)
+			status
 		]
 	else:
 		info_label.visible = false
