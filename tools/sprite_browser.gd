@@ -73,8 +73,7 @@ func _process(delta: float) -> void:
 	# Update info
 	var text := "Hover: (%d, %d)" % [hover_col, hover_row]
 	if selected_col >= 0:
-		text += "\nSelected: (%d, %d)" % [selected_col, selected_row]
-		text += "\nVector2i(%d, %d)" % [selected_col, selected_row]
+		text += "\n\nSelected:\nVector2i(%d, %d)" % [selected_col, selected_row]
 	info_label.text = text
 
 
