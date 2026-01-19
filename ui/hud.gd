@@ -108,9 +108,9 @@ func _update_zoom() -> void:
 			zoom_label.text = "Zoom: %.1fx" % camera.zoom.x
 
 
-func _on_npc_leveled_up(_npc_index: int, job: int, new_level: int) -> void:
+func _on_npc_leveled_up(_npc_index: int, job: int, old_level: int, new_level: int) -> void:
 	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
-	_pending_levelups.append("%s → Lv.%d" % [job_name, new_level])
+	_pending_levelups.append("%s %d → %d" % [job_name, old_level, new_level])
 	_log_dirty = true
 
 
