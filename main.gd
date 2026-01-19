@@ -23,7 +23,9 @@ var village_center_x: int
 var village_center_y: int
 
 func _ready() -> void:
+	@warning_ignore("integer_division")
 	village_center_x = (Config.VILLAGE_LEFT + Config.VILLAGE_RIGHT) / 2
+	@warning_ignore("integer_division")
 	village_center_y = (Config.VILLAGE_TOP + Config.VILLAGE_BOTTOM) / 2
 	
 	WorldClock.day_changed.connect(_on_day_changed)
