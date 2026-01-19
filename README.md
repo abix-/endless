@@ -2,8 +2,6 @@
 
 A game about fighting entropy. Raiders steal your food. Guards die in combat. Farms lie fallow. Everything tends toward chaos and collapse. Your job is to push back—to build order from disorder, to grow where decay wants to take hold.
 
-Inspired by Asimov's "The Last Question," where humanity asks across eons whether entropy can be reversed. Here, you don't wait for a cosmic answer. You fight it yourself, one upgrade at a time, one defended harvest at a time, until either you've built something that lasts or the raiders have taken everything.
-
 Built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
 
 **Inspirations:**
