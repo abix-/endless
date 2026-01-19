@@ -3267,3 +3267,16 @@ EOF
 09:59:57 - Running Unsanitize...
 09:59:57 - Unsanitize done
 09:59:57 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "per-npc home/work radii set at spawn" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:00:00 - Event: PostToolUse
+10:00:00 - Tool: Bash
+10:00:00 - Command: (cd C:/code/endless && git add -A && git commit -m "per-npc home/work radii set at spawn" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:00:00 - Processing PostToolUse for: (cd C:/code/endless && git add -A && git commit -m "per-npc home/work radii set at spawn" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+10:00:00 - Running Sanitize...
+10:00:00 - Sanitize done
+10:02:21 - Event: PreToolUse
+10:02:21 - Tool: Bash
+10:02:21 - Command: cd C:/code/endless && git add -A && git commit -m "fix camp placement: pick direction with most room" && git push
+10:02:21 - Processing PreToolUse for: cd C:/code/endless && git add -A && git commit -m "fix camp placement: pick direction with most room" && git push
+10:02:21 - Running Unsanitize...
+10:02:22 - Unsanitize done
+10:02:22 - Wrapped: (cd C:/code/endless && git add -A && git commit -m "fix camp placement: pick direction with most room" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

@@ -127,13 +127,8 @@ func _generate_world() -> void:
 			add_child(post)
 			town_data.guard_posts.append(post)
 
-		# Create raider camp (away from town, toward edge or other direction)
-		var camp_angle: float = randf() * TAU
-		var camp_pos: Vector2 = town_center + Vector2(cos(camp_angle), sin(camp_angle)) * Config.CAMP_DISTANCE
-
-		# Clamp to world bounds
-		camp_pos.x = clampf(camp_pos.x, Config.WORLD_MARGIN, Config.WORLD_WIDTH - Config.WORLD_MARGIN)
-		camp_pos.y = clampf(camp_pos.y, Config.WORLD_MARGIN, Config.WORLD_HEIGHT - Config.WORLD_MARGIN)
+		# Create raider camp (away from town, in direction with most room)
+		var camp_pos := _find_camp_position(town_center)
 
 		var camp = location_scene.instantiate()
 		camp.location_name = "%s Raiders" % town_name
@@ -284,3 +279,34 @@ func _input(event: InputEvent) -> void:
 				WorldClock.ticks_per_real_second /= 2.0
 			KEY_SPACE:
 				WorldClock.paused = not WorldClock.paused
+
+
+func _find_camp_position(town_center: Vector2) -> Vector2:
+	# Try to place camp at CAMP_DISTANCE, ensuring it stays outside guard post radius
+	var min_dist_from_town := 700.0  # Must be past guard posts (500-600px)
+	var best_pos := town_center
+	var best_dist := 0.0
+
+	# Try 8 directions, pick the one that gives most distance from town after clamping
+	for i in 8:
+		var angle: float = i * TAU / 8.0 + randf_range(-0.2, 0.2)
+		var dir := Vector2(cos(angle), sin(angle))
+		var pos: Vector2 = town_center + dir * Config.CAMP_DISTANCE
+
+		# Clamp to world bounds
+		pos.x = clampf(pos.x, Config.WORLD_MARGIN, Config.WORLD_WIDTH - Config.WORLD_MARGIN)
+		pos.y = clampf(pos.y, Config.WORLD_MARGIN, Config.WORLD_HEIGHT - Config.WORLD_MARGIN)
+
+		var dist: float = pos.distance_to(town_center)
+		if dist > best_dist:
+			best_dist = dist
+			best_pos = pos
+
+	# If best position is still too close, push it away from town center
+	if best_dist < min_dist_from_town:
+		var dir: Vector2 = (best_pos - town_center).normalized()
+		if dir.length_squared() < 0.1:
+			dir = Vector2.RIGHT
+		best_pos = town_center + dir * min_dist_from_town
+
+	return best_pos
