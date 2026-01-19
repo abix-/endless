@@ -3,10 +3,16 @@
 extends RefCounted
 class_name NPCNeeds
 
+const Location = preload("res://world/location.gd")
+
 var manager: Node
+var _farm_radius: float
+var _camp_radius: float
 
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
+	_farm_radius = Location.get_interaction_radius("field")
+	_camp_radius = Location.get_interaction_radius("camp")
 
 func on_time_tick(_hour: int, minute: int) -> void:
 	# Every 15 minutes - reconsider decisions
@@ -108,8 +114,7 @@ func _raider_return_to_camp(i: int) -> void:
 	var my_pos: Vector2 = manager.positions[i]
 
 	# If already at camp, deliver immediately instead of walking
-	# Camp visual is ~96px across, raiders spawn with ±80px offset
-	if my_pos.distance_to(home_pos) < 80.0:
+	if my_pos.distance_to(home_pos) < _camp_radius:
 		_raider_deliver_food(i)
 		manager.wander_centers[i] = my_pos
 		manager._state.set_state(i, NPCState.State.RESTING)
@@ -188,9 +193,8 @@ func on_arrival(i: int) -> void:
 func _raider_check_steal_food(i: int) -> void:
 	var my_pos: Vector2 = manager.positions[i]
 
-	# Farm visual is ~144px across (3x3 cells * 16px * scale 3)
 	for farm_pos in manager.farm_positions:
-		if my_pos.distance_to(farm_pos) < 100.0:
+		if my_pos.distance_to(farm_pos) < _farm_radius:
 			manager.carrying_food[i] = 1
 			return
 

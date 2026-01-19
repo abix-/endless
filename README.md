@@ -31,7 +31,7 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 
 ### Economy
 - [x] Food production (farmers generate 1 food/hour when working)
-- [x] Food theft (raiders steal within 100px of farm)
+- [x] Food theft (radius derived from sprite size)
 - [x] Food delivery (raiders return loot to camp)
 - [x] Loot icon above raiders carrying food
 - [x] Per-town and per-camp food tracking in HUD

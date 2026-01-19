@@ -19,7 +19,7 @@ func _ready() -> void:
 
 	# Scroll speed slider
 	scroll_slider.min_value = 100
-	scroll_slider.max_value = 1000
+	scroll_slider.max_value = 2000
 	scroll_slider.step = 50
 	scroll_slider.value = UserSettings.scroll_speed
 	scroll_label.text = str(int(UserSettings.scroll_speed))

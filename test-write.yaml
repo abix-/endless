@@ -1,0 +1,3 @@
+database:
+  host: domain.local
+  port: 3306

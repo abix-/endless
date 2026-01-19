@@ -41,7 +41,34 @@ const GUARD_POST_PIECES := [
 	{"sprite": "wall", "offset": Vector2(0, 0)},
 ]
 
+# Map location types to their primary sprite for radius calculation
+const LOCATION_SPRITES := {
+	"field": "farm",
+	"camp": "tent",
+	"home": "wall",  # 2x2 composed, but wall is 1x1
+	"guard_post": "wall",
+}
+
 var texture: Texture2D
+
+
+# Calculate visual radius for a sprite (center to corner, scaled)
+static func get_sprite_radius(sprite_name: String) -> float:
+	if sprite_name not in SPRITES:
+		return 48.0  # Default fallback
+	var size: Vector2i = SPRITES[sprite_name].size
+	var max_cells := maxi(size.x, size.y)
+	# Half the diagonal: (cells * 16px * scale) / 2 * sqrt(2)
+	return (max_cells * 16.0 * SCALE) / 2.0 * sqrt(2.0)
+
+
+# Get interaction radius for a location type (with buffer)
+static func get_interaction_radius(location_type: String, buffer: float = 1.25) -> float:
+	var sprite_name: String = LOCATION_SPRITES.get(location_type, "wall")
+	# Special case: home is 2x2 composed pieces
+	if location_type == "home":
+		return (2 * 16.0 * SCALE) / 2.0 * sqrt(2.0) * buffer
+	return get_sprite_radius(sprite_name) * buffer
 
 
 func _ready() -> void:
