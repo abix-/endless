@@ -11,7 +11,7 @@ var rendered_npcs: PackedInt32Array  # Track which NPCs were rendered last frame
 const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
 
 # Sprite frames (column, row) in the character sheet
-const SPRITE_FARMER := Vector2i(0, 5)
+const SPRITE_FARMER := Vector2i(1, 5)
 const SPRITE_GUARD := Vector2i(0, 11)
 const SPRITE_RAIDER := Vector2i(0, 6)
 
