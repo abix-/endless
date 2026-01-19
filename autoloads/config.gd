@@ -21,6 +21,7 @@ const LEASH_DISTANCE := 400.0
 const FLEE_DISTANCE := 150.0
 const ALERT_RADIUS := 200.0
 const GUARD_FLEE_THRESHOLD := 0.33  # Guards flee below 33% health
+const RECOVERY_THRESHOLD := 0.75    # NPCs heal until 75% before resuming
 
 # Raider AI
 const RAIDER_CONFIDENCE_THRESHOLD := 3
@@ -90,3 +91,11 @@ const ENERGY_FARM_RESTORE := 30.0
 # HP Regen (per hour)
 const HP_REGEN_AWAKE := 2.0
 const HP_REGEN_SLEEP := 6.0  # 3x faster when sleeping
+
+# Town Upgrades
+const UPGRADE_MAX_LEVEL := 10
+const UPGRADE_COSTS := [10, 25, 50, 100, 200, 400, 800, 1500, 3000, 5000]  # Food cost per level
+const UPGRADE_GUARD_HEALTH_BONUS := 0.1   # +10% HP per level
+const UPGRADE_GUARD_ATTACK_BONUS := 0.1   # +10% damage per level
+const UPGRADE_GUARD_RANGE_BONUS := 0.05   # +5% range per level
+const UPGRADE_GUARD_SIZE_BONUS := 0.05    # +5% size per level

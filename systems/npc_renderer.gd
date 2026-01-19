@@ -8,12 +8,17 @@ var multimesh: MultiMesh
 var multimesh_instance: MultiMeshInstance2D
 var loot_multimesh: MultiMesh
 var loot_multimesh_instance: MultiMeshInstance2D
+var halo_multimesh: MultiMesh
+var halo_multimesh_instance: MultiMeshInstance2D
 var rendered_npcs: PackedInt32Array  # Track which NPCs were rendered last frame
 var rendered_loot: PackedInt32Array  # Track which loot icons were rendered
+var rendered_halos: PackedInt32Array  # Track which halos were rendered
 
 const FLASH_DECAY := 8.0  # Flash fades in ~0.12 seconds
 const LOOT_ICON_OFFSET := Vector2(0, -12)  # Offset on raider's head
 const LOOT_ICON_SCALE := 1.5
+const HALO_SCALE := 3.0  # Size of healing halo
+const FOUNTAIN_RADIUS := 48.0  # Match npc_needs.gd
 
 # Sprite frames (column, row) in the character sheet
 const SPRITE_FARMER := Vector2i(1, 6)
@@ -26,12 +31,14 @@ const COLOR_GUARD := Color(0.6, 0.8, 1.0)         # Blue tint
 const COLOR_RAIDER := Color(1.0, 0.6, 0.6)        # Red tint
 
 
-func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D, loot_instance: MultiMeshInstance2D) -> void:
+func _init(npc_manager: Node, mm_instance: MultiMeshInstance2D, loot_instance: MultiMeshInstance2D, halo_inst: MultiMeshInstance2D) -> void:
 	manager = npc_manager
 	multimesh_instance = mm_instance
 	loot_multimesh_instance = loot_instance
+	halo_multimesh_instance = halo_inst
 	_init_multimesh()
 	_init_loot_multimesh()
+	_init_halo_multimesh()
 	_connect_settings()
 
 
@@ -79,6 +86,19 @@ func _init_loot_multimesh() -> void:
 	loot_multimesh_instance.multimesh = loot_multimesh
 
 
+func _init_halo_multimesh() -> void:
+	halo_multimesh = MultiMesh.new()
+	halo_multimesh.transform_format = MultiMesh.TRANSFORM_2D
+	halo_multimesh.instance_count = manager.max_count
+	halo_multimesh.visible_instance_count = 0
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2(Config.NPC_SPRITE_SIZE, Config.NPC_SPRITE_SIZE)
+	halo_multimesh.mesh = quad
+
+	halo_multimesh_instance.multimesh = halo_multimesh
+
+
 func update(delta: float) -> void:
 	# Decay flash timers
 	for i in manager.count:
@@ -112,7 +132,13 @@ func update(delta: float) -> void:
 		loot_multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
 	rendered_loot.clear()
 
+	# Hide previously rendered halos
+	for i in rendered_halos.size():
+		halo_multimesh.set_instance_transform_2d(i, Transform2D(0, Vector2(-9999, -9999)))
+	rendered_halos.clear()
+
 	var loot_idx := 0
+	var halo_idx := 0
 
 	# Render visible NPCs
 	for cell_idx in visible_cells:
@@ -126,7 +152,7 @@ func update(delta: float) -> void:
 				continue
 
 			var pos: Vector2 = manager.positions[i]
-			var size_scale: float = manager.get_size_scale(manager.levels[i])
+			var size_scale: float = manager.get_npc_size_scale(i)
 			var xform := Transform2D(0, pos).scaled_local(Vector2(size_scale, size_scale))
 			multimesh.set_instance_transform_2d(i, xform)
 			rendered_npcs.append(i)
@@ -147,16 +173,26 @@ func update(delta: float) -> void:
 					rendered_loot.append(loot_idx)
 					loot_idx += 1
 
+			# Render halo for NPCs receiving healing bonus
+			if _is_healing_boosted(i, pos):
+				if halo_idx < halo_multimesh.instance_count:
+					var halo_xform := Transform2D(0, pos).scaled_local(Vector2(HALO_SCALE, HALO_SCALE))
+					halo_multimesh.set_instance_transform_2d(halo_idx, halo_xform)
+					rendered_halos.append(halo_idx)
+					halo_idx += 1
+
 	loot_multimesh.visible_instance_count = loot_idx
+	halo_multimesh.visible_instance_count = halo_idx
 
 
 func _update_all() -> void:
 	var loot_idx := 0
+	var halo_idx := 0
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
 		var pos: Vector2 = manager.positions[i]
-		var size_scale: float = manager.get_size_scale(manager.levels[i])
+		var size_scale: float = manager.get_npc_size_scale(i)
 		var xform := Transform2D(0, pos).scaled_local(Vector2(size_scale, size_scale))
 		multimesh.set_instance_transform_2d(i, xform)
 		if manager.health_dirty[i] == 1:
@@ -174,7 +210,15 @@ func _update_all() -> void:
 				loot_multimesh.set_instance_transform_2d(loot_idx, loot_xform)
 				loot_idx += 1
 
+		# Render halo for NPCs receiving healing bonus
+		if _is_healing_boosted(i, pos):
+			if halo_idx < halo_multimesh.instance_count:
+				var halo_xform := Transform2D(0, pos).scaled_local(Vector2(HALO_SCALE, HALO_SCALE))
+				halo_multimesh.set_instance_transform_2d(halo_idx, halo_xform)
+				halo_idx += 1
+
 	loot_multimesh.visible_instance_count = loot_idx
+	halo_multimesh.visible_instance_count = halo_idx
 
 
 func set_npc_color(i: int, color: Color) -> void:
@@ -229,3 +273,16 @@ func hide_npc(i: int) -> void:
 
 func show_npc(i: int, pos: Vector2) -> void:
 	multimesh.set_instance_transform_2d(i, Transform2D(0, pos))
+
+
+func _is_healing_boosted(i: int, pos: Vector2) -> bool:
+	var job: int = manager.jobs[i]
+	# Raiders get boost at camp
+	if job == manager.Job.RAIDER:
+		var home_pos: Vector2 = manager.home_positions[i]
+		return pos.distance_to(home_pos) < FOUNTAIN_RADIUS
+	# Villagers get boost at fountain
+	for center in manager.town_centers:
+		if pos.distance_to(center) < FOUNTAIN_RADIUS:
+			return true
+	return false

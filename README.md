@@ -1,28 +1,34 @@
 # Endless
 
-A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
+*"How can the net amount of entropy of the universe be massively decreased?"*
+
+A game about fighting entropy. Raiders steal your food. Guards die in combat. Farms lie fallow. Everything tends toward chaos and collapse. Your job is to push back—to build order from disorder, to grow where decay wants to take hold.
+
+Inspired by Asimov's "The Last Question," where humanity asks across eons whether entropy can be reversed. Here, you don't wait for a cosmic answer. You fight it yourself, one upgrade at a time, one defended harvest at a time, until either you've built something that lasts or the raiders have taken everything.
+
+Built in Godot 4.5 using Data-Oriented Design (DOD) for high-performance NPC management.
 
 **Inspirations:**
+- **Asimov's "The Last Question"** - entropy as the ultimate antagonist
 - **Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, conquer rival towns
   - Farming: villagers work fields → grain → rations, weather affects yield, starvation causes unrest
   - Balance farming vs other jobs (woodcutting, mining, blacksmithing, army)
 - **RimWorld** - colonist needs, AI storytelling, emergent chaos
 - **Factorio** - scale to thousands of entities, optimize production chains
 
-## Gameplay Loop
+## The Struggle
 
-1. **Produce** - Assign villagers to generate resources (food, wood, iron, gold)
-2. **Build** - Construct and upgrade production buildings
-3. **Train** - Convert villagers into guards and army units
-4. **Defend** - Protect your towns from raider attacks
-5. **Conquer** - March armies to enemy towns, siege and capture
-6. **Expand** - Manage your growing empire, repeat
+1. **Produce** - Farmers generate food. Without food, nothing else matters.
+2. **Defend** - Guards protect what you've built. Raiders want it.
+3. **Upgrade** - Invest food to make guards stronger. Trade present resources for future survival.
+4. **Expand** - Claim neutral towns. More territory, more production, more to defend.
+5. **Endure** - Entropy never stops. Neither can you.
 
 ## Features
 
 ### World
 - [x] Procedural town generation (7 towns, 1200px minimum spacing)
-- [x] Named towns from pool of 15 (Millbrook, Ashford, Willowdale, etc.)
+- [x] Named towns from pool of 15 Florida cities (Miami, Orlando, Tampa, etc.)
 - [x] Farms (2 per town, 200-300px from center)
 - [x] Homes for farmers (ring 350-450px from center)
 - [x] Guard posts (6 per town, 500-600px perimeter)
@@ -62,7 +68,8 @@ A conquest simulation built in Godot 4.5 using Data-Oriented Design (DOD) for hi
 - [x] Guards: patrol between all 6 posts (30min each), day/night shifts, flee to town center below 33% health
 - [x] Raiders: priority system (wounded → exhausted → deliver loot → steal), flee to camp below 50% health
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
-- [x] HP regen (2/hr awake, 6/hr sleeping, 10x fountain for villagers, 5x camp for raiders)
+- [x] HP regen (2/hr awake, 6/hr sleeping, 10x at fountain/camp)
+- [x] Recovery system (fleeing NPCs heal until 75% before resuming)
 - [x] 15-minute decision cycles
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [ ] AI lords that expand and compete
@@ -87,10 +94,11 @@ Activity-specific states (no translation layer):
 ### Player Controls
 - [x] WASD camera movement (configurable speed 100-2000)
 - [x] Mouse wheel zoom (0.1x - 4.0x, centers on cursor)
-- [x] Click to select and inspect NPCs
+- [ ] Click to select and inspect NPCs
 - [x] Time controls (+/- speed, SPACE pause)
 - [x] Settings menu (ESC) with HP bar modes, scroll speed
-- [ ] Claim a town as capital
+- [x] First town is player-controlled (click fountain for upgrades)
+- [x] Guard upgrades: health, attack, range, size (10 levels each, costs food)
 - [ ] Villager role assignment UI
 - [ ] Build/upgrade buildings
 - [ ] Train guards from population
@@ -98,10 +106,8 @@ Activity-specific states (no translation layer):
 - [ ] Army recruitment and movement
 - [ ] Attack and capture enemy towns
 
-### Victory Conditions
-- [ ] Domination (conquer all towns)
-- [ ] Economic (accumulate wealth threshold)
-- [ ] Survival mode (endless waves)
+### Victory Condition
+There is no victory. Only the endless struggle against entropy.
 
 ### Performance (supports 3000+ NPCs at 60 FPS)
 - [x] Data-Oriented Design with PackedArrays
@@ -112,6 +118,7 @@ Activity-specific states (no translation layer):
 - [x] Staggered scanning (1/8 NPCs per frame)
 - [x] Combat log batching
 - [x] TCP-like collision avoidance (head-on, crossing, overtaking - index-based symmetry breaking)
+- [x] Golden halo shader effect for NPCs receiving healing bonus
 
 ---
 
@@ -139,6 +146,7 @@ world/
 ui/
   hud.gd                # Stats, food tracking, combat log
   settings_menu.gd      # Options menu
+  upgrade_menu.gd       # Town upgrade UI
 ```
 
 ## Controls
@@ -147,7 +155,7 @@ ui/
 |-----|--------|
 | WASD / Arrows | Move camera |
 | Mouse Wheel | Zoom (centers on cursor) |
-| Left Click | Select NPC |
+| Left Click (fountain) | Open upgrade menu |
 | + / = | Speed up time (2x) |
 | - | Slow down time (0.5x) |
 | SPACE | Pause/unpause |

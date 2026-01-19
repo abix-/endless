@@ -1,0 +1,164 @@
+[gd_scene load_steps=2 format=3 uid="uid://upgrade001"]
+
+[ext_resource type="Script" path="res://ui/upgrade_menu.gd" id="1_upgrade"]
+
+[node name="UpgradeMenu" type="CanvasLayer"]
+layer = 100
+script = ExtResource("1_upgrade")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -180.0
+offset_right = 200.0
+offset_bottom = 180.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 20
+
+[node name="VBox" type="VBoxContainer" parent="Panel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Town Upgrades"
+horizontal_alignment = 1
+
+[node name="Sep1" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="FoodRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/FoodRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Food Available:"
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/FoodRow"]
+layout_mode = 2
+text = "0"
+horizontal_alignment = 2
+
+[node name="Sep2" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="HealthRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/HealthRow"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Guard Health"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/HealthRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "Lv 0"
+horizontal_alignment = 1
+
+[node name="Cost" type="Label" parent="Panel/MarginContainer/VBox/HealthRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "10"
+horizontal_alignment = 2
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/HealthRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+text = "Upgrade"
+
+[node name="AttackRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/AttackRow"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Guard Attack"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/AttackRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "Lv 0"
+horizontal_alignment = 1
+
+[node name="Cost" type="Label" parent="Panel/MarginContainer/VBox/AttackRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "10"
+horizontal_alignment = 2
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/AttackRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+text = "Upgrade"
+
+[node name="RangeRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/RangeRow"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Guard Range"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/RangeRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "Lv 0"
+horizontal_alignment = 1
+
+[node name="Cost" type="Label" parent="Panel/MarginContainer/VBox/RangeRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "10"
+horizontal_alignment = 2
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/RangeRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+text = "Upgrade"
+
+[node name="SizeRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/SizeRow"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Guard Size"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/SizeRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "Lv 0"
+horizontal_alignment = 1
+
+[node name="Cost" type="Label" parent="Panel/MarginContainer/VBox/SizeRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "10"
+horizontal_alignment = 2
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/SizeRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+text = "Upgrade"
+
+[node name="CloseHint" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Click outside to close"
+horizontal_alignment = 1

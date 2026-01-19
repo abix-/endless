@@ -103,11 +103,10 @@ func _process_fighting(i: int) -> void:
 func _process_fleeing(i: int) -> void:
 	var target_idx: int = manager.current_targets[i]
 
-	# Enemy dead - stop fleeing
+	# Enemy dead - stop fleeing, but stay and heal if low HP
 	if target_idx < 0 or manager.healths[target_idx] <= 0:
 		manager.current_targets[i] = -1
-		manager._state.set_state(i, NPCState.State.IDLE)
-		manager._decide_what_to_do(i)
+		_stop_fleeing(i)
 		return
 
 	# Check if reached flee destination
@@ -117,6 +116,16 @@ func _process_fleeing(i: int) -> void:
 
 	if dist_to_target < manager._arrival_home:
 		manager.current_targets[i] = -1
+		_stop_fleeing(i)
+
+
+func _stop_fleeing(i: int) -> void:
+	var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
+	if health_pct < Config.RECOVERY_THRESHOLD:
+		# Stay and heal until 75%
+		manager._state.set_state(i, NPCState.State.OFF_DUTY)
+		manager.recovering[i] = 1
+	else:
 		manager._state.set_state(i, NPCState.State.IDLE)
 		manager._decide_what_to_do(i)
 

@@ -28,6 +28,11 @@ static func get_size_scale(level: int) -> float:
 	# Level 1 = 1x, Level 9999 = 50x
 	return 1.0 + (sqrt(float(level)) - 1.0) * 0.495
 
+
+func get_npc_size_scale(i: int) -> float:
+	return get_size_scale(levels[i]) * (1.0 + size_bonuses[i])
+
+
 static func get_xp_for_next_level(level: int) -> int:
 	return level  # Need 'level' XP to go from level to level+1
 
@@ -36,6 +41,7 @@ var village_center := Vector2.ZERO
 var farm_positions: Array[Vector2] = []
 var guard_posts_by_town: Array[Array] = []  # Per-town arrays of guard post positions
 var town_centers: Array[Vector2] = []  # Fountain at center of each town
+var town_upgrades: Array = []  # Reference to main's upgrade data
 
 # Data arrays
 var count := 0
@@ -61,6 +67,7 @@ var factions: PackedInt32Array
 var jobs: PackedInt32Array
 var current_targets: PackedInt32Array
 var will_flee: PackedInt32Array
+var recovering: PackedInt32Array  # NPC is healing after fleeing, stays until 75% HP
 var works_at_night: PackedInt32Array
 var health_dirty: PackedInt32Array
 var last_rendered: PackedInt32Array
@@ -70,6 +77,7 @@ var levels: PackedInt32Array
 var xp: PackedInt32Array
 var carrying_food: PackedInt32Array  # Raiders carrying stolen food
 var town_indices: PackedInt32Array  # Which town/camp this NPC belongs to
+var size_bonuses: PackedFloat32Array  # Size bonus from upgrades
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
@@ -86,6 +94,7 @@ var selected_npc := -1
 # Rendering
 @onready var multimesh_instance: MultiMeshInstance2D = $MultiMeshInstance2D
 @onready var loot_icon_instance: MultiMeshInstance2D = $LootIconMultiMesh
+@onready var halo_instance: MultiMeshInstance2D = $HaloMultiMesh
 @onready var info_label: Label = $InfoLabel
 
 # Stats - alive counts
@@ -163,6 +172,7 @@ func _init_arrays() -> void:
 	jobs.resize(max_count)
 	current_targets.resize(max_count)
 	will_flee.resize(max_count)
+	recovering.resize(max_count)
 	works_at_night.resize(max_count)
 	health_dirty.resize(max_count)
 	last_rendered.resize(max_count)
@@ -171,6 +181,7 @@ func _init_arrays() -> void:
 	xp.resize(max_count)
 	carrying_food.resize(max_count)
 	town_indices.resize(max_count)
+	size_bonuses.resize(max_count)
 	patrol_target_idx.resize(max_count)
 	patrol_last_idx.resize(max_count)
 	patrol_timer.resize(max_count)
@@ -182,7 +193,7 @@ func _init_arrays() -> void:
 
 func _init_systems() -> void:
 	_grid = NPCGrid.new(self)
-	_renderer = NPCRenderer.new(self, multimesh_instance, loot_icon_instance)
+	_renderer = NPCRenderer.new(self, multimesh_instance, loot_icon_instance, halo_instance)
 	_state = NPCState.new(self)
 	_nav = NPCNavigation.new(self)
 	_combat = NPCCombat.new(self)
@@ -287,11 +298,29 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	xp[i] = 0
 	carrying_food[i] = 0
 	town_indices[i] = town_idx
+	size_bonuses[i] = 0.0
+	recovering[i] = 0
 
 	# Guard patrol initialization
 	patrol_target_idx[i] = 0
 	patrol_last_idx[i] = -1
 	patrol_timer[i] = 0
+
+	# Apply town upgrades for guards
+	if job == Job.GUARD and town_idx >= 0 and town_idx < town_upgrades.size():
+		var upgrades: Dictionary = town_upgrades[town_idx]
+		if upgrades.guard_health > 0:
+			var bonus: float = Config.UPGRADE_GUARD_HEALTH_BONUS * upgrades.guard_health
+			max_healths[i] = Config.GUARD_HP * (1.0 + bonus)
+			healths[i] = max_healths[i]
+		if upgrades.guard_attack > 0:
+			var bonus: float = Config.UPGRADE_GUARD_ATTACK_BONUS * upgrades.guard_attack
+			attack_damages[i] = Config.GUARD_DAMAGE * (1.0 + bonus)
+		if upgrades.guard_range > 0:
+			var bonus: float = Config.UPGRADE_GUARD_RANGE_BONUS * upgrades.guard_range
+			attack_ranges[i] = Config.GUARD_RANGE * (1.0 + bonus)
+		if upgrades.guard_size > 0:
+			size_bonuses[i] = Config.UPGRADE_GUARD_SIZE_BONUS * upgrades.guard_size
 
 	match job:
 		Job.FARMER: total_farmers += 1
@@ -510,6 +539,42 @@ func get_scaled_damage(i: int) -> float:
 
 func get_scaled_max_health(i: int) -> float:
 	return max_healths[i] * get_stat_scale(levels[i])
+
+
+func apply_town_upgrade(town_idx: int, upgrade_type: String, new_level: int) -> void:
+	var bonus: float = 0.0
+	match upgrade_type:
+		"guard_health":
+			bonus = Config.UPGRADE_GUARD_HEALTH_BONUS * new_level
+		"guard_attack":
+			bonus = Config.UPGRADE_GUARD_ATTACK_BONUS * new_level
+		"guard_range":
+			bonus = Config.UPGRADE_GUARD_RANGE_BONUS * new_level
+		"guard_size":
+			bonus = Config.UPGRADE_GUARD_SIZE_BONUS * new_level
+
+	# Apply to all guards in this town
+	for i in count:
+		if healths[i] <= 0:
+			continue
+		if jobs[i] != Job.GUARD:
+			continue
+		if town_indices[i] != town_idx:
+			continue
+
+		match upgrade_type:
+			"guard_health":
+				var old_max: float = max_healths[i]
+				max_healths[i] = Config.GUARD_HP * (1.0 + bonus)
+				# Heal proportionally
+				healths[i] = healths[i] * max_healths[i] / old_max
+				health_dirty[i] = 1
+			"guard_attack":
+				attack_damages[i] = Config.GUARD_DAMAGE * (1.0 + bonus)
+			"guard_range":
+				attack_ranges[i] = Config.GUARD_RANGE * (1.0 + bonus)
+			"guard_size":
+				size_bonuses[i] = bonus
 
 
 # ============================================================

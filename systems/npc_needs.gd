@@ -24,7 +24,15 @@ func on_time_tick(_hour: int, minute: int) -> void:
 				manager.patrol_timer[i] += 15
 
 			if state not in [NPCState.State.FIGHTING, NPCState.State.FLEEING]:
-				manager._decide_what_to_do(i)
+				# Check if recovering NPC has healed enough
+				if manager.recovering[i] == 1:
+					var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
+					if health_pct >= Config.RECOVERY_THRESHOLD:
+						manager.recovering[i] = 0
+						manager._decide_what_to_do(i)
+					# else stay in OFF_DUTY healing
+				else:
+					manager._decide_what_to_do(i)
 
 	# On the hour - update energy
 	if minute != 0:
@@ -46,13 +54,11 @@ func on_time_tick(_hour: int, minute: int) -> void:
 			_:
 				manager.energies[i] = maxf(0.0, manager.energies[i] - Config.ENERGY_ACTIVITY_DRAIN)
 
-		# HP regen (3x faster when sleeping, 10x fountain, 5x camp)
+		# HP regen (3x faster when sleeping, 10x fountain/camp)
 		if manager.healths[i] < max_hp:
 			var regen: float = Config.HP_REGEN_SLEEP if state == NPCState.State.SLEEPING else Config.HP_REGEN_AWAKE
-			if _is_on_fountain(i):
+			if _is_on_fountain(i) or _is_at_camp(i):
 				regen *= 10.0
-			elif _is_at_camp(i):
-				regen *= 5.0
 			manager.healths[i] = minf(max_hp, manager.healths[i] + regen)
 			manager.mark_health_dirty(i)
 

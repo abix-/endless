@@ -6,26 +6,30 @@ var player_scene: PackedScene = preload("res://entities/player.tscn")
 var location_scene: PackedScene = preload("res://world/location.tscn")
 var hud_scene: PackedScene = preload("res://ui/hud.tscn")
 var settings_menu_scene: PackedScene = preload("res://ui/settings_menu.tscn")
+var upgrade_menu_scene: PackedScene = preload("res://ui/upgrade_menu.tscn")
 
 var npc_manager: Node
 var projectile_manager: Node
 var player: Node
 var hud: Node
 var settings_menu: Node
+var upgrade_menu: Node
 
 # World data
 var towns: Array = []  # Array of {center, farms, homes, camp, food}
 var town_food: PackedInt32Array  # Food stored in each town
 var camp_food: PackedInt32Array  # Food stored in each raider camp
+var player_town_idx: int = 0  # First town is player-controlled
+var town_upgrades: Array = []  # Per-town upgrade levels
 
 const NUM_TOWNS := 7
 const MIN_TOWN_DISTANCE := 1200  # Minimum distance between town centers
 const FOOD_PER_WORK_HOUR := 1  # Food generated per farmer per work hour
 
 const TOWN_NAMES := [
-	"Millbrook", "Ashford", "Willowdale", "Ironhaven", "Thornwick",
-	"Redmoor", "Foxhollow", "Stonebridge", "Pinecrest", "Dustwell",
-	"Bramblewood", "Ravenhill", "Clearwater", "Goleli", "Highmeadow"
+	"Miami", "Orlando", "Tampa", "Jacksonville", "Tallahassee",
+	"Gainesville", "Pensacola", "Sarasota", "Naples", "Daytona",
+	"Lakeland", "Ocala", "Boca Raton", "Key West", "Fort Myers"
 ]
 
 
@@ -58,6 +62,12 @@ func _draw() -> void:
 	for corner in corners:
 		draw_circle(corner, marker_size, border_color)
 
+	# Player town indicator - gold ring around fountain
+	if towns.size() > player_town_idx:
+		var town_center: Vector2 = towns[player_town_idx].center
+		var gold := Color(1.0, 0.85, 0.3, 0.8)
+		draw_arc(town_center, 60.0, 0, TAU, 32, gold, 3.0)
+
 
 func _generate_world() -> void:
 	# Initialize food arrays
@@ -66,6 +76,15 @@ func _generate_world() -> void:
 	for i in NUM_TOWNS:
 		town_food[i] = 0
 		camp_food[i] = 0
+
+	# Initialize town upgrades
+	for i in NUM_TOWNS:
+		town_upgrades.append({
+			"guard_health": 0,
+			"guard_attack": 0,
+			"guard_range": 0,
+			"guard_size": 0
+		})
 
 	# Generate scattered town positions
 	var town_positions: Array[Vector2] = []
@@ -195,6 +214,9 @@ func _setup_managers() -> void:
 	for town in towns:
 		npc_manager.town_centers.append(town.center)
 
+	# Pass town upgrades reference
+	npc_manager.town_upgrades = town_upgrades
+
 	# Set village center to world center (for compatibility)
 	@warning_ignore("integer_division")
 	npc_manager.village_center = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)
@@ -202,8 +224,8 @@ func _setup_managers() -> void:
 
 func _setup_player() -> void:
 	player = player_scene.instantiate()
-	@warning_ignore("integer_division")
-	player.global_position = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)
+	# Center on player's town
+	player.global_position = towns[player_town_idx].center
 	add_child(player)
 
 
@@ -213,6 +235,10 @@ func _setup_ui() -> void:
 
 	settings_menu = settings_menu_scene.instantiate()
 	add_child(settings_menu)
+
+	upgrade_menu = upgrade_menu_scene.instantiate()
+	upgrade_menu.upgrade_purchased.connect(_on_upgrade_purchased)
+	add_child(upgrade_menu)
 
 
 func _spawn_npcs() -> void:
@@ -308,6 +334,30 @@ func _input(event: InputEvent) -> void:
 				WorldClock.ticks_per_real_second /= 2.0
 			KEY_SPACE:
 				WorldClock.paused = not WorldClock.paused
+
+	# Click on player's town fountain to open upgrade menu
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if upgrade_menu.is_open():
+			return
+		var click_pos: Vector2 = _get_world_mouse_position()
+		var town_center: Vector2 = towns[player_town_idx].center
+		if click_pos.distance_to(town_center) < 48.0:  # Fountain radius
+			upgrade_menu.open(self, player_town_idx)
+
+
+func _get_world_mouse_position() -> Vector2:
+	var camera: Camera2D = player.get_node("Camera2D")
+	var viewport := get_viewport()
+	var mouse_screen := viewport.get_mouse_position()
+	var viewport_size := viewport.get_visible_rect().size
+	var screen_center := viewport_size / 2.0
+	var mouse_offset := mouse_screen - screen_center
+	return player.global_position + mouse_offset / camera.zoom
+
+
+func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
+	# Apply upgrade to all guards in this town
+	npc_manager.apply_town_upgrade(player_town_idx, upgrade_type, new_level)
 
 
 func _find_camp_position(town_center: Vector2, all_town_centers: Array[Vector2]) -> Vector2:
