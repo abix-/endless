@@ -78,8 +78,8 @@ Hide instances by setting transform position to (-9999, -9999).
 Valid types for `location_type` export:
 - `"field"` - farm (3x3)
 - `"camp"` - raider camp (2x2 tent)
-- `"home"` - house (2x2 composed)
-- `"guard_post"` - guard tower (1x1)
+- `"home"` - bed (1x1)
+- `"guard_post"` - guard post (1x1)
 - `"fountain"` - town center marker (1x1)
 
 ## README Maintenance

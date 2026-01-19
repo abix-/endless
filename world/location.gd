@@ -18,28 +18,20 @@ const SPRITES := {
 	"farm": {"pos": Vector2i(2, 15), "size": Vector2i(3, 3)},
 	"tent": {"pos": Vector2i(48, 10), "size": Vector2i(2, 2)},
 	"fountain": {"pos": Vector2i(50, 9), "size": Vector2i(1, 1)},
-	# House parts (scattered, used in HOME_PIECES)
-	"roof_left": {"pos": Vector2i(22, 21), "size": Vector2i(1, 1)},
-	"roof_right": {"pos": Vector2i(23, 21), "size": Vector2i(1, 1)},
-	"wall": {"pos": Vector2i(34, 12), "size": Vector2i(1, 1)},
-	"door": {"pos": Vector2i(33, 0), "size": Vector2i(1, 1)},
+	"bed": {"pos": Vector2i(15, 2), "size": Vector2i(1, 1)},
+	"guard_post": {"pos": Vector2i(20, 20), "size": Vector2i(1, 1)},
 }
 
-# House composition - 2x2
 const HOME_PIECES := [
-	{"sprite": "roof_left", "offset": Vector2(-8, -8)},
-	{"sprite": "roof_right", "offset": Vector2(8, -8)},
-	{"sprite": "wall", "offset": Vector2(-8, 8)},
-	{"sprite": "door", "offset": Vector2(8, 8)},
+	{"sprite": "bed", "offset": Vector2(0, 0)},
 ]
 
-# Camp composition - list of {sprite_name, offset}
 const CAMP_PIECES := [
 	{"sprite": "tent", "offset": Vector2(0, 0)},
 ]
 
 const GUARD_POST_PIECES := [
-	{"sprite": "wall", "offset": Vector2(0, 0)},
+	{"sprite": "guard_post", "offset": Vector2(0, 0)},
 ]
 
 const FOUNTAIN_PIECES := [
@@ -50,9 +42,9 @@ const FOUNTAIN_PIECES := [
 const LOCATION_SPRITES := {
 	"field": "farm",
 	"camp": "tent",
-	"home": "wall",  # 2x2 composed, but wall is 1x1
+	"home": "bed",
 	"fountain": "fountain",
-	"guard_post": "wall",
+	"guard_post": "guard_post",
 }
 
 var texture: Texture2D
@@ -70,10 +62,7 @@ static func get_sprite_radius(sprite_name: String) -> float:
 
 # Get interaction radius for a location type (with buffer)
 static func get_interaction_radius(location_type: String, buffer: float = 1.25) -> float:
-	var sprite_name: String = LOCATION_SPRITES.get(location_type, "wall")
-	# Special case: home is 2x2 composed pieces
-	if location_type == "home":
-		return (2 * 16.0 * SCALE) / 2.0 * sqrt(2.0) * buffer
+	var sprite_name: String = LOCATION_SPRITES.get(location_type, "bed")
 	return get_sprite_radius(sprite_name) * buffer
 
 
