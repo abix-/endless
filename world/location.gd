@@ -75,8 +75,8 @@ static func get_sprite_edge_radius(sprite_name: String) -> float:
 
 
 # Get arrival radius for a location type (edge-based, for entering sprite)
-static func get_arrival_radius(location_type: String) -> float:
-	var sprite_name: String = LOCATION_SPRITES.get(location_type, "bed")
+static func get_arrival_radius(loc_type: String) -> float:
+	var sprite_name: String = LOCATION_SPRITES.get(loc_type, "bed")
 	return get_sprite_edge_radius(sprite_name)
 
 

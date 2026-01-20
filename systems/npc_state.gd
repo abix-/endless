@@ -20,6 +20,34 @@ enum State {
 enum Faction { VILLAGER, RAIDER }
 enum Job { FARMER, GUARD, RAIDER }
 
+enum Trait {
+	NONE,       # No special trait
+	BRAVE,      # Won't flee (guards/raiders)
+	COWARD,     # Flees at higher HP threshold
+	EFFICIENT,  # +25% work output (farm yield, attack speed)
+	HARDY,      # +25% max HP
+	LAZY,       # -20% work output
+}
+
+const TRAIT_NAMES := {
+	Trait.NONE: "",
+	Trait.BRAVE: "Brave",
+	Trait.COWARD: "Coward",
+	Trait.EFFICIENT: "Efficient",
+	Trait.HARDY: "Hardy",
+	Trait.LAZY: "Lazy",
+}
+
+# First names for NPCs (fantasy/medieval themed)
+const FIRST_NAMES := [
+	"Ada", "Aldric", "Bran", "Cara", "Dax", "Elara", "Finn", "Gwen",
+	"Hal", "Iris", "Jace", "Kira", "Liam", "Mira", "Nox", "Orin",
+	"Pax", "Quinn", "Ryn", "Sera", "Thane", "Una", "Vale", "Wren",
+	"Xara", "Yara", "Zane", "Ash", "Bex", "Cole", "Dara", "Eli",
+	"Fay", "Gren", "Hope", "Ivo", "Jade", "Knox", "Luna", "Max",
+	"Neve", "Oak", "Pip", "Rue", "Sol", "Tara", "Uri", "Vera",
+]
+
 # Valid states per job type
 const VALID_STATES := {
 	Job.FARMER: [State.IDLE, State.RESTING, State.FLEEING, State.WALKING, State.FARMING, State.OFF_DUTY],

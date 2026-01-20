@@ -60,6 +60,19 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [ ] Player combat abilities
 - [ ] Army units (peasant levy, archers, knights)
 
+### NPC Identity
+- [x] Named NPCs from pool of 48 fantasy names
+- [x] Personality traits (40% chance): Brave, Coward, Efficient, Hardy, Lazy
+- [x] Trait effects:
+  - **Brave**: Never flees (guards/raiders)
+  - **Coward**: Flees at +20% higher HP threshold
+  - **Efficient**: +25% farm yield, 25% faster attacks
+  - **Hardy**: +25% max HP
+  - **Lazy**: -20% farm yield, 20% slower attacks
+- [x] Names shown in inspector, selection label, combat log
+- [ ] Last names for memorable heroes
+- [ ] Trait combinations
+
 ### AI Behaviors
 - [x] Farmers: day/night work schedule, always flee to town center
 - [x] Guards: patrol between all 6 posts (30min each), day/night shifts, flee to town center below 33% HP

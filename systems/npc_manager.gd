@@ -96,6 +96,10 @@ var patrol_target_idx: PackedInt32Array   # Current target post index in town's 
 var patrol_last_idx: PackedInt32Array     # Last visited post index (-1 = none)
 var patrol_timer: PackedInt32Array        # Minutes waited at current post
 
+# Identity
+var npc_names: Array[String] = []         # NPC names for attachment/display
+var traits: PackedInt32Array              # NPCState.Trait values
+
 # Predicted movement (Factorio-style optimization)
 var last_logic_frame: PackedInt32Array    # Frame when logic was last calculated
 var intended_velocities: PackedVector2Array  # Cached velocity from last logic update
@@ -199,9 +203,13 @@ func _init_arrays() -> void:
 	patrol_timer.resize(max_count)
 	last_logic_frame.resize(max_count)
 	intended_velocities.resize(max_count)
+	npc_names.resize(max_count)
+	traits.resize(max_count)
 
 	for i in max_count:
 		patrol_last_idx[i] = -1
+		npc_names[i] = ""
+		traits[i] = NPCState.Trait.NONE
 
 
 func _init_systems() -> void:
@@ -359,6 +367,15 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	patrol_last_idx[i] = -1
 	patrol_timer[i] = 0
 
+	# Assign name and trait
+	npc_names[i] = NPCState.FIRST_NAMES[randi() % NPCState.FIRST_NAMES.size()]
+	traits[i] = _roll_trait()
+
+	# Apply trait effects
+	if traits[i] == NPCState.Trait.HARDY:
+		max_healths[i] *= 1.25
+		healths[i] = max_healths[i]
+
 	# Apply town upgrades for guards
 	if job == Job.GUARD and town_idx >= 0 and town_idx < town_upgrades.size():
 		var upgrades: Dictionary = town_upgrades[town_idx]
@@ -399,6 +416,25 @@ func spawn_guard(pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worke
 
 func spawn_raider(pos: Vector2, camp_pos: Vector2, town_idx: int) -> int:
 	return spawn_npc(Job.RAIDER, Faction.RAIDER, pos, camp_pos, camp_pos, false, false, Config.RAIDER_HP, Config.RAIDER_DAMAGE, Config.RAIDER_RANGE, town_idx)
+
+
+# ============================================================
+# TRAIT ROLLING
+# ============================================================
+
+func _roll_trait() -> int:
+	# 60% no trait, 40% get a trait
+	if randf() < 0.6:
+		return NPCState.Trait.NONE
+	# Equal chance among traits (excluding NONE)
+	var trait_pool := [
+		NPCState.Trait.BRAVE,
+		NPCState.Trait.COWARD,
+		NPCState.Trait.EFFICIENT,
+		NPCState.Trait.HARDY,
+		NPCState.Trait.LAZY,
+	]
+	return trait_pool[randi() % trait_pool.size()]
 
 
 # ============================================================
@@ -665,10 +701,12 @@ func _update_selection() -> void:
 		var job: int = jobs[selected_npc]
 		var state: int = states[selected_npc]
 		var lvl: int = levels[selected_npc]
+		var npc_name: String = npc_names[selected_npc]
 		var status: String = _state.get_state_name(state)
 		if job == Job.RAIDER and carrying_food[selected_npc] == 1:
 			status = "Looting"
-		info_label.text = "%s Lv.%d | H:%.0f E:%.0f | %s" % [
+		info_label.text = "%s | %s Lv.%d | H:%.0f E:%.0f | %s" % [
+			npc_name,
 			_state.get_job_name(job),
 			lvl,
 			healths[selected_npc],

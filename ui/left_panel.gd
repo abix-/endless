@@ -274,7 +274,13 @@ func _update_inspector() -> void:
 	var job: int = npc_manager.jobs[idx]
 	var level: int = npc_manager.levels[idx]
 	var job_name: String = NPCState.JOB_NAMES[job] if job < NPCState.JOB_NAMES.size() else "NPC"
-	job_level.text = "%s Lv.%d" % [job_name, level]
+	var npc_name: String = npc_manager.npc_names[idx]
+	var trait: int = npc_manager.traits[idx]
+	var trait_name: String = NPCState.TRAIT_NAMES.get(trait, "")
+	if trait_name.is_empty():
+		job_level.text = "%s the %s Lv.%d" % [npc_name, job_name, level]
+	else:
+		job_level.text = "%s the %s %s Lv.%d" % [npc_name, trait_name, job_name, level]
 
 	# Town
 	var town_idx: int = npc_manager.town_indices[idx]
@@ -317,7 +323,6 @@ func _update_inspector() -> void:
 
 	# Stats - show base → effective for upgradeable stats
 	var stats_lines: PackedStringArray = []
-	var base_hp: float = npc_manager.max_healths[idx]
 	var base_dmg: float = npc_manager.attack_damages[idx]
 	var base_rng: float = npc_manager.attack_ranges[idx]
 	var eff_dmg: float = npc_manager.get_scaled_damage(idx)
@@ -422,7 +427,11 @@ func _format_npc_data(i: int) -> String:
 
 	var job: int = npc_manager.jobs[i]
 	var job_name: String = NPCState.JOB_NAMES[job] if job < NPCState.JOB_NAMES.size() else "NPC"
-	lines.append("%s Lv.%d" % [job_name, npc_manager.levels[i]])
+	var npc_name: String = npc_manager.npc_names[i]
+	var trait: int = npc_manager.traits[i]
+	var trait_name: String = NPCState.TRAIT_NAMES.get(trait, "None")
+	lines.append("%s the %s Lv.%d" % [npc_name, job_name, npc_manager.levels[i]])
+	lines.append("Trait: %s" % trait_name)
 
 	var town_idx: int = npc_manager.town_indices[i]
 	var town_name := "-"

@@ -173,13 +173,11 @@ func _get_effective_stat(key: String, level: int) -> String:
 			var mult: float = 1.0 + level * Config.UPGRADE_ALERT_RADIUS_BONUS
 			return "%.0f rad (+%d%%)" % [Config.ALERT_RADIUS * mult, int(level * Config.UPGRADE_ALERT_RADIUS_BONUS * 100)]
 		"farm_yield":
-			var mult: float = 1.0 + level * Config.UPGRADE_FARM_YIELD_BONUS
 			return "+%d%% yield" % int(level * Config.UPGRADE_FARM_YIELD_BONUS * 100)
 		"farmer_hp":
 			var mult: float = 1.0 + level * Config.UPGRADE_FARMER_HP_BONUS
 			return "%.0f HP (+%d%%)" % [Config.FARMER_HP * mult, int(level * Config.UPGRADE_FARMER_HP_BONUS * 100)]
 		"healing_rate":
-			var mult: float = 1.0 + level * Config.UPGRADE_HEALING_RATE_BONUS
 			return "+%d%% regen" % int(level * Config.UPGRADE_HEALING_RATE_BONUS * 100)
 		"food_efficiency":
 			var chance: float = level * Config.UPGRADE_FOOD_EFFICIENCY

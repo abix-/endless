@@ -68,6 +68,7 @@ func _cell_has_threat(i: int, cell_idx: int) -> bool:
 	# Check this cell and adjacent cells for enemies
 	var my_faction: int = manager.factions[i]
 	var cx: int = cell_idx % Config.GRID_SIZE
+	@warning_ignore("integer_division")
 	var cy: int = cell_idx / Config.GRID_SIZE
 
 	for dy in range(-1, 2):
@@ -180,22 +181,29 @@ func _attack(attacker: int, victim: int) -> void:
 			if atk_speed_level > 0:
 				cooldown *= 1.0 - (atk_speed_level * Config.UPGRADE_GUARD_ATTACK_SPEED)
 
+	# Apply trait modifiers
+	var trait: int = manager.traits[attacker]
+	if trait == NPCState.Trait.EFFICIENT:
+		cooldown *= 0.75  # 25% faster attacks
+	elif trait == NPCState.Trait.LAZY:
+		cooldown *= 1.2   # 20% slower attacks
+
 	manager.attack_timers[attacker] = cooldown
-	manager._renderer.trigger_flash(attacker)
 	var is_ranged: bool = job == NPCState.Job.GUARD or job == NPCState.Job.RAIDER
 
 	if is_ranged and manager._projectiles:
-		# Fire projectile - damage happens on hit
+		# Fire projectile - damage and flash happen on hit
 		var from_pos: Vector2 = manager.positions[attacker]
 		var target_pos: Vector2 = manager.positions[victim]
 		var damage: float = manager.get_scaled_damage(attacker)
 		var faction: int = manager.factions[attacker]
 		manager._projectiles.fire(from_pos, target_pos, damage, faction, attacker)
 	else:
-		# Melee instant damage (scaled)
+		# Melee instant damage (scaled) - flash the victim
 		var damage: float = manager.get_scaled_damage(attacker)
 		manager.healths[victim] -= damage
 		manager.mark_health_dirty(victim)
+		manager._renderer.trigger_flash(victim)
 
 		if manager.healths[victim] <= 0:
 			_die(victim, attacker)
@@ -314,13 +322,23 @@ func _should_flee(i: int) -> bool:
 	# Farmers always flee
 	if manager.will_flee[i] == 1:
 		return true
+
+	var trait: int = manager.traits[i]
+	# Brave NPCs never flee
+	if trait == NPCState.Trait.BRAVE:
+		return false
+
 	var health_pct: float = manager.healths[i] / manager.max_healths[i]
 	var job: int = manager.jobs[i]
-	# Guards flee below 33%
-	if job == NPCState.Job.GUARD and health_pct < Config.GUARD_FLEE_THRESHOLD:
+
+	# Coward flees at +20% higher threshold
+	var coward_bonus: float = 0.2 if trait == NPCState.Trait.COWARD else 0.0
+
+	# Guards flee below 33% (or 53% if coward)
+	if job == NPCState.Job.GUARD and health_pct < Config.GUARD_FLEE_THRESHOLD + coward_bonus:
 		return true
-	# Raiders flee below 50%
-	if job == NPCState.Job.RAIDER and health_pct < Config.RAIDER_WOUNDED_THRESHOLD:
+	# Raiders flee below 50% (or 70% if coward)
+	if job == NPCState.Job.RAIDER and health_pct < Config.RAIDER_WOUNDED_THRESHOLD + coward_bonus:
 		return true
 	return false
 

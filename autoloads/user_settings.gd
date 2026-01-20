@@ -57,7 +57,7 @@ func load_settings() -> void:
 
 
 func set_hp_bar_mode(mode: int) -> void:
-	hp_bar_mode = mode
+	hp_bar_mode = mode as HpBarMode
 	save_settings()
 	settings_changed.emit()
 
@@ -69,31 +69,31 @@ func set_scroll_speed(speed: float) -> void:
 
 
 func set_death_log_mode(mode: int) -> void:
-	death_log_mode = mode
+	death_log_mode = mode as LogMode
 	save_settings()
 	settings_changed.emit()
 
 
 func set_level_log_mode(mode: int) -> void:
-	level_log_mode = mode
+	level_log_mode = mode as LogMode
 	save_settings()
 	settings_changed.emit()
 
 
 func set_spawn_log_mode(mode: int) -> void:
-	spawn_log_mode = mode
+	spawn_log_mode = mode as LogMode
 	save_settings()
 	settings_changed.emit()
 
 
 func set_food_log_mode(mode: int) -> void:
-	food_log_mode = mode
+	food_log_mode = mode as LogMode
 	save_settings()
 	settings_changed.emit()
 
 
 func set_log_timestamp(mode: int) -> void:
-	log_timestamp = mode
+	log_timestamp = mode as TimestampMode
 	save_settings()
 	settings_changed.emit()
 
