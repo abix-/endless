@@ -8,7 +8,7 @@ extends Area2D
 @onready var label: Label = $Label
 
 const CELL := 17  # 16px sprite + 1px margin
-const SCALE := 3.0
+const SCALE := 1.0
 
 # ============================================================
 # SPRITE DEFINITIONS - discovered via sprite_browser tool

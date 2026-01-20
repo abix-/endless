@@ -5316,3 +5316,16 @@ EOF
 20:34:59 - Running Unsanitize...
 20:34:59 - Unsanitize done
 20:34:59 - Wrapped: (cd /c/code/endless && git add -u && git commit -m "remove per-sprite scale overrides from bed and fountain" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+20:35:02 - Event: PostToolUse
+20:35:02 - Tool: Bash
+20:35:02 - Command: (cd /c/code/endless && git add -u && git commit -m "remove per-sprite scale overrides from bed and fountain" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+20:35:02 - Processing PostToolUse for: (cd /c/code/endless && git add -u && git commit -m "remove per-sprite scale overrides from bed and fountain" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+20:35:02 - Running Sanitize...
+20:35:02 - Sanitize done
+20:35:21 - Event: PreToolUse
+20:35:21 - Tool: Bash
+20:35:21 - Command: cd /c/code/endless && git add -u && git commit -m "remove 3x base scale from building sprites" && git push
+20:35:21 - Processing PreToolUse for: cd /c/code/endless && git add -u && git commit -m "remove 3x base scale from building sprites" && git push
+20:35:21 - Running Unsanitize...
+20:35:22 - Unsanitize done
+20:35:22 - Wrapped: (cd /c/code/endless && git add -u && git commit -m "remove 3x base scale from building sprites" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
