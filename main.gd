@@ -30,8 +30,23 @@ var town_max_farmers: PackedInt32Array  # Population cap per town
 var town_max_guards: PackedInt32Array   # Population cap per town
 
 # Grid slot keys (clockwise from NW)
-const GRID_KEYS := ["nw", "n", "ne", "w", "c", "e", "sw", "s", "se"]
-const BUILDABLE_SLOTS := ["nw", "n", "ne", "sw", "s", "se"]  # Excludes c, w, e (fixed)
+# 5x5 grid: coordinates from -2 to +2
+const GRID_KEYS := [
+	"-2,-2", "-2,-1", "-2,0", "-2,1", "-2,2",
+	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2",
+	"0,-2",  "0,-1",  "0,0",  "0,1",  "0,2",
+	"1,-2",  "1,-1",  "1,0",  "1,1",  "1,2",
+	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",
+]
+# Fixed slots: center (0,0), west farm (0,-1), east farm (0,1)
+const FIXED_SLOTS := ["0,0", "0,-1", "0,1"]
+const BUILDABLE_SLOTS := [
+	"-2,-2", "-2,-1", "-2,0", "-2,1", "-2,2",
+	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2",
+	"0,-2",                           "0,2",
+	"1,-2",  "1,-1",  "1,0",  "1,1",  "1,2",
+	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",
+]
 
 const NUM_TOWNS := 7
 const MIN_TOWN_DISTANCE := 1200  # Minimum distance between town centers
@@ -147,44 +162,45 @@ func _generate_world() -> void:
 		var town_name: String = available_names[i % available_names.size()]
 		var grid := _calculate_grid_positions(town_center)
 
+		# Initialize all slots as empty arrays
+		var slots := {}
+		for key in GRID_KEYS:
+			slots[key] = []
+
 		var town_data := {
 			"name": town_name,
 			"center": town_center,
 			"grid": grid,
-			"slots": {
-				"nw": [], "n": [], "ne": [],
-				"w": [], "c": [], "e": [],
-				"sw": [], "s": [], "se": [],
-			},
+			"slots": slots,
 			"guard_posts": [],
 			"camp": null
 		}
 
-		# Create fountain at center
+		# Create fountain at center (0,0)
 		var fountain = location_scene.instantiate()
 		fountain.location_name = town_name
 		fountain.location_type = "fountain"
-		fountain.global_position = grid["c"]
+		fountain.global_position = grid["0,0"]
 		add_child(fountain)
-		town_data.slots["c"].append({"type": "fountain", "node": fountain})
+		town_data.slots["0,0"].append({"type": "fountain", "node": fountain})
 
-		# Create farm at west slot
+		# Create farm at west slot (0,-1)
 		var farm_w = location_scene.instantiate()
 		farm_w.location_name = "%s Farm W" % town_name
 		farm_w.location_type = "field"
-		farm_w.global_position = grid["w"]
+		farm_w.global_position = grid["0,-1"]
 		add_child(farm_w)
-		town_data.slots["w"].append({"type": "farm", "node": farm_w})
+		town_data.slots["0,-1"].append({"type": "farm", "node": farm_w})
 
-		# Create farm at east slot
+		# Create farm at east slot (0,1)
 		var farm_e = location_scene.instantiate()
 		farm_e.location_name = "%s Farm E" % town_name
 		farm_e.location_type = "field"
-		farm_e.global_position = grid["e"]
+		farm_e.global_position = grid["0,1"]
 		add_child(farm_e)
-		town_data.slots["e"].append({"type": "farm", "node": farm_e})
+		town_data.slots["0,1"].append({"type": "farm", "node": farm_e})
 
-		# Create initial beds in NW slot only (4 beds in 2x2 grid)
+		# Create initial beds in (-1,-1) slot (4 beds in 2x2 grid)
 		for bed_idx in 4:
 			var bed_offset := Vector2(
 				(bed_idx % 2 - 0.5) * 16,
@@ -193,9 +209,9 @@ func _generate_world() -> void:
 			var bed = location_scene.instantiate()
 			bed.location_name = "%s Bed" % town_name
 			bed.location_type = "home"
-			bed.global_position = grid["nw"] + bed_offset
+			bed.global_position = grid["-1,-1"] + bed_offset
 			add_child(bed)
-			town_data.slots["nw"].append({"type": "bed", "node": bed})
+			town_data.slots["-1,-1"].append({"type": "bed", "node": bed})
 
 		# Create guard posts (perimeter around town, outside the grid)
 		for g in Config.GUARD_POSTS_PER_TOWN:
@@ -510,17 +526,12 @@ func _draw_buildable_slots() -> void:
 
 func _calculate_grid_positions(center: Vector2) -> Dictionary:
 	var s: float = Config.TOWN_GRID_SPACING
-	return {
-		"nw": center + Vector2(-s, -s),
-		"n":  center + Vector2(0, -s),
-		"ne": center + Vector2(s, -s),
-		"w":  center + Vector2(-s, 0),
-		"c":  center,
-		"e":  center + Vector2(s, 0),
-		"sw": center + Vector2(-s, s),
-		"s":  center + Vector2(0, s),
-		"se": center + Vector2(s, s),
-	}
+	var grid := {}
+	for row in range(-2, 3):
+		for col in range(-2, 3):
+			var key := "%d,%d" % [row, col]
+			grid[key] = center + Vector2(col * s, row * s)
+	return grid
 
 
 func _get_farms_from_town(town: Dictionary) -> Array:
