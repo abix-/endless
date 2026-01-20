@@ -42,12 +42,12 @@ const GRID_KEYS := [
 # Fixed slots: center area (0,0), (0,1), farms at (0,-1), (1,-1), corners for guard posts
 const FIXED_SLOTS := ["0,0", "0,1", "0,-1", "1,-1", "-2,-2", "-2,3", "3,-2", "3,3"]
 const BUILDABLE_SLOTS := [
-	        "-2,-1", "-2,0", "-2,1", "-2,2",
+			"-2,-1", "-2,0", "-2,1", "-2,2",
 	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2", "-1,3",
 	"0,-2",                  "0,2",  "0,3",
 	"1,-2",          "1,0",  "1,1",  "1,2",  "1,3",
 	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",  "2,3",
-	        "3,-1",  "3,0",  "3,1",  "3,2",
+			"3,-1",  "3,0",  "3,1",  "3,2",
 ]
 
 const NUM_TOWNS := 7
@@ -563,7 +563,10 @@ func _get_clicked_buildable_slot(world_pos: Vector2) -> Dictionary:
 	var grid: Dictionary = town.grid
 	var slot_radius: float = Config.TOWN_GRID_SPACING * 0.45  # Half slot size
 
-	for slot_key in BUILDABLE_SLOTS:
+	# Check all slots except fountain (0,0) - allows destroying starter buildings
+	for slot_key in GRID_KEYS:
+		if slot_key == "0,0":
+			continue  # Fountain is indestructible
 		var slot_pos: Vector2 = grid[slot_key]
 		if world_pos.distance_to(slot_pos) < slot_radius:
 			return {"slot_key": slot_key, "town_idx": player_town_idx}
