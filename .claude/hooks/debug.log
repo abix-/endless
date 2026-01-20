@@ -6657,3 +6657,16 @@ EOF
 08:07:57 - Running Unsanitize...
 08:07:57 - Unsanitize done
 08:07:57 - Wrapped: (cd C:/code/endless && git add -u && git commit -m "add terrain tile inspection on click" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+08:08:01 - Event: PostToolUse
+08:08:01 - Tool: Bash
+08:08:01 - Command: (cd C:/code/endless && git add -u && git commit -m "add terrain tile inspection on click" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+08:08:01 - Processing PostToolUse for: (cd C:/code/endless && git add -u && git commit -m "add terrain tile inspection on click" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+08:08:01 - Running Sanitize...
+08:08:01 - Sanitize done
+08:34:24 - Event: PreToolUse
+08:34:24 - Tool: Bash
+08:34:24 - Command: cd C:/code/endless && git add -u && git commit -m "fix rock sprites: use 2x2 sprite at (7,13), support variable sprite sizes" && git push
+08:34:24 - Processing PreToolUse for: cd C:/code/endless && git add -u && git commit -m "fix rock sprites: use 2x2 sprite at (7,13), support variable sprite sizes" && git push
+08:34:24 - Running Unsanitize...
+08:34:24 - Unsanitize done
+08:34:24 - Wrapped: (cd C:/code/endless && git add -u && git commit -m "fix rock sprites: use 2x2 sprite at (7,13), support variable sprite sizes" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

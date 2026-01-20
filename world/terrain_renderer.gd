@@ -10,14 +10,29 @@ const TILE_COUNT := GRID_WIDTH * GRID_HEIGHT
 # Biome types
 enum Biome { GRASS, FOREST, WATER, ROCK, DIRT }
 
-# Sprite positions in Kenney roguelike sheet (column, row)
+# Sprite definitions: {pos: Vector2i, size: Vector2i}
+# pos = top-left cell in sheet, size = cells (1x1 = 16px, 2x2 = 32px)
 # Sheet is 17px grid (16px sprite + 1px margin)
 const BIOME_SPRITES := {
-	Biome.GRASS: [Vector2i(0, 14), Vector2i(1, 14)],
-	Biome.FOREST: [Vector2i(4, 12), Vector2i(5, 12)],
-	Biome.WATER: [Vector2i(7, 14), Vector2i(8, 14)],
-	Biome.ROCK: [Vector2i(10, 13), Vector2i(11, 13)],
-	Biome.DIRT: [Vector2i(2, 14), Vector2i(3, 14)],
+	Biome.GRASS: [
+		{"pos": Vector2i(0, 14), "size": Vector2i(1, 1)},
+		{"pos": Vector2i(1, 14), "size": Vector2i(1, 1)},
+	],
+	Biome.FOREST: [
+		{"pos": Vector2i(4, 12), "size": Vector2i(1, 1)},
+		{"pos": Vector2i(5, 12), "size": Vector2i(1, 1)},
+	],
+	Biome.WATER: [
+		{"pos": Vector2i(7, 14), "size": Vector2i(1, 1)},
+		{"pos": Vector2i(8, 14), "size": Vector2i(1, 1)},
+	],
+	Biome.ROCK: [
+		{"pos": Vector2i(7, 13), "size": Vector2i(2, 2)},
+	],
+	Biome.DIRT: [
+		{"pos": Vector2i(2, 14), "size": Vector2i(1, 1)},
+		{"pos": Vector2i(3, 14), "size": Vector2i(1, 1)},
+	],
 }
 
 # Sheet dimensions
@@ -90,12 +105,12 @@ func _generate_terrain() -> void:
 			var world_pos := Vector2(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2)
 
 			var biome := _get_biome(world_pos)
-			var sprite_pos := _get_sprite_pos(biome)
-			var uv := _get_sprite_uv(sprite_pos)
+			var sprite_def := _get_sprite_def(biome)
+			var uv := _get_sprite_uv(sprite_def)
 
 			# Store tile data for inspection
 			tile_biomes[idx] = biome
-			tile_sprites[idx] = sprite_pos
+			tile_sprites[idx] = sprite_def.pos
 
 			# Set tile position
 			var xform := Transform2D(0, world_pos)
@@ -130,14 +145,22 @@ func _get_biome(pos: Vector2) -> Biome:
 		return Biome.ROCK
 
 
-func _get_sprite_pos(biome: Biome) -> Vector2i:
+func _get_sprite_def(biome: Biome) -> Dictionary:
 	var sprites: Array = BIOME_SPRITES[biome]
 	return sprites[randi() % sprites.size()]
 
 
-func _get_sprite_uv(sprite_pos: Vector2i) -> Rect2:
-	var uv_pos := Vector2(sprite_pos.x * CELL, sprite_pos.y * CELL) / SHEET_SIZE
-	var uv_size := Vector2(SPRITE_SIZE, SPRITE_SIZE) / SHEET_SIZE
+func _get_sprite_uv(sprite_def: Dictionary) -> Rect2:
+	var pos: Vector2i = sprite_def.pos
+	var size: Vector2i = sprite_def.size
+	# UV position: top-left of sprite in sheet
+	var uv_pos := Vector2(pos.x * CELL, pos.y * CELL) / SHEET_SIZE
+	# UV size: sprite dimensions (size * 16px + gaps between cells)
+	var pixel_size := Vector2(
+		size.x * SPRITE_SIZE + (size.x - 1),  # 2x2 = 32 + 1 = 33px wide
+		size.y * SPRITE_SIZE + (size.y - 1)
+	)
+	var uv_size := pixel_size / SHEET_SIZE
 	return Rect2(uv_pos, uv_size)
 
 
