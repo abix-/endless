@@ -32,6 +32,9 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Visible world border with corner markers
 - [x] Destructible buildings (right-click slot → Destroy)
 - [x] Build new structures (right-click empty slots - farms, beds, guard posts)
+- [x] Expandable building grid (6x6 start, unlock adjacent slots up to 31x31)
+- [x] Town circle indicator expands with building range
+- [x] 16 starting beds (4 beds in each of 4 corner slots)
 - [ ] Structure upgrades (increase output, capacity, defense)
 
 ### Economy
@@ -83,6 +86,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
 - [x] HP regen (2/hr awake, 6/hr sleeping, 10x at fountain/camp with upgrade scaling)
 - [x] Recovery system (fleeing NPCs heal until 75% before resuming)
+- [x] Bed tracking (NPCs reserve closest free bed, release when leaving)
 - [x] 15-minute decision cycles (event-driven override on state changes)
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [x] Permadeath (dead NPCs free slots for new spawns)
@@ -105,6 +109,7 @@ Activity-specific states (no translation layer):
 | PATROLLING | Guard | Moving between posts |
 | RAIDING | Raider | Going to/at farm |
 | RETURNING | Raider | Heading back to camp |
+| WANDERING | Farmer, Guard | Off-duty wandering around town |
 
 ### Player Controls
 - [x] WASD camera movement (configurable speed 100-2000)
@@ -117,9 +122,14 @@ Activity-specific states (no translation layer):
 - [x] Economy upgrades: farm yield, farmer HP, population caps
 - [x] Utility upgrades: healing rate, food efficiency
 - [x] Town management panel with population stats and spawn timer
+- [x] Faction policies panel (P) with tooltips
+- [x] Policy controls: eat food, flee thresholds, recovery HP, off-duty behavior
+- [x] Off-duty options: go to bed, stay at fountain, wander town
+- [x] Town management buttons in Stats panel (Upgrades, Roster, Policies)
 - [x] Resizable combat log at bottom of screen
 - [ ] Villager role assignment UI
 - [x] Build structures via grid slots (farms 50, beds 10, guard posts 25 food)
+- [x] Unlock adjacent building slots (1 food each)
 - [ ] Train guards from population
 - [ ] Equipment crafting
 - [ ] Army recruitment and movement
@@ -181,6 +191,8 @@ ui/
   settings_menu.gd      # Options menu with log filters
   upgrade_menu.gd       # Town management, upgrades, population caps
   build_menu.gd         # Grid slot building (farms, beds)
+  policies_panel.gd     # Faction policies (flee thresholds, off-duty behavior)
+  roster_panel.gd       # NPC roster with sorting and filtering
 ```
 
 ## Controls
@@ -190,12 +202,12 @@ ui/
 | WASD / Arrows | Move camera |
 | Mouse Wheel | Zoom (centers on cursor) |
 | Left Click (NPC) | Select and inspect |
-| Left Click (fountain) | Open upgrade menu |
+| Right Click (slot) | Build menu / unlock slot |
 | + / = | Speed up time (2x) |
 | - | Slow down time (0.5x) |
 | SPACE | Pause/unpause |
 | R | Roster panel (view all guards/farmers) |
-| B | Build menu (on empty grid slots) |
+| P | Policies panel (faction settings) |
 | ESC | Settings menu |
 
 ## Configuration
