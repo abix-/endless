@@ -368,7 +368,9 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	patrol_timer[i] = 0
 
 	# Assign name and trait
-	npc_names[i] = NPCState.FIRST_NAMES[randi() % NPCState.FIRST_NAMES.size()]
+	var first: String = NPCState.FIRST_NAMES[randi() % NPCState.FIRST_NAMES.size()]
+	var last: String = NPCState.LAST_NAMES[randi() % NPCState.LAST_NAMES.size()]
+	npc_names[i] = "%s %s" % [first, last]
 	traits[i] = _roll_trait()
 
 	# Apply trait effects

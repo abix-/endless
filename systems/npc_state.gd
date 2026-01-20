@@ -38,7 +38,7 @@ const TRAIT_NAMES := {
 	Trait.LAZY: "Lazy",
 }
 
-# First names for NPCs (fantasy/medieval themed)
+# First names for NPCs (fantasy/medieval themed) - 48 names
 const FIRST_NAMES := [
 	"Ada", "Aldric", "Bran", "Cara", "Dax", "Elara", "Finn", "Gwen",
 	"Hal", "Iris", "Jace", "Kira", "Liam", "Mira", "Nox", "Orin",
@@ -46,6 +46,30 @@ const FIRST_NAMES := [
 	"Xara", "Yara", "Zane", "Ash", "Bex", "Cole", "Dara", "Eli",
 	"Fay", "Gren", "Hope", "Ivo", "Jade", "Knox", "Luna", "Max",
 	"Neve", "Oak", "Pip", "Rue", "Sol", "Tara", "Uri", "Vera",
+]
+
+# Last names for NPCs - 100 names (48 × 100 = 4,800 unique combinations)
+const LAST_NAMES := [
+	# Place-based (20)
+	"Brook", "Dale", "Field", "Ford", "Glen", "Grove", "Hall", "Heath",
+	"Hill", "Marsh", "Mead", "Moor", "Ridge", "Shaw", "Stone", "Thorn",
+	"Vale", "Wick", "Wood", "Wold",
+	# Occupation-based (20)
+	"Archer", "Baker", "Carver", "Cooper", "Farmer", "Fisher", "Fletcher", "Forger",
+	"Harper", "Hunter", "Mason", "Miller", "Porter", "Reeve", "Shepherd", "Smith",
+	"Tanner", "Thatcher", "Turner", "Weaver",
+	# Nature-based (20)
+	"Ash", "Birch", "Briar", "Elm", "Fern", "Frost", "Hawk", "Ivy",
+	"Moss", "Oak", "Pine", "Raven", "Reed", "Rose", "Sage", "Storm",
+	"Swift", "Thorn", "Wolf", "Wren",
+	# Descriptive (20)
+	"Black", "Bright", "Brown", "Dark", "Fair", "Gold", "Gray", "Green",
+	"High", "Iron", "Long", "Old", "Red", "Sharp", "Silver", "Strong",
+	"True", "White", "Wild", "Young",
+	# Compound (20)
+	"Ashford", "Blackwood", "Coldwell", "Eastbrook", "Fairfield", "Goldsmith", "Greenwood", "Highmore",
+	"Ironside", "Longshore", "Northgate", "Oakhart", "Redmane", "Silverbrook", "Stoneheart", "Swiftwind",
+	"Thornwood", "Westfall", "Whitmore", "Winterborn",
 ]
 
 # Valid states per job type
