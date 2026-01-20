@@ -31,8 +31,7 @@ const BIOME_SPRITES := {
 		{"pos": Vector2i(7, 13), "size": 2, "tile": 1},
 	],
 	Biome.DIRT: [
-		{"pos": Vector2i(2, 14), "size": 1, "tile": 2},
-		{"pos": Vector2i(3, 14), "size": 1, "tile": 2},
+		{"pos": Vector2i(8, 10), "size": 1, "tile": 2},
 	],
 }
 
