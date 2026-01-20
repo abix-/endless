@@ -4,6 +4,7 @@ var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
 var projectile_manager_scene: PackedScene = preload("res://systems/projectile_manager.tscn")
 var player_scene: PackedScene = preload("res://entities/player.tscn")
 var location_scene: PackedScene = preload("res://world/location.tscn")
+var terrain_scene: PackedScene = preload("res://world/terrain_renderer.tscn")
 var left_panel_scene: PackedScene = preload("res://ui/left_panel.tscn")
 var settings_menu_scene: PackedScene = preload("res://ui/settings_menu.tscn")
 var upgrade_menu_scene: PackedScene = preload("res://ui/upgrade_menu.tscn")
@@ -21,6 +22,7 @@ var settings_menu: Node
 var upgrade_menu: Node
 var build_menu: Node
 var guard_post_menu: Node
+var terrain_renderer: Node
 
 # World data
 var towns: Array = []  # Array of {center, grid, slots, guard_posts, camp}
@@ -90,6 +92,7 @@ func _ready() -> void:
 	WorldClock.time_tick.connect(_on_time_tick)
 
 	_generate_world()
+	_setup_terrain()
 	_setup_managers()
 	_setup_player()
 	_setup_ui()
@@ -303,6 +306,22 @@ func _generate_world() -> void:
 		towns.append(town_data)
 
 	print("Generated %d towns" % towns.size())
+
+
+func _setup_terrain() -> void:
+	terrain_renderer = terrain_scene.instantiate()
+	add_child(terrain_renderer)
+	move_child(terrain_renderer, 0)  # Render behind everything
+
+	# Collect town and camp positions for biome generation
+	var town_centers: Array[Vector2] = []
+	var camp_centers: Array[Vector2] = []
+	for town in towns:
+		town_centers.append(town.center)
+		if town.camp:
+			camp_centers.append(town.camp.global_position)
+
+	terrain_renderer.generate(town_centers, camp_centers)
 
 
 func _setup_managers() -> void:
