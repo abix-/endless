@@ -51,7 +51,7 @@ const WORLD_MARGIN := 400  # Keep towns away from edges
 # Town settings
 const FARMERS_PER_TOWN := 10
 const GUARDS_PER_TOWN := 30
-const TOWN_GRID_SPACING := 100  # Pixels between building slot centers (96px building + gap)
+const TOWN_GRID_SPACING := 34  # 32px buildings + 1px border on each side
 const MAX_FARMERS_PER_TOWN := 10  # Population cap (can be upgraded)
 const MAX_GUARDS_PER_TOWN := 30   # Population cap (can be upgraded)
 const FARMS_PER_TOWN := 2
