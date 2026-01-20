@@ -61,6 +61,13 @@ func _input(event: InputEvent) -> void:
 		_resizing = false
 		_save_settings()
 
+	# Block scroll wheel when hovering over panel
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			var rect := Rect2(panel.global_position, panel.size)
+			if rect.has_point(event.position):
+				get_viewport().set_input_as_handled()
+
 
 func _on_resize_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:

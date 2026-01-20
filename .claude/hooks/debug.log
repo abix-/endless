@@ -4497,3 +4497,16 @@ EOF
 19:51:04 - Running Unsanitize...
 19:51:05 - Unsanitize done
 19:51:05 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "block scroll in roster panel, add auto-upgrade checkboxes" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:51:08 - Event: PostToolUse
+19:51:08 - Tool: Bash
+19:51:08 - Command: (cd /c/code/endless && git add -A && git commit -m "block scroll in roster panel, add auto-upgrade checkboxes" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:51:08 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "block scroll in roster panel, add auto-upgrade checkboxes" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:51:08 - Running Sanitize...
+19:51:08 - Sanitize done
+19:53:15 - Event: PreToolUse
+19:53:15 - Tool: Bash
+19:53:15 - Command: cd /c/code/endless && git add -A && git commit -m "block scroll in combat log panel" && git push
+19:53:15 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "block scroll in combat log panel" && git push
+19:53:15 - Running Unsanitize...
+19:53:15 - Unsanitize done
+19:53:15 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "block scroll in combat log panel" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
