@@ -607,6 +607,19 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		add_child(bed)
 		town.slots[slot_key].append({"type": "bed", "node": bed})
 
+	elif building_type == "guard_post":
+		var post = location_scene.instantiate()
+		post.location_name = "%s Post" % town.name
+		post.location_type = "guard_post"
+		post.global_position = slot_pos
+		add_child(post)
+		town.slots[slot_key].append({"type": "guard_post", "node": post})
+		# Add to guard posts for this town
+		town.guard_posts.append(post)
+		# Update npc_manager's guard post list for this town
+		if player_town_idx < npc_manager.guard_posts_by_town.size():
+			npc_manager.guard_posts_by_town[player_town_idx].append(slot_pos)
+
 	queue_redraw()  # Update slot indicators
 
 

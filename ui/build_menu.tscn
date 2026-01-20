@@ -27,6 +27,10 @@ text = "Farm (50 food)"
 layout_mode = 2
 text = "Bed (10 food)"
 
+[node name="GuardPostBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Guard Post (25 food)"
+
 [node name="CloseBtn" type="Button" parent="Panel/VBox"]
 layout_mode = 2
 text = "Cancel"

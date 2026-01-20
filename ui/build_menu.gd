@@ -8,10 +8,12 @@ signal build_requested(slot_key: String, building_type: String)
 @onready var title_label: Label = $Panel/VBox/Title
 @onready var farm_btn: Button = $Panel/VBox/FarmBtn
 @onready var bed_btn: Button = $Panel/VBox/BedBtn
+@onready var guard_post_btn: Button = $Panel/VBox/GuardPostBtn
 @onready var close_btn: Button = $Panel/VBox/CloseBtn
 
 const FARM_COST := 50
 const BED_COST := 10
+const GUARD_POST_COST := 25
 const MAX_BEDS_PER_SLOT := 4
 
 var main_node: Node
@@ -25,6 +27,7 @@ func _ready() -> void:
 
 	farm_btn.pressed.connect(_on_farm_pressed)
 	bed_btn.pressed.connect(_on_bed_pressed)
+	guard_post_btn.pressed.connect(_on_guard_post_pressed)
 	close_btn.pressed.connect(close)
 
 	panel.visible = false
@@ -78,22 +81,31 @@ func _refresh_buttons() -> void:
 	var town: Dictionary = main_node.towns[current_town_idx]
 	var slot_contents: Array = town.slots[current_slot_key]
 
-	# Count beds and farms in slot
+	# Count buildings in slot
 	var bed_count := 0
 	var has_farm := false
+	var has_guard_post := false
 	for building in slot_contents:
 		if building.type == "bed":
 			bed_count += 1
 		elif building.type == "farm":
 			has_farm = true
+		elif building.type == "guard_post":
+			has_guard_post = true
 
-	# Farm button - only if slot is empty (no beds or farms)
+	var slot_has_building := has_farm or has_guard_post or bed_count > 0
+
+	# Farm button - only if slot is empty
 	farm_btn.text = "Farm (%d food)" % FARM_COST
-	farm_btn.disabled = has_farm or bed_count > 0 or food < FARM_COST
+	farm_btn.disabled = slot_has_building or food < FARM_COST
 
-	# Bed button - only if no farm and under 4 beds
+	# Bed button - only if no other building type and under 4 beds
 	bed_btn.text = "Bed (%d food) [%d/4]" % [BED_COST, bed_count]
-	bed_btn.disabled = has_farm or bed_count >= MAX_BEDS_PER_SLOT or food < BED_COST
+	bed_btn.disabled = has_farm or has_guard_post or bed_count >= MAX_BEDS_PER_SLOT or food < BED_COST
+
+	# Guard post button - only if slot is empty
+	guard_post_btn.text = "Guard Post (%d food)" % GUARD_POST_COST
+	guard_post_btn.disabled = slot_has_building or food < GUARD_POST_COST
 
 
 func _on_farm_pressed() -> void:
@@ -104,6 +116,11 @@ func _on_farm_pressed() -> void:
 func _on_bed_pressed() -> void:
 	if _try_build("bed", BED_COST):
 		_refresh_buttons()  # Stay open to build more beds
+
+
+func _on_guard_post_pressed() -> void:
+	if _try_build("guard_post", GUARD_POST_COST):
+		close()
 
 
 func _try_build(building_type: String, cost: int) -> bool:

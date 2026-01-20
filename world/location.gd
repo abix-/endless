@@ -19,7 +19,7 @@ const SPRITES := {
 	"tent": {"pos": Vector2i(48, 10), "size": Vector2i(2, 2), "scale": 3.0},
 	"fountain": {"pos": Vector2i(50, 9), "size": Vector2i(1, 1), "scale": 2.0},
 	"bed": {"pos": Vector2i(15, 2), "size": Vector2i(1, 1)},
-	"guard_post": {"pos": Vector2i(20, 20), "size": Vector2i(1, 1), "scale": 3.0},
+	"guard_post": {"pos": Vector2i(20, 20), "size": Vector2i(1, 1), "scale": 2.0},
 }
 
 const HOME_PIECES := [
