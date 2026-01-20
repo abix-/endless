@@ -108,7 +108,8 @@ text = "Food: 0 vs 0"
 
 [node name="BedLabel" type="Label" parent="Panel/MarginContainer/VBox/StatsContent"]
 layout_mode = 2
-text = "Beds: 0/0"
+text = "Beds: 0 used, 0 free"
+tooltip_text = "NPCs sleep in beds to recover energy"
 
 [node name="TownButtons" type="HBoxContainer" parent="Panel/MarginContainer/VBox/StatsContent"]
 layout_mode = 2
