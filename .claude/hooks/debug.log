@@ -6670,3 +6670,16 @@ EOF
 08:34:24 - Running Unsanitize...
 08:34:24 - Unsanitize done
 08:34:24 - Wrapped: (cd C:/code/endless && git add -u && git commit -m "fix rock sprites: use 2x2 sprite at (7,13), support variable sprite sizes" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+08:34:27 - Event: PostToolUse
+08:34:27 - Tool: Bash
+08:34:27 - Command: (cd C:/code/endless && git add -u && git commit -m "fix rock sprites: use 2x2 sprite at (7,13), support variable sprite sizes" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+08:34:27 - Processing PostToolUse for: (cd C:/code/endless && git add -u && git commit -m "fix rock sprites: use 2x2 sprite at (7,13), support variable sprite sizes" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+08:34:27 - Running Sanitize...
+08:34:27 - Sanitize done
+08:38:15 - Event: PreToolUse
+08:38:15 - Tool: Bash
+08:38:15 - Command: cd C:/code/endless && git add -u && git commit -m "add sprite tiling: water uses (3,1) tiled 2x2, all 1x1 sprites now tile instead of stretch" && git push
+08:38:15 - Processing PreToolUse for: cd C:/code/endless && git add -u && git commit -m "add sprite tiling: water uses (3,1) tiled 2x2, all 1x1 sprites now tile instead of stretch" && git push
+08:38:15 - Running Unsanitize...
+08:38:15 - Unsanitize done
+08:38:15 - Wrapped: (cd C:/code/endless && git add -u && git commit -m "add sprite tiling: water uses (3,1) tiled 2x2, all 1x1 sprites now tile instead of stretch" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

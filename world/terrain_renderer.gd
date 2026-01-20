@@ -10,28 +10,29 @@ const TILE_COUNT := GRID_WIDTH * GRID_HEIGHT
 # Biome types
 enum Biome { GRASS, FOREST, WATER, ROCK, DIRT }
 
-# Sprite definitions: {pos: Vector2i, size: Vector2i}
-# pos = top-left cell in sheet, size = cells (1x1 = 16px, 2x2 = 32px)
+# Sprite definitions: {pos: Vector2i, size: int (cells), tile: int (repeat count)}
+# pos = top-left cell in sheet
+# size = 1 for 16px, 2 for 32px native sprite
+# tile = 1 to stretch, 2 to tile 2x2 (4 copies of 1x1 sprite)
 # Sheet is 17px grid (16px sprite + 1px margin)
 const BIOME_SPRITES := {
 	Biome.GRASS: [
-		{"pos": Vector2i(0, 14), "size": Vector2i(1, 1)},
-		{"pos": Vector2i(1, 14), "size": Vector2i(1, 1)},
+		{"pos": Vector2i(0, 14), "size": 1, "tile": 2},
+		{"pos": Vector2i(1, 14), "size": 1, "tile": 2},
 	],
 	Biome.FOREST: [
-		{"pos": Vector2i(4, 12), "size": Vector2i(1, 1)},
-		{"pos": Vector2i(5, 12), "size": Vector2i(1, 1)},
+		{"pos": Vector2i(4, 12), "size": 1, "tile": 2},
+		{"pos": Vector2i(5, 12), "size": 1, "tile": 2},
 	],
 	Biome.WATER: [
-		{"pos": Vector2i(7, 14), "size": Vector2i(1, 1)},
-		{"pos": Vector2i(8, 14), "size": Vector2i(1, 1)},
+		{"pos": Vector2i(3, 1), "size": 1, "tile": 2},
 	],
 	Biome.ROCK: [
-		{"pos": Vector2i(7, 13), "size": Vector2i(2, 2)},
+		{"pos": Vector2i(7, 13), "size": 2, "tile": 1},
 	],
 	Biome.DIRT: [
-		{"pos": Vector2i(2, 14), "size": Vector2i(1, 1)},
-		{"pos": Vector2i(3, 14), "size": Vector2i(1, 1)},
+		{"pos": Vector2i(2, 14), "size": 1, "tile": 2},
+		{"pos": Vector2i(3, 14), "size": 1, "tile": 2},
 	],
 }
 
@@ -116,8 +117,8 @@ func _generate_terrain() -> void:
 			var xform := Transform2D(0, world_pos)
 			multimesh.set_instance_transform_2d(idx, xform)
 
-			# Pack UV into custom_data (r=u, g=v, b=width, a=height)
-			var custom := Color(uv.position.x, uv.position.y, uv.size.x, uv.size.y)
+			# Pack UV into custom_data (r=u, g=v, b=width, a=tile_count)
+			var custom := Color(uv.uv_pos.x, uv.uv_pos.y, uv.uv_width, float(uv.tile))
 			multimesh.set_instance_custom_data(idx, custom)
 
 
@@ -150,18 +151,15 @@ func _get_sprite_def(biome: Biome) -> Dictionary:
 	return sprites[randi() % sprites.size()]
 
 
-func _get_sprite_uv(sprite_def: Dictionary) -> Rect2:
+func _get_sprite_uv(sprite_def: Dictionary) -> Dictionary:
 	var pos: Vector2i = sprite_def.pos
-	var size: Vector2i = sprite_def.size
+	var size: int = sprite_def.size
+	var tile: int = sprite_def.tile
 	# UV position: top-left of sprite in sheet
 	var uv_pos := Vector2(pos.x * CELL, pos.y * CELL) / SHEET_SIZE
-	# UV size: sprite dimensions (size * 16px + gaps between cells)
-	var pixel_size := Vector2(
-		size.x * SPRITE_SIZE + (size.x - 1),  # 2x2 = 32 + 1 = 33px wide
-		size.y * SPRITE_SIZE + (size.y - 1)
-	)
-	var uv_size := pixel_size / SHEET_SIZE
-	return Rect2(uv_pos, uv_size)
+	# UV size: single cell size (shader handles tiling)
+	var uv_width: float = (SPRITE_SIZE + (size - 1)) / SHEET_SIZE.x  # 1x1=16px, 2x2=17px per cell
+	return {"uv_pos": uv_pos, "uv_width": uv_width, "tile": tile}
 
 
 # Biome names for display
