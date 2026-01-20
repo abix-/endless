@@ -344,7 +344,7 @@ func _on_time_tick(_hour: int, minute: int) -> void:
 			var yield_mult: float = 1.0 + yield_level * Config.UPGRADE_FARM_YIELD_BONUS
 
 			# Apply trait modifiers
-wwe 			var trait: int = npc_manager.traits[i]
+			var trait: int = npc_manager.traits[i]
 			if trait == NPCState.Trait.EFFICIENT:
 				yield_mult *= 1.25  # +25% yield
 			elif trait == NPCState.Trait.LAZY:

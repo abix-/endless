@@ -4341,3 +4341,16 @@ EOF
 19:30:57 - Running Unsanitize...
 19:30:57 - Unsanitize done
 19:30:57 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "add combat traits: strong, swift, sharpshot, berserker" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:31:00 - Event: PostToolUse
+19:31:00 - Tool: Bash
+19:31:00 - Command: (cd /c/code/endless && git add -A && git commit -m "add combat traits: strong, swift, sharpshot, berserker" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:31:00 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "add combat traits: strong, swift, sharpshot, berserker" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:31:00 - Running Sanitize...
+19:31:00 - Sanitize done
+19:31:51 - Event: PreToolUse
+19:31:51 - Tool: Bash
+19:31:51 - Command: cd /c/code/endless && git add -A && git commit -m "fix typo in main.gd" && git push
+19:31:51 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "fix typo in main.gd" && git push
+19:31:51 - Running Unsanitize...
+19:31:51 - Unsanitize done
+19:31:51 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "fix typo in main.gd" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
