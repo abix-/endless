@@ -151,7 +151,7 @@ func _add_sprite_at(coords: Vector2i, offset: Vector2, z: int, extra_scale: floa
 
 
 func _setup_label() -> void:
-	if "Farm" in location_name or "Home" in location_name or "Post" in location_name:
+	if "Farm" in location_name or "Bed" in location_name or "Post" in location_name:
 		label.visible = false
 	else:
 		label.text = location_name

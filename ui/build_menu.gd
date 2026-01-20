@@ -3,17 +3,19 @@
 extends CanvasLayer
 
 signal build_requested(slot_key: String, building_type: String)
+signal destroy_requested(slot_key: String)
 
 @onready var panel: PanelContainer = $Panel
 @onready var title_label: Label = $Panel/VBox/Title
 @onready var farm_btn: Button = $Panel/VBox/FarmBtn
 @onready var bed_btn: Button = $Panel/VBox/BedBtn
 @onready var guard_post_btn: Button = $Panel/VBox/GuardPostBtn
+@onready var destroy_btn: Button = $Panel/VBox/DestroyBtn
 @onready var close_btn: Button = $Panel/VBox/CloseBtn
 
-const FARM_COST := 50
-const BED_COST := 10
-const GUARD_POST_COST := 25
+const FARM_COST := 1  # TODO: restore to 50
+const BED_COST := 1  # TODO: restore to 10
+const GUARD_POST_COST := 1  # TODO: restore to 25
 const MAX_BEDS_PER_SLOT := 4
 
 var main_node: Node
@@ -28,6 +30,7 @@ func _ready() -> void:
 	farm_btn.pressed.connect(_on_farm_pressed)
 	bed_btn.pressed.connect(_on_bed_pressed)
 	guard_post_btn.pressed.connect(_on_guard_post_pressed)
+	destroy_btn.pressed.connect(_on_destroy_pressed)
 	close_btn.pressed.connect(close)
 
 	panel.visible = false
@@ -107,6 +110,9 @@ func _refresh_buttons() -> void:
 	guard_post_btn.text = "Guard Post (%d food)" % GUARD_POST_COST
 	guard_post_btn.disabled = slot_has_building or food < GUARD_POST_COST
 
+	# Destroy button - only if slot has buildings
+	destroy_btn.visible = slot_has_building
+
 
 func _on_farm_pressed() -> void:
 	if _try_build("farm", FARM_COST):
@@ -121,6 +127,11 @@ func _on_bed_pressed() -> void:
 func _on_guard_post_pressed() -> void:
 	if _try_build("guard_post", GUARD_POST_COST):
 		close()
+
+
+func _on_destroy_pressed() -> void:
+	destroy_requested.emit(current_slot_key)
+	close()
 
 
 func _try_build(building_type: String, cost: int) -> bool:

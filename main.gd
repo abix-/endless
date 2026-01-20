@@ -308,6 +308,7 @@ func _setup_ui() -> void:
 
 	build_menu = build_menu_scene.instantiate()
 	build_menu.build_requested.connect(_on_build_requested)
+	build_menu.destroy_requested.connect(_on_destroy_requested)
 	add_child(build_menu)
 
 
@@ -621,6 +622,41 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 			npc_manager.guard_posts_by_town[player_town_idx].append(slot_pos)
 
 	queue_redraw()  # Update slot indicators
+
+
+func _on_destroy_requested(slot_key: String) -> void:
+	if player_town_idx < 0 or player_town_idx >= towns.size():
+		return
+
+	var town: Dictionary = towns[player_town_idx]
+	var slot_contents: Array = town.slots[slot_key]
+
+	# Remove all buildings in this slot
+	for building in slot_contents:
+		var node = building.node
+		var btype = building.type
+
+		# Remove from tracking arrays
+		if btype == "farm":
+			var pos: Vector2 = node.global_position
+			var idx := npc_manager.farm_positions.find(pos)
+			if idx >= 0:
+				npc_manager.farm_positions.remove_at(idx)
+		elif btype == "guard_post":
+			var pos: Vector2 = node.global_position
+			if player_town_idx < npc_manager.guard_posts_by_town.size():
+				var posts: Array = npc_manager.guard_posts_by_town[player_town_idx]
+				var idx := posts.find(pos)
+				if idx >= 0:
+					posts.remove_at(idx)
+			var gp_idx := town.guard_posts.find(node)
+			if gp_idx >= 0:
+				town.guard_posts.remove_at(gp_idx)
+
+		node.queue_free()
+
+	slot_contents.clear()
+	queue_redraw()
 
 
 func _find_camp_position(town_center: Vector2, all_town_centers: Array[Vector2]) -> Vector2:
