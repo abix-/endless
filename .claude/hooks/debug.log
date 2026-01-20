@@ -4432,3 +4432,16 @@ EOF
 19:36:30 - Running Unsanitize...
 19:36:31 - Unsanitize done
 19:36:31 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "rename trait to npc_trait (reserved keyword)" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:36:33 - Event: PostToolUse
+19:36:33 - Tool: Bash
+19:36:33 - Command: (cd /c/code/endless && git add -A && git commit -m "rename trait to npc_trait (reserved keyword)" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:36:33 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "rename trait to npc_trait (reserved keyword)" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:36:33 - Running Sanitize...
+19:36:34 - Sanitize done
+19:37:11 - Event: PreToolUse
+19:37:11 - Tool: Bash
+19:37:11 - Command: cd /c/code/endless && git add -A && git commit -m "fix unused parameter warning" && git push
+19:37:11 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "fix unused parameter warning" && git push
+19:37:11 - Running Unsanitize...
+19:37:11 - Unsanitize done
+19:37:11 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "fix unused parameter warning" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

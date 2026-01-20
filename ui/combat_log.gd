@@ -89,7 +89,7 @@ func _get_timestamp() -> String:
 	return ""
 
 
-func _on_npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int) -> void:
+func _on_npc_leveled_up(npc_index: int, _job: int, old_level: int, new_level: int) -> void:
 	if UserSettings.level_log_mode == UserSettings.LogMode.OFF:
 		return
 	var npc_name: String = npc_manager.npc_names[npc_index] if npc_index >= 0 else "NPC"
