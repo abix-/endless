@@ -29,26 +29,46 @@ var town_upgrades: Array = []  # Per-town upgrade levels
 var town_max_farmers: PackedInt32Array  # Population cap per town
 var town_max_guards: PackedInt32Array   # Population cap per town
 
-# Grid slot keys (clockwise from NW)
-# 6x6 grid: coordinates from -2 to +3
-const GRID_KEYS := [
-	"-2,-2", "-2,-1", "-2,0", "-2,1", "-2,2", "-2,3",
-	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2", "-1,3",
-	"0,-2",  "0,-1",  "0,0",  "0,1",  "0,2",  "0,3",
-	"1,-2",  "1,-1",  "1,0",  "1,1",  "1,2",  "1,3",
-	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",  "2,3",
-	"3,-2",  "3,-1",  "3,0",  "3,1",  "3,2",  "3,3",
-]
-# Fixed slots: center area (0,0), (0,1), farms at (0,-1), (1,-1), corners for guard posts
-const FIXED_SLOTS := ["0,0", "0,1", "0,-1", "1,-1", "-2,-2", "-2,3", "3,-2", "3,3"]
-const BUILDABLE_SLOTS := [
-			"-2,-1", "-2,0", "-2,1", "-2,2",
-	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2", "-1,3",
-	"0,-2",                  "0,2",  "0,3",
-	"1,-2",          "1,0",  "1,1",  "1,2",  "1,3",
-	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",  "2,3",
-			"3,-1",  "3,0",  "3,1",  "3,2",
-]
+# Grid slot keys - max 10x10 grid (-4 to +5)
+# Town starts at 6x6 (-2 to +3), expands with grid_size upgrade
+const BASE_GRID_MIN := -2
+const BASE_GRID_MAX := 3
+const MAX_GRID_MIN := -4
+const MAX_GRID_MAX := 5
+
+# Fixed slots: center area (0,0), (0,1), farms at (0,-1), (1,-1)
+const FIXED_SLOTS := ["0,0", "0,1", "0,-1", "1,-1"]
+
+
+# Get grid bounds for a given upgrade level
+func _get_grid_bounds(level: int) -> Dictionary:
+	var expansion: int = level * Config.UPGRADE_GRID_RINGS
+	return {
+		"min": BASE_GRID_MIN - expansion,
+		"max": BASE_GRID_MAX + expansion
+	}
+
+
+# Get all grid keys for current town grid level
+func _get_grid_keys_for_level(level: int) -> Array:
+	var bounds := _get_grid_bounds(level)
+	var keys: Array = []
+	for row in range(bounds.min, bounds.max + 1):
+		for col in range(bounds.min, bounds.max + 1):
+			keys.append("%d,%d" % [row, col])
+	return keys
+
+
+# Get corner keys for guard posts at current grid level
+func _get_corner_keys(level: int) -> Array:
+	var bounds := _get_grid_bounds(level)
+	return [
+		"%d,%d" % [bounds.min, bounds.min],
+		"%d,%d" % [bounds.min, bounds.max],
+		"%d,%d" % [bounds.max, bounds.min],
+		"%d,%d" % [bounds.max, bounds.max]
+	]
+
 
 const NUM_TOWNS := 7
 const MIN_TOWN_DISTANCE := 1200  # Minimum distance between town centers
@@ -129,7 +149,9 @@ func _generate_world() -> void:
 			"alert_radius": 0,
 			"food_efficiency": 0,
 			"farmer_cap": 0,
-			"guard_cap": 0
+			"guard_cap": 0,
+			"fountain_radius": 0,
+			"grid_size": 0
 		})
 
 	# Generate scattered town positions
@@ -164,9 +186,10 @@ func _generate_world() -> void:
 		var town_name: String = available_names[i % available_names.size()]
 		var grid := _calculate_grid_positions(town_center)
 
-		# Initialize all slots as empty arrays
+		# Initialize slots for base grid size (6x6)
 		var slots := {}
-		for key in GRID_KEYS:
+		var base_keys := _get_grid_keys_for_level(0)
+		for key in base_keys:
 			slots[key] = []
 
 		var town_data := {
@@ -175,7 +198,8 @@ func _generate_world() -> void:
 			"grid": grid,
 			"slots": slots,
 			"guard_posts": [],
-			"camp": null
+			"camp": null,
+			"grid_level": 0
 		}
 
 		# Create fountain at center (0,0)
@@ -215,8 +239,8 @@ func _generate_world() -> void:
 			add_child(bed)
 			town_data.slots["-1,-1"].append({"type": "bed", "node": bed})
 
-		# Create guard posts at corners
-		var corner_keys := ["-2,-2", "-2,3", "3,-2", "3,3"]
+		# Create guard posts at corners of initial grid
+		var corner_keys := _get_corner_keys(0)
 		for corner_key in corner_keys:
 			var post = location_scene.instantiate()
 			post.location_name = "%s Post" % town_name
@@ -489,6 +513,9 @@ func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
 	if upgrade_type == "guard_cap":
 		town_max_guards[player_town_idx] = Config.MAX_GUARDS_PER_TOWN + new_level * Config.UPGRADE_GUARD_CAP_BONUS
 		return
+	if upgrade_type == "grid_size":
+		_expand_town_grid(player_town_idx, new_level)
+		return
 
 	# Apply upgrade to all guards in this town
 	npc_manager.apply_town_upgrade(player_town_idx, upgrade_type, new_level)
@@ -501,7 +528,12 @@ func _draw_buildable_slots() -> void:
 	var town: Dictionary = towns[player_town_idx]
 	var grid: Dictionary = town.grid
 
-	for slot_key in BUILDABLE_SLOTS:
+	for slot_key in town.slots.keys():
+		if slot_key in FIXED_SLOTS:
+			continue
+		if not slot_key in town.slots:
+			continue
+
 		var slot_pos: Vector2 = grid[slot_key]
 		var slot_contents: Array = town.slots[slot_key]
 
@@ -528,8 +560,9 @@ func _draw_buildable_slots() -> void:
 func _calculate_grid_positions(center: Vector2) -> Dictionary:
 	var s: float = Config.TOWN_GRID_SPACING
 	var grid := {}
-	for row in range(-2, 4):
-		for col in range(-2, 4):
+	# Calculate all possible positions up to max grid size
+	for row in range(MAX_GRID_MIN, MAX_GRID_MAX + 1):
+		for col in range(MAX_GRID_MIN, MAX_GRID_MAX + 1):
 			var key := "%d,%d" % [row, col]
 			# Offset so center is between (0,0) and (1,1)
 			grid[key] = center + Vector2((col - 0.5) * s, (row - 0.5) * s)
@@ -563,8 +596,8 @@ func _get_clicked_buildable_slot(world_pos: Vector2) -> Dictionary:
 	var grid: Dictionary = town.grid
 	var slot_radius: float = Config.TOWN_GRID_SPACING * 0.45  # Half slot size
 
-	# Check all slots except fountain (0,0) - allows destroying starter buildings
-	for slot_key in GRID_KEYS:
+	# Check all slots in this town except fountain (0,0)
+	for slot_key in town.slots.keys():
 		if slot_key == "0,0":
 			continue  # Fountain is indestructible
 		var slot_pos: Vector2 = grid[slot_key]
@@ -662,6 +695,26 @@ func _on_destroy_requested(slot_key: String) -> void:
 		node.queue_free()
 
 	slot_contents.clear()
+	queue_redraw()
+
+
+func _expand_town_grid(town_idx: int, new_level: int) -> void:
+	if town_idx < 0 or town_idx >= towns.size():
+		return
+
+	var town: Dictionary = towns[town_idx]
+	var grid: Dictionary = town.grid
+	var old_level: int = town.grid_level
+
+	# Get the new grid keys for this level
+	var new_keys := _get_grid_keys_for_level(new_level)
+
+	# Add new slots that don't exist yet
+	for key in new_keys:
+		if not key in town.slots:
+			town.slots[key] = []
+
+	town.grid_level = new_level
 	queue_redraw()
 
 

@@ -374,3 +374,49 @@ horizontal_alignment = 1
 custom_minimum_size = Vector2(70, 0)
 layout_mode = 2
 text = "10"
+
+[node name="FountainRadiusRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/FountainRadiusRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "Heal Range"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/FountainRadiusRow"]
+custom_minimum_size = Vector2(35, 0)
+layout_mode = 2
+text = "0"
+horizontal_alignment = 1
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/FountainRadiusRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "10"
+
+[node name="Sep4" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="TownLabel" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Town"
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+
+[node name="GridSizeRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/GridSizeRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "Grid Size"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/GridSizeRow"]
+custom_minimum_size = Vector2(35, 0)
+layout_mode = 2
+text = "0"
+horizontal_alignment = 1
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/GridSizeRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "10"

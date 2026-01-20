@@ -360,11 +360,15 @@ func _is_on_fountain(i: int) -> bool:
 	# Raiders don't get fountain healing
 	if manager.jobs[i] == NPCState.Job.RAIDER:
 		return false
-	# Fountain radius: 16px * 2.0 extra_scale * 3.0 scale / 2 = 48px
-	const FOUNTAIN_RADIUS := 48.0
 	var my_pos: Vector2 = manager.positions[i]
-	for center in manager.town_centers:
-		if my_pos.distance_to(center) < FOUNTAIN_RADIUS:
+	var town_idx: int = manager.town_indices[i]
+	# Get fountain radius with upgrade bonus
+	var radius: float = Config.BASE_FOUNTAIN_RADIUS
+	if town_idx >= 0 and town_idx < manager.town_upgrades.size():
+		var level: int = manager.town_upgrades[town_idx].fountain_radius
+		radius += level * Config.UPGRADE_FOUNTAIN_RADIUS_BONUS
+	for ti in manager.town_centers.size():
+		if my_pos.distance_to(manager.town_centers[ti]) < radius:
 			return true
 	return false
 

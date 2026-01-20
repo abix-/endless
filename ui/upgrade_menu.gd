@@ -32,6 +32,8 @@ const TOOLTIPS := {
 	"food_efficiency": "10% chance per level to not consume food when eating",
 	"farmer_cap": "+2 max farmers per level",
 	"guard_cap": "+10 max guards per level",
+	"fountain_radius": "+24px fountain healing range per level",
+	"grid_size": "+1 ring of buildable slots per level\nExpands town grid",
 }
 
 var main: Node
@@ -61,6 +63,8 @@ func _ready() -> void:
 	_setup_row(vbox.get_node("GuardCapRow"), "guard_cap")
 	_setup_row(vbox.get_node("HealingRow"), "healing_rate")
 	_setup_row(vbox.get_node("EfficiencyRow"), "food_efficiency")
+	_setup_row(vbox.get_node("FountainRadiusRow"), "fountain_radius")
+	_setup_row(vbox.get_node("GridSizeRow"), "grid_size")
 
 
 func _setup_row(row: HBoxContainer, upgrade_key: String) -> void:
@@ -207,6 +211,12 @@ func _get_effective_stat(key: String, level: int) -> String:
 		"guard_cap":
 			var cap: int = Config.MAX_GUARDS_PER_TOWN + level * Config.UPGRADE_GUARD_CAP_BONUS
 			return "%d max guards" % cap
+		"fountain_radius":
+			var radius: float = Config.BASE_FOUNTAIN_RADIUS + level * Config.UPGRADE_FOUNTAIN_RADIUS_BONUS
+			return "%.0fpx range" % radius
+		"grid_size":
+			var grid_dim: int = 6 + level * 2  # 6x6, 8x8, 10x10...
+			return "%dx%d grid" % [grid_dim, grid_dim]
 
 	return ""
 
