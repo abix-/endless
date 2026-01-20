@@ -4354,3 +4354,16 @@ EOF
 19:31:51 - Running Unsanitize...
 19:31:51 - Unsanitize done
 19:31:51 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "fix typo in main.gd" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:31:54 - Event: PostToolUse
+19:31:54 - Tool: Bash
+19:31:54 - Command: (cd /c/code/endless && git add -A && git commit -m "fix typo in main.gd" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:31:54 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "fix typo in main.gd" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:31:54 - Running Sanitize...
+19:31:54 - Sanitize done
+19:32:59 - Event: PreToolUse
+19:32:59 - Tool: Bash
+19:32:59 - Command: cd /c/code/endless && git add -A && git commit -m "fix indentation" && git push
+19:32:59 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "fix indentation" && git push
+19:32:59 - Running Unsanitize...
+19:32:59 - Unsanitize done
+19:32:59 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "fix indentation" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
