@@ -256,8 +256,11 @@ func _update_inspector() -> void:
 	if not inspector_content.visible:
 		return
 
-	# Handle no selection
+	# Handle no NPC selection - show terrain tile if selected
 	if idx < 0 and not pinned:
+		if main_node and not main_node.selected_tile.is_empty():
+			_show_terrain_info(main_node.selected_tile)
+			return
 		job_level.text = "No selection"
 		town_label.visible = false
 		health_bar.get_parent().visible = false
@@ -389,6 +392,27 @@ func _update_inspector() -> void:
 	if npc_manager.recovering[idx] == 1:
 		extra.append("Recovering")
 	extra_label.text = " | ".join(extra)
+
+
+func _show_terrain_info(tile: Dictionary) -> void:
+	# Hide NPC-specific fields
+	town_label.visible = false
+	health_bar.get_parent().visible = false
+	energy_bar.get_parent().visible = false
+	xp_label.visible = false
+	target_label.visible = false
+	extra_label.visible = false
+
+	# Show terrain info using available labels
+	job_level.text = "Terrain Tile"
+	state_label.visible = true
+	state_label.text = tile.biome_name
+	stats_label.visible = true
+	stats_label.text = "Grid: (%d, %d)\nWorld: (%d, %d)\nSprite: (%d, %d)" % [
+		tile.grid_x, tile.grid_y,
+		tile.world_x, tile.world_y,
+		tile.sprite_col, tile.sprite_row
+	]
 
 
 func _toggle_section(section: String) -> void:

@@ -33,11 +33,16 @@ var noise: FastNoiseLite
 var town_positions: Array[Vector2] = []
 var camp_positions: Array[Vector2] = []
 
+# Store tile data for inspection
+var tile_biomes: PackedInt32Array
+var tile_sprites: Array[Vector2i] = []
+
 
 func _ready() -> void:
 	z_index = -100
 	_init_noise()
 	_init_multimesh()
+	_init_tile_data()
 
 
 func _init_noise() -> void:
@@ -67,6 +72,11 @@ func _init_multimesh() -> void:
 		mat.set_shader_parameter("spritesheet", spritesheet)
 
 
+func _init_tile_data() -> void:
+	tile_biomes.resize(TILE_COUNT)
+	tile_sprites.resize(TILE_COUNT)
+
+
 func generate(towns: Array[Vector2], camps: Array[Vector2]) -> void:
 	town_positions = towns
 	camp_positions = camps
@@ -82,6 +92,10 @@ func _generate_terrain() -> void:
 			var biome := _get_biome(world_pos)
 			var sprite_pos := _get_sprite_pos(biome)
 			var uv := _get_sprite_uv(sprite_pos)
+
+			# Store tile data for inspection
+			tile_biomes[idx] = biome
+			tile_sprites[idx] = sprite_pos
 
 			# Set tile position
 			var xform := Transform2D(0, world_pos)
@@ -125,3 +139,38 @@ func _get_sprite_uv(sprite_pos: Vector2i) -> Rect2:
 	var uv_pos := Vector2(sprite_pos.x * CELL, sprite_pos.y * CELL) / SHEET_SIZE
 	var uv_size := Vector2(SPRITE_SIZE, SPRITE_SIZE) / SHEET_SIZE
 	return Rect2(uv_pos, uv_size)
+
+
+# Biome names for display
+const BIOME_NAMES := {
+	Biome.GRASS: "Grass",
+	Biome.FOREST: "Forest",
+	Biome.WATER: "Water",
+	Biome.ROCK: "Rock",
+	Biome.DIRT: "Dirt",
+}
+
+
+# Get tile info at world position
+func get_tile_at(world_pos: Vector2) -> Dictionary:
+	var grid_x := int(world_pos.x / TILE_SIZE)
+	var grid_y := int(world_pos.y / TILE_SIZE)
+
+	# Bounds check
+	if grid_x < 0 or grid_x >= GRID_WIDTH or grid_y < 0 or grid_y >= GRID_HEIGHT:
+		return {}
+
+	var idx := grid_x + grid_y * GRID_WIDTH
+	var biome: int = tile_biomes[idx]
+	var sprite: Vector2i = tile_sprites[idx]
+
+	return {
+		"grid_x": grid_x,
+		"grid_y": grid_y,
+		"world_x": grid_x * TILE_SIZE,
+		"world_y": grid_y * TILE_SIZE,
+		"biome": biome,
+		"biome_name": BIOME_NAMES.get(biome, "Unknown"),
+		"sprite_col": sprite.x,
+		"sprite_row": sprite.y,
+	}

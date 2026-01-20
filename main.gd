@@ -24,6 +24,9 @@ var build_menu: Node
 var guard_post_menu: Node
 var terrain_renderer: Node
 
+# Currently selected terrain tile (for inspector)
+var selected_tile: Dictionary = {}
+
 # World data
 var towns: Array = []  # Array of {center, grid, slots, guard_posts, camp}
 var town_food: PackedInt32Array  # Food stored in each town
@@ -626,6 +629,10 @@ func _input(event: InputEvent) -> void:
 		if post_info.slot_key != "":
 			guard_post_menu.open(post_info.slot_key, post_info.town_idx, event.position)
 			get_viewport().set_input_as_handled()
+		else:
+			# If no NPC or guard post clicked, select terrain tile
+			if npc_manager.selected_npc < 0:
+				selected_tile = terrain_renderer.get_tile_at(world_pos)
 
 
 func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
