@@ -4484,3 +4484,16 @@ EOF
 19:48:20 - Running Unsanitize...
 19:48:20 - Unsanitize done
 19:48:20 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "use consistent npc naming in all log messages" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:48:23 - Event: PostToolUse
+19:48:23 - Tool: Bash
+19:48:23 - Command: (cd /c/code/endless && git add -A && git commit -m "use consistent npc naming in all log messages" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:48:23 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "use consistent npc naming in all log messages" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:48:23 - Running Sanitize...
+19:48:23 - Sanitize done
+19:51:04 - Event: PreToolUse
+19:51:04 - Tool: Bash
+19:51:04 - Command: cd /c/code/endless && git add -A && git commit -m "block scroll in roster panel, add auto-upgrade checkboxes" && git push
+19:51:04 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "block scroll in roster panel, add auto-upgrade checkboxes" && git push
+19:51:04 - Running Unsanitize...
+19:51:05 - Unsanitize done
+19:51:05 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "block scroll in roster panel, add auto-upgrade checkboxes" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

@@ -11,8 +11,11 @@ signal upgrade_purchased(upgrade_type: String, new_level: int)
 @onready var farms_label: Label = $Panel/MarginContainer/VBox/FarmsRow/Value
 @onready var spawn_label: Label = $Panel/MarginContainer/VBox/SpawnRow/Value
 
-# Upgrade rows: [level_label, button, upgrade_key]
+# Upgrade rows: [level_label, button, upgrade_key, checkbox]
 var upgrade_rows: Array = []
+
+# Auto-upgrade settings key
+const AUTO_UPGRADE_KEY := "auto_upgrades"
 
 # Tooltip descriptions for each upgrade
 const TOOLTIPS := {
@@ -65,12 +68,24 @@ func _setup_row(row: HBoxContainer, upgrade_key: String) -> void:
 	var btn: Button = row.get_node("Button")
 	btn.pressed.connect(_on_upgrade_pressed.bind(upgrade_key))
 	btn.tooltip_text = TOOLTIPS.get(upgrade_key, "")
-	upgrade_rows.append([level_label, btn, upgrade_key])
+
+	# Add auto-upgrade checkbox
+	var checkbox := CheckBox.new()
+	checkbox.tooltip_text = "Auto-upgrade when food available"
+	checkbox.toggled.connect(_on_auto_toggled.bind(upgrade_key))
+	row.add_child(checkbox)
+
+	# Load saved state
+	var auto_settings: Dictionary = UserSettings.get_setting(AUTO_UPGRADE_KEY, {})
+	checkbox.button_pressed = auto_settings.get(upgrade_key, false)
+
+	upgrade_rows.append([level_label, btn, upgrade_key, checkbox])
 
 
 func _process(_delta: float) -> void:
 	if Engine.get_process_frames() % 10 != 0:
 		return
+	_process_auto_upgrades()
 	_refresh()
 
 
@@ -206,22 +221,44 @@ func _get_upgrade_tooltip(key: String, level: int) -> String:
 
 
 func _on_upgrade_pressed(upgrade_key: String) -> void:
+	_try_purchase(upgrade_key)
+
+
+func _on_auto_toggled(enabled: bool, upgrade_key: String) -> void:
+	var auto_settings: Dictionary = UserSettings.get_setting(AUTO_UPGRADE_KEY, {})
+	auto_settings[upgrade_key] = enabled
+	UserSettings.set_setting(AUTO_UPGRADE_KEY, auto_settings)
+
+
+func _try_purchase(upgrade_key: String) -> bool:
 	if town_idx < 0 or not main:
-		return
+		return false
 
 	var upgrades: Dictionary = main.town_upgrades[town_idx]
 	var level: int = upgrades[upgrade_key]
 	if level >= Config.UPGRADE_MAX_LEVEL:
-		return
+		return false
 
 	var cost: int = Config.UPGRADE_COSTS[level]
 	if main.town_food[town_idx] < cost:
-		return
+		return false
 
 	main.town_food[town_idx] -= cost
 	upgrades[upgrade_key] = level + 1
 	upgrade_purchased.emit(upgrade_key, level + 1)
-	_refresh()
+	return true
+
+
+func _process_auto_upgrades() -> void:
+	if town_idx < 0 or not main:
+		return
+
+	# Process in order (top to bottom)
+	for row in upgrade_rows:
+		var upgrade_key: String = row[2]
+		var checkbox: CheckBox = row[3]
+		if checkbox.button_pressed:
+			_try_purchase(upgrade_key)
 
 
 # Legacy API for main.gd compatibility

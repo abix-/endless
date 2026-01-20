@@ -59,6 +59,13 @@ func _input(event: InputEvent) -> void:
 			close()
 			get_viewport().set_input_as_handled()
 
+	# Block scroll wheel when hovering over panel
+	if panel.visible and event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			var rect := Rect2(panel.global_position, panel.size)
+			if rect.has_point(event.position):
+				get_viewport().set_input_as_handled()
+
 
 func toggle() -> void:
 	if panel.visible:
