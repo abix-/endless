@@ -1,12 +1,10 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://world/terrain_renderer.gd" id="1_script"]
 [ext_resource type="Shader" path="res://world/terrain_sprite.gdshader" id="2_shader"]
-[ext_resource type="Texture2D" path="res://assets/roguelikeSheet_transparent.png" id="3_spritesheet"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_terrain"]
 shader = ExtResource("2_shader")
-shader_parameter/spritesheet = ExtResource("3_spritesheet")
 
 [node name="TerrainRenderer" type="Node2D"]
 z_index = -100

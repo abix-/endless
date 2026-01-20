@@ -26,6 +26,7 @@ const SPRITE_SIZE := 16.0
 const SHEET_SIZE := Vector2(968, 526)
 
 var multimesh: MultiMesh
+var spritesheet: Texture2D
 @onready var multimesh_instance: MultiMeshInstance2D = $MultiMeshInstance2D
 
 var noise: FastNoiseLite
@@ -58,6 +59,12 @@ func _init_multimesh() -> void:
 	multimesh.mesh = quad
 
 	multimesh_instance.multimesh = multimesh
+
+	# Load and set spritesheet texture
+	spritesheet = load("res://assets/roguelikeSheet_transparent.png")
+	var mat: ShaderMaterial = multimesh_instance.material as ShaderMaterial
+	if mat:
+		mat.set_shader_parameter("spritesheet", spritesheet)
 
 
 func generate(towns: Array[Vector2], camps: Array[Vector2]) -> void:
