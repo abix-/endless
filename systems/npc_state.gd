@@ -15,6 +15,7 @@ enum State {
 	PATROLLING,  # Guard moving between posts
 	RAIDING,     # Raider going to/at farm
 	RETURNING,   # Raider going home
+	WANDERING,   # Off-duty wandering around town
 }
 
 enum Faction { VILLAGER, RAIDER }
@@ -83,8 +84,8 @@ const LAST_NAMES := [
 
 # Valid states per job type
 const VALID_STATES := {
-	Job.FARMER: [State.IDLE, State.RESTING, State.FLEEING, State.WALKING, State.FARMING, State.OFF_DUTY],
-	Job.GUARD: [State.IDLE, State.RESTING, State.FIGHTING, State.FLEEING, State.WALKING, State.OFF_DUTY, State.ON_DUTY, State.PATROLLING],
+	Job.FARMER: [State.IDLE, State.RESTING, State.FLEEING, State.WALKING, State.FARMING, State.OFF_DUTY, State.WANDERING],
+	Job.GUARD: [State.IDLE, State.RESTING, State.FIGHTING, State.FLEEING, State.WALKING, State.OFF_DUTY, State.ON_DUTY, State.PATROLLING, State.WANDERING],
 	Job.RAIDER: [State.IDLE, State.RESTING, State.FIGHTING, State.FLEEING, State.RAIDING, State.RETURNING, State.OFF_DUTY],
 }
 
@@ -100,6 +101,7 @@ const STATE_NAMES := {
 	State.PATROLLING: "Patrolling",
 	State.RAIDING: "Raiding",
 	State.RETURNING: "Returning",
+	State.WANDERING: "Wandering",
 }
 
 const JOB_NAMES := ["Farmer", "Guard", "Raider"]
