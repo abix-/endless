@@ -182,10 +182,10 @@ func _attack(attacker: int, victim: int) -> void:
 				cooldown *= 1.0 - (atk_speed_level * Config.UPGRADE_GUARD_ATTACK_SPEED)
 
 	# Apply trait modifiers
-	var trait: int = manager.traits[attacker]
-	if trait == NPCState.Trait.EFFICIENT:
+	var npc_trait: int = manager.traits[attacker]
+	if npc_trait == NPCState.Trait.EFFICIENT:
 		cooldown *= 0.75  # 25% faster attacks
-	elif trait == NPCState.Trait.LAZY:
+	elif npc_trait == NPCState.Trait.LAZY:
 		cooldown *= 1.2   # 20% slower attacks
 
 	manager.attack_timers[attacker] = cooldown
@@ -323,16 +323,16 @@ func _should_flee(i: int) -> bool:
 	if manager.will_flee[i] == 1:
 		return true
 
-	var trait: int = manager.traits[i]
+	var npc_trait: int = manager.traits[i]
 	# Brave NPCs never flee
-	if trait == NPCState.Trait.BRAVE:
+	if npc_trait == NPCState.Trait.BRAVE:
 		return false
 
 	var health_pct: float = manager.healths[i] / manager.max_healths[i]
 	var job: int = manager.jobs[i]
 
 	# Coward flees at +20% higher threshold
-	var coward_bonus: float = 0.2 if trait == NPCState.Trait.COWARD else 0.0
+	var coward_bonus: float = 0.2 if npc_trait == NPCState.Trait.COWARD else 0.0
 
 	# Guards flee below 33% (or 53% if coward)
 	if job == NPCState.Job.GUARD and health_pct < Config.GUARD_FLEE_THRESHOLD + coward_bonus:
@@ -358,11 +358,11 @@ func _get_flee_target(i: int) -> Vector2:
 
 func _get_damage(i: int) -> float:
 	var damage: float = manager.get_scaled_damage(i)
-	var trait: int = manager.traits[i]
+	var npc_trait: int = manager.traits[i]
 
-	if trait == NPCState.Trait.STRONG:
+	if npc_trait == NPCState.Trait.STRONG:
 		damage *= 1.25
-	elif trait == NPCState.Trait.BERSERKER:
+	elif npc_trait == NPCState.Trait.BERSERKER:
 		var hp_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
 		if hp_pct < 0.5:
 			damage *= 1.5

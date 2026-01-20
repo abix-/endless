@@ -280,8 +280,8 @@ func _update_inspector() -> void:
 	var level: int = npc_manager.levels[idx]
 	var job_name: String = NPCState.JOB_NAMES[job] if job < NPCState.JOB_NAMES.size() else "NPC"
 	var npc_name: String = npc_manager.npc_names[idx]
-	var trait: int = npc_manager.traits[idx]
-	var trait_name: String = NPCState.TRAIT_NAMES.get(trait, "")
+	var npc_trait: int = npc_manager.traits[idx]
+	var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
 	job_level.text = "%s - %s Lv.%d" % [npc_name, job_name, level]
 	if not trait_name.is_empty():
 		job_level.text += " (%s)" % trait_name
@@ -457,8 +457,8 @@ func _format_npc_data(i: int) -> String:
 	var job: int = npc_manager.jobs[i]
 	var job_name: String = NPCState.JOB_NAMES[job] if job < NPCState.JOB_NAMES.size() else "NPC"
 	var npc_name: String = npc_manager.npc_names[i]
-	var trait: int = npc_manager.traits[i]
-	var trait_name: String = NPCState.TRAIT_NAMES.get(trait, "None")
+	var npc_trait: int = npc_manager.traits[i]
+	var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "None")
 	lines.append("%s - %s Lv.%d" % [npc_name, job_name, npc_manager.levels[i]])
 	if not trait_name.is_empty():
 		lines.append("Trait: %s" % trait_name)

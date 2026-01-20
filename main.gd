@@ -342,10 +342,10 @@ func _on_time_tick(_hour: int, minute: int) -> void:
 		if town_idx >= 0 and town_idx < town_food.size():
 			var yield_level: int = town_upgrades[town_idx].farm_yield
 			var yield_mult: float = 1.0 + yield_level * Config.UPGRADE_FARM_YIELD_BONUS
-			var trait: int = npc_manager.traits[i]
-			if trait == NPCState.Trait.EFFICIENT:
+			var npc_trait: int = npc_manager.traits[i]
+			if npc_trait == NPCState.Trait.EFFICIENT:
 				yield_mult *= 1.25
-			elif trait == NPCState.Trait.LAZY:
+			elif npc_trait == NPCState.Trait.LAZY:
 				yield_mult *= 0.8
 			town_food[town_idx] += int(FOOD_PER_WORK_HOUR * yield_mult)
 

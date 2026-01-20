@@ -1,8 +1,8 @@
 ﻿server:
-  host: example.test
+  host: real.domain.local
   ip: 111.231.200.13
   port: 443
   ssl: true
-  secrets_path: C:\fake\path
+  secrets_path: C:\real\secrets\path
   timeout: 30
   max_retries: 3
