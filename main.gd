@@ -184,11 +184,11 @@ func _generate_world() -> void:
 		add_child(farm_e)
 		town_data.slots["e"].append({"type": "farm", "node": farm_e})
 
-		# Create initial beds in NW slot only (4 beds)
+		# Create initial beds in NW slot only (4 beds in 2x2 grid)
 		for bed_idx in 4:
 			var bed_offset := Vector2(
-				(bed_idx % 2 - 0.5) * 10,  # bed offset
-				(floorf(bed_idx / 2.0) - 0.5) * 10   # bed offset
+				(bed_idx % 2 - 0.5) * 16,
+				(floorf(bed_idx / 2.0) - 0.5) * 16
 			)
 			var bed = location_scene.instantiate()
 			bed.location_name = "%s Bed" % town_name
@@ -583,10 +583,10 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 			if b.type == "bed":
 				bed_count += 1
 
-		# Calculate bed offset within slot (2x2 grid)
+		# Calculate bed offset within slot (2x2 grid, 16px beds)
 		var bed_offset := Vector2(
-			(bed_count % 2 - 0.5) * 10,
-			(floorf(bed_count / 2.0) - 0.5) * 10
+			(bed_count % 2 - 0.5) * 16,
+			(floorf(bed_count / 2.0) - 0.5) * 16
 		)
 
 		var bed = location_scene.instantiate()
