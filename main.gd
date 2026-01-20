@@ -111,11 +111,21 @@ func _draw() -> void:
 	for corner in corners:
 		draw_circle(corner, marker_size, border_color)
 
-	# Player town indicator - gold ring around fountain
+	# Player town indicator - gold ring expands with building range
 	if towns.size() > player_town_idx:
-		var town_center: Vector2 = towns[player_town_idx].center
+		var town: Dictionary = towns[player_town_idx]
+		var town_center: Vector2 = town.center
+		var grid: Dictionary = town.grid
 		var gold := Color(1.0, 0.85, 0.3, 0.8)
-		draw_arc(town_center, 60.0, 0, TAU, 32, gold, 3.0)
+		# Calculate radius based on farthest unlocked slot
+		var max_dist := 60.0  # Minimum radius
+		for slot_key in town.slots.keys():
+			if slot_key in grid:
+				var slot_pos: Vector2 = grid[slot_key]
+				var dist: float = town_center.distance_to(slot_pos) + Config.TOWN_GRID_SPACING
+				if dist > max_dist:
+					max_dist = dist
+		draw_arc(town_center, max_dist, 0, TAU, 64, gold, 3.0)
 
 	# Draw buildable slot indicators for player's town
 	_draw_buildable_slots()
@@ -165,7 +175,9 @@ func _generate_world() -> void:
 			"guard_leash": false,         # Stay near posts vs chase anywhere
 			"farmer_fight_back": false,   # Melee attack vs always flee
 			"prioritize_healing": false,  # Stay at fountain until full HP
-			"work_schedule": 0            # 0=both shifts, 1=day only, 2=night only
+			"work_schedule": 0,           # 0=both shifts, 1=day only, 2=night only
+			"farmer_off_duty": 0,         # 0=bed, 1=fountain, 2=wander town
+			"guard_off_duty": 0           # 0=bed, 1=fountain, 2=wander town
 		})
 
 	# Generate scattered town positions

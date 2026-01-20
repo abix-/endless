@@ -184,6 +184,30 @@ tooltip_text = "When NPCs work: day shift, night shift, or both"
 [node name="Option" type="OptionButton" parent="Panel/MarginContainer/VBox/ScheduleRow"]
 layout_mode = 2
 
+[node name="FarmerOffDutyRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/FarmerOffDutyRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Farmer Off-Duty"
+tooltip_text = "Where farmers go when not working"
+
+[node name="Option" type="OptionButton" parent="Panel/MarginContainer/VBox/FarmerOffDutyRow"]
+layout_mode = 2
+
+[node name="GuardOffDutyRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/GuardOffDutyRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Guard Off-Duty"
+tooltip_text = "Where guards go when not on patrol"
+
+[node name="Option" type="OptionButton" parent="Panel/MarginContainer/VBox/GuardOffDutyRow"]
+layout_mode = 2
+
 [node name="CloseBtn" type="Button" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 text = "Close (ESC)"

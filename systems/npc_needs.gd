@@ -99,9 +99,9 @@ func decide_what_to_do(i: int) -> void:
 			manager._nav.force_logic_update(i)
 		return
 
-	# Priority 3: Off duty - go home
-	if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING]:
-		_go_home(i)
+	# Priority 3: Off duty - check policy for what to do
+	if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING, NPCState.State.WANDERING]:
+		_go_off_duty(i, NPCState.Job.FARMER)
 
 
 func _decide_guard(i: int) -> void:
@@ -123,9 +123,9 @@ func _decide_guard(i: int) -> void:
 			_guard_go_to_next_post(i)
 		return
 
-	# Priority 3: Off duty - go home
-	if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING]:
-		_go_home(i)
+	# Priority 3: Off duty - check policy for what to do
+	if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING, NPCState.State.WANDERING]:
+		_go_off_duty(i, NPCState.Job.GUARD)
 
 
 func _guard_go_to_next_post(i: int) -> void:
@@ -206,6 +206,36 @@ func _go_home(i: int) -> void:
 	manager.arrival_radii[i] = manager._arrival_home
 	manager._state.set_state(i, NPCState.State.WALKING)
 	manager._nav.force_logic_update(i)
+
+
+func _go_off_duty(i: int, job: int) -> void:
+	var town_idx: int = manager.town_indices[i]
+
+	# Get off-duty policy
+	var off_duty_mode := 0  # Default: go to bed
+	if town_idx >= 0 and town_idx < manager.town_policies.size():
+		var policies: Dictionary = manager.town_policies[town_idx]
+		if job == NPCState.Job.FARMER:
+			off_duty_mode = policies.get("farmer_off_duty", 0)
+		else:
+			off_duty_mode = policies.get("guard_off_duty", 0)
+
+	match off_duty_mode:
+		0:  # Go to Bed
+			_go_home(i)
+		1:  # Stay at Fountain
+			manager.release_bed(i)
+			if town_idx >= 0 and town_idx < manager.town_centers.size():
+				manager.targets[i] = manager.town_centers[town_idx]
+			manager.arrival_radii[i] = manager._arrival_home
+			manager._state.set_state(i, NPCState.State.WALKING)
+			manager._nav.force_logic_update(i)
+		2:  # Wander Town
+			manager.release_bed(i)
+			if town_idx >= 0 and town_idx < manager.town_centers.size():
+				manager.wander_centers[i] = manager.town_centers[town_idx]
+			manager._state.set_state(i, NPCState.State.WANDERING)
+			manager._nav.force_logic_update(i)
 
 
 func _raider_return_to_camp(i: int) -> void:

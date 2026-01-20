@@ -271,12 +271,15 @@ func _process_auto_upgrades() -> void:
 			_try_purchase(upgrade_key)
 
 
-# Legacy API for main.gd compatibility
-func open(_main_node: Node, _idx: int) -> void:
-	pass
+# Toggle visibility
+func open() -> void:
+	panel.visible = true
 
 func close() -> void:
-	pass
+	panel.visible = false
+
+func toggle() -> void:
+	panel.visible = not panel.visible
 
 func is_open() -> bool:
-	return true
+	return panel.visible

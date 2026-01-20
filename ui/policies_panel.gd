@@ -15,6 +15,8 @@ extends CanvasLayer
 @onready var farmer_fight_check: CheckBox = $Panel/MarginContainer/VBox/FarmerFightRow/CheckBox
 @onready var prioritize_healing_check: CheckBox = $Panel/MarginContainer/VBox/HealingRow/CheckBox
 @onready var schedule_option: OptionButton = $Panel/MarginContainer/VBox/ScheduleRow/Option
+@onready var farmer_off_duty_option: OptionButton = $Panel/MarginContainer/VBox/FarmerOffDutyRow/Option
+@onready var guard_off_duty_option: OptionButton = $Panel/MarginContainer/VBox/GuardOffDutyRow/Option
 @onready var close_btn: Button = $Panel/MarginContainer/VBox/CloseBtn
 
 var main_node: Node
@@ -44,6 +46,17 @@ func _ready() -> void:
 	schedule_option.add_item("Both Shifts", 0)
 	schedule_option.add_item("Day Only", 1)
 	schedule_option.add_item("Night Only", 2)
+
+	# Setup off-duty options
+	farmer_off_duty_option.add_item("Go to Bed", 0)
+	farmer_off_duty_option.add_item("Stay at Fountain", 1)
+	farmer_off_duty_option.add_item("Wander Town", 2)
+	guard_off_duty_option.add_item("Go to Bed", 0)
+	guard_off_duty_option.add_item("Stay at Fountain", 1)
+	guard_off_duty_option.add_item("Wander Town", 2)
+
+	farmer_off_duty_option.item_selected.connect(_on_farmer_off_duty_selected)
+	guard_off_duty_option.item_selected.connect(_on_guard_off_duty_selected)
 
 	panel.visible = false
 
@@ -87,6 +100,8 @@ func _refresh() -> void:
 	farmer_fight_check.button_pressed = policies.farmer_fight_back
 	prioritize_healing_check.button_pressed = policies.prioritize_healing
 	schedule_option.selected = policies.work_schedule
+	farmer_off_duty_option.selected = policies.farmer_off_duty
+	guard_off_duty_option.selected = policies.guard_off_duty
 
 
 func _get_policies() -> Dictionary:
@@ -161,3 +176,17 @@ func _on_schedule_selected(index: int) -> void:
 	if policies.is_empty():
 		return
 	policies.work_schedule = index
+
+
+func _on_farmer_off_duty_selected(index: int) -> void:
+	var policies := _get_policies()
+	if policies.is_empty():
+		return
+	policies.farmer_off_duty = index
+
+
+func _on_guard_off_duty_selected(index: int) -> void:
+	var policies := _get_policies()
+	if policies.is_empty():
+		return
+	policies.guard_off_duty = index

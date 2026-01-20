@@ -192,7 +192,8 @@ func _update_stats() -> void:
 		var player_town: int = main_node.player_town_idx
 		var free_beds: int = npc_manager.get_free_bed_count(player_town)
 		var total_beds: int = npc_manager.get_total_bed_count(player_town)
-		bed_label.text = "Beds: %d/%d" % [free_beds, total_beds]
+		var used_beds: int = total_beds - free_beds
+		bed_label.text = "Beds: %d used, %d free" % [used_beds, free_beds]
 
 
 func _update_perf() -> void:
@@ -539,8 +540,8 @@ func _save_collapse_state() -> void:
 
 func _on_upgrades_pressed() -> void:
 	var upgrade_menu = get_tree().get_first_node_in_group("upgrade_menu")
-	if upgrade_menu and upgrade_menu.has_method("open"):
-		upgrade_menu.open()
+	if upgrade_menu and upgrade_menu.has_method("toggle"):
+		upgrade_menu.toggle()
 
 
 func _on_roster_pressed() -> void:
