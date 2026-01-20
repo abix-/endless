@@ -9,6 +9,7 @@ var settings_menu_scene: PackedScene = preload("res://ui/settings_menu.tscn")
 var upgrade_menu_scene: PackedScene = preload("res://ui/upgrade_menu.tscn")
 var combat_log_scene: PackedScene = preload("res://ui/combat_log.tscn")
 var roster_panel_scene: PackedScene = preload("res://ui/roster_panel.tscn")
+var build_menu_scene: PackedScene = preload("res://ui/build_menu.tscn")
 
 var npc_manager: Node
 var projectile_manager: Node
@@ -16,9 +17,10 @@ var player: Node
 var left_panel: Node
 var settings_menu: Node
 var upgrade_menu: Node
+var build_menu: Node
 
 # World data
-var towns: Array = []  # Array of {center, farms, homes, camp, food}
+var towns: Array = []  # Array of {center, grid, slots, guard_posts, camp}
 var town_food: PackedInt32Array  # Food stored in each town
 var camp_food: PackedInt32Array  # Food stored in each raider camp
 var spawn_timers: PackedInt32Array  # Hours since last spawn per town
@@ -26,6 +28,10 @@ var player_town_idx: int = 0  # First town is player-controlled
 var town_upgrades: Array = []  # Per-town upgrade levels
 var town_max_farmers: PackedInt32Array  # Population cap per town
 var town_max_guards: PackedInt32Array   # Population cap per town
+
+# Grid slot keys (clockwise from NW)
+const GRID_KEYS := ["nw", "n", "ne", "w", "c", "e", "sw", "s", "se"]
+const BUILDABLE_SLOTS := ["nw", "n", "ne", "sw", "s", "se"]  # Excludes c, w, e (fixed)
 
 const NUM_TOWNS := 7
 const MIN_TOWN_DISTANCE := 1200  # Minimum distance between town centers
@@ -72,6 +78,9 @@ func _draw() -> void:
 		var town_center: Vector2 = towns[player_town_idx].center
 		var gold := Color(1.0, 0.85, 0.3, 0.8)
 		draw_arc(town_center, 60.0, 0, TAU, 32, gold, 3.0)
+
+	# Draw buildable slot indicators for player's town
+	_draw_buildable_slots()
 
 
 func _generate_world() -> void:
@@ -136,46 +145,62 @@ func _generate_world() -> void:
 	for i in town_positions.size():
 		var town_center: Vector2 = town_positions[i]
 		var town_name: String = available_names[i % available_names.size()]
+		var grid := _calculate_grid_positions(town_center)
+
 		var town_data := {
 			"name": town_name,
 			"center": town_center,
-			"farms": [],
-			"homes": [],
+			"grid": grid,
+			"slots": {
+				"nw": [], "n": [], "ne": [],
+				"w": [], "c": [], "e": [],
+				"sw": [], "s": [], "se": [],
+			},
 			"guard_posts": [],
 			"camp": null
 		}
 
-		# Create farms (close to town center)
-		for f in Config.FARMS_PER_TOWN:
-			var angle: float = (f / float(Config.FARMS_PER_TOWN)) * TAU + randf_range(-0.3, 0.3)
-			var dist: float = randf_range(200, 300)
-			var farm_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
+		# Create fountain at center
+		var fountain = location_scene.instantiate()
+		fountain.location_name = town_name
+		fountain.location_type = "fountain"
+		fountain.global_position = grid["c"]
+		add_child(fountain)
+		town_data.slots["c"].append({"type": "fountain", "node": fountain})
 
-			var farm = location_scene.instantiate()
-			farm.location_name = "%s Farm" % town_name
-			farm.location_type = "field"
-			farm.global_position = farm_pos
-			add_child(farm)
-			town_data.farms.append(farm)
+		# Create farm at west slot
+		var farm_w = location_scene.instantiate()
+		farm_w.location_name = "%s Farm W" % town_name
+		farm_w.location_type = "field"
+		farm_w.global_position = grid["w"]
+		add_child(farm_w)
+		town_data.slots["w"].append({"type": "farm", "node": farm_w})
 
-		# Create homes (ring around center) - just for farmers, guards patrol from posts
-		var num_homes: int = Config.FARMERS_PER_TOWN
-		for h in num_homes:
-			var angle: float = (h / float(num_homes)) * TAU
-			var dist: float = randf_range(350, 450)
-			var home_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
+		# Create farm at east slot
+		var farm_e = location_scene.instantiate()
+		farm_e.location_name = "%s Farm E" % town_name
+		farm_e.location_type = "field"
+		farm_e.global_position = grid["e"]
+		add_child(farm_e)
+		town_data.slots["e"].append({"type": "farm", "node": farm_e})
 
-			var home = location_scene.instantiate()
-			home.location_name = "%s Home" % town_name
-			home.location_type = "home"
-			home.global_position = home_pos
-			add_child(home)
-			town_data.homes.append(home)
+		# Create initial beds in NW slot only (4 beds)
+		for bed_idx in 4:
+			var bed_offset := Vector2(
+				(bed_idx % 2 - 0.5) * 10,  # bed offset
+				(floorf(bed_idx / 2.0) - 0.5) * 10   # bed offset
+			)
+			var bed = location_scene.instantiate()
+			bed.location_name = "%s Bed" % town_name
+			bed.location_type = "home"
+			bed.global_position = grid["nw"] + bed_offset
+			add_child(bed)
+			town_data.slots["nw"].append({"type": "bed", "node": bed})
 
-		# Create guard posts (perimeter around town, between homes and camp)
+		# Create guard posts (perimeter around town, outside the grid)
 		for g in Config.GUARD_POSTS_PER_TOWN:
 			var angle: float = (g / float(Config.GUARD_POSTS_PER_TOWN)) * TAU
-			var dist: float = randf_range(500, 600)
+			var dist: float = randf_range(300, 350)
 			var post_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
 
 			var post = location_scene.instantiate()
@@ -195,13 +220,6 @@ func _generate_world() -> void:
 		add_child(camp)
 		town_data.camp = camp
 
-		# Create town center marker
-		var town_marker = location_scene.instantiate()
-		town_marker.location_name = town_name
-		town_marker.location_type = "fountain"
-		town_marker.global_position = town_center
-		add_child(town_marker)
-
 		towns.append(town_data)
 
 	print("Generated %d towns" % towns.size())
@@ -220,7 +238,8 @@ func _setup_managers() -> void:
 
 	# Pass farm positions to npc_manager
 	for town in towns:
-		for farm in town.farms:
+		var farms := _get_farms_from_town(town)
+		for farm in farms:
 			npc_manager.farm_positions.append(farm.global_position)
 
 	# Pass guard post positions per town
@@ -271,6 +290,10 @@ func _setup_ui() -> void:
 	var roster_panel = roster_panel_scene.instantiate()
 	add_child(roster_panel)
 
+	build_menu = build_menu_scene.instantiate()
+	build_menu.build_requested.connect(_on_build_requested)
+	add_child(build_menu)
+
 
 func _spawn_npcs() -> void:
 	var total_farmers := 0
@@ -279,33 +302,33 @@ func _spawn_npcs() -> void:
 
 	for town_idx in towns.size():
 		var town: Dictionary = towns[town_idx]
-		var homes: Array = town.homes
-		var farms: Array = town.farms
+		var beds := _get_beds_from_town(town)
+		var farms := _get_farms_from_town(town)
 		var camp = town.camp
 
 		# Spawn farmers (target building centers, spawn with small offset)
 		for i in Config.FARMERS_PER_TOWN:
-			var home = homes[i % homes.size()]
+			var bed = beds[i % beds.size()]
 			var farm = farms[i % farms.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
 			npc_manager.spawn_farmer(
-				home.global_position + spawn_offset,
-				home.global_position,  # home center
+				bed.global_position + spawn_offset,
+				bed.global_position,  # home center
 				farm.global_position,  # farm center
 				town_idx
 			)
 			total_farmers += 1
 
-		# Spawn guards (live in homes, patrol at posts)
+		# Spawn guards (live in beds, patrol at posts)
 		# Alternate day/night shifts for even coverage
 		for i in Config.GUARDS_PER_TOWN:
-			var home = homes[i % homes.size()]
+			var bed = beds[i % beds.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
 			var night_shift: bool = i % 2 == 1  # Odd = night, even = day
 			npc_manager.spawn_guard(
-				home.global_position + spawn_offset,
-				home.global_position,  # home center
-				home.global_position,  # unused - guards patrol all posts
+				bed.global_position + spawn_offset,
+				bed.global_position,  # home center
+				bed.global_position,  # unused - guards patrol all posts
 				night_shift,
 				town_idx
 			)
@@ -363,19 +386,19 @@ func _on_time_tick(_hour: int, minute: int) -> void:
 
 func _spawn_town_npcs(town_idx: int) -> void:
 	var town: Dictionary = towns[town_idx]
-	var homes: Array = town.homes
-	var farms: Array = town.farms
+	var beds := _get_beds_from_town(town)
+	var farms := _get_farms_from_town(town)
 	var camp = town.camp
 	var town_center: Vector2 = town.center
 
 	# Spawn 1 farmer at fountain (if under cap)
 	var farmer_count: int = npc_manager.count_alive_by_job_and_town(NPCState.Job.FARMER, town_idx)
-	if farmer_count < town_max_farmers[town_idx]:
-		var home = homes[randi() % homes.size()]
+	if farmer_count < town_max_farmers[town_idx] and beds.size() > 0 and farms.size() > 0:
+		var bed = beds[randi() % beds.size()]
 		var farm = farms[randi() % farms.size()]
 		var farmer_idx: int = npc_manager.spawn_farmer(
 			town_center,
-			home.global_position,
+			bed.global_position,
 			farm.global_position,
 			town_idx
 		)
@@ -383,13 +406,13 @@ func _spawn_town_npcs(town_idx: int) -> void:
 
 	# Spawn 1 guard at fountain (if under cap)
 	var guard_count: int = npc_manager.count_alive_by_job_and_town(NPCState.Job.GUARD, town_idx)
-	if guard_count < town_max_guards[town_idx]:
-		var home = homes[randi() % homes.size()]
+	if guard_count < town_max_guards[town_idx] and beds.size() > 0:
+		var bed = beds[randi() % beds.size()]
 		var night_shift: bool = randi() % 2 == 1
 		var guard_idx: int = npc_manager.spawn_guard(
 			town_center,
-			home.global_position,
-			home.global_position,
+			bed.global_position,
+			bed.global_position,
 			night_shift,
 			town_idx
 		)
@@ -432,6 +455,14 @@ func _input(event: InputEvent) -> void:
 			KEY_SPACE:
 				WorldClock.paused = not WorldClock.paused
 
+	# Right-click on buildable slot opens build menu
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		var world_pos: Vector2 = get_global_mouse_position()
+		var slot_info := _get_clicked_buildable_slot(world_pos)
+		if slot_info.slot_key != "":
+			build_menu.open(slot_info.slot_key, player_town_idx, event.position)
+			get_viewport().set_input_as_handled()
+
 
 func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
 	# Handle population cap upgrades
@@ -444,6 +475,128 @@ func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
 
 	# Apply upgrade to all guards in this town
 	npc_manager.apply_town_upgrade(player_town_idx, upgrade_type, new_level)
+
+
+func _draw_buildable_slots() -> void:
+	if player_town_idx < 0 or player_town_idx >= towns.size():
+		return
+
+	var town: Dictionary = towns[player_town_idx]
+	var grid: Dictionary = town.grid
+
+	for slot_key in BUILDABLE_SLOTS:
+		var slot_pos: Vector2 = grid[slot_key]
+		var slot_contents: Array = town.slots[slot_key]
+
+		# Count what's in the slot
+		var bed_count := 0
+		var has_farm := false
+		for building in slot_contents:
+			if building.type == "bed":
+				bed_count += 1
+			elif building.type == "farm":
+				has_farm = true
+
+		# Skip full slots
+		if has_farm or bed_count >= 4:
+			continue
+
+		# Draw + icon
+		var color := Color(0.5, 0.8, 0.5, 0.6)
+		var size := 12.0
+		draw_line(slot_pos + Vector2(-size, 0), slot_pos + Vector2(size, 0), color, 2.0)
+		draw_line(slot_pos + Vector2(0, -size), slot_pos + Vector2(0, size), color, 2.0)
+
+
+func _calculate_grid_positions(center: Vector2) -> Dictionary:
+	var s: float = Config.TOWN_GRID_SPACING
+	return {
+		"nw": center + Vector2(-s, -s),
+		"n":  center + Vector2(0, -s),
+		"ne": center + Vector2(s, -s),
+		"w":  center + Vector2(-s, 0),
+		"c":  center,
+		"e":  center + Vector2(s, 0),
+		"sw": center + Vector2(-s, s),
+		"s":  center + Vector2(0, s),
+		"se": center + Vector2(s, s),
+	}
+
+
+func _get_farms_from_town(town: Dictionary) -> Array:
+	var farms: Array = []
+	for key in town.slots:
+		for building in town.slots[key]:
+			if building.type == "farm":
+				farms.append(building.node)
+	return farms
+
+
+func _get_beds_from_town(town: Dictionary) -> Array:
+	var beds: Array = []
+	for key in town.slots:
+		for building in town.slots[key]:
+			if building.type == "bed":
+				beds.append(building.node)
+	return beds
+
+
+func _get_clicked_buildable_slot(world_pos: Vector2) -> Dictionary:
+	# Only check player's town
+	if player_town_idx < 0 or player_town_idx >= towns.size():
+		return {"slot_key": "", "town_idx": -1}
+
+	var town: Dictionary = towns[player_town_idx]
+	var grid: Dictionary = town.grid
+	var slot_radius: float = Config.TOWN_GRID_SPACING * 0.45  # Half slot size
+
+	for slot_key in BUILDABLE_SLOTS:
+		var slot_pos: Vector2 = grid[slot_key]
+		if world_pos.distance_to(slot_pos) < slot_radius:
+			return {"slot_key": slot_key, "town_idx": player_town_idx}
+
+	return {"slot_key": "", "town_idx": -1}
+
+
+func _on_build_requested(slot_key: String, building_type: String) -> void:
+	if player_town_idx < 0 or player_town_idx >= towns.size():
+		return
+
+	var town: Dictionary = towns[player_town_idx]
+	var grid: Dictionary = town.grid
+	var slot_pos: Vector2 = grid[slot_key]
+
+	if building_type == "farm":
+		var farm = location_scene.instantiate()
+		farm.location_name = "%s Farm" % town.name
+		farm.location_type = "field"
+		farm.global_position = slot_pos
+		add_child(farm)
+		town.slots[slot_key].append({"type": "farm", "node": farm})
+		# Add to npc_manager farm positions
+		npc_manager.farm_positions.append(slot_pos)
+
+	elif building_type == "bed":
+		var slot_contents: Array = town.slots[slot_key]
+		var bed_count := 0
+		for b in slot_contents:
+			if b.type == "bed":
+				bed_count += 1
+
+		# Calculate bed offset within slot (2x2 grid)
+		var bed_offset := Vector2(
+			(bed_count % 2 - 0.5) * 10,
+			(floorf(bed_count / 2.0) - 0.5) * 10
+		)
+
+		var bed = location_scene.instantiate()
+		bed.location_name = "%s Bed" % town.name
+		bed.location_type = "home"
+		bed.global_position = slot_pos + bed_offset
+		add_child(bed)
+		town.slots[slot_key].append({"type": "bed", "node": bed})
+
+	queue_redraw()  # Update slot indicators
 
 
 func _find_camp_position(town_center: Vector2, all_town_centers: Array[Vector2]) -> Vector2:

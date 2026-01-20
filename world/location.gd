@@ -15,10 +15,10 @@ const SCALE := 3.0
 # ============================================================
 # Format: "name": {top_left, size} where size is grid cells (1x1, 2x2, etc.)
 const SPRITES := {
-	"farm": {"pos": Vector2i(2, 15), "size": Vector2i(3, 3)},
+	"farm": {"pos": Vector2i(2, 15), "size": Vector2i(2, 2)},
 	"tent": {"pos": Vector2i(48, 10), "size": Vector2i(2, 2)},
 	"fountain": {"pos": Vector2i(50, 9), "size": Vector2i(1, 1), "scale": 2.0},
-	"bed": {"pos": Vector2i(15, 2), "size": Vector2i(1, 1)},
+	"bed": {"pos": Vector2i(15, 2), "size": Vector2i(1, 1), "scale": 0.333},
 	"guard_post": {"pos": Vector2i(20, 20), "size": Vector2i(1, 1)},
 }
 

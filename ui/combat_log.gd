@@ -131,9 +131,14 @@ func _format_npc(idx: int, job: int, level: int = -1) -> String:
 	return result
 
 
-func _on_npc_spawned(npc_index: int, job: int, _town_idx: int) -> void:
+func _on_npc_spawned(npc_index: int, job: int, town_idx: int) -> void:
 	if UserSettings.spawn_log_mode == UserSettings.LogMode.OFF:
 		return
+	if UserSettings.spawn_log_mode == UserSettings.LogMode.OWN_FACTION:
+		if job == NPCState.Job.RAIDER:
+			return
+		if not main_node or town_idx != main_node.player_town_idx:
+			return
 	var display := _format_npc(npc_index, job)
 	_pending_messages.append("%s%s spawned" % [_get_timestamp(), display])
 	_log_dirty = true

@@ -1,0 +1,32 @@
+[gd_scene load_steps=2 format=3 uid="uid://build_menu001"]
+
+[ext_resource type="Script" path="res://ui/build_menu.gd" id="1_build"]
+
+[node name="BuildMenu" type="CanvasLayer"]
+layer = 100
+script = ExtResource("1_build")
+
+[node name="Panel" type="PanelContainer" parent="."]
+offset_right = 150.0
+offset_bottom = 130.0
+
+[node name="VBox" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+text = "Build in NW"
+horizontal_alignment = 1
+
+[node name="FarmBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Farm (50 food)"
+
+[node name="BedBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Bed (10 food)"
+
+[node name="CloseBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Cancel"

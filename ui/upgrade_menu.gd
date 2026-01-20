@@ -134,7 +134,11 @@ func _refresh_stats() -> void:
 
 	# Farm count
 	if "towns" in main and town_idx < main.towns.size():
-		var farm_count: int = main.towns[town_idx].farms.size()
+		var farm_count := 0
+		for slot_key in main.towns[town_idx].slots:
+			for building in main.towns[town_idx].slots[slot_key]:
+				if building.type == "farm":
+					farm_count += 1
 		farms_label.text = str(farm_count)
 
 	# Time until next spawn

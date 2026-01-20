@@ -31,7 +31,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Raider camps (positioned away from all towns)
 - [x] Visible world border with corner markers
 - [ ] Destructible buildings
-- [ ] Build new structures
+- [x] Build new structures (B key on empty slots - farms, beds)
 - [ ] Structure upgrades (increase output, capacity, defense)
 
 ### Economy
@@ -119,7 +119,7 @@ Activity-specific states (no translation layer):
 - [x] Town management panel with population stats and spawn timer
 - [x] Resizable combat log at bottom of screen
 - [ ] Villager role assignment UI
-- [ ] Build/upgrade buildings
+- [x] Build structures via grid slots (farms cost 50, beds cost 10)
 - [ ] Train guards from population
 - [ ] Equipment crafting
 - [ ] Army recruitment and movement
@@ -180,6 +180,7 @@ ui/
   combat_log.gd         # Resizable event log at bottom
   settings_menu.gd      # Options menu with log filters
   upgrade_menu.gd       # Town management, upgrades, population caps
+  build_menu.gd         # Grid slot building (farms, beds)
 ```
 
 ## Controls
@@ -194,6 +195,7 @@ ui/
 | - | Slow down time (0.5x) |
 | SPACE | Pause/unpause |
 | R | Roster panel (view all guards/farmers) |
+| B | Build menu (on empty grid slots) |
 | ESC | Settings menu |
 
 ## Configuration
