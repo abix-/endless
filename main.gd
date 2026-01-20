@@ -742,7 +742,7 @@ func _get_adjacent_locked_slots(town_idx: int) -> Array:
 
 	# For each unlocked slot, check 4 neighbors
 	for slot_key in town.slots.keys():
-		var parts := slot_key.split(",")
+		var parts = slot_key.split(",")
 		var row: int = int(parts[0])
 		var col: int = int(parts[1])
 
