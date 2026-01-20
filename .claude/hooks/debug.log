@@ -4289,3 +4289,42 @@ EOF
 19:24:43 - Running Unsanitize...
 19:24:43 - Unsanitize done
 19:24:43 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:45 - Event: PostToolUse
+19:24:45 - Tool: Bash
+19:24:45 - Command: (cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:45 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:45 - Running Sanitize...
+19:24:45 - Sanitize done
+19:24:49 - Event: PreToolUse
+19:24:49 - Tool: Bash
+19:24:49 - Command: cd /c/code/endless && git status && git log --oneline -3
+19:24:49 - Processing PreToolUse for: cd /c/code/endless && git status && git log --oneline -3
+19:24:49 - Running Unsanitize...
+19:24:50 - Unsanitize done
+19:24:50 - Wrapped: (cd /c/code/endless && git status && git log --oneline -3) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:51 - Event: PostToolUse
+19:24:51 - Tool: Bash
+19:24:51 - Command: (cd /c/code/endless && git status && git log --oneline -3) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:51 - Processing PostToolUse for: (cd /c/code/endless && git status && git log --oneline -3) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:51 - Running Sanitize...
+19:24:51 - Sanitize done
+19:24:56 - Event: PreToolUse
+19:24:56 - Tool: Bash
+19:24:56 - Command: cd /c/code/endless && git push
+19:24:56 - Processing PreToolUse for: cd /c/code/endless && git push
+19:24:56 - Running Unsanitize...
+19:24:56 - Unsanitize done
+19:24:56 - Wrapped: (cd /c/code/endless && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:58 - Event: PostToolUse
+19:24:58 - Tool: Bash
+19:24:58 - Command: (cd /c/code/endless && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:58 - Processing PostToolUse for: (cd /c/code/endless && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:58 - Running Sanitize...
+19:24:59 - Sanitize done
+19:28:37 - Event: PreToolUse
+19:28:37 - Tool: Bash
+19:28:37 - Command: cd /c/code/endless && git add -A && git commit -m "simplify name display, add rename feature, add custom names" && git push
+19:28:37 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "simplify name display, add rename feature, add custom names" && git push
+19:28:37 - Running Unsanitize...
+19:28:38 - Unsanitize done
+19:28:38 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "simplify name display, add rename feature, add custom names" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

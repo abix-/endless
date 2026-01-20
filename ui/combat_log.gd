@@ -92,27 +92,21 @@ func _get_timestamp() -> String:
 func _on_npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int) -> void:
 	if UserSettings.level_log_mode == UserSettings.LogMode.OFF:
 		return
-	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
-	var npc_name: String = npc_manager.npc_names[npc_index] if npc_index >= 0 else ""
-	if npc_name.is_empty():
-		_pending_messages.append("%s%s %d->%d" % [_get_timestamp(), job_name, old_level, new_level])
-	else:
-		_pending_messages.append("%s%s the %s %d->%d" % [_get_timestamp(), npc_name, job_name, old_level, new_level])
+	var npc_name: String = npc_manager.npc_names[npc_index] if npc_index >= 0 else "NPC"
+	_pending_messages.append("%s%s %d->%d" % [_get_timestamp(), npc_name, old_level, new_level])
 	_log_dirty = true
 
 
-func _on_npc_died(npc_index: int, job: int, level: int, _town_idx: int, killer_job: int, killer_level: int) -> void:
+func _on_npc_died(npc_index: int, _job: int, level: int, _town_idx: int, killer_job: int, killer_level: int) -> void:
 	if UserSettings.death_log_mode == UserSettings.LogMode.OFF:
 		return
-	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
-	var npc_name: String = npc_manager.npc_names[npc_index] if npc_index >= 0 else ""
-	var display_name: String = "%s the %s" % [npc_name, job_name] if not npc_name.is_empty() else job_name
+	var npc_name: String = npc_manager.npc_names[npc_index] if npc_index >= 0 else "NPC"
 	var msg: String
 	if killer_job >= 0:
 		var killer_job_name: String = JOB_NAMES[killer_job] if killer_job < JOB_NAMES.size() else "NPC"
-		msg = "%s%s L%d killed by %s L%d" % [_get_timestamp(), display_name, level, killer_job_name, killer_level]
+		msg = "%s%s L%d killed by %s L%d" % [_get_timestamp(), npc_name, level, killer_job_name, killer_level]
 	else:
-		msg = "%s%s L%d died" % [_get_timestamp(), display_name, level]
+		msg = "%s%s L%d died" % [_get_timestamp(), npc_name, level]
 	_pending_messages.append(msg)
 	_log_dirty = true
 

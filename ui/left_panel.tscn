@@ -149,9 +149,24 @@ text = "▼ Inspector"
 layout_mode = 2
 theme_override_constants/separation = 2
 
-[node name="JobLevel" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
+[node name="NameRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/InspectorContent"]
 layout_mode = 2
+
+[node name="JobLevel" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent/NameRow"]
+layout_mode = 2
+size_flags_horizontal = 3
 text = "No selection"
+
+[node name="NameEdit" type="LineEdit" parent="Panel/MarginContainer/VBox/InspectorContent/NameRow"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="RenameBtn" type="Button" parent="Panel/MarginContainer/VBox/InspectorContent/NameRow"]
+custom_minimum_size = Vector2(24, 0)
+layout_mode = 2
+text = "✎"
+tooltip_text = "Rename"
 
 [node name="Town" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
 layout_mode = 2

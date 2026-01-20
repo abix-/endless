@@ -21,7 +21,9 @@ extends CanvasLayer
 @onready var perf_copy: Button = $Panel/MarginContainer/VBox/PerfContent/PerfRow/PerfCopy
 
 # Inspector labels
-@onready var job_level: Label = $Panel/MarginContainer/VBox/InspectorContent/JobLevel
+@onready var job_level: Label = $Panel/MarginContainer/VBox/InspectorContent/NameRow/JobLevel
+@onready var name_edit: LineEdit = $Panel/MarginContainer/VBox/InspectorContent/NameRow/NameEdit
+@onready var rename_btn: Button = $Panel/MarginContainer/VBox/InspectorContent/NameRow/RenameBtn
 @onready var town_label: Label = $Panel/MarginContainer/VBox/InspectorContent/Town
 @onready var health_bar: ProgressBar = $Panel/MarginContainer/VBox/InspectorContent/HealthRow/Bar
 @onready var health_value: Label = $Panel/MarginContainer/VBox/InspectorContent/HealthRow/Value
@@ -77,6 +79,9 @@ func _ready() -> void:
 	perf_copy.pressed.connect(_on_perf_copy_pressed)
 	follow_btn.toggled.connect(_on_follow_toggled)
 	copy_btn.pressed.connect(_on_copy_pressed)
+	rename_btn.pressed.connect(_on_rename_pressed)
+	name_edit.text_submitted.connect(_on_name_submitted)
+	name_edit.focus_exited.connect(_on_name_focus_lost)
 
 	# Get grid cells
 	var cells := stats_grid.get_children()
@@ -277,10 +282,9 @@ func _update_inspector() -> void:
 	var npc_name: String = npc_manager.npc_names[idx]
 	var trait: int = npc_manager.traits[idx]
 	var trait_name: String = NPCState.TRAIT_NAMES.get(trait, "")
-	if trait_name.is_empty():
-		job_level.text = "%s the %s Lv.%d" % [npc_name, job_name, level]
-	else:
-		job_level.text = "%s the %s %s Lv.%d" % [npc_name, trait_name, job_name, level]
+	job_level.text = "%s - %s Lv.%d" % [npc_name, job_name, level]
+	if not trait_name.is_empty():
+		job_level.text += " (%s)" % trait_name
 
 	# Town
 	var town_idx: int = npc_manager.town_indices[idx]
@@ -421,6 +425,31 @@ func _set_following(enabled: bool) -> void:
 	follow_btn.text = "Following" if enabled else "Follow"
 
 
+func _on_rename_pressed() -> void:
+	if last_idx < 0 or last_idx >= npc_manager.count:
+		return
+	name_edit.text = npc_manager.npc_names[last_idx]
+	job_level.visible = false
+	name_edit.visible = true
+	name_edit.grab_focus()
+	name_edit.select_all()
+
+
+func _on_name_submitted(new_name: String) -> void:
+	if last_idx >= 0 and last_idx < npc_manager.count and not new_name.strip_edges().is_empty():
+		npc_manager.npc_names[last_idx] = new_name.strip_edges()
+	_close_name_edit()
+
+
+func _on_name_focus_lost() -> void:
+	_close_name_edit()
+
+
+func _close_name_edit() -> void:
+	name_edit.visible = false
+	job_level.visible = true
+
+
 func _format_npc_data(i: int) -> String:
 	var lines: PackedStringArray = []
 	lines.append("NPC Export #%d" % i)
@@ -430,8 +459,9 @@ func _format_npc_data(i: int) -> String:
 	var npc_name: String = npc_manager.npc_names[i]
 	var trait: int = npc_manager.traits[i]
 	var trait_name: String = NPCState.TRAIT_NAMES.get(trait, "None")
-	lines.append("%s the %s Lv.%d" % [npc_name, job_name, npc_manager.levels[i]])
-	lines.append("Trait: %s" % trait_name)
+	lines.append("%s - %s Lv.%d" % [npc_name, job_name, npc_manager.levels[i]])
+	if not trait_name.is_empty():
+		lines.append("Trait: %s" % trait_name)
 
 	var town_idx: int = npc_manager.town_indices[i]
 	var town_name := "-"

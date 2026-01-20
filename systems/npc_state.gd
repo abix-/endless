@@ -38,7 +38,7 @@ const TRAIT_NAMES := {
 	Trait.LAZY: "Lazy",
 }
 
-# First names for NPCs (fantasy/medieval themed) - 48 names
+# First names for NPCs - 55 names
 const FIRST_NAMES := [
 	"Ada", "Aldric", "Bran", "Cara", "Dax", "Elara", "Finn", "Gwen",
 	"Hal", "Iris", "Jace", "Kira", "Liam", "Mira", "Nox", "Orin",
@@ -46,6 +46,7 @@ const FIRST_NAMES := [
 	"Xara", "Yara", "Zane", "Ash", "Bex", "Cole", "Dara", "Eli",
 	"Fay", "Gren", "Hope", "Ivo", "Jade", "Knox", "Luna", "Max",
 	"Neve", "Oak", "Pip", "Rue", "Sol", "Tara", "Uri", "Vera",
+	"Abix", "Charlie", "Tomato", "Potato", "John", "Steve", "Geoff",
 ]
 
 # Last names for NPCs - 100 names (48 × 100 = 4,800 unique combinations)
