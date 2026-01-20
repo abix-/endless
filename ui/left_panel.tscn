@@ -1,0 +1,236 @@
+[gd_scene load_steps=2 format=3 uid="uid://left_panel001"]
+
+[ext_resource type="Script" path="res://ui/left_panel.gd" id="1_script"]
+
+[node name="LeftPanel" type="CanvasLayer"]
+layer = 10
+script = ExtResource("1_script")
+
+[node name="Panel" type="PanelContainer" parent="."]
+offset_right = 220.0
+offset_bottom = 500.0
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="Panel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="StatsHeader" type="Button" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+alignment = 0
+text = "▼ Stats"
+
+[node name="StatsContent" type="VBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="StatsGrid" type="GridContainer" parent="Panel/MarginContainer/VBox/StatsContent"]
+layout_mode = 2
+theme_override_constants/h_separation = 8
+columns = 4
+
+[node name="H0" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+
+[node name="H1" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "Alive"
+
+[node name="H2" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "Dead"
+
+[node name="H3" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "Kills"
+
+[node name="R1L" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "Farmer"
+
+[node name="R1A" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "0"
+
+[node name="R1D" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "0"
+
+[node name="R1K" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "-"
+
+[node name="R2L" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "Guard"
+
+[node name="R2A" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "0"
+
+[node name="R2D" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "0"
+
+[node name="R2K" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "0"
+
+[node name="R3L" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "Raider"
+
+[node name="R3A" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "0"
+
+[node name="R3D" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "0"
+
+[node name="R3K" type="Label" parent="Panel/MarginContainer/VBox/StatsContent/StatsGrid"]
+layout_mode = 2
+text = "0"
+
+[node name="TimeLabel" type="Label" parent="Panel/MarginContainer/VBox/StatsContent"]
+layout_mode = 2
+text = "Day 1 - 06:00 (Day)"
+
+[node name="FoodLabel" type="Label" parent="Panel/MarginContainer/VBox/StatsContent"]
+layout_mode = 2
+text = "Food: 0 vs 0"
+
+[node name="Sep1" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="PerfHeader" type="Button" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+alignment = 0
+text = "▼ Performance"
+
+[node name="PerfContent" type="VBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="PerfLabel" type="RichTextLabel" parent="Panel/MarginContainer/VBox/PerfContent"]
+custom_minimum_size = Vector2(0, 80)
+layout_mode = 2
+fit_content = true
+text = "Loading..."
+
+[node name="PerfRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/PerfContent"]
+layout_mode = 2
+
+[node name="PerfToggle" type="Button" parent="Panel/MarginContainer/VBox/PerfContent/PerfRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "Detail: OFF"
+
+[node name="PerfCopy" type="Button" parent="Panel/MarginContainer/VBox/PerfContent/PerfRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Copy"
+
+[node name="Sep2" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="InspectorHeader" type="Button" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+alignment = 0
+text = "▼ Inspector"
+
+[node name="InspectorContent" type="VBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="JobLevel" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+text = "No selection"
+
+[node name="Town" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+text = "-"
+
+[node name="HealthRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent/HealthRow"]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+text = "HP"
+
+[node name="Bar" type="ProgressBar" parent="Panel/MarginContainer/VBox/InspectorContent/HealthRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+value = 1.0
+show_percentage = false
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent/HealthRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "0/0"
+horizontal_alignment = 2
+
+[node name="EnergyRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent/EnergyRow"]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+text = "Eng"
+
+[node name="Bar" type="ProgressBar" parent="Panel/MarginContainer/VBox/InspectorContent/EnergyRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 1.0
+value = 1.0
+show_percentage = false
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent/EnergyRow"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "0"
+horizontal_alignment = 2
+
+[node name="XP" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+text = "XP: 0/0"
+
+[node name="State" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+text = "Idle"
+
+[node name="Target" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+text = "Target: -"
+
+[node name="Stats" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+text = "Atk 0 | Rng 0 | Pos 0,0"
+
+[node name="Extra" type="Label" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+text = ""
+
+[node name="ButtonRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/InspectorContent"]
+layout_mode = 2
+
+[node name="FollowBtn" type="Button" parent="Panel/MarginContainer/VBox/InspectorContent/ButtonRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+toggle_mode = true
+text = "Follow"
+
+[node name="CopyBtn" type="Button" parent="Panel/MarginContainer/VBox/InspectorContent/ButtonRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Copy"

@@ -20,11 +20,15 @@ const TOOLTIPS := {
 	"guard_attack": "+10% guard damage per level",
 	"guard_range": "+5% guard attack range per level",
 	"guard_size": "+5% guard size per level",
+	"guard_attack_speed": "-8% attack cooldown per level\nGuards attack faster",
+	"guard_move_speed": "+5% guard movement speed per level",
 	"alert_radius": "+10% alert radius per level\nGuards detect enemies from farther",
 	"farm_yield": "+15% food production per level",
 	"farmer_hp": "+20% farmer HP per level",
 	"healing_rate": "+20% HP regen at fountain per level",
 	"food_efficiency": "10% chance per level to not consume food when eating",
+	"farmer_cap": "+2 max farmers per level",
+	"guard_cap": "+10 max guards per level",
 }
 
 var main: Node
@@ -45,9 +49,13 @@ func _ready() -> void:
 	_setup_row(vbox.get_node("AttackRow"), "guard_attack")
 	_setup_row(vbox.get_node("RangeRow"), "guard_range")
 	_setup_row(vbox.get_node("SizeRow"), "guard_size")
+	_setup_row(vbox.get_node("AtkSpeedRow"), "guard_attack_speed")
+	_setup_row(vbox.get_node("MoveSpeedRow"), "guard_move_speed")
 	_setup_row(vbox.get_node("AlertRow"), "alert_radius")
 	_setup_row(vbox.get_node("YieldRow"), "farm_yield")
 	_setup_row(vbox.get_node("FarmerHpRow"), "farmer_hp")
+	_setup_row(vbox.get_node("FarmerCapRow"), "farmer_cap")
+	_setup_row(vbox.get_node("GuardCapRow"), "guard_cap")
 	_setup_row(vbox.get_node("HealingRow"), "healing_rate")
 	_setup_row(vbox.get_node("EfficiencyRow"), "food_efficiency")
 
@@ -85,7 +93,7 @@ func _refresh() -> void:
 		var btn: Button = row[1]
 		var key: String = row[2]
 		var level: int = upgrades[key]
-		_refresh_row(level_label, btn, level, food)
+		_refresh_row(level_label, btn, level, food, key)
 
 
 func _refresh_stats() -> void:
@@ -124,15 +132,79 @@ func _refresh_stats() -> void:
 			spawn_label.text = "%dh" % hours_until
 
 
-func _refresh_row(level_label: Label, btn: Button, level: int, food: int) -> void:
-	level_label.text = str(level)
+func _refresh_row(level_label: Label, btn: Button, level: int, food: int, key: String = "") -> void:
+	level_label.text = "Lv%d" % level
+
 	if level >= Config.UPGRADE_MAX_LEVEL:
 		btn.text = "MAX"
 		btn.disabled = true
+		btn.tooltip_text = _get_upgrade_tooltip(key, level)
 	else:
 		var cost: int = Config.UPGRADE_COSTS[level]
 		btn.text = str(cost)
 		btn.disabled = food < cost
+		btn.tooltip_text = _get_upgrade_tooltip(key, level)
+
+
+func _get_effective_stat(key: String, level: int) -> String:
+	if level == 0:
+		return ""
+
+	match key:
+		"guard_health":
+			var mult: float = 1.0 + level * Config.UPGRADE_GUARD_HEALTH_BONUS
+			return "%.0f HP (+%d%%)" % [Config.GUARD_HP * mult, int(level * Config.UPGRADE_GUARD_HEALTH_BONUS * 100)]
+		"guard_attack":
+			var mult: float = 1.0 + level * Config.UPGRADE_GUARD_ATTACK_BONUS
+			return "%.1f dmg (+%d%%)" % [Config.GUARD_DAMAGE * mult, int(level * Config.UPGRADE_GUARD_ATTACK_BONUS * 100)]
+		"guard_range":
+			var mult: float = 1.0 + level * Config.UPGRADE_GUARD_RANGE_BONUS
+			return "%.0f rng (+%d%%)" % [Config.GUARD_RANGE * mult, int(level * Config.UPGRADE_GUARD_RANGE_BONUS * 100)]
+		"guard_size":
+			var bonus: float = level * Config.UPGRADE_GUARD_SIZE_BONUS
+			return "+%d%% size" % int(bonus * 100)
+		"guard_attack_speed":
+			var mult: float = 1.0 - level * Config.UPGRADE_GUARD_ATTACK_SPEED
+			return "%.2fs cd (-%d%%)" % [Config.ATTACK_COOLDOWN * mult, int(level * Config.UPGRADE_GUARD_ATTACK_SPEED * 100)]
+		"guard_move_speed":
+			var mult: float = 1.0 + level * Config.UPGRADE_GUARD_MOVE_SPEED
+			return "%.0f spd (+%d%%)" % [Config.MOVE_SPEED * mult, int(level * Config.UPGRADE_GUARD_MOVE_SPEED * 100)]
+		"alert_radius":
+			var mult: float = 1.0 + level * Config.UPGRADE_ALERT_RADIUS_BONUS
+			return "%.0f rad (+%d%%)" % [Config.ALERT_RADIUS * mult, int(level * Config.UPGRADE_ALERT_RADIUS_BONUS * 100)]
+		"farm_yield":
+			var mult: float = 1.0 + level * Config.UPGRADE_FARM_YIELD_BONUS
+			return "+%d%% yield" % int(level * Config.UPGRADE_FARM_YIELD_BONUS * 100)
+		"farmer_hp":
+			var mult: float = 1.0 + level * Config.UPGRADE_FARMER_HP_BONUS
+			return "%.0f HP (+%d%%)" % [Config.FARMER_HP * mult, int(level * Config.UPGRADE_FARMER_HP_BONUS * 100)]
+		"healing_rate":
+			var mult: float = 1.0 + level * Config.UPGRADE_HEALING_RATE_BONUS
+			return "+%d%% regen" % int(level * Config.UPGRADE_HEALING_RATE_BONUS * 100)
+		"food_efficiency":
+			var chance: float = level * Config.UPGRADE_FOOD_EFFICIENCY
+			return "%d%% free meals" % int(chance * 100)
+		"farmer_cap":
+			var cap: int = Config.MAX_FARMERS_PER_TOWN + level * Config.UPGRADE_FARMER_CAP_BONUS
+			return "%d max farmers" % cap
+		"guard_cap":
+			var cap: int = Config.MAX_GUARDS_PER_TOWN + level * Config.UPGRADE_GUARD_CAP_BONUS
+			return "%d max guards" % cap
+
+	return ""
+
+
+func _get_upgrade_tooltip(key: String, level: int) -> String:
+	var base_desc: String = TOOLTIPS.get(key, "")
+	var current_stat := _get_effective_stat(key, level)
+
+	if level >= Config.UPGRADE_MAX_LEVEL:
+		return "%s\nCurrent: %s (MAX)" % [base_desc, current_stat]
+
+	var next_stat := _get_effective_stat(key, level + 1)
+	if level > 0:
+		return "%s\nCurrent: %s\nNext: %s" % [base_desc, current_stat, next_stat]
+	return "%s\nNext: %s" % [base_desc, next_stat]
 
 
 func _on_upgrade_pressed(upgrade_key: String) -> void:

@@ -268,6 +268,7 @@ func on_arrival(i: int) -> void:
 			var work_pos: Vector2 = manager.work_positions[i]
 			if my_pos.distance_to(work_pos) < radius:
 				manager._state.set_state(i, NPCState.State.FARMING)
+				manager.wander_centers[i] = my_pos  # Stay near arrival spot
 			elif my_pos.distance_to(home_pos) < radius:
 				_try_eat_at_home(i)
 		# Raider arrived at camp
@@ -279,13 +280,19 @@ func on_arrival(i: int) -> void:
 
 
 func _try_eat_at_home(i: int) -> void:
-	# Try to consume food for instant recovery, otherwise rest slowly
-	if _has_food_available(i):
+	var energy: float = manager.energies[i]
+
+	# Only eat if starving (energy < 10), otherwise just rest
+	if energy < Config.ENERGY_STARVING and _has_food_available(i):
 		_consume_food(i)
 		manager._state.set_state(i, NPCState.State.OFF_DUTY)
 		decide_what_to_do(i)
-	else:
+	elif energy < Config.ENERGY_HUNGRY:
+		# Rest to recover energy slowly
 		manager._state.set_state(i, NPCState.State.RESTING)
+	else:
+		manager._state.set_state(i, NPCState.State.OFF_DUTY)
+		decide_what_to_do(i)
 
 
 func _has_food_available(i: int) -> bool:
@@ -308,17 +315,19 @@ func _consume_food(i: int) -> void:
 	if town_idx < 0:
 		return
 
-	var is_raider: bool = manager.jobs[i] == NPCState.Job.RAIDER
+	var job: int = manager.jobs[i]
+	var hp_before: float = manager.healths[i]
+	var energy_before: float = manager.energies[i]
+	var max_hp: float = manager.get_scaled_max_health(i)
 
 	# Food efficiency upgrade gives chance of free meal
 	var efficiency_level: int = manager.town_upgrades[town_idx].food_efficiency if town_idx >= 0 else 0
 	var free_chance: float = efficiency_level * Config.UPGRADE_FOOD_EFFICIENCY
 	if randf() >= free_chance:
 		# Signal main.gd to decrement food
-		manager.npc_ate_food.emit(town_idx, is_raider)
+		manager.npc_ate_food.emit(town_idx, job, hp_before, energy_before, max_hp)
 
 	# Restore to full health and energy
-	var max_hp: float = manager.get_scaled_max_health(i)
 	manager.healths[i] = max_hp
 	manager.energies[i] = Config.ENERGY_MAX
 	manager.mark_health_dirty(i)

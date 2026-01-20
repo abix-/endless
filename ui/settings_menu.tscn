@@ -14,9 +14,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -180.0
-offset_top = -120.0
+offset_top = -190.0
 offset_right = 180.0
-offset_bottom = 120.0
+offset_bottom = 190.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -84,6 +84,30 @@ size_flags_horizontal = 3
 text = "Spawn Log"
 
 [node name="Dropdown" type="OptionButton" parent="Panel/MarginContainer/VBox/SpawnLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="FoodLogRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/FoodLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Food Log"
+
+[node name="Dropdown" type="OptionButton" parent="Panel/MarginContainer/VBox/FoodLogRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TimestampRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/TimestampRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Log Timestamp"
+
+[node name="Dropdown" type="OptionButton" parent="Panel/MarginContainer/VBox/TimestampRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 

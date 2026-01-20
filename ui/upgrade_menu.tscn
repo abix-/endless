@@ -188,6 +188,44 @@ custom_minimum_size = Vector2(70, 0)
 layout_mode = 2
 text = "10"
 
+[node name="AtkSpeedRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/AtkSpeedRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "Atk Speed"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/AtkSpeedRow"]
+custom_minimum_size = Vector2(35, 0)
+layout_mode = 2
+text = "0"
+horizontal_alignment = 1
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/AtkSpeedRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "10"
+
+[node name="MoveSpeedRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/MoveSpeedRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "Move Spd"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/MoveSpeedRow"]
+custom_minimum_size = Vector2(35, 0)
+layout_mode = 2
+text = "0"
+horizontal_alignment = 1
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/MoveSpeedRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "10"
+
 [node name="AlertRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 
@@ -249,6 +287,44 @@ text = "0"
 horizontal_alignment = 1
 
 [node name="Button" type="Button" parent="Panel/MarginContainer/VBox/FarmerHpRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "10"
+
+[node name="FarmerCapRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/FarmerCapRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "Farmer Cap"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/FarmerCapRow"]
+custom_minimum_size = Vector2(35, 0)
+layout_mode = 2
+text = "0"
+horizontal_alignment = 1
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/FarmerCapRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "10"
+
+[node name="GuardCapRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/GuardCapRow"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+text = "Guard Cap"
+
+[node name="Level" type="Label" parent="Panel/MarginContainer/VBox/GuardCapRow"]
+custom_minimum_size = Vector2(35, 0)
+layout_mode = 2
+text = "0"
+horizontal_alignment = 1
+
+[node name="Button" type="Button" parent="Panel/MarginContainer/VBox/GuardCapRow"]
 custom_minimum_size = Vector2(70, 0)
 layout_mode = 2
 text = "10"

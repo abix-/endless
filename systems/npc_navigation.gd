@@ -4,8 +4,9 @@
 extends RefCounted
 class_name NPCNavigation
 
-const STATIONARY_STATES := [NPCState.State.IDLE, NPCState.State.RESTING, NPCState.State.FARMING, NPCState.State.OFF_DUTY, NPCState.State.ON_DUTY]
-const MOVING_STATES := [NPCState.State.WALKING, NPCState.State.PATROLLING, NPCState.State.RETURNING, NPCState.State.RAIDING, NPCState.State.FIGHTING, NPCState.State.FLEEING]
+# Bitmask for fast state checks (bit N = state N is stationary)
+# IDLE=0, RESTING=1, FARMING=5, OFF_DUTY=6, ON_DUTY=7
+const STATIONARY_MASK := (1 << 0) | (1 << 1) | (1 << 5) | (1 << 6) | (1 << 7)
 
 # Logic update intervals by state (in frames)
 const LOGIC_INTERVAL_COMBAT := 2    # Combat needs fast updates
@@ -14,15 +15,49 @@ const LOGIC_INTERVAL_IDLE := 30     # Stationary states barely need updates
 
 var manager: Node
 var separation_velocities: PackedVector2Array  # Smooth separation
+var cached_sizes: PackedFloat32Array  # Cached size scales to avoid sqrt() in hot loop
+
+# Sub-profiling (in ms)
+var profile_loop := 0.0      # Main loop overhead (iteration, state checks)
+var profile_sep := 0.0       # Separation calculations
+var profile_logic := 0.0     # Logic updates
+var profile_render := 0.0    # Render updates
+
+# Separation sub-profiling
+var profile_sep_grid := 0.0    # get_nearby call
+var profile_sep_loop := 0.0    # inner loop
+var sep_neighbor_count := 0    # total neighbors checked
+var sep_call_count := 0        # how many NPCs ran separation this frame
 
 signal arrived(npc_index: int)
 
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
 	separation_velocities.resize(manager.max_count)
+	cached_sizes.resize(manager.max_count)
 
 
-func process(delta: float) -> void:
+func update_cached_size(i: int) -> void:
+	cached_sizes[i] = manager.get_size_scale(manager.levels[i])
+
+
+var _profiling := false  # Set each frame from manager
+
+func process(delta: float, profiling: bool = false) -> void:
+	_profiling = profiling
+	var t_start := 0
+	var t_sep := 0
+	var t_logic := 0
+	var t_render := 0
+
+	if profiling:
+		t_start = Time.get_ticks_usec()
+		# Reset separation sub-profiling
+		profile_sep_grid = 0.0
+		profile_sep_loop = 0.0
+		sep_neighbor_count = 0
+		sep_call_count = 0
+
 	var frame: int = Engine.get_process_frames()
 
 	# Get camera position for LOD
@@ -30,141 +65,205 @@ func process(delta: float) -> void:
 	var camera: Camera2D = manager.get_viewport().get_camera_2d()
 	if camera:
 		cam_pos = camera.global_position
+	var cam_x: float = cam_pos.x
+	var cam_y: float = cam_pos.y
 
-	for i in manager.count:
-		if manager.healths[i] <= 0:
+	var frame_mod4: int = frame % 4
+
+	# Cache array references as locals (faster than member access)
+	var npc_count: int = manager.count
+	var healths: PackedFloat32Array = manager.healths
+	var states: PackedInt32Array = manager.states
+	var positions: PackedVector2Array = manager.positions
+	var intended_vels: PackedVector2Array = manager.intended_velocities
+	var last_logic: PackedInt32Array = manager.last_logic_frame
+
+	# LOD thresholds
+	var lod_near_sq: float = Config.LOD_NEAR_SQ
+	var lod_mid_sq: float = Config.LOD_MID_SQ
+	var lod_far_sq: float = Config.LOD_FAR_SQ
+
+	for i in npc_count:
+		if healths[i] <= 0.0:
 			continue
 
-		var state: int = manager.states[i]
-
-		# Stationary NPCs: skip entirely (huge savings)
-		if state in STATIONARY_STATES:
-			manager.intended_velocities[i] = Vector2.ZERO
-			continue
-
-		# LOD: skip distant NPCs on some frames
-		var dist_sq: float = manager.positions[i].distance_squared_to(cam_pos)
-		var lod_mult: int = _get_lod_multiplier(dist_sq)
-
-		# Determine if we should run logic this frame
-		var logic_interval: int = _get_logic_interval(state) * lod_mult
-		var frames_since_logic: int = frame - manager.last_logic_frame[i]
+		var state: int = states[i]
+		# Inline is_stationary: STATIONARY_MASK = 227
+		var is_stationary: bool = (227 & (1 << state)) != 0
+		if is_stationary:
+			intended_vels[i] = Vector2.ZERO
 
 		# Separation runs on its own stagger (every 4 frames per NPC)
-		# This is independent of logic updates to ensure smooth collision avoidance
-		if i % 4 == frame % 4:
-			_calc_separation(i)
+		# Stationary NPCs still need separation so they get pushed when walked into
+		if i % 4 == frame_mod4:
+			if profiling:
+				var t0 := Time.get_ticks_usec()
+				_calc_separation(i)
+				t_sep += Time.get_ticks_usec() - t0
+			else:
+				_calc_separation(i)
+
+		# Stationary NPCs skip logic updates but still need render for separation movement
+		if is_stationary:
+			if profiling:
+				var t0 := Time.get_ticks_usec()
+				_update_render(i, delta)
+				t_render += Time.get_ticks_usec() - t0
+			else:
+				_update_render(i, delta)
+			continue
+
+		# LOD: inline distance_squared_to and _get_lod_multiplier
+		var pos: Vector2 = positions[i]
+		var dx: float = pos.x - cam_x
+		var dy: float = pos.y - cam_y
+		var dist_sq: float = dx * dx + dy * dy
+
+		var lod_mult: int = 1
+		if dist_sq >= lod_far_sq:
+			lod_mult = 8
+		elif dist_sq >= lod_mid_sq:
+			lod_mult = 4
+		elif dist_sq >= lod_near_sq:
+			lod_mult = 2
+
+		# Inline _get_logic_interval
+		var logic_interval: int
+		if state == 2 or state == 3:  # FIGHTING, FLEEING
+			logic_interval = LOGIC_INTERVAL_COMBAT * lod_mult
+		elif state == 4 or state == 8 or state == 9 or state == 10:  # WALKING, PATROLLING, RAIDING, RETURNING
+			logic_interval = LOGIC_INTERVAL_MOVING * lod_mult
+		else:
+			logic_interval = LOGIC_INTERVAL_IDLE * lod_mult
+
+		var frames_since_logic: int = frame - last_logic[i]
 
 		if frames_since_logic >= logic_interval:
-			# LOGIC UPDATE: expensive calculations
-			_update_logic(i, delta * float(frames_since_logic), state)
-			manager.last_logic_frame[i] = frame
+			if profiling:
+				var t0 := Time.get_ticks_usec()
+				_update_logic(i, delta * float(frames_since_logic), state)
+				t_logic += Time.get_ticks_usec() - t0
+			else:
+				_update_logic(i, delta * float(frames_since_logic), state)
+			last_logic[i] = frame
 
-		# RENDER UPDATE: always apply stored velocity (cheap)
-		_update_render(i, delta)
+		if profiling:
+			var t0 := Time.get_ticks_usec()
+			_update_render(i, delta)
+			t_render += Time.get_ticks_usec() - t0
+		else:
+			_update_render(i, delta)
 
-
-func _get_logic_interval(state: int) -> int:
-	match state:
-		NPCState.State.FIGHTING, NPCState.State.FLEEING:
-			return LOGIC_INTERVAL_COMBAT
-		NPCState.State.WALKING, NPCState.State.PATROLLING, NPCState.State.RETURNING, NPCState.State.RAIDING:
-			return LOGIC_INTERVAL_MOVING
-		_:
-			return LOGIC_INTERVAL_IDLE
-
-
-func _get_lod_multiplier(dist_sq: float) -> int:
-	if dist_sq < Config.LOD_NEAR_SQ:
-		return 1
-	elif dist_sq < Config.LOD_MID_SQ:
-		return 2
-	elif dist_sq < Config.LOD_FAR_SQ:
-		return 4
-	else:
-		return 8
+	if profiling:
+		var t_end := Time.get_ticks_usec()
+		var total := t_end - t_start
+		profile_loop = (total - t_sep - t_logic - t_render) / 1000.0
+		profile_sep = t_sep / 1000.0
+		profile_logic = t_logic / 1000.0
+		profile_render = t_render / 1000.0
 
 
-func _update_logic(i: int, accumulated_delta: float, state: int) -> void:
+
+func _update_logic(i: int, _accumulated_delta: float, state: int) -> void:
 	# Calculate intended velocity based on state
-	match state:
-		NPCState.State.WALKING, NPCState.State.PATROLLING, NPCState.State.RETURNING, NPCState.State.RAIDING:
-			_calc_move_toward_target(i)
-		NPCState.State.FIGHTING:
-			_calc_move_toward_enemy(i)
-		NPCState.State.FLEEING:
-			_calc_move_toward_flee_target(i)
+	# WALKING=4, PATROLLING=8, RETURNING=10, RAIDING=9
+	if state == 4 or state == 8 or state == 9 or state == 10:
+		_calc_move_toward_target(i)
+	elif state == 2:  # FIGHTING
+		_calc_move_toward_enemy(i)
+	elif state == 3:  # FLEEING
+		_calc_move_toward_flee_target(i)
 
 
 func _update_render(i: int, delta: float) -> void:
-	# Apply stored velocity (cheap - just position += velocity * delta)
-	var velocity: Vector2 = manager.intended_velocities[i]
-	var sep_vel: Vector2 = separation_velocities[i]
+	var vel: Vector2 = manager.intended_velocities[i]
+	var sep: Vector2 = separation_velocities[i]
+	var vx: float = vel.x + sep.x
+	var vy: float = vel.y + sep.y
 
-	if velocity.length_squared() < 0.01 and sep_vel.length_squared() < 0.01:
+	if vx * vx + vy * vy < 0.01:
 		return
 
-	var my_pos: Vector2 = manager.positions[i]
-	var new_pos: Vector2 = my_pos + (velocity + sep_vel) * delta
+	var pos: Vector2 = manager.positions[i]
+	var new_x: float = pos.x + vx * delta
+	var new_y: float = pos.y + vy * delta
 
-	# Check for arrival (only if moving toward target)
-	var target: Vector2 = manager.targets[i]
-	var arrival_radius: float = manager.arrival_radii[i]
+	# Check for arrival (WALKING=4, PATROLLING=8, RETURNING=10, RAIDING=9)
 	var state: int = manager.states[i]
+	if state == 4 or state == 8 or state == 9 or state == 10:
+		var target: Vector2 = manager.targets[i]
+		var dx: float = target.x - pos.x
+		var dy: float = target.y - pos.y
+		var dist_sq: float = dx * dx + dy * dy
+		var arrival_r: float = manager.arrival_radii[i]
+		var move_sq: float = (vel.x * vel.x + vel.y * vel.y) * delta * delta
 
-	if state in [NPCState.State.WALKING, NPCState.State.PATROLLING, NPCState.State.RETURNING, NPCState.State.RAIDING]:
-		var dist_to_target: float = my_pos.distance_to(target)
-		var move_dist: float = velocity.length() * delta
-
-		if dist_to_target < arrival_radius or move_dist >= dist_to_target:
-			# Arrived - snap to target, clear velocity, emit signal
-			manager.positions[i] = target
+		if dist_sq < arrival_r * arrival_r or move_sq >= dist_sq:
+			# Don't snap to target - stay at current position (separation spreads them out)
 			manager.intended_velocities[i] = Vector2.ZERO
-			manager.last_logic_frame[i] = 0  # Force logic update next frame
+			manager.last_logic_frame[i] = 0
 			arrived.emit(i)
 			return
 
-	manager.positions[i] = new_pos
+	manager.positions[i] = Vector2(new_x, new_y)
+
+
+func _get_move_speed(i: int) -> float:
+	var speed: float = Config.MOVE_SPEED
+	# Apply move speed upgrade for guards
+	if manager.jobs[i] == 1:  # GUARD
+		var town_idx: int = manager.town_indices[i]
+		if town_idx >= 0 and town_idx < manager.town_upgrades.size():
+			var move_level: int = manager.town_upgrades[town_idx].guard_move_speed
+			if move_level > 0:
+				speed *= 1.0 + (move_level * Config.UPGRADE_GUARD_MOVE_SPEED)
+	return speed
 
 
 func _calc_move_toward_target(i: int) -> void:
-	var my_pos: Vector2 = manager.positions[i]
-	var target_pos: Vector2 = manager.targets[i]
-	var dist: float = my_pos.distance_to(target_pos)
+	var pos: Vector2 = manager.positions[i]
+	var target: Vector2 = manager.targets[i]
+	var dx: float = target.x - pos.x
+	var dy: float = target.y - pos.y
+	var dist_sq: float = dx * dx + dy * dy
+	var arrival_r: float = manager.arrival_radii[i]
 
-	if dist < manager.arrival_radii[i]:
+	if dist_sq < arrival_r * arrival_r:
 		manager.intended_velocities[i] = Vector2.ZERO
 	else:
-		var dir: Vector2 = my_pos.direction_to(target_pos)
-		manager.intended_velocities[i] = dir * Config.MOVE_SPEED
+		var dist: float = sqrt(dist_sq)
+		var speed: float = _get_move_speed(i)
+		manager.intended_velocities[i] = Vector2(dx / dist * speed, dy / dist * speed)
 
 
 func _calc_move_toward_enemy(i: int) -> void:
 	var target_idx: int = manager.current_targets[i]
 
-	if target_idx < 0 or manager.healths[target_idx] <= 0:
+	if target_idx < 0 or manager.healths[target_idx] <= 0.0:
 		manager.intended_velocities[i] = Vector2.ZERO
 		return
 
-	var my_pos: Vector2 = manager.positions[i]
-	var enemy_pos: Vector2 = manager.positions[target_idx]
-	var dist: float = my_pos.distance_to(enemy_pos)
+	var pos: Vector2 = manager.positions[i]
+	var enemy: Vector2 = manager.positions[target_idx]
+	var dx: float = enemy.x - pos.x
+	var dy: float = enemy.y - pos.y
+	var dist_sq: float = dx * dx + dy * dy
 	var attack_range: float = manager.attack_ranges[i]
 
-	if dist > attack_range:
-		var dir: Vector2 = my_pos.direction_to(enemy_pos)
-		manager.intended_velocities[i] = dir * Config.MOVE_SPEED
+	if dist_sq > attack_range * attack_range:
+		var dist: float = sqrt(dist_sq)
+		var speed: float = _get_move_speed(i)
+		manager.intended_velocities[i] = Vector2(dx / dist * speed, dy / dist * speed)
 	else:
 		manager.intended_velocities[i] = Vector2.ZERO
 
 
 func _calc_move_toward_flee_target(i: int) -> void:
-	var my_pos: Vector2 = manager.positions[i]
+	var pos: Vector2 = manager.positions[i]
 	var job: int = manager.jobs[i]
 
-	# Determine flee destination
 	var flee_target: Vector2
-	if job == NPCState.Job.RAIDER:
+	if job == 2:  # RAIDER
 		flee_target = manager.home_positions[i]
 	else:
 		var town_idx: int = manager.town_indices[i]
@@ -173,89 +272,160 @@ func _calc_move_toward_flee_target(i: int) -> void:
 		else:
 			flee_target = manager.home_positions[i]
 
-	var dir: Vector2 = my_pos.direction_to(flee_target)
-	manager.intended_velocities[i] = dir * Config.MOVE_SPEED * 1.2  # Flee faster
+	var dx: float = flee_target.x - pos.x
+	var dy: float = flee_target.y - pos.y
+	var dist: float = sqrt(dx * dx + dy * dy)
+	if dist > 0.001:
+		var speed: float = _get_move_speed(i) * 1.2  # Flee faster
+		manager.intended_velocities[i] = Vector2(dx / dist * speed, dy / dist * speed)
 
 
 func _calc_separation(i: int) -> void:
-	var my_pos: Vector2 = manager.positions[i]
-	var my_state: int = manager.states[i]
-	var my_size: float = manager.get_size_scale(manager.levels[i])
+	var t0 := 0
+	if _profiling:
+		t0 = Time.get_ticks_usec()
+		sep_call_count += 1
+
+	# Cache array references as locals (faster access)
+	var positions: PackedVector2Array = manager.positions
+	var targets: PackedVector2Array = manager.targets
+	var healths: PackedFloat32Array = manager.healths
+	var states: PackedInt32Array = manager.states
+	var sizes: PackedFloat32Array = cached_sizes
+
+	var my_pos: Vector2 = positions[i]
+	var my_size: float = sizes[i]
+	if my_size <= 0.0:
+		my_size = 1.0
 	var nearby: Array = manager._grid.get_nearby(my_pos)
-	var separation := Vector2.ZERO
-	var dodge := Vector2.ZERO
+	var nearby_count: int = nearby.size()
 
-	# Scale separation radius by size
+	var t1 := 0
+	if _profiling:
+		t1 = Time.get_ticks_usec()
+		profile_sep_grid += (t1 - t0) / 1000.0
+		sep_neighbor_count += nearby_count
+
+	if nearby_count <= 1:
+		separation_velocities[i] = Vector2.ZERO
+		return
+
+	var sep_x := 0.0
+	var sep_y := 0.0
+	var dodge_x := 0.0
+	var dodge_y := 0.0
 	var my_radius: float = Config.SEPARATION_RADIUS * my_size
+	var target_pos: Vector2 = targets[i]
+	var to_target: Vector2 = target_pos - my_pos
+	var to_target_len: float = sqrt(to_target.x * to_target.x + to_target.y * to_target.y)
+	var my_dir_x := 0.0
+	var my_dir_y := 0.0
+	if to_target_len > 0.001:
+		my_dir_x = to_target.x / to_target_len
+		my_dir_y = to_target.y / to_target_len
 
-	var i_am_moving: bool = my_state not in STATIONARY_STATES
-	var my_dir := Vector2.ZERO
-	if i_am_moving:
-		my_dir = my_pos.direction_to(manager.targets[i])
+	var sep_radius: float = Config.SEPARATION_RADIUS
 
-	for other_idx in nearby:
+	for j in nearby_count:
+		var other_idx: int = nearby[j]
 		if other_idx == i:
 			continue
-		if manager.healths[other_idx] <= 0:
+		if healths[other_idx] <= 0.0:
 			continue
 
-		var other_pos: Vector2 = manager.positions[other_idx]
-		var other_size: float = manager.get_size_scale(manager.levels[other_idx])
-		var combined_radius: float = (my_radius + Config.SEPARATION_RADIUS * other_size) * 0.5
+		var other_pos: Vector2 = positions[other_idx]
+		var diff_x: float = my_pos.x - other_pos.x
+		var diff_y: float = my_pos.y - other_pos.y
+		var dist_sq: float = diff_x * diff_x + diff_y * diff_y
+		if dist_sq <= 0.0:
+			continue
+
+		var other_size: float = sizes[other_idx]
+		if other_size <= 0.0:
+			other_size = 1.0
+		var combined_radius: float = (my_radius + sep_radius * other_size) * 0.5
 		var combined_radius_sq: float = combined_radius * combined_radius
 
-		var diff: Vector2 = my_pos - other_pos
-		var dist_sq: float = diff.length_squared()
+		if dist_sq < combined_radius_sq:
+			var other_state: int = states[other_idx]
+			# Inline is_stationary: STATIONARY_MASK = 227 (bits 0,1,5,6,7)
+			var other_stationary: bool = (227 & (1 << other_state)) != 0
 
-		if dist_sq > 0 and dist_sq < combined_radius_sq:
-			var other_state: int = manager.states[other_idx]
-			var other_stationary: bool = other_state in STATIONARY_STATES
-
-			# Push strength based on relative size
 			var push_strength: float = other_size / my_size
-			if i_am_moving and other_stationary:
+			if other_stationary:
 				push_strength *= 3.0
 
-			separation += diff.normalized() / sqrt(dist_sq) * push_strength
+			var inv_dist: float = 1.0 / sqrt(dist_sq)
+			var factor: float = inv_dist * inv_dist * push_strength
+			sep_x += diff_x * factor
+			sep_y += diff_y * factor
 
 		# TCP-like collision avoidance
 		var approach_radius_sq: float = combined_radius_sq * 4.0
-		if i_am_moving and dist_sq > 0 and dist_sq < approach_radius_sq:
-			var other_state: int = manager.states[other_idx]
-			var other_moving: bool = other_state not in STATIONARY_STATES
+		if dist_sq < approach_radius_sq:
+			var other_state: int = states[other_idx]
+			# Inline: not is_stationary
+			if (227 & (1 << other_state)) == 0:
+				var inv_dist: float = 1.0 / sqrt(dist_sq)
+				var to_other_x: float = -diff_x * inv_dist
+				var to_other_y: float = -diff_y * inv_dist
 
-			if other_moving:
-				var to_other: Vector2 = diff.normalized() * -1.0
-				var other_dir: Vector2 = other_pos.direction_to(manager.targets[other_idx])
-
-				var i_approach: float = my_dir.dot(to_other)
-				var they_approach: float = other_dir.dot(-to_other)
-
+				var i_approach: float = my_dir_x * to_other_x + my_dir_y * to_other_y
 				if i_approach > 0.3:
-					var perp: Vector2 = Vector2(-my_dir.y, my_dir.x)
-					var dodge_strength: float = 0.0
+					# Get other's direction
+					var other_target: Vector2 = targets[other_idx]
+					var otx: float = other_target.x - other_pos.x
+					var oty: float = other_target.y - other_pos.y
+					var ot_len: float = sqrt(otx * otx + oty * oty)
+					if ot_len > 0.001:
+						var other_dir_x: float = otx / ot_len
+						var other_dir_y: float = oty / ot_len
+						var they_approach: float = -(other_dir_x * to_other_x + other_dir_y * to_other_y)
 
-					if they_approach > 0.3:
-						dodge_strength = 0.5  # Head-on
-					elif they_approach < -0.3:
-						dodge_strength = 0.3  # Overtaking
-					else:
-						dodge_strength = 0.4  # Crossing
+						var perp_x: float = -my_dir_y
+						var perp_y: float = my_dir_x
+						var dodge_strength: float = 0.4
 
-					if i < other_idx:
-						dodge += perp * dodge_strength
-					else:
-						dodge -= perp * dodge_strength
+						if they_approach > 0.3:
+							dodge_strength = 0.5
+						elif they_approach < -0.3:
+							dodge_strength = 0.3
 
-	var final_vel := Vector2.ZERO
-	if separation.length_squared() > 0:
-		final_vel = separation.normalized() * Config.SEPARATION_STRENGTH
-	if dodge.length_squared() > 0:
-		final_vel += dodge.normalized() * Config.SEPARATION_STRENGTH * 0.7
+						if i < other_idx:
+							dodge_x += perp_x * dodge_strength
+							dodge_y += perp_y * dodge_strength
+						else:
+							dodge_x -= perp_x * dodge_strength
+							dodge_y -= perp_y * dodge_strength
 
-	separation_velocities[i] = final_vel
+	var final_x := 0.0
+	var final_y := 0.0
+	var sep_len_sq: float = sep_x * sep_x + sep_y * sep_y
+	if sep_len_sq > 0.0:
+		var sep_len: float = sqrt(sep_len_sq)
+		var sep_strength: float = Config.SEPARATION_STRENGTH
+		final_x = (sep_x / sep_len) * sep_strength
+		final_y = (sep_y / sep_len) * sep_strength
+
+	var dodge_len_sq: float = dodge_x * dodge_x + dodge_y * dodge_y
+	if dodge_len_sq > 0.0:
+		var dodge_len: float = sqrt(dodge_len_sq)
+		var dodge_strength: float = Config.SEPARATION_STRENGTH * 0.7
+		final_x += (dodge_x / dodge_len) * dodge_strength
+		final_y += (dodge_y / dodge_len) * dodge_strength
+
+	separation_velocities[i] = Vector2(final_x, final_y)
+
+	if _profiling:
+		profile_sep_loop += (Time.get_ticks_usec() - t1) / 1000.0
 
 
 # Force immediate logic update (call when state changes, damage taken, etc.)
 func force_logic_update(i: int) -> void:
 	manager.last_logic_frame[i] = 0
+
+
+# Reset cached velocities for a slot (call when reusing dead NPC slot)
+func reset_slot(i: int) -> void:
+	separation_velocities[i] = Vector2.ZERO
+	cached_sizes[i] = 1.0

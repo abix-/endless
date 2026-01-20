@@ -14,7 +14,6 @@ const SCAN_STAGGER := 8
 
 # NPC capacity
 const MAX_NPC_COUNT := 3000
-const RESPAWN_MINUTES := 720  # 12 hours
 
 # Combat distances
 const LEASH_DISTANCE := 400.0
@@ -52,9 +51,11 @@ const WORLD_MARGIN := 400  # Keep towns away from edges
 # Town settings
 const FARMERS_PER_TOWN := 10
 const GUARDS_PER_TOWN := 60
+const MAX_FARMERS_PER_TOWN := 10  # Population cap (can be upgraded)
+const MAX_GUARDS_PER_TOWN := 60   # Population cap (can be upgraded)
 const FARMS_PER_TOWN := 2
 const GUARD_POSTS_PER_TOWN := 6
-const RAIDERS_PER_CAMP := 30
+const RAIDERS_PER_CAMP := 15
 const CAMP_DISTANCE := 1100  # Distance from town to raider camp (past guard posts)
 const SPAWN_INTERVAL_HOURS := 4  # Hours between spawning new NPCs
 
@@ -86,7 +87,8 @@ const ENERGY_MAX := 100.0
 const ENERGY_SLEEP_GAIN := 12.0
 const ENERGY_REST_GAIN := 5.0
 const ENERGY_ACTIVITY_DRAIN := 6.0
-const ENERGY_HUNGRY := 50.0  # Go home to rest/eat when below this
+const ENERGY_HUNGRY := 50.0  # Go home to rest when below this
+const ENERGY_STARVING := 10.0  # Actually eat food when below this
 
 # Food
 const FOOD_PER_MEAL := 1
@@ -103,6 +105,8 @@ const UPGRADE_GUARD_HEALTH_BONUS := 0.1   # +10% HP per level
 const UPGRADE_GUARD_ATTACK_BONUS := 0.1   # +10% damage per level
 const UPGRADE_GUARD_RANGE_BONUS := 0.05   # +5% range per level
 const UPGRADE_GUARD_SIZE_BONUS := 0.05    # +5% size per level
+const UPGRADE_GUARD_ATTACK_SPEED := 0.08  # -8% cooldown per level (faster attacks)
+const UPGRADE_GUARD_MOVE_SPEED := 0.05    # +5% move speed per level
 # Economy upgrades
 const UPGRADE_FARM_YIELD_BONUS := 0.15    # +15% food per level
 const UPGRADE_FARMER_HP_BONUS := 0.2      # +20% farmer HP per level
@@ -111,3 +115,6 @@ const UPGRADE_HEALING_RATE_BONUS := 0.2   # +20% HP regen per level
 const UPGRADE_ALERT_RADIUS_BONUS := 0.1   # +10% alert radius per level
 # Utility upgrades
 const UPGRADE_FOOD_EFFICIENCY := 0.1      # -10% food cost per level (1.0, 0.9, 0.8...)
+# Population upgrades
+const UPGRADE_FARMER_CAP_BONUS := 2       # +2 max farmers per level
+const UPGRADE_GUARD_CAP_BONUS := 10       # +10 max guards per level

@@ -49,7 +49,6 @@ func _zoom_toward_mouse(zoom_factor: float) -> void:
 	var world_pos := global_position + mouse_offset / camera.zoom
 
 	# Apply zoom
-	var old_zoom := camera.zoom
 	camera.zoom *= zoom_factor
 	camera.zoom = camera.zoom.clamp(Vector2(min_zoom, min_zoom), Vector2(max_zoom, max_zoom))
 

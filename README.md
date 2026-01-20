@@ -40,7 +40,8 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Food delivery (raiders return loot to camp)
 - [x] Loot icon above raiders carrying food
 - [x] Per-town and per-camp food tracking in HUD
-- [x] Food consumption (NPCs eat from faction supply)
+- [x] Food consumption (NPCs eat only when energy < 10, rest otherwise)
+- [x] Population caps per town (upgradeable)
 - [ ] Starvation effects (HP drain, desertion)
 - [ ] Multiple resources (wood, iron, gold)
 - [ ] Production buildings (lumber mill, mine, blacksmith)
@@ -68,7 +69,8 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Recovery system (fleeing NPCs heal until 75% before resuming)
 - [x] 15-minute decision cycles (event-driven override on state changes)
 - [x] Building arrival based on sprite size (not pixel coordinates)
-- [x] Permadeath (no respawning, population spawn waves only)
+- [x] Permadeath (dead NPCs free slots for new spawns)
+- [x] Collision avoidance for all NPCs (stationary guards get pushed too)
 - [ ] AI lords that expand and compete
 
 ### NPC States
@@ -91,12 +93,15 @@ Activity-specific states (no translation layer):
 ### Player Controls
 - [x] WASD camera movement (configurable speed 100-2000)
 - [x] Mouse wheel zoom (0.1x - 4.0x, centers on cursor)
-- [x] Click to select and inspect NPCs (left panel with pin/copy)
+- [x] Click to select and inspect NPCs (inspector with follow/copy)
 - [x] Time controls (+/- speed, SPACE pause)
-- [x] Settings menu (ESC) with HP bar modes, scroll speed
+- [x] Settings menu (ESC) with HP bar modes, scroll speed, log filters
 - [x] First town is player-controlled (click fountain for upgrades)
-- [x] Guard upgrades: health, attack, range, size (10 levels each, costs food)
+- [x] Guard upgrades: health, attack, range, size, speed (10 levels each)
+- [x] Economy upgrades: farm yield, farmer HP, population caps
+- [x] Utility upgrades: healing rate, food efficiency
 - [x] Town management panel with population stats and spawn timer
+- [x] Resizable combat log at bottom of screen
 - [ ] Villager role assignment UI
 - [ ] Build/upgrade buildings
 - [ ] Train guards from population
@@ -155,10 +160,10 @@ entities/
 world/
   location.gd           # Sprite definitions, interaction radii
 ui/
-  hud.gd                # Stats, food tracking, combat log
-  settings_menu.gd      # Options menu
-  upgrade_menu.gd       # Town management, population stats
-  npc_inspector.gd      # Selected NPC details, pin/copy
+  left_panel.gd         # Stats, performance, NPC inspector (collapsible)
+  combat_log.gd         # Resizable event log at bottom
+  settings_menu.gd      # Options menu with log filters
+  upgrade_menu.gd       # Town management, upgrades, population caps
 ```
 
 ## Controls
@@ -180,12 +185,16 @@ Key values in `autoloads/config.gd`:
 
 | Setting | Value | Notes |
 |---------|-------|-------|
-| FARMERS_PER_TOWN | 10 | Food producers |
-| GUARDS_PER_TOWN | 60 | Town defense |
-| RAIDERS_PER_CAMP | 30 | Enemy forces |
+| FARMERS_PER_TOWN | 10 | Starting farmers |
+| GUARDS_PER_TOWN | 60 | Starting guards |
+| MAX_FARMERS_PER_TOWN | 10 | Population cap (upgradeable +2/level) |
+| MAX_GUARDS_PER_TOWN | 60 | Population cap (upgradeable +10/level) |
+| RAIDERS_PER_CAMP | 15 | Enemy forces |
 | GUARD_POSTS_PER_TOWN | 6 | Patrol points |
 | WORLD_SIZE | 8000x8000 | Play area |
 | MAX_NPC_COUNT | 3000 | Engine limit |
+| ENERGY_STARVING | 10 | Eat food threshold |
+| ENERGY_HUNGRY | 50 | Go home threshold |
 
 ## Credits
 

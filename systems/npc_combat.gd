@@ -169,10 +169,19 @@ func _stop_fleeing(i: int) -> void:
 		manager._decide_what_to_do(i)
 
 func _attack(attacker: int, victim: int) -> void:
-	manager.attack_timers[attacker] = Config.ATTACK_COOLDOWN
-	manager._renderer.trigger_flash(attacker)
-
+	var cooldown: float = Config.ATTACK_COOLDOWN
 	var job: int = manager.jobs[attacker]
+
+	# Apply attack speed upgrade for guards
+	if job == NPCState.Job.GUARD:
+		var town_idx: int = manager.town_indices[attacker]
+		if town_idx >= 0 and town_idx < manager.town_upgrades.size():
+			var atk_speed_level: int = manager.town_upgrades[town_idx].guard_attack_speed
+			if atk_speed_level > 0:
+				cooldown *= 1.0 - (atk_speed_level * Config.UPGRADE_GUARD_ATTACK_SPEED)
+
+	manager.attack_timers[attacker] = cooldown
+	manager._renderer.trigger_flash(attacker)
 	var is_ranged: bool = job == NPCState.Job.GUARD or job == NPCState.Job.RAIDER
 
 	if is_ranged and manager._projectiles:
@@ -224,6 +233,7 @@ func _die(i: int, killer: int = -1) -> void:
 	manager.current_targets[i] = -1
 	manager.positions[i] = Vector2(-9999, -9999)
 	manager._renderer.hide_npc(i)
+	manager.free_slot(i)
 
 func _alert_nearby_raiders(alerter_idx: int, target_idx: int) -> void:
 	var pos: Vector2 = manager.positions[alerter_idx]

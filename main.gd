@@ -4,18 +4,17 @@ var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
 var projectile_manager_scene: PackedScene = preload("res://systems/projectile_manager.tscn")
 var player_scene: PackedScene = preload("res://entities/player.tscn")
 var location_scene: PackedScene = preload("res://world/location.tscn")
-var hud_scene: PackedScene = preload("res://ui/hud.tscn")
+var left_panel_scene: PackedScene = preload("res://ui/left_panel.tscn")
 var settings_menu_scene: PackedScene = preload("res://ui/settings_menu.tscn")
 var upgrade_menu_scene: PackedScene = preload("res://ui/upgrade_menu.tscn")
-var npc_inspector_scene: PackedScene = preload("res://ui/npc_inspector.tscn")
+var combat_log_scene: PackedScene = preload("res://ui/combat_log.tscn")
 
 var npc_manager: Node
 var projectile_manager: Node
 var player: Node
-var hud: Node
+var left_panel: Node
 var settings_menu: Node
 var upgrade_menu: Node
-var npc_inspector: Node
 
 # World data
 var towns: Array = []  # Array of {center, farms, homes, camp, food}
@@ -24,6 +23,8 @@ var camp_food: PackedInt32Array  # Food stored in each raider camp
 var spawn_timers: PackedInt32Array  # Hours since last spawn per town
 var player_town_idx: int = 0  # First town is player-controlled
 var town_upgrades: Array = []  # Per-town upgrade levels
+var town_max_farmers: PackedInt32Array  # Population cap per town
+var town_max_guards: PackedInt32Array   # Population cap per town
 
 const NUM_TOWNS := 7
 const MIN_TOWN_DISTANCE := 1200  # Minimum distance between town centers
@@ -77,10 +78,14 @@ func _generate_world() -> void:
 	town_food.resize(NUM_TOWNS)
 	camp_food.resize(NUM_TOWNS)
 	spawn_timers.resize(NUM_TOWNS)
+	town_max_farmers.resize(NUM_TOWNS)
+	town_max_guards.resize(NUM_TOWNS)
 	for i in NUM_TOWNS:
 		town_food[i] = 0
 		camp_food[i] = 0
 		spawn_timers[i] = 0
+		town_max_farmers[i] = Config.MAX_FARMERS_PER_TOWN
+		town_max_guards[i] = Config.MAX_GUARDS_PER_TOWN
 
 	# Initialize town upgrades
 	for i in NUM_TOWNS:
@@ -89,11 +94,15 @@ func _generate_world() -> void:
 			"guard_attack": 0,
 			"guard_range": 0,
 			"guard_size": 0,
+			"guard_attack_speed": 0,
+			"guard_move_speed": 0,
 			"farm_yield": 0,
 			"farmer_hp": 0,
 			"healing_rate": 0,
 			"alert_radius": 0,
-			"food_efficiency": 0
+			"food_efficiency": 0,
+			"farmer_cap": 0,
+			"guard_cap": 0
 		})
 
 	# Generate scattered town positions
@@ -245,8 +254,8 @@ func _setup_player() -> void:
 
 
 func _setup_ui() -> void:
-	hud = hud_scene.instantiate()
-	add_child(hud)
+	left_panel = left_panel_scene.instantiate()
+	add_child(left_panel)
 
 	settings_menu = settings_menu_scene.instantiate()
 	add_child(settings_menu)
@@ -255,8 +264,8 @@ func _setup_ui() -> void:
 	upgrade_menu.upgrade_purchased.connect(_on_upgrade_purchased)
 	add_child(upgrade_menu)
 
-	npc_inspector = npc_inspector_scene.instantiate()
-	add_child(npc_inspector)
+	var combat_log = combat_log_scene.instantiate()
+	add_child(combat_log)
 
 
 func _spawn_npcs() -> void:
@@ -266,7 +275,6 @@ func _spawn_npcs() -> void:
 
 	for town_idx in towns.size():
 		var town: Dictionary = towns[town_idx]
-		var town_center: Vector2 = town.center
 		var homes: Array = town.homes
 		var farms: Array = town.farms
 		var camp = town.camp
@@ -351,28 +359,32 @@ func _spawn_town_npcs(town_idx: int) -> void:
 	var camp = town.camp
 	var town_center: Vector2 = town.center
 
-	# Spawn 1 farmer at fountain
-	var home = homes[randi() % homes.size()]
-	var farm = farms[randi() % farms.size()]
-	npc_manager.spawn_farmer(
-		town_center,
-		home.global_position,
-		farm.global_position,
-		town_idx
-	)
-	npc_manager.npc_spawned.emit(NPCState.Job.FARMER, town_idx)
+	# Spawn 1 farmer at fountain (if under cap)
+	var farmer_count: int = npc_manager.count_alive_by_job_and_town(NPCState.Job.FARMER, town_idx)
+	if farmer_count < town_max_farmers[town_idx]:
+		var home = homes[randi() % homes.size()]
+		var farm = farms[randi() % farms.size()]
+		npc_manager.spawn_farmer(
+			town_center,
+			home.global_position,
+			farm.global_position,
+			town_idx
+		)
+		npc_manager.npc_spawned.emit(NPCState.Job.FARMER, town_idx)
 
-	# Spawn 1 guard at fountain
-	home = homes[randi() % homes.size()]
-	var night_shift: bool = randi() % 2 == 1
-	npc_manager.spawn_guard(
-		town_center,
-		home.global_position,
-		home.global_position,
-		night_shift,
-		town_idx
-	)
-	npc_manager.npc_spawned.emit(NPCState.Job.GUARD, town_idx)
+	# Spawn 1 guard at fountain (if under cap)
+	var guard_count: int = npc_manager.count_alive_by_job_and_town(NPCState.Job.GUARD, town_idx)
+	if guard_count < town_max_guards[town_idx]:
+		var home = homes[randi() % homes.size()]
+		var night_shift: bool = randi() % 2 == 1
+		npc_manager.spawn_guard(
+			town_center,
+			home.global_position,
+			home.global_position,
+			night_shift,
+			town_idx
+		)
+		npc_manager.npc_spawned.emit(NPCState.Job.GUARD, town_idx)
 
 	# Spawn 1 raider at camp
 	npc_manager.spawn_raider(
@@ -388,8 +400,8 @@ func _on_raider_delivered_food(town_idx: int) -> void:
 		camp_food[town_idx] += 1
 
 
-func _on_npc_ate_food(town_idx: int, is_raider: bool) -> void:
-	if is_raider:
+func _on_npc_ate_food(town_idx: int, job: int, _hp_before: float, _energy_before: float, _hp_after: float) -> void:
+	if job == NPCState.Job.RAIDER:
 		if town_idx >= 0 and town_idx < camp_food.size():
 			camp_food[town_idx] -= Config.FOOD_PER_MEAL
 	else:
@@ -413,6 +425,14 @@ func _input(event: InputEvent) -> void:
 
 
 func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
+	# Handle population cap upgrades
+	if upgrade_type == "farmer_cap":
+		town_max_farmers[player_town_idx] = Config.MAX_FARMERS_PER_TOWN + new_level * Config.UPGRADE_FARMER_CAP_BONUS
+		return
+	if upgrade_type == "guard_cap":
+		town_max_guards[player_town_idx] = Config.MAX_GUARDS_PER_TOWN + new_level * Config.UPGRADE_GUARD_CAP_BONUS
+		return
+
 	# Apply upgrade to all guards in this town
 	npc_manager.apply_town_upgrade(player_town_idx, upgrade_type, new_level)
 

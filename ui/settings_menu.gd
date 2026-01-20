@@ -7,6 +7,8 @@ extends CanvasLayer
 @onready var death_log_dropdown: OptionButton = $Panel/MarginContainer/VBox/DeathLogRow/Dropdown
 @onready var level_log_dropdown: OptionButton = $Panel/MarginContainer/VBox/LevelLogRow/Dropdown
 @onready var spawn_log_dropdown: OptionButton = $Panel/MarginContainer/VBox/SpawnLogRow/Dropdown
+@onready var food_log_dropdown: OptionButton = $Panel/MarginContainer/VBox/FoodLogRow/Dropdown
+@onready var timestamp_dropdown: OptionButton = $Panel/MarginContainer/VBox/TimestampRow/Dropdown
 @onready var scroll_slider: HSlider = $Panel/MarginContainer/VBox/ScrollRow/Slider
 @onready var scroll_label: Label = $Panel/MarginContainer/VBox/ScrollRow/Value
 
@@ -41,6 +43,20 @@ func _ready() -> void:
 	spawn_log_dropdown.selected = UserSettings.spawn_log_mode
 	spawn_log_dropdown.item_selected.connect(_on_spawn_log_selected)
 
+	# Food log dropdown
+	food_log_dropdown.add_item("Off", 0)
+	food_log_dropdown.add_item("Own Faction", 1)
+	food_log_dropdown.add_item("All", 2)
+	food_log_dropdown.selected = UserSettings.food_log_mode
+	food_log_dropdown.item_selected.connect(_on_food_log_selected)
+
+	# Timestamp dropdown
+	timestamp_dropdown.add_item("Off", 0)
+	timestamp_dropdown.add_item("Time", 1)
+	timestamp_dropdown.add_item("Day+Time", 2)
+	timestamp_dropdown.selected = UserSettings.log_timestamp
+	timestamp_dropdown.item_selected.connect(_on_timestamp_selected)
+
 	# Scroll speed slider
 	scroll_slider.min_value = 100
 	scroll_slider.max_value = 2000
@@ -71,6 +87,14 @@ func _on_level_log_selected(index: int) -> void:
 
 func _on_spawn_log_selected(index: int) -> void:
 	UserSettings.set_spawn_log_mode(index)
+
+
+func _on_food_log_selected(index: int) -> void:
+	UserSettings.set_food_log_mode(index)
+
+
+func _on_timestamp_selected(index: int) -> void:
+	UserSettings.set_log_timestamp(index)
 
 
 func _on_scroll_changed(value: float) -> void:

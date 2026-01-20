@@ -11,9 +11,10 @@ signal npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int)
 @warning_ignore("unused_signal")  # Emitted from npc_needs.gd
 signal raider_delivered_food(town_idx: int)
 @warning_ignore("unused_signal")  # Emitted from npc_needs.gd
-signal npc_ate_food(town_idx: int, is_raider: bool)
+signal npc_ate_food(town_idx: int, job: int, hp_before: float, energy_before: float, hp_after: float)
 @warning_ignore("unused_signal")  # Emitted from npc_combat.gd
 signal npc_died(npc_index: int, job: int, level: int, town_idx: int, killer_job: int, killer_level: int)
+@warning_ignore("unused_signal")  # Emitted from main.gd
 signal npc_spawned(job: int, town_idx: int)
 
 const Location = preload("res://world/location.gd")
@@ -53,6 +54,7 @@ var camp_food: PackedInt32Array  # Reference to main's camp food (set by main.gd
 # Data arrays
 var count := 0
 var max_count := Config.MAX_NPC_COUNT
+var _free_slots: Array[int] = []  # Reusable slots from dead NPCs
 
 var positions: PackedVector2Array
 var velocities: PackedVector2Array
@@ -67,7 +69,6 @@ var attack_ranges: PackedFloat32Array
 var attack_timers: PackedFloat32Array
 var scan_timers: PackedFloat32Array
 var arrival_radii: PackedFloat32Array
-var death_times: PackedInt32Array
 
 var states: PackedInt32Array
 var factions: PackedInt32Array
@@ -177,7 +178,6 @@ func _init_arrays() -> void:
 	attack_timers.resize(max_count)
 	scan_timers.resize(max_count)
 	arrival_radii.resize(max_count)
-	death_times.resize(max_count)
 
 	states.resize(max_count)
 	factions.resize(max_count)
@@ -201,7 +201,6 @@ func _init_arrays() -> void:
 	intended_velocities.resize(max_count)
 
 	for i in max_count:
-		death_times[i] = -1
 		patrol_last_idx[i] = -1
 
 
@@ -220,22 +219,55 @@ func _init_systems() -> void:
 # MAIN LOOP
 # ============================================================
 
+var profile_grid := 0.0
+var profile_scan := 0.0
+var profile_combat := 0.0
+var profile_nav := 0.0
+var profile_projectiles := 0.0
+var profile_render := 0.0
+
 func _process(delta: float) -> void:
 	var t1 := Time.get_ticks_usec()
+	var profiling: bool = UserSettings.perf_metrics
+	var t := t1
 
 	_grid.rebuild()
+	if profiling:
+		var t2 := Time.get_ticks_usec()
+		profile_grid = (t2 - t) / 1000.0
+		t = t2
 
 	_combat.process_scanning(delta)
+	if profiling:
+		var t2 := Time.get_ticks_usec()
+		profile_scan = (t2 - t) / 1000.0
+		t = t2
+
 	_combat.process(delta)
-	_nav.process(delta)
+	if profiling:
+		var t2 := Time.get_ticks_usec()
+		profile_combat = (t2 - t) / 1000.0
+		t = t2
+
+	_nav.process(delta, profiling)
+	if profiling:
+		var t2 := Time.get_ticks_usec()
+		profile_nav = (t2 - t) / 1000.0
+		t = t2
 
 	if _projectiles:
 		_projectiles.process(delta)
+	if profiling:
+		var t2 := Time.get_ticks_usec()
+		profile_projectiles = (t2 - t) / 1000.0
+		t = t2
 
 	_renderer.update(delta)
 
-	var t2 := Time.get_ticks_usec()
-	last_loop_time = (t2 - t1) / 1000.0
+	var t_end := Time.get_ticks_usec()
+	if profiling:
+		profile_render = (t_end - t) / 1000.0
+	last_loop_time = (t_end - t1) / 1000.0
 
 	_update_selection()
 
@@ -270,14 +302,21 @@ func _update_counts() -> void:
 # ============================================================
 
 func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos: Vector2, night_worker: bool, flee: bool, hp: float, damage: float, attack_range: float, town_idx: int = -1) -> int:
-	if count >= max_count:
-		return -1
-
-	var i: int = count
-	count += 1
+	var i: int
+	if not _free_slots.is_empty():
+		# Reuse dead slot
+		i = _free_slots.pop_back()
+		_nav.reset_slot(i)
+	else:
+		# Append new slot
+		if count >= max_count:
+			return -1
+		i = count
+		count += 1
 
 	positions[i] = pos
 	velocities[i] = Vector2.ZERO
+	intended_velocities[i] = Vector2.ZERO
 	targets[i] = pos
 	wander_centers[i] = pos
 	home_positions[i] = home_pos
@@ -298,7 +337,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	attack_ranges[i] = attack_range
 	attack_timers[i] = 0.0
 	scan_timers[i] = randf() * Config.SCAN_INTERVAL
-	death_times[i] = -1
+	flash_timers[i] = 0.0
 
 	states[i] = State.IDLE
 	factions[i] = faction
@@ -343,6 +382,7 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 
 	_renderer.set_npc_sprite(i, job)
 	_renderer.set_visible_count(count)
+	_nav.update_cached_size(i)
 
 	_decide_what_to_do(i)
 
@@ -362,48 +402,29 @@ func spawn_raider(pos: Vector2, camp_pos: Vector2, town_idx: int) -> int:
 
 
 # ============================================================
-# RESPAWNING
+# SLOT MANAGEMENT
 # ============================================================
 
-func _check_respawns() -> void:
-	var current_time: int = WorldClock.get_total_minutes()
+func free_slot(i: int) -> void:
+	# Add dead NPC's slot to free list for reuse
+	_free_slots.append(i)
 
+
+# ============================================================
+# POPULATION COUNTING
+# ============================================================
+
+func count_alive_by_job_and_town(job: int, town_idx: int) -> int:
+	var found := 0
 	for i in count:
-		if healths[i] > 0:
+		if healths[i] <= 0:
 			continue
-		if death_times[i] < 0:
+		if jobs[i] != job:
 			continue
-
-		var time_dead: int = current_time - death_times[i]
-		if time_dead >= Config.RESPAWN_MINUTES:
-			_respawn(i)
-
-
-func _respawn(i: int) -> void:
-	# All NPCs respawn at home (camp for raiders)
-	positions[i] = home_positions[i]
-	wander_centers[i] = home_positions[i]
-
-	healths[i] = max_healths[i]
-	energies[i] = Config.ENERGY_MAX
-	attack_timers[i] = 0.0
-	scan_timers[i] = randf() * Config.SCAN_INTERVAL
-	death_times[i] = -1
-
-	states[i] = State.IDLE
-	current_targets[i] = -1
-	health_dirty[i] = 1
-	last_rendered[i] = 0
-	carrying_food[i] = 0
-
-	_renderer.show_npc(i, positions[i])
-	_renderer.set_npc_health_display(i, 1.0)
-
-	_decide_what_to_do(i)
-
-
-func record_death(i: int) -> void:
-	death_times[i] = WorldClock.get_total_minutes()
+		if town_indices[i] != town_idx:
+			continue
+		found += 1
+	return found
 
 
 # ============================================================
@@ -543,6 +564,7 @@ func grant_xp(i: int, amount: int) -> void:
 
 	# Emit once with start and end level
 	if levels[i] > start_level:
+		_nav.update_cached_size(i)
 		npc_leveled_up.emit(i, jobs[i], start_level, levels[i])
 
 
