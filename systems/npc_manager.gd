@@ -11,11 +11,11 @@ signal npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int)
 @warning_ignore("unused_signal")  # Emitted from npc_needs.gd
 signal raider_delivered_food(town_idx: int)
 @warning_ignore("unused_signal")  # Emitted from npc_needs.gd
-signal npc_ate_food(town_idx: int, job: int, hp_before: float, energy_before: float, hp_after: float)
+signal npc_ate_food(npc_index: int, town_idx: int, job: int, hp_before: float, energy_before: float, hp_after: float)
 @warning_ignore("unused_signal")  # Emitted from npc_combat.gd
 signal npc_died(npc_index: int, job: int, level: int, town_idx: int, killer_job: int, killer_level: int)
 @warning_ignore("unused_signal")  # Emitted from main.gd
-signal npc_spawned(job: int, town_idx: int)
+signal npc_spawned(npc_index: int, job: int, town_idx: int)
 
 const Location = preload("res://world/location.gd")
 const MAX_LEVEL := 9999

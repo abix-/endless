@@ -373,35 +373,35 @@ func _spawn_town_npcs(town_idx: int) -> void:
 	if farmer_count < town_max_farmers[town_idx]:
 		var home = homes[randi() % homes.size()]
 		var farm = farms[randi() % farms.size()]
-		npc_manager.spawn_farmer(
+		var farmer_idx: int = npc_manager.spawn_farmer(
 			town_center,
 			home.global_position,
 			farm.global_position,
 			town_idx
 		)
-		npc_manager.npc_spawned.emit(NPCState.Job.FARMER, town_idx)
+		npc_manager.npc_spawned.emit(farmer_idx, NPCState.Job.FARMER, town_idx)
 
 	# Spawn 1 guard at fountain (if under cap)
 	var guard_count: int = npc_manager.count_alive_by_job_and_town(NPCState.Job.GUARD, town_idx)
 	if guard_count < town_max_guards[town_idx]:
 		var home = homes[randi() % homes.size()]
 		var night_shift: bool = randi() % 2 == 1
-		npc_manager.spawn_guard(
+		var guard_idx: int = npc_manager.spawn_guard(
 			town_center,
 			home.global_position,
 			home.global_position,
 			night_shift,
 			town_idx
 		)
-		npc_manager.npc_spawned.emit(NPCState.Job.GUARD, town_idx)
+		npc_manager.npc_spawned.emit(guard_idx, NPCState.Job.GUARD, town_idx)
 
 	# Spawn 1 raider at camp
-	npc_manager.spawn_raider(
+	var raider_idx: int = npc_manager.spawn_raider(
 		camp.global_position,
 		camp.global_position,
 		town_idx
 	)
-	npc_manager.npc_spawned.emit(NPCState.Job.RAIDER, town_idx)
+	npc_manager.npc_spawned.emit(raider_idx, NPCState.Job.RAIDER, town_idx)
 
 
 func _on_raider_delivered_food(town_idx: int) -> void:
@@ -409,7 +409,7 @@ func _on_raider_delivered_food(town_idx: int) -> void:
 		camp_food[town_idx] += 1
 
 
-func _on_npc_ate_food(town_idx: int, job: int, _hp_before: float, _energy_before: float, _hp_after: float) -> void:
+func _on_npc_ate_food(_npc_index: int, town_idx: int, job: int, _hp_before: float, _energy_before: float, _hp_after: float) -> void:
 	if job == NPCState.Job.RAIDER:
 		if town_idx >= 0 and town_idx < camp_food.size():
 			camp_food[town_idx] -= Config.FOOD_PER_MEAL

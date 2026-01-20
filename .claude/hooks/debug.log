@@ -4471,3 +4471,16 @@ EOF
 19:44:22 - Running Unsanitize...
 19:44:23 - Unsanitize done
 19:44:23 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "consistent npc naming across inspector, floating label, and logs" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:44:25 - Event: PostToolUse
+19:44:25 - Tool: Bash
+19:44:25 - Command: (cd /c/code/endless && git add -A && git commit -m "consistent npc naming across inspector, floating label, and logs" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:44:25 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "consistent npc naming across inspector, floating label, and logs" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:44:25 - Running Sanitize...
+19:44:26 - Sanitize done
+19:48:20 - Event: PreToolUse
+19:48:20 - Tool: Bash
+19:48:20 - Command: cd /c/code/endless && git add -A && git commit -m "use consistent npc naming in all log messages" && git push
+19:48:20 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "use consistent npc naming in all log messages" && git push
+19:48:20 - Running Unsanitize...
+19:48:20 - Unsanitize done
+19:48:20 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "use consistent npc naming in all log messages" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

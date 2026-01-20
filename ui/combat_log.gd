@@ -124,15 +124,15 @@ func _format_npc(idx: int, job: int, level: int = -1) -> String:
 	return result
 
 
-func _on_npc_spawned(job: int, _town_idx: int) -> void:
+func _on_npc_spawned(npc_index: int, job: int, _town_idx: int) -> void:
 	if UserSettings.spawn_log_mode == UserSettings.LogMode.OFF:
 		return
-	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
-	_pending_messages.append("%s%s spawned" % [_get_timestamp(), job_name])
+	var display := _format_npc(npc_index, job)
+	_pending_messages.append("%s%s spawned" % [_get_timestamp(), display])
 	_log_dirty = true
 
 
-func _on_npc_ate_food(town_idx: int, job: int, hp_before: float, energy_before: float, hp_after: float) -> void:
+func _on_npc_ate_food(npc_index: int, town_idx: int, job: int, hp_before: float, energy_before: float, hp_after: float) -> void:
 	if UserSettings.food_log_mode == UserSettings.LogMode.OFF:
 		return
 	if UserSettings.food_log_mode == UserSettings.LogMode.OWN_FACTION:
@@ -140,9 +140,9 @@ func _on_npc_ate_food(town_idx: int, job: int, hp_before: float, energy_before: 
 			return
 		if not main_node or town_idx != main_node.player_town_idx:
 			return
-	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
+	var display := _format_npc(npc_index, job)
 	_pending_messages.append("%s%s ate (HP %.0f->%.0f, E %.0f->100)" % [
-		_get_timestamp(), job_name, hp_before, hp_after, energy_before
+		_get_timestamp(), display, hp_before, hp_after, energy_before
 	])
 	_log_dirty = true
 

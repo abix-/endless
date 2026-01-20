@@ -325,7 +325,7 @@ func _consume_food(i: int) -> void:
 	var free_chance: float = efficiency_level * Config.UPGRADE_FOOD_EFFICIENCY
 	if randf() >= free_chance:
 		# Signal main.gd to decrement food
-		manager.npc_ate_food.emit(town_idx, job, hp_before, energy_before, max_hp)
+		manager.npc_ate_food.emit(i, town_idx, job, hp_before, energy_before, max_hp)
 
 	# Restore to full health and energy
 	manager.healths[i] = max_hp
