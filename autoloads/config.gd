@@ -122,5 +122,5 @@ const UPGRADE_GUARD_CAP_BONUS := 10       # +10 max guards per level
 # Fountain upgrades
 const BASE_FOUNTAIN_RADIUS := 48.0        # Base healing radius (pixels)
 const UPGRADE_FOUNTAIN_RADIUS_BONUS := 24.0  # +24px per level
-# Grid upgrades
-const UPGRADE_GRID_RINGS := 1             # +1 ring per level (starts at 6x6, max 10x10)
+# Slot unlock
+const SLOT_UNLOCK_COST := 25              # Food cost to unlock adjacent slot

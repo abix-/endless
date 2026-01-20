@@ -150,8 +150,7 @@ func _generate_world() -> void:
 			"food_efficiency": 0,
 			"farmer_cap": 0,
 			"guard_cap": 0,
-			"fountain_radius": 0,
-			"grid_size": 0
+			"fountain_radius": 0
 		})
 
 	# Generate scattered town positions
@@ -198,8 +197,7 @@ func _generate_world() -> void:
 			"grid": grid,
 			"slots": slots,
 			"guard_posts": [],
-			"camp": null,
-			"grid_level": 0
+			"camp": null
 		}
 
 		# Create fountain at center (0,0)
@@ -333,6 +331,7 @@ func _setup_ui() -> void:
 	build_menu = build_menu_scene.instantiate()
 	build_menu.build_requested.connect(_on_build_requested)
 	build_menu.destroy_requested.connect(_on_destroy_requested)
+	build_menu.unlock_requested.connect(_on_unlock_requested)
 	add_child(build_menu)
 
 
@@ -501,7 +500,7 @@ func _input(event: InputEvent) -> void:
 		var world_pos: Vector2 = get_global_mouse_position()
 		var slot_info := _get_clicked_buildable_slot(world_pos)
 		if slot_info.slot_key != "":
-			build_menu.open(slot_info.slot_key, player_town_idx, event.position)
+			build_menu.open(slot_info.slot_key, player_town_idx, event.position, slot_info.locked)
 			get_viewport().set_input_as_handled()
 
 
@@ -513,10 +512,6 @@ func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
 	if upgrade_type == "guard_cap":
 		town_max_guards[player_town_idx] = Config.MAX_GUARDS_PER_TOWN + new_level * Config.UPGRADE_GUARD_CAP_BONUS
 		return
-	if upgrade_type == "grid_size":
-		_expand_town_grid(player_town_idx, new_level)
-		return
-
 	# Apply upgrade to all guards in this town
 	npc_manager.apply_town_upgrade(player_town_idx, upgrade_type, new_level)
 
@@ -528,10 +523,11 @@ func _draw_buildable_slots() -> void:
 	var town: Dictionary = towns[player_town_idx]
 	var grid: Dictionary = town.grid
 
+	# Draw unlocked empty slots with green +
 	for slot_key in town.slots.keys():
 		if slot_key in FIXED_SLOTS:
 			continue
-		if not slot_key in town.slots:
+		if not slot_key in grid:
 			continue
 
 		var slot_pos: Vector2 = grid[slot_key]
@@ -550,11 +546,35 @@ func _draw_buildable_slots() -> void:
 		if has_building or bed_count >= 4:
 			continue
 
-		# Draw + icon (half size)
+		# Draw + icon for buildable slots
 		var color := Color(0.5, 0.8, 0.5, 0.6)
 		var size := 6.0
 		draw_line(slot_pos + Vector2(-size, 0), slot_pos + Vector2(size, 0), color, 1.0)
 		draw_line(slot_pos + Vector2(0, -size), slot_pos + Vector2(0, size), color, 1.0)
+
+	# Draw adjacent locked slots with dim dotted corners
+	var adjacent := _get_adjacent_locked_slots(player_town_idx)
+	var locked_color := Color(0.6, 0.6, 0.6, 0.4)
+	var corner_size := 4.0
+	var half_slot := Config.TOWN_GRID_SPACING * 0.4
+
+	for slot_key in adjacent:
+		if not slot_key in grid:
+			continue
+		var slot_pos: Vector2 = grid[slot_key]
+		# Draw corner brackets to indicate locked expandable slot
+		# Top-left
+		draw_line(slot_pos + Vector2(-half_slot, -half_slot), slot_pos + Vector2(-half_slot + corner_size, -half_slot), locked_color, 1.0)
+		draw_line(slot_pos + Vector2(-half_slot, -half_slot), slot_pos + Vector2(-half_slot, -half_slot + corner_size), locked_color, 1.0)
+		# Top-right
+		draw_line(slot_pos + Vector2(half_slot, -half_slot), slot_pos + Vector2(half_slot - corner_size, -half_slot), locked_color, 1.0)
+		draw_line(slot_pos + Vector2(half_slot, -half_slot), slot_pos + Vector2(half_slot, -half_slot + corner_size), locked_color, 1.0)
+		# Bottom-left
+		draw_line(slot_pos + Vector2(-half_slot, half_slot), slot_pos + Vector2(-half_slot + corner_size, half_slot), locked_color, 1.0)
+		draw_line(slot_pos + Vector2(-half_slot, half_slot), slot_pos + Vector2(-half_slot, half_slot - corner_size), locked_color, 1.0)
+		# Bottom-right
+		draw_line(slot_pos + Vector2(half_slot, half_slot), slot_pos + Vector2(half_slot - corner_size, half_slot), locked_color, 1.0)
+		draw_line(slot_pos + Vector2(half_slot, half_slot), slot_pos + Vector2(half_slot, half_slot - corner_size), locked_color, 1.0)
 
 
 func _calculate_grid_positions(center: Vector2) -> Dictionary:
@@ -590,21 +610,32 @@ func _get_beds_from_town(town: Dictionary) -> Array:
 func _get_clicked_buildable_slot(world_pos: Vector2) -> Dictionary:
 	# Only check player's town
 	if player_town_idx < 0 or player_town_idx >= towns.size():
-		return {"slot_key": "", "town_idx": -1}
+		return {"slot_key": "", "town_idx": -1, "locked": false}
 
 	var town: Dictionary = towns[player_town_idx]
 	var grid: Dictionary = town.grid
 	var slot_radius: float = Config.TOWN_GRID_SPACING * 0.45  # Half slot size
 
-	# Check all slots in this town except fountain (0,0)
+	# Check unlocked slots except fountain (0,0)
 	for slot_key in town.slots.keys():
 		if slot_key == "0,0":
 			continue  # Fountain is indestructible
+		if not slot_key in grid:
+			continue
 		var slot_pos: Vector2 = grid[slot_key]
 		if world_pos.distance_to(slot_pos) < slot_radius:
-			return {"slot_key": slot_key, "town_idx": player_town_idx}
+			return {"slot_key": slot_key, "town_idx": player_town_idx, "locked": false}
 
-	return {"slot_key": "", "town_idx": -1}
+	# Check adjacent locked slots
+	var adjacent := _get_adjacent_locked_slots(player_town_idx)
+	for slot_key in adjacent:
+		if not slot_key in grid:
+			continue
+		var slot_pos: Vector2 = grid[slot_key]
+		if world_pos.distance_to(slot_pos) < slot_radius:
+			return {"slot_key": slot_key, "town_idx": player_town_idx, "locked": true}
+
+	return {"slot_key": "", "town_idx": -1, "locked": false}
 
 
 func _on_build_requested(slot_key: String, building_type: String) -> void:
@@ -698,24 +729,60 @@ func _on_destroy_requested(slot_key: String) -> void:
 	queue_redraw()
 
 
-func _expand_town_grid(town_idx: int, new_level: int) -> void:
+func _on_unlock_requested(slot_key: String) -> void:
+	_unlock_slot(player_town_idx, slot_key)
+
+
+func _get_adjacent_locked_slots(town_idx: int) -> Array:
 	if town_idx < 0 or town_idx >= towns.size():
-		return
+		return []
 
 	var town: Dictionary = towns[town_idx]
-	var grid: Dictionary = town.grid
-	var old_level: int = town.grid_level
+	var adjacent: Array = []
 
-	# Get the new grid keys for this level
-	var new_keys := _get_grid_keys_for_level(new_level)
+	# For each unlocked slot, check 4 neighbors
+	for slot_key in town.slots.keys():
+		var parts := slot_key.split(",")
+		var row: int = int(parts[0])
+		var col: int = int(parts[1])
 
-	# Add new slots that don't exist yet
-	for key in new_keys:
-		if not key in town.slots:
-			town.slots[key] = []
+		# Check 4 directions
+		for offset in [[-1, 0], [1, 0], [0, -1], [0, 1]]:
+			var nr: int = row + offset[0]
+			var nc: int = col + offset[1]
+			# Stay within max grid bounds
+			if nr < MAX_GRID_MIN or nr > MAX_GRID_MAX:
+				continue
+			if nc < MAX_GRID_MIN or nc > MAX_GRID_MAX:
+				continue
+			var neighbor_key := "%d,%d" % [nr, nc]
+			# If not already unlocked and not already in list
+			if not neighbor_key in town.slots and not neighbor_key in adjacent:
+				adjacent.append(neighbor_key)
 
-	town.grid_level = new_level
+	return adjacent
+
+
+func _unlock_slot(town_idx: int, slot_key: String) -> bool:
+	if town_idx < 0 or town_idx >= towns.size():
+		return false
+
+	var town: Dictionary = towns[town_idx]
+
+	# Check if slot is adjacent to an unlocked slot
+	var adjacent := _get_adjacent_locked_slots(town_idx)
+	if not slot_key in adjacent:
+		return false
+
+	# Check food cost
+	if town_food[town_idx] < Config.SLOT_UNLOCK_COST:
+		return false
+
+	# Unlock the slot
+	town_food[town_idx] -= Config.SLOT_UNLOCK_COST
+	town.slots[slot_key] = []
 	queue_redraw()
+	return true
 
 
 func _find_camp_position(town_center: Vector2, all_town_centers: Array[Vector2]) -> Vector2:

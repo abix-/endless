@@ -35,6 +35,10 @@ text = "Guard Post (25 food)"
 layout_mode = 2
 text = "Destroy"
 
+[node name="UnlockBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Unlock (25 food)"
+
 [node name="CloseBtn" type="Button" parent="Panel/VBox"]
 layout_mode = 2
 text = "Cancel"

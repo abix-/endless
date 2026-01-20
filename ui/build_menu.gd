@@ -4,6 +4,7 @@ extends CanvasLayer
 
 signal build_requested(slot_key: String, building_type: String)
 signal destroy_requested(slot_key: String)
+signal unlock_requested(slot_key: String)
 
 @onready var panel: PanelContainer = $Panel
 @onready var title_label: Label = $Panel/VBox/Title
@@ -11,6 +12,7 @@ signal destroy_requested(slot_key: String)
 @onready var bed_btn: Button = $Panel/VBox/BedBtn
 @onready var guard_post_btn: Button = $Panel/VBox/GuardPostBtn
 @onready var destroy_btn: Button = $Panel/VBox/DestroyBtn
+@onready var unlock_btn: Button = $Panel/VBox/UnlockBtn
 @onready var close_btn: Button = $Panel/VBox/CloseBtn
 
 const FARM_COST := 1  # TODO: restore to 50
@@ -21,6 +23,7 @@ const MAX_BEDS_PER_SLOT := 4
 var main_node: Node
 var current_slot_key: String = ""
 var current_town_idx: int = -1
+var current_is_locked: bool = false
 
 
 func _ready() -> void:
@@ -31,6 +34,7 @@ func _ready() -> void:
 	bed_btn.pressed.connect(_on_bed_pressed)
 	guard_post_btn.pressed.connect(_on_guard_post_pressed)
 	destroy_btn.pressed.connect(_on_destroy_pressed)
+	unlock_btn.pressed.connect(_on_unlock_pressed)
 	close_btn.pressed.connect(close)
 
 	panel.visible = false
@@ -51,11 +55,15 @@ func _input(event: InputEvent) -> void:
 			close()
 
 
-func open(slot_key: String, town_idx: int, screen_pos: Vector2) -> void:
+func open(slot_key: String, town_idx: int, screen_pos: Vector2, is_locked: bool = false) -> void:
 	current_slot_key = slot_key
 	current_town_idx = town_idx
+	current_is_locked = is_locked
 
-	title_label.text = "Build in %s" % slot_key.to_upper()
+	if is_locked:
+		title_label.text = "Unlock %s" % slot_key.to_upper()
+	else:
+		title_label.text = "Build in %s" % slot_key.to_upper()
 
 	_refresh_buttons()
 
@@ -74,6 +82,7 @@ func close() -> void:
 	panel.visible = false
 	current_slot_key = ""
 	current_town_idx = -1
+	current_is_locked = false
 
 
 func _refresh_buttons() -> void:
@@ -81,6 +90,24 @@ func _refresh_buttons() -> void:
 		return
 
 	var food: int = main_node.town_food[current_town_idx]
+
+	# Handle locked slots - show only unlock button
+	if current_is_locked:
+		farm_btn.visible = false
+		bed_btn.visible = false
+		guard_post_btn.visible = false
+		destroy_btn.visible = false
+		unlock_btn.visible = true
+		unlock_btn.text = "Unlock (%d food)" % Config.SLOT_UNLOCK_COST
+		unlock_btn.disabled = food < Config.SLOT_UNLOCK_COST
+		return
+
+	# Unlocked slot - show build options
+	unlock_btn.visible = false
+	farm_btn.visible = true
+	bed_btn.visible = true
+	guard_post_btn.visible = true
+
 	var town: Dictionary = main_node.towns[current_town_idx]
 	var slot_contents: Array = town.slots[current_slot_key]
 
@@ -131,6 +158,11 @@ func _on_guard_post_pressed() -> void:
 
 func _on_destroy_pressed() -> void:
 	destroy_requested.emit(current_slot_key)
+	close()
+
+
+func _on_unlock_pressed() -> void:
+	unlock_requested.emit(current_slot_key)
 	close()
 
 
