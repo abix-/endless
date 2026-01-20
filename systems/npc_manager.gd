@@ -50,6 +50,8 @@ var town_centers: Array[Vector2] = []  # Fountain at center of each town
 var town_upgrades: Array = []  # Reference to main's upgrade data
 var town_policies: Array = []  # Reference to main's policy data
 var town_food: PackedInt32Array  # Reference to main's town food (set by main.gd)
+var beds_by_town: Array[Array] = []  # Per-town arrays of bed positions
+var bed_occupants: Array[PackedInt32Array] = []  # Per-town: bed index -> NPC index (-1 = free)
 var camp_food: PackedInt32Array  # Reference to main's camp food (set by main.gd)
 
 # Data arrays
@@ -87,6 +89,7 @@ var xp: PackedInt32Array
 var carrying_food: PackedInt32Array  # Raiders carrying stolen food
 var town_indices: PackedInt32Array  # Which town/camp this NPC belongs to
 var size_bonuses: PackedFloat32Array  # Size bonus from upgrades
+var current_bed_idx: PackedInt32Array  # Which bed this NPC is using (-1 = none)
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
@@ -199,6 +202,7 @@ func _init_arrays() -> void:
 	carrying_food.resize(max_count)
 	town_indices.resize(max_count)
 	size_bonuses.resize(max_count)
+	current_bed_idx.resize(max_count)
 	patrol_target_idx.resize(max_count)
 	patrol_last_idx.resize(max_count)
 	patrol_timer.resize(max_count)
@@ -209,6 +213,7 @@ func _init_arrays() -> void:
 
 	for i in max_count:
 		patrol_last_idx[i] = -1
+		current_bed_idx[i] = -1
 		npc_names[i] = ""
 		traits[i] = NPCState.Trait.NONE
 
@@ -561,6 +566,79 @@ func find_nearest_farm(pos: Vector2) -> Vector2:
 			nearest = farm_pos
 
 	return nearest
+
+
+# ============================================================
+# BED MANAGEMENT
+# ============================================================
+
+func find_closest_free_bed(town_idx: int, pos: Vector2) -> int:
+	if town_idx < 0 or town_idx >= beds_by_town.size():
+		return -1
+
+	var beds: Array = beds_by_town[town_idx]
+	var occupants: PackedInt32Array = bed_occupants[town_idx]
+
+	var best_idx := -1
+	var best_dist_sq := INF
+
+	for bed_idx in beds.size():
+		if occupants[bed_idx] >= 0:
+			continue  # Bed occupied
+		var bed_pos: Vector2 = beds[bed_idx]
+		var dist_sq: float = pos.distance_squared_to(bed_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_idx = bed_idx
+
+	return best_idx
+
+
+func reserve_bed(town_idx: int, bed_idx: int, npc_idx: int) -> void:
+	if town_idx < 0 or town_idx >= bed_occupants.size():
+		return
+	if bed_idx < 0 or bed_idx >= bed_occupants[town_idx].size():
+		return
+
+	bed_occupants[town_idx][bed_idx] = npc_idx
+	current_bed_idx[npc_idx] = bed_idx
+
+
+func release_bed(npc_idx: int) -> void:
+	var bed_idx: int = current_bed_idx[npc_idx]
+	if bed_idx < 0:
+		return
+
+	var town_idx: int = town_indices[npc_idx]
+	if town_idx >= 0 and town_idx < bed_occupants.size():
+		if bed_idx < bed_occupants[town_idx].size():
+			bed_occupants[town_idx][bed_idx] = -1
+
+	current_bed_idx[npc_idx] = -1
+
+
+func get_bed_position(town_idx: int, bed_idx: int) -> Vector2:
+	if town_idx < 0 or town_idx >= beds_by_town.size():
+		return Vector2.ZERO
+	if bed_idx < 0 or bed_idx >= beds_by_town[town_idx].size():
+		return Vector2.ZERO
+	return beds_by_town[town_idx][bed_idx]
+
+
+func get_free_bed_count(town_idx: int) -> int:
+	if town_idx < 0 or town_idx >= bed_occupants.size():
+		return 0
+	var free := 0
+	for occupant in bed_occupants[town_idx]:
+		if occupant < 0:
+			free += 1
+	return free
+
+
+func get_total_bed_count(town_idx: int) -> int:
+	if town_idx < 0 or town_idx >= beds_by_town.size():
+		return 0
+	return beds_by_town[town_idx].size()
 
 
 # ============================================================

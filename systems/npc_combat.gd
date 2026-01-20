@@ -262,6 +262,9 @@ func _die(i: int, killer: int = -1) -> void:
 		var xp_gained: int = manager.levels[i]
 		manager.grant_xp(killer, xp_gained)
 
+	# Release any reserved bed
+	manager.release_bed(i)
+
 	manager.healths[i] = 0
 	manager._state.set_state(i, NPCState.State.IDLE)
 	manager.current_targets[i] = -1

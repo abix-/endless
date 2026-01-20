@@ -45,6 +45,7 @@ layout_mode = 2
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Eat Food"
+tooltip_text = "NPCs consume food to restore HP and energy"
 
 [node name="CheckBox" type="CheckBox" parent="Panel/MarginContainer/VBox/EatFoodRow"]
 layout_mode = 2
@@ -57,6 +58,7 @@ layout_mode = 2
 custom_minimum_size = Vector2(90, 0)
 layout_mode = 2
 text = "Farmer Flee"
+tooltip_text = "HP% threshold at which farmers flee from combat"
 
 [node name="Slider" type="HSlider" parent="Panel/MarginContainer/VBox/FarmerFleeRow"]
 custom_minimum_size = Vector2(100, 0)
@@ -78,6 +80,7 @@ layout_mode = 2
 custom_minimum_size = Vector2(90, 0)
 layout_mode = 2
 text = "Guard Flee"
+tooltip_text = "HP% threshold at which guards flee from combat"
 
 [node name="Slider" type="HSlider" parent="Panel/MarginContainer/VBox/GuardFleeRow"]
 custom_minimum_size = Vector2(100, 0)
@@ -99,6 +102,7 @@ layout_mode = 2
 custom_minimum_size = Vector2(90, 0)
 layout_mode = 2
 text = "Recovery HP"
+tooltip_text = "HP% at which NPCs stop healing and resume work"
 
 [node name="Slider" type="HSlider" parent="Panel/MarginContainer/VBox/RecoveryRow"]
 custom_minimum_size = Vector2(100, 0)
@@ -175,6 +179,7 @@ layout_mode = 2
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Work Schedule"
+tooltip_text = "When NPCs work: day shift, night shift, or both"
 
 [node name="Option" type="OptionButton" parent="Panel/MarginContainer/VBox/ScheduleRow"]
 layout_mode = 2

@@ -22,6 +22,7 @@ var town_idx: int = -1
 
 
 func _ready() -> void:
+	add_to_group("policies_panel")
 	await get_tree().process_frame
 	main_node = get_parent()
 	if main_node and "player_town_idx" in main_node:

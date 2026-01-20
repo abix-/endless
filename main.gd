@@ -31,12 +31,12 @@ var town_max_farmers: PackedInt32Array  # Population cap per town
 var town_max_guards: PackedInt32Array   # Population cap per town
 var town_policies: Array = []  # Per-town faction policies
 
-# Grid slot keys - max 10x10 grid (-4 to +5)
-# Town starts at 6x6 (-2 to +3), expands with grid_size upgrade
+# Grid slot keys - max 31x31 grid (-15 to +15)
+# Town starts at 6x6 (-2 to +3), expands by unlocking adjacent slots
 const BASE_GRID_MIN := -2
 const BASE_GRID_MAX := 3
-const MAX_GRID_MIN := -4
-const MAX_GRID_MAX := 5
+const MAX_GRID_MIN := -15
+const MAX_GRID_MAX := 15
 
 # Fixed slots: center area (0,0), (0,1), farms at (0,-1), (1,-1)
 const FIXED_SLOTS := ["0,0", "0,1", "0,-1", "1,-1"]
@@ -239,18 +239,20 @@ func _generate_world() -> void:
 		add_child(farm_e)
 		town_data.slots["0,1"].append({"type": "farm", "node": farm_e})
 
-		# Create initial beds in (-1,-1) slot (4 beds in 2x2 grid)
-		for bed_idx in 4:
-			var bed_offset := Vector2(
-				(bed_idx % 2 - 0.5) * 16,
-				(floorf(bed_idx / 2.0) - 0.5) * 16
-			)
-			var bed = location_scene.instantiate()
-			bed.location_name = "%s Bed" % town_name
-			bed.location_type = "home"
-			bed.global_position = grid["-1,-1"] + bed_offset
-			add_child(bed)
-			town_data.slots["-1,-1"].append({"type": "bed", "node": bed})
+		# Create initial beds in 4 inner corner slots (4 beds each = 16 total)
+		var bed_slots := ["-1,-1", "-1,2", "2,-1", "2,2"]
+		for slot_key in bed_slots:
+			for bed_idx in 4:
+				var bed_offset := Vector2(
+					(bed_idx % 2 - 0.5) * 16,
+					(floorf(bed_idx / 2.0) - 0.5) * 16
+				)
+				var bed = location_scene.instantiate()
+				bed.location_name = "%s Bed" % town_name
+				bed.location_type = "home"
+				bed.global_position = grid[slot_key] + bed_offset
+				add_child(bed)
+				town_data.slots[slot_key].append({"type": "bed", "node": bed})
 
 		# Create guard posts at corners of initial grid
 		var corner_keys := _get_corner_keys(0)
@@ -305,6 +307,20 @@ func _setup_managers() -> void:
 	# Pass town centers (fountains) for flee destinations
 	for town in towns:
 		npc_manager.town_centers.append(town.center)
+
+	# Pass bed positions per town and initialize occupancy arrays
+	for town in towns:
+		var beds := _get_beds_from_town(town)
+		var bed_positions: Array[Vector2] = []
+		for bed in beds:
+			bed_positions.append(bed.global_position)
+		npc_manager.beds_by_town.append(bed_positions)
+		# Initialize occupancy: -1 = free
+		var occupants: PackedInt32Array
+		occupants.resize(bed_positions.size())
+		for bi in bed_positions.size():
+			occupants[bi] = -1
+		npc_manager.bed_occupants.append(occupants)
 
 	# Pass town upgrades and policies references
 	npc_manager.town_upgrades = town_upgrades
@@ -694,6 +710,10 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		bed.global_position = slot_pos + bed_offset
 		add_child(bed)
 		town.slots[slot_key].append({"type": "bed", "node": bed})
+		# Add to bed tracking
+		if player_town_idx < npc_manager.beds_by_town.size():
+			npc_manager.beds_by_town[player_town_idx].append(bed.global_position)
+			npc_manager.bed_occupants[player_town_idx].append(-1)
 
 	elif building_type == "guard_post":
 		var post = location_scene.instantiate()
@@ -741,6 +761,20 @@ func _on_destroy_requested(slot_key: String) -> void:
 				if town.guard_posts[gi] == node:
 					town.guard_posts.remove_at(gi)
 					break
+		elif btype == "bed":
+			var pos: Vector2 = node.global_position
+			if player_town_idx < npc_manager.beds_by_town.size():
+				var beds: Array = npc_manager.beds_by_town[player_town_idx]
+				for bi in beds.size():
+					if beds[bi] == pos:
+						# Release bed if occupied
+						var occupant: int = npc_manager.bed_occupants[player_town_idx][bi]
+						if occupant >= 0:
+							npc_manager.current_bed_idx[occupant] = -1
+						# Remove from arrays
+						beds.remove_at(bi)
+						npc_manager.bed_occupants[player_town_idx].remove_at(bi)
+						break
 
 		node.queue_free()
 

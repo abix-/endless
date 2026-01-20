@@ -14,6 +14,10 @@ extends CanvasLayer
 @onready var stats_grid: GridContainer = $Panel/MarginContainer/VBox/StatsContent/StatsGrid
 @onready var time_label: Label = $Panel/MarginContainer/VBox/StatsContent/TimeLabel
 @onready var food_label: Label = $Panel/MarginContainer/VBox/StatsContent/FoodLabel
+@onready var bed_label: Label = $Panel/MarginContainer/VBox/StatsContent/BedLabel
+@onready var upgrades_btn: Button = $Panel/MarginContainer/VBox/StatsContent/TownButtons/UpgradesBtn
+@onready var roster_btn: Button = $Panel/MarginContainer/VBox/StatsContent/TownButtons/RosterBtn
+@onready var policies_btn: Button = $Panel/MarginContainer/VBox/StatsContent/TownButtons/PoliciesBtn
 
 # Perf labels
 @onready var perf_label: RichTextLabel = $Panel/MarginContainer/VBox/PerfContent/PerfLabel
@@ -83,6 +87,9 @@ func _ready() -> void:
 	rename_btn.pressed.connect(_on_rename_pressed)
 	name_edit.text_submitted.connect(_on_name_submitted)
 	name_edit.focus_exited.connect(_on_name_focus_lost)
+	upgrades_btn.pressed.connect(_on_upgrades_pressed)
+	roster_btn.pressed.connect(_on_roster_pressed)
+	policies_btn.pressed.connect(_on_policies_pressed)
 
 	# Get grid cells
 	var cells := stats_grid.get_children()
@@ -179,6 +186,13 @@ func _update_stats() -> void:
 			town_total += main_node.town_food[i]
 			camp_total += main_node.camp_food[i]
 		food_label.text = "Food: %d vs %d" % [town_total, camp_total]
+
+	# Beds (player's town)
+	if main_node and "player_town_idx" in main_node:
+		var player_town: int = main_node.player_town_idx
+		var free_beds: int = npc_manager.get_free_bed_count(player_town)
+		var total_beds: int = npc_manager.get_total_bed_count(player_town)
+		bed_label.text = "Beds: %d/%d" % [free_beds, total_beds]
 
 
 func _update_perf() -> void:
@@ -521,3 +535,21 @@ func _save_collapse_state() -> void:
 		"perf": perf_content.visible,
 		"inspector": inspector_content.visible
 	})
+
+
+func _on_upgrades_pressed() -> void:
+	var upgrade_menu = get_tree().get_first_node_in_group("upgrade_menu")
+	if upgrade_menu and upgrade_menu.has_method("open"):
+		upgrade_menu.open()
+
+
+func _on_roster_pressed() -> void:
+	var roster_panel = get_tree().get_first_node_in_group("roster_panel")
+	if roster_panel and roster_panel.has_method("open"):
+		roster_panel.open()
+
+
+func _on_policies_pressed() -> void:
+	var policies_panel = get_tree().get_first_node_in_group("policies_panel")
+	if policies_panel and policies_panel.has_method("open"):
+		policies_panel.open()

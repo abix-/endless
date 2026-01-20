@@ -106,6 +106,31 @@ text = "Day 1 - 06:00 (Day)"
 layout_mode = 2
 text = "Food: 0 vs 0"
 
+[node name="BedLabel" type="Label" parent="Panel/MarginContainer/VBox/StatsContent"]
+layout_mode = 2
+text = "Beds: 0/0"
+
+[node name="TownButtons" type="HBoxContainer" parent="Panel/MarginContainer/VBox/StatsContent"]
+layout_mode = 2
+
+[node name="UpgradesBtn" type="Button" parent="Panel/MarginContainer/VBox/StatsContent/TownButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Upgrades"
+tooltip_text = "Open town upgrades (U)"
+
+[node name="RosterBtn" type="Button" parent="Panel/MarginContainer/VBox/StatsContent/TownButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Roster"
+tooltip_text = "View NPC roster (R)"
+
+[node name="PoliciesBtn" type="Button" parent="Panel/MarginContainer/VBox/StatsContent/TownButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Policies"
+tooltip_text = "Manage faction policies (P)"
+
 [node name="Sep1" type="HSeparator" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 

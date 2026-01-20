@@ -92,6 +92,7 @@ func decide_what_to_do(i: int) -> void:
 	# Priority 2: Work time - go farm
 	if _is_work_time(i):
 		if state not in [NPCState.State.FARMING, NPCState.State.WALKING]:
+			manager.release_bed(i)  # Release bed when going to work
 			manager.targets[i] = manager.work_positions[i]
 			manager.arrival_radii[i] = manager._arrival_farm
 			manager._state.set_state(i, NPCState.State.WALKING)
@@ -118,6 +119,7 @@ func _decide_guard(i: int) -> void:
 		if state == NPCState.State.ON_DUTY and manager.patrol_timer[i] >= Config.GUARD_PATROL_WAIT:
 			_guard_go_to_next_post(i)
 		elif state not in [NPCState.State.ON_DUTY, NPCState.State.PATROLLING]:
+			manager.release_bed(i)  # Release bed when going on duty
 			_guard_go_to_next_post(i)
 		return
 
@@ -181,7 +183,26 @@ func _decide_raider(i: int) -> void:
 
 
 func _go_home(i: int) -> void:
-	manager.targets[i] = manager.home_positions[i]
+	# Release any currently held bed
+	manager.release_bed(i)
+
+	var town_idx: int = manager.town_indices[i]
+	var my_pos: Vector2 = manager.positions[i]
+
+	# Find closest free bed
+	var bed_idx: int = manager.find_closest_free_bed(town_idx, my_pos)
+	if bed_idx >= 0:
+		# Reserve bed and go to it
+		manager.reserve_bed(town_idx, bed_idx, i)
+		var bed_pos: Vector2 = manager.get_bed_position(town_idx, bed_idx)
+		manager.targets[i] = bed_pos
+	else:
+		# No free bed - go to fountain/town center
+		if town_idx >= 0 and town_idx < manager.town_centers.size():
+			manager.targets[i] = manager.town_centers[town_idx]
+		else:
+			manager.targets[i] = manager.home_positions[i]
+
 	manager.arrival_radii[i] = manager._arrival_home
 	manager._state.set_state(i, NPCState.State.WALKING)
 	manager._nav.force_logic_update(i)
@@ -278,17 +299,16 @@ func on_arrival(i: int) -> void:
 			decide_what_to_do(i)
 	elif state in [NPCState.State.WALKING, NPCState.State.PATROLLING, NPCState.State.RETURNING]:
 		var my_pos: Vector2 = manager.positions[i]
-		var home_pos: Vector2 = manager.home_positions[i]
+		var target: Vector2 = manager.targets[i]
 		var radius: float = manager.arrival_radii[i]
 
 		# Guard arrived at patrol post or home
 		if job == NPCState.Job.GUARD:
-			var target: Vector2 = manager.targets[i]
 			if state == NPCState.State.PATROLLING and my_pos.distance_to(target) < radius:
 				manager._state.set_state(i, NPCState.State.ON_DUTY)
 				manager.wander_centers[i] = my_pos
 				manager.patrol_timer[i] = 0
-			elif my_pos.distance_to(home_pos) < radius:
+			elif state == NPCState.State.WALKING and my_pos.distance_to(target) < radius:
 				_try_eat_at_home(i)
 		# Farmer arrived at work or home
 		elif job == NPCState.Job.FARMER:
@@ -296,10 +316,11 @@ func on_arrival(i: int) -> void:
 			if my_pos.distance_to(work_pos) < radius:
 				manager._state.set_state(i, NPCState.State.FARMING)
 				manager.wander_centers[i] = my_pos  # Stay near arrival spot
-			elif my_pos.distance_to(home_pos) < radius:
+			elif my_pos.distance_to(target) < radius:
 				_try_eat_at_home(i)
 		# Raider arrived at camp
 		elif job == NPCState.Job.RAIDER:
+			var home_pos: Vector2 = manager.home_positions[i]
 			if my_pos.distance_to(home_pos) < radius:
 				manager.wander_centers[i] = my_pos
 				_raider_deliver_food(i)

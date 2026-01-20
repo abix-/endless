@@ -34,6 +34,7 @@ var active_rows := 0
 
 
 func _ready() -> void:
+	add_to_group("roster_panel")
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	main_node = get_parent()

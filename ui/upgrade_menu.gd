@@ -41,6 +41,7 @@ var town_idx: int = -1
 
 
 func _ready() -> void:
+	add_to_group("upgrade_menu")
 	await get_tree().process_frame
 	main = get_parent()
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
