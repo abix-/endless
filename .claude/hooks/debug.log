@@ -4276,3 +4276,16 @@ EOF
 19:24:36 - Running Unsanitize...
 19:24:36 - Unsanitize done
 19:24:36 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:37 - Event: PostToolUse
+19:24:37 - Tool: Bash
+19:24:37 - Command: (cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:37 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:24:37 - Running Sanitize...
+19:24:38 - Sanitize done
+19:24:43 - Event: PreToolUse
+19:24:43 - Tool: Bash
+19:24:43 - Command: cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push
+19:24:43 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push
+19:24:43 - Running Unsanitize...
+19:24:43 - Unsanitize done
+19:24:43 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "add last names for 4800 unique npc name combinations" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
