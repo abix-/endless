@@ -710,9 +710,15 @@ func _update_selection() -> void:
 		var state: int = states[selected_npc]
 		var lvl: int = levels[selected_npc]
 		var npc_name: String = npc_names[selected_npc]
+		var job_name: String = _state.get_job_name(job)
+		var npc_trait: int = traits[selected_npc]
+		var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
 		var status: String = _state.get_state_name(state)
 		if job == Job.RAIDER and carrying_food[selected_npc] == 1:
 			status = "Looting"
-		info_label.text = "%s | Lv.%d | %s" % [npc_name, lvl, status]
+		var display := "%s - %s Lv.%d" % [npc_name, job_name, lvl]
+		if not trait_name.is_empty():
+			display += " (%s)" % trait_name
+		info_label.text = "%s | %s" % [display, status]
 	else:
 		info_label.visible = false

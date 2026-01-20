@@ -4458,3 +4458,16 @@ EOF
 19:42:34 - Running Unsanitize...
 19:42:34 - Unsanitize done
 19:42:34 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "add roster panel (R key) to view guards/farmers" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:42:37 - Event: PostToolUse
+19:42:37 - Tool: Bash
+19:42:37 - Command: (cd /c/code/endless && git add -A && git commit -m "add roster panel (R key) to view guards/farmers" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:42:37 - Processing PostToolUse for: (cd /c/code/endless && git add -A && git commit -m "add roster panel (R key) to view guards/farmers" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'
+19:42:37 - Running Sanitize...
+19:42:37 - Sanitize done
+19:44:22 - Event: PreToolUse
+19:44:22 - Tool: Bash
+19:44:22 - Command: cd /c/code/endless && git add -A && git commit -m "consistent npc naming across inspector, floating label, and logs" && git push
+19:44:22 - Processing PreToolUse for: cd /c/code/endless && git add -A && git commit -m "consistent npc naming across inspector, floating label, and logs" && git push
+19:44:22 - Running Unsanitize...
+19:44:23 - Unsanitize done
+19:44:23 - Wrapped: (cd /c/code/endless && git add -A && git commit -m "consistent npc naming across inspector, floating label, and logs" && git push) 2>&1 | powershell.exe -ExecutionPolicy Bypass -NoProfile -File 'C:\code\endless\.claude\SanitizeOutput.ps1'

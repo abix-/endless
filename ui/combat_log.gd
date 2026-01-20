@@ -89,26 +89,39 @@ func _get_timestamp() -> String:
 	return ""
 
 
-func _on_npc_leveled_up(npc_index: int, _job: int, old_level: int, new_level: int) -> void:
+func _on_npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int) -> void:
 	if UserSettings.level_log_mode == UserSettings.LogMode.OFF:
 		return
-	var npc_name: String = npc_manager.npc_names[npc_index] if npc_index >= 0 else "NPC"
-	_pending_messages.append("%s%s %d->%d" % [_get_timestamp(), npc_name, old_level, new_level])
+	var display := _format_npc(npc_index, job)
+	_pending_messages.append("%s%s Lv.%d->%d" % [_get_timestamp(), display, old_level, new_level])
 	_log_dirty = true
 
 
-func _on_npc_died(npc_index: int, _job: int, level: int, _town_idx: int, killer_job: int, killer_level: int) -> void:
+func _on_npc_died(npc_index: int, job: int, level: int, _town_idx: int, killer_job: int, killer_level: int) -> void:
 	if UserSettings.death_log_mode == UserSettings.LogMode.OFF:
 		return
-	var npc_name: String = npc_manager.npc_names[npc_index] if npc_index >= 0 else "NPC"
+	var display := _format_npc(npc_index, job, level)
 	var msg: String
 	if killer_job >= 0:
 		var killer_job_name: String = JOB_NAMES[killer_job] if killer_job < JOB_NAMES.size() else "NPC"
-		msg = "%s%s L%d killed by %s L%d" % [_get_timestamp(), npc_name, level, killer_job_name, killer_level]
+		msg = "%s%s killed by %s Lv.%d" % [_get_timestamp(), display, killer_job_name, killer_level]
 	else:
-		msg = "%s%s L%d died" % [_get_timestamp(), npc_name, level]
+		msg = "%s%s died" % [_get_timestamp(), display]
 	_pending_messages.append(msg)
 	_log_dirty = true
+
+
+func _format_npc(idx: int, job: int, level: int = -1) -> String:
+	var npc_name: String = npc_manager.npc_names[idx] if idx >= 0 else "NPC"
+	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
+	var npc_trait: int = npc_manager.traits[idx] if idx >= 0 else 0
+	var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
+	var result := "%s - %s" % [npc_name, job_name]
+	if level > 0:
+		result += " Lv.%d" % level
+	if not trait_name.is_empty():
+		result += " (%s)" % trait_name
+	return result
 
 
 func _on_npc_spawned(job: int, _town_idx: int) -> void:
