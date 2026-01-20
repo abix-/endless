@@ -48,6 +48,7 @@ var farm_positions: Array[Vector2] = []
 var guard_posts_by_town: Array[Array] = []  # Per-town arrays of guard post positions
 var town_centers: Array[Vector2] = []  # Fountain at center of each town
 var town_upgrades: Array = []  # Reference to main's upgrade data
+var town_policies: Array = []  # Reference to main's policy data
 var town_food: PackedInt32Array  # Reference to main's town food (set by main.gd)
 var camp_food: PackedInt32Array  # Reference to main's camp food (set by main.gd)
 

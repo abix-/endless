@@ -27,7 +27,8 @@ func on_time_tick(_hour: int, minute: int) -> void:
 				# Check if recovering NPC has healed enough
 				if manager.recovering[i] == 1:
 					var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
-					if health_pct >= Config.RECOVERY_THRESHOLD:
+					var recovery_threshold := _get_recovery_threshold(i)
+					if health_pct >= recovery_threshold:
 						manager.recovering[i] = 0
 						manager._decide_what_to_do(i)
 					# else stay in OFF_DUTY healing
@@ -233,6 +234,27 @@ func _raider_go_to_farm(i: int) -> void:
 
 func _is_work_time(i: int) -> bool:
 	var is_day: bool = WorldClock.is_daytime()
+	var town_idx: int = manager.town_indices[i]
+	var job: int = manager.jobs[i]
+
+	# Raiders don't follow work schedule policies
+	if job == NPCState.Job.RAIDER:
+		var works_night: int = manager.works_at_night[i]
+		if works_night == 1:
+			return not is_day
+		else:
+			return is_day
+
+	# Check work_schedule policy: 0=both, 1=day only, 2=night only
+	if town_idx >= 0 and town_idx < manager.town_policies.size():
+		var schedule: int = manager.town_policies[town_idx].work_schedule
+		if schedule == 1:  # Day only
+			return is_day
+		elif schedule == 2:  # Night only
+			return not is_day
+		# schedule == 0: both shifts, use individual NPC setting
+
+	# Default behavior based on individual NPC
 	var works_night: int = manager.works_at_night[i]
 	if works_night == 1:
 		return not is_day
@@ -286,9 +308,16 @@ func on_arrival(i: int) -> void:
 
 func _try_eat_at_home(i: int) -> void:
 	var energy: float = manager.energies[i]
+	var town_idx: int = manager.town_indices[i]
+	var is_raider: bool = manager.jobs[i] == NPCState.Job.RAIDER
+
+	# Check eat_food policy (only applies to player's faction, not raiders)
+	var can_eat := true
+	if not is_raider and town_idx >= 0 and town_idx < manager.town_policies.size():
+		can_eat = manager.town_policies[town_idx].eat_food
 
 	# Only eat if starving (energy < 10), otherwise just rest
-	if energy < Config.ENERGY_STARVING and _has_food_available(i):
+	if energy < Config.ENERGY_STARVING and can_eat and _has_food_available(i):
 		_consume_food(i)
 		manager._state.set_state(i, NPCState.State.OFF_DUTY)
 		decide_what_to_do(i)
@@ -380,3 +409,22 @@ func _is_at_camp(i: int) -> bool:
 	var my_pos: Vector2 = manager.positions[i]
 	var home_pos: Vector2 = manager.home_positions[i]
 	return my_pos.distance_to(home_pos) < manager._arrival_camp
+
+
+func _get_recovery_threshold(i: int) -> float:
+	var town_idx: int = manager.town_indices[i]
+	var job: int = manager.jobs[i]
+
+	# Raiders use default threshold
+	if job == NPCState.Job.RAIDER:
+		return Config.RECOVERY_THRESHOLD
+
+	# Check policies
+	if town_idx >= 0 and town_idx < manager.town_policies.size():
+		var policies: Dictionary = manager.town_policies[town_idx]
+		# Prioritize healing = stay until 100%
+		if policies.prioritize_healing:
+			return 1.0
+		return policies.recovery_hp
+
+	return Config.RECOVERY_THRESHOLD

@@ -10,6 +10,7 @@ var upgrade_menu_scene: PackedScene = preload("res://ui/upgrade_menu.tscn")
 var combat_log_scene: PackedScene = preload("res://ui/combat_log.tscn")
 var roster_panel_scene: PackedScene = preload("res://ui/roster_panel.tscn")
 var build_menu_scene: PackedScene = preload("res://ui/build_menu.tscn")
+var policies_panel_scene: PackedScene = preload("res://ui/policies_panel.tscn")
 
 var npc_manager: Node
 var projectile_manager: Node
@@ -28,6 +29,7 @@ var player_town_idx: int = 0  # First town is player-controlled
 var town_upgrades: Array = []  # Per-town upgrade levels
 var town_max_farmers: PackedInt32Array  # Population cap per town
 var town_max_guards: PackedInt32Array   # Population cap per town
+var town_policies: Array = []  # Per-town faction policies
 
 # Grid slot keys - max 10x10 grid (-4 to +5)
 # Town starts at 6x6 (-2 to +3), expands with grid_size upgrade
@@ -40,12 +42,11 @@ const MAX_GRID_MAX := 5
 const FIXED_SLOTS := ["0,0", "0,1", "0,-1", "1,-1"]
 
 
-# Get grid bounds for a given upgrade level
-func _get_grid_bounds(level: int) -> Dictionary:
-	var expansion: int = level * Config.UPGRADE_GRID_RINGS
+# Get grid bounds for base level (6x6)
+func _get_grid_bounds(_level: int) -> Dictionary:
 	return {
-		"min": BASE_GRID_MIN - expansion,
-		"max": BASE_GRID_MAX + expansion
+		"min": BASE_GRID_MIN,
+		"max": BASE_GRID_MAX
 	}
 
 
@@ -151,6 +152,20 @@ func _generate_world() -> void:
 			"farmer_cap": 0,
 			"guard_cap": 0,
 			"fountain_radius": 0
+		})
+
+	# Initialize town policies
+	for i in NUM_TOWNS:
+		town_policies.append({
+			"eat_food": true,
+			"farmer_flee_hp": 1.0,        # 100% = always flee
+			"guard_flee_hp": 0.33,        # 33% default
+			"recovery_hp": 0.75,          # 75% before resuming
+			"guard_aggressive": true,     # Chase enemies vs defensive
+			"guard_leash": false,         # Stay near posts vs chase anywhere
+			"farmer_fight_back": false,   # Melee attack vs always flee
+			"prioritize_healing": false,  # Stay at fountain until full HP
+			"work_schedule": 0            # 0=both shifts, 1=day only, 2=night only
 		})
 
 	# Generate scattered town positions
@@ -291,8 +306,9 @@ func _setup_managers() -> void:
 	for town in towns:
 		npc_manager.town_centers.append(town.center)
 
-	# Pass town upgrades reference
+	# Pass town upgrades and policies references
 	npc_manager.town_upgrades = town_upgrades
+	npc_manager.town_policies = town_policies
 
 	# Pass food references for eating
 	npc_manager.town_food = town_food
@@ -333,6 +349,9 @@ func _setup_ui() -> void:
 	build_menu.destroy_requested.connect(_on_destroy_requested)
 	build_menu.unlock_requested.connect(_on_unlock_requested)
 	add_child(build_menu)
+
+	var policies_panel = policies_panel_scene.instantiate()
+	add_child(policies_panel)
 
 
 func _spawn_npcs() -> void:

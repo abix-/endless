@@ -119,14 +119,20 @@ func _process_fighting(i: int) -> void:
 			enemy_pos = manager.positions[target_idx]
 
 	var job: int = manager.jobs[i]
+	var town_idx: int = manager.town_indices[i]
 
-	# Guards don't leash - they fight wherever they are
-	if job != NPCState.Job.GUARD:
+	# Check leash policy for guards
+	var guard_has_leash := false
+	if job == NPCState.Job.GUARD and town_idx >= 0 and town_idx < manager.town_policies.size():
+		guard_has_leash = manager.town_policies[town_idx].guard_leash
+
+	# Apply leash (guards only if policy enabled, farmers/raiders always)
+	if job != NPCState.Job.GUARD or guard_has_leash:
 		var home_pos: Vector2 = manager.wander_centers[i]
 		var leash: float = Config.LEASH_DISTANCE
 		if job == NPCState.Job.RAIDER:
 			leash = Config.LEASH_DISTANCE * Config.RAIDER_LEASH_MULTIPLIER
-		
+
 		var dist_to_home: float = my_pos.distance_to(home_pos)
 		if dist_to_home > leash:
 			manager.current_targets[i] = -1
@@ -161,13 +167,33 @@ func _process_fleeing(i: int) -> void:
 
 func _stop_fleeing(i: int) -> void:
 	var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
-	if health_pct < Config.RECOVERY_THRESHOLD:
-		# Stay and heal until 75%
+	var recovery_threshold := _get_recovery_threshold(i)
+	if health_pct < recovery_threshold:
+		# Stay and heal until recovery threshold
 		manager._state.set_state(i, NPCState.State.OFF_DUTY)
 		manager.recovering[i] = 1
 	else:
 		manager._state.set_state(i, NPCState.State.IDLE)
 		manager._decide_what_to_do(i)
+
+
+func _get_recovery_threshold(i: int) -> float:
+	var town_idx: int = manager.town_indices[i]
+	var job: int = manager.jobs[i]
+
+	# Raiders use default threshold
+	if job == NPCState.Job.RAIDER:
+		return Config.RECOVERY_THRESHOLD
+
+	# Check policies
+	if town_idx >= 0 and town_idx < manager.town_policies.size():
+		var policies: Dictionary = manager.town_policies[town_idx]
+		# Prioritize healing = stay until 100%
+		if policies.prioritize_healing:
+			return 1.0
+		return policies.recovery_hp
+
+	return Config.RECOVERY_THRESHOLD
 
 func _attack(attacker: int, victim: int) -> void:
 	var cooldown: float = Config.ATTACK_COOLDOWN
@@ -271,6 +297,7 @@ func _alert_nearby_raiders(alerter_idx: int, target_idx: int) -> void:
 func _find_enemy_for(i: int) -> int:
 	var my_pos: Vector2 = manager.positions[i]
 	var my_faction: int = manager.factions[i]
+	var job: int = manager.jobs[i]
 	var nearby: Array = manager._grid_get_nearby(my_pos)
 
 	# Calculate detection range (guards get upgraded alert radius)
@@ -280,6 +307,11 @@ func _find_enemy_for(i: int) -> int:
 		if town_idx >= 0 and town_idx < manager.town_upgrades.size():
 			var alert_level: int = manager.town_upgrades[town_idx].alert_radius
 			detect_range *= 1.0 + alert_level * Config.UPGRADE_ALERT_RADIUS_BONUS
+
+		# Non-aggressive guards only react to close enemies
+		if job == NPCState.Job.GUARD and town_idx >= 0 and town_idx < manager.town_policies.size():
+			if not manager.town_policies[town_idx].guard_aggressive:
+				detect_range = manager.attack_ranges[i] * 1.5  # Only react within 1.5x attack range
 	var detect_range_sq: float = detect_range * detect_range
 
 	var nearest: int = -1
@@ -319,27 +351,45 @@ func _is_hostile(faction_a: int, faction_b: int) -> bool:
 
 
 func _should_flee(i: int) -> bool:
-	# Farmers always flee
-	if manager.will_flee[i] == 1:
-		return true
-
+	var job: int = manager.jobs[i]
+	var town_idx: int = manager.town_indices[i]
 	var npc_trait: int = manager.traits[i]
+	var health_pct: float = manager.healths[i] / manager.max_healths[i]
+
+	# Get policies (if available)
+	var policies: Dictionary = {}
+	if town_idx >= 0 and town_idx < manager.town_policies.size():
+		policies = manager.town_policies[town_idx]
+
 	# Brave NPCs never flee
 	if npc_trait == NPCState.Trait.BRAVE:
 		return false
 
-	var health_pct: float = manager.healths[i] / manager.max_healths[i]
-	var job: int = manager.jobs[i]
-
 	# Coward flees at +20% higher threshold
 	var coward_bonus: float = 0.2 if npc_trait == NPCState.Trait.COWARD else 0.0
 
-	# Guards flee below 33% (or 53% if coward)
-	if job == NPCState.Job.GUARD and health_pct < Config.GUARD_FLEE_THRESHOLD + coward_bonus:
-		return true
-	# Raiders flee below 50% (or 70% if coward)
+	# Farmers
+	if job == NPCState.Job.FARMER:
+		# Check farmer_fight_back policy - if true, farmers don't auto-flee
+		if not policies.is_empty() and policies.farmer_fight_back:
+			var flee_threshold: float = policies.farmer_flee_hp + coward_bonus
+			return health_pct < flee_threshold
+		# Default: farmers always flee (will_flee[i] == 1)
+		if manager.will_flee[i] == 1:
+			return true
+
+	# Guards - use policy flee threshold if available
+	if job == NPCState.Job.GUARD:
+		var flee_threshold: float = Config.GUARD_FLEE_THRESHOLD
+		if not policies.is_empty():
+			flee_threshold = policies.guard_flee_hp
+		if health_pct < flee_threshold + coward_bonus:
+			return true
+
+	# Raiders flee below 50% (or 70% if coward) - no policy control
 	if job == NPCState.Job.RAIDER and health_pct < Config.RAIDER_WOUNDED_THRESHOLD + coward_bonus:
 		return true
+
 	return false
 
 

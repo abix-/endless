@@ -1,0 +1,184 @@
+[gd_scene load_steps=2 format=3 uid="uid://policies001"]
+
+[ext_resource type="Script" path="res://ui/policies_panel.gd" id="1_policies"]
+
+[node name="PoliciesPanel" type="CanvasLayer"]
+layer = 100
+script = ExtResource("1_policies")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -200.0
+offset_right = 150.0
+offset_bottom = 200.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="Panel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Faction Policies (P)"
+horizontal_alignment = 1
+
+[node name="Sep1" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="EatFoodRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/EatFoodRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Eat Food"
+
+[node name="CheckBox" type="CheckBox" parent="Panel/MarginContainer/VBox/EatFoodRow"]
+layout_mode = 2
+button_pressed = true
+
+[node name="FarmerFleeRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/FarmerFleeRow"]
+custom_minimum_size = Vector2(90, 0)
+layout_mode = 2
+text = "Farmer Flee"
+
+[node name="Slider" type="HSlider" parent="Panel/MarginContainer/VBox/FarmerFleeRow"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+value = 100.0
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/FarmerFleeRow"]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+text = "100%"
+horizontal_alignment = 2
+
+[node name="GuardFleeRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/GuardFleeRow"]
+custom_minimum_size = Vector2(90, 0)
+layout_mode = 2
+text = "Guard Flee"
+
+[node name="Slider" type="HSlider" parent="Panel/MarginContainer/VBox/GuardFleeRow"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+value = 33.0
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/GuardFleeRow"]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+text = "33%"
+horizontal_alignment = 2
+
+[node name="RecoveryRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/RecoveryRow"]
+custom_minimum_size = Vector2(90, 0)
+layout_mode = 2
+text = "Recovery HP"
+
+[node name="Slider" type="HSlider" parent="Panel/MarginContainer/VBox/RecoveryRow"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+value = 75.0
+
+[node name="Value" type="Label" parent="Panel/MarginContainer/VBox/RecoveryRow"]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+text = "75%"
+horizontal_alignment = 2
+
+[node name="Sep2" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="AggressiveRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/AggressiveRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Guards Aggressive"
+tooltip_text = "Guards chase enemies vs only attack nearby"
+
+[node name="CheckBox" type="CheckBox" parent="Panel/MarginContainer/VBox/AggressiveRow"]
+layout_mode = 2
+button_pressed = true
+
+[node name="LeashRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/LeashRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Guard Leash"
+tooltip_text = "Guards return to posts if combat drags too far"
+
+[node name="CheckBox" type="CheckBox" parent="Panel/MarginContainer/VBox/LeashRow"]
+layout_mode = 2
+
+[node name="FarmerFightRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/FarmerFightRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Farmers Fight"
+tooltip_text = "Farmers melee attack vs always flee"
+
+[node name="CheckBox" type="CheckBox" parent="Panel/MarginContainer/VBox/FarmerFightRow"]
+layout_mode = 2
+
+[node name="HealingRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/HealingRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Prioritize Healing"
+tooltip_text = "Stay at fountain until full HP vs leave at recovery threshold"
+
+[node name="CheckBox" type="CheckBox" parent="Panel/MarginContainer/VBox/HealingRow"]
+layout_mode = 2
+
+[node name="Sep3" type="HSeparator" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="ScheduleRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/MarginContainer/VBox/ScheduleRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Work Schedule"
+
+[node name="Option" type="OptionButton" parent="Panel/MarginContainer/VBox/ScheduleRow"]
+layout_mode = 2
+
+[node name="CloseBtn" type="Button" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Close (ESC)"
