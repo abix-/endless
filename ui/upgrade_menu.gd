@@ -162,7 +162,7 @@ func _refresh_row(level_label: Label, btn: Button, level: int, food: int, key: S
 		btn.disabled = true
 		btn.tooltip_text = _get_upgrade_tooltip(key, level)
 	else:
-		var cost: int = Config.UPGRADE_COSTS[level]
+		var cost: int = Config.get_upgrade_cost(level)
 		btn.text = str(cost)
 		btn.disabled = food < cost
 		btn.tooltip_text = _get_upgrade_tooltip(key, level)
@@ -249,7 +249,7 @@ func _try_purchase(upgrade_key: String) -> bool:
 	if level >= Config.UPGRADE_MAX_LEVEL:
 		return false
 
-	var cost: int = Config.UPGRADE_COSTS[level]
+	var cost: int = Config.get_upgrade_cost(level)
 	if main.town_food[town_idx] < cost:
 		return false
 

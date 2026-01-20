@@ -99,8 +99,11 @@ const HP_REGEN_AWAKE := 2.0
 const HP_REGEN_SLEEP := 6.0  # 3x faster when sleeping
 
 # Town Upgrades
-const UPGRADE_MAX_LEVEL := 10
-const UPGRADE_COSTS := [10, 25, 50, 100, 200, 400, 800, 1500, 3000, 5000]  # Food cost per level
+const UPGRADE_MAX_LEVEL := 9999
+
+static func get_upgrade_cost(level: int) -> int:
+	# Level 0->1: 10 food, scales exponentially to ~220k at level 9999
+	return int(10 * pow(1.001, level))
 # Guard upgrades
 const UPGRADE_GUARD_HEALTH_BONUS := 0.1   # +10% HP per level
 const UPGRADE_GUARD_ATTACK_BONUS := 0.1   # +10% damage per level
