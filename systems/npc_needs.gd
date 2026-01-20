@@ -193,8 +193,13 @@ func _raider_return_to_camp(i: int) -> void:
 	# If already at camp, handle arrival immediately
 	if my_pos.distance_to(home_pos) < manager._arrival_camp:
 		_raider_deliver_food(i)
-		_try_eat_at_home(i)
 		manager.wander_centers[i] = my_pos
+		# Wounded raiders just rest - don't call decide_what_to_do (causes infinite loop)
+		var health_pct: float = manager.healths[i] / manager.max_healths[i]
+		if health_pct < Config.RAIDER_WOUNDED_THRESHOLD:
+			manager._state.set_state(i, NPCState.State.RESTING)
+			return
+		_try_eat_at_home(i)
 		return
 
 	manager.targets[i] = home_pos
