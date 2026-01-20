@@ -21,8 +21,12 @@ const BIOME_SPRITES := {
 		{"pos": Vector2i(1, 14), "size": 1, "tile": 2},
 	],
 	Biome.FOREST: [
-		{"pos": Vector2i(4, 12), "size": 1, "tile": 2},
-		{"pos": Vector2i(5, 12), "size": 1, "tile": 2},
+		{"pos": Vector2i(13, 9), "size": 1, "tile": 2},
+		{"pos": Vector2i(14, 9), "size": 1, "tile": 2},
+		{"pos": Vector2i(15, 9), "size": 1, "tile": 2},
+		{"pos": Vector2i(16, 9), "size": 1, "tile": 2},
+		{"pos": Vector2i(17, 9), "size": 1, "tile": 2},
+		{"pos": Vector2i(18, 9), "size": 1, "tile": 2},
 	],
 	Biome.WATER: [
 		{"pos": Vector2i(3, 1), "size": 1, "tile": 2},
