@@ -377,6 +377,8 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	if traits[i] == NPCState.Trait.HARDY:
 		max_healths[i] *= 1.25
 		healths[i] = max_healths[i]
+	elif traits[i] == NPCState.Trait.SHARPSHOT:
+		attack_ranges[i] *= 1.25
 
 	# Apply town upgrades for guards
 	if job == Job.GUARD and town_idx >= 0 and town_idx < town_upgrades.size():
@@ -435,6 +437,10 @@ func _roll_trait() -> int:
 		NPCState.Trait.EFFICIENT,
 		NPCState.Trait.HARDY,
 		NPCState.Trait.LAZY,
+		NPCState.Trait.STRONG,
+		NPCState.Trait.SWIFT,
+		NPCState.Trait.SHARPSHOT,
+		NPCState.Trait.BERSERKER,
 	]
 	return trait_pool[randi() % trait_pool.size()]
 

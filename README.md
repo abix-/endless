@@ -61,15 +61,19 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [ ] Army units (peasant levy, archers, knights)
 
 ### NPC Identity
-- [x] Named NPCs (48 first × 100 last = 4,800 unique combinations)
-- [x] Personality traits (40% chance): Brave, Coward, Efficient, Hardy, Lazy
+- [x] Named NPCs (55 first × 100 last = 5,500 unique combinations)
+- [x] Rename NPCs via inspector (✎ button)
+- [x] Personality traits (40% chance, 9 types)
 - [x] Trait effects:
-  - **Brave**: Never flees (guards/raiders)
-  - **Coward**: Flees at +20% higher HP threshold
+  - **Brave**: Never flees
+  - **Coward**: Flees at +20% higher HP
   - **Efficient**: +25% farm yield, 25% faster attacks
   - **Hardy**: +25% max HP
   - **Lazy**: -20% farm yield, 20% slower attacks
-- [x] Names shown in inspector, selection label, combat log
+  - **Strong**: +25% damage
+  - **Swift**: +25% move speed
+  - **Sharpshot**: +25% attack range
+  - **Berserker**: +50% damage below 50% HP
 - [ ] Trait combinations
 
 ### AI Behaviors

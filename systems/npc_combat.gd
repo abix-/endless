@@ -195,12 +195,12 @@ func _attack(attacker: int, victim: int) -> void:
 		# Fire projectile - damage and flash happen on hit
 		var from_pos: Vector2 = manager.positions[attacker]
 		var target_pos: Vector2 = manager.positions[victim]
-		var damage: float = manager.get_scaled_damage(attacker)
+		var damage: float = _get_damage(attacker)
 		var faction: int = manager.factions[attacker]
 		manager._projectiles.fire(from_pos, target_pos, damage, faction, attacker)
 	else:
 		# Melee instant damage (scaled) - flash the victim
-		var damage: float = manager.get_scaled_damage(attacker)
+		var damage: float = _get_damage(attacker)
 		manager.healths[victim] -= damage
 		manager.mark_health_dirty(victim)
 		manager._renderer.trigger_flash(victim)
@@ -354,6 +354,20 @@ func _get_flee_target(i: int) -> Vector2:
 		if town_idx >= 0 and town_idx < manager.town_centers.size():
 			return manager.town_centers[town_idx]
 		return manager.home_positions[i]  # Fallback
+
+
+func _get_damage(i: int) -> float:
+	var damage: float = manager.get_scaled_damage(i)
+	var trait: int = manager.traits[i]
+
+	if trait == NPCState.Trait.STRONG:
+		damage *= 1.25
+	elif trait == NPCState.Trait.BERSERKER:
+		var hp_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
+		if hp_pct < 0.5:
+			damage *= 1.5
+
+	return damage
 
 
 func _find_closer_non_fleeing_enemy(i: int, current_target: int) -> int:

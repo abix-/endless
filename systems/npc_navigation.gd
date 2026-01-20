@@ -217,6 +217,9 @@ func _get_move_speed(i: int) -> float:
 			var move_level: int = manager.town_upgrades[town_idx].guard_move_speed
 			if move_level > 0:
 				speed *= 1.0 + (move_level * Config.UPGRADE_GUARD_MOVE_SPEED)
+	# Apply Swift trait
+	if manager.traits[i] == NPCState.Trait.SWIFT:
+		speed *= 1.25
 	return speed
 
 

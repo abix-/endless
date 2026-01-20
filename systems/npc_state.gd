@@ -27,6 +27,10 @@ enum Trait {
 	EFFICIENT,  # +25% work output (farm yield, attack speed)
 	HARDY,      # +25% max HP
 	LAZY,       # -20% work output
+	STRONG,     # +25% damage
+	SWIFT,      # +25% move speed
+	SHARPSHOT,  # +25% attack range
+	BERSERKER,  # +50% damage below 50% HP
 }
 
 const TRAIT_NAMES := {
@@ -36,6 +40,10 @@ const TRAIT_NAMES := {
 	Trait.EFFICIENT: "Efficient",
 	Trait.HARDY: "Hardy",
 	Trait.LAZY: "Lazy",
+	Trait.STRONG: "Strong",
+	Trait.SWIFT: "Swift",
+	Trait.SHARPSHOT: "Sharpshot",
+	Trait.BERSERKER: "Berserker",
 }
 
 # First names for NPCs - 55 names
