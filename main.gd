@@ -30,22 +30,24 @@ var town_max_farmers: PackedInt32Array  # Population cap per town
 var town_max_guards: PackedInt32Array   # Population cap per town
 
 # Grid slot keys (clockwise from NW)
-# 5x5 grid: coordinates from -2 to +2
+# 6x6 grid: coordinates from -2 to +3
 const GRID_KEYS := [
-	"-2,-2", "-2,-1", "-2,0", "-2,1", "-2,2",
-	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2",
-	"0,-2",  "0,-1",  "0,0",  "0,1",  "0,2",
-	"1,-2",  "1,-1",  "1,0",  "1,1",  "1,2",
-	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",
+	"-2,-2", "-2,-1", "-2,0", "-2,1", "-2,2", "-2,3",
+	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2", "-1,3",
+	"0,-2",  "0,-1",  "0,0",  "0,1",  "0,2",  "0,3",
+	"1,-2",  "1,-1",  "1,0",  "1,1",  "1,2",  "1,3",
+	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",  "2,3",
+	"3,-2",  "3,-1",  "3,0",  "3,1",  "3,2",  "3,3",
 ]
-# Fixed slots: center (0,0), west farm (0,-1), east farm (0,1)
-const FIXED_SLOTS := ["0,0", "0,-1", "0,1"]
+# Fixed slots: center area (0,0), (0,1), farms at (0,-1), (1,-1), corners for guard posts
+const FIXED_SLOTS := ["0,0", "0,1", "0,-1", "1,-1", "-2,-2", "-2,3", "3,-2", "3,3"]
 const BUILDABLE_SLOTS := [
-	"-2,-2", "-2,-1", "-2,0", "-2,1", "-2,2",
-	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2",
-	"0,-2",                           "0,2",
-	"1,-2",  "1,-1",  "1,0",  "1,1",  "1,2",
-	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",
+	        "-2,-1", "-2,0", "-2,1", "-2,2",
+	"-1,-2", "-1,-1", "-1,0", "-1,1", "-1,2", "-1,3",
+	"0,-2",                  "0,2",  "0,3",
+	"1,-2",          "1,0",  "1,1",  "1,2",  "1,3",
+	"2,-2",  "2,-1",  "2,0",  "2,1",  "2,2",  "2,3",
+	        "3,-1",  "3,0",  "3,1",  "3,2",
 ]
 
 const NUM_TOWNS := 7
@@ -213,18 +215,16 @@ func _generate_world() -> void:
 			add_child(bed)
 			town_data.slots["-1,-1"].append({"type": "bed", "node": bed})
 
-		# Create guard posts (perimeter around town, outside the grid)
-		for g in Config.GUARD_POSTS_PER_TOWN:
-			var angle: float = (g / float(Config.GUARD_POSTS_PER_TOWN)) * TAU
-			var dist: float = randf_range(300, 350)
-			var post_pos: Vector2 = town_center + Vector2(cos(angle), sin(angle)) * dist
-
+		# Create guard posts at corners
+		var corner_keys := ["-2,-2", "-2,3", "3,-2", "3,3"]
+		for corner_key in corner_keys:
 			var post = location_scene.instantiate()
 			post.location_name = "%s Post" % town_name
 			post.location_type = "guard_post"
-			post.global_position = post_pos
+			post.global_position = grid[corner_key]
 			add_child(post)
 			town_data.guard_posts.append(post)
+			town_data.slots[corner_key].append({"type": "guard_post", "node": post})
 
 		# Create raider camp (away from all towns, in direction with most room)
 		var camp_pos := _find_camp_position(town_center, town_positions)
@@ -507,31 +507,32 @@ func _draw_buildable_slots() -> void:
 
 		# Count what's in the slot
 		var bed_count := 0
-		var has_farm := false
+		var has_building := false
 		for building in slot_contents:
 			if building.type == "bed":
 				bed_count += 1
-			elif building.type == "farm":
-				has_farm = true
+			elif building.type in ["farm", "guard_post"]:
+				has_building = true
 
 		# Skip full slots
-		if has_farm or bed_count >= 4:
+		if has_building or bed_count >= 4:
 			continue
 
-		# Draw + icon
+		# Draw + icon (half size)
 		var color := Color(0.5, 0.8, 0.5, 0.6)
-		var size := 12.0
-		draw_line(slot_pos + Vector2(-size, 0), slot_pos + Vector2(size, 0), color, 2.0)
-		draw_line(slot_pos + Vector2(0, -size), slot_pos + Vector2(0, size), color, 2.0)
+		var size := 6.0
+		draw_line(slot_pos + Vector2(-size, 0), slot_pos + Vector2(size, 0), color, 1.0)
+		draw_line(slot_pos + Vector2(0, -size), slot_pos + Vector2(0, size), color, 1.0)
 
 
 func _calculate_grid_positions(center: Vector2) -> Dictionary:
 	var s: float = Config.TOWN_GRID_SPACING
 	var grid := {}
-	for row in range(-2, 3):
-		for col in range(-2, 3):
+	for row in range(-2, 4):
+		for col in range(-2, 4):
 			var key := "%d,%d" % [row, col]
-			grid[key] = center + Vector2(col * s, row * s)
+			# Offset so center is between (0,0) and (1,1)
+			grid[key] = center + Vector2((col - 0.5) * s, (row - 0.5) * s)
 	return grid
 
 
@@ -639,19 +640,21 @@ func _on_destroy_requested(slot_key: String) -> void:
 		# Remove from tracking arrays
 		if btype == "farm":
 			var pos: Vector2 = node.global_position
-			var idx := npc_manager.farm_positions.find(pos)
-			if idx >= 0:
-				npc_manager.farm_positions.remove_at(idx)
+			var farm_idx: int = npc_manager.farm_positions.find(pos)
+			if farm_idx >= 0:
+				npc_manager.farm_positions.remove_at(farm_idx)
 		elif btype == "guard_post":
 			var pos: Vector2 = node.global_position
 			if player_town_idx < npc_manager.guard_posts_by_town.size():
 				var posts: Array = npc_manager.guard_posts_by_town[player_town_idx]
-				var idx := posts.find(pos)
-				if idx >= 0:
-					posts.remove_at(idx)
-			var gp_idx := town.guard_posts.find(node)
-			if gp_idx >= 0:
-				town.guard_posts.remove_at(gp_idx)
+				for pi in posts.size():
+					if posts[pi] == pos:
+						posts.remove_at(pi)
+						break
+			for gi in town.guard_posts.size():
+				if town.guard_posts[gi] == node:
+					town.guard_posts.remove_at(gi)
+					break
 
 		node.queue_free()
 
