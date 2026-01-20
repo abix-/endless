@@ -11,6 +11,7 @@ var combat_log_scene: PackedScene = preload("res://ui/combat_log.tscn")
 var roster_panel_scene: PackedScene = preload("res://ui/roster_panel.tscn")
 var build_menu_scene: PackedScene = preload("res://ui/build_menu.tscn")
 var policies_panel_scene: PackedScene = preload("res://ui/policies_panel.tscn")
+var guard_post_menu_scene: PackedScene = preload("res://ui/guard_post_menu.tscn")
 
 var npc_manager: Node
 var projectile_manager: Node
@@ -19,6 +20,7 @@ var left_panel: Node
 var settings_menu: Node
 var upgrade_menu: Node
 var build_menu: Node
+var guard_post_menu: Node
 
 # World data
 var towns: Array = []  # Array of {center, grid, slots, guard_posts, camp}
@@ -30,6 +32,7 @@ var town_upgrades: Array = []  # Per-town upgrade levels
 var town_max_farmers: PackedInt32Array  # Population cap per town
 var town_max_guards: PackedInt32Array   # Population cap per town
 var town_policies: Array = []  # Per-town faction policies
+var guard_post_upgrades: Array[Dictionary] = []  # Per-town: slot_key -> {attack_enabled, range_level, damage_level}
 
 # Grid slot keys - max 100x100 grid (-49 to +50)
 # Town starts at 6x6 (-2 to +3), expands by unlocking adjacent slots
@@ -180,6 +183,10 @@ func _generate_world() -> void:
 			"guard_off_duty": 0           # 0=bed, 1=fountain, 2=wander town
 		})
 
+	# Initialize guard post upgrades (empty dict per town, filled when posts created)
+	for i in NUM_TOWNS:
+		guard_post_upgrades.append({})
+
 	# Generate scattered town positions
 	var town_positions: Array[Vector2] = []
 	var attempts := 0
@@ -276,6 +283,12 @@ func _generate_world() -> void:
 			add_child(post)
 			town_data.guard_posts.append(post)
 			town_data.slots[corner_key].append({"type": "guard_post", "node": post})
+			# Initialize guard post upgrades
+			guard_post_upgrades[i][corner_key] = {
+				"attack_enabled": false,
+				"range_level": 0,
+				"damage_level": 0
+			}
 
 		# Create raider camp (away from all towns, in direction with most room)
 		var camp_pos := _find_camp_position(town_center, town_positions)
@@ -361,6 +374,18 @@ func _setup_managers() -> void:
 	@warning_ignore("integer_division")
 	npc_manager.village_center = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)
 
+	# Set up guard post combat system
+	npc_manager.set_main_reference(self)
+
+	# Register existing guard posts with combat system
+	for town_idx in towns.size():
+		var town: Dictionary = towns[town_idx]
+		for slot_key in town.slots:
+			for building in town.slots[slot_key]:
+				if building.type == "guard_post":
+					var pos: Vector2 = building.node.global_position
+					npc_manager._guard_post_combat.register_post(pos, town_idx, slot_key)
+
 
 func _setup_player() -> void:
 	player = player_scene.instantiate()
@@ -394,6 +419,9 @@ func _setup_ui() -> void:
 
 	var policies_panel = policies_panel_scene.instantiate()
 	add_child(policies_panel)
+
+	guard_post_menu = guard_post_menu_scene.instantiate()
+	add_child(guard_post_menu)
 
 
 func _spawn_npcs() -> void:
@@ -572,6 +600,14 @@ func _input(event: InputEvent) -> void:
 			if _unlock_slot(player_town_idx, slot_info.slot_key):
 				get_viewport().set_input_as_handled()
 
+	# Left-click on guard post opens upgrade menu
+	if event is InputEventMouseButton and event.pressed and not event.double_click and event.button_index == MOUSE_BUTTON_LEFT:
+		var world_pos: Vector2 = get_global_mouse_position()
+		var post_info := _get_clicked_guard_post(world_pos)
+		if post_info.slot_key != "":
+			guard_post_menu.open(post_info.slot_key, post_info.town_idx, event.position)
+			get_viewport().set_input_as_handled()
+
 
 func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
 	# Handle population cap upgrades
@@ -707,6 +743,24 @@ func _get_clicked_buildable_slot(world_pos: Vector2) -> Dictionary:
 	return {"slot_key": "", "town_idx": -1, "locked": false}
 
 
+func _get_clicked_guard_post(world_pos: Vector2) -> Dictionary:
+	# Only check player's town
+	if player_town_idx < 0 or player_town_idx >= towns.size():
+		return {"slot_key": "", "town_idx": -1}
+
+	var town: Dictionary = towns[player_town_idx]
+	var click_radius := 20.0  # Guard post click area
+
+	for slot_key in town.slots:
+		for building in town.slots[slot_key]:
+			if building.type == "guard_post":
+				var pos: Vector2 = building.node.global_position
+				if world_pos.distance_to(pos) < click_radius:
+					return {"slot_key": slot_key, "town_idx": player_town_idx}
+
+	return {"slot_key": "", "town_idx": -1}
+
+
 func _on_build_requested(slot_key: String, building_type: String) -> void:
 	if player_town_idx < 0 or player_town_idx >= towns.size():
 		return
@@ -765,6 +819,15 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		# Update npc_manager's guard post list for this town
 		if player_town_idx < npc_manager.guard_posts_by_town.size():
 			npc_manager.guard_posts_by_town[player_town_idx].append(slot_pos)
+		# Initialize guard post upgrades
+		guard_post_upgrades[player_town_idx][slot_key] = {
+			"attack_enabled": false,
+			"range_level": 0,
+			"damage_level": 0
+		}
+		# Register with combat system
+		if npc_manager._guard_post_combat:
+			npc_manager._guard_post_combat.register_post(slot_pos, player_town_idx, slot_key)
 
 	queue_redraw()  # Update slot indicators
 
@@ -814,6 +877,12 @@ func _on_destroy_requested(slot_key: String) -> void:
 				if town.guard_posts[gi] == node:
 					town.guard_posts.remove_at(gi)
 					break
+			# Unregister from combat system
+			if npc_manager._guard_post_combat:
+				npc_manager._guard_post_combat.unregister_post(player_town_idx, slot_key)
+			# Remove from upgrades
+			if guard_post_upgrades[player_town_idx].has(slot_key):
+				guard_post_upgrades[player_town_idx].erase(slot_key)
 		elif btype == "bed":
 			var pos: Vector2 = node.global_position
 			if player_town_idx < npc_manager.beds_by_town.size():

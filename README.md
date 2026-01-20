@@ -27,7 +27,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Named towns from pool of 15 Florida cities (Miami, Orlando, Tampa, etc.)
 - [x] Farms (2 per town, 200-300px from center)
 - [x] Homes for farmers (ring 350-450px from center)
-- [x] Guard posts (4 per town at corners of 6x6 grid)
+- [x] Guard posts (4 per town at corners of 6x6 grid, individually upgradeable)
 - [x] Raider camps (positioned away from all towns)
 - [x] Visible world border with corner markers
 - [x] Destructible buildings (right-click slot → Destroy)
@@ -121,6 +121,7 @@ Activity-specific states (no translation layer):
 - [x] Settings menu (ESC) with HP bar modes, scroll speed, log filters
 - [x] First town is player-controlled (click fountain for upgrades)
 - [x] Guard upgrades: health, attack, range, size, speed (10 levels each)
+- [x] Guard post upgrades: enable attack, range, damage (9999 levels each, click post to upgrade)
 - [x] Economy upgrades: farm yield, farmer HP, population caps
 - [x] Utility upgrades: healing rate, food efficiency
 - [x] Town management panel with population stats and spawn timer

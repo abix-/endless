@@ -156,6 +156,13 @@ func _on_hit(proj_idx: int, npc_idx: int) -> void:
 	npc_manager.mark_health_dirty(npc_idx)
 	npc_manager._renderer.trigger_flash(npc_idx)
 
+	# Guard posts use negative shooter indices (-1000 - post_idx)
+	# They don't get XP and victims don't aggro them
+	if shooter < 0:
+		if npc_manager.healths[npc_idx] <= 0:
+			npc_manager._combat._die(npc_idx, -1)  # No killer credit
+		return
+
 	if npc_manager.healths[npc_idx] <= 0:
 		npc_manager._combat._die(npc_idx, shooter)
 	else:

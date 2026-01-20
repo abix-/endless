@@ -124,3 +124,17 @@ const BASE_FOUNTAIN_RADIUS := 48.0        # Base healing radius (pixels)
 const UPGRADE_FOUNTAIN_RADIUS_BONUS := 24.0  # +24px per level
 # Slot unlock
 const SLOT_UNLOCK_COST := 1              # Food cost to unlock adjacent slot (TODO: restore to 25)
+
+# Guard post combat
+const GUARD_POST_BASE_DAMAGE := 10.0
+const GUARD_POST_BASE_RANGE := 100.0
+const GUARD_POST_ATTACK_COOLDOWN := 1.5
+const GUARD_POST_MAX_LEVEL := 9999
+
+static func get_guard_post_upgrade_cost(level: int) -> int:
+	# Level 0->1: 10 food, scales exponentially to ~100k at level 9999
+	return int(10 * pow(1.001, level))
+
+static func get_guard_post_stat_scale(level: int) -> float:
+	# Same sqrt scaling as NPCs: level 0 = 1x, level 9999 = 100x
+	return sqrt(float(level + 1))

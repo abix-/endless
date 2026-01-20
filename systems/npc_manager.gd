@@ -151,10 +151,15 @@ var _needs: NPCNeeds
 var _grid: NPCGrid
 var _renderer: NPCRenderer
 var _projectiles: Node  # Set by main.gd
+var _guard_post_combat: GuardPostCombat  # Set by set_main_reference
 
 
 func set_projectile_manager(pm: Node) -> void:
 	_projectiles = pm
+
+
+func set_main_reference(main_node: Node) -> void:
+	_guard_post_combat = GuardPostCombat.new(self, main_node)
 
 
 func _ready() -> void:
@@ -280,6 +285,9 @@ func _process(delta: float) -> void:
 		var t2 := Time.get_ticks_usec()
 		profile_projectiles = (t2 - t) / 1000.0
 		t = t2
+
+	if _guard_post_combat:
+		_guard_post_combat.process(delta)
 
 	_renderer.update(delta)
 

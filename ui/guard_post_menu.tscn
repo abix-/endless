@@ -1,0 +1,41 @@
+[gd_scene load_steps=2 format=3 uid="uid://guard_post_menu001"]
+
+[ext_resource type="Script" path="res://ui/guard_post_menu.gd" id="1_gpm"]
+
+[node name="GuardPostMenu" type="CanvasLayer"]
+layer = 100
+script = ExtResource("1_gpm")
+
+[node name="Panel" type="PanelContainer" parent="."]
+offset_right = 200.0
+offset_bottom = 160.0
+
+[node name="VBox" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+text = "Guard Post"
+horizontal_alignment = 1
+
+[node name="AttackBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Enable Attack (10 food)"
+
+[node name="RangeBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Range Lv0: 100px (10 food)"
+
+[node name="DamageBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Damage Lv0: 10 dmg (10 food)"
+
+[node name="Stats" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+text = "Inactive - enable attack first"
+horizontal_alignment = 1
+
+[node name="CloseBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Close"
