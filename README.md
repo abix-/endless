@@ -193,6 +193,7 @@ ui/
 | + / = | Speed up time (2x) |
 | - | Slow down time (0.5x) |
 | SPACE | Pause/unpause |
+| R | Roster panel (view all guards/farmers) |
 | ESC | Settings menu |
 
 ## Configuration

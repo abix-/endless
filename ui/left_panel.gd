@@ -64,6 +64,7 @@ const COLLAPSE_KEY := "left_panel_collapse"
 
 
 func _ready() -> void:
+	add_to_group("left_panel")
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	player = get_tree().get_first_node_in_group("player")

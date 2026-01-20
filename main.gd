@@ -8,6 +8,7 @@ var left_panel_scene: PackedScene = preload("res://ui/left_panel.tscn")
 var settings_menu_scene: PackedScene = preload("res://ui/settings_menu.tscn")
 var upgrade_menu_scene: PackedScene = preload("res://ui/upgrade_menu.tscn")
 var combat_log_scene: PackedScene = preload("res://ui/combat_log.tscn")
+var roster_panel_scene: PackedScene = preload("res://ui/roster_panel.tscn")
 
 var npc_manager: Node
 var projectile_manager: Node
@@ -266,6 +267,9 @@ func _setup_ui() -> void:
 
 	var combat_log = combat_log_scene.instantiate()
 	add_child(combat_log)
+
+	var roster_panel = roster_panel_scene.instantiate()
+	add_child(roster_panel)
 
 
 func _spawn_npcs() -> void:
