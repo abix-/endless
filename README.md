@@ -32,7 +32,8 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Visible world border with corner markers
 - [x] Destructible buildings (right-click slot → Destroy)
 - [x] Build new structures (right-click empty slots - farms, beds, guard posts)
-- [x] Expandable building grid (6x6 start, unlock adjacent slots up to 31x31)
+- [x] Expandable building grid (6x6 start, unlock adjacent slots up to 100x100)
+- [x] Double-click locked slots to unlock them
 - [x] Town circle indicator expands with building range
 - [x] 16 starting beds (4 beds in each of 4 corner slots)
 - [ ] Structure upgrades (increase output, capacity, defense)
@@ -87,6 +88,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] HP regen (2/hr awake, 6/hr sleeping, 10x at fountain/camp with upgrade scaling)
 - [x] Recovery system (fleeing NPCs heal until 75% before resuming)
 - [x] Bed tracking (NPCs reserve closest free bed, release when leaving)
+- [x] Farm tracking (max 4 farmers per farm, farmers use nearest free farm, return if pushed)
 - [x] 15-minute decision cycles (event-driven override on state changes)
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [x] Permadeath (dead NPCs free slots for new spawns)

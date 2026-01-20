@@ -91,12 +91,24 @@ func decide_what_to_do(i: int) -> void:
 
 	# Priority 2: Work time - go farm
 	if _is_work_time(i):
-		if state not in [NPCState.State.FARMING, NPCState.State.WALKING]:
+		# Check if pushed off farm while farming
+		if state == NPCState.State.FARMING:
+			var farm_idx: int = manager.current_farm_idx[i]
+			if farm_idx >= 0:
+				var town_idx: int = manager.town_indices[i]
+				var farm_pos: Vector2 = manager.get_farm_position(town_idx, farm_idx)
+				var dist: float = manager.positions[i].distance_to(farm_pos)
+				if dist > manager._arrival_farm * 1.5:  # Pushed too far away
+					# Walk back to reserved farm
+					manager.targets[i] = farm_pos
+					manager.arrival_radii[i] = manager._arrival_farm
+					manager._state.set_state(i, NPCState.State.WALKING)
+					manager._nav.force_logic_update(i)
+			return
+
+		if state != NPCState.State.WALKING:
 			manager.release_bed(i)  # Release bed when going to work
-			manager.targets[i] = manager.work_positions[i]
-			manager.arrival_radii[i] = manager._arrival_farm
-			manager._state.set_state(i, NPCState.State.WALKING)
-			manager._nav.force_logic_update(i)
+			_go_to_farm(i)
 		return
 
 	# Priority 3: Off duty - check policy for what to do
@@ -183,8 +195,9 @@ func _decide_raider(i: int) -> void:
 
 
 func _go_home(i: int) -> void:
-	# Release any currently held bed
+	# Release any currently held bed and farm
 	manager.release_bed(i)
+	manager.release_farm(i)
 
 	var town_idx: int = manager.town_indices[i]
 	var my_pos: Vector2 = manager.positions[i]
@@ -208,6 +221,30 @@ func _go_home(i: int) -> void:
 	manager._nav.force_logic_update(i)
 
 
+func _go_to_farm(i: int) -> void:
+	# Release any currently held farm
+	manager.release_farm(i)
+
+	var town_idx: int = manager.town_indices[i]
+	var my_pos: Vector2 = manager.positions[i]
+
+	# Find closest free farm
+	var farm_idx: int = manager.find_closest_free_farm(town_idx, my_pos)
+	if farm_idx >= 0:
+		# Reserve farm and go to it
+		manager.reserve_farm(town_idx, farm_idx, i)
+		var farm_pos: Vector2 = manager.get_farm_position(town_idx, farm_idx)
+		manager.targets[i] = farm_pos
+		manager.work_positions[i] = farm_pos  # Update work position for arrival check
+	else:
+		# No free farm - use original work position
+		manager.targets[i] = manager.work_positions[i]
+
+	manager.arrival_radii[i] = manager._arrival_farm
+	manager._state.set_state(i, NPCState.State.WALKING)
+	manager._nav.force_logic_update(i)
+
+
 func _go_off_duty(i: int, job: int) -> void:
 	var town_idx: int = manager.town_indices[i]
 
@@ -225,6 +262,7 @@ func _go_off_duty(i: int, job: int) -> void:
 			_go_home(i)
 		1:  # Stay at Fountain
 			manager.release_bed(i)
+			manager.release_farm(i)
 			if town_idx >= 0 and town_idx < manager.town_centers.size():
 				manager.targets[i] = manager.town_centers[town_idx]
 			manager.arrival_radii[i] = manager._arrival_home
@@ -232,6 +270,7 @@ func _go_off_duty(i: int, job: int) -> void:
 			manager._nav.force_logic_update(i)
 		2:  # Wander Town
 			manager.release_bed(i)
+			manager.release_farm(i)
 			if town_idx >= 0 and town_idx < manager.town_centers.size():
 				manager.wander_centers[i] = manager.town_centers[town_idx]
 			manager._state.set_state(i, NPCState.State.WANDERING)

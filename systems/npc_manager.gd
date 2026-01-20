@@ -52,6 +52,8 @@ var town_policies: Array = []  # Reference to main's policy data
 var town_food: PackedInt32Array  # Reference to main's town food (set by main.gd)
 var beds_by_town: Array[Array] = []  # Per-town arrays of bed positions
 var bed_occupants: Array[PackedInt32Array] = []  # Per-town: bed index -> NPC index (-1 = free)
+var farms_by_town: Array[Array] = []  # Per-town arrays of farm positions
+var farm_occupant_counts: Array[PackedInt32Array] = []  # Per-town: farm index -> count of farmers (0-4)
 var camp_food: PackedInt32Array  # Reference to main's camp food (set by main.gd)
 
 # Data arrays
@@ -90,6 +92,7 @@ var carrying_food: PackedInt32Array  # Raiders carrying stolen food
 var town_indices: PackedInt32Array  # Which town/camp this NPC belongs to
 var size_bonuses: PackedFloat32Array  # Size bonus from upgrades
 var current_bed_idx: PackedInt32Array  # Which bed this NPC is using (-1 = none)
+var current_farm_idx: PackedInt32Array  # Which farm this farmer is assigned to (-1 = none)
 
 var home_positions: PackedVector2Array
 var work_positions: PackedVector2Array
@@ -203,6 +206,7 @@ func _init_arrays() -> void:
 	town_indices.resize(max_count)
 	size_bonuses.resize(max_count)
 	current_bed_idx.resize(max_count)
+	current_farm_idx.resize(max_count)
 	patrol_target_idx.resize(max_count)
 	patrol_last_idx.resize(max_count)
 	patrol_timer.resize(max_count)
@@ -214,6 +218,7 @@ func _init_arrays() -> void:
 	for i in max_count:
 		patrol_last_idx[i] = -1
 		current_bed_idx[i] = -1
+		current_farm_idx[i] = -1
 		npc_names[i] = ""
 		traits[i] = NPCState.Trait.NONE
 
@@ -639,6 +644,65 @@ func get_total_bed_count(town_idx: int) -> int:
 	if town_idx < 0 or town_idx >= beds_by_town.size():
 		return 0
 	return beds_by_town[town_idx].size()
+
+
+# ============================================================
+# FARM MANAGEMENT
+# ============================================================
+
+const MAX_FARMERS_PER_FARM := 4
+
+func find_closest_free_farm(town_idx: int, pos: Vector2) -> int:
+	if town_idx < 0 or town_idx >= farms_by_town.size():
+		return -1
+
+	var farms: Array = farms_by_town[town_idx]
+	var counts: PackedInt32Array = farm_occupant_counts[town_idx]
+
+	var best_idx := -1
+	var best_dist_sq := INF
+
+	for farm_idx in farms.size():
+		if counts[farm_idx] >= MAX_FARMERS_PER_FARM:
+			continue  # Farm full
+		var farm_pos: Vector2 = farms[farm_idx]
+		var dist_sq: float = pos.distance_squared_to(farm_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_idx = farm_idx
+
+	return best_idx
+
+
+func reserve_farm(town_idx: int, farm_idx: int, npc_idx: int) -> void:
+	if town_idx < 0 or town_idx >= farm_occupant_counts.size():
+		return
+	if farm_idx < 0 or farm_idx >= farm_occupant_counts[town_idx].size():
+		return
+
+	farm_occupant_counts[town_idx][farm_idx] += 1
+	current_farm_idx[npc_idx] = farm_idx
+
+
+func release_farm(npc_idx: int) -> void:
+	var farm_idx: int = current_farm_idx[npc_idx]
+	if farm_idx < 0:
+		return
+
+	var town_idx: int = town_indices[npc_idx]
+	if town_idx >= 0 and town_idx < farm_occupant_counts.size():
+		if farm_idx < farm_occupant_counts[town_idx].size():
+			farm_occupant_counts[town_idx][farm_idx] = maxi(0, farm_occupant_counts[town_idx][farm_idx] - 1)
+
+	current_farm_idx[npc_idx] = -1
+
+
+func get_farm_position(town_idx: int, farm_idx: int) -> Vector2:
+	if town_idx < 0 or town_idx >= farms_by_town.size():
+		return Vector2.ZERO
+	if farm_idx < 0 or farm_idx >= farms_by_town[town_idx].size():
+		return Vector2.ZERO
+	return farms_by_town[town_idx][farm_idx]
 
 
 # ============================================================

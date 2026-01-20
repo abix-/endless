@@ -31,12 +31,12 @@ var town_max_farmers: PackedInt32Array  # Population cap per town
 var town_max_guards: PackedInt32Array   # Population cap per town
 var town_policies: Array = []  # Per-town faction policies
 
-# Grid slot keys - max 31x31 grid (-15 to +15)
+# Grid slot keys - max 100x100 grid (-49 to +50)
 # Town starts at 6x6 (-2 to +3), expands by unlocking adjacent slots
 const BASE_GRID_MIN := -2
 const BASE_GRID_MAX := 3
-const MAX_GRID_MIN := -15
-const MAX_GRID_MAX := 15
+const MAX_GRID_MIN := -49
+const MAX_GRID_MAX := 50
 
 # Fixed slots: center area (0,0), (0,1), farms at (0,-1), (1,-1)
 const FIXED_SLOTS := ["0,0", "0,1", "0,-1", "1,-1"]
@@ -334,6 +334,20 @@ func _setup_managers() -> void:
 			occupants[bi] = -1
 		npc_manager.bed_occupants.append(occupants)
 
+	# Pass farm positions per town and initialize occupancy counts
+	for town in towns:
+		var farms := _get_farms_from_town(town)
+		var farm_positions: Array[Vector2] = []
+		for farm in farms:
+			farm_positions.append(farm.global_position)
+		npc_manager.farms_by_town.append(farm_positions)
+		# Initialize counts: 0 = empty
+		var counts: PackedInt32Array
+		counts.resize(farm_positions.size())
+		for fi in farm_positions.size():
+			counts[fi] = 0
+		npc_manager.farm_occupant_counts.append(counts)
+
 	# Pass town upgrades and policies references
 	npc_manager.town_upgrades = town_upgrades
 	npc_manager.town_policies = town_policies
@@ -550,6 +564,14 @@ func _input(event: InputEvent) -> void:
 			build_menu.open(slot_info.slot_key, player_town_idx, event.position, slot_info.locked)
 			get_viewport().set_input_as_handled()
 
+	# Double-click on locked slot unlocks it
+	if event is InputEventMouseButton and event.double_click and event.button_index == MOUSE_BUTTON_LEFT:
+		var world_pos: Vector2 = get_global_mouse_position()
+		var slot_info := _get_clicked_buildable_slot(world_pos)
+		if slot_info.slot_key != "" and slot_info.locked:
+			if _unlock_slot(player_town_idx, slot_info.slot_key):
+				get_viewport().set_input_as_handled()
+
 
 func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
 	# Handle population cap upgrades
@@ -702,6 +724,10 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		town.slots[slot_key].append({"type": "farm", "node": farm})
 		# Add to npc_manager farm positions
 		npc_manager.farm_positions.append(slot_pos)
+		# Add to per-town farm tracking
+		if player_town_idx < npc_manager.farms_by_town.size():
+			npc_manager.farms_by_town[player_town_idx].append(slot_pos)
+			npc_manager.farm_occupant_counts[player_town_idx].append(0)
 
 	elif building_type == "bed":
 		var slot_contents: Array = town.slots[slot_key]
@@ -761,6 +787,21 @@ func _on_destroy_requested(slot_key: String) -> void:
 			var farm_idx: int = npc_manager.farm_positions.find(pos)
 			if farm_idx >= 0:
 				npc_manager.farm_positions.remove_at(farm_idx)
+			# Remove from per-town farm tracking
+			if player_town_idx < npc_manager.farms_by_town.size():
+				var farms: Array = npc_manager.farms_by_town[player_town_idx]
+				for fi in farms.size():
+					if farms[fi] == pos:
+						# Release all farmers using this farm
+						for npc_i in npc_manager.count:
+							if npc_manager.current_farm_idx[npc_i] == fi and npc_manager.town_indices[npc_i] == player_town_idx:
+								npc_manager.current_farm_idx[npc_i] = -1
+							# Adjust farm indices for farmers using higher-indexed farms
+							elif npc_manager.current_farm_idx[npc_i] > fi and npc_manager.town_indices[npc_i] == player_town_idx:
+								npc_manager.current_farm_idx[npc_i] -= 1
+						farms.remove_at(fi)
+						npc_manager.farm_occupant_counts[player_town_idx].remove_at(fi)
+						break
 		elif btype == "guard_post":
 			var pos: Vector2 = node.global_position
 			if player_town_idx < npc_manager.guard_posts_by_town.size():
