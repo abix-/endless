@@ -241,7 +241,6 @@ func _ensure_capacity(npc_count: int, grid_cells: int, max_per_cell: int) -> voi
 		need_rebuild = true
 
 	# Grid buffers
-	var needed_cells: int = grid_cells * max_per_cell
 	if grid_cells != _grid_cells or need_rebuild:
 		if grid_counts_buffer.is_valid():
 			if uniform_set.is_valid():
