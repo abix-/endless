@@ -370,17 +370,20 @@ func apply_deferred_changes() -> void:
 # ============================================================
 
 func _kick_gpu_separation() -> void:
-	_grid.rebuild_neighbor_arrays()
+	_grid.rebuild_gpu_grid()
 	_gpu_separation.kick(
 		positions,
 		_nav.cached_sizes,
 		healths,
 		states,
 		targets,
-		_grid.neighbor_starts,
-		_grid.neighbor_counts,
-		_grid.neighbor_data,
+		_grid.gpu_grid_counts,
+		_grid.gpu_grid_data,
 		count,
+		_grid.gpu_grid_width,
+		_grid.gpu_grid_height,
+		NPCGrid.GPU_MAX_PER_CELL,
+		NPCGrid.CELL_SIZE,
 		Config.SEPARATION_RADIUS,
 		Config.SEPARATION_STRENGTH
 	)

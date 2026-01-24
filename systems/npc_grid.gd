@@ -15,6 +15,13 @@ var neighbor_starts: PackedInt32Array  # Start index in neighbor_data for each N
 var neighbor_counts: PackedInt32Array  # Number of neighbors for each NPC
 var neighbor_data: PackedInt32Array     # Flat array of all neighbor indices
 
+# GPU grid: flat cell structure for compute shader upload
+const GPU_MAX_PER_CELL := 48
+var gpu_grid_width: int = 0
+var gpu_grid_height: int = 0
+var gpu_grid_counts: PackedInt32Array   # [grid_width * grid_height] counts per cell
+var gpu_grid_data: PackedInt32Array     # [grid_width * grid_height * MAX_PER_CELL] NPC indices
+
 
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
@@ -66,6 +73,41 @@ func get_nearby(pos: Vector2) -> Array[int]:
 				results.append_array(grid[key])
 
 	return results
+
+
+func rebuild_gpu_grid() -> void:
+	# Initialize grid dimensions on first call
+	if gpu_grid_width == 0:
+		@warning_ignore("integer_division")
+		gpu_grid_width = int(Config.world_width / CELL_SIZE) + 1
+		@warning_ignore("integer_division")
+		gpu_grid_height = int(Config.world_height / CELL_SIZE) + 1
+		var total_cells: int = gpu_grid_width * gpu_grid_height
+		gpu_grid_counts.resize(total_cells)
+		gpu_grid_data.resize(total_cells * GPU_MAX_PER_CELL)
+
+	# Zero counts
+	gpu_grid_counts.fill(0)
+
+	# One O(n) pass: assign each NPC to its cell
+	var positions: PackedVector2Array = manager.positions
+	var healths: PackedFloat32Array = manager.healths
+	var gw: int = gpu_grid_width
+	var max_pc: int = GPU_MAX_PER_CELL
+
+	for i in manager.count:
+		if healths[i] <= 0.0:
+			continue
+		var pos: Vector2 = positions[i]
+		@warning_ignore("narrowing_conversion")
+		var cx: int = clampi(int(pos.x / CELL_SIZE), 0, gpu_grid_width - 1)
+		@warning_ignore("narrowing_conversion")
+		var cy: int = clampi(int(pos.y / CELL_SIZE), 0, gpu_grid_height - 1)
+		var cell_idx: int = cy * gw + cx
+		var c: int = gpu_grid_counts[cell_idx]
+		if c < max_pc:
+			gpu_grid_data[cell_idx * max_pc + c] = i
+			gpu_grid_counts[cell_idx] = c + 1
 
 
 func rebuild_neighbor_arrays() -> void:

@@ -28,17 +28,13 @@ layout(set = 0, binding = 5, std430) restrict readonly buffer TargetBuffer {
     vec2 npc_targets[];
 };
 
-// Neighbor grid buffers
-layout(set = 0, binding = 6, std430) restrict readonly buffer NeighborStarts {
-    int neighbor_starts[];
+// Grid buffers
+layout(set = 0, binding = 6, std430) restrict readonly buffer GridCounts {
+    int grid_counts[];
 };
 
-layout(set = 0, binding = 7, std430) restrict readonly buffer NeighborCounts {
-    int neighbor_counts[];
-};
-
-layout(set = 0, binding = 8, std430) restrict readonly buffer NeighborData {
-    int neighbor_data[];
+layout(set = 0, binding = 7, std430) restrict readonly buffer GridData {
+    int grid_data[];
 };
 
 layout(push_constant) uniform PushConstants {
@@ -46,6 +42,10 @@ layout(push_constant) uniform PushConstants {
     float separation_radius;
     float separation_strength;
     uint stationary_mask;
+    uint grid_width;
+    uint grid_height;
+    float cell_size;
+    uint max_per_cell;
 } params;
 
 void main() {
@@ -74,70 +74,86 @@ void main() {
     vec2 sep = vec2(0.0);
     vec2 dodge = vec2(0.0);
 
-    // Iterate only over neighbors from spatial grid
-    int start = neighbor_starts[i];
-    int count = neighbor_counts[i];
-    for (int n = 0; n < count; n++) {
-        uint j = uint(neighbor_data[start + n]);
-        if (healths[j] <= 0.0) continue;
+    // Compute my grid cell
+    int cx = clamp(int(my_pos.x / params.cell_size), 0, int(params.grid_width) - 1);
+    int cy = clamp(int(my_pos.y / params.cell_size), 0, int(params.grid_height) - 1);
 
-        vec2 other_pos = positions[j];
-        vec2 diff = my_pos - other_pos;
-        float dist_sq = dot(diff, diff);
-        if (dist_sq <= 0.0) continue;
+    // Check 3x3 adjacent cells
+    for (int dy = -1; dy <= 1; dy++) {
+        int ny = cy + dy;
+        if (ny < 0 || ny >= int(params.grid_height)) continue;
+        for (int dx = -1; dx <= 1; dx++) {
+            int nx = cx + dx;
+            if (nx < 0 || nx >= int(params.grid_width)) continue;
 
-        float other_size = max(sizes[j], 1.0);
-        float combined_radius = (my_radius + params.separation_radius * other_size) * 0.5;
-        float combined_radius_sq = combined_radius * combined_radius;
+            int cell_idx = ny * int(params.grid_width) + nx;
+            int cell_count = grid_counts[cell_idx];
+            int cell_base = cell_idx * int(params.max_per_cell);
 
-        // Separation force (within combined radius)
-        if (dist_sq < combined_radius_sq) {
-            int other_state = npc_states[j];
-            bool other_stationary = (params.stationary_mask & (1u << uint(other_state))) != 0u;
+            for (int n = 0; n < cell_count; n++) {
+                uint j = uint(grid_data[cell_base + n]);
+                if (j == i) continue;
+                if (healths[j] <= 0.0) continue;
 
-            float push_strength = other_size / my_size;
-            if (other_stationary) {
-                push_strength *= 3.0;
-            }
+                vec2 other_pos = positions[j];
+                vec2 diff = my_pos - other_pos;
+                float dist_sq = dot(diff, diff);
+                if (dist_sq <= 0.0) continue;
 
-            float inv_dist = inversesqrt(dist_sq);
-            float factor = inv_dist * inv_dist * push_strength;
-            sep += diff * factor;
-        }
+                float other_size = max(sizes[j], 1.0);
+                float combined_radius = (my_radius + params.separation_radius * other_size) * 0.5;
+                float combined_radius_sq = combined_radius * combined_radius;
 
-        // TCP-like collision avoidance (within 2x combined radius)
-        float approach_radius_sq = combined_radius_sq * 4.0;
-        if (dist_sq < approach_radius_sq) {
-            int other_state = npc_states[j];
-            bool other_stationary = (params.stationary_mask & (1u << uint(other_state))) != 0u;
+                // Separation force
+                if (dist_sq < combined_radius_sq) {
+                    int other_state = npc_states[j];
+                    bool other_stationary = (params.stationary_mask & (1u << uint(other_state))) != 0u;
 
-            if (!other_stationary) {
-                float dist = sqrt(dist_sq);
-                vec2 to_other = -diff / dist;
+                    float push_strength = other_size / my_size;
+                    if (other_stationary) {
+                        push_strength *= 3.0;
+                    }
 
-                float i_approach = dot(my_dir, to_other);
-                if (i_approach > 0.3) {
-                    vec2 other_target = npc_targets[j];
-                    vec2 ot = other_target - other_pos;
-                    float ot_len = length(ot);
+                    float inv_dist = inversesqrt(dist_sq);
+                    float factor = inv_dist * inv_dist * push_strength;
+                    sep += diff * factor;
+                }
 
-                    if (ot_len > 0.001) {
-                        vec2 other_dir = ot / ot_len;
-                        float they_approach = -dot(other_dir, to_other);
+                // TCP-like collision avoidance
+                float approach_radius_sq = combined_radius_sq * 4.0;
+                if (dist_sq < approach_radius_sq) {
+                    int other_state = npc_states[j];
+                    bool other_stationary = (params.stationary_mask & (1u << uint(other_state))) != 0u;
 
-                        vec2 perp = vec2(-my_dir.y, my_dir.x);
-                        float dodge_strength = 0.4;
+                    if (!other_stationary) {
+                        float dist = sqrt(dist_sq);
+                        vec2 to_other = -diff / dist;
 
-                        if (they_approach > 0.3) {
-                            dodge_strength = 0.5;
-                        } else if (they_approach < -0.3) {
-                            dodge_strength = 0.3;
-                        }
+                        float i_approach = dot(my_dir, to_other);
+                        if (i_approach > 0.3) {
+                            vec2 other_target = npc_targets[j];
+                            vec2 ot = other_target - other_pos;
+                            float ot_len = length(ot);
 
-                        if (i < j) {
-                            dodge += perp * dodge_strength;
-                        } else {
-                            dodge -= perp * dodge_strength;
+                            if (ot_len > 0.001) {
+                                vec2 other_dir = ot / ot_len;
+                                float they_approach = -dot(other_dir, to_other);
+
+                                vec2 perp = vec2(-my_dir.y, my_dir.x);
+                                float dodge_strength = 0.4;
+
+                                if (they_approach > 0.3) {
+                                    dodge_strength = 0.5;
+                                } else if (they_approach < -0.3) {
+                                    dodge_strength = 0.3;
+                                }
+
+                                if (i < j) {
+                                    dodge += perp * dodge_strength;
+                                } else {
+                                    dodge -= perp * dodge_strength;
+                                }
+                            }
                         }
                     }
                 }
