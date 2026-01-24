@@ -75,16 +75,9 @@ func initialize() -> bool:
 		push_error("GPUSeparation: Failed to get SPIRV")
 		return false
 
-	# Start worker thread (it will create the RenderingDevice)
+	# Start worker thread (non-blocking — thread sets is_initialized when ready)
 	_thread = Thread.new()
 	_thread.start(_thread_func)
-
-	# Wait for thread to signal initialization complete
-	_semaphore.wait()
-	if not is_initialized:
-		_thread.wait_to_finish()
-		return false
-
 	return true
 
 
@@ -133,23 +126,19 @@ func _thread_func() -> void:
 	rd = RenderingServer.create_local_rendering_device()
 	if rd == null:
 		push_warning("GPUSeparation: RenderingDevice unavailable")
-		_semaphore.post()  # Signal main thread we failed
 		return
 
 	shader = rd.shader_create_from_spirv(_shader_spirv)
 	if not shader.is_valid():
 		push_error("GPUSeparation: Failed to create shader")
-		_semaphore.post()
 		return
 
 	pipeline = rd.compute_pipeline_create(shader)
 	if not pipeline.is_valid():
 		push_error("GPUSeparation: Failed to create pipeline")
-		_semaphore.post()
 		return
 
 	is_initialized = true
-	_semaphore.post()  # Signal main thread: init complete
 
 	# Work loop
 	while true:
@@ -325,7 +314,7 @@ func _free_buffers() -> void:
 
 
 func cleanup() -> void:
-	if not is_initialized:
+	if _thread == null:
 		return
 
 	# Signal thread to exit (thread handles its own GPU cleanup)
