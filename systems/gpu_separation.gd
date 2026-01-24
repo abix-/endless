@@ -97,13 +97,13 @@ func kick(
 	if not is_initialized:
 		return
 
-	# Snapshot data for the GPU thread (sliced to count to avoid buffer overflow)
+	# Snapshot data for the GPU thread (full arrays, thread uploads only count elements)
 	_mutex.lock()
-	_snap_positions = positions.slice(0, count).to_byte_array()
-	_snap_sizes = sizes.slice(0, count).to_byte_array()
-	_snap_healths = healths.slice(0, count).to_byte_array()
-	_snap_states = states.slice(0, count).to_byte_array()
-	_snap_targets = targets.slice(0, count).to_byte_array()
+	_snap_positions = positions.to_byte_array()
+	_snap_sizes = sizes.to_byte_array()
+	_snap_healths = healths.to_byte_array()
+	_snap_states = states.to_byte_array()
+	_snap_targets = targets.to_byte_array()
 	_snap_neighbor_starts = neighbor_starts.to_byte_array()
 	_snap_neighbor_counts = neighbor_counts.to_byte_array()
 	_snap_neighbor_data = neighbor_data.to_byte_array()
@@ -169,16 +169,18 @@ func _thread_func() -> void:
 		_ensure_npc_capacity(count)
 		_ensure_neighbor_data_capacity(nd_size)
 
-		# Upload to GPU
-		rd.buffer_update(position_buffer, 0, pos_bytes.size(), pos_bytes)
-		rd.buffer_update(size_buffer, 0, size_bytes.size(), size_bytes)
-		rd.buffer_update(health_buffer, 0, health_bytes.size(), health_bytes)
-		rd.buffer_update(state_buffer, 0, state_bytes.size(), state_bytes)
-		rd.buffer_update(target_buffer, 0, target_bytes.size(), target_bytes)
-		rd.buffer_update(neighbor_starts_buffer, 0, ns_bytes.size(), ns_bytes)
-		rd.buffer_update(neighbor_counts_buffer, 0, nc_bytes.size(), nc_bytes)
-		if nd_bytes.size() > 0:
-			rd.buffer_update(neighbor_data_buffer, 0, nd_bytes.size(), nd_bytes)
+		# Upload to GPU (only count elements, not full array)
+		var vec2_bytes: int = count * 8
+		var scalar_bytes: int = count * 4
+		rd.buffer_update(position_buffer, 0, vec2_bytes, pos_bytes)
+		rd.buffer_update(size_buffer, 0, scalar_bytes, size_bytes)
+		rd.buffer_update(health_buffer, 0, scalar_bytes, health_bytes)
+		rd.buffer_update(state_buffer, 0, scalar_bytes, state_bytes)
+		rd.buffer_update(target_buffer, 0, vec2_bytes, target_bytes)
+		rd.buffer_update(neighbor_starts_buffer, 0, scalar_bytes, ns_bytes)
+		rd.buffer_update(neighbor_counts_buffer, 0, scalar_bytes, nc_bytes)
+		if nd_size > 0:
+			rd.buffer_update(neighbor_data_buffer, 0, nd_size * 4, nd_bytes)
 
 		# Push constants
 		push_constants.encode_u32(0, count)
@@ -257,6 +259,10 @@ func _ensure_neighbor_data_capacity(size: int) -> void:
 	if size <= _neighbor_data_capacity:
 		return
 
+	# Free uniform_set first (it references the buffer)
+	if uniform_set.is_valid():
+		rd.free_rid(uniform_set)
+		uniform_set = RID()
 	if neighbor_data_buffer.is_valid():
 		rd.free_rid(neighbor_data_buffer)
 

@@ -72,16 +72,22 @@ func rebuild_neighbor_arrays() -> void:
 	var npc_count: int = manager.count
 	neighbor_starts.resize(npc_count)
 	neighbor_counts.resize(npc_count)
-	neighbor_data.resize(0)
+
+	# Pre-allocate with previous capacity (avoids repeated reallocation)
+	var write_idx: int = 0
+	var capacity: int = neighbor_data.size()
+	if capacity < npc_count * 8:
+		capacity = npc_count * 16
+		neighbor_data.resize(capacity)
 
 	for i in npc_count:
-		neighbor_starts[i] = neighbor_data.size()
+		neighbor_starts[i] = write_idx
 		if manager.healths[i] <= 0.0:
 			neighbor_counts[i] = 0
 			continue
 		var pos: Vector2 = manager.positions[i]
 		var coords: Vector2i = _cell_coords(pos)
-		var start: int = neighbor_data.size()
+		var start: int = write_idx
 		for dy in range(-1, 2):
 			var ny: int = coords.y + dy
 			for dx in range(-1, 2):
@@ -90,8 +96,14 @@ func rebuild_neighbor_arrays() -> void:
 				if grid.has(key):
 					for idx in grid[key]:
 						if idx != i:
-							neighbor_data.append(idx)
-		neighbor_counts[i] = neighbor_data.size() - start
+							if write_idx >= capacity:
+								capacity *= 2
+								neighbor_data.resize(capacity)
+							neighbor_data[write_idx] = idx
+							write_idx += 1
+		neighbor_counts[i] = write_idx - start
+
+	neighbor_data.resize(write_idx)
 
 
 # Parallel-safe: get pre-computed neighbor count for NPC i (no allocation)
