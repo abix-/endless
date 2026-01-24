@@ -111,6 +111,24 @@ var traits: PackedInt32Array              # NPCState.Trait values
 var last_logic_frame: PackedInt32Array    # Frame when logic was last calculated
 var intended_velocities: PackedVector2Array  # Cached velocity from last logic update
 
+# Entity sleeping (Factorio-style optimization)
+var awake: PackedByteArray  # 1 = awake, 0 = sleeping
+var sleep_timers: PackedFloat32Array  # Delay before sleeping after leaving active zone
+const SLEEP_DELAY := 2.0  # Seconds before NPC sleeps
+const ACTIVE_RADIUS := 1500.0  # Pixels from camera center
+const ACTIVE_RADIUS_SQ := ACTIVE_RADIUS * ACTIVE_RADIUS
+
+# Parallel processing (double-buffer pattern)
+var use_parallel := true  # Toggle for fallback
+var use_gpu_separation := false  # GPU compute for separation (experimental)
+var next_positions: PackedVector2Array  # Write buffer for positions
+var pending_damage: PackedFloat32Array  # Accumulated damage per NPC
+var _death_queue: Array[int] = []  # NPCs to process death after parallel phase
+var _damage_mutex: Mutex  # Protects pending_damage writes
+var _cached_delta: float = 0.0  # Delta cached for parallel tasks
+var _cached_frame: int = 0  # Frame counter for staggering
+var _gpu_separation: GPUSeparation  # GPU compute shader manager
+
 # Selection
 var selected_npc := -1
 
@@ -164,6 +182,7 @@ func set_main_reference(main_node: Node) -> void:
 
 func _ready() -> void:
 	add_to_group("npc_manager")
+	_damage_mutex = Mutex.new()
 	_init_radii()
 	_init_arrays()
 	_init_systems()
@@ -219,8 +238,14 @@ func _init_arrays() -> void:
 	intended_velocities.resize(max_count)
 	npc_names.resize(max_count)
 	traits.resize(max_count)
+	awake.resize(max_count)
+	sleep_timers.resize(max_count)
+	next_positions.resize(max_count)
+	pending_damage.resize(max_count)
 
 	for i in max_count:
+		awake[i] = 1  # Start awake
+		sleep_timers[i] = SLEEP_DELAY
 		patrol_last_idx[i] = -1
 		current_bed_idx[i] = -1
 		current_farm_idx[i] = -1
@@ -236,14 +261,171 @@ func _init_systems() -> void:
 	_combat = NPCCombat.new(self)
 	_needs = NPCNeeds.new(self)
 
+	# Initialize GPU compute (optional, may fail on incompatible systems)
+	_gpu_separation = GPUSeparation.new()
+	if _gpu_separation.initialize():
+		print("GPU separation initialized successfully")
+	else:
+		print("GPU separation unavailable, using CPU")
+		use_gpu_separation = false
+
 	_nav.arrived.connect(_on_npc_arrived)
+
+
+func _exit_tree() -> void:
+	if _gpu_separation:
+		_gpu_separation.cleanup()
+
+
+# ============================================================
+# ENTITY SLEEPING
+# ============================================================
+
+func _update_sleep_status(delta: float) -> void:
+	var cam_pos := Vector2.ZERO
+	var camera: Camera2D = get_viewport().get_camera_2d()
+	if camera:
+		cam_pos = camera.global_position
+
+	for i in count:
+		if healths[i] <= 0:
+			continue
+
+		var should_stay_awake := _should_stay_awake(i)
+		var pos: Vector2 = positions[i]
+		var dx: float = pos.x - cam_pos.x
+		var dy: float = pos.y - cam_pos.y
+		var in_range: bool = (dx * dx + dy * dy) < ACTIVE_RADIUS_SQ
+
+		if should_stay_awake or in_range:
+			awake[i] = 1
+			sleep_timers[i] = SLEEP_DELAY
+		else:
+			sleep_timers[i] -= delta
+			if sleep_timers[i] <= 0:
+				awake[i] = 0
+
+
+func _should_stay_awake(i: int) -> bool:
+	var state: int = states[i]
+	# Combat states always awake
+	if state == NPCState.State.FIGHTING or state == NPCState.State.FLEEING:
+		return true
+	# Active raider states always awake
+	if state == NPCState.State.RAIDING or state == NPCState.State.RETURNING:
+		return true
+	return false
+
+
+func wake_npc(i: int) -> void:
+	awake[i] = 1
+	sleep_timers[i] = SLEEP_DELAY
+
+
+# ============================================================
+# PARALLEL PROCESSING HELPERS
+# ============================================================
+
+func add_pending_damage(target: int, damage: float) -> void:
+	_damage_mutex.lock()
+	pending_damage[target] += damage
+	_damage_mutex.unlock()
+
+
+func queue_death(i: int) -> void:
+	_damage_mutex.lock()
+	if i not in _death_queue:
+		_death_queue.append(i)
+	_damage_mutex.unlock()
+
+
+func apply_deferred_changes() -> void:
+	# Apply pending damage and check for deaths
+	for i in count:
+		if pending_damage[i] > 0:
+			healths[i] -= pending_damage[i]
+			flash_timers[i] = 0.15
+			health_dirty[i] = 1
+			pending_damage[i] = 0.0
+
+			if healths[i] <= 0:
+				healths[i] = 0
+				if i not in _death_queue:
+					_death_queue.append(i)
+
+	# Process deaths (single-threaded, safe)
+	for i in _death_queue:
+		if healths[i] <= 0:
+			_combat._die(i, -1)
+	_death_queue.clear()
+
+	# Copy next_positions to positions (swap buffers)
+	for i in count:
+		if healths[i] > 0 and awake[i] == 1:
+			positions[i] = next_positions[i]
+
+
+# ============================================================
+# GPU COMPUTE
+# ============================================================
+
+func _kick_gpu_separation() -> void:
+	_grid.rebuild_neighbor_arrays()
+	_gpu_separation.kick(
+		positions,
+		_nav.cached_sizes,
+		healths,
+		states,
+		targets,
+		_grid.neighbor_starts,
+		_grid.neighbor_counts,
+		_grid.neighbor_data,
+		count,
+		Config.SEPARATION_RADIUS,
+		Config.SEPARATION_STRENGTH
+	)
+
+
+func _apply_gpu_result() -> void:
+	var result: PackedVector2Array = _gpu_separation.get_result()
+	var apply_count: int = mini(result.size(), count)
+	for i in apply_count:
+		_nav.separation_velocities[i] = result[i]
+
+
+# ============================================================
+# UNIFIED PARALLEL PROCESSING
+# ============================================================
+
+func _process_unified_parallel() -> void:
+	_cached_frame = Engine.get_process_frames()
+	var task_id = WorkerThreadPool.add_group_task(_process_single_npc_unified, count)
+	WorkerThreadPool.wait_for_group_task_completion(task_id)
+
+
+func _process_single_npc_unified(i: int) -> void:
+	if healths[i] <= 0.0:
+		return
+	if awake[i] == 0:
+		return
+
+	# Phase 1: Scan for targets (staggered every 16 frames)
+	_combat._scan_single_npc_internal(i, _cached_frame)
+
+	# Phase 2: Combat processing
+	_combat._process_single_npc_combat_internal(i, _cached_delta, _cached_frame)
+
+	# Phase 3: Navigation
+	_nav._process_single_npc_nav_internal(i, _cached_delta, _cached_frame)
 
 
 # ============================================================
 # MAIN LOOP
 # ============================================================
 
+var profile_sleep := 0.0
 var profile_grid := 0.0
+var profile_gpu_sep := 0.0
 var profile_scan := 0.0
 var profile_combat := 0.0
 var profile_nav := 0.0
@@ -255,29 +437,70 @@ func _process(delta: float) -> void:
 	var profiling: bool = UserSettings.perf_metrics
 	var t := t1
 
+	_cached_delta = delta
+
+	_update_sleep_status(delta)
+	if profiling:
+		var t2 := Time.get_ticks_usec()
+		profile_sleep = (t2 - t) / 1000.0
+		t = t2
+
 	_grid.rebuild()
 	if profiling:
 		var t2 := Time.get_ticks_usec()
 		profile_grid = (t2 - t) / 1000.0
 		t = t2
 
-	_combat.process_scanning(delta)
-	if profiling:
-		var t2 := Time.get_ticks_usec()
-		profile_scan = (t2 - t) / 1000.0
-		t = t2
+	# GPU separation: apply last frame's result, kick new computation
+	if use_gpu_separation and _gpu_separation.is_initialized:
+		_apply_gpu_result()
+		_kick_gpu_separation()
+		if profiling:
+			var t2 := Time.get_ticks_usec()
+			profile_gpu_sep = (t2 - t) / 1000.0
+			t = t2
+	else:
+		profile_gpu_sep = 0.0
 
-	_combat.process(delta)
-	if profiling:
-		var t2 := Time.get_ticks_usec()
-		profile_combat = (t2 - t) / 1000.0
-		t = t2
+	if use_parallel:
+		# Unified parallel processing - single pass for scan+combat+nav
+		_process_unified_parallel()
+		if profiling:
+			var t2 := Time.get_ticks_usec()
+			var total_parallel := (t2 - t) / 1000.0
+			# Split evenly for display (actual work is combined)
+			profile_scan = total_parallel * 0.15
+			profile_combat = total_parallel * 0.25
+			profile_nav = total_parallel * 0.60
+			t = t2
 
-	_nav.process(delta, profiling)
-	if profiling:
-		var t2 := Time.get_ticks_usec()
-		profile_nav = (t2 - t) / 1000.0
-		t = t2
+		# Apply deferred changes (damage, deaths, position swap)
+		apply_deferred_changes()
+
+		# Fire queued projectiles from parallel combat
+		_combat.fire_queued_projectiles()
+
+		# Handle state changes for NPCs that found targets during parallel scan
+		_process_pending_state_changes()
+	else:
+		# Single-threaded path (fallback)
+		_combat.process_scanning(delta)
+		if profiling:
+			var t2 := Time.get_ticks_usec()
+			profile_scan = (t2 - t) / 1000.0
+			t = t2
+
+		_combat.process(delta)
+		if profiling:
+			var t2 := Time.get_ticks_usec()
+			profile_combat = (t2 - t) / 1000.0
+			t = t2
+
+		_nav.process(delta, profiling)
+		if profiling:
+			var t2 := Time.get_ticks_usec()
+			profile_nav = (t2 - t) / 1000.0
+			t = t2
 
 	if _projectiles:
 		_projectiles.process(delta)
@@ -300,6 +523,25 @@ func _process(delta: float) -> void:
 
 	if Engine.get_process_frames() % 30 == 0:
 		_update_counts()
+
+
+func _process_pending_state_changes() -> void:
+	# Handle NPCs that found targets during parallel scan
+	# (parallel scan only sets current_targets, doesn't change state)
+	for i in count:
+		if healths[i] <= 0:
+			continue
+		if current_targets[i] < 0:
+			continue
+		# Has target but not in combat state - needs state change
+		var state: int = states[i]
+		if state != NPCState.State.FIGHTING and state != NPCState.State.FLEEING:
+			var job: int = jobs[i]
+			if job == NPCState.Job.FARMER:
+				_state.set_state(i, NPCState.State.FLEEING)
+			else:
+				_state.set_state(i, NPCState.State.FIGHTING)
+			_nav.force_logic_update(i)
 
 
 func _update_counts() -> void:
@@ -521,8 +763,8 @@ func find_nearest_raider(i: int) -> int:
 	var nearest_dist_sq := INF
 
 	# Expanding radius search using grid
-	var search_radius := Config.GRID_CELL_SIZE * 2
-	while search_radius <= Config.GRID_CELL_SIZE * Config.GRID_SIZE:
+	var search_radius := NPCGrid.CELL_SIZE * 2
+	while search_radius <= Config.world_width:
 		var nearby: Array = _grid.get_nearby_in_radius(my_pos, search_radius)
 
 		for other_idx in nearby:
