@@ -11,15 +11,24 @@ config_version=5
 [application]
 
 config/name="Endless"
-run/main_scene="uid://c5htme08v5rox"
-config/features=PackedStringArray("4.5", "GL Compatibility")
-config/icon="res://icon.svg"
+run/main_scene="uid://startmenu001"
+config/features=PackedStringArray("4.5")
 
 [autoload]
 
 Config="*res://autoloads/config.gd"
 WorldClock="*res://autoloads/world_clock.gd"
 UserSettings="*res://autoloads/user_settings.gd"
+
+[display]
+
+window/size/mode=2
+config/features=PackedStringArray("4.5", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/debugger_error_logger/plugin.cfg")
 
 [input]
 
@@ -46,5 +55,4 @@ move_down={
 
 [rendering]
 
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
+renderer/rendering_method.mobile="forward_plus"

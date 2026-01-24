@@ -123,6 +123,7 @@ var use_parallel := true  # Toggle for fallback
 var use_gpu_separation := false  # GPU compute for separation (experimental)
 var next_positions: PackedVector2Array  # Write buffer for positions
 var pending_damage: PackedFloat32Array  # Accumulated damage per NPC
+var pending_arrivals: PackedByteArray  # 1 = arrived this frame (set in parallel, processed on main thread)
 var _death_queue: Array[int] = []  # NPCs to process death after parallel phase
 var _damage_mutex: Mutex  # Protects pending_damage writes
 var _cached_delta: float = 0.0  # Delta cached for parallel tasks
@@ -242,6 +243,7 @@ func _init_arrays() -> void:
 	sleep_timers.resize(max_count)
 	next_positions.resize(max_count)
 	pending_damage.resize(max_count)
+	pending_arrivals.resize(max_count)
 
 	for i in max_count:
 		awake[i] = 1  # Start awake
@@ -466,6 +468,9 @@ func _process(delta: float) -> void:
 		profile_gpu_sep = 0.0
 
 	if use_parallel:
+		# Clear arrival flags before parallel phase
+		pending_arrivals.fill(0)
+
 		# Unified parallel processing - single pass for scan+combat+nav
 		_process_unified_parallel()
 		if profiling:
@@ -536,22 +541,50 @@ func _process(delta: float) -> void:
 
 
 func _process_pending_state_changes() -> void:
-	# Handle NPCs that found targets during parallel scan
-	# (parallel scan only sets current_targets, doesn't change state)
 	for i in count:
 		if healths[i] <= 0:
 			continue
-		if current_targets[i] < 0:
-			continue
-		# Has target but not in combat state - needs state change
 		var state: int = states[i]
-		if state != NPCState.State.FIGHTING and state != NPCState.State.FLEEING:
+		var target: int = current_targets[i]
+
+		# Fighter/fleeer lost target (target died or arrived) - return to idle
+		if target < 0 and (state == NPCState.State.FIGHTING or state == NPCState.State.FLEEING):
+			# Check if wounded - enter recovery instead of re-engaging
+			if state == NPCState.State.FLEEING:
+				var health_pct: float = healths[i] / get_scaled_max_health(i)
+				var recovery_hp: float = _combat._get_recovery_threshold(i)
+				if health_pct < recovery_hp:
+					_state.set_state(i, NPCState.State.OFF_DUTY)
+					recovering[i] = 1
+					continue
+			_state.set_state(i, NPCState.State.IDLE)
+			_decide_what_to_do(i)
+			continue
+
+		# Gained target but not in combat state - enter combat
+		if target >= 0 and state != NPCState.State.FIGHTING and state != NPCState.State.FLEEING:
 			var job: int = jobs[i]
 			if job == NPCState.Job.FARMER:
 				_state.set_state(i, NPCState.State.FLEEING)
 			else:
 				_state.set_state(i, NPCState.State.FIGHTING)
 			_nav.force_logic_update(i)
+			continue
+
+		# Arrival detected during parallel nav - process on main thread
+		if pending_arrivals[i] == 1:
+			_needs.on_arrival(i)
+			continue
+
+		# Drift check: working NPCs pushed too far from their post
+		if state == NPCState.State.FARMING or state == NPCState.State.ON_DUTY:
+			var anchor: Vector2 = wander_centers[i]
+			var cur: Vector2 = positions[i]
+			var ddx: float = cur.x - anchor.x
+			var ddy: float = cur.y - anchor.y
+			if ddx * ddx + ddy * ddy > NPCNavigation.DRIFT_THRESHOLD_SQ:
+				_state.set_state(i, NPCState.State.IDLE)
+				_decide_what_to_do(i)
 
 
 func _update_counts() -> void:
@@ -633,8 +666,9 @@ func spawn_npc(job: int, faction: int, pos: Vector2, home_pos: Vector2, work_pos
 	size_bonuses[i] = 0.0
 	recovering[i] = 0
 
-	# Guard patrol initialization
-	patrol_target_idx[i] = 0
+	# Guard patrol initialization - randomize starting post to spread guards
+	var num_posts: int = guard_posts_by_town[town_idx].size() if town_idx >= 0 and town_idx < guard_posts_by_town.size() else 1
+	patrol_target_idx[i] = randi() % num_posts
 	patrol_last_idx[i] = -1
 	patrol_timer[i] = 0
 

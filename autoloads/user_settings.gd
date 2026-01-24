@@ -20,6 +20,7 @@ var scroll_speed := 400.0
 
 # Debug
 var perf_metrics := false  # Performance profiling enabled
+var show_active_radius := false  # Show entity sleeping zone circle
 
 # Legacy property for compatibility
 var show_hp_bars_always: bool:
@@ -40,6 +41,7 @@ func save_settings() -> void:
 	config.set_value("display", "log_timestamp", log_timestamp)
 	config.set_value("camera", "scroll_speed", scroll_speed)
 	config.set_value("debug", "perf_metrics", perf_metrics)
+	config.set_value("debug", "show_active_radius", show_active_radius)
 	config.save("user://settings.cfg")
 
 
@@ -54,6 +56,7 @@ func load_settings() -> void:
 		log_timestamp = config.get_value("display", "log_timestamp", TimestampMode.TIME)
 		scroll_speed = config.get_value("camera", "scroll_speed", 400.0)
 		perf_metrics = config.get_value("debug", "perf_metrics", false)
+		show_active_radius = config.get_value("debug", "show_active_radius", false)
 
 
 func set_hp_bar_mode(mode: int) -> void:
@@ -100,6 +103,12 @@ func set_log_timestamp(mode: int) -> void:
 
 func set_perf_metrics(enabled: bool) -> void:
 	perf_metrics = enabled
+	save_settings()
+	settings_changed.emit()
+
+
+func set_show_active_radius(enabled: bool) -> void:
+	show_active_radius = enabled
 	save_settings()
 	settings_changed.emit()
 

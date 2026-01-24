@@ -10,7 +10,7 @@ const SEPARATION_STRENGTH := 120.0
 const ATTACK_COOLDOWN := 1.0
 const SCAN_INTERVAL := 0.2
 const MAX_SCAN := 50
-const SCAN_STAGGER := 8
+const SCAN_STAGGER := 16
 
 # NPC capacity
 const MAX_NPC_COUNT := 3000
@@ -33,30 +33,31 @@ const RAIDER_LEASH_MULTIPLIER := 1.5
 # Guard patrol
 const GUARD_PATROL_WAIT := 30  # Minutes to wait at each post
 
-# Spatial grid
-const GRID_SIZE := 64
-const GRID_CELL_SIZE := 100.0
-const GRID_CELL_CAPACITY := 64
 
 # LOD thresholds (squared distances)
 const LOD_NEAR_SQ := 160000.0    # 400px
 const LOD_MID_SQ := 640000.0     # 800px
 const LOD_FAR_SQ := 1440000.0    # 1200px
 
-# World bounds
-const WORLD_WIDTH := 8000
-const WORLD_HEIGHT := 8000
+# World bounds (set at game start, before world generation)
+var world_width := 8000
+var world_height := 8000
+var num_towns := 1
 const WORLD_MARGIN := 400  # Keep towns away from edges
+const TILE_SIZE := 32
 
-# Town settings
-const FARMERS_PER_TOWN := 10
-const GUARDS_PER_TOWN := 30
+# Town settings (base values, scaled by population_scale at game start)
+const BASE_FARMERS_PER_TOWN := 10
+const BASE_GUARDS_PER_TOWN := 30
+const BASE_RAIDERS_PER_CAMP := 15
+var farmers_per_town := 10
+var guards_per_town := 30
+var raiders_per_camp := 15
+var max_farmers_per_town := 10
+var max_guards_per_town := 30
 const TOWN_GRID_SPACING := 34  # 32px buildings + 1px border on each side
-const MAX_FARMERS_PER_TOWN := 10  # Population cap (can be upgraded)
-const MAX_GUARDS_PER_TOWN := 30   # Population cap (can be upgraded)
 const FARMS_PER_TOWN := 2
 const GUARD_POSTS_PER_TOWN := 6
-const RAIDERS_PER_CAMP := 15
 const CAMP_DISTANCE := 1100  # Distance from town to raider camp (past guard posts)
 const SPAWN_INTERVAL_HOURS := 4  # Hours between spawning new NPCs
 
@@ -101,7 +102,7 @@ const HP_REGEN_SLEEP := 6.0  # 3x faster when sleeping
 # Town Upgrades
 const UPGRADE_MAX_LEVEL := 9999
 
-static func get_upgrade_cost(level: int) -> int:
+func get_upgrade_cost(level: int) -> int:
 	# Level 0->1: 10 food, scales exponentially to ~220k at level 9999
 	return int(10 * pow(1.001, level))
 # Guard upgrades
@@ -134,10 +135,10 @@ const GUARD_POST_BASE_RANGE := 100.0
 const GUARD_POST_ATTACK_COOLDOWN := 1.5
 const GUARD_POST_MAX_LEVEL := 9999
 
-static func get_guard_post_upgrade_cost(level: int) -> int:
+func get_guard_post_upgrade_cost(level: int) -> int:
 	# Level 0->1: 10 food, scales exponentially to ~100k at level 9999
 	return int(10 * pow(1.001, level))
 
-static func get_guard_post_stat_scale(level: int) -> float:
+func get_guard_post_stat_scale(level: int) -> float:
 	# Same sqrt scaling as NPCs: level 0 = 1x, level 9999 = 100x
 	return sqrt(float(level + 1))

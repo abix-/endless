@@ -5,14 +5,21 @@ class_name NPCCombat
 
 var manager: Node
 
+# Projectile queue for parallel mode (fired on main thread after parallel phase)
+var _projectile_queue: Array = []  # [{from, to, damage, faction, attacker}, ...]
+var _projectile_mutex: Mutex
+
 func _init(npc_manager: Node) -> void:
 	manager = npc_manager
+	_projectile_mutex = Mutex.new()
 
 func process(delta: float) -> void:
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
-		
+		if manager.awake[i] == 0:
+			continue
+
 		if manager.attack_timers[i] > 0:
 			manager.attack_timers[i] -= delta
 		
@@ -33,6 +40,8 @@ func process_scanning(delta: float) -> void:
 
 		if manager.healths[i] <= 0:
 			continue
+		if manager.awake[i] == 0:
+			continue
 
 		var state: int = manager.states[i]
 
@@ -43,8 +52,7 @@ func process_scanning(delta: float) -> void:
 			continue
 
 		# Optimization: Only scan if there's a threat nearby (cell has enemies)
-		var my_cell: int = manager._grid._cell_index(manager.positions[i])
-		if not _cell_has_threat(i, my_cell):
+		if not _cell_has_threat(i):
 			continue
 
 		manager.scan_timers[i] -= delta * Config.SCAN_STAGGER  # Compensate for stagger
@@ -54,41 +62,26 @@ func process_scanning(delta: float) -> void:
 
 			if enemy >= 0:
 				manager.current_targets[i] = enemy
-				if _should_flee(i):
+				var job: int = manager.jobs[i]
+				# Farmers always flee (they can't fight)
+				if job == NPCState.Job.FARMER or _should_flee(i):
 					manager._state.set_state(i, NPCState.State.FLEEING)
 				else:
 					manager._state.set_state(i, NPCState.State.FIGHTING)
-					if manager.jobs[i] == NPCState.Job.RAIDER:
+					if job == NPCState.Job.RAIDER:
 						_alert_nearby_raiders(i, enemy)
 				# Force immediate navigation update
 				manager._nav.force_logic_update(i)
 
 
-func _cell_has_threat(i: int, cell_idx: int) -> bool:
-	# Check this cell and adjacent cells for enemies
+func _cell_has_threat(i: int) -> bool:
+	var my_pos: Vector2 = manager.positions[i]
 	var my_faction: int = manager.factions[i]
-	var cx: int = cell_idx % Config.GRID_SIZE
-	@warning_ignore("integer_division")
-	var cy: int = cell_idx / Config.GRID_SIZE
+	var nearby: Array = manager._grid.get_nearby(my_pos)
 
-	for dy in range(-1, 2):
-		var ny: int = cy + dy
-		if ny < 0 or ny >= Config.GRID_SIZE:
-			continue
-		for dx in range(-1, 2):
-			var nx: int = cx + dx
-			if nx < 0 or nx >= Config.GRID_SIZE:
-				continue
-
-			var check_cell: int = ny * Config.GRID_SIZE + nx
-			var start: int = manager._grid.grid_cell_starts[check_cell]
-			var cell_count: int = manager._grid.grid_cell_counts[check_cell]
-
-			# Quick check: any enemy faction in this cell?
-			for j in cell_count:
-				var other_idx: int = manager._grid.grid_cells[start + j]
-				if manager.factions[other_idx] != my_faction:
-					return true
+	for other_idx in nearby:
+		if manager.healths[other_idx] > 0 and manager.factions[other_idx] != my_faction:
+			return true
 
 	return false
 
@@ -238,10 +231,15 @@ func _attack(attacker: int, victim: int) -> void:
 
 
 func _aggro_victim(attacker: int, victim: int) -> void:
+	# Wake victim on damage
+	manager.wake_npc(victim)
+
 	var victim_target: int = manager.current_targets[victim]
 	if victim_target < 0:
 		manager.current_targets[victim] = attacker
-		if _should_flee(victim):
+		var job: int = manager.jobs[victim]
+		# Farmers always flee (they can't fight)
+		if job == NPCState.Job.FARMER or _should_flee(victim):
 			manager._state.set_state(victim, NPCState.State.FLEEING)
 		else:
 			manager._state.set_state(victim, NPCState.State.FIGHTING)
@@ -449,3 +447,210 @@ func _find_closer_non_fleeing_enemy(i: int, current_target: int) -> int:
 			best = other_idx
 
 	return best
+
+
+# ============================================================
+# PARALLEL PROCESSING
+# ============================================================
+
+var _parallel_frame: int = 0
+var _parallel_delta: float = 0.0
+
+func process_scanning_parallel() -> void:
+	_parallel_frame = Engine.get_process_frames()
+	var task_id = WorkerThreadPool.add_group_task(_scan_single_npc, manager.count)
+	WorkerThreadPool.wait_for_group_task_completion(task_id)
+
+
+func _scan_single_npc(i: int) -> void:
+	# Stagger: only process 1/16 of NPCs per frame
+	if i % Config.SCAN_STAGGER != _parallel_frame % Config.SCAN_STAGGER:
+		return
+
+	if manager.healths[i] <= 0:
+		return
+	if manager.awake[i] == 0:
+		return
+
+	var state: int = manager.states[i]
+
+	# Skip states that don't need enemy scanning
+	if state in [NPCState.State.FIGHTING, NPCState.State.FLEEING, NPCState.State.RESTING]:
+		return
+
+	# Check if cell has threat (read-only, safe)
+	if not _cell_has_threat(i):
+		return
+
+	# Find enemy (read-only grid access, safe)
+	var enemy: int = _find_enemy_for(i)
+
+	# Write to own current_target (safe - each NPC writes only to its own index)
+	if enemy >= 0:
+		manager.current_targets[i] = enemy
+		# Note: State changes deferred to avoid race conditions
+		# The main thread will detect targets and set states
+
+
+func process_parallel(delta: float) -> void:
+	_parallel_delta = delta
+	_parallel_frame = Engine.get_process_frames()
+	var task_id = WorkerThreadPool.add_group_task(_process_single_npc_combat, manager.count)
+	WorkerThreadPool.wait_for_group_task_completion(task_id)
+
+
+func _process_single_npc_combat(i: int) -> void:
+	if manager.healths[i] <= 0:
+		return
+	if manager.awake[i] == 0:
+		return
+
+	# Decrement attack timer (safe - each NPC writes only to its own timer)
+	if manager.attack_timers[i] > 0:
+		manager.attack_timers[i] -= _parallel_delta
+
+	var state: int = manager.states[i]
+
+	if state == NPCState.State.FIGHTING:
+		_process_fighting_parallel(i)
+
+
+func _process_fighting_parallel(i: int) -> void:
+	var target_idx: int = manager.current_targets[i]
+
+	# Target dead or invalid - mark for state change (handled by main thread)
+	if target_idx < 0 or manager.healths[target_idx] <= 0:
+		manager.current_targets[i] = -1
+		return
+
+	# Flee check - switch to FLEEING if health too low
+	if _should_flee(i):
+		manager.states[i] = NPCState.State.FLEEING
+		manager.last_logic_frame[i] = 0
+		return
+
+	var my_pos: Vector2 = manager.positions[i]
+	var enemy_pos: Vector2 = manager.positions[target_idx]
+
+	# Leash check - disengage if too far from home
+	var job: int = manager.jobs[i]
+	var town_idx: int = manager.town_indices[i]
+	var has_leash := true
+	if job == NPCState.Job.GUARD and town_idx >= 0 and town_idx < manager.town_policies.size():
+		has_leash = manager.town_policies[town_idx].guard_leash
+	if has_leash:
+		var home_pos: Vector2 = manager.wander_centers[i]
+		var leash: float = Config.LEASH_DISTANCE
+		if job == NPCState.Job.RAIDER:
+			leash *= Config.RAIDER_LEASH_MULTIPLIER
+		if my_pos.distance_to(home_pos) > leash:
+			manager.current_targets[i] = -1
+			return
+
+	var dist_to_enemy: float = my_pos.distance_to(enemy_pos)
+	var attack_range: float = manager.attack_ranges[i]
+
+	if dist_to_enemy <= attack_range and manager.attack_timers[i] <= 0:
+		_attack_parallel(i, target_idx)
+
+
+func _attack_parallel(attacker: int, victim: int) -> void:
+	var cooldown: float = Config.ATTACK_COOLDOWN
+	var job: int = manager.jobs[attacker]
+
+	# Apply attack speed upgrade for guards
+	if job == NPCState.Job.GUARD:
+		var town_idx: int = manager.town_indices[attacker]
+		if town_idx >= 0 and town_idx < manager.town_upgrades.size():
+			var atk_speed_level: int = manager.town_upgrades[town_idx].guard_attack_speed
+			if atk_speed_level > 0:
+				cooldown *= 1.0 - (atk_speed_level * Config.UPGRADE_GUARD_ATTACK_SPEED)
+
+	# Apply trait modifiers
+	var npc_trait: int = manager.traits[attacker]
+	if npc_trait == NPCState.Trait.EFFICIENT:
+		cooldown *= 0.75
+	elif npc_trait == NPCState.Trait.LAZY:
+		cooldown *= 1.2
+
+	manager.attack_timers[attacker] = cooldown
+
+	var damage: float = _get_damage(attacker)
+	var is_ranged: bool = job == NPCState.Job.GUARD or job == NPCState.Job.RAIDER
+
+	if is_ranged and manager._projectiles:
+		# Queue projectile for main thread (thread-safe)
+		var from_pos: Vector2 = manager.positions[attacker]
+		var target_pos: Vector2 = manager.positions[victim]
+		var faction: int = manager.factions[attacker]
+		_projectile_mutex.lock()
+		_projectile_queue.append({
+			"from": from_pos,
+			"to": target_pos,
+			"damage": damage,
+			"faction": faction,
+			"attacker": attacker
+		})
+		_projectile_mutex.unlock()
+	else:
+		# Melee: use pending_damage (thread-safe via mutex)
+		manager.add_pending_damage(victim, damage)
+
+
+# Fire queued projectiles (call from main thread after parallel phase)
+func fire_queued_projectiles() -> void:
+	if _projectile_queue.is_empty():
+		return
+	_projectile_mutex.lock()
+	var queue := _projectile_queue.duplicate()
+	_projectile_queue.clear()
+	_projectile_mutex.unlock()
+
+	for p in queue:
+		manager._projectiles.fire(p.from, p.to, p.damage, p.faction, p.attacker)
+
+
+# Internal versions for unified parallel processing (called from npc_manager)
+func _scan_single_npc_internal(i: int, frame: int) -> void:
+	# Stagger: only process 1/16 of NPCs per frame
+	if i % Config.SCAN_STAGGER != frame % Config.SCAN_STAGGER:
+		return
+
+	var state: int = manager.states[i]
+	if state in [NPCState.State.FIGHTING, NPCState.State.FLEEING, NPCState.State.RESTING]:
+		return
+
+	if not _cell_has_threat(i):
+		return
+
+	var enemy: int = _find_enemy_for(i)
+	if enemy >= 0:
+		manager.current_targets[i] = enemy
+
+
+func _process_single_npc_combat_internal(i: int, delta: float, _frame: int) -> void:
+	if manager.attack_timers[i] > 0:
+		manager.attack_timers[i] -= delta
+
+	var state: int = manager.states[i]
+	if state == NPCState.State.FIGHTING:
+		_process_fighting_parallel(i)
+	elif state == NPCState.State.FLEEING:
+		var target_idx: int = manager.current_targets[i]
+		if target_idx < 0 or manager.healths[target_idx] <= 0:
+			manager.current_targets[i] = -1
+		else:
+			# Check if reached flee destination
+			var my_pos: Vector2 = manager.positions[i]
+			var flee_target: Vector2
+			var job: int = manager.jobs[i]
+			if job == NPCState.Job.RAIDER:
+				flee_target = manager.home_positions[i]
+			else:
+				var town_idx: int = manager.town_indices[i]
+				if town_idx >= 0 and town_idx < manager.town_centers.size():
+					flee_target = manager.town_centers[town_idx]
+				else:
+					flee_target = manager.home_positions[i]
+			if my_pos.distance_to(flee_target) < manager._arrival_home:
+				manager.current_targets[i] = -1

@@ -2,10 +2,9 @@
 # Generates world terrain using MultiMesh and noise-based biomes
 extends Node2D
 
-const TILE_SIZE := 32
-const GRID_WIDTH := 250   # 8000 / 32
-const GRID_HEIGHT := 250
-const TILE_COUNT := GRID_WIDTH * GRID_HEIGHT
+var grid_width: int
+var grid_height: int
+var tile_count: int
 
 # Biome types
 enum Biome { GRASS, FOREST, WATER, ROCK, DIRT }
@@ -59,6 +58,11 @@ var tile_sprites: Array[Vector2i] = []
 
 func _ready() -> void:
 	z_index = -100
+	@warning_ignore("integer_division")
+	grid_width = Config.world_width / Config.TILE_SIZE
+	@warning_ignore("integer_division")
+	grid_height = Config.world_height / Config.TILE_SIZE
+	tile_count = grid_width * grid_height
 	_init_noise()
 	_init_multimesh()
 	_init_tile_data()
@@ -75,11 +79,11 @@ func _init_multimesh() -> void:
 	multimesh = MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_2D
 	multimesh.use_custom_data = true
-	multimesh.instance_count = TILE_COUNT
-	multimesh.visible_instance_count = TILE_COUNT
+	multimesh.instance_count = tile_count
+	multimesh.visible_instance_count = tile_count
 
 	var quad := QuadMesh.new()
-	quad.size = Vector2(TILE_SIZE, TILE_SIZE)
+	quad.size = Vector2(Config.TILE_SIZE, Config.TILE_SIZE)
 	multimesh.mesh = quad
 
 	multimesh_instance.multimesh = multimesh
@@ -92,8 +96,8 @@ func _init_multimesh() -> void:
 
 
 func _init_tile_data() -> void:
-	tile_biomes.resize(TILE_COUNT)
-	tile_sprites.resize(TILE_COUNT)
+	tile_biomes.resize(tile_count)
+	tile_sprites.resize(tile_count)
 
 
 func generate(towns: Array[Vector2], camps: Array[Vector2]) -> void:
@@ -103,10 +107,12 @@ func generate(towns: Array[Vector2], camps: Array[Vector2]) -> void:
 
 
 func _generate_terrain() -> void:
-	for y in GRID_HEIGHT:
-		for x in GRID_WIDTH:
-			var idx := x + y * GRID_WIDTH
-			var world_pos := Vector2(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2)
+	@warning_ignore("integer_division")
+	var half_tile: int = Config.TILE_SIZE / 2
+	for y in grid_height:
+		for x in grid_width:
+			var idx := x + y * grid_width
+			var world_pos := Vector2(x * Config.TILE_SIZE + half_tile, y * Config.TILE_SIZE + half_tile)
 
 			var biome := _get_biome(world_pos)
 			var sprite_def := _get_sprite_def(biome)
@@ -177,22 +183,22 @@ const BIOME_NAMES := {
 
 # Get tile info at world position
 func get_tile_at(world_pos: Vector2) -> Dictionary:
-	var grid_x := int(world_pos.x / TILE_SIZE)
-	var grid_y := int(world_pos.y / TILE_SIZE)
+	var grid_x := int(world_pos.x / Config.TILE_SIZE)
+	var grid_y := int(world_pos.y / Config.TILE_SIZE)
 
 	# Bounds check
-	if grid_x < 0 or grid_x >= GRID_WIDTH or grid_y < 0 or grid_y >= GRID_HEIGHT:
+	if grid_x < 0 or grid_x >= grid_width or grid_y < 0 or grid_y >= grid_height:
 		return {}
 
-	var idx := grid_x + grid_y * GRID_WIDTH
+	var idx := grid_x + grid_y * grid_width
 	var biome: int = tile_biomes[idx]
 	var sprite: Vector2i = tile_sprites[idx]
 
 	return {
 		"grid_x": grid_x,
 		"grid_y": grid_y,
-		"world_x": grid_x * TILE_SIZE,
-		"world_y": grid_y * TILE_SIZE,
+		"world_x": grid_x * Config.TILE_SIZE,
+		"world_y": grid_y * Config.TILE_SIZE,
 		"biome": biome,
 		"biome_name": BIOME_NAMES.get(biome, "Unknown"),
 		"sprite_col": sprite.x,

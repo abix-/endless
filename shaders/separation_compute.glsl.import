@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://c2hu8iidcf7s3"
+path="res://.godot/imported/separation_compute.glsl-f7296946f99ee37f3f168e28feab0038.res"
+
+[deps]
+
+source_file="res://shaders/separation_compute.glsl"
+dest_files=["res://.godot/imported/separation_compute.glsl-f7296946f99ee37f3f168e28feab0038.res"]
+
+[params]
+

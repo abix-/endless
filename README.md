@@ -23,11 +23,11 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 ## Features
 
 ### World
-- [x] Procedural town generation (7 towns, 1200px minimum spacing)
+- [x] Procedural town generation (1-7 towns configurable, 1200px minimum spacing)
 - [x] Named towns from pool of 15 Florida cities (Miami, Orlando, Tampa, etc.)
 - [x] Farms (2 per town, 200-300px from center)
 - [x] Homes for farmers (ring 350-450px from center)
-- [x] Guard posts (4 per town at corners of 6x6 grid, individually upgradeable)
+- [x] Guard posts (4 per town at corners, clockwise perimeter patrol, individually upgradeable)
 - [x] Raider camps (positioned away from all towns)
 - [x] Visible world border with corner markers
 - [x] Destructible buildings (right-click slot → Destroy)
@@ -82,7 +82,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 
 ### AI Behaviors
 - [x] Farmers: day/night work schedule, always flee to town center
-- [x] Guards: patrol between all 6 posts (30min each), day/night shifts, flee to town center below 33% HP
+- [x] Guards: patrol 4 corner posts clockwise (perimeter), work 24/7, rest when energy low, flee below 33% HP
 - [x] Raiders: priority system (wounded → exhausted → deliver loot → steal), flee to camp below 50% HP
 - [x] Energy system (sleep +12/hr, rest +5/hr, activity -6/hr)
 - [x] HP regen (2/hr awake, 6/hr sleeping, 10x at fountain/camp with upgrade scaling)
@@ -93,6 +93,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [x] Permadeath (dead NPCs free slots for new spawns)
 - [x] Collision avoidance for all NPCs (stationary guards get pushed too)
+- [x] Drift detection (working NPCs pushed off position walk back automatically)
 - [ ] AI lords that expand and compete
 
 ### NPC States
@@ -130,6 +131,7 @@ Activity-specific states (no translation layer):
 - [x] Off-duty options: go to bed, stay at fountain, wander town
 - [x] Town management buttons in Stats panel (Upgrades, Roster, Policies)
 - [x] Resizable combat log at bottom of screen
+- [x] Configurable start menu (world size, towns, farmers/guards/raiders up to 500 each)
 - [ ] Villager role assignment UI
 - [x] Build structures via grid slots (farms 50, beds 10, guard posts 25 food)
 - [x] Unlock adjacent building slots (1 food each)
@@ -158,6 +160,10 @@ There is no victory. Only the endless struggle against entropy.
 - [x] Staggered scanning (1/8 NPCs per frame for combat)
 - [x] Independent separation stagger (1/4 NPCs per frame for collision)
 - [x] TCP-like collision avoidance (head-on, crossing, overtaking)
+- [x] Co-movement separation reduction (groups move without oscillation)
+- [x] Velocity damping for smooth collision avoidance
+- [x] Parallel processing with thread-safe state transitions (pending arrivals)
+- [x] GPU compute shader for separation forces
 - [x] Combat log batching
 
 **Visual effects:**
@@ -184,11 +190,14 @@ systems/
   npc_grid.gd           # Spatial partitioning (64x64 cells)
   npc_renderer.gd       # MultiMesh rendering, culling, indicators
   projectile_manager.gd # Projectile pooling, collision
+  gpu_separation.gd     # Compute shader separation forces
 entities/
   player.gd             # Camera controls
 world/
   location.gd           # Sprite definitions, interaction radii
+  terrain_renderer.gd   # Terrain tile rendering with sprite tiling
 ui/
+  start_menu.gd         # Start menu (world size, towns, populations)
   left_panel.gd         # Stats, performance, NPC inspector (collapsible)
   combat_log.gd         # Resizable event log at bottom
   settings_menu.gd      # Options menu with log filters
@@ -219,12 +228,12 @@ Key values in `autoloads/config.gd`:
 
 | Setting | Value | Notes |
 |---------|-------|-------|
-| FARMERS_PER_TOWN | 10 | Starting farmers |
-| GUARDS_PER_TOWN | 60 | Starting guards |
-| MAX_FARMERS_PER_TOWN | 10 | Population cap (upgradeable +2/level) |
-| MAX_GUARDS_PER_TOWN | 60 | Population cap (upgradeable +10/level) |
-| RAIDERS_PER_CAMP | 15 | Enemy forces |
-| GUARD_POSTS_PER_TOWN | 6 | Patrol points |
+| FARMERS_PER_TOWN | 5 | Starting farmers (configurable via start menu) |
+| GUARDS_PER_TOWN | 20 | Starting guards (configurable via start menu) |
+| MAX_FARMERS_PER_TOWN | 5 | Population cap (upgradeable +2/level) |
+| MAX_GUARDS_PER_TOWN | 20 | Population cap (upgradeable +10/level) |
+| RAIDERS_PER_CAMP | 25 | Enemy forces (configurable via start menu) |
+| GUARD_POSTS_PER_TOWN | 4 | Patrol points (clockwise corners) |
 | WORLD_SIZE | 8000x8000 | Play area |
 | MAX_NPC_COUNT | 3000 | Engine limit |
 | ENERGY_STARVING | 10 | Eat food threshold |

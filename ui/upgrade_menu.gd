@@ -205,10 +205,10 @@ func _get_effective_stat(key: String, level: int) -> String:
 			var chance: float = level * Config.UPGRADE_FOOD_EFFICIENCY
 			return "%d%% free meals" % int(chance * 100)
 		"farmer_cap":
-			var cap: int = Config.MAX_FARMERS_PER_TOWN + level * Config.UPGRADE_FARMER_CAP_BONUS
+			var cap: int = Config.max_farmers_per_town + level * Config.UPGRADE_FARMER_CAP_BONUS
 			return "%d max farmers" % cap
 		"guard_cap":
-			var cap: int = Config.MAX_GUARDS_PER_TOWN + level * Config.UPGRADE_GUARD_CAP_BONUS
+			var cap: int = Config.max_guards_per_town + level * Config.UPGRADE_GUARD_CAP_BONUS
 			return "%d max guards" % cap
 		"fountain_radius":
 			var radius: float = Config.BASE_FOUNTAIN_RADIUS + level * Config.UPGRADE_FOUNTAIN_RADIUS_BONUS

@@ -83,7 +83,7 @@ func _init_multimesh() -> void:
 func _init_loot_multimesh() -> void:
 	loot_multimesh = MultiMesh.new()
 	loot_multimesh.transform_format = MultiMesh.TRANSFORM_2D
-	loot_multimesh.instance_count = Config.RAIDERS_PER_CAMP * 10  # Max possible raiders with loot
+	loot_multimesh.instance_count = Config.raiders_per_camp * 10  # Max possible raiders with loot
 	loot_multimesh.visible_instance_count = 0
 
 	var quad := QuadMesh.new()
@@ -140,7 +140,7 @@ func update(delta: float) -> void:
 	var min_y: float = cam_pos.y - view_size.y / 2 - margin
 	var max_y: float = cam_pos.y + view_size.y / 2 + margin
 
-	var visible_cells: PackedInt32Array = manager._grid.get_cells_in_rect(min_x, max_x, min_y, max_y)
+	var visible_npcs: Array[int] = manager._grid.get_npcs_in_rect(min_x, max_x, min_y, max_y)
 
 	# Hide previously rendered NPCs (only those we tracked)
 	for i in rendered_npcs:
@@ -167,54 +167,50 @@ func update(delta: float) -> void:
 	var sleep_idx := 0
 
 	# Render visible NPCs
-	for cell_idx in visible_cells:
-		var start: int = manager._grid.grid_cell_starts[cell_idx]
-		var cell_count: int = manager._grid.grid_cell_counts[cell_idx]
+	for i in visible_npcs:
+		if manager.healths[i] <= 0:
+			continue
+		if manager.awake[i] == 0:
+			continue  # Skip sleeping NPCs
 
-		for j in cell_count:
-			var i: int = manager._grid.grid_cells[start + j]
+		var pos: Vector2 = manager.positions[i]
+		var size_scale: float = manager.get_npc_size_scale(i)
+		var xform := Transform2D(0, pos).scaled_local(Vector2(size_scale, size_scale))
+		multimesh.set_instance_transform_2d(i, xform)
+		rendered_npcs.append(i)
 
-			if manager.healths[i] <= 0:
-				continue
+		if manager.health_dirty[i] == 1:
+			var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
+			var flash: float = manager.flash_timers[i]
+			var frame: Vector2i = get_sprite_frame(manager.jobs[i])
+			multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
+			manager.health_dirty[i] = 0
 
-			var pos: Vector2 = manager.positions[i]
-			var size_scale: float = manager.get_npc_size_scale(i)
-			var xform := Transform2D(0, pos).scaled_local(Vector2(size_scale, size_scale))
-			multimesh.set_instance_transform_2d(i, xform)
-			rendered_npcs.append(i)
+		# Render loot icon for raiders carrying food
+		if manager.jobs[i] == manager.Job.RAIDER and manager.carrying_food[i] == 1:
+			if loot_idx < loot_multimesh.instance_count:
+				var loot_pos: Vector2 = pos + LOOT_ICON_OFFSET * size_scale
+				var loot_xform := Transform2D(0, loot_pos).scaled_local(Vector2(LOOT_ICON_SCALE, LOOT_ICON_SCALE))
+				loot_multimesh.set_instance_transform_2d(loot_idx, loot_xform)
+				rendered_loot.append(loot_idx)
+				loot_idx += 1
 
-			if manager.health_dirty[i] == 1:
-				var health_pct: float = manager.healths[i] / manager.get_scaled_max_health(i)
-				var flash: float = manager.flash_timers[i]
-				var frame: Vector2i = get_sprite_frame(manager.jobs[i])
-				multimesh.set_instance_custom_data(i, Color(health_pct, flash, frame.x / 255.0, frame.y / 255.0))
-				manager.health_dirty[i] = 0
+		# Render halo for NPCs receiving healing bonus
+		if _is_healing_boosted(i, pos):
+			if halo_idx < halo_multimesh.instance_count:
+				var halo_xform := Transform2D(0, pos).scaled_local(Vector2(HALO_SCALE, HALO_SCALE))
+				halo_multimesh.set_instance_transform_2d(halo_idx, halo_xform)
+				rendered_halos.append(halo_idx)
+				halo_idx += 1
 
-			# Render loot icon for raiders carrying food
-			if manager.jobs[i] == manager.Job.RAIDER and manager.carrying_food[i] == 1:
-				if loot_idx < loot_multimesh.instance_count:
-					var loot_pos: Vector2 = pos + LOOT_ICON_OFFSET * size_scale
-					var loot_xform := Transform2D(0, loot_pos).scaled_local(Vector2(LOOT_ICON_SCALE, LOOT_ICON_SCALE))
-					loot_multimesh.set_instance_transform_2d(loot_idx, loot_xform)
-					rendered_loot.append(loot_idx)
-					loot_idx += 1
-
-			# Render halo for NPCs receiving healing bonus
-			if _is_healing_boosted(i, pos):
-				if halo_idx < halo_multimesh.instance_count:
-					var halo_xform := Transform2D(0, pos).scaled_local(Vector2(HALO_SCALE, HALO_SCALE))
-					halo_multimesh.set_instance_transform_2d(halo_idx, halo_xform)
-					rendered_halos.append(halo_idx)
-					halo_idx += 1
-
-			# Render sleep z for resting NPCs
-			if manager.states[i] == NPCState.State.RESTING:
-				if sleep_idx < sleep_multimesh.instance_count:
-					var sleep_pos: Vector2 = pos + SLEEP_ICON_OFFSET * size_scale
-					var sleep_xform := Transform2D(0, sleep_pos).scaled_local(Vector2(SLEEP_ICON_SCALE * size_scale, SLEEP_ICON_SCALE * size_scale))
-					sleep_multimesh.set_instance_transform_2d(sleep_idx, sleep_xform)
-					rendered_sleep.append(sleep_idx)
-					sleep_idx += 1
+		# Render sleep z for resting NPCs
+		if manager.states[i] == NPCState.State.RESTING:
+			if sleep_idx < sleep_multimesh.instance_count:
+				var sleep_pos: Vector2 = pos + SLEEP_ICON_OFFSET * size_scale
+				var sleep_xform := Transform2D(0, sleep_pos).scaled_local(Vector2(SLEEP_ICON_SCALE * size_scale, SLEEP_ICON_SCALE * size_scale))
+				sleep_multimesh.set_instance_transform_2d(sleep_idx, sleep_xform)
+				rendered_sleep.append(sleep_idx)
+				sleep_idx += 1
 
 	loot_multimesh.visible_instance_count = loot_idx
 	halo_multimesh.visible_instance_count = halo_idx
@@ -228,6 +224,8 @@ func _update_all() -> void:
 	for i in manager.count:
 		if manager.healths[i] <= 0:
 			continue
+		if manager.awake[i] == 0:
+			continue  # Skip sleeping NPCs
 		var pos: Vector2 = manager.positions[i]
 		var size_scale: float = manager.get_npc_size_scale(i)
 		var xform := Transform2D(0, pos).scaled_local(Vector2(size_scale, size_scale))

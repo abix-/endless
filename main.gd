@@ -71,15 +71,16 @@ func _get_grid_keys_for_level(level: int) -> Array:
 # Get corner keys for guard posts at current grid level
 func _get_corner_keys(level: int) -> Array:
 	var bounds := _get_grid_bounds(level)
+	# Clockwise order so guards patrol the perimeter, not diagonals
 	return [
 		"%d,%d" % [bounds.min, bounds.min],
 		"%d,%d" % [bounds.min, bounds.max],
-		"%d,%d" % [bounds.max, bounds.min],
-		"%d,%d" % [bounds.max, bounds.max]
+		"%d,%d" % [bounds.max, bounds.max],
+		"%d,%d" % [bounds.max, bounds.min]
 	]
 
 
-const NUM_TOWNS := 7
+var NUM_TOWNS: int  # Set from Config in _ready
 const MIN_TOWN_DISTANCE := 1200  # Minimum distance between town centers
 const FOOD_PER_WORK_HOUR := 1  # Food generated per farmer per work hour
 
@@ -91,6 +92,7 @@ const TOWN_NAMES := [
 
 
 func _ready() -> void:
+	NUM_TOWNS = Config.num_towns
 	WorldClock.day_changed.connect(_on_day_changed)
 	WorldClock.time_tick.connect(_on_time_tick)
 
@@ -106,16 +108,16 @@ func _draw() -> void:
 	# World border
 	var border_color := Color(0.4, 0.4, 0.4, 0.8)
 	var border_width := 4.0
-	var rect := Rect2(0, 0, Config.WORLD_WIDTH, Config.WORLD_HEIGHT)
+	var rect := Rect2(0, 0, Config.world_width, Config.world_height)
 	draw_rect(rect, border_color, false, border_width)
 
 	# Corner markers for visibility
 	var marker_size := 50.0
 	var corners := [
 		Vector2(0, 0),
-		Vector2(Config.WORLD_WIDTH, 0),
-		Vector2(Config.WORLD_WIDTH, Config.WORLD_HEIGHT),
-		Vector2(0, Config.WORLD_HEIGHT)
+		Vector2(Config.world_width, 0),
+		Vector2(Config.world_width, Config.world_height),
+		Vector2(0, Config.world_height)
 	]
 	for corner in corners:
 		draw_circle(corner, marker_size, border_color)
@@ -139,6 +141,15 @@ func _draw() -> void:
 	# Draw buildable slot indicators for player's town
 	_draw_buildable_slots()
 
+	# Debug: Active radius circle (entity sleeping zone)
+	if UserSettings.show_active_radius:
+		var camera: Camera2D = get_viewport().get_camera_2d()
+		if camera:
+			var cam_pos: Vector2 = camera.global_position
+			var radius: float = npc_manager.ACTIVE_RADIUS
+			var color := Color(0.2, 0.8, 1.0, 0.4)
+			draw_arc(cam_pos, radius, 0, TAU, 64, color, 2.0)
+
 
 func _generate_world() -> void:
 	# Initialize food and spawn arrays
@@ -151,8 +162,8 @@ func _generate_world() -> void:
 		town_food[i] = 0
 		camp_food[i] = 0
 		spawn_timers[i] = 0
-		town_max_farmers[i] = Config.MAX_FARMERS_PER_TOWN
-		town_max_guards[i] = Config.MAX_GUARDS_PER_TOWN
+		town_max_farmers[i] = Config.max_farmers_per_town
+		town_max_guards[i] = Config.max_guards_per_town
 
 	# Initialize town upgrades
 	for i in NUM_TOWNS:
@@ -201,8 +212,8 @@ func _generate_world() -> void:
 	while town_positions.size() < NUM_TOWNS and attempts < max_attempts:
 		attempts += 1
 		var pos := Vector2(
-			randf_range(Config.WORLD_MARGIN, Config.WORLD_WIDTH - Config.WORLD_MARGIN),
-			randf_range(Config.WORLD_MARGIN, Config.WORLD_HEIGHT - Config.WORLD_MARGIN)
+			randf_range(Config.WORLD_MARGIN, Config.world_width - Config.WORLD_MARGIN),
+			randf_range(Config.WORLD_MARGIN, Config.world_height - Config.WORLD_MARGIN)
 		)
 
 		# Check distance from existing towns
@@ -394,7 +405,7 @@ func _setup_managers() -> void:
 
 	# Set village center to world center (for compatibility)
 	@warning_ignore("integer_division")
-	npc_manager.village_center = Vector2(Config.WORLD_WIDTH / 2, Config.WORLD_HEIGHT / 2)
+	npc_manager.village_center = Vector2(Config.world_width / 2, Config.world_height / 2)
 
 	# Set up guard post combat system
 	npc_manager.set_main_reference(self)
@@ -458,7 +469,7 @@ func _spawn_npcs() -> void:
 		var camp = town.camp
 
 		# Spawn farmers (target building centers, spawn with small offset)
-		for i in Config.FARMERS_PER_TOWN:
+		for i in Config.farmers_per_town:
 			var bed = beds[i % beds.size()]
 			var farm = farms[i % farms.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
@@ -472,7 +483,7 @@ func _spawn_npcs() -> void:
 
 		# Spawn guards (live in beds, patrol at posts)
 		# Alternate day/night shifts for even coverage
-		for i in Config.GUARDS_PER_TOWN:
+		for i in Config.guards_per_town:
 			var bed = beds[i % beds.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
 			var night_shift: bool = i % 2 == 1  # Odd = night, even = day
@@ -486,7 +497,7 @@ func _spawn_npcs() -> void:
 			total_guards += 1
 
 		# Spawn raiders at camp
-		for i in Config.RAIDERS_PER_CAMP:
+		for i in Config.raiders_per_camp:
 			var spawn_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
 			npc_manager.spawn_raider(
 				camp.global_position + spawn_offset,
@@ -593,7 +604,9 @@ func _on_npc_ate_food(_npc_index: int, town_idx: int, job: int, _hp_before: floa
 
 
 func _process(_delta: float) -> void:
-	pass
+	# Redraw if showing active radius circle (follows camera)
+	if UserSettings.show_active_radius:
+		queue_redraw()
 
 
 func _input(event: InputEvent) -> void:
@@ -638,10 +651,10 @@ func _input(event: InputEvent) -> void:
 func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
 	# Handle population cap upgrades
 	if upgrade_type == "farmer_cap":
-		town_max_farmers[player_town_idx] = Config.MAX_FARMERS_PER_TOWN + new_level * Config.UPGRADE_FARMER_CAP_BONUS
+		town_max_farmers[player_town_idx] = Config.max_farmers_per_town + new_level * Config.UPGRADE_FARMER_CAP_BONUS
 		return
 	if upgrade_type == "guard_cap":
-		town_max_guards[player_town_idx] = Config.MAX_GUARDS_PER_TOWN + new_level * Config.UPGRADE_GUARD_CAP_BONUS
+		town_max_guards[player_town_idx] = Config.max_guards_per_town + new_level * Config.UPGRADE_GUARD_CAP_BONUS
 		return
 	# Apply upgrade to all guards in this town
 	npc_manager.apply_town_upgrade(player_town_idx, upgrade_type, new_level)
@@ -998,8 +1011,8 @@ func _find_camp_position(town_center: Vector2, all_town_centers: Array[Vector2])
 		var pos: Vector2 = town_center + dir * Config.CAMP_DISTANCE
 
 		# Clamp to world bounds
-		pos.x = clampf(pos.x, Config.WORLD_MARGIN, Config.WORLD_WIDTH - Config.WORLD_MARGIN)
-		pos.y = clampf(pos.y, Config.WORLD_MARGIN, Config.WORLD_HEIGHT - Config.WORLD_MARGIN)
+		pos.x = clampf(pos.x, Config.WORLD_MARGIN, Config.world_width - Config.WORLD_MARGIN)
+		pos.y = clampf(pos.y, Config.WORLD_MARGIN, Config.world_height - Config.WORLD_MARGIN)
 
 		# Score = minimum distance to any town (higher is better)
 		var min_dist := 999999.0

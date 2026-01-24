@@ -16,6 +16,8 @@ func on_time_tick(_hour: int, minute: int) -> void:
 		for i in manager.count:
 			if manager.healths[i] <= 0:
 				continue
+			if manager.awake[i] == 0:
+				continue
 			var state: int = manager.states[i]
 			var job: int = manager.jobs[i]
 
@@ -41,6 +43,8 @@ func on_time_tick(_hour: int, minute: int) -> void:
 
 	for i in manager.count:
 		if manager.healths[i] <= 0:
+			continue
+		if manager.awake[i] == 0:
 			continue
 
 		var state: int = manager.states[i]
@@ -126,18 +130,12 @@ func _decide_guard(i: int) -> void:
 			_go_home(i)
 		return
 
-	# Priority 2: Work time - patrol
-	if _is_work_time(i):
-		if state == NPCState.State.ON_DUTY and manager.patrol_timer[i] >= Config.GUARD_PATROL_WAIT:
-			_guard_go_to_next_post(i)
-		elif state not in [NPCState.State.ON_DUTY, NPCState.State.PATROLLING]:
-			manager.release_bed(i)  # Release bed when going on duty
-			_guard_go_to_next_post(i)
-		return
-
-	# Priority 3: Off duty - check policy for what to do
-	if state not in [NPCState.State.OFF_DUTY, NPCState.State.WALKING, NPCState.State.WANDERING]:
-		_go_off_duty(i, NPCState.Job.GUARD)
+	# Priority 2: Patrol (guards work all day/night)
+	if state == NPCState.State.ON_DUTY and manager.patrol_timer[i] >= Config.GUARD_PATROL_WAIT:
+		_guard_go_to_next_post(i)
+	elif state not in [NPCState.State.ON_DUTY, NPCState.State.PATROLLING]:
+		manager.release_bed(i)
+		_guard_go_to_next_post(i)
 
 
 func _guard_go_to_next_post(i: int) -> void:
@@ -329,8 +327,8 @@ func _is_work_time(i: int) -> bool:
 
 	# Raiders don't follow work schedule policies
 	if job == NPCState.Job.RAIDER:
-		var works_night: int = manager.works_at_night[i]
-		if works_night == 1:
+		var raider_night: int = manager.works_at_night[i]
+		if raider_night == 1:
 			return not is_day
 		else:
 			return is_day
@@ -345,8 +343,8 @@ func _is_work_time(i: int) -> bool:
 		# schedule == 0: both shifts, use individual NPC setting
 
 	# Default behavior based on individual NPC
-	var works_night: int = manager.works_at_night[i]
-	if works_night == 1:
+	var npc_works_night: int = manager.works_at_night[i]
+	if npc_works_night == 1:
 		return not is_day
 	else:
 		return is_day
