@@ -228,16 +228,16 @@ func _go_to_farm(i: int) -> void:
 
 	# Find closest free farm
 	var farm_idx: int = manager.find_closest_free_farm(town_idx, my_pos)
-	if farm_idx >= 0:
-		# Reserve farm and go to it
-		manager.reserve_farm(town_idx, farm_idx, i)
-		var farm_pos: Vector2 = manager.get_farm_position(town_idx, farm_idx)
-		manager.targets[i] = farm_pos
-		manager.work_positions[i] = farm_pos  # Update work position for arrival check
-	else:
-		# No free farm - use original work position
-		manager.targets[i] = manager.work_positions[i]
+	if farm_idx < 0:
+		# No free farm - go off duty
+		_go_off_duty(i, NPCState.Job.FARMER)
+		return
 
+	# Reserve farm and go to it
+	manager.reserve_farm(town_idx, farm_idx, i)
+	var farm_pos: Vector2 = manager.get_farm_position(town_idx, farm_idx)
+	manager.targets[i] = farm_pos
+	manager.work_positions[i] = farm_pos
 	manager.arrival_radii[i] = manager._arrival_farm
 	manager._state.set_state(i, NPCState.State.WALKING)
 	manager._nav.force_logic_update(i)
@@ -380,7 +380,7 @@ func on_arrival(i: int) -> void:
 		# Farmer arrived at work or home
 		elif job == NPCState.Job.FARMER:
 			var work_pos: Vector2 = manager.work_positions[i]
-			if my_pos.distance_to(work_pos) < radius:
+			if manager.current_farm_idx[i] >= 0 and my_pos.distance_to(work_pos) < radius:
 				manager._state.set_state(i, NPCState.State.FARMING)
 				manager.wander_centers[i] = my_pos  # Stay near arrival spot
 			elif my_pos.distance_to(target) < radius:

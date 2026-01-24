@@ -11,6 +11,11 @@
 - fix guard patrol route (clockwise perimeter, not diagonal through town)
 - fix guard schedule (work 24/7, rest only when energy low)
 - reduce guard posts from 6 to 4 (corner perimeter)
+- reduce max farmers per farm from 4 to 1
+- add farm click menu (shows occupant name)
+- fix farmers entering FARMING state without farm reservation
+- disable NPC size scaling with levels
+- add Rust/Bevy ECS POC for performance validation (rust/src/lib.rs)
 
 ## 2026-01-20
 - add noise-based terrain with grass, forest, water, rock biomes

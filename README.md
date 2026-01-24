@@ -54,7 +54,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Faction-based auto-targeting (villagers vs raiders)
 - [x] Ranged projectile combat (guards and raiders have equal stats: 120 HP, 15 dmg, 150 range)
 - [x] Melee combat (farmers)
-- [x] Level/XP system (sqrt scaling, level 9999 = 100x stats)
+- [x] Level/XP system (sqrt scaling, level 9999 = 100x stats, size unchanged)
 - [x] Damage flash effect
 - [x] Leash system (farmers/raiders return home if combat drags 400px+)
 - [x] Guards have no leash - fight anywhere
@@ -88,7 +88,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] HP regen (2/hr awake, 6/hr sleeping, 10x at fountain/camp with upgrade scaling)
 - [x] Recovery system (fleeing NPCs heal until 75% before resuming)
 - [x] Bed tracking (NPCs reserve closest free bed, release when leaving)
-- [x] Farm tracking (max 4 farmers per farm, farmers use nearest free farm, return if pushed)
+- [x] Farm tracking (1 farmer per farm, nearest free farm, return if pushed)
 - [x] 15-minute decision cycles (event-driven override on state changes)
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [x] Permadeath (dead NPCs free slots for new spawns)
@@ -164,6 +164,7 @@ There is no victory. Only the endless struggle against entropy.
 - [x] Velocity damping for smooth collision avoidance
 - [x] Parallel processing with thread-safe state transitions (pending arrivals)
 - [x] GPU compute shader for separation forces
+- [ ] Rust/Bevy ECS for hot loops (POC in rust/, targeting 5000 NPCs @ 140fps)
 - [x] Combat log batching
 
 **Visual effects:**
@@ -205,6 +206,9 @@ ui/
   build_menu.gd         # Grid slot building (farms, beds)
   policies_panel.gd     # Faction policies (flee thresholds, off-duty behavior)
   roster_panel.gd       # NPC roster with sorting and filtering
+  farm_menu.gd          # Farm info popup (click farm to see occupant)
+rust/
+  src/lib.rs            # Bevy ECS POC: 5000 NPCs separation benchmark
 ```
 
 ## Controls
@@ -214,6 +218,7 @@ ui/
 | WASD / Arrows | Move camera |
 | Mouse Wheel | Zoom (centers on cursor) |
 | Left Click (NPC) | Select and inspect |
+| Left Click (Farm) | Show farm occupancy |
 | Right Click (slot) | Build menu / unlock slot |
 | + / = | Speed up time (2x) |
 | - | Slow down time (0.5x) |

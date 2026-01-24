@@ -100,3 +100,26 @@ The README serves as both documentation and a development roadmap.
 **When changing config values** (world size, NPC counts, etc.), update the Configuration table to match.
 
 **Don't over-document:** README shows what exists and what's planned. Implementation details go in CLAUDE.md or code comments.
+
+## Rust/Bevy ECS POC (In Progress)
+
+Performance target: 5000 NPCs @ 140fps (or 10K+ @ 60fps).
+
+**Status:** Code written in `rust/src/lib.rs`, needs Rust installed to build.
+
+**Setup:**
+1. Install Rust from https://rustup.rs/
+2. `cd rust && cargo build`
+3. Run `scenes/bevy_poc.tscn` in Godot
+
+**Architecture:** GDExtension (`bevy_npc.gdextension`) loads `rust/target/debug/endless_ecs.dll`. The `NpcBenchmark` node owns a Bevy App internally, ticks ECS systems each frame, pushes positions to MultiMesh via RenderingServer.
+
+**What it tests:** Grid rebuild + separation forces + navigation for 5000 entities in Rust. Same algorithm as current GDScript but without Variant boxing overhead.
+
+**If validated:** Migrate hot loops (navigation, separation, combat scanning, grid) to Rust. Keep GDScript for game logic (decide_what_to_do, state machine, UI).
+
+**Files:**
+- `rust/Cargo.toml` - bevy_ecs + godot-rust dependencies
+- `rust/src/lib.rs` - NpcBenchmark class, ECS components + systems
+- `bevy_npc.gdextension` - library paths for Godot
+- `scenes/bevy_poc.tscn` - test scene

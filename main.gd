@@ -22,6 +22,7 @@ var settings_menu: Node
 var upgrade_menu: Node
 var build_menu: Node
 var guard_post_menu: Node
+var farm_menu: Node
 var terrain_renderer: Node
 
 # Currently selected terrain tile (for inspector)
@@ -456,6 +457,10 @@ func _setup_ui() -> void:
 	guard_post_menu = guard_post_menu_scene.instantiate()
 	add_child(guard_post_menu)
 
+	var farm_menu_script: GDScript = preload("res://ui/farm_menu.gd")
+	farm_menu = farm_menu_script.new()
+	add_child(farm_menu)
+
 
 func _spawn_npcs() -> void:
 	var total_farmers := 0
@@ -643,8 +648,12 @@ func _input(event: InputEvent) -> void:
 			guard_post_menu.open(post_info.slot_key, post_info.town_idx, event.position)
 			get_viewport().set_input_as_handled()
 		else:
-			# If no NPC or guard post clicked, select terrain tile
-			if npc_manager.selected_npc < 0:
+			var farm_info := _get_clicked_farm(world_pos)
+			if farm_info.farm_idx >= 0:
+				farm_menu.open(farm_info.town_idx, farm_info.farm_idx, event.position)
+				get_viewport().set_input_as_handled()
+			# If no NPC or guard post or farm clicked, select terrain tile
+			elif npc_manager.selected_npc < 0:
 				selected_tile = terrain_renderer.get_tile_at(world_pos)
 
 
@@ -798,6 +807,17 @@ func _get_clicked_guard_post(world_pos: Vector2) -> Dictionary:
 					return {"slot_key": slot_key, "town_idx": player_town_idx}
 
 	return {"slot_key": "", "town_idx": -1}
+
+
+func _get_clicked_farm(world_pos: Vector2) -> Dictionary:
+	var click_radius := 40.0  # Farm is 3x3 (48px), use generous click area
+	for town_idx in npc_manager.farms_by_town.size():
+		var farms: Array = npc_manager.farms_by_town[town_idx]
+		for farm_idx in farms.size():
+			var farm_pos: Vector2 = farms[farm_idx]
+			if world_pos.distance_to(farm_pos) < click_radius:
+				return {"town_idx": town_idx, "farm_idx": farm_idx}
+	return {"town_idx": -1, "farm_idx": -1}
 
 
 func _on_build_requested(slot_key: String, building_type: String) -> void:

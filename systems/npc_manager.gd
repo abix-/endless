@@ -30,13 +30,12 @@ var _arrival_guard_post: float
 static func get_stat_scale(level: int) -> float:
 	return sqrt(float(level))  # Level 1 = 1x, Level 9999 = 100x
 
-static func get_size_scale(level: int) -> float:
-	# Level 1 = 1x, Level 9999 = 50x
-	return 1.0 + (sqrt(float(level)) - 1.0) * 0.495
+static func get_size_scale(_level: int) -> float:
+	return 1.0
 
 
-func get_npc_size_scale(i: int) -> float:
-	return get_size_scale(levels[i]) * (1.0 + size_bonuses[i])
+func get_npc_size_scale(_i: int) -> float:
+	return 1.0
 
 
 static func get_xp_for_next_level(level: int) -> int:
@@ -944,7 +943,7 @@ func get_total_bed_count(town_idx: int) -> int:
 # FARM MANAGEMENT
 # ============================================================
 
-const MAX_FARMERS_PER_FARM := 4
+const MAX_FARMERS_PER_FARM := 1
 
 func find_closest_free_farm(town_idx: int, pos: Vector2) -> int:
 	if town_idx < 0 or town_idx >= farms_by_town.size():

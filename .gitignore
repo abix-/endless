@@ -4,3 +4,4 @@
 .claude/
 addons/
 debugger_logs/
+rust/target/
