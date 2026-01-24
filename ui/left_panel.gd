@@ -23,6 +23,9 @@ extends CanvasLayer
 @onready var perf_label: RichTextLabel = $Panel/MarginContainer/VBox/PerfContent/PerfLabel
 @onready var perf_toggle: Button = $Panel/MarginContainer/VBox/PerfContent/PerfRow/PerfToggle
 @onready var perf_copy: Button = $Panel/MarginContainer/VBox/PerfContent/PerfRow/PerfCopy
+@onready var radius_toggle: Button = $Panel/MarginContainer/VBox/PerfContent/PerfRow/RadiusToggle
+@onready var parallel_toggle: Button = $Panel/MarginContainer/VBox/PerfContent/PerfRow2/ParallelToggle
+@onready var gpu_toggle: Button = $Panel/MarginContainer/VBox/PerfContent/PerfRow2/GPUToggle
 
 # Inspector labels
 @onready var job_level: Label = $Panel/MarginContainer/VBox/InspectorContent/NameRow/JobLevel
@@ -82,6 +85,9 @@ func _ready() -> void:
 	# Connect buttons
 	perf_toggle.toggled.connect(_on_perf_toggled)
 	perf_copy.pressed.connect(_on_perf_copy_pressed)
+	radius_toggle.toggled.connect(_on_radius_toggled)
+	parallel_toggle.toggled.connect(_on_parallel_toggled)
+	gpu_toggle.toggled.connect(_on_gpu_toggled)
 	follow_btn.toggled.connect(_on_follow_toggled)
 	copy_btn.pressed.connect(_on_copy_pressed)
 	rename_btn.pressed.connect(_on_rename_pressed)
@@ -106,6 +112,9 @@ func _ready() -> void:
 	# Load saved state
 	_load_state()
 	_update_perf_toggle()
+	_update_radius_toggle()
+	_update_parallel_toggle()
+	_update_gpu_toggle()
 
 
 func _input(event: InputEvent) -> void:
@@ -215,14 +224,17 @@ func _update_perf() -> void:
 	# NPC breakdown
 	var alive: int = m.alive_farmers + m.alive_guards + m.alive_raiders
 	var moving := 0
+	var awake_count := 0
 	for i in m.count:
 		if m.healths[i] <= 0:
 			continue
+		if m.awake[i] == 1:
+			awake_count += 1
 		var state: int = m.states[i]
 		# Stationary states bitmask: IDLE, RESTING, FARMING, OFF_DUTY, ON_DUTY
 		if (227 & (1 << state)) == 0:
 			moving += 1
-	lines.append("NPCs: %d (%d moving)" % [alive, moving])
+	lines.append("NPCs: %d | Awake: %d | Moving: %d" % [alive, awake_count, moving])
 
 	if not UserSettings.perf_metrics:
 		lines.append("Loop: %.1fms" % m.last_loop_time)
@@ -230,10 +242,14 @@ func _update_perf() -> void:
 		var n = m._nav
 		lines.append("")
 		lines.append("Loop: %.1fms" % m.last_loop_time)
+		lines.append("  Sleep:   %.1f" % m.profile_sleep)
 		lines.append("  Grid:    %.1f" % m.profile_grid)
+		if m.use_gpu_separation:
+			lines.append("  GPU Sep: %.1f" % m.profile_gpu_sep)
 		lines.append("  Scan:    %.1f" % m.profile_scan)
 		lines.append("  Combat:  %.1f" % m.profile_combat)
 		lines.append("  Nav:     %.1f" % m.profile_nav)
+		lines.append("  Proj:    %.1f" % m.profile_projectiles)
 		lines.append("  Render:  %.1f" % m.profile_render)
 		lines.append("")
 		lines.append("Nav: Sep %.1f | Logic %.1f" % [n.profile_sep, n.profile_logic])
@@ -437,6 +453,46 @@ func _on_perf_toggled(enabled: bool) -> void:
 func _update_perf_toggle() -> void:
 	perf_toggle.button_pressed = UserSettings.perf_metrics
 	perf_toggle.text = "Detail: " + ("ON" if UserSettings.perf_metrics else "OFF")
+
+
+func _on_radius_toggled(enabled: bool) -> void:
+	UserSettings.set_show_active_radius(enabled)
+	_update_radius_toggle()
+	# Force main to redraw
+	if main_node:
+		main_node.queue_redraw()
+
+
+func _update_radius_toggle() -> void:
+	radius_toggle.button_pressed = UserSettings.show_active_radius
+
+
+func _on_parallel_toggled(enabled: bool) -> void:
+	if npc_manager:
+		npc_manager.use_parallel = enabled
+	_update_parallel_toggle()
+
+
+func _update_parallel_toggle() -> void:
+	if npc_manager:
+		parallel_toggle.button_pressed = npc_manager.use_parallel
+		parallel_toggle.text = "Parallel: " + ("ON" if npc_manager.use_parallel else "OFF")
+
+
+func _on_gpu_toggled(enabled: bool) -> void:
+	if npc_manager:
+		npc_manager.use_gpu_separation = enabled
+	_update_gpu_toggle()
+
+
+func _update_gpu_toggle() -> void:
+	if npc_manager:
+		# Hide GPU toggle if not available (requires Forward+ or Mobile renderer)
+		var gpu_available: bool = npc_manager._gpu_separation and npc_manager._gpu_separation.is_initialized
+		gpu_toggle.visible = gpu_available
+		if gpu_available:
+			gpu_toggle.button_pressed = npc_manager.use_gpu_separation
+			gpu_toggle.text = "GPU: " + ("ON" if npc_manager.use_gpu_separation else "OFF")
 
 
 func _on_perf_copy_pressed() -> void:

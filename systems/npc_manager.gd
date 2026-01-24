@@ -515,13 +515,12 @@ func _process(delta: float) -> void:
 
 	if _projectiles:
 		_projectiles.process(delta)
+	if _guard_post_combat:
+		_guard_post_combat.process(delta)
 	if profiling:
 		var t2 := Time.get_ticks_usec()
 		profile_projectiles = (t2 - t) / 1000.0
 		t = t2
-
-	if _guard_post_combat:
-		_guard_post_combat.process(delta)
 
 	_renderer.update(delta)
 
