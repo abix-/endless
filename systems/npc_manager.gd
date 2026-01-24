@@ -485,6 +485,14 @@ func _process(delta: float) -> void:
 
 		# Handle state changes for NPCs that found targets during parallel scan
 		_process_pending_state_changes()
+
+		if profiling:
+			var t2 := Time.get_ticks_usec()
+			var deferred_time := (t2 - t) / 1000.0
+			# Add deferred time proportionally to combat/nav display
+			profile_combat += deferred_time * 0.4
+			profile_nav += deferred_time * 0.6
+			t = t2
 	else:
 		# Single-threaded path (fallback)
 		_combat.process_scanning(delta)
