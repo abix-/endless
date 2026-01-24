@@ -32,9 +32,11 @@ var _semaphore: Semaphore
 var _mutex: Mutex
 var _exit_flag: bool = false
 
+# Shader data (loaded on main thread, used by worker to create pipeline)
+var _shader_spirv: RDShaderSPIRV
+
 # Double-buffered results
 var _result: PackedVector2Array  # Last completed result (main thread reads)
-var _result_count: int = 0
 
 # Snapshot data for GPU thread (written by main, read by thread)
 var _snap_positions: PackedByteArray
@@ -62,36 +64,27 @@ func _init() -> void:
 
 
 func initialize() -> bool:
-	rd = RenderingServer.create_local_rendering_device()
-	if rd == null:
-		push_warning("GPUSeparation: RenderingDevice unavailable")
-		return false
-
+	# Load shader on main thread (resource loading is safe here)
 	var shader_file := load("res://shaders/separation_compute.glsl")
 	if shader_file == null:
 		push_error("GPUSeparation: Failed to load shader file")
 		return false
 
-	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
-	if shader_spirv == null:
+	_shader_spirv = shader_file.get_spirv()
+	if _shader_spirv == null:
 		push_error("GPUSeparation: Failed to get SPIRV")
 		return false
 
-	shader = rd.shader_create_from_spirv(shader_spirv)
-	if not shader.is_valid():
-		push_error("GPUSeparation: Failed to create shader")
-		return false
-
-	pipeline = rd.compute_pipeline_create(shader)
-	if not pipeline.is_valid():
-		push_error("GPUSeparation: Failed to create pipeline")
-		return false
-
-	# Start worker thread
+	# Start worker thread (it will create the RenderingDevice)
 	_thread = Thread.new()
 	_thread.start(_thread_func)
 
-	is_initialized = true
+	# Wait for thread to signal initialization complete
+	_semaphore.wait()
+	if not is_initialized:
+		_thread.wait_to_finish()
+		return false
+
 	return true
 
 
@@ -135,11 +128,30 @@ func get_result() -> PackedVector2Array:
 	return _result
 
 
-func get_result_count() -> int:
-	return _result_count
-
-
 func _thread_func() -> void:
+	# Create RenderingDevice on this thread (thread-bound requirement)
+	rd = RenderingServer.create_local_rendering_device()
+	if rd == null:
+		push_warning("GPUSeparation: RenderingDevice unavailable")
+		_semaphore.post()  # Signal main thread we failed
+		return
+
+	shader = rd.shader_create_from_spirv(_shader_spirv)
+	if not shader.is_valid():
+		push_error("GPUSeparation: Failed to create shader")
+		_semaphore.post()
+		return
+
+	pipeline = rd.compute_pipeline_create(shader)
+	if not pipeline.is_valid():
+		push_error("GPUSeparation: Failed to create pipeline")
+		_semaphore.post()
+		return
+
+	is_initialized = true
+	_semaphore.post()  # Signal main thread: init complete
+
+	# Work loop
 	while true:
 		_semaphore.wait()
 		if _exit_flag:
@@ -209,11 +221,17 @@ func _thread_func() -> void:
 		for i in count:
 			new_result[i] = Vector2(floats[i * 2], floats[i * 2 + 1])
 
-		# Swap result (atomic from main thread's perspective)
+		# Swap result
 		_mutex.lock()
 		_result = new_result
-		_result_count = count
 		_mutex.unlock()
+
+	# Cleanup GPU resources on this thread (same thread that created them)
+	_free_buffers()
+	if pipeline.is_valid():
+		rd.free_rid(pipeline)
+	if shader.is_valid():
+		rd.free_rid(shader)
 
 
 func _ensure_npc_capacity(count: int) -> void:
@@ -250,7 +268,6 @@ func _ensure_neighbor_data_capacity(size: int) -> void:
 	if size <= _neighbor_data_capacity:
 		return
 
-	# Free old neighbor_data buffer
 	if neighbor_data_buffer.is_valid():
 		rd.free_rid(neighbor_data_buffer)
 
@@ -311,15 +328,9 @@ func cleanup() -> void:
 	if not is_initialized:
 		return
 
-	# Signal thread to exit
+	# Signal thread to exit (thread handles its own GPU cleanup)
 	_exit_flag = true
 	_semaphore.post()
 	_thread.wait_to_finish()
-
-	_free_buffers()
-	if pipeline.is_valid():
-		rd.free_rid(pipeline)
-	if shader.is_valid():
-		rd.free_rid(shader)
 
 	is_initialized = false
