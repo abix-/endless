@@ -209,7 +209,16 @@ ui/
   roster_panel.gd       # NPC roster with sorting and filtering
   farm_menu.gd          # Farm info popup (click farm to see occupant)
 rust/
-  src/lib.rs            # Bevy ECS: GPU compute + state machine bridge
+  Cargo.toml            # Bevy 0.18 + godot-bevy 0.11 dependencies
+  src/lib.rs            # EcsNpcManager: spawn, movement, rendering
+shaders/
+  separation_compute.glsl  # GPU spatial hash + separation forces
+  npc_compute.glsl         # All-in-one: movement + separation + render
+scenes/
+  ecs_test.tscn         # Bevy ECS test scene (1000 NPCs)
+  bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
+scripts/
+  ecs_test.gd           # Test harness for EcsNpcManager
 ```
 
 ## Controls
