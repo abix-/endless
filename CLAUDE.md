@@ -101,11 +101,11 @@ The README serves as both documentation and a development roadmap.
 
 **Don't over-document:** README shows what exists and what's planned. Implementation details go in CLAUDE.md or code comments.
 
-## Rust/Bevy ECS POC (Validated)
+## Rust/Bevy ECS (godot-bevy)
 
 Performance target: 10,000 NPCs @ 140fps — **achieved** (release build).
 
-**Status:** POC validated. 10,000 NPCs @ 140fps using Bevy ECS + bulk `set_buffer()` rendering.
+**Status:** godot-bevy integrated. Bevy App running alongside Godot, ready for state machine migration.
 
 **Key optimizations discovered:**
 - Bulk `set_buffer()` vs per-instance calls: 55fps → 140fps (2.5x improvement)

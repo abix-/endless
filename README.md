@@ -250,20 +250,22 @@ Key values in `autoloads/config.gd`:
 Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
 
 ### Current State (Phase 1 complete)
-- [x] Bevy ECS running 10,000 NPCs @ 140fps (release build)
+- [x] godot-bevy integration (Bevy App running alongside Godot)
+- [x] 10,000 NPCs @ 140fps (release build)
 - [x] Bulk `set_buffer()` rendering (1 call vs 5000 per-instance calls)
 - [x] GPU compute shader for separation forces
 - [x] Spatial grid built on CPU, uploaded to GPU each frame
 - [x] Local RenderingDevice with submit/sync pipeline
 
-### Phase 2: Integrate into Game
-Replace GDScript NPC manager with Rust:
-- [ ] Load NPC data from GDScript (positions, states, targets, factions)
-- [ ] Run separation via GPU compute
-- [ ] Return updated positions to GDScript for rendering
-- [ ] Bidirectional sync: GDScript handles spawns/deaths, Rust handles movement
+### Phase 2: State Machine Migration
+Move NPC decision logic to Bevy ECS:
+- [ ] Define ECS components (State, Job, Energy, Health, Position)
+- [ ] Guard decision system
+- [ ] Farmer decision system
+- [ ] Raider decision system
+- [ ] Bridge: GDScript pushes data, pulls state changes
 
-### Phase 3: Game Logic Migration
+### Phase 3: Full Game Logic
 Move hot paths from GDScript to Rust:
 - [ ] State machine (IDLE, FARMING, FIGHTING, FLEEING, etc.)
 - [ ] Decision trees (`decide_what_to_do()`)
