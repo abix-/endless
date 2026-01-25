@@ -258,76 +258,39 @@ Key values in `autoloads/config.gd`:
 
 Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
 
-### Correct Architecture (from research)
+### Architecture
 
-**All game state should live in Bevy ECS.** GDScript becomes a thin presentation layer.
+**Bevy ECS owns logical state. GPU owns physics. GDScript is UI only.**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        BEVY ECS                                 │
+│  Owns: Target, Job, State, NpcIndex, Health, Energy            │
+│  (Logical state - what NPCs WANT to do)                        │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ Upload targets/states (one-way, cheap)
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     GPU COMPUTE                                 │
+│  Owns: Positions, Velocities (physics simulation)              │
+│  Does: Separation + Movement + Arrival detection               │
+│  Writes: Directly to MultiMesh buffer (zero-copy)              │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ Zero-copy (already on GPU)
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     MULTIMESH RENDER                            │
+│  (No CPU involvement - GPU wrote directly)                     │
+└─────────────────────────────────────────────────────────────────┘
+        │
+        └───────────── GDScript (UI only) ◀─────────────────────┘
+```
 
 References:
 - [godot-bevy Book](https://bytemeadow.github.io/godot-bevy/getting-started/basic-concepts.html)
-- [FSM in ECS (Richard Lord)](https://www.richardlord.net/blog/ecs/finite-state-machines-with-ash)
-- [ECS Design Decisions](https://arielcoppes.dev/2023/07/13/design-decisions-when-building-games-using-ecs.html)
+- [FSM in ECS](https://www.richardlord.net/blog/ecs/finite-state-machines-with-ash)
 
-**Wrong (current push/pull bridge):**
-```
-GDScript arrays ──push──▶ Rust ──pull──▶ GDScript applies
-     ↑                                         │
-     └─────────── state duplicated ────────────┘
-```
-
-**Right (Bevy owns state):**
-```
-Bevy ECS (owns all state)
-    ├── Components: Position, State, Job, Energy, Health, Target
-    ├── Systems: guard_decision, farmer_decision, movement, combat
-    └──▶ Godot (presentation only)
-         - Reads positions for rendering
-         - Sends input events
-         - Displays UI
-```
-
-**State as components, not enums:**
-```rust
-// Instead of: states[i] = State::Patrolling
-// Use marker components - state = component presence
-#[derive(Component)] struct Patrolling;
-#[derive(Component)] struct Fighting;
-
-fn patrol_system(query: Query<&mut Target, With<Patrolling>>) { ... }
-```
-
-### Current State (Phase 1 complete)
-- [x] GPU compute shader for separation forces (`shaders/npc_compute.glsl`)
-- [x] 10,000 NPCs @ 140fps (release build)
-- [x] Spatial grid built on CPU, uploaded to GPU each frame
-- [x] Godot RenderingDevice with submit/sync pipeline
-- [x] Bulk `set_buffer()` MultiMesh rendering
-- [x] godot-bevy integration (Bevy App running)
-
-### Phase 2: Data Ownership Migration
-Move state ownership from GDScript to Bevy ECS:
-- [x] Temporary bridge working (push/pull pattern - to be replaced)
-- [ ] NPC data as ECS components (Position, Velocity, Health, Energy)
-- [ ] State as marker components (Patrolling, Fighting, Farming, etc.)
-- [ ] World data as ECS resources (towns, farms, beds, patrol posts)
-- [ ] GDScript reads from Bevy for rendering (no duplicate state)
-
-### Phase 3: Full Game Logic in ECS
-All decision systems in Bevy:
-- [ ] Guard systems (patrol, combat, rest)
-- [ ] Farmer systems (work, flee, rest)
-- [ ] Raider systems (raid, fight, deliver, rest)
-- [ ] Combat system (targeting, damage, death)
-- [ ] Needs system (energy drain, HP regen)
-
-Keep in GDScript: UI, menus, save/load, input forwarding.
-
-### Phase 4: Zero-Copy Rendering
-Eliminate CPU→GPU copy:
-- [ ] Get MultiMesh buffer RID via `multimesh_get_buffer_rd_rid()`
-- [ ] Compute shader writes directly to MultiMesh buffer
-- [ ] Single dispatch: separation + position + buffer write
-
-### Migration Chunks (incremental cutover)
+### Migration Chunks
 
 Each chunk is a working game state. Old GDScript code kept as reference, hard cutover per chunk.
 
@@ -382,33 +345,6 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] Signals to GDScript (death, level up, food)
 - [ ] Selection queries
 - [ ] Result: UI works again
-
-### Target Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        BEVY ECS                                 │
-│  Owns: Target, Job, State, NpcIndex, Health, Energy            │
-│  (Logical state - what NPCs WANT to do)                        │
-└────────────────────────┬────────────────────────────────────────┘
-                         │ Upload targets/states (one-way, cheap)
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     GPU COMPUTE                                 │
-│  Owns: Positions, Velocities (physics simulation)              │
-│  Does: Separation + Movement + Arrival detection               │
-│  Writes: Directly to MultiMesh buffer (zero-copy)              │
-│  Outputs: Arrival flags buffer (small, for Bevy to read)       │
-└────────────────────────┬────────────────────────────────────────┘
-                         │ Zero-copy (already on GPU)
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     MULTIMESH RENDER                            │
-│  (No CPU involvement - GPU wrote directly)                     │
-└─────────────────────────────────────────────────────────────────┘
-        │
-        └───────────── GDScript (UI only) ◀─────────────────────┘
-```
 
 ### Performance Targets
 
