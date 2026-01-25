@@ -396,10 +396,11 @@ func _update_test_mass() -> void:
 # Purpose: Verify world data init, add, and query functions work correctly
 # =============================================================================
 func _setup_test_world_data() -> void:
-	npc_count = 4  # One per role for visual confirmation
+	npc_count = 0  # No NPCs needed for this test
 	test_phase = 1
 	_set_phase("Initializing world...")
 	_log("Testing world data API")
+	queue_redraw()  # Show visual markers
 
 	# Initialize world with 1 town
 	ecs_manager.init_world(1)
@@ -422,6 +423,8 @@ func _setup_test_world_data() -> void:
 	ecs_manager.add_guard_post(CENTER.x + 80, CENTER.y - 80, 0, 1)
 	ecs_manager.add_guard_post(CENTER.x + 80, CENTER.y + 80, 0, 2)
 	ecs_manager.add_guard_post(CENTER.x - 80, CENTER.y + 80, 0, 3)
+
+	queue_redraw()  # Draw visual markers
 
 
 func _update_test_world_data() -> void:
@@ -556,6 +559,47 @@ func _draw() -> void:
 	draw_line(CENTER - Vector2(0, size), CENTER + Vector2(0, size), Color.YELLOW, 2.0)
 	# Draw arrival threshold circle
 	draw_arc(CENTER, 8.0, 0, TAU, 32, Color.YELLOW, 1.0)
+
+	# Draw world data markers for Test 6
+	if current_test == 6 and ecs_manager:
+		# Town center (gold circle)
+		var town_center: Vector2 = ecs_manager.get_town_center(0)
+		if town_center != Vector2.ZERO:
+			draw_arc(town_center, 30.0, 0, TAU, 32, Color.GOLD, 2.0)
+			draw_string(ThemeDB.fallback_font, town_center + Vector2(-20, -35), "TOWN", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.GOLD)
+
+		# Camp (red X)
+		var camp_pos: Vector2 = ecs_manager.get_camp_position(0)
+		if camp_pos != Vector2.ZERO:
+			draw_line(camp_pos - Vector2(15, 15), camp_pos + Vector2(15, 15), Color.RED, 2.0)
+			draw_line(camp_pos - Vector2(15, -15), camp_pos + Vector2(15, -15), Color.RED, 2.0)
+			draw_string(ThemeDB.fallback_font, camp_pos + Vector2(-15, -20), "CAMP", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.RED)
+
+		# Farms (green squares)
+		for i in 2:
+			var farm_x := CENTER.x + (-100 if i == 0 else 100)
+			var farm_pos := Vector2(farm_x, CENTER.y)
+			draw_rect(Rect2(farm_pos - Vector2(20, 20), Vector2(40, 40)), Color.GREEN, false, 2.0)
+			draw_string(ThemeDB.fallback_font, farm_pos + Vector2(-15, 30), "FARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color.GREEN)
+
+		# Beds (blue squares)
+		var bed_offsets: Array[Vector2] = [Vector2(-50, -50), Vector2(50, -50), Vector2(-50, 50), Vector2(50, 50)]
+		for offset in bed_offsets:
+			var bed_pos: Vector2 = CENTER + offset
+			draw_rect(Rect2(bed_pos - Vector2(8, 8), Vector2(16, 16)), Color.CYAN, false, 2.0)
+
+		# Guard posts (orange diamonds)
+		for i in 4:
+			var post_pos: Vector2 = ecs_manager.get_patrol_post(0, i)
+			if post_pos != Vector2.ZERO:
+				var pts := PackedVector2Array([
+					post_pos + Vector2(0, -12),
+					post_pos + Vector2(12, 0),
+					post_pos + Vector2(0, 12),
+					post_pos + Vector2(-12, 0),
+					post_pos + Vector2(0, -12)
+				])
+				draw_polyline(pts, Color.ORANGE, 2.0)
 
 
 # =============================================================================
