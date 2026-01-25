@@ -386,6 +386,9 @@ static BED_OCCUPANCY: LazyLock<Mutex<BedOccupancy>> = LazyLock::new(|| Mutex::ne
 /// Farm occupancy tracking (count of NPCs working at each farm).
 static FARM_OCCUPANCY: LazyLock<Mutex<FarmOccupancy>> = LazyLock::new(|| Mutex::new(FarmOccupancy::default()));
 
+/// Flag to trigger Bevy entity despawn on next frame.
+static RESET_BEVY: Mutex<bool> = Mutex::new(false);
+
 // ============================================================================
 // SPATIAL GRID - O(n) neighbor lookup for collision detection
 // ============================================================================
@@ -1064,6 +1067,31 @@ fn handle_guard_arrival_system(
 // BEVY APP - Initializes ECS world and systems
 // ============================================================================
 
+/// Despawn all Bevy entities when RESET_BEVY flag is set.
+fn reset_bevy_system(
+    mut commands: Commands,
+    query: Query<Entity, With<NpcIndex>>,
+    mut count: ResMut<NpcCount>,
+    mut gpu_data: ResMut<GpuData>,
+) {
+    let should_reset = RESET_BEVY.lock().map(|mut f| {
+        let val = *f;
+        *f = false;  // Clear flag
+        val
+    }).unwrap_or(false);
+
+    if should_reset {
+        // Despawn all NPC entities
+        for entity in query.iter() {
+            commands.entity(entity).despawn();
+        }
+        count.0 = 0;
+        gpu_data.npc_count = 0;
+        gpu_data.dirty = false;
+        godot_print!("[ECS] Reset - despawned all Bevy entities");
+    }
+}
+
 /// Build the Bevy application. Called once at startup by godot-bevy.
 #[bevy_app]
 fn build_app(app: &mut bevy::prelude::App) {
@@ -1076,8 +1104,9 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<WorldData>()
        .init_resource::<BedOccupancy>()
        .init_resource::<FarmOccupancy>()
-       // Systems run in order: drain queues -> process spawns -> arrivals -> guard logic
+       // Systems run in order: reset -> drain queues -> process spawns -> arrivals -> guard logic
        .add_systems(bevy::prelude::Update, (
+           reset_bevy_system,
            drain_spawn_queue,
            drain_target_queue,
            drain_guard_queue,
@@ -1658,6 +1687,11 @@ impl EcsNpcManager {
 
         // Clear prev_arrivals so guards can detect arrival on new tests
         self.prev_arrivals.fill(false);
+
+        // Signal Bevy to despawn all entities on next frame
+        if let Ok(mut flag) = RESET_BEVY.lock() {
+            *flag = true;
+        }
 
         godot_print!("[EcsNpcManager] Reset - NPC count and world data cleared");
     }
