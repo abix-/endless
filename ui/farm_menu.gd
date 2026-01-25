@@ -48,7 +48,7 @@ func _ready() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if not panel.visible:
+	if not panel or not panel.visible:
 		return
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:

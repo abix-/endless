@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.5")
 Config="*res://autoloads/config.gd"
 WorldClock="*res://autoloads/world_clock.gd"
 UserSettings="*res://autoloads/user_settings.gd"
+BevyAppSingleton="*res://addons/godot-bevy/bevy_app_singleton.tscn"
 
 [display]
 
@@ -28,7 +29,7 @@ config/icon="res://icon.svg"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/debugger_error_logger/plugin.cfg")
+enabled=PackedStringArray("res://addons/debugger_error_logger/plugin.cfg", "res://addons/godot-bevy/plugin.cfg")
 
 [input]
 

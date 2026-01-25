@@ -17,7 +17,10 @@
 - add Rust GDExtension with GPU compute: 10,000 NPCs @ 140fps
 - add npc_compute.glsl shader (separation forces on GPU via Godot RenderingDevice)
 - add spatial grid for O(n) neighbor lookup (128x128 cells, 48 NPCs/cell max)
-- add godot-bevy 0.10 integration (Bevy App ready for state machine migration)
+- add godot-bevy integration with Bevy ECS state machine
+- add NpcStateMachine bridge (GDScript pushes NPC data, pulls state changes)
+- add guard patrol logic in Bevy ECS (low energy → walking, else → patrolling)
+- add godot-bevy addon (BevyApp autoload, inspector panel, debugger plugin)
 
 ## 2026-01-20
 - add noise-based terrain with grass, forest, water, rock biomes

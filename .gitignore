@@ -7,3 +7,4 @@ debugger_logs/
 rust/target/
 *.uid
 *.import
+gdextension_interface.h

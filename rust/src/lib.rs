@@ -1,5 +1,6 @@
-// Endless ECS - GPU compute benchmark with godot-bevy integration
-// Current: 10,000 NPCs @ 140fps with GPU separation
+// Endless ECS - GPU compute + Bevy state machine
+// GPU separation: 10,000 NPCs @ 140fps
+// State machine: Bevy ECS via godot-bevy
 
 use bevy::prelude::*;
 use godot::prelude::*;
@@ -11,14 +12,243 @@ use godot::classes::{
 use godot_bevy::prelude::*;
 
 // ============================================================
+// ECS COMPONENTS
+// ============================================================
+
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[repr(i32)]
+pub enum NpcState {
+    #[default]
+    Idle = 0,
+    Resting = 1,
+    Fighting = 2,
+    Fleeing = 3,
+    Walking = 4,
+    Farming = 5,
+    OffDuty = 6,
+    OnDuty = 7,
+    Patrolling = 8,
+    Raiding = 9,
+    Returning = 10,
+    Wandering = 11,
+}
+
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(i32)]
+pub enum Job {
+    Farmer = 0,
+    Guard = 1,
+    Raider = 2,
+}
+
+#[derive(Component, Default)]
+pub struct Energy(pub f32);
+
+#[derive(Component)]
+pub struct Health {
+    pub current: f32,
+    pub max: f32,
+}
+
+#[derive(Component, Default)]
+pub struct NpcPosition(pub Vec2);
+
+#[derive(Component, Default)]
+pub struct Target(pub Vec2);
+
+#[derive(Component)]
+pub struct TownIndex(pub i32);
+
+#[derive(Component)]
+pub struct NpcIndex(pub usize);  // Maps back to GDScript array index
+
+#[derive(Component)]
+pub struct Alive;
+
+#[derive(Component)]
+pub struct Recovering;
+
+// ============================================================
+// SHARED STATE (GDScript ↔ Bevy bridge)
+// ============================================================
+
+use std::sync::Mutex;
+
+/// NPC data pushed from GDScript each frame
+#[derive(Default)]
+pub struct NpcInput {
+    pub count: usize,
+    pub jobs: Vec<i32>,
+    pub states: Vec<i32>,
+    pub energies: Vec<f32>,
+    pub healths: Vec<f32>,
+    pub is_daytime: bool,
+    pub energy_hungry: f32,
+}
+
+/// State changes computed by Bevy, pulled by GDScript
+#[derive(Default)]
+pub struct NpcOutput {
+    pub changes: Vec<(usize, i32)>,  // (npc_index, new_state)
+}
+
+static NPC_INPUT: Mutex<NpcInput> = Mutex::new(NpcInput {
+    count: 0,
+    jobs: Vec::new(),
+    states: Vec::new(),
+    energies: Vec::new(),
+    healths: Vec::new(),
+    is_daytime: true,
+    energy_hungry: 50.0,
+});
+
+static NPC_OUTPUT: Mutex<NpcOutput> = Mutex::new(NpcOutput {
+    changes: Vec::new(),
+});
+
+// ============================================================
+// ECS RESOURCES
+// ============================================================
+
+#[derive(Resource, Default)]
+pub struct StateChanges {
+    pub changes: Vec<(usize, i32)>,  // (npc_index, new_state)
+}
+
+#[derive(Resource)]
+pub struct GameConfig {
+    pub energy_hungry: f32,
+    pub is_daytime: bool,
+}
+
+impl Default for GameConfig {
+    fn default() -> Self {
+        Self {
+            energy_hungry: 50.0,
+            is_daytime: true,
+        }
+    }
+}
+
+// ============================================================
+// ECS SYSTEMS
+// ============================================================
+
+/// Reads NPC_INPUT and updates GameConfig + spawns decisions
+fn sync_input_system(
+    mut config: ResMut<GameConfig>,
+    mut changes: ResMut<StateChanges>,
+) {
+    // Clear previous changes
+    changes.changes.clear();
+
+    // Read input from GDScript
+    let input = NPC_INPUT.lock().unwrap();
+    config.energy_hungry = input.energy_hungry;
+    config.is_daytime = input.is_daytime;
+
+    // Run guard decisions inline (no entity overhead for now)
+    for i in 0..input.count {
+        let job = input.jobs.get(i).copied().unwrap_or(0);
+        if job != Job::Guard as i32 {
+            continue;
+        }
+
+        let state = input.states.get(i).copied().unwrap_or(0);
+        let energy = input.energies.get(i).copied().unwrap_or(100.0);
+
+        // Priority 1: Low energy → go rest
+        if energy < config.energy_hungry {
+            if state != NpcState::Resting as i32 && state != NpcState::Walking as i32 {
+                changes.changes.push((i, NpcState::Walking as i32));
+            }
+            continue;
+        }
+
+        // Priority 2: Patrol
+        if state != NpcState::OnDuty as i32 && state != NpcState::Patrolling as i32 {
+            changes.changes.push((i, NpcState::Patrolling as i32));
+        }
+    }
+}
+
+/// Copies StateChanges to NPC_OUTPUT for GDScript to read
+fn sync_output_system(
+    changes: Res<StateChanges>,
+) {
+    let mut output = NPC_OUTPUT.lock().unwrap();
+    output.changes.clear();
+    output.changes.extend(changes.changes.iter().cloned());
+}
+
+// ============================================================
 // BEVY APP ENTRY POINT
 // ============================================================
 
 #[bevy_app]
 fn build_app(app: &mut App) {
-    // Minimal setup - confirms godot-bevy is working
-    // State machine systems will be added here later
-    let _ = app; // silence unused warning
+    app.init_resource::<StateChanges>()
+       .init_resource::<GameConfig>()
+       .add_systems(Update, (sync_input_system, sync_output_system).chain());
+
+    godot_print!("[godot-bevy] State machine systems registered");
+}
+
+// ============================================================
+// GDSCRIPT BRIDGE
+// ============================================================
+
+#[derive(GodotClass)]
+#[class(base=Node)]
+struct NpcStateMachine {
+    base: Base<Node>,
+}
+
+#[godot_api]
+impl INode for NpcStateMachine {
+    fn init(base: Base<Node>) -> Self {
+        Self { base }
+    }
+
+    fn ready(&mut self) {
+        godot_print!("[NpcStateMachine] Bridge ready");
+    }
+}
+
+#[godot_api]
+impl NpcStateMachine {
+    /// Push NPC data from GDScript to Bevy
+    #[func]
+    fn push_npc_data(
+        &self,
+        jobs: PackedInt32Array,
+        states: PackedInt32Array,
+        energies: PackedFloat32Array,
+        healths: PackedFloat32Array,
+        is_daytime: bool,
+        energy_hungry: f32,
+    ) {
+        let mut input = NPC_INPUT.lock().unwrap();
+        input.count = jobs.len();
+        input.jobs = jobs.to_vec();
+        input.states = states.to_vec();
+        input.energies = energies.to_vec();
+        input.healths = healths.to_vec();
+        input.is_daytime = is_daytime;
+        input.energy_hungry = energy_hungry;
+    }
+
+    /// Pull state changes from Bevy to GDScript
+    /// Returns Dictionary { npc_index: new_state, ... }
+    #[func]
+    fn pull_state_changes(&self) -> Dictionary {
+        let output = NPC_OUTPUT.lock().unwrap();
+        let mut dict = Dictionary::new();
+        for (idx, state) in output.changes.iter() {
+            dict.set(*idx as i64, *state);
+        }
+        dict
+    }
 }
 
 // ============================================================

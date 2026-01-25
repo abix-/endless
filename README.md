@@ -209,7 +209,7 @@ ui/
   roster_panel.gd       # NPC roster with sorting and filtering
   farm_menu.gd          # Farm info popup (click farm to see occupant)
 rust/
-  src/lib.rs            # Bevy ECS POC: 10K NPCs separation benchmark
+  src/lib.rs            # Bevy ECS: GPU compute + state machine bridge
 ```
 
 ## Controls
@@ -257,13 +257,13 @@ Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk r
 - [x] Bulk `set_buffer()` MultiMesh rendering
 - [x] godot-bevy 0.10 entry point (Bevy App ready for state machine)
 
-### Phase 2: State Machine Migration
+### Phase 2: State Machine Migration (in progress)
 Move NPC decision logic to Bevy ECS:
-- [ ] Define ECS components (State, Job, Energy, Health, Position)
-- [ ] Guard decision system
+- [x] Define ECS components (State, Job, Energy, Health, Position)
+- [x] Guard decision system (patrol logic)
 - [ ] Farmer decision system
 - [ ] Raider decision system
-- [ ] Bridge: GDScript pushes data, pulls state changes
+- [x] Bridge: GDScript pushes data, pulls state changes (NpcStateMachine node)
 
 ### Phase 3: Full Game Logic
 Move hot paths from GDScript to Rust:

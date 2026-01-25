@@ -170,6 +170,7 @@ var _grid: NPCGrid
 var _renderer: NPCRenderer
 var _projectiles: Node  # Set by main.gd
 var _guard_post_combat: GuardPostCombat  # Set by set_main_reference
+var _bevy_state_machine: Node  # Rust NpcStateMachine bridge
 
 
 func set_projectile_manager(pm: Node) -> void:
@@ -269,6 +270,14 @@ func _init_systems() -> void:
 	else:
 		print("GPU separation unavailable, using CPU")
 		use_gpu_separation = false
+
+	# Initialize Bevy ECS state machine bridge (optional)
+	if ClassDB.class_exists("NpcStateMachine"):
+		_bevy_state_machine = ClassDB.instantiate("NpcStateMachine")
+		add_child(_bevy_state_machine)
+		print("Bevy ECS state machine initialized")
+	else:
+		print("Bevy ECS state machine unavailable (Rust DLL not loaded)")
 
 	_nav.arrived.connect(_on_npc_arrived)
 
@@ -525,6 +534,18 @@ func _process(delta: float) -> void:
 		var t2 := Time.get_ticks_usec()
 		profile_projectiles = (t2 - t) / 1000.0
 		t = t2
+
+	# Bevy ECS state machine: push data, pull changes (staggered every 4 frames)
+	if _bevy_state_machine and Engine.get_process_frames() % 4 == 0:
+		_bevy_state_machine.push_npc_data(
+			jobs, states, energies, healths,
+			WorldClock.is_daytime(), Config.ENERGY_HUNGRY
+		)
+		var changes: Dictionary = _bevy_state_machine.pull_state_changes()
+		for npc_idx in changes:
+			var new_state: int = changes[npc_idx]
+			_state.set_state(npc_idx, new_state)
+			_nav.force_logic_update(npc_idx)
 
 	_renderer.update(delta)
 

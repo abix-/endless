@@ -324,8 +324,8 @@ func _calc_separation(i: int) -> void:
 		sep_neighbor_count += nearby_count
 
 	if nearby_count <= 1:
-		var prev: Vector2 = separation_velocities[i]
-		separation_velocities[i] = prev * 0.6
+		var prev_vel: Vector2 = separation_velocities[i]
+		separation_velocities[i] = prev_vel * 0.6
 		return
 
 	var sep_x := 0.0
@@ -543,8 +543,8 @@ func _calc_separation_parallel(i: int) -> void:
 	var nearby: Array = manager._grid.get_nearby(my_pos)
 	var nearby_count: int = nearby.size()
 	if nearby_count <= 1:
-		var prev: Vector2 = separation_velocities[i]
-		separation_velocities[i] = prev * 0.6
+		var prev_vel: Vector2 = separation_velocities[i]
+		separation_velocities[i] = prev_vel * 0.6
 		return
 
 	# Compute my direction to target for co-movement check
