@@ -318,6 +318,52 @@ Eliminate CPU→GPU copy:
 - [ ] Compute shader writes directly to MultiMesh buffer
 - [ ] Single dispatch: separation + position + buffer write
 
+### Migration Chunks (incremental cutover)
+
+Each chunk is a working game state. Old GDScript code kept as reference, hard cutover per chunk.
+
+**Chunk 1: Bevy Renders Static NPCs**
+- [ ] GDScript calls `spawn_npc(pos, job)` → Bevy creates entity with Position
+- [ ] Bevy system builds MultiMesh buffer from Position components
+- [ ] Bevy calls `RenderingServer.multimesh_set_buffer()`
+- [ ] Result: NPCs appear on screen (no movement yet)
+
+**Chunk 2: Movement**
+- [ ] Add Velocity, Target components
+- [ ] Movement system: `position += velocity * delta`
+- [ ] Arrival detection system
+- [ ] Result: NPCs walk to targets
+
+**Chunk 3: World Data**
+- [ ] Towns, patrol posts, beds, farms as Bevy Resources
+- [ ] GDScript passes world data to Bevy at startup
+- [ ] Result: Bevy knows the world layout
+
+**Chunk 4: Guard Logic**
+- [ ] State marker components (Patrolling, OnDuty, Resting, Fighting)
+- [ ] Guard decision system (energy check, patrol selection)
+- [ ] Result: Guards patrol and rest autonomously
+
+**Chunk 5: Farmer Logic**
+- [ ] Farming, Walking, Resting states
+- [ ] Farm assignment, work schedule
+- [ ] Result: Farmers work and rest
+
+**Chunk 6: Combat**
+- [ ] Targeting system (spatial queries)
+- [ ] Damage system, death handling
+- [ ] Result: NPCs fight
+
+**Chunk 7: Raider Logic**
+- [ ] Raiding, Returning states
+- [ ] Food stealing/delivery
+- [ ] Result: Full game loop
+
+**Chunk 8: UI Integration**
+- [ ] Signals to GDScript (death, level up, food)
+- [ ] Selection queries
+- [ ] Result: UI works again
+
 ### Target Architecture
 
 ```
