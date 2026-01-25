@@ -90,11 +90,6 @@ const FLOATS_PER_INSTANCE: usize = 12;
 /// Must match the PushConstants struct in npc_compute.glsl (48 bytes with padding).
 const PUSH_CONSTANTS_SIZE: usize = 48;
 
-/// Size of push constants for grid build shader.
-/// npc_count (4) + grid_width (4) + grid_height (4) + cell_size (4) + max_per_cell (4) = 20 bytes
-/// Padded to 32 bytes for alignment.
-const GRID_BUILD_PUSH_SIZE: usize = 32;
-
 // ============================================================================
 // GUARD BEHAVIOR CONSTANTS
 // ============================================================================
@@ -401,12 +396,50 @@ static RESET_BEVY: Mutex<bool> = Mutex::new(false);
 // Without spatial partitioning, checking all pairs is O(n²) - 100M checks for 10K NPCs!
 // With a grid, each NPC only checks its 3×3 neighborhood - typically < 100 checks.
 //
-// Grid construction is done entirely on GPU using atomic operations:
-// 1. Clear grid counts buffer (CPU fills with zeros)
-// 2. Each NPC atomically inserts itself into its cell (grid_build.glsl)
-// 3. Physics shader reads grid for neighbor queries (npc_compute.glsl)
-//
-// This eliminates the main CPU bottleneck: reading positions back from GPU.
+// How it works:
+// 1. Each frame, clear the grid
+// 2. Insert each NPC into the cell containing its position
+// 3. Upload grid to GPU
+// 4. Shader reads neighbors from grid instead of checking all NPCs
+
+/// Spatial partitioning grid for efficient neighbor queries.
+struct SpatialGrid {
+    /// Number of NPCs in each cell: counts[cell_idx] = n
+    counts: Vec<i32>,
+    /// NPC indices in each cell: data[cell_idx * MAX_PER_CELL + n] = npc_index
+    /// Stored as flat array for GPU upload efficiency.
+    data: Vec<i32>,
+}
+
+impl SpatialGrid {
+    fn new() -> Self {
+        Self {
+            counts: vec![0i32; GRID_CELLS],
+            data: vec![0i32; GRID_CELLS * MAX_PER_CELL],
+        }
+    }
+
+    /// Reset all cell counts to zero (called each frame before rebuilding)
+    fn clear(&mut self) {
+        self.counts.fill(0);
+    }
+
+    /// Add an NPC to the grid cell containing position (x, y)
+    fn insert(&mut self, x: f32, y: f32, npc_idx: i32) {
+        // Clamp to grid bounds (handles NPCs outside expected world area)
+        let cx = ((x / CELL_SIZE) as usize).min(GRID_WIDTH - 1);
+        let cy = ((y / CELL_SIZE) as usize).min(GRID_HEIGHT - 1);
+        let cell_idx = cy * GRID_WIDTH + cx;
+
+        let count = self.counts[cell_idx] as usize;
+        if count < MAX_PER_CELL {
+            self.data[cell_idx * MAX_PER_CELL + count] = npc_idx;
+            self.counts[cell_idx] += 1;
+        }
+        // If cell is full, NPC is silently ignored for collision
+        // This is a tradeoff: prevents buffer overflow, but may miss collisions in crowds
+    }
+}
 
 // ============================================================================
 // GPU COMPUTE - Runs physics on thousands of NPCs in parallel
@@ -429,22 +462,12 @@ struct GpuCompute {
     /// Godot's GPU abstraction. Must be kept alive for buffer operations.
     rd: Gd<RenderingDevice>,
 
-    /// Compiled compute shader for NPC physics (kept alive for uniform set)
+    /// Compiled compute shader (kept alive but not used after pipeline creation)
     #[allow(dead_code)]
     shader: Rid,
 
-    /// Compute pipeline for NPC physics
+    /// Compute pipeline - the "program" we dispatch each frame
     pipeline: Rid,
-
-    /// Grid build shader (constructs spatial grid on GPU)
-    #[allow(dead_code)]
-    grid_build_shader: Rid,
-
-    /// Grid build pipeline
-    grid_build_pipeline: Rid,
-
-    /// Uniform set for grid build shader (position, counts, data)
-    grid_build_uniform_set: Rid,
 
     // === GPU Buffers (binding numbers match npc_compute.glsl) ===
 
@@ -481,23 +504,22 @@ struct GpuCompute {
     /// Uniform set - groups all buffers together for binding to shader.
     uniform_set: Rid,
 
-    /// Cached positions read back from GPU for GDScript queries (get_npc_position).
-    /// Only populated on-demand when get_npc_position() is called.
-    positions: Vec<f32>,
+    /// CPU-side spatial grid, rebuilt and uploaded each frame.
+    grid: SpatialGrid,
 
-    /// Flag indicating positions cache needs refresh.
-    positions_dirty: bool,
+    /// Cached positions read back from GPU for GDScript queries (get_npc_position).
+    positions: Vec<f32>,
 }
 
 impl GpuCompute {
-    /// Initialize GPU compute: create device, compile shaders, allocate buffers.
+    /// Initialize GPU compute: create device, compile shader, allocate buffers.
     /// Returns None if GPU compute isn't available (falls back to CPU would go here).
     fn new() -> Option<Self> {
         // Create a local rendering device (separate from Godot's main renderer)
         let rs = RenderingServer::singleton();
         let mut rd = rs.create_local_rendering_device()?;
 
-        // Load and compile the main NPC physics shader
+        // Load and compile the compute shader from .glsl file
         let shader_file = ResourceLoader::singleton()
             .load("res://shaders/npc_compute.glsl")?;
         let shader_file = shader_file.cast::<godot::classes::RdShaderFile>();
@@ -505,31 +527,14 @@ impl GpuCompute {
 
         let shader = rd.shader_create_from_spirv(&spirv);
         if !shader.is_valid() {
-            godot_error!("[GPU] Failed to create NPC physics shader");
+            godot_error!("[GPU] Failed to create shader");
             return None;
         }
 
+        // Create compute pipeline (combines shader + configuration)
         let pipeline = rd.compute_pipeline_create(shader);
         if !pipeline.is_valid() {
-            godot_error!("[GPU] Failed to create NPC physics pipeline");
-            return None;
-        }
-
-        // Load and compile the grid build shader (spatial grid construction on GPU)
-        let grid_shader_file = ResourceLoader::singleton()
-            .load("res://shaders/grid_build.glsl")?;
-        let grid_shader_file = grid_shader_file.cast::<godot::classes::RdShaderFile>();
-        let grid_spirv = grid_shader_file.get_spirv()?;
-
-        let grid_build_shader = rd.shader_create_from_spirv(&grid_spirv);
-        if !grid_build_shader.is_valid() {
-            godot_error!("[GPU] Failed to create grid build shader");
-            return None;
-        }
-
-        let grid_build_pipeline = rd.compute_pipeline_create(grid_build_shader);
-        if !grid_build_pipeline.is_valid() {
-            godot_error!("[GPU] Failed to create grid build pipeline");
+            godot_error!("[GPU] Failed to create pipeline");
             return None;
         }
 
@@ -550,7 +555,7 @@ impl GpuCompute {
         let arrival_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
         let backoff_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
 
-        // Create uniform set for main physics shader (9 buffers)
+        // Create uniform set (groups buffers for shader binding)
         let uniform_set = Self::create_uniform_set(
             &mut rd, shader,
             position_buffer, target_buffer, color_buffer, speed_buffer,
@@ -558,21 +563,12 @@ impl GpuCompute {
             backoff_buffer,
         )?;
 
-        // Create uniform set for grid build shader (3 buffers: position, counts, data)
-        let grid_build_uniform_set = Self::create_grid_build_uniform_set(
-            &mut rd, grid_build_shader,
-            position_buffer, grid_counts_buffer, grid_data_buffer,
-        )?;
-
-        godot_print!("[GPU] Compute shaders initialized (physics + grid build)");
+        godot_print!("[GPU] Compute shader initialized");
 
         Some(Self {
             rd,
             shader,
             pipeline,
-            grid_build_shader,
-            grid_build_pipeline,
-            grid_build_uniform_set,
             position_buffer,
             target_buffer,
             color_buffer,
@@ -583,8 +579,8 @@ impl GpuCompute {
             arrival_buffer,
             backoff_buffer,
             uniform_set,
+            grid: SpatialGrid::new(),
             positions: vec![0.0; MAX_NPC_COUNT * 2],
-            positions_dirty: true,
         })
     }
 
@@ -633,93 +629,11 @@ impl GpuCompute {
         }
     }
 
-    /// Create uniform set for grid build shader (3 buffers only).
-    fn create_grid_build_uniform_set(
-        rd: &mut Gd<RenderingDevice>,
-        shader: Rid,
-        position_buffer: Rid,
-        grid_counts_buffer: Rid,
-        grid_data_buffer: Rid,
-    ) -> Option<Rid> {
-        let mut uniforms = Array::new();
-
-        // Grid build shader bindings (match grid_build.glsl)
-        let buffers = [
-            (0, position_buffer),   // layout(binding = 0) buffer PositionBuffer
-            (1, grid_counts_buffer),// layout(binding = 1) buffer GridCounts
-            (2, grid_data_buffer),  // layout(binding = 2) buffer GridData
-        ];
-
-        for (binding, buffer) in buffers {
-            let mut uniform = RdUniform::new_gd();
-            uniform.set_uniform_type(UniformType::STORAGE_BUFFER);
-            uniform.set_binding(binding);
-            uniform.add_id(buffer);
-            uniforms.push(&uniform);
-        }
-
-        let uniform_set = rd.uniform_set_create(&uniforms, shader, 0);
-        if uniform_set.is_valid() {
-            Some(uniform_set)
-        } else {
-            None
-        }
-    }
-
-    /// Clear grid counts buffer (called before GPU grid build).
-    fn clear_grid_counts(&mut self) {
-        // Fill grid counts with zeros
-        let zeros = vec![0u8; GRID_CELLS * 4];
-        let packed = PackedByteArray::from(zeros.as_slice());
-        self.rd.buffer_update(self.grid_counts_buffer, 0, packed.len() as u32, &packed);
-    }
-
-    /// Build spatial grid on GPU using atomic operations.
-    /// Eliminates CPU-side position read-back (main performance bottleneck).
-    fn dispatch_grid_build(&mut self, npc_count: usize) {
-        if npc_count == 0 {
-            return;
-        }
-
-        // Clear grid counts before building
-        self.clear_grid_counts();
-
-        // Build push constants for grid build shader
-        let mut push_data = vec![0u8; GRID_BUILD_PUSH_SIZE];
-        push_data[0..4].copy_from_slice(&(npc_count as u32).to_le_bytes());
-        push_data[4..8].copy_from_slice(&(GRID_WIDTH as u32).to_le_bytes());
-        push_data[8..12].copy_from_slice(&(GRID_HEIGHT as u32).to_le_bytes());
-        push_data[12..16].copy_from_slice(&CELL_SIZE.to_le_bytes());
-        push_data[16..20].copy_from_slice(&(MAX_PER_CELL as u32).to_le_bytes());
-        // Padding to 32 bytes
-        push_data[20..24].copy_from_slice(&0u32.to_le_bytes());
-        push_data[24..28].copy_from_slice(&0u32.to_le_bytes());
-        push_data[28..32].copy_from_slice(&0u32.to_le_bytes());
-        let push_constants = PackedByteArray::from(push_data.as_slice());
-
-        // Dispatch grid build shader
-        let compute_list = self.rd.compute_list_begin();
-        self.rd.compute_list_bind_compute_pipeline(compute_list, self.grid_build_pipeline);
-        self.rd.compute_list_bind_uniform_set(compute_list, self.grid_build_uniform_set, 0);
-        self.rd.compute_list_set_push_constant(compute_list, &push_constants, GRID_BUILD_PUSH_SIZE as u32);
-
-        let workgroups = ((npc_count + 63) / 64) as u32;
-        self.rd.compute_list_dispatch(compute_list, workgroups, 1, 1);
-        self.rd.compute_list_end();
-
-        // Submit and sync - needed before physics shader reads grid
-        self.rd.submit();
-        self.rd.sync();
-    }
-
-    /// Refresh positions cache from GPU (only when needed for GDScript queries).
-    /// Call this lazily - only when get_npc_position() is requested.
-    fn refresh_positions_cache(&mut self, npc_count: usize) {
-        if !self.positions_dirty {
-            return;
-        }
-
+    /// Rebuild spatial grid from current GPU positions and upload to GPU.
+    /// Called each frame before dispatching the compute shader.
+    fn build_and_upload_grid(&mut self, npc_count: usize) {
         // Read current positions back from GPU
+        // (GPU owns positions - they may have moved since last frame)
         let bytes = self.rd.buffer_get_data(self.position_buffer);
         let byte_slice = bytes.as_slice();
         for i in 0..(npc_count * 2) {
@@ -734,7 +648,25 @@ impl GpuCompute {
             }
         }
 
-        self.positions_dirty = false;
+        // Rebuild grid from positions
+        self.grid.clear();
+        for i in 0..npc_count {
+            let x = self.positions[i * 2];
+            let y = self.positions[i * 2 + 1];
+            self.grid.insert(x, y, i as i32);
+        }
+
+        // Upload grid counts to GPU
+        let counts_bytes: Vec<u8> = self.grid.counts.iter()
+            .flat_map(|i| i.to_le_bytes()).collect();
+        let counts_packed = PackedByteArray::from(counts_bytes.as_slice());
+        self.rd.buffer_update(self.grid_counts_buffer, 0, counts_packed.len() as u32, &counts_packed);
+
+        // Upload grid data to GPU
+        let data_bytes: Vec<u8> = self.grid.data.iter()
+            .flat_map(|i| i.to_le_bytes()).collect();
+        let data_packed = PackedByteArray::from(data_bytes.as_slice());
+        self.rd.buffer_update(self.grid_data_buffer, 0, data_packed.len() as u32, &data_packed);
     }
 
     /// Dispatch the compute shader: run physics for all NPCs in parallel.
@@ -743,11 +675,8 @@ impl GpuCompute {
             return;
         }
 
-        // Mark positions cache as dirty (GPU will update positions)
-        self.positions_dirty = true;
-
-        // Step 1: Build spatial grid on GPU (eliminates CPU read-back bottleneck)
-        self.dispatch_grid_build(npc_count);
+        // Step 1: Rebuild spatial grid (CPU) and upload to GPU
+        self.build_and_upload_grid(npc_count);
 
         // Step 2: Build push constants (shader parameters)
         // These are small, fast-path data passed directly to shader (no buffer needed)
@@ -1677,24 +1606,14 @@ impl EcsNpcManager {
                 }
             }
 
-            // Debug: count how many cells have NPCs in them (read from GPU)
+            // Debug: count how many cells have NPCs in them
             let mut cells_with_npcs = 0;
-            let mut max_per_cell_count = 0i32;
-            let grid_counts_bytes = gpu.rd.buffer_get_data(gpu.grid_counts_buffer);
-            let grid_counts_slice = grid_counts_bytes.as_slice();
-            for cell_idx in 0..GRID_CELLS {
-                if grid_counts_slice.len() >= (cell_idx + 1) * 4 {
-                    let count = i32::from_le_bytes([
-                        grid_counts_slice[cell_idx * 4],
-                        grid_counts_slice[cell_idx * 4 + 1],
-                        grid_counts_slice[cell_idx * 4 + 2],
-                        grid_counts_slice[cell_idx * 4 + 3],
-                    ]);
-                    if count > 0 {
-                        cells_with_npcs += 1;
-                        if count > max_per_cell_count {
-                            max_per_cell_count = count;
-                        }
+            let mut max_per_cell = 0i32;
+            for count in gpu.grid.counts.iter() {
+                if *count > 0 {
+                    cells_with_npcs += 1;
+                    if *count > max_per_cell {
+                        max_per_cell = *count;
                     }
                 }
             }
@@ -1704,21 +1623,20 @@ impl EcsNpcManager {
             dict.set("avg_backoff", if npc_count > 0 { total_backoff / npc_count as i32 } else { 0 });
             dict.set("max_backoff", max_backoff);
             dict.set("cells_used", cells_with_npcs);
-            dict.set("max_per_cell", max_per_cell_count);
+            dict.set("max_per_cell", max_per_cell);
         }
         dict
     }
 
     /// Get the current position of an NPC.
-    /// Lazily refreshes positions cache from GPU if dirty.
+    /// Reads from cached positions (updated each frame during grid build).
     #[func]
-    fn get_npc_position(&mut self, npc_index: i32) -> Vector2 {
-        let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
-        if let Some(gpu) = &mut self.gpu {
+    fn get_npc_position(&self, npc_index: i32) -> Vector2 {
+        if let Some(gpu) = &self.gpu {
             let idx = npc_index as usize;
+            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
             if idx < npc_count {
-                // Lazily refresh positions cache if needed
-                gpu.refresh_positions_cache(npc_count);
+                // Read from cached positions (updated each frame during grid build)
                 let x = gpu.positions.get(idx * 2).copied().unwrap_or(0.0);
                 let y = gpu.positions.get(idx * 2 + 1).copied().unwrap_or(0.0);
                 return Vector2::new(x, y);

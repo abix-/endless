@@ -51,8 +51,6 @@
 - add get_build_info() for DLL version verification (dynamic timestamp + commit hash)
 - add build.rs for compile-time build info injection
 - add /test command for clean build and test workflow
-- add GPU-side spatial grid construction (grid_build.glsl) - eliminates CPU position read-back bottleneck
-- add lazy positions cache refresh (only read from GPU when get_npc_position called)
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)
