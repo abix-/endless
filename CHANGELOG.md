@@ -1,13 +1,11 @@
 # Changelog
 
-## 2026-01-25
+## 2026-01-24
 - add Chunk 1: Bevy ECS renders static NPCs via MultiMesh (EcsNpcManager)
 - add Chunk 2: movement system with velocity, target, arrival detection
 - add GDScript API: spawn_npc(), set_target(), get_npc_count()
 - revise migration plan: GPU physics as Chunk 3 foundation layer
 - add rust/, shaders/, scenes/, scripts/ to README architecture
-
-## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)
 - add parallel processing thread-safe state transitions (pending arrivals)
 - add co-movement separation reduction (groups move without oscillation)
