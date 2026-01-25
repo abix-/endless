@@ -326,7 +326,11 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Push constants (48 bytes with alignment padding)
 - [x] Spatial grid for O(n) neighbor lookup (128x128 cells, 48 NPCs/cell)
 - [x] Colors and movement confirmed working
-- [ ] Tune separation (outer NPCs OK, inner still overlap)
+- [x] Separation algorithm (boids-style: accumulate proportionally, no normalization)
+- [x] Persistent arrival flag (NPCs stay arrived after being pushed)
+- [x] Zero-distance fallback (golden angle when NPCs overlap exactly)
+- [x] reset() function for scene reload
+- [x] Debug test scene with UI panel (overlap/count sliders, metrics)
 - [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()`
 - [ ] Result: 10K+ NPCs with separation forces
 

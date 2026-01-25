@@ -619,6 +619,7 @@ impl EcsNpcManager {
             let idx = npc_index as usize;
             let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
             if idx < npc_count {
+                // Update target position
                 let target_bytes: Vec<u8> = [x, y].iter()
                     .flat_map(|f| f.to_le_bytes()).collect();
                 let target_packed = PackedByteArray::from(target_bytes.as_slice());
@@ -628,6 +629,16 @@ impl EcsNpcManager {
                     target_packed.len() as u32,
                     &target_packed
                 );
+
+                // Reset arrival flag so NPC moves toward new target
+                let arrival_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+                let arrival_packed = PackedByteArray::from(arrival_bytes.as_slice());
+                gpu.rd.buffer_update(
+                    gpu.arrival_buffer,
+                    (idx * 4) as u32,
+                    4,
+                    &arrival_packed
+                );
             }
         }
     }
@@ -635,5 +646,23 @@ impl EcsNpcManager {
     #[func]
     fn get_npc_count(&self) -> i32 {
         GPU_NPC_COUNT.lock().map(|c| *c as i32).unwrap_or(0)
+    }
+
+    #[func]
+    fn reset(&mut self) {
+        // Reset NPC count
+        if let Ok(mut count) = GPU_NPC_COUNT.lock() {
+            *count = 0;
+        }
+
+        // Clear queues
+        if let Ok(mut queue) = SPAWN_QUEUE.lock() {
+            queue.clear();
+        }
+        if let Ok(mut queue) = TARGET_QUEUE.lock() {
+            queue.clear();
+        }
+
+        godot_print!("[EcsNpcManager] Reset - NPC count cleared");
     }
 }

@@ -23,3 +23,115 @@ offset_top = 40.0
 offset_right = 300.0
 offset_bottom = 70.0
 text = "NPCs: 0"
+
+[node name="TestLabel" type="Label" parent="UI"]
+offset_left = 10.0
+offset_top = 80.0
+offset_right = 500.0
+offset_bottom = 110.0
+text = "Press 1-5 to run a test"
+
+[node name="StatusLabel" type="Label" parent="UI"]
+offset_left = 10.0
+offset_top = 110.0
+offset_right = 600.0
+offset_bottom = 140.0
+text = "1: Arrive  2: Separation  3: Both  4: Circle  5: Mass"
+
+[node name="DebugPanel" type="PanelContainer" parent="UI"]
+offset_left = 580.0
+offset_top = 10.0
+offset_right = 795.0
+offset_bottom = 400.0
+
+[node name="VBox" type="VBoxContainer" parent="UI/DebugPanel"]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 211.0
+offset_bottom = 386.0
+
+[node name="Title" type="Label" parent="UI/DebugPanel/VBox"]
+text = "== Tests =="
+horizontal_alignment = 1
+
+[node name="TestButtons" type="HBoxContainer" parent="UI/DebugPanel/VBox"]
+
+[node name="Test1" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
+custom_minimum_size = Vector2(36, 0)
+text = "1"
+tooltip_text = "Single NPC Arrive"
+
+[node name="Test2" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
+custom_minimum_size = Vector2(36, 0)
+text = "2"
+tooltip_text = "Separation"
+
+[node name="Test3" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
+custom_minimum_size = Vector2(36, 0)
+text = "3"
+tooltip_text = "Both Systems"
+
+[node name="Test4" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
+custom_minimum_size = Vector2(36, 0)
+text = "4"
+tooltip_text = "Circle Inward"
+
+[node name="Test5" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
+custom_minimum_size = Vector2(36, 0)
+text = "5"
+tooltip_text = "Mass Separation"
+
+[node name="Sep0" type="HSeparator" parent="UI/DebugPanel/VBox"]
+
+[node name="ControlsTitle" type="Label" parent="UI/DebugPanel/VBox"]
+text = "== Controls =="
+horizontal_alignment = 1
+
+[node name="OverlapLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Overlap: 100%"
+
+[node name="OverlapSlider" type="HSlider" parent="UI/DebugPanel/VBox"]
+max_value = 100.0
+value = 100.0
+
+[node name="CountLabel2" type="Label" parent="UI/DebugPanel/VBox"]
+text = "NPC Count: 2"
+
+[node name="CountSlider" type="HSlider" parent="UI/DebugPanel/VBox"]
+min_value = 2.0
+max_value = 50.0
+value = 2.0
+
+[node name="ButtonRow" type="HBoxContainer" parent="UI/DebugPanel/VBox"]
+
+[node name="SpawnButton" type="Button" parent="UI/DebugPanel/VBox/ButtonRow"]
+custom_minimum_size = Vector2(90, 0)
+text = "Spawn"
+
+[node name="ClearButton" type="Button" parent="UI/DebugPanel/VBox/ButtonRow"]
+custom_minimum_size = Vector2(90, 0)
+text = "Clear"
+
+[node name="AutoLoop" type="CheckBox" parent="UI/DebugPanel/VBox"]
+text = "Auto Loop (3s)"
+
+[node name="Sep1" type="HSeparator" parent="UI/DebugPanel/VBox"]
+
+[node name="MetricsTitle" type="Label" parent="UI/DebugPanel/VBox"]
+text = "== Metrics =="
+horizontal_alignment = 1
+
+[node name="TimeLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Time: 0.0s"
+
+[node name="DistanceLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Distance: --"
+
+[node name="VelocityLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Velocity: --"
+
+[node name="SepRadiusLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Sep Radius: 20px"
+
+[node name="ExpectedLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Expected: 20px apart"

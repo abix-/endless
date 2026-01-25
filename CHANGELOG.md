@@ -6,7 +6,13 @@
 - add spatial grid 128x128 cells with 48 NPCs/cell max
 - add push constants 48-byte alignment with padding fields
 - fix GPU buffer upload timing (separate GPU_NPC_COUNT static for immediate spawn)
-- wip: separation tuning (outer NPCs OK, inner still overlap/oscillate)
+- fix separation algorithm: accumulate proportionally instead of normalizing (boids-style)
+- fix zero-distance separation: use golden angle fallback when NPCs overlap exactly
+- add persistent arrival flag (NPCs don't chase target after being pushed away)
+- add reset() function for EcsNpcManager (clears NPC count for scene reload)
+- add ecs_test.tscn debug UI panel with test buttons, overlap/count sliders, metrics
+- add isolated behavior tests: arrive, separation, combined, circle, mass
+- add GPL 3.0 license
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)

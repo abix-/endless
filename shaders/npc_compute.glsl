@@ -65,17 +65,24 @@ void main() {
     vec2 target = targets[i];
     float speed = speeds[i];
     vec4 color = colors[i];
+    int already_arrived = arrivals[i];
 
-    // Check if already at target (alpha=0 means no target)
+    // Check if should move toward target
+    // Once arrived (arrivals[i] == 1), stay arrived - don't chase target again
     vec2 to_target = target - pos;
     float dist_to_target = length(to_target);
 
     vec2 vel = vec2(0.0);
-    bool has_target = color.a > 0.0 && dist_to_target > params.arrival_threshold;
+    bool has_target = color.a > 0.0 && already_arrived == 0 && dist_to_target > params.arrival_threshold;
 
     if (has_target) {
         // Move toward target
         vel = normalize(to_target) * speed;
+    }
+
+    // Mark as arrived once we get close (persistent - won't move toward target again)
+    if (dist_to_target <= params.arrival_threshold) {
+        arrivals[i] = 1;
     }
 
     // Compute separation force via spatial grid
@@ -106,21 +113,26 @@ void main() {
                 vec2 diff = pos - other_pos;
                 float dist_sq = dot(diff, diff);
 
-                if (dist_sq < sep_radius_sq && dist_sq > 0.01) {
-                    float dist = sqrt(dist_sq);
-                    float overlap = params.separation_radius - dist;
-                    float inv_dist = 1.0 / dist;
-                    sep += diff * inv_dist * overlap * 0.5;
+                if (dist_sq < sep_radius_sq) {
+                    if (dist_sq < 0.0001) {
+                        // Nearly identical positions - use index-based direction
+                        float angle = float(i) * 2.399 + float(j) * 0.7;  // Golden angle
+                        diff = vec2(cos(angle), sin(angle));
+                        sep += diff * params.separation_radius;
+                    } else {
+                        float dist = sqrt(dist_sq);
+                        // Closeness: how much we overlap (0 at edge, max at center)
+                        float closeness = params.separation_radius - dist;
+                        // Accumulate push proportional to closeness (no normalization)
+                        sep += diff * (closeness / dist);
+                    }
                 }
             }
         }
     }
 
-    // Normalize and apply separation strength
-    float sep_len = length(sep);
-    if (sep_len > 0.0) {
-        sep = (sep / sep_len) * params.separation_strength;
-    }
+    // Apply separation strength (no normalization - more neighbors = more push)
+    sep *= params.separation_strength;
 
     // Update position
     pos += (vel + sep) * params.delta;
@@ -128,13 +140,7 @@ void main() {
     // Write updated position back
     positions[i] = pos;
 
-    // Check for arrival (after movement)
-    float new_dist = length(target - pos);
-    if (has_target && new_dist <= params.arrival_threshold) {
-        arrivals[i] = 1;
-    } else {
-        arrivals[i] = 0;
-    }
+    // Note: arrival is now checked before movement and persists
 
     // Write to MultiMesh buffer (12 floats per instance)
     uint base = i * 12;
