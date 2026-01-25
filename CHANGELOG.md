@@ -13,6 +13,8 @@
 - add arrival flag initialization on spawn (prevents stale buffer data)
 - add ecs_test.tscn with 5 test scenarios and NPC count slider
 - add test descriptions: arrive (target seeking), separation (push apart), both, circle, mass
+- add TDD assertions: get_npc_position(), _assert_all_separated(), PASS/FAIL state
+- add real-time min separation metric display
 - add GPL 3.0 license
 
 ## 2026-01-24

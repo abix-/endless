@@ -654,6 +654,21 @@ impl EcsNpcManager {
     }
 
     #[func]
+    fn get_npc_position(&self, npc_index: i32) -> Vector2 {
+        if let Some(gpu) = &self.gpu {
+            let idx = npc_index as usize;
+            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+            if idx < npc_count {
+                // Read from cached positions (updated each frame during grid build)
+                let x = gpu.positions.get(idx * 2).copied().unwrap_or(0.0);
+                let y = gpu.positions.get(idx * 2 + 1).copied().unwrap_or(0.0);
+                return Vector2::new(x, y);
+            }
+        }
+        Vector2::ZERO
+    }
+
+    #[func]
     fn reset(&mut self) {
         // Reset NPC count
         if let Ok(mut count) = GPU_NPC_COUNT.lock() {

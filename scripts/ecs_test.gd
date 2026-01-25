@@ -30,9 +30,11 @@ var test_phase := 0
 var npc_count := 0
 var is_running := false
 var log_lines: Array[String] = []
+var test_result := ""  # "PASS" or "FAIL: reason"
 
 const CENTER := Vector2(400, 300)
 const SEP_RADIUS := 20.0
+const ARRIVAL_THRESHOLD := 8.0
 const TEST_NAMES := {
 	0: "None",
 	1: "Arrive",
@@ -107,6 +109,58 @@ func _set_phase(phase: String) -> void:
 	phase_label.text = "Phase: " + phase
 
 
+func _pass() -> void:
+	test_result = "PASS"
+	_set_state("PASS")
+	_log("PASS")
+
+
+func _fail(reason: String) -> void:
+	test_result = "FAIL: " + reason
+	_set_state("FAIL")
+	_log("FAIL: " + reason)
+
+
+# Check all NPCs are within threshold of target
+func _assert_all_arrived(target: Vector2, threshold: float) -> bool:
+	for i in npc_count:
+		var pos: Vector2 = ecs_manager.get_npc_position(i)
+		if pos.distance_to(target) > threshold:
+			return false
+	return true
+
+
+# Check all NPC pairs are at least min_dist apart
+func _assert_all_separated(min_dist: float) -> bool:
+	for i in npc_count:
+		var pos_i: Vector2 = ecs_manager.get_npc_position(i)
+		for j in range(i + 1, npc_count):
+			var pos_j: Vector2 = ecs_manager.get_npc_position(j)
+			if pos_i.distance_to(pos_j) < min_dist - 0.1:  # Small tolerance
+				return false
+	return true
+
+
+# Get min distance between any two NPCs
+func _get_min_separation() -> float:
+	var min_dist := 99999.0
+	for i in npc_count:
+		var pos_i: Vector2 = ecs_manager.get_npc_position(i)
+		for j in range(i + 1, npc_count):
+			var pos_j: Vector2 = ecs_manager.get_npc_position(j)
+			min_dist = minf(min_dist, pos_i.distance_to(pos_j))
+	return min_dist
+
+
+# Get max distance from target
+func _get_max_dist_from_target(target: Vector2) -> float:
+	var max_dist := 0.0
+	for i in npc_count:
+		var pos: Vector2 = ecs_manager.get_npc_position(i)
+		max_dist = maxf(max_dist, pos.distance_to(target))
+	return max_dist
+
+
 func _on_count_changed(value: float) -> void:
 	count_label.text = "NPC Count: %d" % int(value)
 
@@ -144,6 +198,7 @@ func _start_test(test_id: int) -> void:
 	test_timer = 0.0
 	npc_count = 0
 	pending_test = 0
+	test_result = ""
 
 	test_label.text = "Test: " + TEST_NAMES.get(test_id, "?")
 	_set_state("RUNNING")
@@ -180,9 +235,15 @@ func _update_test_arrive() -> void:
 		_set_phase("Moving to center")
 		_log("Targets set")
 
-	if test_phase == 2 and test_timer > 5.0:
-		_set_state("DONE")
-		_set_phase("Should be at center")
+	if test_phase == 2 and test_timer > 3.0:
+		# Assert: all NPCs within cluster radius of center
+		var max_dist := _get_max_dist_from_target(CENTER)
+		var expected_radius := SEP_RADIUS * sqrt(npc_count)  # Rough cluster size
+		if max_dist < expected_radius + ARRIVAL_THRESHOLD:
+			_pass()
+			_set_phase("All arrived (max %.0fpx)" % max_dist)
+		else:
+			_fail("NPC too far: %.0fpx" % max_dist)
 
 
 # =============================================================================
@@ -200,8 +261,13 @@ func _setup_test_separation() -> void:
 
 func _update_test_separation() -> void:
 	if test_phase == 1 and test_timer > 2.0:
-		_set_state("DONE")
-		_set_phase("Should be 20px apart")
+		# Assert: all NPC pairs at least SEP_RADIUS apart
+		var min_sep := _get_min_separation()
+		if _assert_all_separated(SEP_RADIUS):
+			_pass()
+			_set_phase("Min sep: %.1fpx" % min_sep)
+		else:
+			_fail("Too close: %.1fpx < %.0fpx" % [min_sep, SEP_RADIUS])
 
 
 # =============================================================================
@@ -227,9 +293,19 @@ func _update_test_both() -> void:
 		_set_phase("All moving to center")
 		_log("Targets set")
 
-	if test_phase == 2 and test_timer > 5.0:
-		_set_state("DONE")
-		_set_phase("At center, separated")
+	if test_phase == 2 and test_timer > 3.0:
+		# Assert: near center AND separated
+		var max_dist := _get_max_dist_from_target(CENTER)
+		var min_sep := _get_min_separation()
+		var expected_radius := SEP_RADIUS * sqrt(npc_count)
+
+		if max_dist > expected_radius + ARRIVAL_THRESHOLD:
+			_fail("Not converged: %.0fpx" % max_dist)
+		elif not _assert_all_separated(SEP_RADIUS):
+			_fail("Too close: %.1fpx" % min_sep)
+		else:
+			_pass()
+			_set_phase("Converged+Sep (%.0fpx, %.1fpx)" % [max_dist, min_sep])
 
 
 # =============================================================================
@@ -257,9 +333,19 @@ func _update_test_circle() -> void:
 		_set_phase("All moving inward")
 		_log("Targets set")
 
-	if test_phase == 2 and test_timer > 5.0:
-		_set_state("DONE")
-		_set_phase("Should form cluster")
+	if test_phase == 2 and test_timer > 3.0:
+		# Assert: formed cluster near center, all separated
+		var max_dist := _get_max_dist_from_target(CENTER)
+		var min_sep := _get_min_separation()
+		var expected_radius := SEP_RADIUS * sqrt(npc_count)
+
+		if max_dist > expected_radius + ARRIVAL_THRESHOLD:
+			_fail("Not clustered: %.0fpx" % max_dist)
+		elif not _assert_all_separated(SEP_RADIUS):
+			_fail("Too close: %.1fpx" % min_sep)
+		else:
+			_pass()
+			_set_phase("Cluster formed (r=%.0fpx)" % max_dist)
 
 
 # =============================================================================
@@ -276,9 +362,14 @@ func _setup_test_mass() -> void:
 
 
 func _update_test_mass() -> void:
-	if test_timer > 5.0:
-		_set_state("DONE")
-		_set_phase("Should be stable blob")
+	if test_timer > 3.0:
+		# Assert: all NPCs separated (no overlaps after explosion)
+		var min_sep := _get_min_separation()
+		if _assert_all_separated(SEP_RADIUS):
+			_pass()
+			_set_phase("All separated (min %.1fpx)" % min_sep)
+		else:
+			_fail("Still overlapping: %.1fpx" % min_sep)
 
 
 # =============================================================================
@@ -325,10 +416,14 @@ func _process(delta: float) -> void:
 
 func _update_metrics() -> void:
 	time_label.text = "Time: %.2fs" % test_timer
-	expected_label.text = "Sep radius: %dpx" % int(SEP_RADIUS)
-	if npc_count > 0:
-		distance_label.text = "NPCs: %d" % npc_count
-		velocity_label.text = "Status: " + ("moving" if test_timer < 2.0 else "stable")
+	expected_label.text = "Target: %dpx sep" % int(SEP_RADIUS)
+	if npc_count > 1 and ecs_manager:
+		var min_sep := _get_min_separation()
+		distance_label.text = "Min sep: %.1fpx" % min_sep
+		velocity_label.text = "Pass if >= %.0fpx" % SEP_RADIUS
+	elif npc_count == 1:
+		distance_label.text = "Min sep: n/a"
+		velocity_label.text = "(single NPC)"
 	else:
-		distance_label.text = "NPCs: --"
-		velocity_label.text = "Status: --"
+		distance_label.text = "Min sep: --"
+		velocity_label.text = "--"

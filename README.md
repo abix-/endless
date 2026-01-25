@@ -332,6 +332,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] reset() function for scene reload
 - [x] Arrival flag initialization on spawn
 - [x] Test harness with 5 scenarios (arrive, separation, both, circle, mass)
+- [x] TDD assertions with automated PASS/FAIL (get_npc_position, min separation check)
 - [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()`
 - [ ] Result: 10K+ NPCs with separation forces
 
