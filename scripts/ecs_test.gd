@@ -1,4 +1,4 @@
-# ecs_test.gd - Test scene for EcsNpcManager (Chunk 1)
+# ecs_test.gd - Test scene for EcsNpcManager (Chunk 2: Movement)
 extends Node2D
 
 var ecs_manager: Node2D
@@ -6,6 +6,8 @@ var fps_label: Label
 var count_label: Label
 var frame_count := 0
 var fps_timer := 0.0
+var targets_set := false
+var npc_count := 0
 
 func _ready() -> void:
 	fps_label = $UI/FPSLabel
@@ -37,7 +39,24 @@ func _spawn_test_npcs() -> void:
 			var job := (x + y) % 3  # Cycle through jobs
 			ecs_manager.spawn_npc(pos_x, pos_y, job)
 
-	print("[ECS Test] Spawned %d NPCs" % count)
+	npc_count = grid_size * grid_size
+	print("[ECS Test] Spawned %d NPCs" % npc_count)
+
+
+func _set_random_targets() -> void:
+	# Set random targets for all NPCs
+	var center_x := 400.0
+	var center_y := 400.0
+
+	for i in npc_count:
+		# Random offset from center
+		var angle := randf() * TAU
+		var radius := randf() * 200.0
+		var target_x := center_x + cos(angle) * radius
+		var target_y := center_y + sin(angle) * radius
+		ecs_manager.set_target(i, target_x, target_y)
+
+	print("[ECS Test] Set targets for %d NPCs" % npc_count)
 
 
 func _process(delta: float) -> void:
@@ -52,3 +71,8 @@ func _process(delta: float) -> void:
 
 	if ecs_manager:
 		count_label.text = "NPCs: %d" % ecs_manager.get_npc_count()
+
+		# Set targets after 1 second (wait for spawn to complete)
+		if not targets_set and fps_timer > 0.5:
+			targets_set = true
+			_set_random_targets()

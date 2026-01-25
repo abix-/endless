@@ -1,11 +1,13 @@
-// Endless ECS - Chunk 1: Bevy owns NPCs, renders to MultiMesh
-// Architecture: GDScript spawns → Bevy entities → MultiMesh rendering
+// Endless ECS - Chunk 2: Movement + Arrival Detection
+// Architecture: GDScript spawns → Bevy entities → Movement → MultiMesh rendering
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::godot_prelude::*;
 use godot_bevy::prelude::*;
 use godot::classes::{RenderingServer, QuadMesh, INode2D};
 use bevy::prelude::{App, Update};
+use bevy::time::Time;
+use std::sync::Mutex;
 
 // ============================================================
 // ECS COMPONENTS
@@ -17,6 +19,34 @@ pub struct Position {
     pub x: f32,
     pub y: f32,
 }
+
+/// NPC velocity (direction * speed)
+#[derive(Component, Default, Clone, Copy)]
+pub struct Velocity {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// NPC target position (where they're walking to)
+#[derive(Component, Clone, Copy)]
+pub struct Target {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// NPC movement speed (pixels per second)
+#[derive(Component, Clone, Copy)]
+pub struct Speed(pub f32);
+
+impl Default for Speed {
+    fn default() -> Self {
+        Self(100.0)  // 100 pixels/sec default
+    }
+}
+
+/// NPC index (for GDScript to reference specific NPCs)
+#[derive(Component, Clone, Copy)]
+pub struct NpcIndex(pub usize);
 
 /// NPC job type (determines sprite color)
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
@@ -56,6 +86,14 @@ pub struct SpawnNpcMsg {
     pub job: i32,
 }
 
+/// Message: set target for an NPC by index
+#[derive(Message, Clone)]
+pub struct SetTargetMsg {
+    pub npc_index: usize,
+    pub x: f32,
+    pub y: f32,
+}
+
 // ============================================================
 // ECS RESOURCES
 // ============================================================
@@ -86,15 +124,19 @@ pub struct NpcCount(pub usize);
 // ECS SYSTEMS
 // ============================================================
 
-/// Processes spawn events, creates entities (can run parallel)
+/// Processes spawn events, creates entities
 fn spawn_npc_system(
     mut commands: Commands,
     mut events: MessageReader<SpawnNpcMsg>,
     mut count: ResMut<NpcCount>,
 ) {
     for event in events.read() {
+        let idx = count.0;
         commands.spawn((
             Position { x: event.x, y: event.y },
+            Velocity::default(),
+            Speed::default(),
+            NpcIndex(idx),
             Job::from_i32(event.job),
         ));
         count.0 += 1;
@@ -102,6 +144,72 @@ fn spawn_npc_system(
     // Update static for GDScript to read
     if let Ok(mut npc_count) = NPC_COUNT.lock() {
         *npc_count = count.0;
+    }
+}
+
+/// Movement system: position += velocity * delta
+fn movement_system(
+    time: Res<Time>,
+    mut query: Query<(&mut Position, &Velocity)>,
+) {
+    let delta = time.delta_secs();
+    for (mut pos, vel) in query.iter_mut() {
+        pos.x += vel.x * delta;
+        pos.y += vel.y * delta;
+    }
+}
+
+/// Arrival detection: when close to target, stop moving
+const ARRIVAL_THRESHOLD: f32 = 8.0;
+
+fn arrival_system(
+    mut commands: Commands,
+    mut query: Query<(Entity, &Position, &Target, &mut Velocity)>,
+) {
+    for (entity, pos, target, mut vel) in query.iter_mut() {
+        let dx = target.x - pos.x;
+        let dy = target.y - pos.y;
+        let dist_sq = dx * dx + dy * dy;
+
+        if dist_sq < ARRIVAL_THRESHOLD * ARRIVAL_THRESHOLD {
+            // Arrived - stop moving and remove target
+            vel.x = 0.0;
+            vel.y = 0.0;
+            commands.entity(entity).remove::<Target>();
+        }
+    }
+}
+
+/// Velocity calculation: set velocity toward target
+fn velocity_system(
+    mut query: Query<(&Position, &Target, &Speed, &mut Velocity)>,
+) {
+    for (pos, target, speed, mut vel) in query.iter_mut() {
+        let dx = target.x - pos.x;
+        let dy = target.y - pos.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        if dist > 0.1 {
+            // Normalize and apply speed
+            vel.x = (dx / dist) * speed.0;
+            vel.y = (dy / dist) * speed.0;
+        }
+    }
+}
+
+/// Apply target messages to NPCs
+fn apply_targets_system(
+    mut commands: Commands,
+    mut events: MessageReader<SetTargetMsg>,
+    query: Query<(Entity, &NpcIndex)>,
+) {
+    for event in events.read() {
+        for (entity, npc_idx) in query.iter() {
+            if npc_idx.0 == event.npc_index {
+                commands.entity(entity).insert(Target { x: event.x, y: event.y });
+                break;
+            }
+        }
     }
 }
 
@@ -161,21 +269,32 @@ fn render_npc_system(
 #[bevy_app]
 fn build_app(app: &mut App) {
     app.add_message::<SpawnNpcMsg>()
+       .add_message::<SetTargetMsg>()
        .init_resource::<MultiMeshResource>()
        .init_resource::<NpcCount>()
-       .add_systems(Update, (drain_spawn_queue, spawn_npc_system, render_npc_system).chain());
+       .add_systems(Update, (
+           drain_spawn_queue,
+           drain_target_queue,
+           spawn_npc_system,
+           apply_targets_system,
+           velocity_system,
+           movement_system,
+           arrival_system,
+           render_npc_system,
+       ).chain());
 
-    godot_print!("[ECS] Chunk 1: Bevy NPC rendering initialized");
+    godot_print!("[ECS] Chunk 2: Bevy NPC movement initialized");
 }
 
 // ============================================================
 // GDSCRIPT BRIDGE (EcsNpcManager)
 // ============================================================
 
-use std::sync::Mutex;
-
 /// Queue of spawn events (GDScript → Bevy)
 static SPAWN_QUEUE: Mutex<Vec<SpawnNpcMsg>> = Mutex::new(Vec::new());
+
+/// Queue of target events (GDScript → Bevy)
+static TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
 
 /// Shared MultiMesh RID and max count (set by EcsNpcManager, read by render system)
 static MULTIMESH_RID: Mutex<Option<godot::prelude::Rid>> = Mutex::new(None);
@@ -191,9 +310,25 @@ fn queue_spawn(x: f32, y: f32, job: i32) {
     }
 }
 
-/// Drains spawn queue into Bevy messages (called from system)
+/// Queues a target event (called from GDScript)
+fn queue_target(npc_index: usize, x: f32, y: f32) {
+    if let Ok(mut queue) = TARGET_QUEUE.lock() {
+        queue.push(SetTargetMsg { npc_index, x, y });
+    }
+}
+
+/// Drains spawn queue into Bevy messages
 fn drain_spawn_queue(mut messages: MessageWriter<SpawnNpcMsg>) {
     if let Ok(mut queue) = SPAWN_QUEUE.lock() {
+        for msg in queue.drain(..) {
+            messages.write(msg);
+        }
+    }
+}
+
+/// Drains target queue into Bevy messages
+fn drain_target_queue(mut messages: MessageWriter<SetTargetMsg>) {
+    if let Ok(mut queue) = TARGET_QUEUE.lock() {
         for msg in queue.drain(..) {
             messages.write(msg);
         }
@@ -305,6 +440,23 @@ impl EcsNpcManager {
             *count as i32
         } else {
             0
+        }
+    }
+
+    /// Set target for NPC by index
+    #[func]
+    fn set_target(&self, npc_index: i32, x: f32, y: f32) {
+        queue_target(npc_index as usize, x, y);
+    }
+
+    /// Set targets for multiple NPCs (batch)
+    #[func]
+    fn set_targets(&self, indices: PackedInt32Array, targets: PackedVector2Array) {
+        let count = indices.len().min(targets.len());
+        for i in 0..count {
+            if let (Some(idx), Some(target)) = (indices.get(i), targets.get(i)) {
+                queue_target(idx as usize, target.x, target.y);
+            }
         }
     }
 }

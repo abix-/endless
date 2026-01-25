@@ -328,11 +328,13 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Bevy calls `RenderingServer.multimesh_set_buffer()` with full buffer
 - [x] Result: Colored NPCs render (green=Farmer, blue=Guard, red=Raider)
 
-**Chunk 2: Movement**
-- [ ] Add Velocity, Target components
-- [ ] Movement system: `position += velocity * delta`
-- [ ] Arrival detection system
-- [ ] Result: NPCs walk to targets
+**Chunk 2: Movement** ✓
+- [x] Add Velocity, Target, Speed, NpcIndex components
+- [x] Movement system: `position += velocity * delta`
+- [x] Velocity system: calculate direction toward target
+- [x] Arrival detection: stop and remove Target when close
+- [x] GDScript API: `set_target(npc_index, x, y)`
+- [x] Result: NPCs walk to targets and stop on arrival
 
 **Chunk 3: World Data**
 - [ ] Towns, patrol posts, beds, farms as Bevy Resources
