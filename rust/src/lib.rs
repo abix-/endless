@@ -963,6 +963,8 @@ impl EcsNpcManager {
             let backoff_slice = backoff_bytes.as_slice();
             let mut total_backoff = 0i32;
             let mut max_backoff = 0i32;
+
+
             for i in 0..npc_count {
                 if backoff_slice.len() >= (i + 1) * 4 {
                     let val = i32::from_le_bytes([
@@ -976,10 +978,24 @@ impl EcsNpcManager {
                 }
             }
 
+            // Debug: count how many cells have NPCs in them
+            let mut cells_with_npcs = 0;
+            let mut max_per_cell = 0i32;
+            for count in gpu.grid.counts.iter() {
+                if *count > 0 {
+                    cells_with_npcs += 1;
+                    if *count > max_per_cell {
+                        max_per_cell = *count;
+                    }
+                }
+            }
+
             dict.set("npc_count", npc_count as i32);
             dict.set("arrived_count", arrived_count);
             dict.set("avg_backoff", if npc_count > 0 { total_backoff / npc_count as i32 } else { 0 });
             dict.set("max_backoff", max_backoff);
+            dict.set("cells_used", cells_with_npcs);
+            dict.set("max_per_cell", max_per_cell);
         }
         dict
     }

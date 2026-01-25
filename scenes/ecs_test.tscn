@@ -29,12 +29,12 @@ horizontal_alignment = 1
 [node name="Sep0" type="HSeparator" parent="UI/DebugPanel/VBox"]
 
 [node name="CountLabel" type="Label" parent="UI/DebugPanel/VBox"]
-text = "NPC Count: 10"
+text = "NPC Count: 100"
 
 [node name="CountSlider" type="HSlider" parent="UI/DebugPanel/VBox"]
 min_value = 1.0
-max_value = 100.0
-value = 10.0
+max_value = 500.0
+value = 100.0
 
 [node name="Sep1" type="HSeparator" parent="UI/DebugPanel/VBox"]
 
@@ -119,3 +119,6 @@ custom_minimum_size = Vector2(0, 50)
 text = "--"
 vertical_alignment = 1
 autowrap_mode = 2
+
+[node name="CopyButton" type="Button" parent="UI/DebugPanel/VBox"]
+text = "Copy Debug Info"

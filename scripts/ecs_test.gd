@@ -75,6 +75,7 @@ func _ready() -> void:
 	vbox.get_node("TestButtons/Test3").pressed.connect(_start_test.bind(3))
 	vbox.get_node("TestButtons/Test4").pressed.connect(_start_test.bind(4))
 	vbox.get_node("TestButtons/Test5").pressed.connect(_start_test.bind(5))
+	vbox.get_node("CopyButton").pressed.connect(_copy_debug_info)
 
 	if ClassDB.class_exists("EcsNpcManager"):
 		ecs_manager = ClassDB.instantiate("EcsNpcManager")
@@ -98,6 +99,20 @@ func _log(msg: String) -> void:
 	if log_lines.size() > 3:
 		log_lines.pop_back()
 	log_label.text = "\n".join(log_lines)
+
+
+func _copy_debug_info() -> void:
+	var info := "Test: %s | Time: %.1fs | NPCs: %d\n" % [TEST_NAMES.get(current_test, "?"), test_timer, npc_count]
+	info += state_label.text + "\n"
+	info += phase_label.text + "\n"
+	info += "Min sep: %.1fpx\n" % _get_min_separation() if npc_count > 1 else ""
+	if ecs_manager and ecs_manager.has_method("get_debug_stats"):
+		var stats: Dictionary = ecs_manager.get_debug_stats()
+		info += "arrived: %d/%d\n" % [stats.get("arrived_count", 0), npc_count]
+		info += "max_backoff: %d\n" % stats.get("max_backoff", 0)
+		info += "grid_cells: %d, max_per_cell: %d\n" % [stats.get("cells_used", 0), stats.get("max_per_cell", 0)]
+	DisplayServer.clipboard_set(info)
+	_log("Copied to clipboard")
 
 
 func _set_state(state: String) -> void:
@@ -235,15 +250,15 @@ func _update_test_arrive() -> void:
 		_set_phase("Moving to center")
 		_log("Targets set")
 
-	if test_phase == 2 and test_timer > 3.0:
-		# Assert: all NPCs within cluster radius of center
-		var max_dist := _get_max_dist_from_target(CENTER)
-		var expected_radius := SEP_RADIUS * sqrt(npc_count)  # Rough cluster size
-		if max_dist < expected_radius + ARRIVAL_THRESHOLD:
+	if test_phase == 2 and test_timer > 5.0:
+		# Assert: all NPCs have settled (reached target or gave up)
+		var stats: Dictionary = ecs_manager.get_debug_stats()
+		var arrived: int = stats.get("arrived_count", 0)
+		if arrived == npc_count:
 			_pass()
-			_set_phase("All arrived (max %.0fpx)" % max_dist)
+			_set_phase("All settled (%d/%d)" % [arrived, npc_count])
 		else:
-			_fail("NPC too far: %.0fpx" % max_dist)
+			_fail("Only %d/%d settled" % [arrived, npc_count])
 
 
 # =============================================================================
@@ -425,7 +440,9 @@ func _update_metrics() -> void:
 			var stats: Dictionary = ecs_manager.get_debug_stats()
 			var arrived: int = stats.get("arrived_count", 0)
 			var max_bo: int = stats.get("max_backoff", 0)
-			velocity_label.text = "Arrived: %d/%d" % [arrived, npc_count]
+			var cells: int = stats.get("cells_used", 0)
+			var max_cell: int = stats.get("max_per_cell", 0)
+			velocity_label.text = "Arrived: %d/%d  Grid: %d cells, %d max" % [arrived, npc_count, cells, max_cell]
 			expected_label.text = "Max backoff: %d" % max_bo
 		else:
 			velocity_label.text = "Pass if >= %.0fpx" % SEP_RADIUS

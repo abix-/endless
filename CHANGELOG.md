@@ -21,6 +21,12 @@
 - add backoff buffer (binding 8) for per-NPC collision counter
 - add get_debug_stats() for GPU state inspection (arrived count, max backoff)
 - reduce separation strength from 200 to 100
+- add asymmetric push: moving NPCs shove through settled NPCs (0.2x resistance)
+- add TCP-style dodge: NPCs sidestep around other moving NPCs (head-on, overtaking, crossing)
+- fix backoff detection: sideways pushing now counts as blocked
+- fix test 1: check arrived count instead of position, wait 5s instead of 3s
+- add copy debug info button to test harness
+- add comprehensive documentation to lib.rs and npc_compute.glsl
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)

@@ -168,17 +168,29 @@ void main() {
 
                 if (dist_sq < sep_radius_sq) {
                     // This neighbor is too close - push away
+                    // Asymmetric push: moving NPCs shove through settled ones
+                    int neighbor_settled = arrivals[j];
+
+                    float push_strength = 1.0;
+                    if (settled == 0 && neighbor_settled == 1) {
+                        // I'm moving, they're settled: they barely block me
+                        push_strength = 0.2;
+                    } else if (settled == 1 && neighbor_settled == 0) {
+                        // I'm settled, they're moving: they shove me aside
+                        push_strength = 2.0;
+                    }
+
                     if (dist_sq < 0.0001) {
                         // Special case: NPCs exactly on top of each other
                         // Use golden angle to spread them in unique directions
                         float angle = float(i) * 2.399 + float(j) * 0.7;
                         diff = vec2(cos(angle), sin(angle));
-                        avoidance += diff * params.separation_radius;
+                        avoidance += diff * params.separation_radius * push_strength;
                     } else {
                         // Normal case: push proportional to overlap
                         float dist = sqrt(dist_sq);
                         float overlap = params.separation_radius - dist;
-                        avoidance += diff * (overlap / dist);  // Normalize and scale
+                        avoidance += diff * (overlap / dist) * push_strength;
                     }
                 }
             }
@@ -187,6 +199,93 @@ void main() {
 
     // Scale avoidance by strength parameter
     avoidance *= params.separation_strength;
+
+    // =========================================================================
+    // STEP 2b: TCP-STYLE DODGE (avoid collisions with other moving NPCs)
+    // =========================================================================
+    // When approaching another moving NPC, dodge sideways to pass smoothly.
+    // Handles head-on, overtaking, and crossing paths.
+
+    vec2 dodge = vec2(0.0);
+    if (wants_target && dist_to_target > params.arrival_threshold) {
+        vec2 my_dir = normalize(to_target);
+
+        // Re-check neighbors for dodge calculation
+        for (int dy = -1; dy <= 1; dy++) {
+            int ny = cy + dy;
+            if (ny < 0 || ny >= int(params.grid_height)) continue;
+
+            for (int dx = -1; dx <= 1; dx++) {
+                int nx = cx + dx;
+                if (nx < 0 || nx >= int(params.grid_width)) continue;
+
+                int cell_idx = ny * int(params.grid_width) + nx;
+                int cell_count = grid_counts[cell_idx];
+                int cell_base = cell_idx * int(params.max_per_cell);
+
+                for (int n = 0; n < cell_count; n++) {
+                    uint j = uint(grid_data[cell_base + n]);
+                    if (j == i) continue;
+
+                    // Only dodge around other MOVING NPCs
+                    int neighbor_settled = arrivals[j];
+                    if (neighbor_settled == 1) continue;
+
+                    vec2 other_pos = positions[j];
+                    vec2 diff = pos - other_pos;
+                    float dist_sq = dot(diff, diff);
+
+                    // Check within approach radius (2x separation)
+                    float approach_radius = params.separation_radius * 2.0;
+                    if (dist_sq > approach_radius * approach_radius) continue;
+                    if (dist_sq < 0.0001) continue;
+
+                    float dist = sqrt(dist_sq);
+                    vec2 to_other = -diff / dist;
+
+                    // Am I moving toward them?
+                    float i_approach = dot(my_dir, to_other);
+                    if (i_approach > 0.3) {
+                        // Get their movement direction
+                        vec2 other_target = targets[j];
+                        vec2 ot = other_target - other_pos;
+                        float ot_len = length(ot);
+
+                        if (ot_len > 0.001) {
+                            vec2 other_dir = ot / ot_len;
+                            float they_approach = -dot(other_dir, to_other);
+
+                            vec2 perp = vec2(-my_dir.y, my_dir.x);
+                            float dodge_strength = 0.4;
+
+                            if (they_approach > 0.3) {
+                                // Head-on collision
+                                dodge_strength = 0.5;
+                            } else if (they_approach < -0.3) {
+                                // Overtaking
+                                dodge_strength = 0.3;
+                            }
+
+                            // Consistent dodge direction based on index
+                            if (i < j) {
+                                dodge += perp * dodge_strength;
+                            } else {
+                                dodge -= perp * dodge_strength;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Normalize and scale dodge
+        float dodge_len = length(dodge);
+        if (dodge_len > 0.0) {
+            dodge = (dodge / dodge_len) * params.separation_strength * 0.7;
+        }
+    }
+
+    avoidance += dodge;
 
     // =========================================================================
     // STEP 3: CALCULATE MOVEMENT TOWARD TARGET
@@ -205,46 +304,43 @@ void main() {
     // STEP 4: DETECT BLOCKING AND UPDATE BACKOFF
     // =========================================================================
     //
-    // TCP-style collision avoidance:
-    // - If we're being pushed away from our goal: increment backoff
-    // - If we're making progress toward goal: decrement backoff
-    // - If backoff exceeds threshold: give up (mark as settled)
-    //
-    // "Blocked" is detected by checking if avoidance force opposes goal direction.
+    // Lifelike crowd behavior:
+    // - Pushed AWAY from target = blocked (increment backoff)
+    // - Pushed TOWARD target = making progress (decrement backoff)
+    // - Pushed SIDEWAYS = jostling (no change)
+    // - Not pushed = clear path (decrement backoff)
+    // - High backoff = give up and settle
 
-    float avoidance_strength = length(avoidance);
-    float cluster_radius = params.separation_radius * 6.0;  // ~120px for typical cluster
+    float avoidance_mag = length(avoidance);
 
     if (wants_target && dist_to_target > params.arrival_threshold) {
-        if (avoidance_strength > 0.5) {
-            // We're being pushed by neighbors - check if blocked
+        if (avoidance_mag > 0.1) {
+            // Being pushed - check direction relative to goal
             vec2 goal_dir = normalize(to_target);
             vec2 push_dir = normalize(avoidance);
-            float blocked = dot(push_dir, goal_dir);
+            float alignment = dot(push_dir, goal_dir);
 
-            if (blocked < -0.2) {
-                // Pushed directly AWAY from target - definitely blocked
-                // dot < -0.2 means angle > 101 degrees (pushing us back)
+            if (alignment < -0.3) {
+                // Pushed strongly AWAY from target - definitely blocked
                 my_backoff += 2;
-            } else if (dist_to_target < cluster_radius) {
-                // Close to target but being jostled - probably blocked
-                // This catches NPCs stuck in the outer ring of a cluster
-                my_backoff++;
-            } else if (blocked > 0.3) {
-                // Being pushed TOWARD target - making progress
+            } else if (alignment > 0.3) {
+                // Pushed strongly TOWARD target - making progress
                 my_backoff = max(0, my_backoff - 2);
+            } else {
+                // Pushed sideways or weakly - still counts as blocked
+                my_backoff++;
             }
         } else {
-            // No significant avoidance - making progress
+            // Clear path - making progress
             my_backoff = max(0, my_backoff - 1);
         }
 
-        // Give up after sustained blocking (60 frames = ~1 second at 60fps)
-        if (my_backoff > 60) {
+        // Give up after sustained blocking (~2 seconds at 60fps)
+        if (my_backoff > 120) {
             settled = 1;
         }
     } else if (wants_target && dist_to_target <= params.arrival_threshold) {
-        // Within arrival threshold - we made it!
+        // Reached target!
         settled = 1;
     }
 
