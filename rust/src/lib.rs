@@ -76,7 +76,7 @@ const SEPARATION_RADIUS: f32 = 20.0;
 
 /// How strongly NPCs push away from neighbors. Higher = faster separation but more jittery.
 /// This is multiplied by the overlap distance, so closer NPCs get pushed harder.
-const SEPARATION_STRENGTH: f32 = 100.0;
+const SEPARATION_STRENGTH: f32 = 50.0;
 
 /// Distance from target at which an NPC is considered "arrived".
 /// Once within this distance, the NPC stops moving toward target.
@@ -1152,7 +1152,7 @@ impl INode2D for EcsNpcManager {
         }
 
         self.setup_multimesh(MAX_NPC_COUNT as i32);
-        godot_print!("[EcsNpcManager] Ready - Bevy ECS + GPU compute");
+        godot_print!("[EcsNpcManager] Ready - BUILD 2026-01-25-A");
     }
 
     /// Called every frame. Dispatches GPU compute and updates rendering.
@@ -1519,6 +1519,15 @@ impl EcsNpcManager {
     #[func]
     fn get_npc_count(&self) -> i32 {
         GPU_NPC_COUNT.lock().map(|c| *c as i32).unwrap_or(0)
+    }
+
+    /// Get build info for verifying correct DLL is loaded.
+    #[func]
+    fn get_build_info(&self) -> GString {
+        // These are set at compile time by build.rs
+        let timestamp = option_env!("BUILD_TIMESTAMP").unwrap_or("unknown");
+        let commit = option_env!("BUILD_COMMIT").unwrap_or("unknown");
+        GString::from(&format!("BUILD: {} ({})", timestamp, commit))
     }
 
     /// Get debug statistics from GPU buffers.

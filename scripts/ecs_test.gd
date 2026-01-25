@@ -84,7 +84,8 @@ func _ready() -> void:
 	if ClassDB.class_exists("EcsNpcManager"):
 		ecs_manager = ClassDB.instantiate("EcsNpcManager")
 		add_child(ecs_manager)
-		_log("EcsNpcManager created")
+		var build_info = ecs_manager.get_build_info() if ecs_manager.has_method("get_build_info") else "unknown"
+		_log(build_info)
 
 		# Run pending test if set
 		if pending_test > 0:

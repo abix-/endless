@@ -321,15 +321,13 @@ void main() {
             float alignment = dot(push_dir, goal_dir);
 
             if (alignment < -0.3) {
-                // Pushed strongly AWAY from target - definitely blocked
+                // Pushed strongly AWAY from target - blocked
                 my_backoff += 2;
             } else if (alignment > 0.3) {
                 // Pushed strongly TOWARD target - making progress
                 my_backoff = max(0, my_backoff - 2);
-            } else {
-                // Pushed sideways or weakly - still counts as blocked
-                my_backoff++;
             }
+            // Sideways pushing = jostling in crowd, don't increment backoff
         } else {
             // Clear path - making progress
             my_backoff = max(0, my_backoff - 1);

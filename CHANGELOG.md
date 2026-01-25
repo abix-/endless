@@ -46,6 +46,11 @@
 - add Test 7: Guard Patrol (4 guards at corner posts, clockwise perimeter patrol)
 - fix reset() to clear all queues (GUARD_QUEUE, ARRIVAL_QUEUE, GPU_TARGET_QUEUE)
 - fix reset() to clear prev_arrivals (enables arrival detection on new tests)
+- fix backoff: sideways jostling no longer increments backoff (only pushed away from target)
+- reduce separation strength from 100 to 50 (prevents outer NPCs being pushed away on converge)
+- add get_build_info() for DLL version verification (dynamic timestamp + commit hash)
+- add build.rs for compile-time build info injection
+- add /test command for clean build and test workflow
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)
