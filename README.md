@@ -164,7 +164,7 @@ There is no victory. Only the endless struggle against entropy.
 - [x] Velocity damping for smooth collision avoidance
 - [x] Parallel processing with thread-safe state transitions (pending arrivals)
 - [x] GPU compute shader for separation forces
-- [x] Rust/Bevy ECS POC (5000 NPCs @ 140fps validated)
+- [x] Rust/Bevy ECS POC (10,000 NPCs @ 140fps release build)
 - [ ] Rust/Bevy full integration (see Rust Migration Roadmap below)
 - [x] Combat log batching
 
@@ -209,7 +209,7 @@ ui/
   roster_panel.gd       # NPC roster with sorting and filtering
   farm_menu.gd          # Farm info popup (click farm to see occupant)
 rust/
-  src/lib.rs            # Bevy ECS POC: 5000 NPCs separation benchmark
+  src/lib.rs            # Bevy ECS POC: 10K NPCs separation benchmark
 ```
 
 ## Controls
@@ -247,10 +247,10 @@ Key values in `autoloads/config.gd`:
 
 ## Rust Migration Roadmap
 
-Target: 10,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
+Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
 
 ### Current State (POC validated)
-- [x] Bevy ECS running 5000 NPCs @ 140fps
+- [x] Bevy ECS running 10,000 NPCs @ 140fps (release build)
 - [x] Bulk `set_buffer()` rendering (1 call vs 5000 per-instance calls)
 - [x] Spatial grid + separation forces in Rust
 
@@ -294,8 +294,8 @@ Eliminate CPU→GPU copy for rendering:
 | Phase | NPCs | FPS | Bottleneck |
 |-------|------|-----|------------|
 | Current GDScript | 3,000 | 60 | CPU (GDScript overhead) |
-| POC (Rust + bulk buffer) | 5,000 | 140 | CPU (separation in Rust) |
-| Phase 1 (+ GPU separation) | 10,000 | 60+ | GPU compute dispatch |
+| POC (Rust + bulk buffer) | 10,000 | 140 | CPU (separation in Rust) |
+| Phase 1 (+ GPU separation) | 20,000 | 60+ | GPU compute dispatch |
 | Phase 3 (zero-copy) | 20,000+ | 60+ | GPU fill rate |
 
 ## Credits

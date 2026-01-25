@@ -15,7 +15,7 @@
 - add farm click menu (shows occupant name)
 - fix farmers entering FARMING state without farm reservation
 - disable NPC size scaling with levels
-- add Rust/Bevy ECS POC for performance validation (rust/src/lib.rs)
+- add Rust/Bevy ECS POC: 10,000 NPCs @ 140fps (release build, 2x debug)
 
 ## 2026-01-20
 - add noise-based terrain with grass, forest, water, rock biomes

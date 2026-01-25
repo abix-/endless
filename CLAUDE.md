@@ -103,9 +103,9 @@ The README serves as both documentation and a development roadmap.
 
 ## Rust/Bevy ECS POC (Validated)
 
-Performance target: 5000 NPCs @ 140fps — **achieved**.
+Performance target: 10,000 NPCs @ 140fps — **achieved** (release build).
 
-**Status:** POC validated. 5000 NPCs @ 140fps using Bevy ECS + bulk `set_buffer()` rendering.
+**Status:** POC validated. 10,000 NPCs @ 140fps using Bevy ECS + bulk `set_buffer()` rendering.
 
 **Key optimizations discovered:**
 - Bulk `set_buffer()` vs per-instance calls: 55fps → 140fps (2.5x improvement)
@@ -119,7 +119,7 @@ Performance target: 5000 NPCs @ 140fps — **achieved**.
 
 **Architecture:** GDExtension (`bevy_npc.gdextension`) loads `rust/target/debug/endless_ecs.dll`. The `NpcBenchmark` node owns a Bevy App internally, ticks ECS systems each frame, bulk uploads positions to MultiMesh via `set_buffer()`.
 
-**Next steps:** See README "Rust Migration Roadmap" for phased plan to reach 10K+ NPCs:
+**Next steps:** See README "Rust Migration Roadmap" for phased plan to reach 20K+ NPCs:
 1. GPU compute integration (port separation_compute.glsl)
 2. Game logic migration (state machines, decisions)
 3. Zero-copy rendering (compute shader writes directly to MultiMesh buffer)
