@@ -249,20 +249,21 @@ Key values in `autoloads/config.gd`:
 
 Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
 
-### Current State (POC validated)
+### Current State (Phase 1 complete)
 - [x] Bevy ECS running 10,000 NPCs @ 140fps (release build)
 - [x] Bulk `set_buffer()` rendering (1 call vs 5000 per-instance calls)
-- [x] Spatial grid + separation forces in Rust
+- [x] GPU compute shader for separation forces
+- [x] Spatial grid built on CPU, uploaded to GPU each frame
+- [x] Local RenderingDevice with submit/sync pipeline
 
-### Phase 1: GPU Compute Integration
-Port `separation_compute.glsl` to Rust POC:
-- [ ] Create RenderingDevice in Rust via godot-rust
-- [ ] Allocate GPU storage buffers for positions/states/targets
-- [ ] Upload NPC data from Bevy ECS to GPU buffers
-- [ ] Dispatch compute shader, read back separation velocities
-- [ ] Apply velocities in Bevy, then bulk upload to MultiMesh
+### Phase 2: Integrate into Game
+Replace GDScript NPC manager with Rust:
+- [ ] Load NPC data from GDScript (positions, states, targets, factions)
+- [ ] Run separation via GPU compute
+- [ ] Return updated positions to GDScript for rendering
+- [ ] Bidirectional sync: GDScript handles spawns/deaths, Rust handles movement
 
-### Phase 2: Game Logic Migration
+### Phase 3: Game Logic Migration
 Move hot paths from GDScript to Rust:
 - [ ] State machine (IDLE, FARMING, FIGHTING, FLEEING, etc.)
 - [ ] Decision trees (`decide_what_to_do()`)
@@ -271,7 +272,7 @@ Move hot paths from GDScript to Rust:
 
 Keep in GDScript: UI, menus, save/load, signals.
 
-### Phase 3: Zero-Copy Rendering
+### Phase 4: Zero-Copy Rendering
 Eliminate CPU→GPU copy for rendering:
 - [ ] Get MultiMesh buffer RID via `multimesh_get_buffer_rd_rid()`
 - [ ] Write positions directly from compute shader to MultiMesh buffer
@@ -294,9 +295,10 @@ Eliminate CPU→GPU copy for rendering:
 | Phase | NPCs | FPS | Bottleneck |
 |-------|------|-----|------------|
 | Current GDScript | 3,000 | 60 | CPU (GDScript overhead) |
-| POC (Rust + bulk buffer) | 10,000 | 140 | CPU (separation in Rust) |
-| Phase 1 (+ GPU separation) | 20,000 | 60+ | GPU compute dispatch |
-| Phase 3 (zero-copy) | 20,000+ | 60+ | GPU fill rate |
+| Phase 1 (GPU separation) | 10,000 | 140 | ✅ Achieved |
+| Phase 2 (integrated) | 10,000+ | 60+ | CPU↔GPU sync |
+| Phase 3 (game logic) | 15,000+ | 60+ | Rust overhead |
+| Phase 4 (zero-copy) | 20,000+ | 60+ | GPU fill rate |
 
 ## Credits
 

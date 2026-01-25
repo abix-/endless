@@ -16,6 +16,7 @@
 - fix farmers entering FARMING state without farm reservation
 - disable NPC size scaling with levels
 - add Rust/Bevy ECS POC: 10,000 NPCs @ 140fps (release build, 2x debug)
+- add GPU compute shader separation with spatial grid (Phase 1 complete)
 
 ## 2026-01-20
 - add noise-based terrain with grass, forest, water, rock biomes
