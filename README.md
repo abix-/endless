@@ -328,40 +328,48 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Bevy calls `RenderingServer.multimesh_set_buffer()` with full buffer
 - [x] Result: Colored NPCs render (green=Farmer, blue=Guard, red=Raider)
 
-**Chunk 2: Movement** ✓
+**Chunk 2: CPU Movement** ✓
 - [x] Add Velocity, Target, Speed, NpcIndex components
 - [x] Movement system: `position += velocity * delta`
 - [x] Velocity system: calculate direction toward target
 - [x] Arrival detection: stop and remove Target when close
 - [x] GDScript API: `set_target(npc_index, x, y)`
-- [x] Result: NPCs walk to targets and stop on arrival
+- [x] Result: NPCs walk to targets and stop on arrival (proof of concept)
 
-**Chunk 3: World Data**
+**Chunk 3: GPU Physics** ← CURRENT
+- [ ] GPU owns positions/velocities (physics state)
+- [ ] Bevy owns targets/jobs/states (logical state)
+- [ ] Integrate `separation_compute.glsl` for collision avoidance
+- [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()`
+- [ ] Arrival flags buffer (GPU → Bevy, tiny sync)
+- [ ] Result: 10K+ NPCs with separation forces
+
+**Chunk 4: World Data**
 - [ ] Towns, patrol posts, beds, farms as Bevy Resources
-- [ ] GDScript passes world data to Bevy at startup
-- [ ] Result: Bevy knows the world layout
+- [ ] Upload world layout to GPU buffers
+- [ ] Result: Bevy + GPU know the world layout
 
-**Chunk 4: Guard Logic**
+**Chunk 5: Guard Logic**
 - [ ] State marker components (Patrolling, OnDuty, Resting, Fighting)
 - [ ] Guard decision system (energy check, patrol selection)
 - [ ] Result: Guards patrol and rest autonomously
 
-**Chunk 5: Farmer Logic**
+**Chunk 6: Farmer Logic**
 - [ ] Farming, Walking, Resting states
 - [ ] Farm assignment, work schedule
 - [ ] Result: Farmers work and rest
 
-**Chunk 6: Combat**
-- [ ] Targeting system (spatial queries)
+**Chunk 7: Combat**
+- [ ] GPU spatial queries for targeting
 - [ ] Damage system, death handling
 - [ ] Result: NPCs fight
 
-**Chunk 7: Raider Logic**
+**Chunk 8: Raider Logic**
 - [ ] Raiding, Returning states
 - [ ] Food stealing/delivery
 - [ ] Result: Full game loop
 
-**Chunk 8: UI Integration**
+**Chunk 9: UI Integration**
 - [ ] Signals to GDScript (death, level up, food)
 - [ ] Selection queries
 - [ ] Result: UI works again
@@ -369,23 +377,39 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 ### Target Architecture
 
 ```
-┌──────────────────┐     ┌─────────────────┐     ┌──────────────┐
-│   Bevy ECS       │────▶│  GPU Compute    │────▶│  MultiMesh   │
-│   (owns state)   │     │  (separation)   │     │  (rendering) │
-└──────────────────┘     └─────────────────┘     └──────────────┘
-        │                                               │
-        └───────────── GDScript (UI only) ◀────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        BEVY ECS                                 │
+│  Owns: Target, Job, State, NpcIndex, Health, Energy            │
+│  (Logical state - what NPCs WANT to do)                        │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ Upload targets/states (one-way, cheap)
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     GPU COMPUTE                                 │
+│  Owns: Positions, Velocities (physics simulation)              │
+│  Does: Separation + Movement + Arrival detection               │
+│  Writes: Directly to MultiMesh buffer (zero-copy)              │
+│  Outputs: Arrival flags buffer (small, for Bevy to read)       │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ Zero-copy (already on GPU)
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     MULTIMESH RENDER                            │
+│  (No CPU involvement - GPU wrote directly)                     │
+└─────────────────────────────────────────────────────────────────┘
+        │
+        └───────────── GDScript (UI only) ◀─────────────────────┘
 ```
 
 ### Performance Targets
 
-| Phase | NPCs | FPS | Bottleneck |
-|-------|------|-----|------------|
-| Current GDScript | 3,000 | 60 | CPU (GDScript overhead) |
-| Phase 1 (GPU separation) | 10,000 | 140 | ✅ Achieved |
-| Phase 2 (data ownership) | 10,000+ | 60+ | Migration work |
-| Phase 3 (full ECS) | 15,000+ | 60+ | Rust overhead |
-| Phase 4 (zero-copy) | 20,000+ | 60+ | GPU fill rate |
+| Phase | NPCs | FPS | Status |
+|-------|------|-----|--------|
+| GDScript baseline | 3,000 | 60 | Reference |
+| Chunk 1-2 (CPU Bevy) | 5,000 | 60+ | ✅ Done |
+| Chunk 3 (GPU physics) | 10,000+ | 140 | Next |
+| Chunk 4-9 (full game) | 10,000+ | 60+ | Planned |
+| Zero-copy optimization | 20,000+ | 60+ | Future |
 
 ## Credits
 
