@@ -322,11 +322,11 @@ Eliminate CPU→GPU copy:
 
 Each chunk is a working game state. Old GDScript code kept as reference, hard cutover per chunk.
 
-**Chunk 1: Bevy Renders Static NPCs**
-- [ ] GDScript calls `spawn_npc(pos, job)` → Bevy creates entity with Position
-- [ ] Bevy system builds MultiMesh buffer from Position components
-- [ ] Bevy calls `RenderingServer.multimesh_set_buffer()`
-- [ ] Result: NPCs appear on screen (no movement yet)
+**Chunk 1: Bevy Renders Static NPCs** ✓
+- [x] GDScript calls `spawn_npc(pos, job)` → Bevy creates entity with Position + Job
+- [x] Bevy system builds MultiMesh buffer from Position/Job components
+- [x] Bevy calls `RenderingServer.multimesh_set_buffer()` with full buffer
+- [x] Result: Colored NPCs render (green=Farmer, blue=Guard, red=Raider)
 
 **Chunk 2: Movement**
 - [ ] Add Velocity, Target components

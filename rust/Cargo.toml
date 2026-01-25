@@ -9,5 +9,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 godot = "0.4"
-godot-bevy = "0.10"
-bevy = { version = "0.17", default-features = false }
+godot-bevy = { git = "https://github.com/bytemeadow/godot-bevy.git", branch = "main" }
+bevy = { version = "0.18", default-features = false }
