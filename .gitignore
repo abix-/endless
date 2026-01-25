@@ -5,3 +5,5 @@
 addons/
 debugger_logs/
 rust/target/
+*.uid
+*.import
