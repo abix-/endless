@@ -1,149 +1,121 @@
 # ecs_test.gd - Isolated behavior tests for EcsNpcManager
-# Press 1-5 to run tests, or use Debug Panel on right
 extends Node2D
 
 # Static var persists across scene reloads
-static var pending_test: int = 0  # 0 = use debug panel
+static var pending_test: int = 0
 
 var ecs_manager: Node2D
+
+# UI Labels
+var state_label: Label
+var test_label: Label
+var phase_label: Label
 var fps_label: Label
 var count_label: Label
-var test_label: Label
-var status_label: Label
-
-# Debug panel controls
-var overlap_slider: HSlider
-var overlap_label: Label
-var count_slider: HSlider
-var count_label2: Label
-var auto_loop: CheckBox
 var time_label: Label
 var distance_label: Label
 var velocity_label: Label
 var expected_label: Label
+var log_label: Label
 
+# Controls
+var count_slider: HSlider
+
+# State
 var frame_count := 0
 var fps_timer := 0.0
 var test_timer := 0.0
 var current_test := 0
 var test_phase := 0
 var npc_count := 0
+var is_running := false
+var log_lines: Array[String] = []
 
 const CENTER := Vector2(400, 300)
 const SEP_RADIUS := 20.0
-
-# Test definitions
-const TESTS := {
-	1: "Single NPC Seek/Arrive",
-	2: "Two NPCs Separation Only",
-	3: "Two NPCs Same Target",
-	4: "Ten NPCs Circle Inward",
-	5: "Mass Separation (100 NPCs)",
+const TEST_NAMES := {
+	0: "None",
+	1: "Arrive",
+	2: "Separation",
+	3: "Arrive+Sep",
+	4: "Circle",
+	5: "Mass"
 }
 
 
 func _ready() -> void:
-	fps_label = $UI/FPSLabel
-	count_label = $UI/CountLabel
-	test_label = $UI/TestLabel
-	status_label = $UI/StatusLabel
+	var vbox = $UI/DebugPanel/VBox
 
-	# Debug panel - controls
-	overlap_slider = $UI/DebugPanel/VBox/OverlapSlider
-	overlap_label = $UI/DebugPanel/VBox/OverlapLabel
-	count_slider = $UI/DebugPanel/VBox/CountSlider
-	count_label2 = $UI/DebugPanel/VBox/CountLabel2
-	auto_loop = $UI/DebugPanel/VBox/AutoLoop
+	# Status labels
+	state_label = vbox.get_node("StateLabel")
+	test_label = vbox.get_node("TestLabel")
+	phase_label = vbox.get_node("PhaseLabel")
 
-	# Debug panel - metrics
-	time_label = $UI/DebugPanel/VBox/TimeLabel
-	distance_label = $UI/DebugPanel/VBox/DistanceLabel
-	velocity_label = $UI/DebugPanel/VBox/VelocityLabel
-	expected_label = $UI/DebugPanel/VBox/ExpectedLabel
+	# Performance labels
+	fps_label = vbox.get_node("FPSLabel")
+	count_label = vbox.get_node("CountLabel")
+	time_label = vbox.get_node("TimeLabel")
 
-	# Connect controls
-	overlap_slider.value_changed.connect(_on_overlap_changed)
+	# Metrics labels
+	distance_label = vbox.get_node("DistanceLabel")
+	velocity_label = vbox.get_node("VelocityLabel")
+	expected_label = vbox.get_node("ExpectedLabel")
+	log_label = vbox.get_node("LogLabel")
+
+	# Controls
+	count_slider = vbox.get_node("CountSlider")
 	count_slider.value_changed.connect(_on_count_changed)
-	$UI/DebugPanel/VBox/ButtonRow/SpawnButton.pressed.connect(_on_spawn_pressed)
-	$UI/DebugPanel/VBox/ButtonRow/ClearButton.pressed.connect(_on_clear_pressed)
+	_on_count_changed(count_slider.value)  # Initialize label
 
 	# Connect test buttons
-	$UI/DebugPanel/VBox/TestButtons/Test1.pressed.connect(_start_test.bind(1))
-	$UI/DebugPanel/VBox/TestButtons/Test2.pressed.connect(_start_test.bind(2))
-	$UI/DebugPanel/VBox/TestButtons/Test3.pressed.connect(_start_test.bind(3))
-	$UI/DebugPanel/VBox/TestButtons/Test4.pressed.connect(_start_test.bind(4))
-	$UI/DebugPanel/VBox/TestButtons/Test5.pressed.connect(_start_test.bind(5))
+	vbox.get_node("TestButtons/Test1").pressed.connect(_start_test.bind(1))
+	vbox.get_node("TestButtons/Test2").pressed.connect(_start_test.bind(2))
+	vbox.get_node("TestButtons/Test3").pressed.connect(_start_test.bind(3))
+	vbox.get_node("TestButtons/Test4").pressed.connect(_start_test.bind(4))
+	vbox.get_node("TestButtons/Test5").pressed.connect(_start_test.bind(5))
 
 	if ClassDB.class_exists("EcsNpcManager"):
 		ecs_manager = ClassDB.instantiate("EcsNpcManager")
 		add_child(ecs_manager)
-		print("[ECS Test] EcsNpcManager created")
+		_log("EcsNpcManager created")
 
-		# Run pending test if set, otherwise show debug panel
+		# Run pending test if set
 		if pending_test > 0:
 			call_deferred("_start_test", pending_test)
 		else:
-			test_label.text = "Debug Mode - Use panel on right"
-			status_label.text = "Or press 1-5 for preset tests"
+			_set_state("IDLE")
 		queue_redraw()
 	else:
-		print("[ECS Test] ERROR: EcsNpcManager not found in ClassDB")
-		count_label.text = "ERROR: Rust DLL not loaded"
+		_log("ERROR: Rust DLL not loaded")
+		_set_state("ERROR")
 
 
-func _on_overlap_changed(value: float) -> void:
-	overlap_label.text = "Overlap: %d%%" % int(value)
+func _log(msg: String) -> void:
+	print("[ECS Test] " + msg)
+	log_lines.push_front(msg)
+	if log_lines.size() > 3:
+		log_lines.pop_back()
+	log_label.text = "\n".join(log_lines)
+
+
+func _set_state(state: String) -> void:
+	state_label.text = "State: " + state
+	is_running = state == "RUNNING"
+
+
+func _set_phase(phase: String) -> void:
+	phase_label.text = "Phase: " + phase
 
 
 func _on_count_changed(value: float) -> void:
-	count_label2.text = "NPC Count: %d" % int(value)
-
-
-func _on_spawn_pressed() -> void:
-	_spawn_debug_npcs()
-
-
-func _on_clear_pressed() -> void:
-	if ecs_manager:
-		ecs_manager.reset()
-	npc_count = 0
-	test_timer = 0.0
-	test_phase = 0
-	current_test = 0
-	status_label.text = "Cleared"
-
-
-func _spawn_debug_npcs() -> void:
-	# Clear first
-	_on_clear_pressed()
-
-	var overlap_pct := overlap_slider.value
-	var spawn_count := int(count_slider.value)
-	var distance := SEP_RADIUS * (1.0 - overlap_pct / 100.0)
-
-	if spawn_count == 2:
-		# Two NPCs: place on either side of center
-		ecs_manager.spawn_npc(CENTER.x - distance / 2, CENTER.y, 1)
-		ecs_manager.spawn_npc(CENTER.x + distance / 2, CENTER.y, 2)
-	else:
-		# Multiple NPCs: arrange in circle with specified overlap
-		for i in spawn_count:
-			var angle := (float(i) / spawn_count) * TAU
-			var x := CENTER.x + cos(angle) * distance / 2
-			var y := CENTER.y + sin(angle) * distance / 2
-			ecs_manager.spawn_npc(x, y, i % 3)
-
-	npc_count = spawn_count
-	current_test = -1  # Debug mode
-	test_phase = 1
-	test_timer = 0.0
-	status_label.text = "%d NPCs, %d%% overlap (%.1fpx apart)" % [spawn_count, int(overlap_pct), distance]
+	count_label.text = "NPC Count: %d" % int(value)
 
 
 func _show_menu() -> void:
 	current_test = 0
-	test_label.text = "Press 1-5 to run a test"
-	status_label.text = "1: Arrive  2: Separation  3: Both  4: Circle  5: Mass"
+	test_label.text = "Test: None"
+	_set_state("IDLE")
+	_set_phase("Select a test")
 
 
 func _input(event: InputEvent) -> void:
@@ -162,22 +134,21 @@ func _start_test(test_id: int) -> void:
 	if test_id < 1 or test_id > 5:
 		return
 
-	# Reset Rust state before each test
-	if ecs_manager.has_method("reset"):
+	# Reset Rust state
+	if ecs_manager and ecs_manager.has_method("reset"):
 		ecs_manager.reset()
 
-	# If NPCs already exist in GDScript tracking, reload scene
-	if npc_count > 0:
-		pending_test = test_id
-		get_tree().reload_current_scene()
-		return
-
+	# Reset local state
 	current_test = test_id
 	test_phase = 0
 	test_timer = 0.0
 	npc_count = 0
-	test_label.text = "Test %d: %s" % [test_id, TESTS[test_id]]
-	status_label.text = "Running..."
+	pending_test = 0
+
+	test_label.text = "Test: " + TEST_NAMES.get(test_id, "?")
+	_set_state("RUNNING")
+	_set_phase("Setup")
+	_log("Started test %d" % test_id)
 
 	match test_id:
 		1: _setup_test_arrive()
@@ -188,114 +159,126 @@ func _start_test(test_id: int) -> void:
 
 
 # =============================================================================
-# TEST 1: Single NPC Arrive
-# Expected: NPC moves from left to center, stops at target
+# TEST 1: Arrive - NPCs spawn on left, move to center target
+# Purpose: Verify target-seeking works (velocity toward target, stop on arrival)
 # =============================================================================
 func _setup_test_arrive() -> void:
-	# Spawn one NPC on the left
-	ecs_manager.spawn_npc(100, CENTER.y, 0)  # Farmer (green)
-	npc_count = 1
+	npc_count = int(count_slider.value)
+	for i in npc_count:
+		var y_offset := (i - npc_count / 2.0) * 25.0
+		ecs_manager.spawn_npc(100, CENTER.y + y_offset, i % 3)
 	test_phase = 1
-	status_label.text = "Phase 1: Waiting 0.5s before setting target..."
+	_set_phase("Waiting 0.5s...")
+	_log("%d NPCs on left" % npc_count)
 
 
 func _update_test_arrive() -> void:
 	if test_phase == 1 and test_timer > 0.5:
-		# Set target to center
-		ecs_manager.set_target(0, CENTER.x, CENTER.y)
+		for i in npc_count:
+			ecs_manager.set_target(i, CENTER.x, CENTER.y)
 		test_phase = 2
-		status_label.text = "Phase 2: NPC should move to center and stop"
+		_set_phase("Moving to center")
+		_log("Targets set")
 
 	if test_phase == 2 and test_timer > 5.0:
-		status_label.text = "DONE: NPC should be at center, stationary"
+		_set_state("DONE")
+		_set_phase("Should be at center")
 
 
 # =============================================================================
-# TEST 2: Separation (uses debug panel settings)
+# TEST 2: Separation - All NPCs spawn at exact same point, push apart
+# Purpose: Verify separation forces work when NPCs fully overlap
 # =============================================================================
 func _setup_test_separation() -> void:
-	# Use debug panel values
-	overlap_slider.value = 100  # Start at 100% overlap
-	count_slider.value = 2
-	_spawn_debug_npcs()
-	test_label.text = "Test 2: Separation - adjust sliders to test"
+	npc_count = int(count_slider.value)
+	for i in npc_count:
+		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3)
+	test_phase = 1
+	_set_phase("Separating...")
+	_log("%d NPCs at same point" % npc_count)
 
 
 func _update_test_separation() -> void:
-	# Auto-loop handled by debug mode
-	pass
+	if test_phase == 1 and test_timer > 2.0:
+		_set_state("DONE")
+		_set_phase("Should be 20px apart")
 
 
 # =============================================================================
-# TEST 3: Two NPCs Same Target
-# Expected: Both move to target, then separate
+# TEST 3: Arrive+Sep - NPCs spawn on left/right, move to same target
+# Purpose: Verify arrival + separation work together (converge then spread)
 # =============================================================================
 func _setup_test_both() -> void:
-	# Spawn two NPCs on opposite sides
-	ecs_manager.spawn_npc(100, CENTER.y, 0)  # Farmer left
-	ecs_manager.spawn_npc(700, CENTER.y, 1)  # Guard right
-	npc_count = 2
+	npc_count = int(count_slider.value)
+	for i in npc_count:
+		var side := 100 if i % 2 == 0 else 700
+		var y_offset := (i / 2 - npc_count / 4.0) * 25.0
+		ecs_manager.spawn_npc(side, CENTER.y + y_offset, i % 3)
 	test_phase = 1
-	status_label.text = "Phase 1: Waiting before setting same target..."
+	_set_phase("Waiting 0.5s...")
+	_log("%d NPCs on sides" % npc_count)
 
 
 func _update_test_both() -> void:
 	if test_phase == 1 and test_timer > 0.5:
-		# Both target center
-		ecs_manager.set_target(0, CENTER.x, CENTER.y)
-		ecs_manager.set_target(1, CENTER.x, CENTER.y)
+		for i in npc_count:
+			ecs_manager.set_target(i, CENTER.x, CENTER.y)
 		test_phase = 2
-		status_label.text = "Phase 2: Both moving to center..."
+		_set_phase("All moving to center")
+		_log("Targets set")
 
 	if test_phase == 2 and test_timer > 5.0:
-		status_label.text = "DONE: Both at center, separated, stationary"
+		_set_state("DONE")
+		_set_phase("At center, separated")
 
 
 # =============================================================================
-# TEST 4: Ten NPCs Circle Inward
-# Expected: All move to center, then form a ring
+# TEST 4: Circle - NPCs spawn in circle formation, move inward
+# Purpose: Verify many NPCs converging forms stable cluster (not chaos)
 # =============================================================================
 func _setup_test_circle() -> void:
-	# Spawn 10 NPCs in a circle around center
+	npc_count = int(count_slider.value)
 	var radius := 200.0
-	for i in 10:
-		var angle := (i / 10.0) * TAU
+	for i in npc_count:
+		var angle := (float(i) / npc_count) * TAU
 		var x := CENTER.x + cos(angle) * radius
 		var y := CENTER.y + sin(angle) * radius
 		ecs_manager.spawn_npc(x, y, i % 3)
-	npc_count = 10
 	test_phase = 1
-	status_label.text = "Phase 1: Waiting before setting targets..."
+	_set_phase("Waiting 0.5s...")
+	_log("%d NPCs in circle" % npc_count)
 
 
 func _update_test_circle() -> void:
 	if test_phase == 1 and test_timer > 0.5:
-		# All target center
 		for i in npc_count:
 			ecs_manager.set_target(i, CENTER.x, CENTER.y)
 		test_phase = 2
-		status_label.text = "Phase 2: All moving to center..."
+		_set_phase("All moving inward")
+		_log("Targets set")
 
 	if test_phase == 2 and test_timer > 5.0:
-		status_label.text = "DONE: Should form tight ring around center"
+		_set_state("DONE")
+		_set_phase("Should form cluster")
 
 
 # =============================================================================
-# TEST 5: Mass Separation (100 NPCs at same point)
-# Expected: Explode outward, form stable blob
+# TEST 5: Mass - All NPCs at same point, no target, pure separation
+# Purpose: Stress test separation with maximum overlap (golden angle fallback)
 # =============================================================================
 func _setup_test_mass() -> void:
-	# Spawn 100 NPCs at center
-	for i in 100:
+	npc_count = int(count_slider.value)
+	for i in npc_count:
 		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3)
-	npc_count = 100
 	test_phase = 1
-	status_label.text = "NPCs should explode outward and stabilize"
+	_set_phase("Exploding outward...")
+	_log("%d NPCs at center" % npc_count)
 
 
 func _update_test_mass() -> void:
 	if test_timer > 5.0:
-		status_label.text = "DONE: Should be a stable circular blob"
+		_set_state("DONE")
+		_set_phase("Should be stable blob")
 
 
 # =============================================================================
@@ -339,32 +322,13 @@ func _process(delta: float) -> void:
 			4: _update_test_circle()
 			5: _update_test_mass()
 
-	# Debug mode auto-loop
-	if current_test == -1:
-		test_timer += delta
-		if auto_loop.button_pressed and test_timer > 3.0:
-			_spawn_debug_npcs()
-
 
 func _update_metrics() -> void:
-	# Time since spawn
-	time_label.text = "Time: %.1fs" % test_timer
-
-	# Calculate expected final distance
-	var start_dist := SEP_RADIUS * (1.0 - overlap_slider.value / 100.0)
-	expected_label.text = "Start: %.0fpx → End: %.0fpx" % [start_dist, SEP_RADIUS]
-
-	# Distance and velocity would need GPU readback
-	# For now show theoretical values
-	if npc_count > 0 and test_timer > 0:
-		# Estimate: should reach SEP_RADIUS quickly
-		var estimated_dist := lerpf(start_dist, SEP_RADIUS, minf(test_timer * 2.0, 1.0))
-		distance_label.text = "Est. Dist: %.1fpx" % estimated_dist
-
-		if test_timer < 0.5:
-			velocity_label.text = "Velocity: separating..."
-		else:
-			velocity_label.text = "Velocity: stable"
+	time_label.text = "Time: %.2fs" % test_timer
+	expected_label.text = "Sep radius: %dpx" % int(SEP_RADIUS)
+	if npc_count > 0:
+		distance_label.text = "NPCs: %d" % npc_count
+		velocity_label.text = "Status: " + ("moving" if test_timer < 2.0 else "stable")
 	else:
-		distance_label.text = "Distance: --"
-		velocity_label.text = "Velocity: --"
+		distance_label.text = "NPCs: --"
+		velocity_label.text = "Status: --"

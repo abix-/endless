@@ -10,128 +10,112 @@ position = Vector2(400, 300)
 
 [node name="UI" type="CanvasLayer" parent="."]
 
-[node name="FPSLabel" type="Label" parent="UI"]
-offset_left = 10.0
-offset_top = 10.0
-offset_right = 300.0
-offset_bottom = 40.0
-text = "FPS: --"
-
-[node name="CountLabel" type="Label" parent="UI"]
-offset_left = 10.0
-offset_top = 40.0
-offset_right = 300.0
-offset_bottom = 70.0
-text = "NPCs: 0"
-
-[node name="TestLabel" type="Label" parent="UI"]
-offset_left = 10.0
-offset_top = 80.0
-offset_right = 500.0
-offset_bottom = 110.0
-text = "Press 1-5 to run a test"
-
-[node name="StatusLabel" type="Label" parent="UI"]
-offset_left = 10.0
-offset_top = 110.0
-offset_right = 600.0
-offset_bottom = 140.0
-text = "1: Arrive  2: Separation  3: Both  4: Circle  5: Mass"
-
 [node name="DebugPanel" type="PanelContainer" parent="UI"]
-offset_left = 580.0
+offset_left = 10.0
 offset_top = 10.0
-offset_right = 795.0
-offset_bottom = 400.0
+offset_right = 250.0
+offset_bottom = 500.0
 
 [node name="VBox" type="VBoxContainer" parent="UI/DebugPanel"]
 offset_left = 4.0
 offset_top = 4.0
-offset_right = 211.0
-offset_bottom = 386.0
+offset_right = 236.0
+offset_bottom = 486.0
 
-[node name="Title" type="Label" parent="UI/DebugPanel/VBox"]
-text = "== Tests =="
+[node name="TitleLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "ECS TEST HARNESS"
+horizontal_alignment = 1
+
+[node name="Sep0" type="HSeparator" parent="UI/DebugPanel/VBox"]
+
+[node name="CountLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "NPC Count: 10"
+
+[node name="CountSlider" type="HSlider" parent="UI/DebugPanel/VBox"]
+min_value = 1.0
+max_value = 100.0
+value = 10.0
+
+[node name="Sep1" type="HSeparator" parent="UI/DebugPanel/VBox"]
+
+[node name="TestTitle" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Tests"
 horizontal_alignment = 1
 
 [node name="TestButtons" type="HBoxContainer" parent="UI/DebugPanel/VBox"]
 
 [node name="Test1" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(36, 0)
+custom_minimum_size = Vector2(42, 0)
 text = "1"
-tooltip_text = "Single NPC Arrive"
+tooltip_text = "Arrive: Move to target"
 
 [node name="Test2" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(36, 0)
+custom_minimum_size = Vector2(42, 0)
 text = "2"
-tooltip_text = "Separation"
+tooltip_text = "Separation: Push apart"
 
 [node name="Test3" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(36, 0)
+custom_minimum_size = Vector2(42, 0)
 text = "3"
-tooltip_text = "Both Systems"
+tooltip_text = "Both: Arrive + Separate"
 
 [node name="Test4" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(36, 0)
+custom_minimum_size = Vector2(42, 0)
 text = "4"
-tooltip_text = "Circle Inward"
+tooltip_text = "Circle: Converge inward"
 
 [node name="Test5" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(36, 0)
+custom_minimum_size = Vector2(42, 0)
 text = "5"
-tooltip_text = "Mass Separation"
+tooltip_text = "Mass: Stress test"
 
-[node name="Sep0" type="HSeparator" parent="UI/DebugPanel/VBox"]
+[node name="TestDesc" type="Label" parent="UI/DebugPanel/VBox"]
+custom_minimum_size = Vector2(0, 80)
+text = "1: Arrive - target seeking
+2: Separation - push when overlap
+3: Both - converge then spread
+4: Circle - many NPCs inward
+5: Mass - max overlap stress"
+autowrap_mode = 2
 
-[node name="ControlsTitle" type="Label" parent="UI/DebugPanel/VBox"]
-text = "== Controls =="
+[node name="Sep2" type="HSeparator" parent="UI/DebugPanel/VBox"]
+
+[node name="StatusTitle" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Status"
 horizontal_alignment = 1
 
-[node name="OverlapLabel" type="Label" parent="UI/DebugPanel/VBox"]
-text = "Overlap: 100%"
+[node name="StateLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "State: IDLE"
 
-[node name="OverlapSlider" type="HSlider" parent="UI/DebugPanel/VBox"]
-max_value = 100.0
-value = 100.0
+[node name="TestLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Test: None"
 
-[node name="CountLabel2" type="Label" parent="UI/DebugPanel/VBox"]
-text = "NPC Count: 2"
+[node name="PhaseLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Phase: --"
 
-[node name="CountSlider" type="HSlider" parent="UI/DebugPanel/VBox"]
-min_value = 2.0
-max_value = 50.0
-value = 2.0
-
-[node name="ButtonRow" type="HBoxContainer" parent="UI/DebugPanel/VBox"]
-
-[node name="SpawnButton" type="Button" parent="UI/DebugPanel/VBox/ButtonRow"]
-custom_minimum_size = Vector2(90, 0)
-text = "Spawn"
-
-[node name="ClearButton" type="Button" parent="UI/DebugPanel/VBox/ButtonRow"]
-custom_minimum_size = Vector2(90, 0)
-text = "Clear"
-
-[node name="AutoLoop" type="CheckBox" parent="UI/DebugPanel/VBox"]
-text = "Auto Loop (3s)"
-
-[node name="Sep1" type="HSeparator" parent="UI/DebugPanel/VBox"]
-
-[node name="MetricsTitle" type="Label" parent="UI/DebugPanel/VBox"]
-text = "== Metrics =="
-horizontal_alignment = 1
+[node name="FPSLabel" type="Label" parent="UI/DebugPanel/VBox"]
+text = "FPS: --"
 
 [node name="TimeLabel" type="Label" parent="UI/DebugPanel/VBox"]
 text = "Time: 0.0s"
 
 [node name="DistanceLabel" type="Label" parent="UI/DebugPanel/VBox"]
-text = "Distance: --"
+text = "NPCs: --"
 
 [node name="VelocityLabel" type="Label" parent="UI/DebugPanel/VBox"]
-text = "Velocity: --"
-
-[node name="SepRadiusLabel" type="Label" parent="UI/DebugPanel/VBox"]
-text = "Sep Radius: 20px"
+text = "Status: --"
 
 [node name="ExpectedLabel" type="Label" parent="UI/DebugPanel/VBox"]
-text = "Expected: 20px apart"
+text = "Sep radius: 20px"
+
+[node name="Sep3" type="HSeparator" parent="UI/DebugPanel/VBox"]
+
+[node name="LogTitle" type="Label" parent="UI/DebugPanel/VBox"]
+text = "Log"
+horizontal_alignment = 1
+
+[node name="LogLabel" type="Label" parent="UI/DebugPanel/VBox"]
+custom_minimum_size = Vector2(0, 50)
+text = "--"
+vertical_alignment = 1
+autowrap_mode = 2

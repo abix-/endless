@@ -606,6 +606,11 @@ impl EcsNpcManager {
             let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
             let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
             gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
+
+            // Initialize arrival flag to 0 (not arrived)
+            let arrival_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let arrival_packed = PackedByteArray::from(arrival_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &arrival_packed);
         }
     }
 

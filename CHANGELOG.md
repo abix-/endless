@@ -10,8 +10,9 @@
 - fix zero-distance separation: use golden angle fallback when NPCs overlap exactly
 - add persistent arrival flag (NPCs don't chase target after being pushed away)
 - add reset() function for EcsNpcManager (clears NPC count for scene reload)
-- add ecs_test.tscn debug UI panel with test buttons, overlap/count sliders, metrics
-- add isolated behavior tests: arrive, separation, combined, circle, mass
+- add arrival flag initialization on spawn (prevents stale buffer data)
+- add ecs_test.tscn with 5 test scenarios and NPC count slider
+- add test descriptions: arrive (target seeking), separation (push apart), both, circle, mass
 - add GPL 3.0 license
 
 ## 2026-01-24

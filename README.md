@@ -215,10 +215,10 @@ shaders/
   separation_compute.glsl  # GPU spatial hash + separation forces
   npc_compute.glsl         # All-in-one: movement + separation + render
 scenes/
-  ecs_test.tscn         # Bevy ECS test scene (1000 NPCs)
+  ecs_test.tscn         # Isolated behavior tests (arrive, separation, mass)
   bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
 scripts/
-  ecs_test.gd           # Test harness for EcsNpcManager
+  ecs_test.gd           # 5 test scenarios with configurable NPC count
 ```
 
 ## Controls
@@ -330,7 +330,8 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Persistent arrival flag (NPCs stay arrived after being pushed)
 - [x] Zero-distance fallback (golden angle when NPCs overlap exactly)
 - [x] reset() function for scene reload
-- [x] Debug test scene with UI panel (overlap/count sliders, metrics)
+- [x] Arrival flag initialization on spawn
+- [x] Test harness with 5 scenarios (arrive, separation, both, circle, mass)
 - [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()`
 - [ ] Result: 10K+ NPCs with separation forces
 
