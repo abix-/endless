@@ -318,12 +318,16 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] GDScript API: `set_target(npc_index, x, y)`
 - [x] Result: NPCs walk to targets and stop on arrival (proof of concept)
 
-**Chunk 3: GPU Physics** ← CURRENT
-- [ ] GPU owns positions/velocities (physics state)
-- [ ] Bevy owns targets/jobs/states (logical state)
-- [ ] Integrate `separation_compute.glsl` for collision avoidance
+**Chunk 3: GPU Physics** ← IN PROGRESS
+- [x] GPU owns positions (8-buffer architecture)
+- [x] Bevy owns targets/jobs/states (logical state)
+- [x] EcsNpcManager owns GpuCompute (RenderingDevice not Send-safe)
+- [x] 8 GPU buffers: position, target, color, speed, grid_counts, grid_data, multimesh, arrivals
+- [x] Push constants (48 bytes with alignment padding)
+- [x] Spatial grid for O(n) neighbor lookup (128x128 cells, 48 NPCs/cell)
+- [x] Colors and movement confirmed working
+- [ ] Tune separation (outer NPCs OK, inner still overlap)
 - [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()`
-- [ ] Arrival flags buffer (GPU → Bevy, tiny sync)
 - [ ] Result: 10K+ NPCs with separation forces
 
 **Chunk 4: World Data**
@@ -362,7 +366,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 |-------|------|-----|--------|
 | GDScript baseline | 3,000 | 60 | Reference |
 | Chunk 1-2 (CPU Bevy) | 5,000 | 60+ | ✅ Done |
-| Chunk 3 (GPU physics) | 10,000+ | 140 | Next |
+| Chunk 3 (GPU physics) | 10,000+ | 140 | 🔄 In Progress |
 | Chunk 4-9 (full game) | 10,000+ | 60+ | Planned |
 | Zero-copy optimization | 20,000+ | 60+ | Future |
 

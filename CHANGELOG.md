@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-01-25
+- add Chunk 3: GPU physics with 8-buffer architecture (position, target, color, speed, grid, multimesh, arrivals)
+- add EcsNpcManager owns GpuCompute (RenderingDevice not Send-safe for static Mutex)
+- add spatial grid 128x128 cells with 48 NPCs/cell max
+- add push constants 48-byte alignment with padding fields
+- fix GPU buffer upload timing (separate GPU_NPC_COUNT static for immediate spawn)
+- wip: separation tuning (outer NPCs OK, inner still overlap/oscillate)
+
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)
 - add parallel processing thread-safe state transitions (pending arrivals)
