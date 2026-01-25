@@ -215,7 +215,7 @@ shaders/
   separation_compute.glsl  # GPU spatial hash + separation forces
   npc_compute.glsl         # All-in-one: movement + separation + render
 scenes/
-  ecs_test.tscn         # 6 behavior tests (arrive, sep, both, circle, mass, world)
+  ecs_test.tscn         # 6 behavior tests with visual markers and PASS/FAIL
   bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
 scripts/
   ecs_test.gd           # 5 test scenarios with configurable NPC count
@@ -342,6 +342,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Query API: get_town_center, get_camp_position, get_patrol_post
 - [x] Query API: get_nearest_free_bed/farm
 - [x] Occupancy API: reserve/release bed/farm
+- [x] Test 6 with visual markers (town, camp, farms, beds, posts)
 - [ ] Wire up main.gd to sync world data on game start
 - [ ] Result: Bevy + GPU know the world layout
 
