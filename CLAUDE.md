@@ -101,22 +101,28 @@ The README serves as both documentation and a development roadmap.
 
 **Don't over-document:** README shows what exists and what's planned. Implementation details go in CLAUDE.md or code comments.
 
-## Rust/Bevy ECS POC (In Progress)
+## Rust/Bevy ECS POC (Validated)
 
-Performance target: 5000 NPCs @ 140fps (or 10K+ @ 60fps).
+Performance target: 5000 NPCs @ 140fps — **achieved**.
 
-**Status:** Code written in `rust/src/lib.rs`, needs Rust installed to build.
+**Status:** POC validated. 5000 NPCs @ 140fps using Bevy ECS + bulk `set_buffer()` rendering.
+
+**Key optimizations discovered:**
+- Bulk `set_buffer()` vs per-instance calls: 55fps → 140fps (2.5x improvement)
+- Pre-allocated transform buffer in Rust, single upload per frame
+- Colors set once at init (not per-frame)
 
 **Setup:**
 1. Install Rust from https://rustup.rs/
 2. `cd rust && cargo build`
 3. Run `scenes/bevy_poc.tscn` in Godot
 
-**Architecture:** GDExtension (`bevy_npc.gdextension`) loads `rust/target/debug/endless_ecs.dll`. The `NpcBenchmark` node owns a Bevy App internally, ticks ECS systems each frame, pushes positions to MultiMesh via RenderingServer.
+**Architecture:** GDExtension (`bevy_npc.gdextension`) loads `rust/target/debug/endless_ecs.dll`. The `NpcBenchmark` node owns a Bevy App internally, ticks ECS systems each frame, bulk uploads positions to MultiMesh via `set_buffer()`.
 
-**What it tests:** Grid rebuild + separation forces + navigation for 5000 entities in Rust. Same algorithm as current GDScript but without Variant boxing overhead.
-
-**If validated:** Migrate hot loops (navigation, separation, combat scanning, grid) to Rust. Keep GDScript for game logic (decide_what_to_do, state machine, UI).
+**Next steps:** See README "Rust Migration Roadmap" for phased plan to reach 10K+ NPCs:
+1. GPU compute integration (port separation_compute.glsl)
+2. Game logic migration (state machines, decisions)
+3. Zero-copy rendering (compute shader writes directly to MultiMesh buffer)
 
 **Files:**
 - `rust/Cargo.toml` - bevy_ecs + godot-rust dependencies

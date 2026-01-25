@@ -7,7 +7,7 @@
 use bevy_app::{App, Update};
 use bevy_ecs::prelude::*;
 use godot::prelude::*;
-use godot::classes::{INode2D, RenderingServer};
+use godot::classes::{INode2D, QuadMesh, MultiMesh, MultiMeshInstance2D, Label};
 
 // ============================================================
 // CONSTANTS
@@ -179,12 +179,16 @@ fn navigation_system(mut query: Query<&mut Npc>) {
 // GODOT NODE: NPC BENCHMARK
 // ============================================================
 
+// Buffer stride: Transform2D (8 floats) + Color (4 floats) = 12 floats per instance
+const FLOATS_PER_INSTANCE: usize = 12;
+
 #[derive(GodotClass)]
 #[class(base=Node2D)]
 struct NpcBenchmark {
     base: Base<Node2D>,
     app: Option<App>,
-    multimesh_rid: Rid,
+    multimesh: Option<Gd<MultiMesh>>,
+    buffer: Vec<f32>,  // Pre-allocated transform+color buffer
     frame_count: u64,
     fps_timer: f64,
 }
@@ -192,10 +196,30 @@ struct NpcBenchmark {
 #[godot_api]
 impl INode2D for NpcBenchmark {
     fn init(base: Base<Node2D>) -> Self {
+        // Pre-allocate buffer with identity transforms and green color
+        let mut buffer = vec![0.0f32; NPC_COUNT * FLOATS_PER_INSTANCE];
+        for i in 0..NPC_COUNT {
+            let base_idx = i * FLOATS_PER_INSTANCE;
+            // Transform2D identity: [1,0,0,x, 0,1,0,y] format
+            buffer[base_idx + 0] = 1.0;  // a.x
+            buffer[base_idx + 1] = 0.0;  // b.x
+            buffer[base_idx + 2] = 0.0;  // padding
+            buffer[base_idx + 3] = 0.0;  // origin.x (will be updated)
+            buffer[base_idx + 4] = 0.0;  // a.y
+            buffer[base_idx + 5] = 1.0;  // b.y
+            buffer[base_idx + 6] = 0.0;  // padding
+            buffer[base_idx + 7] = 0.0;  // origin.y (will be updated)
+            // Color: green
+            buffer[base_idx + 8] = 0.2;   // r
+            buffer[base_idx + 9] = 0.8;   // g
+            buffer[base_idx + 10] = 0.2;  // b
+            buffer[base_idx + 11] = 1.0;  // a
+        }
         Self {
             base,
             app: None,
-            multimesh_rid: Rid::Invalid,
+            multimesh: None,
+            buffer,
             frame_count: 0,
             fps_timer: 0.0,
         }
@@ -246,51 +270,48 @@ impl INode2D for NpcBenchmark {
 
         self.app = Some(app);
 
-        // Create MultiMesh via RenderingServer (no node overhead)
-        let mut rs = RenderingServer::singleton();
-        let mm_rid = rs.multimesh_create();
-        rs.multimesh_set_mesh(mm_rid, rs.get_test_quad());
-        rs.multimesh_allocate_data(mm_rid, NPC_COUNT as i32,
-            godot::classes::rendering_server::MultimeshTransformFormat::TRANSFORM_2D,
-            true,  // use_colors
-            false, // use_custom_data
-        );
+        // Create MultiMesh with proper node (like GDScript version)
+        let mut multimesh = MultiMesh::new_gd();
+        multimesh.set_transform_format(godot::classes::multi_mesh::TransformFormat::TRANSFORM_2D);
+        multimesh.set_use_colors(true);
+        multimesh.set_instance_count(NPC_COUNT as i32);
 
-        // Attach to canvas
-        let canvas_item = self.base().get_canvas_item();
-        rs.canvas_item_add_multimesh(canvas_item, mm_rid, Rid::Invalid);
+        let mut mesh = QuadMesh::new_gd();
+        mesh.set_size(Vector2::new(16.0, 16.0));
+        multimesh.set_mesh(&mesh);
 
-        self.multimesh_rid = mm_rid;
+        // Create MultiMeshInstance2D and add as child
+        let mut mm_instance = MultiMeshInstance2D::new_alloc();
+        mm_instance.set_multimesh(&multimesh);
+        self.base_mut().add_child(&mm_instance);
+
+        self.multimesh = Some(multimesh);
         godot_print!("[Bevy POC] Spawned {} NPCs", NPC_COUNT);
     }
 
     fn process(&mut self, delta: f64) {
         // Tick Bevy ECS (runs grid + separation + navigation)
+        let multimesh = match self.multimesh.as_mut() {
+            Some(mm) => mm,
+            None => return,
+        };
+
         if let Some(ref mut app) = self.app {
             app.update();
 
-            // Push positions to MultiMesh
-            let mut rs = RenderingServer::singleton();
-            let world = app.world_mut();
-            let mut query = world.query::<&Npc>();
+            // Read positions from PositionBuffer (already updated by grid_rebuild_system)
+            let pos_buf = app.world().resource::<PositionBuffer>();
 
-            for npc in query.iter(world) {
-                let t = Transform2D::new(
-                    Vector2::new(1.0, 0.0),
-                    Vector2::new(0.0, 1.0),
-                    Vector2::new(npc.x, npc.y),
-                );
-                rs.multimesh_instance_set_transform_2d(
-                    self.multimesh_rid,
-                    npc.index as i32,
-                    t,
-                );
-                rs.multimesh_instance_set_color(
-                    self.multimesh_rid,
-                    npc.index as i32,
-                    Color::from_rgba(0.2, 0.8, 0.2, 1.0),
-                );
+            // Update only the position floats in the buffer (indices 3 and 7)
+            for i in 0..NPC_COUNT {
+                let base_idx = i * FLOATS_PER_INSTANCE;
+                self.buffer[base_idx + 3] = pos_buf.x[i];  // origin.x
+                self.buffer[base_idx + 7] = pos_buf.y[i];  // origin.y
             }
+
+            // Single bulk upload
+            let packed = PackedFloat32Array::from(self.buffer.as_slice());
+            multimesh.set_buffer(&packed);
         }
 
         // FPS counter
@@ -298,7 +319,9 @@ impl INode2D for NpcBenchmark {
         self.fps_timer += delta;
         if self.fps_timer >= 1.0 {
             let fps = self.frame_count as f64 / self.fps_timer;
-            godot_print!("[Bevy POC] FPS: {:.1} ({} NPCs)", fps, NPC_COUNT);
+            if let Some(mut label) = self.base().try_get_node_as::<Label>("../UI/FPSLabel") {
+                label.set_text(&format!("FPS: {:.0} ({} NPCs)", fps, NPC_COUNT));
+            }
             self.frame_count = 0;
             self.fps_timer = 0.0;
         }

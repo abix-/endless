@@ -164,7 +164,8 @@ There is no victory. Only the endless struggle against entropy.
 - [x] Velocity damping for smooth collision avoidance
 - [x] Parallel processing with thread-safe state transitions (pending arrivals)
 - [x] GPU compute shader for separation forces
-- [ ] Rust/Bevy ECS for hot loops (POC in rust/, targeting 5000 NPCs @ 140fps)
+- [x] Rust/Bevy ECS POC (5000 NPCs @ 140fps validated)
+- [ ] Rust/Bevy full integration (see Rust Migration Roadmap below)
 - [x] Combat log batching
 
 **Visual effects:**
@@ -243,6 +244,59 @@ Key values in `autoloads/config.gd`:
 | MAX_NPC_COUNT | 3000 | Engine limit |
 | ENERGY_STARVING | 10 | Eat food threshold |
 | ENERGY_HUNGRY | 50 | Go home threshold |
+
+## Rust Migration Roadmap
+
+Target: 10,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
+
+### Current State (POC validated)
+- [x] Bevy ECS running 5000 NPCs @ 140fps
+- [x] Bulk `set_buffer()` rendering (1 call vs 5000 per-instance calls)
+- [x] Spatial grid + separation forces in Rust
+
+### Phase 1: GPU Compute Integration
+Port `separation_compute.glsl` to Rust POC:
+- [ ] Create RenderingDevice in Rust via godot-rust
+- [ ] Allocate GPU storage buffers for positions/states/targets
+- [ ] Upload NPC data from Bevy ECS to GPU buffers
+- [ ] Dispatch compute shader, read back separation velocities
+- [ ] Apply velocities in Bevy, then bulk upload to MultiMesh
+
+### Phase 2: Game Logic Migration
+Move hot paths from GDScript to Rust:
+- [ ] State machine (IDLE, FARMING, FIGHTING, FLEEING, etc.)
+- [ ] Decision trees (`decide_what_to_do()`)
+- [ ] Combat targeting and damage
+- [ ] Energy/needs system
+
+Keep in GDScript: UI, menus, save/load, signals.
+
+### Phase 3: Zero-Copy Rendering
+Eliminate CPU→GPU copy for rendering:
+- [ ] Get MultiMesh buffer RID via `multimesh_get_buffer_rd_rid()`
+- [ ] Write positions directly from compute shader to MultiMesh buffer
+- [ ] Compute shader: separation + position update + buffer write in one dispatch
+
+### Architecture After Migration
+
+```
+┌──────────────────┐     ┌─────────────────┐     ┌──────────────┐
+│   Rust (Bevy)    │────▶│  GPU Compute    │────▶│  MultiMesh   │
+│   Game Logic     │     │  Separation +   │     │  Rendering   │
+│   State/Decisions│     │  Position Write │     │  (zero-copy) │
+└──────────────────┘     └─────────────────┘     └──────────────┘
+        │                                               │
+        └───────────── GDScript (UI only) ◀────────────┘
+```
+
+### Performance Targets
+
+| Phase | NPCs | FPS | Bottleneck |
+|-------|------|-----|------------|
+| Current GDScript | 3,000 | 60 | CPU (GDScript overhead) |
+| POC (Rust + bulk buffer) | 5,000 | 140 | CPU (separation in Rust) |
+| Phase 1 (+ GPU separation) | 10,000 | 60+ | GPU compute dispatch |
+| Phase 3 (zero-copy) | 20,000+ | 60+ | GPU fill rate |
 
 ## Credits
 
