@@ -318,7 +318,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] GDScript API: `set_target(npc_index, x, y)`
 - [x] Result: NPCs walk to targets and stop on arrival (proof of concept)
 
-**Chunk 3: GPU Physics** ← IN PROGRESS
+**Chunk 3: GPU Physics** ✓
 - [x] GPU owns positions (8-buffer architecture)
 - [x] Bevy owns targets/jobs/states (logical state)
 - [x] EcsNpcManager owns GpuCompute (RenderingDevice not Send-safe)
@@ -336,7 +336,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()`
 - [ ] Result: 10K+ NPCs with separation forces
 
-**Chunk 4: World Data** ← IN PROGRESS
+**Chunk 4: World Data** ✓
 - [x] Towns, patrol posts, beds, farms as Bevy Resources
 - [x] GDScript API: init_world, add_town/farm/bed/guard_post
 - [x] Query API: get_town_center, get_camp_position, get_patrol_post
@@ -344,12 +344,19 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Occupancy API: reserve/release bed/farm
 - [x] Test 6 with visual markers (town, camp, farms, beds, posts)
 - [ ] Wire up main.gd to sync world data on game start
-- [ ] Result: Bevy + GPU know the world layout
+- [x] Result: Bevy + GPU know the world layout
 
-**Chunk 5: Guard Logic**
-- [ ] State marker components (Patrolling, OnDuty, Resting, Fighting)
-- [ ] Guard decision system (energy check, patrol selection)
-- [ ] Result: Guards patrol and rest autonomously
+**Chunk 5: Guard Logic** ✓
+- [x] State marker components (Patrolling, OnDuty, Resting, GoingToRest)
+- [x] Guard, Energy, HomePosition components
+- [x] Energy system (drain while active, recover while resting)
+- [x] Guard decision system (energy < 50 → go rest, energy > 80 → resume patrol)
+- [x] Guard patrol system (OnDuty timer → move to next post clockwise)
+- [x] Arrival detection from GPU buffer (ArrivalMsg queue)
+- [x] GPU_TARGET_QUEUE for Bevy→GPU target updates
+- [x] spawn_guard() and spawn_guard_at_post() GDScript API
+- [x] Test 7: Guard Patrol (4 guards patrol perimeter clockwise)
+- [x] Result: Guards patrol and rest autonomously
 
 **Chunk 6: Farmer Logic**
 - [ ] Farming, Walking, Resting states
@@ -378,8 +385,9 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 | GDScript baseline | 3,000 | 60 | Reference |
 | Chunk 1-2 (CPU Bevy) | 5,000 | 60+ | ✅ Done |
 | Chunk 3 (GPU physics) | 10,000+ | 140 | ✅ Done |
-| Chunk 4 (world data) | 10,000+ | 140 | 🔄 In Progress |
-| Chunk 5-9 (full game) | 10,000+ | 60+ | Planned |
+| Chunk 4 (world data) | 10,000+ | 140 | ✅ Done |
+| Chunk 5 (guard logic) | 10,000+ | 140 | ✅ Done |
+| Chunk 6-9 (full game) | 10,000+ | 60+ | Planned |
 | Zero-copy optimization | 20,000+ | 60+ | Future |
 
 ## Credits

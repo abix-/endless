@@ -34,6 +34,18 @@
 - add reserve_bed(), release_bed(), reserve_farm(), release_farm() for occupancy tracking
 - add get_world_stats() for debugging (counts and free slots)
 - add Test 6: World Data (verifies all world data API functions)
+- add Chunk 5: Guard Logic (guards patrol and rest autonomously in Bevy ECS)
+- add guard state components: Patrolling, OnDuty, Resting, GoingToRest
+- add Guard, Energy, HomePosition components
+- add energy system (drain 0.02/tick active, recover 0.2/tick resting)
+- add guard decision system (energy < 50 → go rest, energy > 80 → resume patrol)
+- add guard patrol system (OnDuty 60 ticks → move to next post clockwise)
+- add arrival detection from GPU buffer (ArrivalMsg queue, prev_arrivals tracking)
+- add GPU_TARGET_QUEUE for Bevy→GPU target updates (systems can set NPC targets)
+- add spawn_guard() and spawn_guard_at_post() GDScript API
+- add Test 7: Guard Patrol (4 guards at corner posts, clockwise perimeter patrol)
+- fix reset() to clear all queues (GUARD_QUEUE, ARRIVAL_QUEUE, GPU_TARGET_QUEUE)
+- fix reset() to clear prev_arrivals (enables arrival detection on new tests)
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)

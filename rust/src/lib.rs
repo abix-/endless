@@ -91,6 +91,26 @@ const FLOATS_PER_INSTANCE: usize = 12;
 const PUSH_CONSTANTS_SIZE: usize = 48;
 
 // ============================================================================
+// GUARD BEHAVIOR CONSTANTS
+// ============================================================================
+
+/// Energy threshold below which guards go rest.
+const ENERGY_HUNGRY: f32 = 50.0;
+
+/// Energy threshold above which guards resume patrol.
+const ENERGY_RESTED: f32 = 80.0;
+
+/// Ticks a guard waits at a post before moving to next (60 = ~1 second at 60fps).
+const GUARD_PATROL_WAIT: u32 = 60;
+
+/// Energy drain per tick while active.
+/// At 0.02/tick with 60-tick patrol wait, guards do ~10 rotations before rest.
+const ENERGY_DRAIN_RATE: f32 = 0.02;
+
+/// Energy recovery per tick while resting.
+const ENERGY_RECOVER_RATE: f32 = 0.2;
+
+// ============================================================================
 // WORLD DATA STRUCTS - Towns, farms, beds, guard posts
 // ============================================================================
 
@@ -206,6 +226,51 @@ impl Default for Speed {
 }
 
 // ============================================================================
+// GUARD COMPONENTS - State machine for guard behavior
+// ============================================================================
+
+/// Guard-specific data: which town they belong to and current patrol post.
+#[derive(Component)]
+pub struct Guard {
+    pub town_idx: u32,
+    pub current_post: u32,  // 0-3 for clockwise patrol
+}
+
+/// NPC energy level (0-100). Drains while active, recovers while resting.
+#[derive(Component)]
+pub struct Energy(pub f32);
+
+impl Default for Energy {
+    fn default() -> Self {
+        Self(100.0)
+    }
+}
+
+/// Where the NPC goes to rest (bed position).
+#[derive(Component)]
+pub struct HomePosition(pub Vector2);
+
+// --- State Markers (mutually exclusive) ---
+
+/// Guard is moving toward next patrol post.
+#[derive(Component)]
+pub struct Patrolling;
+
+/// Guard is standing at a post, waiting before moving to next.
+#[derive(Component)]
+pub struct OnDuty {
+    pub ticks_waiting: u32,
+}
+
+/// NPC is at home/bed recovering energy.
+#[derive(Component)]
+pub struct Resting;
+
+/// NPC is walking to a destination (home, post, etc).
+#[derive(Component)]
+pub struct GoingToRest;
+
+// ============================================================================
 // ECS MESSAGES - Commands sent from GDScript to Bevy
 // ============================================================================
 
@@ -223,6 +288,23 @@ pub struct SetTargetMsg {
     pub npc_index: usize,
     pub x: f32,
     pub y: f32,
+}
+
+/// Request to spawn a guard with home position and town assignment.
+#[derive(Message, Clone)]
+pub struct SpawnGuardMsg {
+    pub x: f32,
+    pub y: f32,
+    pub town_idx: u32,
+    pub home_x: f32,
+    pub home_y: f32,
+    pub starting_post: u32,
+}
+
+/// Notification that an NPC has arrived at its target.
+#[derive(Message, Clone)]
+pub struct ArrivalMsg {
+    pub npc_index: usize,
 }
 
 // ============================================================================
@@ -280,6 +362,16 @@ static SPAWN_QUEUE: Mutex<Vec<SpawnNpcMsg>> = Mutex::new(Vec::new());
 
 /// Queue of pending target updates. Drained each frame by drain_target_queue system.
 static TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
+
+/// Queue of pending guard spawn requests.
+static GUARD_QUEUE: Mutex<Vec<SpawnGuardMsg>> = Mutex::new(Vec::new());
+
+/// Queue of arrival notifications (NPC index that just arrived).
+static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
+
+/// Queue of target updates that need to be uploaded to GPU.
+/// Bevy systems push here, process() drains and uploads.
+static GPU_TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
 
 /// Authoritative NPC count. Updated immediately on spawn (not waiting for Bevy).
 /// This ensures GPU gets correct count even before Bevy processes the spawn message.
@@ -745,6 +837,230 @@ fn apply_targets_system(
 }
 
 // ============================================================================
+// GUARD SYSTEMS - Patrol, rest, energy management
+// ============================================================================
+
+/// Drain the guard spawn queue.
+fn drain_guard_queue(mut messages: MessageWriter<SpawnGuardMsg>) {
+    if let Ok(mut queue) = GUARD_QUEUE.lock() {
+        for msg in queue.drain(..) {
+            messages.write(msg);
+        }
+    }
+}
+
+/// Process guard spawn messages: create guard entities with full component set.
+fn spawn_guard_system(
+    mut commands: Commands,
+    mut events: MessageReader<SpawnGuardMsg>,
+    mut count: ResMut<NpcCount>,
+    mut gpu_data: ResMut<GpuData>,
+) {
+    for event in events.read() {
+        let idx = gpu_data.npc_count;
+        if idx >= MAX_NPC_COUNT {
+            continue;
+        }
+
+        let (r, g, b, a) = Job::Guard.color();
+        let speed = Speed::default().0;
+
+        // Initialize GPU data
+        gpu_data.positions[idx * 2] = event.x;
+        gpu_data.positions[idx * 2 + 1] = event.y;
+        gpu_data.targets[idx * 2] = event.x;
+        gpu_data.targets[idx * 2 + 1] = event.y;
+        gpu_data.colors[idx * 4] = r;
+        gpu_data.colors[idx * 4 + 1] = g;
+        gpu_data.colors[idx * 4 + 2] = b;
+        gpu_data.colors[idx * 4 + 3] = a;
+        gpu_data.speeds[idx] = speed;
+        gpu_data.npc_count += 1;
+        gpu_data.dirty = true;
+
+        // Create guard entity with full component set
+        commands.spawn((
+            NpcIndex(idx),
+            Job::Guard,
+            Speed::default(),
+            Energy::default(),
+            Guard {
+                town_idx: event.town_idx,
+                current_post: event.starting_post,
+            },
+            HomePosition(Vector2::new(event.home_x, event.home_y)),
+            OnDuty { ticks_waiting: 0 },  // Start on duty at their post
+        ));
+        count.0 += 1;
+    }
+}
+
+/// Energy system: drain while active, recover while resting.
+fn energy_system(
+    mut query: Query<(&mut Energy, Option<&Resting>)>,
+) {
+    for (mut energy, resting) in query.iter_mut() {
+        if resting.is_some() {
+            energy.0 = (energy.0 + ENERGY_RECOVER_RATE).min(100.0);
+        } else {
+            energy.0 = (energy.0 - ENERGY_DRAIN_RATE).max(0.0);
+        }
+    }
+}
+
+/// Guard decision system: check if guard should rest or patrol.
+fn guard_decision_system(
+    mut commands: Commands,
+    query: Query<(Entity, &Guard, &Energy, &NpcIndex, &HomePosition),
+                 (Without<Patrolling>, Without<GoingToRest>)>,
+) {
+    for (entity, _guard, energy, npc_idx, home) in query.iter() {
+        if energy.0 < ENERGY_HUNGRY {
+            // Low energy - go rest
+            commands.entity(entity)
+                .remove::<OnDuty>()
+                .remove::<Resting>()
+                .insert(GoingToRest);
+
+            // Set target to home position (push to GPU queue)
+            if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
+                queue.push(SetTargetMsg {
+                    npc_index: npc_idx.0,
+                    x: home.0.x,
+                    y: home.0.y,
+                });
+            }
+        }
+    }
+}
+
+/// Guard resting check: when energy recovered, resume patrol.
+fn guard_rested_system(
+    mut commands: Commands,
+    query: Query<(Entity, &Guard, &Energy, &NpcIndex), With<Resting>>,
+) {
+    for (entity, guard, energy, npc_idx) in query.iter() {
+        if energy.0 >= ENERGY_RESTED {
+            // Rested enough - go patrol
+            commands.entity(entity)
+                .remove::<Resting>()
+                .insert(Patrolling);
+
+            // Get next patrol post and set target (push to GPU queue)
+            if let Ok(world) = WORLD_DATA.lock() {
+                if let Some(post) = world.guard_posts.iter()
+                    .find(|p| p.town_idx == guard.town_idx && p.patrol_order == guard.current_post)
+                {
+                    if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
+                        queue.push(SetTargetMsg {
+                            npc_index: npc_idx.0,
+                            x: post.position.x,
+                            y: post.position.y,
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Guard on-duty system: count ticks and move to next post when ready.
+fn guard_on_duty_system(
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut Guard, &mut OnDuty, &NpcIndex)>,
+) {
+    let guard_count = query.iter().len();
+    if guard_count > 0 {
+        godot_print!("[Guard] on_duty_system: {} guards on duty", guard_count);
+    }
+
+    for (entity, mut guard, mut on_duty, npc_idx) in query.iter_mut() {
+        on_duty.ticks_waiting += 1;
+
+        if on_duty.ticks_waiting >= GUARD_PATROL_WAIT {
+            // Time to move to next post
+            let old_post = guard.current_post;
+            guard.current_post = (guard.current_post + 1) % 4;
+            godot_print!("[Guard] NPC {} moving from post {} to post {}", npc_idx.0, old_post, guard.current_post);
+
+            commands.entity(entity)
+                .remove::<OnDuty>()
+                .insert(Patrolling);
+
+            // Set target to next patrol post (push to GPU queue for immediate upload)
+            if let Ok(world) = WORLD_DATA.lock() {
+                if let Some(post) = world.guard_posts.iter()
+                    .find(|p| p.town_idx == guard.town_idx && p.patrol_order == guard.current_post)
+                {
+                    if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
+                        queue.push(SetTargetMsg {
+                            npc_index: npc_idx.0,
+                            x: post.position.x,
+                            y: post.position.y,
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Drain arrival queue and convert to Bevy messages.
+fn drain_arrival_queue(mut messages: MessageWriter<ArrivalMsg>) {
+    if let Ok(mut queue) = ARRIVAL_QUEUE.lock() {
+        for msg in queue.drain(..) {
+            messages.write(msg);
+        }
+    }
+}
+
+/// Handle guard arrivals: transition from Patrolling to OnDuty, or GoingToRest to Resting.
+fn handle_guard_arrival_system(
+    mut commands: Commands,
+    mut events: MessageReader<ArrivalMsg>,
+    patrolling_query: Query<(Entity, &NpcIndex, &Guard), With<Patrolling>>,
+    going_to_rest_query: Query<(Entity, &NpcIndex), With<GoingToRest>>,
+) {
+    let mut arrival_count = 0;
+    let mut matched_count = 0;
+
+    for event in events.read() {
+        arrival_count += 1;
+
+        // Check if a patrolling guard arrived
+        for (entity, npc_idx, _guard) in patrolling_query.iter() {
+            if npc_idx.0 == event.npc_index {
+                matched_count += 1;
+                godot_print!("[Guard] NPC {} arrived at post, transitioning to OnDuty", event.npc_index);
+                // Arrived at patrol post - switch to OnDuty
+                commands.entity(entity)
+                    .remove::<Patrolling>()
+                    .insert(OnDuty {
+                        ticks_waiting: 0,
+                    });
+                break;
+            }
+        }
+
+        // Check if a guard going to rest arrived
+        for (entity, npc_idx) in going_to_rest_query.iter() {
+            if npc_idx.0 == event.npc_index {
+                godot_print!("[Guard] NPC {} arrived home, transitioning to Resting", event.npc_index);
+                // Arrived at home - switch to Resting
+                commands.entity(entity)
+                    .remove::<GoingToRest>()
+                    .insert(Resting);
+                break;
+            }
+        }
+    }
+
+    if arrival_count > 0 {
+        godot_print!("[Guard] Processed {} arrivals, {} matched patrolling guards", arrival_count, matched_count);
+    }
+}
+
+// ============================================================================
 // BEVY APP - Initializes ECS world and systems
 // ============================================================================
 
@@ -753,20 +1069,30 @@ fn apply_targets_system(
 fn build_app(app: &mut bevy::prelude::App) {
     app.add_message::<SpawnNpcMsg>()
        .add_message::<SetTargetMsg>()
+       .add_message::<SpawnGuardMsg>()
+       .add_message::<ArrivalMsg>()
        .init_resource::<NpcCount>()
        .init_resource::<GpuData>()
        .init_resource::<WorldData>()
        .init_resource::<BedOccupancy>()
        .init_resource::<FarmOccupancy>()
-       // Systems run in order: drain queues -> process spawns -> apply targets
+       // Systems run in order: drain queues -> process spawns -> arrivals -> guard logic
        .add_systems(bevy::prelude::Update, (
            drain_spawn_queue,
            drain_target_queue,
+           drain_guard_queue,
+           drain_arrival_queue,
            spawn_npc_system,
+           spawn_guard_system,
            apply_targets_system,
+           handle_guard_arrival_system,
+           energy_system,
+           guard_decision_system,
+           guard_rested_system,
+           guard_on_duty_system,
        ).chain());
 
-    godot_print!("[ECS] Bevy app initialized");
+    godot_print!("[ECS] Bevy app initialized with guard systems");
 }
 
 // ============================================================================
@@ -799,6 +1125,9 @@ pub struct EcsNpcManager {
     /// Keep mesh alive (Godot reference counting)
     #[allow(dead_code)]
     mesh: Option<Gd<QuadMesh>>,
+
+    /// Previous frame's arrival states (to detect new arrivals).
+    prev_arrivals: Vec<bool>,
 }
 
 #[godot_api]
@@ -810,6 +1139,7 @@ impl INode2D for EcsNpcManager {
             multimesh_rid: Rid::Invalid,
             canvas_item: Rid::Invalid,
             mesh: None,
+            prev_arrivals: vec![false; MAX_NPC_COUNT],
         }
     }
 
@@ -834,9 +1164,73 @@ impl INode2D for EcsNpcManager {
 
         let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
 
+        // Drain GPU target queue and upload to GPU buffers
+        // (This handles target updates from Bevy systems like guard_on_duty_system)
+        if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
+            for msg in queue.drain(..) {
+                if msg.npc_index < npc_count {
+                    // Update target position on GPU
+                    let target_bytes: Vec<u8> = [msg.x, msg.y].iter()
+                        .flat_map(|f| f.to_le_bytes()).collect();
+                    let target_packed = PackedByteArray::from(target_bytes.as_slice());
+                    gpu.rd.buffer_update(
+                        gpu.target_buffer,
+                        (msg.npc_index * 8) as u32,
+                        8,
+                        &target_packed
+                    );
+
+                    // Reset arrival flag so NPC moves toward new target
+                    let arrival_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+                    let arrival_packed = PackedByteArray::from(arrival_bytes.as_slice());
+                    gpu.rd.buffer_update(
+                        gpu.arrival_buffer,
+                        (msg.npc_index * 4) as u32,
+                        4,
+                        &arrival_packed
+                    );
+
+                    // Reset backoff counter
+                    let backoff_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+                    let backoff_packed = PackedByteArray::from(backoff_bytes.as_slice());
+                    gpu.rd.buffer_update(
+                        gpu.backoff_buffer,
+                        (msg.npc_index * 4) as u32,
+                        4,
+                        &backoff_packed
+                    );
+
+                    // Reset prev_arrivals so we can detect arrival at new target
+                    self.prev_arrivals[msg.npc_index] = false;
+                }
+            }
+        }
+
         if npc_count > 0 {
             // Run physics on GPU
             gpu.dispatch(npc_count, delta as f32);
+
+            // Detect arrivals: read GPU arrival buffer, queue messages for new arrivals
+            let arrival_bytes = gpu.rd.buffer_get_data(gpu.arrival_buffer);
+            let arrival_slice = arrival_bytes.as_slice();
+            if let Ok(mut queue) = ARRIVAL_QUEUE.lock() {
+                for i in 0..npc_count {
+                    if arrival_slice.len() >= (i + 1) * 4 {
+                        let arrived = i32::from_le_bytes([
+                            arrival_slice[i * 4],
+                            arrival_slice[i * 4 + 1],
+                            arrival_slice[i * 4 + 2],
+                            arrival_slice[i * 4 + 3],
+                        ]) > 0;
+
+                        // Queue message only on transition from not-arrived to arrived
+                        if arrived && !self.prev_arrivals[i] {
+                            queue.push(ArrivalMsg { npc_index: i });
+                        }
+                        self.prev_arrivals[i] = arrived;
+                    }
+                }
+            }
 
             // Update MultiMesh buffer for rendering
             if self.multimesh_rid.is_valid() {
@@ -947,6 +1341,130 @@ impl EcsNpcManager {
             let backoff_packed = PackedByteArray::from(backoff_bytes.as_slice());
             gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &backoff_packed);
         }
+    }
+
+    /// Spawn a guard NPC with home position and town assignment.
+    /// Guards start in Patrolling state and will cycle through patrol posts.
+    #[func]
+    fn spawn_guard(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32) {
+        // Increment GPU_NPC_COUNT immediately
+        let idx = {
+            let mut guard = GPU_NPC_COUNT.lock().unwrap();
+            let idx = *guard;
+            if idx < MAX_NPC_COUNT {
+                *guard += 1;
+            }
+            idx
+        };
+
+        if idx >= MAX_NPC_COUNT {
+            return;
+        }
+
+        // Queue guard spawn message for Bevy ECS
+        if let Ok(mut queue) = GUARD_QUEUE.lock() {
+            queue.push(SpawnGuardMsg {
+                x, y,
+                town_idx: town_idx as u32,
+                home_x, home_y,
+                starting_post: 0,
+            });
+        }
+
+        // Upload initial data to GPU buffers immediately
+        if let Some(gpu) = self.gpu.as_mut() {
+            let (r, g, b, a) = Job::Guard.color();
+
+            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
+            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
+
+            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let color_packed = PackedByteArray::from(color_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
+
+            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
+            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
+
+            let arrival_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let arrival_packed = PackedByteArray::from(arrival_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &arrival_packed);
+
+            let backoff_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let backoff_packed = PackedByteArray::from(backoff_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &backoff_packed);
+        }
+
+        // Set initial target to first patrol post
+        if let Ok(world) = WORLD_DATA.lock() {
+            if let Some(post) = world.guard_posts.iter()
+                .find(|p| p.town_idx == town_idx as u32 && p.patrol_order == 0)
+            {
+                self.set_target(idx as i32, post.position.x, post.position.y);
+            }
+        }
+    }
+
+    /// Spawn a guard at a specific patrol post.
+    /// Guard starts OnDuty at that post and will patrol clockwise from there.
+    #[func]
+    fn spawn_guard_at_post(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32, starting_post: i32) {
+        // Increment GPU_NPC_COUNT immediately
+        let idx = {
+            let mut guard = GPU_NPC_COUNT.lock().unwrap();
+            let idx = *guard;
+            if idx < MAX_NPC_COUNT {
+                *guard += 1;
+            }
+            idx
+        };
+
+        if idx >= MAX_NPC_COUNT {
+            return;
+        }
+
+        // Queue guard spawn message for Bevy ECS
+        if let Ok(mut queue) = GUARD_QUEUE.lock() {
+            queue.push(SpawnGuardMsg {
+                x, y,
+                town_idx: town_idx as u32,
+                home_x, home_y,
+                starting_post: starting_post as u32,
+            });
+        }
+
+        // Upload initial data to GPU buffers immediately
+        if let Some(gpu) = self.gpu.as_mut() {
+            let (r, g, b, a) = Job::Guard.color();
+
+            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
+            // Target = position (guard starts at post, doesn't need to move)
+            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
+
+            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let color_packed = PackedByteArray::from(color_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
+
+            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
+            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
+
+            // Start as arrived (at post)
+            let arrival_bytes: Vec<u8> = 1i32.to_le_bytes().to_vec();
+            let arrival_packed = PackedByteArray::from(arrival_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &arrival_packed);
+
+            let backoff_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let backoff_packed = PackedByteArray::from(backoff_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &backoff_packed);
+        }
+
+        // Mark as already arrived so we don't get a spurious arrival event
+        self.prev_arrivals[idx] = true;
     }
 
     /// Set the movement target for an NPC.
@@ -1105,6 +1623,15 @@ impl EcsNpcManager {
         if let Ok(mut queue) = TARGET_QUEUE.lock() {
             queue.clear();
         }
+        if let Ok(mut queue) = GUARD_QUEUE.lock() {
+            queue.clear();
+        }
+        if let Ok(mut queue) = ARRIVAL_QUEUE.lock() {
+            queue.clear();
+        }
+        if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
+            queue.clear();
+        }
 
         // Clear world data
         if let Ok(mut world) = WORLD_DATA.lock() {
@@ -1119,6 +1646,9 @@ impl EcsNpcManager {
         if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
             farms.occupant_count.clear();
         }
+
+        // Clear prev_arrivals so guards can detect arrival on new tests
+        self.prev_arrivals.fill(false);
 
         godot_print!("[EcsNpcManager] Reset - NPC count and world data cleared");
     }
@@ -1358,6 +1888,43 @@ impl EcsNpcManager {
         if let Ok(farms) = FARM_OCCUPANCY.lock() {
             let free_farms = farms.occupant_count.iter().filter(|&&x| x < 1).count();
             dict.set("free_farms", free_farms as i32);
+        }
+        dict
+    }
+
+    /// Get guard debug info for testing.
+    /// Returns: { arrived_flags, prev_arrivals, arrival_queue_len }
+    #[func]
+    fn get_guard_debug(&mut self) -> Dictionary {
+        let mut dict = Dictionary::new();
+        if let Some(gpu) = &mut self.gpu {
+            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+
+            // Read arrival buffer
+            let arrival_bytes = gpu.rd.buffer_get_data(gpu.arrival_buffer);
+            let arrival_slice = arrival_bytes.as_slice();
+            let mut arrived_flags = 0;
+            for i in 0..npc_count {
+                if arrival_slice.len() >= (i + 1) * 4 {
+                    let val = i32::from_le_bytes([
+                        arrival_slice[i * 4],
+                        arrival_slice[i * 4 + 1],
+                        arrival_slice[i * 4 + 2],
+                        arrival_slice[i * 4 + 3],
+                    ]);
+                    if val > 0 { arrived_flags += 1; }
+                }
+            }
+
+            // Count prev_arrivals that are true
+            let prev_true = self.prev_arrivals.iter().take(npc_count).filter(|&&x| x).count();
+
+            // Get queue length
+            let queue_len = ARRIVAL_QUEUE.lock().map(|q| q.len()).unwrap_or(0);
+
+            dict.set("arrived_flags", arrived_flags as i32);
+            dict.set("prev_arrivals_true", prev_true as i32);
+            dict.set("arrival_queue_len", queue_len as i32);
         }
         dict
     }
