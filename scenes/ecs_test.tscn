@@ -69,13 +69,19 @@ custom_minimum_size = Vector2(42, 0)
 text = "5"
 tooltip_text = "Mass: Stress test"
 
+[node name="Test6" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
+custom_minimum_size = Vector2(42, 0)
+text = "6"
+tooltip_text = "World: Data API test"
+
 [node name="TestDesc" type="Label" parent="UI/DebugPanel/VBox"]
-custom_minimum_size = Vector2(0, 80)
+custom_minimum_size = Vector2(0, 100)
 text = "1: Arrive - target seeking
 2: Separation - push when overlap
 3: Both - converge then spread
 4: Circle - many NPCs inward
-5: Mass - max overlap stress"
+5: Mass - max overlap stress
+6: World - towns/farms/beds"
 autowrap_mode = 2
 
 [node name="Sep2" type="HSeparator" parent="UI/DebugPanel/VBox"]

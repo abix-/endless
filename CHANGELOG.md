@@ -27,6 +27,13 @@
 - fix test 1: check arrived count instead of position, wait 5s instead of 3s
 - add copy debug info button to test harness
 - add comprehensive documentation to lib.rs and npc_compute.glsl
+- add Chunk 4: World Data API (towns, farms, beds, guard posts as Bevy Resources)
+- add init_world(), add_town(), add_farm(), add_bed(), add_guard_post() GDScript API
+- add get_town_center(), get_camp_position(), get_patrol_post() query functions
+- add get_nearest_free_bed(), get_nearest_free_farm() for NPC assignment
+- add reserve_bed(), release_bed(), reserve_farm(), release_farm() for occupancy tracking
+- add get_world_stats() for debugging (counts and free slots)
+- add Test 6: World Data (verifies all world data API functions)
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)

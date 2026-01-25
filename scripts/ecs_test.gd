@@ -41,7 +41,8 @@ const TEST_NAMES := {
 	2: "Separation",
 	3: "Arrive+Sep",
 	4: "Circle",
-	5: "Mass"
+	5: "Mass",
+	6: "World Data"
 }
 
 
@@ -75,6 +76,7 @@ func _ready() -> void:
 	vbox.get_node("TestButtons/Test3").pressed.connect(_start_test.bind(3))
 	vbox.get_node("TestButtons/Test4").pressed.connect(_start_test.bind(4))
 	vbox.get_node("TestButtons/Test5").pressed.connect(_start_test.bind(5))
+	vbox.get_node("TestButtons/Test6").pressed.connect(_start_test.bind(6))
 	vbox.get_node("CopyButton").pressed.connect(_copy_debug_info)
 
 	if ClassDB.class_exists("EcsNpcManager"):
@@ -195,12 +197,13 @@ func _input(event: InputEvent) -> void:
 			KEY_3: _start_test(3)
 			KEY_4: _start_test(4)
 			KEY_5: _start_test(5)
+			KEY_6: _start_test(6)
 			KEY_R: _start_test(current_test)
 			KEY_ESCAPE: _show_menu()
 
 
 func _start_test(test_id: int) -> void:
-	if test_id < 1 or test_id > 5:
+	if test_id < 1 or test_id > 6:
 		return
 
 	# Reset Rust state
@@ -226,6 +229,7 @@ func _start_test(test_id: int) -> void:
 		3: _setup_test_both()
 		4: _setup_test_circle()
 		5: _setup_test_mass()
+		6: _setup_test_world_data()
 
 
 # =============================================================================
@@ -388,6 +392,161 @@ func _update_test_mass() -> void:
 
 
 # =============================================================================
+# TEST 6: World Data - Test world data API (towns, farms, beds, guard posts)
+# Purpose: Verify world data init, add, and query functions work correctly
+# =============================================================================
+func _setup_test_world_data() -> void:
+	npc_count = 4  # One per role for visual confirmation
+	test_phase = 1
+	_set_phase("Initializing world...")
+	_log("Testing world data API")
+
+	# Initialize world with 1 town
+	ecs_manager.init_world(1)
+
+	# Add town
+	ecs_manager.add_town("TestTown", CENTER.x, CENTER.y, CENTER.x + 200, CENTER.y)
+
+	# Add 2 farms (west and east of center)
+	ecs_manager.add_farm(CENTER.x - 100, CENTER.y, 0)
+	ecs_manager.add_farm(CENTER.x + 100, CENTER.y, 0)
+
+	# Add 4 beds (corners)
+	ecs_manager.add_bed(CENTER.x - 50, CENTER.y - 50, 0)
+	ecs_manager.add_bed(CENTER.x + 50, CENTER.y - 50, 0)
+	ecs_manager.add_bed(CENTER.x - 50, CENTER.y + 50, 0)
+	ecs_manager.add_bed(CENTER.x + 50, CENTER.y + 50, 0)
+
+	# Add 4 guard posts (clockwise from top-left)
+	ecs_manager.add_guard_post(CENTER.x - 80, CENTER.y - 80, 0, 0)
+	ecs_manager.add_guard_post(CENTER.x + 80, CENTER.y - 80, 0, 1)
+	ecs_manager.add_guard_post(CENTER.x + 80, CENTER.y + 80, 0, 2)
+	ecs_manager.add_guard_post(CENTER.x - 80, CENTER.y + 80, 0, 3)
+
+
+func _update_test_world_data() -> void:
+	if test_phase == 1:
+		test_phase = 2
+		_set_phase("Verifying world stats...")
+
+		# Get stats and verify counts
+		var stats: Dictionary = ecs_manager.get_world_stats()
+		var town_count: int = stats.get("town_count", 0)
+		var farm_count: int = stats.get("farm_count", 0)
+		var bed_count: int = stats.get("bed_count", 0)
+		var post_count: int = stats.get("guard_post_count", 0)
+
+		_log("towns=%d farms=%d beds=%d posts=%d" % [town_count, farm_count, bed_count, post_count])
+
+		if town_count != 1:
+			_fail("town_count=%d expected 1" % town_count)
+			return
+		if farm_count != 2:
+			_fail("farm_count=%d expected 2" % farm_count)
+			return
+		if bed_count != 4:
+			_fail("bed_count=%d expected 4" % bed_count)
+			return
+		if post_count != 4:
+			_fail("post_count=%d expected 4" % post_count)
+			return
+
+	if test_phase == 2:
+		test_phase = 3
+		_set_phase("Verifying queries...")
+
+		# Test town center query
+		var town_center: Vector2 = ecs_manager.get_town_center(0)
+		if town_center.distance_to(CENTER) > 1.0:
+			_fail("town_center wrong: %s" % town_center)
+			return
+
+		# Test camp position query
+		var camp_pos: Vector2 = ecs_manager.get_camp_position(0)
+		var expected_camp := Vector2(CENTER.x + 200, CENTER.y)
+		if camp_pos.distance_to(expected_camp) > 1.0:
+			_fail("camp_pos wrong: %s" % camp_pos)
+			return
+
+		# Test patrol post query
+		var post0: Vector2 = ecs_manager.get_patrol_post(0, 0)
+		var expected_post0 := Vector2(CENTER.x - 80, CENTER.y - 80)
+		if post0.distance_to(expected_post0) > 1.0:
+			_fail("patrol_post wrong: %s" % post0)
+			return
+
+		_log("Queries OK")
+
+	if test_phase == 3:
+		test_phase = 4
+		_set_phase("Testing reservations...")
+
+		# Test nearest free bed
+		var bed_idx: int = ecs_manager.get_nearest_free_bed(0, CENTER.x - 40, CENTER.y - 40)
+		if bed_idx < 0:
+			_fail("no free bed found")
+			return
+		_log("Nearest bed: %d" % bed_idx)
+
+		# Reserve bed
+		if not ecs_manager.reserve_bed(bed_idx, 0):
+			_fail("reserve_bed failed")
+			return
+
+		# Check bed is now occupied (stats should show 3 free)
+		var stats: Dictionary = ecs_manager.get_world_stats()
+		var free_beds: int = stats.get("free_beds", 0)
+		if free_beds != 3:
+			_fail("free_beds=%d expected 3" % free_beds)
+			return
+
+		# Release bed
+		ecs_manager.release_bed(bed_idx)
+		stats = ecs_manager.get_world_stats()
+		free_beds = stats.get("free_beds", 0)
+		if free_beds != 4:
+			_fail("free_beds=%d expected 4" % free_beds)
+			return
+
+		_log("Reservations OK")
+
+	if test_phase == 4:
+		test_phase = 5
+		_set_phase("Testing farm reservations...")
+
+		# Test nearest free farm
+		var farm_idx: int = ecs_manager.get_nearest_free_farm(0, CENTER.x - 80, CENTER.y)
+		if farm_idx < 0:
+			_fail("no free farm found")
+			return
+		_log("Nearest farm: %d" % farm_idx)
+
+		# Reserve farm
+		if not ecs_manager.reserve_farm(farm_idx):
+			_fail("reserve_farm failed")
+			return
+
+		# Check farm is now occupied (1 free left)
+		var stats: Dictionary = ecs_manager.get_world_stats()
+		var free_farms: int = stats.get("free_farms", 0)
+		if free_farms != 1:
+			_fail("free_farms=%d expected 1" % free_farms)
+			return
+
+		# Release farm
+		ecs_manager.release_farm(farm_idx)
+		stats = ecs_manager.get_world_stats()
+		free_farms = stats.get("free_farms", 0)
+		if free_farms != 2:
+			_fail("free_farms=%d expected 2" % free_farms)
+			return
+
+		_log("Farm reservations OK")
+		_pass()
+		_set_phase("All world data tests passed")
+
+
+# =============================================================================
 # DRAWING (visual markers)
 # =============================================================================
 func _draw() -> void:
@@ -427,6 +586,7 @@ func _process(delta: float) -> void:
 			3: _update_test_both()
 			4: _update_test_circle()
 			5: _update_test_mass()
+			6: _update_test_world_data()
 
 
 func _update_metrics() -> void:

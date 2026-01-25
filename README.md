@@ -215,7 +215,7 @@ shaders/
   separation_compute.glsl  # GPU spatial hash + separation forces
   npc_compute.glsl         # All-in-one: movement + separation + render
 scenes/
-  ecs_test.tscn         # Isolated behavior tests (arrive, separation, mass)
+  ecs_test.tscn         # 6 behavior tests (arrive, sep, both, circle, mass, world)
   bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
 scripts/
   ecs_test.gd           # 5 test scenarios with configurable NPC count
@@ -336,9 +336,13 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()`
 - [ ] Result: 10K+ NPCs with separation forces
 
-**Chunk 4: World Data**
-- [ ] Towns, patrol posts, beds, farms as Bevy Resources
-- [ ] Upload world layout to GPU buffers
+**Chunk 4: World Data** ← IN PROGRESS
+- [x] Towns, patrol posts, beds, farms as Bevy Resources
+- [x] GDScript API: init_world, add_town/farm/bed/guard_post
+- [x] Query API: get_town_center, get_camp_position, get_patrol_post
+- [x] Query API: get_nearest_free_bed/farm
+- [x] Occupancy API: reserve/release bed/farm
+- [ ] Wire up main.gd to sync world data on game start
 - [ ] Result: Bevy + GPU know the world layout
 
 **Chunk 5: Guard Logic**
@@ -372,8 +376,9 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 |-------|------|-----|--------|
 | GDScript baseline | 3,000 | 60 | Reference |
 | Chunk 1-2 (CPU Bevy) | 5,000 | 60+ | ✅ Done |
-| Chunk 3 (GPU physics) | 10,000+ | 140 | 🔄 In Progress |
-| Chunk 4-9 (full game) | 10,000+ | 60+ | Planned |
+| Chunk 3 (GPU physics) | 10,000+ | 140 | ✅ Done |
+| Chunk 4 (world data) | 10,000+ | 140 | 🔄 In Progress |
+| Chunk 5-9 (full game) | 10,000+ | 60+ | Planned |
 | Zero-copy optimization | 20,000+ | 60+ | Future |
 
 ## Credits

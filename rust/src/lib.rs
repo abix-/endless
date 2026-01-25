@@ -46,7 +46,7 @@ use godot_bevy::prelude::*;
 use godot::classes::{RenderingServer, RenderingDevice, RdUniform, QuadMesh, INode2D};
 use godot::classes::rendering_device::UniformType;
 use godot::classes::ResourceLoader;
-use std::sync::Mutex;
+use std::sync::{Mutex, LazyLock};
 
 // ============================================================================
 // CONSTANTS - Tuning parameters for the NPC system
@@ -89,6 +89,66 @@ const FLOATS_PER_INSTANCE: usize = 12;
 /// Size of push constants passed to the compute shader.
 /// Must match the PushConstants struct in npc_compute.glsl (48 bytes with padding).
 const PUSH_CONSTANTS_SIZE: usize = 48;
+
+// ============================================================================
+// WORLD DATA STRUCTS - Towns, farms, beds, guard posts
+// ============================================================================
+
+/// A town with its center position and associated raider camp.
+#[derive(Clone, Debug)]
+pub struct Town {
+    pub name: String,
+    pub center: Vector2,
+    pub camp_position: Vector2,
+}
+
+/// A farm building that farmers work at.
+#[derive(Clone, Debug)]
+pub struct Farm {
+    pub position: Vector2,
+    pub town_idx: u32,
+}
+
+/// A bed where NPCs sleep.
+#[derive(Clone, Debug)]
+pub struct Bed {
+    pub position: Vector2,
+    pub town_idx: u32,
+}
+
+/// A guard post where guards patrol.
+#[derive(Clone, Debug)]
+pub struct GuardPost {
+    pub position: Vector2,
+    pub town_idx: u32,
+    /// Patrol order (0-3 for clockwise perimeter)
+    pub patrol_order: u32,
+}
+
+// ============================================================================
+// WORLD RESOURCES - Shared world state accessible by all systems
+// ============================================================================
+
+/// Contains all world layout data (immutable after init).
+#[derive(Resource, Default)]
+pub struct WorldData {
+    pub towns: Vec<Town>,
+    pub farms: Vec<Farm>,
+    pub beds: Vec<Bed>,
+    pub guard_posts: Vec<GuardPost>,
+}
+
+/// Tracks which NPCs occupy each bed (-1 = free).
+#[derive(Resource, Default)]
+pub struct BedOccupancy {
+    pub occupant_npc: Vec<i32>,
+}
+
+/// Tracks how many NPCs are working at each farm.
+#[derive(Resource, Default)]
+pub struct FarmOccupancy {
+    pub occupant_count: Vec<i32>,
+}
 
 // ============================================================================
 // ECS COMPONENTS - Bevy entities have these attached
@@ -224,6 +284,15 @@ static TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
 /// Authoritative NPC count. Updated immediately on spawn (not waiting for Bevy).
 /// This ensures GPU gets correct count even before Bevy processes the spawn message.
 static GPU_NPC_COUNT: Mutex<usize> = Mutex::new(0);
+
+/// World data (towns, farms, beds, guard posts). Initialized once from GDScript.
+static WORLD_DATA: LazyLock<Mutex<WorldData>> = LazyLock::new(|| Mutex::new(WorldData::default()));
+
+/// Bed occupancy tracking (-1 = free, >= 0 = NPC index).
+static BED_OCCUPANCY: LazyLock<Mutex<BedOccupancy>> = LazyLock::new(|| Mutex::new(BedOccupancy::default()));
+
+/// Farm occupancy tracking (count of NPCs working at each farm).
+static FARM_OCCUPANCY: LazyLock<Mutex<FarmOccupancy>> = LazyLock::new(|| Mutex::new(FarmOccupancy::default()));
 
 // ============================================================================
 // SPATIAL GRID - O(n) neighbor lookup for collision detection
@@ -686,6 +755,9 @@ fn build_app(app: &mut bevy::prelude::App) {
        .add_message::<SetTargetMsg>()
        .init_resource::<NpcCount>()
        .init_resource::<GpuData>()
+       .init_resource::<WorldData>()
+       .init_resource::<BedOccupancy>()
+       .init_resource::<FarmOccupancy>()
        // Systems run in order: drain queues -> process spawns -> apply targets
        .add_systems(bevy::prelude::Update, (
            drain_spawn_queue,
@@ -1034,6 +1106,259 @@ impl EcsNpcManager {
             queue.clear();
         }
 
-        godot_print!("[EcsNpcManager] Reset - NPC count cleared");
+        // Clear world data
+        if let Ok(mut world) = WORLD_DATA.lock() {
+            world.towns.clear();
+            world.farms.clear();
+            world.beds.clear();
+            world.guard_posts.clear();
+        }
+        if let Ok(mut beds) = BED_OCCUPANCY.lock() {
+            beds.occupant_npc.clear();
+        }
+        if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
+            farms.occupant_count.clear();
+        }
+
+        godot_print!("[EcsNpcManager] Reset - NPC count and world data cleared");
+    }
+
+    // ========================================================================
+    // WORLD DATA API - Initialize world layout from GDScript
+    // ========================================================================
+
+    /// Initialize world data storage. Call once after world generation.
+    #[func]
+    fn init_world(&mut self, town_count: i32) {
+        if let Ok(mut world) = WORLD_DATA.lock() {
+            world.towns = Vec::with_capacity(town_count as usize);
+            world.farms = Vec::new();
+            world.beds = Vec::new();
+            world.guard_posts = Vec::new();
+        }
+        if let Ok(mut beds) = BED_OCCUPANCY.lock() {
+            beds.occupant_npc = Vec::new();
+        }
+        if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
+            farms.occupant_count = Vec::new();
+        }
+        godot_print!("[EcsNpcManager] World initialized for {} towns", town_count);
+    }
+
+    /// Add a town to the world.
+    #[func]
+    fn add_town(&mut self, name: GString, center_x: f32, center_y: f32, camp_x: f32, camp_y: f32) {
+        if let Ok(mut world) = WORLD_DATA.lock() {
+            world.towns.push(Town {
+                name: name.to_string(),
+                center: Vector2::new(center_x, center_y),
+                camp_position: Vector2::new(camp_x, camp_y),
+            });
+        }
+    }
+
+    /// Add a farm to the world.
+    #[func]
+    fn add_farm(&mut self, x: f32, y: f32, town_idx: i32) {
+        if let Ok(mut world) = WORLD_DATA.lock() {
+            world.farms.push(Farm {
+                position: Vector2::new(x, y),
+                town_idx: town_idx as u32,
+            });
+        }
+        if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
+            farms.occupant_count.push(0);
+        }
+    }
+
+    /// Add a bed to the world.
+    #[func]
+    fn add_bed(&mut self, x: f32, y: f32, town_idx: i32) {
+        if let Ok(mut world) = WORLD_DATA.lock() {
+            world.beds.push(Bed {
+                position: Vector2::new(x, y),
+                town_idx: town_idx as u32,
+            });
+        }
+        if let Ok(mut beds) = BED_OCCUPANCY.lock() {
+            beds.occupant_npc.push(-1); // -1 = free
+        }
+    }
+
+    /// Add a guard post to the world.
+    #[func]
+    fn add_guard_post(&mut self, x: f32, y: f32, town_idx: i32, patrol_order: i32) {
+        if let Ok(mut world) = WORLD_DATA.lock() {
+            world.guard_posts.push(GuardPost {
+                position: Vector2::new(x, y),
+                town_idx: town_idx as u32,
+                patrol_order: patrol_order as u32,
+            });
+        }
+    }
+
+    // ========================================================================
+    // WORLD QUERY API - Query world data from GDScript
+    // ========================================================================
+
+    /// Get the center position of a town.
+    #[func]
+    fn get_town_center(&self, town_idx: i32) -> Vector2 {
+        if let Ok(world) = WORLD_DATA.lock() {
+            if let Some(town) = world.towns.get(town_idx as usize) {
+                return town.center;
+            }
+        }
+        Vector2::ZERO
+    }
+
+    /// Get the camp position for a town's raiders.
+    #[func]
+    fn get_camp_position(&self, town_idx: i32) -> Vector2 {
+        if let Ok(world) = WORLD_DATA.lock() {
+            if let Some(town) = world.towns.get(town_idx as usize) {
+                return town.camp_position;
+            }
+        }
+        Vector2::ZERO
+    }
+
+    /// Get the position of a guard post by town and patrol order.
+    #[func]
+    fn get_patrol_post(&self, town_idx: i32, patrol_order: i32) -> Vector2 {
+        if let Ok(world) = WORLD_DATA.lock() {
+            for post in &world.guard_posts {
+                if post.town_idx == town_idx as u32 && post.patrol_order == patrol_order as u32 {
+                    return post.position;
+                }
+            }
+        }
+        Vector2::ZERO
+    }
+
+    /// Get the nearest free bed in a town. Returns bed index or -1 if none free.
+    #[func]
+    fn get_nearest_free_bed(&self, town_idx: i32, x: f32, y: f32) -> i32 {
+        let pos = Vector2::new(x, y);
+        let mut best_idx: i32 = -1;
+        let mut best_dist = f32::MAX;
+
+        if let (Ok(world), Ok(beds)) = (WORLD_DATA.lock(), BED_OCCUPANCY.lock()) {
+            for (i, bed) in world.beds.iter().enumerate() {
+                if bed.town_idx != town_idx as u32 {
+                    continue;
+                }
+                if i >= beds.occupant_npc.len() {
+                    continue;
+                }
+                if beds.occupant_npc[i] >= 0 {
+                    continue; // occupied
+                }
+                let dist = pos.distance_to(bed.position);
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_idx = i as i32;
+                }
+            }
+        }
+        best_idx
+    }
+
+    /// Get the nearest free farm in a town. Returns farm index or -1 if none free.
+    /// A farm is "free" if occupant_count < 1 (1 farmer per farm max).
+    #[func]
+    fn get_nearest_free_farm(&self, town_idx: i32, x: f32, y: f32) -> i32 {
+        let pos = Vector2::new(x, y);
+        let mut best_idx: i32 = -1;
+        let mut best_dist = f32::MAX;
+
+        if let (Ok(world), Ok(farms)) = (WORLD_DATA.lock(), FARM_OCCUPANCY.lock()) {
+            for (i, farm) in world.farms.iter().enumerate() {
+                if farm.town_idx != town_idx as u32 {
+                    continue;
+                }
+                if i >= farms.occupant_count.len() {
+                    continue;
+                }
+                if farms.occupant_count[i] >= 1 {
+                    continue; // occupied
+                }
+                let dist = pos.distance_to(farm.position);
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_idx = i as i32;
+                }
+            }
+        }
+        best_idx
+    }
+
+    /// Reserve a bed for an NPC. Returns true if successful.
+    #[func]
+    fn reserve_bed(&mut self, bed_idx: i32, npc_idx: i32) -> bool {
+        if let Ok(mut beds) = BED_OCCUPANCY.lock() {
+            let idx = bed_idx as usize;
+            if idx < beds.occupant_npc.len() && beds.occupant_npc[idx] < 0 {
+                beds.occupant_npc[idx] = npc_idx;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Release a bed reservation.
+    #[func]
+    fn release_bed(&mut self, bed_idx: i32) {
+        if let Ok(mut beds) = BED_OCCUPANCY.lock() {
+            let idx = bed_idx as usize;
+            if idx < beds.occupant_npc.len() {
+                beds.occupant_npc[idx] = -1;
+            }
+        }
+    }
+
+    /// Reserve a farm slot. Returns true if successful.
+    #[func]
+    fn reserve_farm(&mut self, farm_idx: i32) -> bool {
+        if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
+            let idx = farm_idx as usize;
+            if idx < farms.occupant_count.len() && farms.occupant_count[idx] < 1 {
+                farms.occupant_count[idx] += 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Release a farm reservation.
+    #[func]
+    fn release_farm(&mut self, farm_idx: i32) {
+        if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
+            let idx = farm_idx as usize;
+            if idx < farms.occupant_count.len() && farms.occupant_count[idx] > 0 {
+                farms.occupant_count[idx] -= 1;
+            }
+        }
+    }
+
+    /// Get world data stats for debugging.
+    #[func]
+    fn get_world_stats(&self) -> Dictionary {
+        let mut dict = Dictionary::new();
+        if let Ok(world) = WORLD_DATA.lock() {
+            dict.set("town_count", world.towns.len() as i32);
+            dict.set("farm_count", world.farms.len() as i32);
+            dict.set("bed_count", world.beds.len() as i32);
+            dict.set("guard_post_count", world.guard_posts.len() as i32);
+        }
+        if let Ok(beds) = BED_OCCUPANCY.lock() {
+            let free_beds = beds.occupant_npc.iter().filter(|&&x| x < 0).count();
+            dict.set("free_beds", free_beds as i32);
+        }
+        if let Ok(farms) = FARM_OCCUPANCY.lock() {
+            let free_farms = farms.occupant_count.iter().filter(|&&x| x < 1).count();
+            dict.set("free_farms", free_farms as i32);
+        }
+        dict
     }
 }
