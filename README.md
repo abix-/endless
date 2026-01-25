@@ -249,44 +249,81 @@ Key values in `autoloads/config.gd`:
 
 Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
 
+### Correct Architecture (from research)
+
+**All game state should live in Bevy ECS.** GDScript becomes a thin presentation layer.
+
+References:
+- [godot-bevy Book](https://bytemeadow.github.io/godot-bevy/getting-started/basic-concepts.html)
+- [FSM in ECS (Richard Lord)](https://www.richardlord.net/blog/ecs/finite-state-machines-with-ash)
+- [ECS Design Decisions](https://arielcoppes.dev/2023/07/13/design-decisions-when-building-games-using-ecs.html)
+
+**Wrong (current push/pull bridge):**
+```
+GDScript arrays ──push──▶ Rust ──pull──▶ GDScript applies
+     ↑                                         │
+     └─────────── state duplicated ────────────┘
+```
+
+**Right (Bevy owns state):**
+```
+Bevy ECS (owns all state)
+    ├── Components: Position, State, Job, Energy, Health, Target
+    ├── Systems: guard_decision, farmer_decision, movement, combat
+    └──▶ Godot (presentation only)
+         - Reads positions for rendering
+         - Sends input events
+         - Displays UI
+```
+
+**State as components, not enums:**
+```rust
+// Instead of: states[i] = State::Patrolling
+// Use marker components - state = component presence
+#[derive(Component)] struct Patrolling;
+#[derive(Component)] struct Fighting;
+
+fn patrol_system(query: Query<&mut Target, With<Patrolling>>) { ... }
+```
+
 ### Current State (Phase 1 complete)
 - [x] GPU compute shader for separation forces (`shaders/npc_compute.glsl`)
 - [x] 10,000 NPCs @ 140fps (release build)
 - [x] Spatial grid built on CPU, uploaded to GPU each frame
 - [x] Godot RenderingDevice with submit/sync pipeline
 - [x] Bulk `set_buffer()` MultiMesh rendering
-- [x] godot-bevy 0.10 entry point (Bevy App ready for state machine)
+- [x] godot-bevy integration (Bevy App running)
 
-### Phase 2: State Machine Migration (in progress)
-Move NPC decision logic to Bevy ECS:
-- [x] Define ECS components (State, Job, Energy, Health, Position)
-- [x] Guard decision system (patrol logic)
-- [ ] Farmer decision system
-- [ ] Raider decision system
-- [x] Bridge: GDScript pushes data, pulls state changes (NpcStateMachine node)
+### Phase 2: Data Ownership Migration
+Move state ownership from GDScript to Bevy ECS:
+- [x] Temporary bridge working (push/pull pattern - to be replaced)
+- [ ] NPC data as ECS components (Position, Velocity, Health, Energy)
+- [ ] State as marker components (Patrolling, Fighting, Farming, etc.)
+- [ ] World data as ECS resources (towns, farms, beds, patrol posts)
+- [ ] GDScript reads from Bevy for rendering (no duplicate state)
 
-### Phase 3: Full Game Logic
-Move hot paths from GDScript to Rust:
-- [ ] State machine (IDLE, FARMING, FIGHTING, FLEEING, etc.)
-- [ ] Decision trees (`decide_what_to_do()`)
-- [ ] Combat targeting and damage
-- [ ] Energy/needs system
+### Phase 3: Full Game Logic in ECS
+All decision systems in Bevy:
+- [ ] Guard systems (patrol, combat, rest)
+- [ ] Farmer systems (work, flee, rest)
+- [ ] Raider systems (raid, fight, deliver, rest)
+- [ ] Combat system (targeting, damage, death)
+- [ ] Needs system (energy drain, HP regen)
 
-Keep in GDScript: UI, menus, save/load, signals.
+Keep in GDScript: UI, menus, save/load, input forwarding.
 
 ### Phase 4: Zero-Copy Rendering
-Eliminate CPU→GPU copy for rendering:
+Eliminate CPU→GPU copy:
 - [ ] Get MultiMesh buffer RID via `multimesh_get_buffer_rd_rid()`
-- [ ] Write positions directly from compute shader to MultiMesh buffer
-- [ ] Compute shader: separation + position update + buffer write in one dispatch
+- [ ] Compute shader writes directly to MultiMesh buffer
+- [ ] Single dispatch: separation + position + buffer write
 
-### Architecture After Migration
+### Target Architecture
 
 ```
 ┌──────────────────┐     ┌─────────────────┐     ┌──────────────┐
-│   Rust (Bevy)    │────▶│  GPU Compute    │────▶│  MultiMesh   │
-│   Game Logic     │     │  Separation +   │     │  Rendering   │
-│   State/Decisions│     │  Position Write │     │  (zero-copy) │
+│   Bevy ECS       │────▶│  GPU Compute    │────▶│  MultiMesh   │
+│   (owns state)   │     │  (separation)   │     │  (rendering) │
 └──────────────────┘     └─────────────────┘     └──────────────┘
         │                                               │
         └───────────── GDScript (UI only) ◀────────────┘
@@ -298,8 +335,8 @@ Eliminate CPU→GPU copy for rendering:
 |-------|------|-----|------------|
 | Current GDScript | 3,000 | 60 | CPU (GDScript overhead) |
 | Phase 1 (GPU separation) | 10,000 | 140 | ✅ Achieved |
-| Phase 2 (integrated) | 10,000+ | 60+ | CPU↔GPU sync |
-| Phase 3 (game logic) | 15,000+ | 60+ | Rust overhead |
+| Phase 2 (data ownership) | 10,000+ | 60+ | Migration work |
+| Phase 3 (full ECS) | 15,000+ | 60+ | Rust overhead |
 | Phase 4 (zero-copy) | 20,000+ | 60+ | GPU fill rate |
 
 ## Credits
