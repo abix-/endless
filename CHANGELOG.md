@@ -2,7 +2,6 @@
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)
-- add GPU compute shader for NPC separation forces
 - add parallel processing thread-safe state transitions (pending arrivals)
 - add co-movement separation reduction (groups move without oscillation)
 - add velocity damping for smooth collision avoidance
@@ -15,9 +14,10 @@
 - add farm click menu (shows occupant name)
 - fix farmers entering FARMING state without farm reservation
 - disable NPC size scaling with levels
-- add Rust/Bevy ECS POC: 10,000 NPCs @ 140fps (release build, 2x debug)
-- add GPU compute shader separation with spatial grid (Phase 1 complete)
-- add godot-bevy integration (replaces manual GDExtension entry)
+- add Rust GDExtension with GPU compute: 10,000 NPCs @ 140fps
+- add npc_compute.glsl shader (separation forces on GPU via Godot RenderingDevice)
+- add spatial grid for O(n) neighbor lookup (128x128 cells, 48 NPCs/cell max)
+- add godot-bevy 0.10 integration (Bevy App ready for state machine migration)
 
 ## 2026-01-20
 - add noise-based terrain with grass, forest, water, rock biomes

@@ -250,12 +250,12 @@ Key values in `autoloads/config.gd`:
 Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
 
 ### Current State (Phase 1 complete)
-- [x] godot-bevy integration (Bevy App running alongside Godot)
+- [x] GPU compute shader for separation forces (`shaders/npc_compute.glsl`)
 - [x] 10,000 NPCs @ 140fps (release build)
-- [x] Bulk `set_buffer()` rendering (1 call vs 5000 per-instance calls)
-- [x] GPU compute shader for separation forces
 - [x] Spatial grid built on CPU, uploaded to GPU each frame
-- [x] Local RenderingDevice with submit/sync pipeline
+- [x] Godot RenderingDevice with submit/sync pipeline
+- [x] Bulk `set_buffer()` MultiMesh rendering
+- [x] godot-bevy 0.10 entry point (Bevy App ready for state machine)
 
 ### Phase 2: State Machine Migration
 Move NPC decision logic to Bevy ECS:
