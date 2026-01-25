@@ -9,5 +9,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 godot = "0.4"
-bevy_app = "0.17"
-bevy_ecs = "0.17"
+godot-bevy = "0.10"
+bevy = { version = "0.17", default-features = false }
