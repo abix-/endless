@@ -416,14 +416,25 @@ func _process(delta: float) -> void:
 
 func _update_metrics() -> void:
 	time_label.text = "Time: %.2fs" % test_timer
-	expected_label.text = "Target: %dpx sep" % int(SEP_RADIUS)
 	if npc_count > 1 and ecs_manager:
 		var min_sep := _get_min_separation()
 		distance_label.text = "Min sep: %.1fpx" % min_sep
-		velocity_label.text = "Pass if >= %.0fpx" % SEP_RADIUS
+
+		# Get debug stats from Rust
+		if ecs_manager.has_method("get_debug_stats"):
+			var stats: Dictionary = ecs_manager.get_debug_stats()
+			var arrived: int = stats.get("arrived_count", 0)
+			var max_bo: int = stats.get("max_backoff", 0)
+			velocity_label.text = "Arrived: %d/%d" % [arrived, npc_count]
+			expected_label.text = "Max backoff: %d" % max_bo
+		else:
+			velocity_label.text = "Pass if >= %.0fpx" % SEP_RADIUS
+			expected_label.text = "Target: %dpx sep" % int(SEP_RADIUS)
 	elif npc_count == 1:
 		distance_label.text = "Min sep: n/a"
 		velocity_label.text = "(single NPC)"
+		expected_label.text = "--"
 	else:
 		distance_label.text = "Min sep: --"
 		velocity_label.text = "--"
+		expected_label.text = "--"

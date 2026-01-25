@@ -20,7 +20,7 @@ const GRID_CELLS: usize = GRID_WIDTH * GRID_HEIGHT;
 const MAX_PER_CELL: usize = 48;
 const CELL_SIZE: f32 = 64.0;
 const SEPARATION_RADIUS: f32 = 20.0;
-const SEPARATION_STRENGTH: f32 = 200.0;
+const SEPARATION_STRENGTH: f32 = 100.0;
 const ARRIVAL_THRESHOLD: f32 = 8.0;
 const FLOATS_PER_INSTANCE: usize = 12;
 const PUSH_CONSTANTS_SIZE: usize = 48;  // 12 fields * 4 bytes (with alignment padding)
@@ -176,6 +176,7 @@ struct GpuCompute {
     grid_data_buffer: Rid,
     multimesh_buffer: Rid,
     arrival_buffer: Rid,
+    backoff_buffer: Rid,
     uniform_set: Rid,
     grid: SpatialGrid,
     positions: Vec<f32>,
@@ -211,11 +212,13 @@ impl GpuCompute {
         let grid_data_buffer = rd.storage_buffer_create((GRID_CELLS * MAX_PER_CELL * 4) as u32);
         let multimesh_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * FLOATS_PER_INSTANCE * 4) as u32);
         let arrival_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
+        let backoff_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
 
         let uniform_set = Self::create_uniform_set(
             &mut rd, shader,
             position_buffer, target_buffer, color_buffer, speed_buffer,
             grid_counts_buffer, grid_data_buffer, multimesh_buffer, arrival_buffer,
+            backoff_buffer,
         )?;
 
         godot_print!("[GPU] Compute shader initialized");
@@ -232,6 +235,7 @@ impl GpuCompute {
             grid_data_buffer,
             multimesh_buffer,
             arrival_buffer,
+            backoff_buffer,
             uniform_set,
             grid: SpatialGrid::new(),
             positions: vec![0.0; MAX_NPC_COUNT * 2],
@@ -249,6 +253,7 @@ impl GpuCompute {
         grid_data_buffer: Rid,
         multimesh_buffer: Rid,
         arrival_buffer: Rid,
+        backoff_buffer: Rid,
     ) -> Option<Rid> {
         let mut uniforms = Array::new();
 
@@ -261,6 +266,7 @@ impl GpuCompute {
             (5, grid_data_buffer),
             (6, multimesh_buffer),
             (7, arrival_buffer),
+            (8, backoff_buffer),
         ];
 
         for (binding, buffer) in buffers {
@@ -611,6 +617,11 @@ impl EcsNpcManager {
             let arrival_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
             let arrival_packed = PackedByteArray::from(arrival_bytes.as_slice());
             gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &arrival_packed);
+
+            // Initialize backoff counter to 0
+            let backoff_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let backoff_packed = PackedByteArray::from(backoff_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &backoff_packed);
         }
     }
 
@@ -644,6 +655,16 @@ impl EcsNpcManager {
                     4,
                     &arrival_packed
                 );
+
+                // Reset backoff counter for new target
+                let backoff_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+                let backoff_packed = PackedByteArray::from(backoff_bytes.as_slice());
+                gpu.rd.buffer_update(
+                    gpu.backoff_buffer,
+                    (idx * 4) as u32,
+                    4,
+                    &backoff_packed
+                );
             }
         }
     }
@@ -651,6 +672,54 @@ impl EcsNpcManager {
     #[func]
     fn get_npc_count(&self) -> i32 {
         GPU_NPC_COUNT.lock().map(|c| *c as i32).unwrap_or(0)
+    }
+
+    #[func]
+    fn get_debug_stats(&mut self) -> Dictionary {
+        let mut dict = Dictionary::new();
+        if let Some(gpu) = &mut self.gpu {
+            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+
+            // Read arrival buffer
+            let arrival_bytes = gpu.rd.buffer_get_data(gpu.arrival_buffer);
+            let arrival_slice = arrival_bytes.as_slice();
+            let mut arrived_count = 0;
+            for i in 0..npc_count {
+                if arrival_slice.len() >= (i + 1) * 4 {
+                    let val = i32::from_le_bytes([
+                        arrival_slice[i * 4],
+                        arrival_slice[i * 4 + 1],
+                        arrival_slice[i * 4 + 2],
+                        arrival_slice[i * 4 + 3],
+                    ]);
+                    if val > 0 { arrived_count += 1; }
+                }
+            }
+
+            // Read backoff buffer
+            let backoff_bytes = gpu.rd.buffer_get_data(gpu.backoff_buffer);
+            let backoff_slice = backoff_bytes.as_slice();
+            let mut total_backoff = 0i32;
+            let mut max_backoff = 0i32;
+            for i in 0..npc_count {
+                if backoff_slice.len() >= (i + 1) * 4 {
+                    let val = i32::from_le_bytes([
+                        backoff_slice[i * 4],
+                        backoff_slice[i * 4 + 1],
+                        backoff_slice[i * 4 + 2],
+                        backoff_slice[i * 4 + 3],
+                    ]);
+                    total_backoff += val;
+                    if val > max_backoff { max_backoff = val; }
+                }
+            }
+
+            dict.set("npc_count", npc_count as i32);
+            dict.set("arrived_count", arrived_count);
+            dict.set("avg_backoff", if npc_count > 0 { total_backoff / npc_count as i32 } else { 0 });
+            dict.set("max_backoff", max_backoff);
+        }
+        dict
     }
 
     #[func]

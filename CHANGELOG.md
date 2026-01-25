@@ -16,6 +16,11 @@
 - add TDD assertions: get_npc_position(), _assert_all_separated(), PASS/FAIL state
 - add real-time min separation metric display
 - add GPL 3.0 license
+- add unified collision avoidance system (merged separation + blocking detection)
+- add TCP-style exponential backoff for blocked NPCs (give up after 120 frames)
+- add backoff buffer (binding 8) for per-NPC collision counter
+- add get_debug_stats() for GPU state inspection (arrived count, max backoff)
+- reduce separation strength from 200 to 100
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)

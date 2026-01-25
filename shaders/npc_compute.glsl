@@ -42,6 +42,11 @@ layout(set = 0, binding = 7, std430) buffer ArrivalBuffer {
     int arrivals[];
 };
 
+// Backoff counter (TCP-style collision avoidance)
+layout(set = 0, binding = 8, std430) buffer BackoffBuffer {
+    int backoff[];
+};
+
 layout(push_constant) uniform PushConstants {
     uint npc_count;          // 0-4
     float separation_radius; // 4-8
@@ -61,38 +66,25 @@ void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i >= params.npc_count) return;
 
+    // === READ STATE ===
     vec2 pos = positions[i];
     vec2 target = targets[i];
     float speed = speeds[i];
     vec4 color = colors[i];
-    int already_arrived = arrivals[i];
+    int settled = arrivals[i];  // 1 = given up trying to reach target
+    int my_backoff = backoff[i];
 
-    // Check if should move toward target
-    // Once arrived (arrivals[i] == 1), stay arrived - don't chase target again
     vec2 to_target = target - pos;
     float dist_to_target = length(to_target);
+    bool wants_target = color.a > 0.0 && settled == 0;
 
-    vec2 vel = vec2(0.0);
-    bool has_target = color.a > 0.0 && already_arrived == 0 && dist_to_target > params.arrival_threshold;
-
-    if (has_target) {
-        // Move toward target
-        vel = normalize(to_target) * speed;
-    }
-
-    // Mark as arrived once we get close (persistent - won't move toward target again)
-    if (dist_to_target <= params.arrival_threshold) {
-        arrivals[i] = 1;
-    }
-
-    // Compute separation force via spatial grid
-    vec2 sep = vec2(0.0);
+    // === STEP 1: AVOIDANCE (push away from neighbors) ===
+    vec2 avoidance = vec2(0.0);
     float sep_radius_sq = params.separation_radius * params.separation_radius;
 
     int cx = clamp(int(pos.x / params.cell_size), 0, int(params.grid_width) - 1);
     int cy = clamp(int(pos.y / params.cell_size), 0, int(params.grid_height) - 1);
 
-    // Check 3x3 neighboring cells
     for (int dy = -1; dy <= 1; dy++) {
         int ny = cy + dy;
         if (ny < 0 || ny >= int(params.grid_height)) continue;
@@ -115,32 +107,56 @@ void main() {
 
                 if (dist_sq < sep_radius_sq) {
                     if (dist_sq < 0.0001) {
-                        // Nearly identical positions - use index-based direction
-                        float angle = float(i) * 2.399 + float(j) * 0.7;  // Golden angle
+                        float angle = float(i) * 2.399 + float(j) * 0.7;
                         diff = vec2(cos(angle), sin(angle));
-                        sep += diff * params.separation_radius;
+                        avoidance += diff * params.separation_radius;
                     } else {
                         float dist = sqrt(dist_sq);
-                        // Closeness: how much we overlap (0 at edge, max at center)
-                        float closeness = params.separation_radius - dist;
-                        // Accumulate push proportional to closeness (no normalization)
-                        sep += diff * (closeness / dist);
+                        float overlap = params.separation_radius - dist;
+                        avoidance += diff * (overlap / dist);
                     }
                 }
             }
         }
     }
+    avoidance *= params.separation_strength;
 
-    // Apply separation strength (no normalization - more neighbors = more push)
-    sep *= params.separation_strength;
+    // === STEP 2: MOVEMENT (toward target, reduced by backoff) ===
+    vec2 movement = vec2(0.0);
+    if (wants_target && dist_to_target > params.arrival_threshold) {
+        float persistence = 1.0 / float(1 + my_backoff);
+        movement = normalize(to_target) * speed * persistence;
+    }
 
-    // Update position
-    pos += (vel + sep) * params.delta;
+    // === STEP 3: DETECT BLOCKING ===
+    if (wants_target && length(avoidance) > 0.0 && dist_to_target > params.arrival_threshold) {
+        vec2 goal_dir = normalize(to_target);
+        vec2 push_dir = normalize(avoidance);
+        float blocked = dot(push_dir, goal_dir);
 
-    // Write updated position back
+        if (blocked < -0.2) {
+            my_backoff++;
+            if (my_backoff > 120) {
+                settled = 1;
+            }
+        } else if (blocked > 0.2) {
+            my_backoff = max(0, my_backoff - 2);
+        } else {
+            my_backoff = max(0, my_backoff - 1);
+        }
+    } else if (wants_target && dist_to_target <= params.arrival_threshold) {
+        settled = 1;
+    } else {
+        my_backoff = max(0, my_backoff - 1);
+    }
+
+    // === STEP 4: APPLY ===
+    pos += (movement + avoidance) * params.delta;
+
+    // === WRITE STATE ===
     positions[i] = pos;
-
-    // Note: arrival is now checked before movement and persists
+    arrivals[i] = settled;
+    backoff[i] = my_backoff;
 
     // Write to MultiMesh buffer (12 floats per instance)
     uint base = i * 12;
