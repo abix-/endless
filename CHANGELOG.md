@@ -55,6 +55,7 @@
 - fix test harness perf: throttle get_debug_stats() GPU reads to once per second
 - fix test harness perf: run O(n²) assertions once per test, not every frame after timer
 - remove console log spam: debug info now UI-only (no godot_print/print calls)
+- add "Collect Metrics" toggle to disable O(n²) min separation and GPU reads
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)
