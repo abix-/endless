@@ -268,6 +268,16 @@ Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk r
 - [x] Chunk 1: EcsNpcManager spawns entities, renders via MultiMesh
 - [x] Chunk 2: CPU movement with velocity, target, arrival detection
 
+### GPU-First Architecture (Target)
+
+Following [Simon Green's CUDA Particles](https://developer.download.nvidia.com/assets/cuda/files/particles.pdf) approach for maximum performance:
+
+1. **GPU Grid Construction** - Build spatial grid entirely on GPU (hash → sort → prefix sum)
+2. **GPU Targeting Queries** - Find enemies within range on GPU, output target indices
+3. **CPU reads targeting results only** - Minimal GPU→CPU transfer (just target indices)
+
+Why: Sorting-based GPU grids achieve better memory coherence than CPU-built grids. At 10K+ NPCs, GPU parallelism dominates. See [Building An Efficient Grid On GPU (2024)](https://arxiv.org/html/2403.10647v1).
+
 ### Architecture
 
 **Bevy ECS owns logical state. GPU owns physics. GDScript is UI only.**
@@ -369,9 +379,11 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 **Chunk 7: Combat**
 - [x] 7a: Health component, DamageMsg, death_system, death_cleanup_system
 - [x] 7a: Test 9 Health/Death validation
-- [ ] 7b: GPU spatial queries for targeting, attack system
+- [ ] 7b: GPU grid construction (hash → radix sort → prefix sum)
+- [ ] 7b: GPU targeting shader (find nearest enemy, output target index)
+- [ ] 7b: Attack system (Bevy reads GPU targets, applies damage)
 - [ ] 7c: Projectile system
-- [ ] Result: NPCs fight
+- [ ] Result: NPCs fight with GPU-accelerated targeting
 
 **Chunk 8: Raider Logic**
 - [ ] Raiding, Returning states
@@ -394,8 +406,9 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 | Chunk 5 (guard logic) | 10,000+ | 140 | ✅ Done |
 | Chunk 6 (behaviors) | 10,000+ | 140 | ✅ Done |
 | Chunk 7a (health/death) | 10,000+ | 140 | ✅ Done |
-| Chunk 7b-9 (full game) | 10,000+ | 60+ | Planned |
-| Zero-copy optimization | 20,000+ | 60+ | Future |
+| Chunk 7b (GPU targeting) | 10,000+ | 120+ | Planned |
+| Chunk 7c-9 (full game) | 10,000+ | 60+ | Planned |
+| GPU grid + targeting | 20,000+ | 60+ | Future |
 
 ### Performance Lessons Learned
 
