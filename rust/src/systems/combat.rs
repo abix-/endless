@@ -138,17 +138,19 @@ pub fn attack_system(
             if in_range_count == 1 {
                 sample_timer = timer.0;
             }
-            // DEBUG: bypass timer check to test attack logic
-            timer_ready_count += 1;
-            // Attack! Queue damage
-            if let Ok(mut queue) = DAMAGE_QUEUE.lock() {
-                queue.push(DamageMsg {
-                    npc_index: ti,
-                    amount: stats.damage,
-                });
+            // Check cooldown timer
+            if timer.0 <= 0.0 {
+                timer_ready_count += 1;
+                // Attack! Queue damage
+                if let Ok(mut queue) = DAMAGE_QUEUE.lock() {
+                    queue.push(DamageMsg {
+                        npc_index: ti,
+                        amount: stats.damage,
+                    });
+                }
+                attacks += 1;
+                timer.0 = stats.cooldown;
             }
-            attacks += 1;
-            timer.0 = stats.cooldown;
         } else {
             // Out of range - chase target
             if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {

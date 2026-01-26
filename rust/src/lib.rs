@@ -83,9 +83,20 @@ use world::*;
 // BEVY APP - Initializes ECS world and systems
 // ============================================================================
 
+/// System execution phases. Chained sets get automatic apply_deferred between them.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Step {
+    Drain,    // Reset + drain message queues
+    Spawn,    // Create entities + apply targets
+    Combat,   // Cooldowns, attacks, damage, death
+    Behavior, // Energy, patrol, rest, work
+}
+
 /// Build the Bevy application. Called once at startup by godot-bevy.
 #[bevy_app]
 fn build_app(app: &mut bevy::prelude::App) {
+    use bevy::prelude::Update;
+
     app.add_message::<SpawnNpcMsg>()
        .add_message::<SetTargetMsg>()
        .add_message::<SpawnGuardMsg>()
@@ -98,9 +109,12 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<world::WorldData>()
        .init_resource::<world::BedOccupancy>()
        .init_resource::<world::FarmOccupancy>()
-       // Systems run in groups to avoid tuple size limit
-       // Group 1: Reset and drain queues
-       .add_systems(bevy::prelude::Update, (
+       // Chain phases with explicit command flush between Spawn and Combat
+       .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
+       // Flush commands after Spawn so Combat sees new entities
+       .add_systems(Update, bevy::ecs::schedule::ApplyDeferred.after(Step::Spawn).before(Step::Combat))
+       // Drain: reset + drain queues
+       .add_systems(Update, (
            reset_bevy_system,
            drain_spawn_queue,
            drain_target_queue,
@@ -109,32 +123,32 @@ fn build_app(app: &mut bevy::prelude::App) {
            drain_raider_queue,
            drain_arrival_queue,
            drain_damage_queue,
-       ).chain())
-       // Group 2: Spawn systems
-       .add_systems(bevy::prelude::Update, (
+       ).in_set(Step::Drain))
+       // Spawn: create entities
+       .add_systems(Update, (
            spawn_npc_system,
            spawn_guard_system,
            spawn_farmer_system,
            spawn_raider_system,
            apply_targets_system,
-       ).chain())
-       // Group 3: Combat and health
-       .add_systems(bevy::prelude::Update, (
+       ).in_set(Step::Spawn))
+       // Combat: cooldowns, attacks, damage, death
+       .add_systems(Update, (
            cooldown_system,
            attack_system,
            damage_system,
            death_system,
            death_cleanup_system,
-       ).chain())
-       // Group 4: Behavior systems
-       .add_systems(bevy::prelude::Update, (
+       ).chain().in_set(Step::Combat))
+       // Behavior: energy, patrol, rest, work
+       .add_systems(Update, (
            handle_arrival_system,
            energy_system,
            tired_system,
            resume_patrol_system,
            resume_work_system,
            patrol_system,
-       ).chain());
+       ).in_set(Step::Behavior));
 }
 
 // ============================================================================
