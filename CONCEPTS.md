@@ -242,6 +242,294 @@ Used in: Rust POC (though current impl uses simple arrays, not full Bevy ECS)
 
 ---
 
+## GPU Readback Avoidance
+
+Reading data back from GPU to CPU is expensive. Avoid it whenever possible.
+
+**The problem:**
+```
+CPU → GPU: Upload positions (fast, ~1ms)
+GPU: Run compute shader (fast, ~0.1ms)
+GPU → CPU: Read positions back (SLOW, ~5-10ms)
+```
+
+The GPU→CPU transfer stalls the pipeline — CPU waits for GPU to finish, then copies data over PCIe.
+
+**Solution: Cache on CPU**
+
+Instead of reading positions back from GPU, maintain a CPU-side copy:
+
+```rust
+// BAD: Read 480KB back from GPU every frame
+let positions = gpu.read_buffer(position_buffer);
+build_multimesh(positions);
+
+// GOOD: Cache positions on CPU, only upload to GPU
+cpu_positions[i] += velocity * delta;  // Update CPU copy
+gpu.write_buffer(position_buffer, &cpu_positions);  // Upload
+build_multimesh(&cpu_positions);  // Use CPU copy for MultiMesh
+```
+
+This eliminated a 480KB/frame readback in Endless, saving ~5ms/frame.
+
+**When you must read back:**
+- Keep buffers small (read only what's needed)
+- Read asynchronously if possible (don't block on result)
+- Batch reads (one large read beats many small ones)
+
+Used in: Rust `NpcBenchmark` (positions cached in `CpuPositions` resource)
+
+---
+
+## Debug Mode Overhead
+
+Debug metrics can cost more than the actual simulation. Disable or throttle them.
+
+**The trap:** You add O(n²) validation to verify NPCs are properly separated:
+
+```gdscript
+func _get_min_separation() -> float:
+    var min_dist = INF
+    for i in npc_count:
+        for j in range(i + 1, npc_count):
+            var d = positions[i].distance_to(positions[j])
+            min_dist = min(min_dist, d)
+    return min_dist
+```
+
+With 5,000 NPCs, that's 12.5 million distance checks per frame. Your 140fps simulation drops to 15fps — but the simulation itself is fine, only the *measurement* is slow.
+
+**Solutions:**
+
+1. **Disable by default:** Make expensive metrics opt-in
+   ```gdscript
+   var metrics_enabled := false  # Off by default
+
+   if metrics_enabled:
+       min_separation = _get_min_separation()  # O(n²)
+   ```
+
+2. **Throttle:** Run expensive checks once per second, not every frame
+   ```gdscript
+   var metric_timer := 0.0
+
+   func _process(delta):
+       metric_timer += delta
+       if metric_timer >= 1.0:
+           metric_timer = 0.0
+           _update_expensive_metrics()  # Only once/second
+   ```
+
+3. **Sample:** Check 100 random pairs instead of all pairs
+   ```gdscript
+   for _i in 100:
+       var a = randi() % npc_count
+       var b = randi() % npc_count
+       min_dist = min(min_dist, positions[a].distance_to(positions[b]))
+   ```
+
+**Rule of thumb:** If your metric is O(n²) or worse, it needs a toggle.
+
+Used in: `ecs_test.gd` (metrics checkbox), debug stats throttling
+
+---
+
+## Asymmetric Push
+
+Moving NPCs should push through settled ones, not get blocked.
+
+**The problem:** With symmetric separation forces, a moving NPC approaching a group gets pushed back as hard as they push forward. They can't enter the crowd.
+
+**Solution:** Asymmetric push strengths based on movement state:
+
+```glsl
+float push_strength = 1.0;
+if (i_am_moving && neighbor_is_settled) {
+    push_strength = 0.2;  // Settled NPCs barely block me
+} else if (i_am_settled && neighbor_is_moving) {
+    push_strength = 2.0;  // Moving NPCs shove me aside
+}
+avoidance += diff * overlap * push_strength;
+```
+
+| My State | Neighbor State | Push Strength | Result |
+|----------|----------------|---------------|--------|
+| Moving | Settled | 0.2 | I push through |
+| Settled | Moving | 2.0 | They shove me |
+| Moving | Moving | 1.0 | Equal contest |
+| Settled | Settled | 1.0 | Stable formation |
+
+This lets NPCs flow through crowds to reach their targets, then settle into formation.
+
+Used in: `npc_compute.glsl` (separation shader)
+
+---
+
+## TCP Dodge
+
+When two moving NPCs approach each other, dodge sideways instead of stopping.
+
+Named after TCP congestion avoidance — when packets collide, back off and try a different path.
+
+**The problem:** Two NPCs walking toward each other with symmetric separation forces will push directly against each other, creating a standoff or oscillation.
+
+**Solution:** Detect approaching collision and add perpendicular dodge:
+
+```glsl
+vec2 to_neighbor = neighbor_pos - my_pos;
+float approach_speed = dot(my_velocity, normalize(to_neighbor));
+
+if (approach_speed > 0) {  // We're closing in
+    // Dodge perpendicular to approach direction
+    vec2 perp = vec2(-to_neighbor.y, to_neighbor.x);
+
+    // Consistent side: lower index dodges right
+    float side = (my_index < neighbor_index) ? 1.0 : -1.0;
+
+    dodge += normalize(perp) * side * approach_speed;
+}
+```
+
+**Key details:**
+- Only dodge around other *moving* NPCs (settled ones use asymmetric push)
+- Consistent side selection prevents both NPCs dodging the same way
+- Dodge strength scales with approach speed (faster approach = harder dodge)
+
+Used in: `npc_compute.glsl` (TCP-style collision avoidance)
+
+---
+
+## State Machines in ECS
+
+Bevy ECS represents states as marker components, not enums.
+
+**Traditional state machine:**
+```rust
+enum GuardState { Patrolling, OnDuty, Resting, GoingToRest }
+
+struct Guard {
+    state: GuardState,
+    // ... other fields
+}
+```
+
+**ECS state machine:** States are separate components. An entity has exactly one state component at a time.
+
+```rust
+// Marker components (no data, just tags)
+#[derive(Component)]
+struct Patrolling;
+
+#[derive(Component)]
+struct OnDuty { ticks_waiting: u32 }
+
+#[derive(Component)]
+struct Resting;
+
+#[derive(Component)]
+struct GoingToRest;
+```
+
+**Why markers?**
+- Queries filter by component: `Query<&Guard, With<Patrolling>>` only matches patrolling guards
+- State transitions = add/remove components
+- Each state can have its own data (`OnDuty` has `ticks_waiting`, others don't need it)
+
+**State transitions:**
+```rust
+fn transition_to_rest(
+    mut commands: Commands,
+    tired_guards: Query<Entity, (With<Guard>, With<Patrolling>)>,
+    energy: Query<&Energy>,
+) {
+    for entity in tired_guards.iter() {
+        if energy.get(entity).unwrap().0 < ENERGY_HUNGRY {
+            commands.entity(entity)
+                .remove::<Patrolling>()
+                .insert(GoingToRest);
+        }
+    }
+}
+```
+
+**Systems per state:**
+```rust
+// Only runs for guards in Patrolling state
+fn patrol_system(guards: Query<&mut Guard, With<Patrolling>>) { ... }
+
+// Only runs for guards in OnDuty state
+fn on_duty_system(guards: Query<(&mut Guard, &mut OnDuty)>) { ... }
+```
+
+Used in: Rust guard behavior (Patrolling → OnDuty → GoingToRest → Resting → Patrolling)
+
+---
+
+## World Data Resources
+
+Static world layout (buildings, locations) stored as ECS Resources, not entities.
+
+**Entities vs Resources:**
+- **Entity:** Dynamic, many instances, has lifecycle (spawn/despawn). NPCs, projectiles.
+- **Resource:** Singleton, shared state, lives forever. World layout, config, occupancy tracking.
+
+```rust
+// Resource: one instance, globally accessible
+#[derive(Resource, Default)]
+pub struct WorldData {
+    pub towns: Vec<Town>,
+    pub farms: Vec<Farm>,
+    pub beds: Vec<Bed>,
+    pub guard_posts: Vec<GuardPost>,
+}
+
+// Individual building data (not an entity, just a struct)
+pub struct GuardPost {
+    pub position: Vector2,
+    pub town_idx: u32,
+    pub patrol_order: u32,  // 0-3 for clockwise perimeter
+}
+```
+
+**Accessing in systems:**
+```rust
+fn patrol_system(
+    world: Res<WorldData>,  // Read-only access to world
+    guards: Query<(&Guard, &mut Target)>,
+) {
+    for (guard, mut target) in guards.iter_mut() {
+        let post = &world.guard_posts[guard.current_post as usize];
+        target.0 = post.position;
+    }
+}
+```
+
+**Occupancy tracking:** Mutable resources track which NPCs occupy which buildings:
+
+```rust
+#[derive(Resource, Default)]
+pub struct BedOccupancy {
+    pub occupant_npc: Vec<i32>,  // -1 = free, >= 0 = NPC index
+}
+```
+
+**GDScript → Rust:** World data initialized once from GDScript via static Mutex:
+
+```rust
+static WORLD_DATA: LazyLock<Mutex<WorldData>> = LazyLock::new(|| ...);
+
+// Called from GDScript at scene load
+fn set_world_data(towns: Array, farms: Array, ...) {
+    let mut world = WORLD_DATA.lock().unwrap();
+    world.towns = parse_towns(towns);
+    // ...
+}
+```
+
+Used in: Rust `WorldData`, `BedOccupancy`, `FarmOccupancy` resources
+
+---
+
 ## Summary
 
 | Concept | Problem | Solution |
@@ -254,3 +542,9 @@ Used in: Rust POC (though current impl uses simple arrays, not full Bevy ECS)
 | Stagger | Frame spikes | Spread work across frames |
 | LOD Intervals | Wasted updates | Update based on importance |
 | ECS | DOD ergonomics | Entity/Component/System pattern |
+| GPU Readback | Pipeline stalls | Cache on CPU, upload only |
+| Debug Overhead | Metrics kill perf | Disable/throttle expensive checks |
+| Asymmetric Push | Can't enter crowds | Moving NPCs push through settled |
+| TCP Dodge | Head-on collisions | Perpendicular dodge on approach |
+| ECS States | State machine in ECS | Marker components per state |
+| World Resources | Static world data | Singleton Resources, not Entities |
