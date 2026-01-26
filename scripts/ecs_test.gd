@@ -274,6 +274,10 @@ func _update_test_arrive() -> void:
 		_log("Targets set")
 
 	if test_phase == 2 and test_timer > 5.0:
+		test_phase = 3
+		if not metrics_enabled:
+			_set_phase("Done (no validation)")
+			return
 		# Assert: all NPCs have settled (reached target or gave up)
 		var stats: Dictionary = ecs_manager.get_debug_stats()
 		var arrived: int = stats.get("arrived_count", 0)
@@ -299,7 +303,10 @@ func _setup_test_separation() -> void:
 
 func _update_test_separation() -> void:
 	if test_phase == 1 and test_timer > 2.0:
-		test_phase = 2  # Prevent re-running O(n²) check every frame!
+		test_phase = 2
+		if not metrics_enabled:
+			_set_phase("Done (no validation)")
+			return
 		# Assert: all NPC pairs at least SEP_RADIUS apart
 		var min_sep := _get_min_separation()
 		if _assert_all_separated(SEP_RADIUS):
@@ -333,7 +340,10 @@ func _update_test_both() -> void:
 		_log("Targets set")
 
 	if test_phase == 2 and test_timer > 3.0:
-		test_phase = 3  # Prevent re-running O(n²) check every frame!
+		test_phase = 3
+		if not metrics_enabled:
+			_set_phase("Done (no validation)")
+			return
 		# Assert: near center AND separated
 		var max_dist := _get_max_dist_from_target(CENTER)
 		var min_sep := _get_min_separation()
@@ -374,7 +384,10 @@ func _update_test_circle() -> void:
 		_log("Targets set")
 
 	if test_phase == 2 and test_timer > 3.0:
-		test_phase = 3  # Prevent re-running O(n²) check every frame!
+		test_phase = 3
+		if not metrics_enabled:
+			_set_phase("Done (no validation)")
+			return
 		# Assert: formed cluster near center, all separated
 		var max_dist := _get_max_dist_from_target(CENTER)
 		var min_sep := _get_min_separation()
@@ -404,7 +417,10 @@ func _setup_test_mass() -> void:
 
 func _update_test_mass() -> void:
 	if test_phase == 1 and test_timer > 3.0:
-		test_phase = 2  # Prevent re-running O(n²) check every frame!
+		test_phase = 2
+		if not metrics_enabled:
+			_set_phase("Done (no validation)")
+			return
 		# Assert: all NPCs separated (no overlaps after explosion)
 		var min_sep := _get_min_separation()
 		if _assert_all_separated(SEP_RADIUS):
@@ -623,16 +639,22 @@ func _update_test_guard_patrol() -> void:
 
 	# Phase 2: Watch guards patrol - show debug info
 	if test_phase == 2:
-		# Get guard debug info
-		var guard_debug: Dictionary = ecs_manager.get_guard_debug()
-		var arrived_flags: int = guard_debug.get("arrived_flags", 0)
-		var prev_true: int = guard_debug.get("prev_arrivals_true", 0)
-		var queue_len: int = guard_debug.get("arrival_queue_len", 0)
-
-		_set_phase("arr=%d prev=%d q=%d (%.0fs)" % [arrived_flags, prev_true, queue_len, test_timer])
+		if metrics_enabled:
+			# Get guard debug info (GPU reads)
+			var guard_debug: Dictionary = ecs_manager.get_guard_debug()
+			var arrived_flags: int = guard_debug.get("arrived_flags", 0)
+			var prev_true: int = guard_debug.get("prev_arrivals_true", 0)
+			var queue_len: int = guard_debug.get("arrival_queue_len", 0)
+			_set_phase("arr=%d prev=%d q=%d (%.0fs)" % [arrived_flags, prev_true, queue_len, test_timer])
+		else:
+			_set_phase("Running (%.0fs)" % test_timer)
 
 		# After 10 seconds, consider it a pass if guards are still moving
 		if test_timer > 10.0:
+			test_phase = 3
+			if not metrics_enabled:
+				_set_phase("Done (no validation)")
+				return
 			var stats: Dictionary = ecs_manager.get_debug_stats()
 			var npc_ct: int = stats.get("npc_count", 0)
 			if npc_ct == 4:
