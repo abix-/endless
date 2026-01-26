@@ -82,6 +82,11 @@ custom_minimum_size = Vector2(42, 0)
 text = "7"
 tooltip_text = "Guard: Patrol cycle"
 
+[node name="Test8" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
+custom_minimum_size = Vector2(42, 0)
+text = "8"
+tooltip_text = "Farmer: Work cycle"
+
 [node name="TestDesc" type="Label" parent="UI/DebugPanel/VBox"]
 custom_minimum_size = Vector2(0, 100)
 text = "1-5: NPC physics tests

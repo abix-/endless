@@ -229,11 +229,17 @@ impl Default for Speed {
 // GUARD COMPONENTS - State machine for guard behavior
 // ============================================================================
 
-/// Guard-specific data: which town they belong to and current patrol post.
+/// Guard marker - identifies NPC as a guard (for queries).
+/// Patrol data is now in PatrolRoute component.
 #[derive(Component)]
 pub struct Guard {
     pub town_idx: u32,
-    pub current_post: u32,  // 0-3 for clockwise patrol
+}
+
+/// Farmer marker - identifies NPC as a farmer.
+#[derive(Component)]
+pub struct Farmer {
+    pub town_idx: u32,
 }
 
 /// NPC energy level (0-100). Drains while active, recovers while resting.
@@ -248,7 +254,18 @@ impl Default for Energy {
 
 /// Where the NPC goes to rest (bed position).
 #[derive(Component)]
-pub struct HomePosition(pub Vector2);
+pub struct Home(pub Vector2);
+
+/// Patrol route for guards (or any NPC that patrols).
+#[derive(Component)]
+pub struct PatrolRoute {
+    pub posts: Vec<Vector2>,
+    pub current: usize,
+}
+
+/// Work position for farmers (or any NPC that works at a location).
+#[derive(Component)]
+pub struct WorkPosition(pub Vector2);
 
 // --- State Markers (mutually exclusive) ---
 
@@ -266,9 +283,17 @@ pub struct OnDuty {
 #[derive(Component)]
 pub struct Resting;
 
-/// NPC is walking to a destination (home, post, etc).
+/// NPC is walking home to rest.
 #[derive(Component)]
 pub struct GoingToRest;
+
+/// NPC is at work position, working.
+#[derive(Component)]
+pub struct Working;
+
+/// NPC is walking to work position.
+#[derive(Component)]
+pub struct GoingToWork;
 
 // ============================================================================
 // ECS MESSAGES - Commands sent from GDScript to Bevy
@@ -305,6 +330,18 @@ pub struct SpawnGuardMsg {
 #[derive(Message, Clone)]
 pub struct ArrivalMsg {
     pub npc_index: usize,
+}
+
+/// Request to spawn a farmer with home and work positions.
+#[derive(Message, Clone)]
+pub struct SpawnFarmerMsg {
+    pub x: f32,
+    pub y: f32,
+    pub town_idx: u32,
+    pub home_x: f32,
+    pub home_y: f32,
+    pub work_x: f32,
+    pub work_y: f32,
 }
 
 // ============================================================================
@@ -365,6 +402,9 @@ static TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
 
 /// Queue of pending guard spawn requests.
 static GUARD_QUEUE: Mutex<Vec<SpawnGuardMsg>> = Mutex::new(Vec::new());
+
+/// Queue of pending farmer spawn requests.
+static FARMER_QUEUE: Mutex<Vec<SpawnFarmerMsg>> = Mutex::new(Vec::new());
 
 /// Queue of arrival notifications (NPC index that just arrived).
 static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
@@ -862,6 +902,15 @@ fn drain_guard_queue(mut messages: MessageWriter<SpawnGuardMsg>) {
     }
 }
 
+/// Drain the farmer spawn queue.
+fn drain_farmer_queue(mut messages: MessageWriter<SpawnFarmerMsg>) {
+    if let Ok(mut queue) = FARMER_QUEUE.lock() {
+        for msg in queue.drain(..) {
+            messages.write(msg);
+        }
+    }
+}
+
 /// Process guard spawn messages: create guard entities with full component set.
 fn spawn_guard_system(
     mut commands: Commands,
@@ -891,18 +940,75 @@ fn spawn_guard_system(
         gpu_data.npc_count += 1;
         gpu_data.dirty = true;
 
+        // Build patrol route from world data
+        let patrol_posts: Vec<Vector2> = if let Ok(world) = WORLD_DATA.lock() {
+            let mut posts: Vec<(u32, Vector2)> = world.guard_posts.iter()
+                .filter(|p| p.town_idx == event.town_idx)
+                .map(|p| (p.patrol_order, p.position))
+                .collect();
+            posts.sort_by_key(|(order, _)| *order);
+            posts.into_iter().map(|(_, pos)| pos).collect()
+        } else {
+            Vec::new()
+        };
+
         // Create guard entity with full component set
         commands.spawn((
             NpcIndex(idx),
             Job::Guard,
             Speed::default(),
             Energy::default(),
-            Guard {
-                town_idx: event.town_idx,
-                current_post: event.starting_post,
+            Guard { town_idx: event.town_idx },
+            Home(Vector2::new(event.home_x, event.home_y)),
+            PatrolRoute {
+                posts: patrol_posts,
+                current: event.starting_post as usize,
             },
-            HomePosition(Vector2::new(event.home_x, event.home_y)),
             OnDuty { ticks_waiting: 0 },  // Start on duty at their post
+        ));
+        count.0 += 1;
+    }
+}
+
+/// Process farmer spawn messages: create farmer entities with WorkPosition + Home.
+fn spawn_farmer_system(
+    mut commands: Commands,
+    mut events: MessageReader<SpawnFarmerMsg>,
+    mut count: ResMut<NpcCount>,
+    mut gpu_data: ResMut<GpuData>,
+) {
+    for event in events.read() {
+        let idx = gpu_data.npc_count;
+        if idx >= MAX_NPC_COUNT {
+            continue;
+        }
+
+        let (r, g, b, a) = Job::Farmer.color();
+        let speed = Speed::default().0;
+
+        // Initialize GPU data
+        gpu_data.positions[idx * 2] = event.x;
+        gpu_data.positions[idx * 2 + 1] = event.y;
+        gpu_data.targets[idx * 2] = event.x;
+        gpu_data.targets[idx * 2 + 1] = event.y;
+        gpu_data.colors[idx * 4] = r;
+        gpu_data.colors[idx * 4 + 1] = g;
+        gpu_data.colors[idx * 4 + 2] = b;
+        gpu_data.colors[idx * 4 + 3] = a;
+        gpu_data.speeds[idx] = speed;
+        gpu_data.npc_count += 1;
+        gpu_data.dirty = true;
+
+        // Create farmer entity with behavior components
+        commands.spawn((
+            NpcIndex(idx),
+            Job::Farmer,
+            Speed::default(),
+            Energy::default(),
+            Farmer { town_idx: event.town_idx },
+            Home(Vector2::new(event.home_x, event.home_y)),
+            WorkPosition(Vector2::new(event.work_x, event.work_y)),
+            GoingToWork,  // Start walking to work
         ));
         count.0 += 1;
     }
@@ -921,18 +1027,18 @@ fn energy_system(
     }
 }
 
-/// Guard decision system: check if guard should rest or patrol.
-fn guard_decision_system(
+/// Tired system: anyone with Home + Energy below threshold goes to rest.
+fn tired_system(
     mut commands: Commands,
-    query: Query<(Entity, &Guard, &Energy, &NpcIndex, &HomePosition),
-                 (Without<Patrolling>, Without<GoingToRest>)>,
+    query: Query<(Entity, &Energy, &NpcIndex, &Home),
+                 (Without<GoingToRest>, Without<Resting>)>,
 ) {
-    for (entity, _guard, energy, npc_idx, home) in query.iter() {
+    for (entity, energy, npc_idx, home) in query.iter() {
         if energy.0 < ENERGY_HUNGRY {
             // Low energy - go rest
             commands.entity(entity)
                 .remove::<OnDuty>()
-                .remove::<Resting>()
+                .remove::<Working>()
                 .insert(GoingToRest);
 
             // Set target to home position (push to GPU queue)
@@ -947,66 +1053,82 @@ fn guard_decision_system(
     }
 }
 
-/// Guard resting check: when energy recovered, resume patrol.
-fn guard_rested_system(
+/// Resume patrol when energy recovered (anyone with PatrolRoute + Resting).
+fn resume_patrol_system(
     mut commands: Commands,
-    query: Query<(Entity, &Guard, &Energy, &NpcIndex), With<Resting>>,
+    query: Query<(Entity, &PatrolRoute, &Energy, &NpcIndex), With<Resting>>,
 ) {
-    for (entity, guard, energy, npc_idx) in query.iter() {
+    for (entity, patrol, energy, npc_idx) in query.iter() {
         if energy.0 >= ENERGY_RESTED {
             // Rested enough - go patrol
             commands.entity(entity)
                 .remove::<Resting>()
                 .insert(Patrolling);
 
-            // Get next patrol post and set target (push to GPU queue)
-            if let Ok(world) = WORLD_DATA.lock() {
-                if let Some(post) = world.guard_posts.iter()
-                    .find(|p| p.town_idx == guard.town_idx && p.patrol_order == guard.current_post)
-                {
-                    if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-                        queue.push(SetTargetMsg {
-                            npc_index: npc_idx.0,
-                            x: post.position.x,
-                            y: post.position.y,
-                        });
-                    }
+            // Get current patrol post and set target
+            if let Some(pos) = patrol.posts.get(patrol.current) {
+                if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
+                    queue.push(SetTargetMsg {
+                        npc_index: npc_idx.0,
+                        x: pos.x,
+                        y: pos.y,
+                    });
                 }
             }
         }
     }
 }
 
-/// Guard on-duty system: count ticks and move to next post when ready.
-fn guard_on_duty_system(
+/// Resume work when energy recovered (anyone with WorkPosition + Resting).
+fn resume_work_system(
     mut commands: Commands,
-    mut query: Query<(Entity, &mut Guard, &mut OnDuty, &NpcIndex)>,
+    query: Query<(Entity, &WorkPosition, &Energy, &NpcIndex), With<Resting>>,
 ) {
-    let _guard_count = query.iter().len();
+    for (entity, work_pos, energy, npc_idx) in query.iter() {
+        if energy.0 >= ENERGY_RESTED {
+            // Rested enough - go to work
+            commands.entity(entity)
+                .remove::<Resting>()
+                .insert(GoingToWork);
 
-    for (entity, mut guard, mut on_duty, npc_idx) in query.iter_mut() {
+            // Set target to work position
+            if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
+                queue.push(SetTargetMsg {
+                    npc_index: npc_idx.0,
+                    x: work_pos.0.x,
+                    y: work_pos.0.y,
+                });
+            }
+        }
+    }
+}
+
+/// Patrol system: count ticks at post and move to next (anyone with PatrolRoute + OnDuty).
+fn patrol_system(
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut PatrolRoute, &mut OnDuty, &NpcIndex)>,
+) {
+    for (entity, mut patrol, mut on_duty, npc_idx) in query.iter_mut() {
         on_duty.ticks_waiting += 1;
 
         if on_duty.ticks_waiting >= GUARD_PATROL_WAIT {
             // Time to move to next post
-            guard.current_post = (guard.current_post + 1) % 4;
+            if !patrol.posts.is_empty() {
+                patrol.current = (patrol.current + 1) % patrol.posts.len();
+            }
 
             commands.entity(entity)
                 .remove::<OnDuty>()
                 .insert(Patrolling);
 
-            // Set target to next patrol post (push to GPU queue for immediate upload)
-            if let Ok(world) = WORLD_DATA.lock() {
-                if let Some(post) = world.guard_posts.iter()
-                    .find(|p| p.town_idx == guard.town_idx && p.patrol_order == guard.current_post)
-                {
-                    if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-                        queue.push(SetTargetMsg {
-                            npc_index: npc_idx.0,
-                            x: post.position.x,
-                            y: post.position.y,
-                        });
-                    }
+            // Set target to next patrol post
+            if let Some(pos) = patrol.posts.get(patrol.current) {
+                if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
+                    queue.push(SetTargetMsg {
+                        npc_index: npc_idx.0,
+                        x: pos.x,
+                        y: pos.y,
+                    });
                 }
             }
         }
@@ -1022,46 +1144,48 @@ fn drain_arrival_queue(mut messages: MessageWriter<ArrivalMsg>) {
     }
 }
 
-/// Handle guard arrivals: transition from Patrolling to OnDuty, or GoingToRest to Resting.
-fn handle_guard_arrival_system(
+/// Handle arrivals: transition states based on what the NPC was doing.
+/// - Patrolling → OnDuty (arrived at patrol post)
+/// - GoingToRest → Resting (arrived at home)
+/// - GoingToWork → Working (arrived at work position)
+fn handle_arrival_system(
     mut commands: Commands,
     mut events: MessageReader<ArrivalMsg>,
-    patrolling_query: Query<(Entity, &NpcIndex, &Guard), With<Patrolling>>,
+    patrolling_query: Query<(Entity, &NpcIndex), With<Patrolling>>,
     going_to_rest_query: Query<(Entity, &NpcIndex), With<GoingToRest>>,
+    going_to_work_query: Query<(Entity, &NpcIndex), With<GoingToWork>>,
 ) {
-    let mut arrival_count = 0;
-    let mut matched_count = 0;
-
     for event in events.read() {
-        arrival_count += 1;
-
-        // Check if a patrolling guard arrived
-        for (entity, npc_idx, _guard) in patrolling_query.iter() {
+        // Check if a patrolling NPC arrived at post
+        for (entity, npc_idx) in patrolling_query.iter() {
             if npc_idx.0 == event.npc_index {
-                matched_count += 1;
-                // Arrived at patrol post - switch to OnDuty
                 commands.entity(entity)
                     .remove::<Patrolling>()
-                    .insert(OnDuty {
-                        ticks_waiting: 0,
-                    });
+                    .insert(OnDuty { ticks_waiting: 0 });
                 break;
             }
         }
 
-        // Check if a guard going to rest arrived
+        // Check if an NPC going to rest arrived at home
         for (entity, npc_idx) in going_to_rest_query.iter() {
             if npc_idx.0 == event.npc_index {
-                // Arrived at home - switch to Resting
                 commands.entity(entity)
                     .remove::<GoingToRest>()
                     .insert(Resting);
                 break;
             }
         }
-    }
 
-    let _ = (arrival_count, matched_count); // suppress unused warnings
+        // Check if an NPC going to work arrived
+        for (entity, npc_idx) in going_to_work_query.iter() {
+            if npc_idx.0 == event.npc_index {
+                commands.entity(entity)
+                    .remove::<GoingToWork>()
+                    .insert(Working);
+                break;
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1098,27 +1222,31 @@ fn build_app(app: &mut bevy::prelude::App) {
     app.add_message::<SpawnNpcMsg>()
        .add_message::<SetTargetMsg>()
        .add_message::<SpawnGuardMsg>()
+       .add_message::<SpawnFarmerMsg>()
        .add_message::<ArrivalMsg>()
        .init_resource::<NpcCount>()
        .init_resource::<GpuData>()
        .init_resource::<WorldData>()
        .init_resource::<BedOccupancy>()
        .init_resource::<FarmOccupancy>()
-       // Systems run in order: reset -> drain queues -> process spawns -> arrivals -> guard logic
+       // Systems run in order: reset -> drain queues -> spawn -> arrivals -> behaviors
        .add_systems(bevy::prelude::Update, (
            reset_bevy_system,
            drain_spawn_queue,
            drain_target_queue,
            drain_guard_queue,
+           drain_farmer_queue,
            drain_arrival_queue,
            spawn_npc_system,
            spawn_guard_system,
+           spawn_farmer_system,
            apply_targets_system,
-           handle_guard_arrival_system,
+           handle_arrival_system,
            energy_system,
-           guard_decision_system,
-           guard_rested_system,
-           guard_on_duty_system,
+           tired_system,
+           resume_patrol_system,
+           resume_work_system,
+           patrol_system,
        ).chain());
 
 }
@@ -1516,6 +1644,71 @@ impl EcsNpcManager {
         self.prev_arrivals[idx] = true;
     }
 
+    /// Spawn a farmer NPC with home and work positions.
+    /// Farmer starts in GoingToWork state and will cycle between work and rest.
+    #[func]
+    fn spawn_farmer(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32, work_x: f32, work_y: f32) {
+        // Increment GPU_NPC_COUNT immediately
+        let idx = {
+            let mut guard = GPU_NPC_COUNT.lock().unwrap();
+            let idx = *guard;
+            if idx < MAX_NPC_COUNT {
+                *guard += 1;
+            }
+            idx
+        };
+
+        if idx >= MAX_NPC_COUNT {
+            return;
+        }
+
+        // Queue farmer spawn message for Bevy ECS
+        if let Ok(mut queue) = FARMER_QUEUE.lock() {
+            queue.push(SpawnFarmerMsg {
+                x, y,
+                town_idx: town_idx as u32,
+                home_x, home_y,
+                work_x, work_y,
+            });
+        }
+
+        // Upload initial data to GPU buffers immediately
+        if let Some(gpu) = self.gpu.as_mut() {
+            let (r, g, b, a) = Job::Farmer.color();
+
+            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
+            // Target = work position (farmer starts walking to work)
+            let work_bytes: Vec<u8> = [work_x, work_y].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let work_packed = PackedByteArray::from(work_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &work_packed);
+
+            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let color_packed = PackedByteArray::from(color_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
+
+            // Cache colors for CPU-side multimesh building
+            gpu.colors[idx * 4] = r;
+            gpu.colors[idx * 4 + 1] = g;
+            gpu.colors[idx * 4 + 2] = b;
+            gpu.colors[idx * 4 + 3] = a;
+
+            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
+            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
+
+            // Not arrived yet - walking to work
+            let arrival_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let arrival_packed = PackedByteArray::from(arrival_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &arrival_packed);
+
+            let backoff_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let backoff_packed = PackedByteArray::from(backoff_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &backoff_packed);
+        }
+    }
+
     /// Set the movement target for an NPC.
     /// The NPC will move toward (x, y) until arrival or blocked.
     #[func]
@@ -1682,6 +1875,9 @@ impl EcsNpcManager {
             queue.clear();
         }
         if let Ok(mut queue) = GUARD_QUEUE.lock() {
+            queue.clear();
+        }
+        if let Ok(mut queue) = FARMER_QUEUE.lock() {
             queue.clear();
         }
         if let Ok(mut queue) = ARRIVAL_QUEUE.lock() {

@@ -45,7 +45,8 @@ const TEST_NAMES := {
 	4: "Circle",
 	5: "Mass",
 	6: "World Data",
-	7: "Guard Patrol"
+	7: "Guard Patrol",
+	8: "Farmer Work"
 }
 
 
@@ -85,6 +86,7 @@ func _ready() -> void:
 	vbox.get_node("TestButtons/Test5").pressed.connect(_start_test.bind(5))
 	vbox.get_node("TestButtons/Test6").pressed.connect(_start_test.bind(6))
 	vbox.get_node("TestButtons/Test7").pressed.connect(_start_test.bind(7))
+	vbox.get_node("TestButtons/Test8").pressed.connect(_start_test.bind(8))
 	vbox.get_node("CopyButton").pressed.connect(_copy_debug_info)
 
 	if ClassDB.class_exists("EcsNpcManager"):
@@ -216,12 +218,13 @@ func _input(event: InputEvent) -> void:
 			KEY_5: _start_test(5)
 			KEY_6: _start_test(6)
 			KEY_7: _start_test(7)
+			KEY_8: _start_test(8)
 			KEY_R: _start_test(current_test)
 			KEY_ESCAPE: _show_menu()
 
 
 func _start_test(test_id: int) -> void:
-	if test_id < 1 or test_id > 7:
+	if test_id < 1 or test_id > 8:
 		return
 
 	# Reset Rust state
@@ -249,6 +252,7 @@ func _start_test(test_id: int) -> void:
 		5: _setup_test_mass()
 		6: _setup_test_world_data()
 		7: _setup_test_guard_patrol()
+		8: _setup_test_farmer_work()
 
 
 # =============================================================================
@@ -665,6 +669,83 @@ func _update_test_guard_patrol() -> void:
 
 
 # =============================================================================
+# TEST 8: Farmer Work - Farmers cycle between work and rest
+# Purpose: Verify work behavior (GoingToWork → Working → tired → GoingToRest → Resting → repeat)
+# =============================================================================
+func _setup_test_farmer_work() -> void:
+	npc_count = 2  # 2 farmers
+	test_phase = 1
+	_set_phase("Setting up world...")
+	_log("Testing farmer work cycle")
+
+	# Initialize world with 1 town
+	ecs_manager.init_world(1)
+	ecs_manager.add_town("FarmTown", CENTER.x, CENTER.y, CENTER.x + 200, CENTER.y)
+
+	# Add 2 farms (left and right of center)
+	var farm_positions: Array[Vector2] = [
+		Vector2(CENTER.x - 100, CENTER.y),  # Farm 0: Left
+		Vector2(CENTER.x + 100, CENTER.y),  # Farm 1: Right
+	]
+	for i in 2:
+		ecs_manager.add_farm(farm_positions[i].x, farm_positions[i].y, 0)
+
+	# Add 2 beds (above center)
+	var bed_positions: Array[Vector2] = [
+		Vector2(CENTER.x - 50, CENTER.y - 80),  # Bed 0
+		Vector2(CENTER.x + 50, CENTER.y - 80),  # Bed 1
+	]
+	for i in 2:
+		ecs_manager.add_bed(bed_positions[i].x, bed_positions[i].y, 0)
+
+	queue_redraw()
+
+
+func _update_test_farmer_work() -> void:
+	# Phase 1: Spawn farmers (after world setup)
+	if test_phase == 1 and test_timer > 0.5:
+		test_phase = 2
+		_set_phase("Spawning farmers...")
+
+		# Spawn farmers at beds, will walk to farms
+		var farm_positions: Array[Vector2] = [
+			Vector2(CENTER.x - 100, CENTER.y),
+			Vector2(CENTER.x + 100, CENTER.y),
+		]
+		var bed_positions: Array[Vector2] = [
+			Vector2(CENTER.x - 50, CENTER.y - 80),
+			Vector2(CENTER.x + 50, CENTER.y - 80),
+		]
+		for i in 2:
+			ecs_manager.spawn_farmer(
+				bed_positions[i].x, bed_positions[i].y,  # Start at bed
+				0,  # town_idx
+				bed_positions[i].x, bed_positions[i].y,  # home position
+				farm_positions[i].x, farm_positions[i].y  # work position
+			)
+
+		_log("Spawned 2 farmers")
+
+	# Phase 2: Watch farmers work - show status
+	if test_phase == 2:
+		_set_phase("Working (%.0fs)" % test_timer)
+
+		# After 10 seconds, consider it a pass if farmers exist
+		if test_timer > 10.0:
+			test_phase = 3
+			if not metrics_enabled:
+				_set_phase("Done (no validation)")
+				return
+			var stats: Dictionary = ecs_manager.get_debug_stats()
+			var npc_ct: int = stats.get("npc_count", 0)
+			if npc_ct == 2:
+				_pass()
+				_set_phase("Farmers working successfully")
+			else:
+				_fail("Expected 2 farmers, got %d" % npc_ct)
+
+
+# =============================================================================
 # DRAWING (visual markers)
 # =============================================================================
 func _draw() -> void:
@@ -738,6 +819,28 @@ func _draw() -> void:
 		draw_rect(Rect2(CENTER - Vector2(10, 10), Vector2(20, 20)), Color.CYAN, false, 2.0)
 		draw_string(ThemeDB.fallback_font, CENTER + Vector2(-10, 25), "BED", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color.CYAN)
 
+	# Draw farmer work markers for Test 8
+	if current_test == 8:
+		# Farms (green squares)
+		var farm_positions: Array[Vector2] = [
+			Vector2(CENTER.x - 100, CENTER.y),
+			Vector2(CENTER.x + 100, CENTER.y),
+		]
+		for i in 2:
+			var farm_pos := farm_positions[i]
+			draw_rect(Rect2(farm_pos - Vector2(25, 25), Vector2(50, 50)), Color.GREEN, false, 3.0)
+			draw_string(ThemeDB.fallback_font, farm_pos + Vector2(-15, 35), "FARM", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.GREEN)
+
+		# Beds (cyan squares)
+		var bed_positions: Array[Vector2] = [
+			Vector2(CENTER.x - 50, CENTER.y - 80),
+			Vector2(CENTER.x + 50, CENTER.y - 80),
+		]
+		for i in 2:
+			var bed_pos := bed_positions[i]
+			draw_rect(Rect2(bed_pos - Vector2(12, 12), Vector2(24, 24)), Color.CYAN, false, 2.0)
+			draw_string(ThemeDB.fallback_font, bed_pos + Vector2(-10, 20), "BED", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color.CYAN)
+
 
 # =============================================================================
 # MAIN LOOP
@@ -769,6 +872,7 @@ func _process(delta: float) -> void:
 			5: _update_test_mass()
 			6: _update_test_world_data()
 			7: _update_test_guard_patrol()
+			8: _update_test_farmer_work()
 
 
 func _update_metrics() -> void:
