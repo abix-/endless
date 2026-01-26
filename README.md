@@ -215,10 +215,10 @@ shaders/
   separation_compute.glsl  # GPU spatial hash + separation forces
   npc_compute.glsl         # All-in-one: movement + separation + render
 scenes/
-  ecs_test.tscn         # 6 behavior tests with visual markers and PASS/FAIL
+  ecs_test.tscn         # 7 behavior tests with visual markers and PASS/FAIL
   bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
 scripts/
-  ecs_test.gd           # 5 test scenarios with configurable NPC count
+  ecs_test.gd           # 7 test scenarios (500-5000 NPCs configurable)
 ```
 
 ## Controls
@@ -333,8 +333,8 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Arrival flag initialization on spawn
 - [x] Test harness with 5 scenarios (arrive, separation, both, circle, mass)
 - [x] TDD assertions with automated PASS/FAIL (get_npc_position, min separation check)
-- [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()`
-- [ ] Result: 10K+ NPCs with separation forces
+- [x] Result: 500+ NPCs @ 130 FPS with separation forces (sync() is bottleneck, not GPU)
+- [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()` (blocked by Godot bug #105100)
 
 **Chunk 4: World Data** ✓
 - [x] Towns, patrol posts, beds, farms as Bevy Resources
@@ -389,6 +389,25 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 | Chunk 5 (guard logic) | 10,000+ | 140 | ✅ Done |
 | Chunk 6-9 (full game) | 10,000+ | 60+ | Planned |
 | Zero-copy optimization | 20,000+ | 60+ | Future |
+
+### Performance Lessons Learned
+
+**GPU sync() is the bottleneck, not compute:**
+- `RenderingDevice.sync()` blocks CPU waiting for GPU (~2.5ms per frame)
+- `buffer_get_data()` also stalls pipeline for GPU→CPU transfer
+- Godot's local RenderingDevice requires sync() between submits (can't pipeline)
+- `buffer_get_data_async()` doesn't work with local RD (Godot issue #105256)
+
+**GDScript O(n²) traps:**
+- Calling `get_npc_position()` in nested loops crosses GDScript→Rust boundary 124,750 times for 500 NPCs
+- Test assertions must run ONCE when triggered, not every frame after timer passes
+- Debug metrics (min separation) must be throttled to 1/sec, not every frame
+- `get_debug_stats()` does GPU reads - don't call every frame
+
+**What worked:**
+- Build multimesh from cached positions on CPU (eliminates 480KB GPU readback)
+- Throttle expensive operations to once per second
+- Advance test_phase immediately to prevent repeated assertion runs
 
 ## Credits
 
