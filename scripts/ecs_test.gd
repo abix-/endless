@@ -30,7 +30,7 @@ var current_test := 0
 var test_phase := 0
 var npc_count := 0
 var is_running := false
-var metrics_enabled := true
+var metrics_enabled := false
 var log_lines: Array[String] = []
 var test_result := ""  # "PASS" or "FAIL: reason"
 
@@ -75,6 +75,7 @@ func _ready() -> void:
 
 	metrics_check = vbox.get_node("MetricsCheck")
 	metrics_check.toggled.connect(_on_metrics_toggled)
+	_on_metrics_toggled(metrics_check.button_pressed)  # Initialize labels
 
 	# Connect test buttons
 	vbox.get_node("TestButtons/Test1").pressed.connect(_start_test.bind(1))
