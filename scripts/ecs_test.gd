@@ -734,8 +734,10 @@ func _process(delta: float) -> void:
 func _update_metrics() -> void:
 	time_label.text = "Time: %.2fs" % test_timer
 	if npc_count > 1 and ecs_manager:
-		var min_sep := _get_min_separation()
-		distance_label.text = "Min sep: %.1fpx" % min_sep
+		# Only compute min_sep every 60 frames (O(n²) is expensive!)
+		if frame_count % 60 == 0:
+			var min_sep := _get_min_separation()
+			distance_label.text = "Min sep: %.1fpx" % min_sep
 
 		# Get debug stats from Rust
 		if ecs_manager.has_method("get_debug_stats"):
