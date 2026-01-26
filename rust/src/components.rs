@@ -150,3 +150,48 @@ impl Default for Health {
         Self(100.0)
     }
 }
+
+// ============================================================================
+// COMBAT COMPONENTS
+// ============================================================================
+
+/// Faction determines hostility. NPCs attack different factions.
+/// GPU uses this for targeting queries.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Faction {
+    Villager = 0,  // Guards and Farmers
+    Raider = 1,    // Raiders
+}
+
+impl Faction {
+    pub fn to_i32(self) -> i32 {
+        self as i32
+    }
+}
+
+/// Combat stats for NPCs that can fight.
+#[derive(Component)]
+pub struct AttackStats {
+    pub range: f32,      // Attack range in pixels (150.0)
+    pub damage: f32,     // Damage per hit (15.0)
+    pub cooldown: f32,   // Seconds between attacks (1.0)
+}
+
+impl Default for AttackStats {
+    fn default() -> Self {
+        Self {
+            range: 150.0,
+            damage: 15.0,
+            cooldown: 1.0,
+        }
+    }
+}
+
+/// Cooldown timer for attacks. When > 0, NPC can't attack.
+#[derive(Component, Default)]
+pub struct AttackTimer(pub f32);
+
+/// Marker: NPC is actively fighting (has valid combat target).
+/// Behavior systems should skip NPCs with this component.
+#[derive(Component)]
+pub struct InCombat;

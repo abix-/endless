@@ -79,6 +79,11 @@ pub struct GpuCompute {
     pub arrival_buffer: Rid,
     pub backoff_buffer: Rid,
 
+    // === Combat Buffers ===
+    pub faction_buffer: Rid,
+    pub health_buffer: Rid,
+    pub combat_target_buffer: Rid,
+
     /// Uniform set
     uniform_set: Rid,
 
@@ -90,6 +95,15 @@ pub struct GpuCompute {
 
     /// Cached colors
     pub colors: Vec<f32>,
+
+    /// Cached factions (0=Villager, 1=Raider)
+    pub factions: Vec<i32>,
+
+    /// Cached healths
+    pub healths: Vec<f32>,
+
+    /// Combat targets read from GPU (-1 = no target)
+    pub combat_targets: Vec<i32>,
 }
 
 impl GpuCompute {
@@ -126,11 +140,16 @@ impl GpuCompute {
         let arrival_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
         let backoff_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
 
+        // Combat buffers
+        let faction_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
+        let health_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
+        let combat_target_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
+
         let uniform_set = Self::create_uniform_set(
             &mut rd, shader,
             position_buffer, target_buffer, color_buffer, speed_buffer,
             grid_counts_buffer, grid_data_buffer, multimesh_buffer, arrival_buffer,
-            backoff_buffer,
+            backoff_buffer, faction_buffer, health_buffer, combat_target_buffer,
         )?;
 
         Some(Self {
@@ -146,10 +165,16 @@ impl GpuCompute {
             multimesh_buffer,
             arrival_buffer,
             backoff_buffer,
+            faction_buffer,
+            health_buffer,
+            combat_target_buffer,
             uniform_set,
             grid: SpatialGrid::new(),
             positions: vec![0.0; MAX_NPC_COUNT * 2],
             colors: vec![0.0; MAX_NPC_COUNT * 4],
+            factions: vec![0; MAX_NPC_COUNT],
+            healths: vec![0.0; MAX_NPC_COUNT],
+            combat_targets: vec![-1; MAX_NPC_COUNT],
         })
     }
 
@@ -165,6 +190,9 @@ impl GpuCompute {
         multimesh_buffer: Rid,
         arrival_buffer: Rid,
         backoff_buffer: Rid,
+        faction_buffer: Rid,
+        health_buffer: Rid,
+        combat_target_buffer: Rid,
     ) -> Option<Rid> {
         let mut uniforms = Array::new();
 
@@ -178,6 +206,9 @@ impl GpuCompute {
             (6, multimesh_buffer),
             (7, arrival_buffer),
             (8, backoff_buffer),
+            (9, faction_buffer),
+            (10, health_buffer),
+            (11, combat_target_buffer),
         ];
 
         for (binding, buffer) in buffers {
@@ -292,6 +323,41 @@ impl GpuCompute {
             let offset = i * 4;
             if offset + 4 <= byte_slice.len() {
                 self.positions[i] = f32::from_le_bytes([
+                    byte_slice[offset],
+                    byte_slice[offset + 1],
+                    byte_slice[offset + 2],
+                    byte_slice[offset + 3],
+                ]);
+            }
+        }
+    }
+
+    /// Upload faction data to GPU
+    pub fn upload_factions(&mut self, npc_count: usize) {
+        let bytes: Vec<u8> = self.factions[..npc_count].iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.faction_buffer, 0, packed.len() as u32, &packed);
+    }
+
+    /// Upload health data to GPU
+    pub fn upload_healths(&mut self, npc_count: usize) {
+        let bytes: Vec<u8> = self.healths[..npc_count].iter()
+            .flat_map(|h| h.to_le_bytes())
+            .collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.health_buffer, 0, packed.len() as u32, &packed);
+    }
+
+    /// Read combat targets from GPU
+    pub fn read_combat_targets(&mut self, npc_count: usize) {
+        let bytes = self.rd.buffer_get_data(self.combat_target_buffer);
+        let byte_slice = bytes.as_slice();
+        for i in 0..npc_count {
+            let offset = i * 4;
+            if offset + 4 <= byte_slice.len() {
+                self.combat_targets[i] = i32::from_le_bytes([
                     byte_slice[offset],
                     byte_slice[offset + 1],
                     byte_slice[offset + 2],

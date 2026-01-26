@@ -47,7 +47,8 @@ const TEST_NAMES := {
 	6: "World Data",
 	7: "Guard Patrol",
 	8: "Farmer Work",
-	9: "Health/Death"
+	9: "Health/Death",
+	10: "Combat"
 }
 
 
@@ -89,6 +90,7 @@ func _ready() -> void:
 	vbox.get_node("TestButtons/Test7").pressed.connect(_start_test.bind(7))
 	vbox.get_node("TestButtons/Test8").pressed.connect(_start_test.bind(8))
 	vbox.get_node("TestButtons/Test9").pressed.connect(_start_test.bind(9))
+	vbox.get_node("TestButtons/Test10").pressed.connect(_start_test.bind(10))
 	vbox.get_node("CopyButton").pressed.connect(_copy_debug_info)
 
 	if ClassDB.class_exists("EcsNpcManager"):
@@ -222,12 +224,13 @@ func _input(event: InputEvent) -> void:
 			KEY_7: _start_test(7)
 			KEY_8: _start_test(8)
 			KEY_9: _start_test(9)
+			KEY_0: _start_test(10)
 			KEY_R: _start_test(current_test)
 			KEY_ESCAPE: _show_menu()
 
 
 func _start_test(test_id: int) -> void:
-	if test_id < 1 or test_id > 9:
+	if test_id < 1 or test_id > 10:
 		return
 
 	# Reset Rust state
@@ -257,6 +260,7 @@ func _start_test(test_id: int) -> void:
 		7: _setup_test_guard_patrol()
 		8: _setup_test_farmer_work()
 		9: _setup_test_health_death()
+		10: _setup_test_combat()
 
 
 # =============================================================================
@@ -817,6 +821,93 @@ func _update_test_health_death() -> void:
 
 
 # =============================================================================
+# TEST 10: Combat - Guards vs Raiders with GPU targeting
+# Purpose: Verify GPU targeting finds enemies, NPCs chase and attack
+# =============================================================================
+func _setup_test_combat() -> void:
+	npc_count = 10  # 5 guards + 5 raiders
+	test_phase = 1
+	_set_phase("Setting up world...")
+	_log("Testing combat")
+
+	# Initialize world with 1 town
+	ecs_manager.init_world(1)
+	ecs_manager.add_town("CombatTown", CENTER.x, CENTER.y, CENTER.x + 300, CENTER.y)
+
+	# Add a bed for guards
+	ecs_manager.add_bed(CENTER.x - 100, CENTER.y, 0)
+
+	queue_redraw()
+
+
+func _update_test_combat() -> void:
+	# Phase 1: Spawn guards and raiders
+	if test_phase == 1 and test_timer > 0.5:
+		test_phase = 2
+		_set_phase("Spawning combatants...")
+
+		# Spawn 5 guards on the left (blue)
+		for i in 5:
+			var y_offset := (i - 2) * 30.0
+			ecs_manager.spawn_guard(CENTER.x - 150, CENTER.y + y_offset, 0, CENTER.x - 100, CENTER.y)
+
+		# Spawn 5 raiders on the right (red)
+		var camp_pos := Vector2(CENTER.x + 300, CENTER.y)
+		for i in 5:
+			var y_offset := (i - 2) * 30.0
+			ecs_manager.spawn_raider(CENTER.x + 150, CENTER.y + y_offset, camp_pos.x, camp_pos.y)
+
+		_log("Spawned 5 guards, 5 raiders")
+
+	# Phase 2: Wait for combat
+	if test_phase == 2:
+		# Show health debug
+		if ecs_manager.has_method("get_health_debug"):
+			var hd: Dictionary = ecs_manager.get_health_debug()
+			var bevy_ct: int = hd.get("bevy_entity_count", -1)
+			var dmg_proc: int = hd.get("damage_processed", 0)
+			var samples: String = hd.get("health_samples", "")
+			expected_label.text = "bevy=%d dmg=%d" % [bevy_ct, dmg_proc]
+			velocity_label.text = "HP: %s" % samples
+
+		_set_phase("Combat (%.0fs)" % test_timer)
+
+		# Check for combat progress after 5 seconds
+		if test_timer > 5.0:
+			var hd: Dictionary = ecs_manager.get_health_debug()
+			var dmg_proc: int = hd.get("damage_processed", 0)
+			if dmg_proc > 0:
+				# Damage has been dealt, combat is working
+				test_phase = 3
+				_set_phase("Damage dealt, watching...")
+				_log("Combat engaged! Damage dealt")
+
+		# Timeout after 15 seconds
+		if test_timer > 15.0 and test_phase == 2:
+			test_phase = 4
+			_fail("No damage dealt after 15s")
+
+	# Phase 3: Wait for victory (one side eliminated)
+	if test_phase == 3:
+		var hd: Dictionary = ecs_manager.get_health_debug()
+		var bevy_ct: int = hd.get("bevy_entity_count", -1)
+
+		_set_phase("Fighting: %d alive (%.0fs)" % [bevy_ct, test_timer])
+
+		# Check if combat resolved (< 10 NPCs means some died)
+		if bevy_ct < 10 and bevy_ct > 0:
+			test_phase = 4
+			_pass()
+			_set_phase("Combat resolved: %d survivors" % bevy_ct)
+			_log("PASS: Combat works!")
+
+		# Timeout after 30 seconds
+		if test_timer > 30.0:
+			test_phase = 4
+			_fail("Combat didn't resolve in 30s (%d alive)" % bevy_ct)
+
+
+# =============================================================================
 # DRAWING (visual markers)
 # =============================================================================
 func _draw() -> void:
@@ -945,6 +1036,7 @@ func _process(delta: float) -> void:
 			7: _update_test_guard_patrol()
 			8: _update_test_farmer_work()
 			9: _update_test_health_death()
+			10: _update_test_combat()
 
 
 func _update_metrics() -> void:

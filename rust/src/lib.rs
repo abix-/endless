@@ -90,6 +90,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        .add_message::<SetTargetMsg>()
        .add_message::<SpawnGuardMsg>()
        .add_message::<SpawnFarmerMsg>()
+       .add_message::<SpawnRaiderMsg>()
        .add_message::<ArrivalMsg>()
        .add_message::<DamageMsg>()
        .init_resource::<NpcCount>()
@@ -97,22 +98,36 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<world::WorldData>()
        .init_resource::<world::BedOccupancy>()
        .init_resource::<world::FarmOccupancy>()
-       // Systems run in order: reset -> drain queues -> spawn -> damage -> behaviors
+       // Systems run in groups to avoid tuple size limit
+       // Group 1: Reset and drain queues
        .add_systems(bevy::prelude::Update, (
            reset_bevy_system,
            drain_spawn_queue,
            drain_target_queue,
            drain_guard_queue,
            drain_farmer_queue,
+           drain_raider_queue,
            drain_arrival_queue,
            drain_damage_queue,
+       ).chain())
+       // Group 2: Spawn systems
+       .add_systems(bevy::prelude::Update, (
            spawn_npc_system,
            spawn_guard_system,
            spawn_farmer_system,
+           spawn_raider_system,
            apply_targets_system,
+       ).chain())
+       // Group 3: Combat and health
+       .add_systems(bevy::prelude::Update, (
+           cooldown_system,
+           attack_system,
            damage_system,
            death_system,
            death_cleanup_system,
+       ).chain())
+       // Group 4: Behavior systems
+       .add_systems(bevy::prelude::Update, (
            handle_arrival_system,
            energy_system,
            tired_system,
@@ -172,6 +187,11 @@ impl INode2D for EcsNpcManager {
     }
 
     fn process(&mut self, delta: f64) {
+        // Update FRAME_DELTA for Bevy combat systems
+        if let Ok(mut d) = FRAME_DELTA.lock() {
+            *d = delta as f32;
+        }
+
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,
             None => return,
@@ -217,8 +237,25 @@ impl INode2D for EcsNpcManager {
         }
 
         if npc_count > 0 {
+            // Upload factions and healths before dispatch (for GPU targeting)
+            gpu.upload_factions(npc_count);
+            gpu.upload_healths(npc_count);
+
             gpu.dispatch(npc_count, delta as f32);
             gpu.read_positions_from_gpu(npc_count);
+
+            // Read combat targets from GPU
+            gpu.read_combat_targets(npc_count);
+
+            // Copy to static for Bevy access
+            if let Ok(mut targets) = GPU_COMBAT_TARGETS.lock() {
+                targets.clear();
+                targets.extend_from_slice(&gpu.combat_targets[..npc_count]);
+            }
+            if let Ok(mut positions) = GPU_POSITIONS.lock() {
+                positions.clear();
+                positions.extend_from_slice(&gpu.positions[..(npc_count * 2)]);
+            }
 
             // Detect arrivals
             let arrival_bytes = gpu.rd.buffer_get_data(gpu.arrival_buffer);
@@ -386,6 +423,14 @@ impl EcsNpcManager {
             let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
             gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
             gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
+
+            // Upload faction (villager = 0)
+            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &zero_packed);
+
+            // Upload health
+            let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
+            let health_packed = PackedByteArray::from(health_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
         }
 
         if let Ok(world) = WORLD_DATA.lock() {
@@ -449,6 +494,14 @@ impl EcsNpcManager {
             let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
             let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
             gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
+
+            // Upload faction (villager = 0)
+            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &zero_packed);
+
+            // Upload health
+            let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
+            let health_packed = PackedByteArray::from(health_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
         }
 
         self.prev_arrivals[idx] = true;
@@ -506,6 +559,73 @@ impl EcsNpcManager {
             let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
             gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
             gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
+
+            // Upload faction (villager)
+            let faction_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &faction_packed);
+
+            // Upload health
+            let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
+            let health_packed = PackedByteArray::from(health_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+        }
+    }
+
+    #[func]
+    fn spawn_raider(&mut self, x: f32, y: f32, camp_x: f32, camp_y: f32) {
+        let idx = {
+            let mut guard = GPU_NPC_COUNT.lock().unwrap();
+            let idx = *guard;
+            if idx < MAX_NPC_COUNT {
+                *guard += 1;
+            }
+            idx
+        };
+
+        if idx >= MAX_NPC_COUNT {
+            return;
+        }
+
+        if let Ok(mut queue) = RAIDER_QUEUE.lock() {
+            queue.push(SpawnRaiderMsg { x, y, camp_x, camp_y });
+        }
+
+        if let Some(gpu) = self.gpu.as_mut() {
+            let (r, g, b, a) = Job::Raider.color();
+
+            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
+            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
+
+            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
+            let color_packed = PackedByteArray::from(color_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
+
+            gpu.colors[idx * 4] = r;
+            gpu.colors[idx * 4 + 1] = g;
+            gpu.colors[idx * 4 + 2] = b;
+            gpu.colors[idx * 4 + 3] = a;
+
+            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
+            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
+
+            let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+            let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
+            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
+
+            // Upload faction (raider = 1)
+            let faction_bytes: Vec<u8> = 1i32.to_le_bytes().to_vec();
+            let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &faction_packed);
+
+            // Upload health
+            let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
+            let health_packed = PackedByteArray::from(health_bytes.as_slice());
+            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
         }
     }
 
@@ -678,6 +798,7 @@ impl EcsNpcManager {
         if let Ok(mut queue) = TARGET_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = GUARD_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = FARMER_QUEUE.lock() { queue.clear(); }
+        if let Ok(mut queue) = RAIDER_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = ARRIVAL_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = DAMAGE_QUEUE.lock() { queue.clear(); }

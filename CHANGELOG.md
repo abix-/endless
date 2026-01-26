@@ -72,6 +72,19 @@
 - add death_cleanup_system (despawns Dead entities, hides on GPU)
 - add get_health_debug() API for health system inspection
 - add Test 9: Health/Death (validates damage, death, despawn)
+- add Chunk 7b: GPU Targeting + Attack system
+- add GPU combat buffers: faction (binding 9), health (binding 10), combat_target (binding 11)
+- add GPU targeting algorithm in npc_compute.glsl (finds nearest enemy in 3x3 grid neighborhood)
+- add Faction component (Villager=0, Raider=1) for hostility checks
+- add AttackStats component (range=150px, damage=15, cooldown=1s)
+- add AttackTimer component for attack cooldown tracking
+- add attack_system (reads GPU targets, queues damage, sets chase target)
+- add cooldown_system (decrements attack timers using FRAME_DELTA)
+- add spawn_raider() GDScript API with SpawnRaiderMsg queue
+- add spawn_raider_system in Bevy ECS
+- add GPU_COMBAT_TARGETS and GPU_POSITIONS static Mutexes for Bevy access
+- add faction/health upload to GPU on spawn (guards, farmers, raiders)
+- add Test 10: Combat (5 guards vs 5 raiders, validates GPU targeting and damage)
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)

@@ -66,6 +66,15 @@ pub struct DamageMsg {
     pub amount: f32,
 }
 
+/// Request to spawn a raider with camp position.
+#[derive(Message, Clone)]
+pub struct SpawnRaiderMsg {
+    pub x: f32,
+    pub y: f32,
+    pub camp_x: f32,
+    pub camp_y: f32,
+}
+
 // ============================================================================
 // STATIC QUEUES - Thread-safe communication from Godot to Bevy
 // ============================================================================
@@ -92,12 +101,25 @@ pub static GPU_TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
 /// Queue of pending damage requests.
 pub static DAMAGE_QUEUE: Mutex<Vec<DamageMsg>> = Mutex::new(Vec::new());
 
+/// Queue of pending raider spawn requests.
+pub static RAIDER_QUEUE: Mutex<Vec<SpawnRaiderMsg>> = Mutex::new(Vec::new());
+
 /// Authoritative NPC count. Updated immediately on spawn (not waiting for Bevy).
 /// This ensures GPU gets correct count even before Bevy processes the spawn message.
 pub static GPU_NPC_COUNT: Mutex<usize> = Mutex::new(0);
 
 /// Flag to trigger Bevy entity despawn on next frame.
 pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);
+
+/// Delta time for current frame, updated by process().
+pub static FRAME_DELTA: Mutex<f32> = Mutex::new(0.016);
+
+/// Combat targets from GPU, updated by process() after GPU dispatch.
+/// Index i contains target NPC index for NPC i (-1 = no target).
+pub static GPU_COMBAT_TARGETS: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+
+/// Positions from GPU, updated by process() after GPU dispatch.
+pub static GPU_POSITIONS: Mutex<Vec<f32>> = Mutex::new(Vec::new());
 
 // ============================================================================
 // DEBUG INFO - Updated by systems, read by GDScript API

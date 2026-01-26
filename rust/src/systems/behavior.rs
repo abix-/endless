@@ -8,10 +8,11 @@ use crate::messages::*;
 use crate::constants::*;
 
 /// Tired system: anyone with Home + Energy below threshold goes to rest.
+/// Skip NPCs in combat - they fight until the enemy is dead or they flee.
 pub fn tired_system(
     mut commands: Commands,
     query: Query<(Entity, &Energy, &NpcIndex, &Home),
-                 (Without<GoingToRest>, Without<Resting>)>,
+                 (Without<GoingToRest>, Without<Resting>, Without<InCombat>)>,
 ) {
     for (entity, energy, npc_idx, home) in query.iter() {
         if energy.0 < ENERGY_HUNGRY {
@@ -34,9 +35,10 @@ pub fn tired_system(
 }
 
 /// Resume patrol when energy recovered (anyone with PatrolRoute + Resting).
+/// Skip NPCs in combat.
 pub fn resume_patrol_system(
     mut commands: Commands,
-    query: Query<(Entity, &PatrolRoute, &Energy, &NpcIndex), With<Resting>>,
+    query: Query<(Entity, &PatrolRoute, &Energy, &NpcIndex), (With<Resting>, Without<InCombat>)>,
 ) {
     for (entity, patrol, energy, npc_idx) in query.iter() {
         if energy.0 >= ENERGY_RESTED {
@@ -60,9 +62,10 @@ pub fn resume_patrol_system(
 }
 
 /// Resume work when energy recovered (anyone with WorkPosition + Resting).
+/// Skip NPCs in combat.
 pub fn resume_work_system(
     mut commands: Commands,
-    query: Query<(Entity, &WorkPosition, &Energy, &NpcIndex), With<Resting>>,
+    query: Query<(Entity, &WorkPosition, &Energy, &NpcIndex), (With<Resting>, Without<InCombat>)>,
 ) {
     for (entity, work_pos, energy, npc_idx) in query.iter() {
         if energy.0 >= ENERGY_RESTED {
@@ -84,9 +87,10 @@ pub fn resume_work_system(
 }
 
 /// Patrol system: count ticks at post and move to next (anyone with PatrolRoute + OnDuty).
+/// Skip NPCs in combat - they chase enemies instead.
 pub fn patrol_system(
     mut commands: Commands,
-    mut query: Query<(Entity, &mut PatrolRoute, &mut OnDuty, &NpcIndex)>,
+    mut query: Query<(Entity, &mut PatrolRoute, &mut OnDuty, &NpcIndex), Without<InCombat>>,
 ) {
     for (entity, mut patrol, mut on_duty, npc_idx) in query.iter_mut() {
         on_duty.ticks_waiting += 1;

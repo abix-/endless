@@ -82,6 +82,28 @@ layout(set = 0, binding = 8, std430) buffer BackoffBuffer {
 };
 
 // =============================================================================
+// COMBAT TARGETING BUFFERS
+// =============================================================================
+
+// Binding 9: Faction buffer (read-only - 0=Villager, 1=Raider)
+// Set at spawn time. Villagers fight Raiders and vice versa.
+layout(set = 0, binding = 9, std430) restrict readonly buffer FactionBuffer {
+    int factions[];
+};
+
+// Binding 10: Health buffer (read-only - current HP)
+// Updated when damage is applied. Dead NPCs (health <= 0) ignored for targeting.
+layout(set = 0, binding = 10, std430) restrict readonly buffer HealthBuffer {
+    float healths[];
+};
+
+// Binding 11: Combat target buffer (write-only - output for CPU)
+// -1 = no target, >= 0 = NPC index of nearest enemy
+layout(set = 0, binding = 11, std430) restrict writeonly buffer CombatTargetBuffer {
+    int combat_targets[];
+};
+
+// =============================================================================
 // PUSH CONSTANTS - Small, fast-changing parameters passed each frame
 // =============================================================================
 
@@ -347,6 +369,62 @@ void main() {
     // =========================================================================
 
     pos += (movement + avoidance) * params.delta;
+
+    // =========================================================================
+    // STEP 5b: COMBAT TARGETING (find nearest enemy)
+    // =========================================================================
+    // Uses same spatial grid to find hostile NPCs within detection range.
+    // Output: combat_targets[i] = index of nearest enemy, or -1 if none.
+
+    int best_target = -1;
+    float detect_range = 300.0;  // 2x attack range (150px)
+    float best_dist_sq = detect_range * detect_range;
+
+    // Only living NPCs can have targets
+    float my_health = healths[i];
+    if (my_health > 0.0) {
+        int my_faction = factions[i];
+
+        // Check 3x3 neighborhood for enemies
+        for (int dy = -1; dy <= 1; dy++) {
+            int ny = cy + dy;
+            if (ny < 0 || ny >= int(params.grid_height)) continue;
+
+            for (int dx = -1; dx <= 1; dx++) {
+                int nx = cx + dx;
+                if (nx < 0 || nx >= int(params.grid_width)) continue;
+
+                int cell_idx = ny * int(params.grid_width) + nx;
+                int cell_count = grid_counts[cell_idx];
+                int cell_base = cell_idx * int(params.max_per_cell);
+
+                for (int n = 0; n < cell_count; n++) {
+                    uint j = uint(grid_data[cell_base + n]);
+                    if (j == i) continue;
+
+                    // Faction check: hostile if different
+                    int other_faction = factions[j];
+                    if (other_faction == my_faction) continue;
+
+                    // Alive check
+                    float other_health = healths[j];
+                    if (other_health <= 0.0) continue;
+
+                    // Distance check
+                    vec2 other_pos = positions[j];
+                    vec2 diff = pos - other_pos;
+                    float dist_sq = dot(diff, diff);
+
+                    if (dist_sq < best_dist_sq) {
+                        best_dist_sq = dist_sq;
+                        best_target = int(j);
+                    }
+                }
+            }
+        }
+    }
+
+    combat_targets[i] = best_target;
 
     // =========================================================================
     // STEP 6: WRITE OUTPUT

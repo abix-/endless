@@ -57,3 +57,12 @@ pub fn drain_damage_queue(mut messages: MessageWriter<DamageMsg>) {
         }
     }
 }
+
+/// Drain the raider spawn queue.
+pub fn drain_raider_queue(mut messages: MessageWriter<SpawnRaiderMsg>) {
+    if let Ok(mut queue) = RAIDER_QUEUE.lock() {
+        for msg in queue.drain(..) {
+            messages.write(msg);
+        }
+    }
+}

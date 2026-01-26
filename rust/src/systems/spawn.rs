@@ -117,6 +117,10 @@ pub fn spawn_guard_system(
             Vec::new()
         };
 
+        // Set faction in GPU data
+        gpu_data.factions[idx] = Faction::Villager.to_i32();
+        gpu_data.healths[idx] = 100.0;
+
         // Create guard entity with full component set
         commands.spawn((
             NpcIndex(idx),
@@ -124,6 +128,9 @@ pub fn spawn_guard_system(
             Speed::default(),
             Energy::default(),
             Health::default(),
+            Faction::Villager,
+            AttackStats::default(),
+            AttackTimer::default(),
             Guard { town_idx: event.town_idx },
             Home(Vector2::new(event.home_x, event.home_y)),
             PatrolRoute {
@@ -165,6 +172,10 @@ pub fn spawn_farmer_system(
         gpu_data.npc_count += 1;
         gpu_data.dirty = true;
 
+        // Set faction in GPU data (farmers are villagers but don't fight)
+        gpu_data.factions[idx] = Faction::Villager.to_i32();
+        gpu_data.healths[idx] = 100.0;
+
         // Create farmer entity with behavior components
         commands.spawn((
             NpcIndex(idx),
@@ -172,10 +183,57 @@ pub fn spawn_farmer_system(
             Speed::default(),
             Energy::default(),
             Health::default(),
+            Faction::Villager,
             Farmer { town_idx: event.town_idx },
             Home(Vector2::new(event.home_x, event.home_y)),
             WorkPosition(Vector2::new(event.work_x, event.work_y)),
             GoingToWork,  // Start walking to work
+        ));
+        count.0 += 1;
+    }
+}
+
+/// Process raider spawn messages: create raider entities with combat components.
+pub fn spawn_raider_system(
+    mut commands: Commands,
+    mut events: MessageReader<SpawnRaiderMsg>,
+    mut count: ResMut<NpcCount>,
+    mut gpu_data: ResMut<GpuData>,
+) {
+    for event in events.read() {
+        let idx = gpu_data.npc_count;
+        if idx >= MAX_NPC_COUNT {
+            continue;
+        }
+
+        let (r, g, b, a) = Job::Raider.color();
+        let speed = Speed::default().0;
+
+        // Initialize GPU data
+        gpu_data.positions[idx * 2] = event.x;
+        gpu_data.positions[idx * 2 + 1] = event.y;
+        gpu_data.targets[idx * 2] = event.x;
+        gpu_data.targets[idx * 2 + 1] = event.y;
+        gpu_data.colors[idx * 4] = r;
+        gpu_data.colors[idx * 4 + 1] = g;
+        gpu_data.colors[idx * 4 + 2] = b;
+        gpu_data.colors[idx * 4 + 3] = a;
+        gpu_data.speeds[idx] = speed;
+        gpu_data.factions[idx] = Faction::Raider.to_i32();
+        gpu_data.healths[idx] = 100.0;
+        gpu_data.npc_count += 1;
+        gpu_data.dirty = true;
+
+        // Create raider entity with combat components
+        commands.spawn((
+            NpcIndex(idx),
+            Job::Raider,
+            Speed::default(),
+            Health::default(),
+            Faction::Raider,
+            AttackStats::default(),
+            AttackTimer::default(),
+            Home(Vector2::new(event.camp_x, event.camp_y)),
         ));
         count.0 += 1;
     }
