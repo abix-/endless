@@ -1,0 +1,152 @@
+//! ECS Components - Bevy entities have these attached
+
+use godot_bevy::prelude::godot_prelude::*;
+use godot_bevy::prelude::bevy_ecs_prelude::*;
+
+// ============================================================================
+// CORE COMPONENTS
+// ============================================================================
+
+/// Links a Bevy entity to its index in the GPU buffers.
+/// When spawning an NPC, we create an entity with NpcIndex(n) where n is the buffer slot.
+#[derive(Component, Clone, Copy)]
+pub struct NpcIndex(pub usize);
+
+/// NPC's job determines behavior and color.
+/// - Farmer (green): works at farms, avoids combat
+/// - Guard (blue): patrols and fights raiders
+/// - Raider (red): attacks guards, steals from farms
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Job {
+    Farmer,
+    Guard,
+    Raider,
+}
+
+impl Job {
+    /// Convert from GDScript integer (0=Farmer, 1=Guard, 2=Raider)
+    pub fn from_i32(v: i32) -> Self {
+        match v {
+            1 => Job::Guard,
+            2 => Job::Raider,
+            _ => Job::Farmer,
+        }
+    }
+
+    /// RGBA color for this job type. Alpha=1.0 means "has target" on GPU.
+    pub fn color(&self) -> (f32, f32, f32, f32) {
+        match self {
+            Job::Farmer => (0.2, 0.8, 0.2, 1.0),  // Green
+            Job::Guard => (0.2, 0.4, 0.9, 1.0),   // Blue
+            Job::Raider => (0.9, 0.2, 0.2, 1.0),  // Red
+        }
+    }
+}
+
+/// Marker component: this NPC has an active target to move toward.
+/// Added when set_target() is called, could be removed when arrived.
+#[derive(Component)]
+pub struct HasTarget;
+
+/// Movement speed in pixels per second.
+#[derive(Component, Clone, Copy)]
+pub struct Speed(pub f32);
+
+impl Default for Speed {
+    fn default() -> Self {
+        Self(100.0)  // 100 pixels/second base speed
+    }
+}
+
+// ============================================================================
+// NPC TYPE MARKERS
+// ============================================================================
+
+/// Guard marker - identifies NPC as a guard (for queries).
+#[derive(Component)]
+pub struct Guard {
+    pub town_idx: u32,
+}
+
+/// Farmer marker - identifies NPC as a farmer.
+#[derive(Component)]
+pub struct Farmer {
+    pub town_idx: u32,
+}
+
+// ============================================================================
+// BEHAVIOR DATA COMPONENTS
+// ============================================================================
+
+/// NPC energy level (0-100). Drains while active, recovers while resting.
+#[derive(Component)]
+pub struct Energy(pub f32);
+
+impl Default for Energy {
+    fn default() -> Self {
+        Self(100.0)
+    }
+}
+
+/// Where the NPC goes to rest (bed position).
+#[derive(Component)]
+pub struct Home(pub Vector2);
+
+/// Patrol route for guards (or any NPC that patrols).
+#[derive(Component)]
+pub struct PatrolRoute {
+    pub posts: Vec<Vector2>,
+    pub current: usize,
+}
+
+/// Work position for farmers (or any NPC that works at a location).
+#[derive(Component)]
+pub struct WorkPosition(pub Vector2);
+
+// ============================================================================
+// STATE MARKERS (mutually exclusive)
+// ============================================================================
+
+/// NPC is moving toward next patrol post.
+#[derive(Component)]
+pub struct Patrolling;
+
+/// NPC is standing at a post, waiting before moving to next.
+#[derive(Component)]
+pub struct OnDuty {
+    pub ticks_waiting: u32,
+}
+
+/// NPC is at home/bed recovering energy.
+#[derive(Component)]
+pub struct Resting;
+
+/// NPC is walking home to rest.
+#[derive(Component)]
+pub struct GoingToRest;
+
+/// NPC is at work position, working.
+#[derive(Component)]
+pub struct Working;
+
+/// NPC is walking to work position.
+#[derive(Component)]
+pub struct GoingToWork;
+
+/// NPC is dead and pending removal.
+#[derive(Component)]
+pub struct Dead;
+
+// ============================================================================
+// HEALTH COMPONENT
+// ============================================================================
+
+/// NPC health (0-100). Dies when reaching 0.
+#[derive(Component)]
+pub struct Health(pub f32);
+
+impl Default for Health {
+    fn default() -> Self {
+        Self(100.0)
+    }
+}

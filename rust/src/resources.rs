@@ -1,0 +1,39 @@
+//! ECS Resources - Shared state accessible by all systems
+
+use godot_bevy::prelude::bevy_ecs_prelude::*;
+use crate::constants::MAX_NPC_COUNT;
+
+/// Tracks total number of active NPCs.
+#[derive(Resource, Default)]
+pub struct NpcCount(pub usize);
+
+/// CPU-side copy of GPU data, used for uploading to GPU buffers.
+/// When `dirty` is true, the data needs to be re-uploaded.
+#[derive(Resource)]
+pub struct GpuData {
+    /// Position data: [x0, y0, x1, y1, ...] - 2 floats per NPC
+    pub positions: Vec<f32>,
+    /// Target positions: [tx0, ty0, tx1, ty1, ...] - 2 floats per NPC
+    pub targets: Vec<f32>,
+    /// Colors: [r0, g0, b0, a0, r1, g1, b1, a1, ...] - 4 floats per NPC
+    pub colors: Vec<f32>,
+    /// Movement speeds: one float per NPC
+    pub speeds: Vec<f32>,
+    /// Current NPC count
+    pub npc_count: usize,
+    /// True if data changed and needs GPU upload
+    pub dirty: bool,
+}
+
+impl Default for GpuData {
+    fn default() -> Self {
+        Self {
+            positions: vec![0.0; MAX_NPC_COUNT * 2],
+            targets: vec![0.0; MAX_NPC_COUNT * 2],
+            colors: vec![0.0; MAX_NPC_COUNT * 4],
+            speeds: vec![0.0; MAX_NPC_COUNT],
+            npc_count: 0,
+            dirty: false,
+        }
+    }
+}
