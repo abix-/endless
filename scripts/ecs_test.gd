@@ -20,6 +20,7 @@ var log_label: Label
 
 # Controls
 var count_slider: HSlider
+var metrics_check: CheckBox
 
 # State
 var frame_count := 0
@@ -29,6 +30,7 @@ var current_test := 0
 var test_phase := 0
 var npc_count := 0
 var is_running := false
+var metrics_enabled := true
 var log_lines: Array[String] = []
 var test_result := ""  # "PASS" or "FAIL: reason"
 
@@ -70,6 +72,9 @@ func _ready() -> void:
 	count_slider = vbox.get_node("CountSlider")
 	count_slider.value_changed.connect(_on_count_changed)
 	_on_count_changed(count_slider.value)  # Initialize label
+
+	metrics_check = vbox.get_node("MetricsCheck")
+	metrics_check.toggled.connect(_on_metrics_toggled)
 
 	# Connect test buttons
 	vbox.get_node("TestButtons/Test1").pressed.connect(_start_test.bind(1))
@@ -183,6 +188,14 @@ func _get_max_dist_from_target(target: Vector2) -> float:
 
 func _on_count_changed(value: float) -> void:
 	count_label.text = "NPC Count: %d" % int(value)
+
+
+func _on_metrics_toggled(enabled: bool) -> void:
+	metrics_enabled = enabled
+	if not enabled:
+		distance_label.text = "Min sep: (disabled)"
+		velocity_label.text = "(metrics disabled)"
+		expected_label.text = "--"
 
 
 func _show_menu() -> void:
@@ -737,6 +750,8 @@ func _process(delta: float) -> void:
 
 func _update_metrics() -> void:
 	time_label.text = "Time: %.2fs" % test_timer
+	if not metrics_enabled:
+		return
 	if npc_count > 1 and ecs_manager:
 		# Only compute expensive metrics every 60 frames
 		if frame_count % 60 == 0:

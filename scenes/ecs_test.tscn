@@ -38,6 +38,10 @@ value = 500.0
 
 [node name="Sep1" type="HSeparator" parent="UI/DebugPanel/VBox"]
 
+[node name="MetricsCheck" type="CheckBox" parent="UI/DebugPanel/VBox"]
+button_pressed = true
+text = "Collect Metrics"
+
 [node name="TestTitle" type="Label" parent="UI/DebugPanel/VBox"]
 text = "Tests"
 horizontal_alignment = 1
