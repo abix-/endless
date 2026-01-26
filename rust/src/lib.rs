@@ -237,9 +237,9 @@ impl INode2D for EcsNpcManager {
         }
 
         if npc_count > 0 {
-            // Upload factions and healths before dispatch (for GPU targeting)
-            gpu.upload_factions(npc_count);
-            gpu.upload_healths(npc_count);
+            // Note: factions are uploaded at spawn time, no need to re-upload
+            // Health updates would need a sync from Bevy, but for now GPU targeting
+            // works with spawn-time health (dead NPCs get despawned anyway)
 
             gpu.dispatch(npc_count, delta as f32);
             gpu.read_positions_from_gpu(npc_count);
@@ -764,6 +764,27 @@ impl EcsNpcManager {
             }
         }
         Vector2::ZERO
+    }
+
+    #[func]
+    fn get_combat_debug(&self) -> Dictionary {
+        let mut dict = Dictionary::new();
+        if let Ok(debug) = systems::COMBAT_DEBUG.lock() {
+            dict.set("attackers", debug.attackers_queried as i32);
+            dict.set("targets_found", debug.targets_found as i32);
+            dict.set("attacks", debug.attacks_made as i32);
+            dict.set("chases", debug.chases_started as i32);
+            dict.set("in_combat_added", debug.in_combat_added as i32);
+            dict.set("sample_target", debug.sample_target_idx);
+            dict.set("positions_len", debug.positions_len as i32);
+            dict.set("combat_targets_len", debug.combat_targets_len as i32);
+            dict.set("bounds_fail", debug.bounds_failures as i32);
+            dict.set("sample_dist", debug.sample_dist);
+            dict.set("in_range", debug.in_range_count as i32);
+            dict.set("timer_ready", debug.timer_ready_count as i32);
+            dict.set("sample_timer", debug.sample_timer);
+        }
+        dict
     }
 
     #[func]

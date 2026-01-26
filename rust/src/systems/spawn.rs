@@ -130,7 +130,7 @@ pub fn spawn_guard_system(
             Health::default(),
             Faction::Villager,
             AttackStats::default(),
-            AttackTimer::default(),
+            AttackTimer(-999.0),  // DEBUG: distinctive value to trace
             Guard { town_idx: event.town_idx },
             Home(Vector2::new(event.home_x, event.home_y)),
             PatrolRoute {
@@ -232,7 +232,7 @@ pub fn spawn_raider_system(
             Health::default(),
             Faction::Raider,
             AttackStats::default(),
-            AttackTimer::default(),
+            AttackTimer(-999.0),  // DEBUG: distinctive value to trace
             Home(Vector2::new(event.camp_x, event.camp_y)),
         ));
         count.0 += 1;

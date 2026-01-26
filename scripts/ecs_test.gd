@@ -122,12 +122,21 @@ func _copy_debug_info() -> void:
 	var info := "Test: %s | Time: %.1fs | NPCs: %d\n" % [TEST_NAMES.get(current_test, "?"), test_timer, npc_count]
 	info += state_label.text + "\n"
 	info += phase_label.text + "\n"
-	info += "Min sep: %.1fpx\n" % _get_min_separation() if npc_count > 1 else ""
-	if ecs_manager and ecs_manager.has_method("get_debug_stats"):
-		var stats: Dictionary = ecs_manager.get_debug_stats()
-		info += "arrived: %d/%d\n" % [stats.get("arrived_count", 0), npc_count]
-		info += "max_backoff: %d\n" % stats.get("max_backoff", 0)
-		info += "grid_cells: %d, max_per_cell: %d\n" % [stats.get("cells_used", 0), stats.get("max_per_cell", 0)]
+
+	# Combat debug for test 10
+	if current_test == 10 and ecs_manager:
+		var cd: Dictionary = ecs_manager.call("get_combat_debug") if ecs_manager.has_method("get_combat_debug") else {}
+		info += "attackers=%d targets=%d attacks=%d chases=%d\n" % [cd.get("attackers", -1), cd.get("targets_found", -1), cd.get("attacks", -1), cd.get("chases", -1)]
+		info += "in_range=%d timer_ready=%d timer=%.2f\n" % [cd.get("in_range", -1), cd.get("timer_ready", -1), cd.get("sample_timer", -1.0)]
+		var hd: Dictionary = ecs_manager.call("get_health_debug") if ecs_manager.has_method("get_health_debug") else {}
+		info += "bevy_entities=%d damage_processed=%d\n" % [hd.get("bevy_entity_count", -1), hd.get("damage_processed", -1)]
+	else:
+		info += "Min sep: %.1fpx\n" % _get_min_separation() if npc_count > 1 else ""
+		if ecs_manager and ecs_manager.has_method("get_debug_stats"):
+			var stats: Dictionary = ecs_manager.get_debug_stats()
+			info += "arrived: %d/%d\n" % [stats.get("arrived_count", 0), npc_count]
+			info += "max_backoff: %d\n" % stats.get("max_backoff", 0)
+			info += "grid_cells: %d, max_per_cell: %d\n" % [stats.get("cells_used", 0), stats.get("max_per_cell", 0)]
 	DisplayServer.clipboard_set(info)
 	_log("Copied to clipboard")
 
@@ -846,36 +855,41 @@ func _update_test_combat() -> void:
 		test_phase = 2
 		_set_phase("Spawning combatants...")
 
-		# Spawn 5 guards on the left (blue)
+		# Spawn guards left, raiders right - 50px apart (cells 5 and 6, adjacent)
 		for i in 5:
-			var y_offset := (i - 2) * 30.0
-			ecs_manager.spawn_guard(CENTER.x - 150, CENTER.y + y_offset, 0, CENTER.x - 100, CENTER.y)
-
-		# Spawn 5 raiders on the right (red)
+			var y_offset := (i - 2) * 25.0
+			ecs_manager.spawn_guard(CENTER.x - 25, CENTER.y + y_offset, 0, CENTER.x - 100, CENTER.y)
 		var camp_pos := Vector2(CENTER.x + 300, CENTER.y)
 		for i in 5:
-			var y_offset := (i - 2) * 30.0
-			ecs_manager.spawn_raider(CENTER.x + 150, CENTER.y + y_offset, camp_pos.x, camp_pos.y)
+			var y_offset := (i - 2) * 25.0
+			ecs_manager.spawn_raider(CENTER.x + 25, CENTER.y + y_offset, camp_pos.x, camp_pos.y)
 
 		_log("Spawned 5 guards, 5 raiders")
 
 	# Phase 2: Wait for combat
 	if test_phase == 2:
+		# Show combat debug
+		var cd: Dictionary = ecs_manager.call("get_combat_debug") if ecs_manager.has_method("get_combat_debug") else {}
+		var attackers: int = cd.get("attackers", -1)
+		var targets: int = cd.get("targets_found", -1)
+		var attacks: int = cd.get("attacks", -1)
+		var chases: int = cd.get("chases", -1)
+		var sample_tgt: int = cd.get("sample_target", -99)
+		var pos_len: int = cd.get("positions_len", -1)
+		var tgt_len: int = cd.get("combat_targets_len", -1)
+		expected_label.text = "atk=%d tgt=%d dmg=%d chase=%d" % [attackers, targets, attacks, chases]
+		velocity_label.text = "tgt[0]=%d pos=%d tgts=%d" % [sample_tgt, pos_len, tgt_len]
+
 		# Show health debug
-		if ecs_manager.has_method("get_health_debug"):
-			var hd: Dictionary = ecs_manager.get_health_debug()
-			var bevy_ct: int = hd.get("bevy_entity_count", -1)
-			var dmg_proc: int = hd.get("damage_processed", 0)
-			var samples: String = hd.get("health_samples", "")
-			expected_label.text = "bevy=%d dmg=%d" % [bevy_ct, dmg_proc]
-			velocity_label.text = "HP: %s" % samples
+		var hd: Dictionary = ecs_manager.call("get_health_debug") if ecs_manager.has_method("get_health_debug") else {}
+		var bevy_ct: int = hd.get("bevy_entity_count", -1)
+		var dmg_proc: int = hd.get("damage_processed", -1)
+		distance_label.text = "bevy=%d dmg=%d" % [bevy_ct, dmg_proc]
 
 		_set_phase("Combat (%.0fs)" % test_timer)
 
 		# Check for combat progress after 5 seconds
 		if test_timer > 5.0:
-			var hd: Dictionary = ecs_manager.get_health_debug()
-			var dmg_proc: int = hd.get("damage_processed", 0)
 			if dmg_proc > 0:
 				# Damage has been dealt, combat is working
 				test_phase = 3
@@ -1042,6 +1056,9 @@ func _process(delta: float) -> void:
 func _update_metrics() -> void:
 	time_label.text = "Time: %.2fs" % test_timer
 	if not metrics_enabled:
+		return
+	# Skip for test 10 - it has its own debug display
+	if current_test == 10:
 		return
 	if npc_count > 1 and ecs_manager:
 		# Only compute expensive metrics every 60 frames
