@@ -215,7 +215,7 @@ shaders/
   separation_compute.glsl  # GPU spatial hash + separation forces
   npc_compute.glsl         # All-in-one: movement + separation + render
 scenes/
-  ecs_test.tscn         # 7 behavior tests with visual markers and PASS/FAIL
+  ecs_test.tscn         # 8 behavior tests with visual markers and PASS/FAIL
   bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
 scripts/
   ecs_test.gd           # 7 test scenarios (500-5000 NPCs configurable)
@@ -358,10 +358,13 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Test 7: Guard Patrol (4 guards patrol perimeter clockwise)
 - [x] Result: Guards patrol and rest autonomously
 
-**Chunk 6: Farmer Logic**
-- [ ] Farming, Walking, Resting states
-- [ ] Farm assignment, work schedule
-- [ ] Result: Farmers work and rest
+**Chunk 6: Behavior-Based Architecture** ✓
+- [x] Refactor to behavior-based systems (systems ARE behaviors)
+- [x] Generic components: Home, PatrolRoute, WorkPosition
+- [x] Generic systems: tired_system, resume_patrol_system, resume_work_system, patrol_system
+- [x] Farmer component with spawn_farmer() API
+- [x] Test 8: Farmer Work Cycle
+- [x] Result: NPCs defined by component bundles, behaviors are reusable
 
 **Chunk 7: Combat**
 - [ ] GPU spatial queries for targeting
@@ -387,7 +390,8 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 | Chunk 3 (GPU physics) | 10,000+ | 140 | ✅ Done |
 | Chunk 4 (world data) | 10,000+ | 140 | ✅ Done |
 | Chunk 5 (guard logic) | 10,000+ | 140 | ✅ Done |
-| Chunk 6-9 (full game) | 10,000+ | 60+ | Planned |
+| Chunk 6 (behaviors) | 10,000+ | 140 | ✅ Done |
+| Chunk 7-9 (full game) | 10,000+ | 60+ | Planned |
 | Zero-copy optimization | 20,000+ | 60+ | Future |
 
 ### Performance Lessons Learned

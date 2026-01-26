@@ -57,6 +57,12 @@
 - remove console log spam: debug info now UI-only (no godot_print/print calls)
 - add "Collect Metrics" toggle (off by default) to disable all O(n²) checks and GPU reads
 - skip test validation when metrics disabled (raw performance mode)
+- add Chunk 6: Behavior-based NPC architecture (systems as behaviors)
+- refactor guard components: HomePosition→Home, Guard.current_post→PatrolRoute
+- add generic behavior systems: tired_system, resume_patrol_system, resume_work_system, patrol_system
+- add WorkPosition, Working, GoingToWork components for work behavior
+- add Farmer component and spawn_farmer() GDScript API
+- add Test 8: Farmer Work Cycle (validates work/rest behavior)
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)
