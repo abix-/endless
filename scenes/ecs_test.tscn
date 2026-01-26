@@ -87,11 +87,17 @@ custom_minimum_size = Vector2(42, 0)
 text = "8"
 tooltip_text = "Farmer: Work cycle"
 
+[node name="Test9" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
+custom_minimum_size = Vector2(42, 0)
+text = "9"
+tooltip_text = "Health: Damage + Death"
+
 [node name="TestDesc" type="Label" parent="UI/DebugPanel/VBox"]
 custom_minimum_size = Vector2(0, 100)
 text = "1-5: NPC physics tests
 6: World data API
-7: Guard patrol cycle"
+7-8: Guard/Farmer behavior
+9: Health + Death"
 autowrap_mode = 2
 
 [node name="Sep2" type="HSeparator" parent="UI/DebugPanel/VBox"]

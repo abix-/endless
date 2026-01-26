@@ -46,7 +46,8 @@ const TEST_NAMES := {
 	5: "Mass",
 	6: "World Data",
 	7: "Guard Patrol",
-	8: "Farmer Work"
+	8: "Farmer Work",
+	9: "Health/Death"
 }
 
 
@@ -87,6 +88,7 @@ func _ready() -> void:
 	vbox.get_node("TestButtons/Test6").pressed.connect(_start_test.bind(6))
 	vbox.get_node("TestButtons/Test7").pressed.connect(_start_test.bind(7))
 	vbox.get_node("TestButtons/Test8").pressed.connect(_start_test.bind(8))
+	vbox.get_node("TestButtons/Test9").pressed.connect(_start_test.bind(9))
 	vbox.get_node("CopyButton").pressed.connect(_copy_debug_info)
 
 	if ClassDB.class_exists("EcsNpcManager"):
@@ -219,12 +221,13 @@ func _input(event: InputEvent) -> void:
 			KEY_6: _start_test(6)
 			KEY_7: _start_test(7)
 			KEY_8: _start_test(8)
+			KEY_9: _start_test(9)
 			KEY_R: _start_test(current_test)
 			KEY_ESCAPE: _show_menu()
 
 
 func _start_test(test_id: int) -> void:
-	if test_id < 1 or test_id > 8:
+	if test_id < 1 or test_id > 9:
 		return
 
 	# Reset Rust state
@@ -253,6 +256,7 @@ func _start_test(test_id: int) -> void:
 		6: _setup_test_world_data()
 		7: _setup_test_guard_patrol()
 		8: _setup_test_farmer_work()
+		9: _setup_test_health_death()
 
 
 # =============================================================================
@@ -746,6 +750,66 @@ func _update_test_farmer_work() -> void:
 
 
 # =============================================================================
+# TEST 9: Health/Death - NPCs take damage and die
+# Purpose: Verify damage system, death marking, and entity cleanup
+# =============================================================================
+func _setup_test_health_death() -> void:
+	npc_count = 10
+	test_phase = 1
+	_set_phase("Spawning 10 NPCs...")
+	_log("Testing health/death")
+
+	# Spawn 10 NPCs at center (all start with 100 HP)
+	for i in 10:
+		var angle := (float(i) / 10) * TAU
+		var x := CENTER.x + cos(angle) * 50.0
+		var y := CENTER.y + sin(angle) * 50.0
+		ecs_manager.spawn_npc(x, y, i % 3)
+
+	queue_redraw()
+
+
+func _update_test_health_death() -> void:
+	# Phase 1: Wait for spawn, then deal 50 damage to NPCs 0-4
+	if test_phase == 1 and test_timer > 1.0:
+		test_phase = 2
+		_set_phase("Dealing 50 damage to NPCs 0-4...")
+
+		for i in 5:
+			ecs_manager.apply_damage(i, 50.0)
+
+		_log("50 dmg to NPCs 0-4")
+
+	# Phase 2: Deal 60 more damage to NPCs 0-4 (kills them: 50 HP - 60 = dead)
+	if test_phase == 2 and test_timer > 2.0:
+		test_phase = 3
+		_set_phase("Dealing 60 damage to NPCs 0-4...")
+
+		for i in 5:
+			ecs_manager.apply_damage(i, 60.0)
+
+		_log("60 dmg to NPCs 0-4 (lethal)")
+
+	# Phase 3: Verify 5 alive, 5 dead
+	if test_phase == 3 and test_timer > 3.0:
+		test_phase = 4
+
+		if not metrics_enabled:
+			_set_phase("Done (no validation)")
+			return
+
+		# Check NPC count - should be 5 (the dead ones get despawned)
+		var stats: Dictionary = ecs_manager.get_debug_stats()
+		var alive_count: int = stats.get("npc_count", 0)
+
+		if alive_count == 5:
+			_pass()
+			_set_phase("5 alive, 5 dead - correct!")
+		else:
+			_fail("Expected 5 alive, got %d" % alive_count)
+
+
+# =============================================================================
 # DRAWING (visual markers)
 # =============================================================================
 func _draw() -> void:
@@ -873,6 +937,7 @@ func _process(delta: float) -> void:
 			6: _update_test_world_data()
 			7: _update_test_guard_patrol()
 			8: _update_test_farmer_work()
+			9: _update_test_health_death()
 
 
 func _update_metrics() -> void:
