@@ -646,6 +646,24 @@ impl EcsNpcManager {
         Vector2::ZERO
     }
 
+    #[func]
+    fn get_health_debug(&self) -> Dictionary {
+        let mut dict = Dictionary::new();
+        if let Ok(debug) = HEALTH_DEBUG.lock() {
+            dict.set("damage_processed", debug.damage_processed as i32);
+            dict.set("deaths_this_frame", debug.deaths_this_frame as i32);
+            dict.set("despawned_this_frame", debug.despawned_this_frame as i32);
+            dict.set("bevy_entity_count", debug.bevy_entity_count as i32);
+
+            // Health samples as string for easy display
+            let samples: Vec<String> = debug.health_samples.iter()
+                .map(|(idx, hp)| format!("{}:{:.0}", idx, hp))
+                .collect();
+            dict.set("health_samples", GString::from(&samples.join(" ")));
+        }
+        dict
+    }
+
     // ========================================================================
     // RESET API
     // ========================================================================

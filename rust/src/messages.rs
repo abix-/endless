@@ -98,3 +98,30 @@ pub static GPU_NPC_COUNT: Mutex<usize> = Mutex::new(0);
 
 /// Flag to trigger Bevy entity despawn on next frame.
 pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);
+
+// ============================================================================
+// DEBUG INFO - Updated by systems, read by GDScript API
+// ============================================================================
+
+/// Health system debug info.
+#[derive(Default)]
+pub struct HealthDebugInfo {
+    /// Number of damage messages processed this frame.
+    pub damage_processed: usize,
+    /// Number of entities marked Dead this frame.
+    pub deaths_this_frame: usize,
+    /// Number of entities despawned this frame.
+    pub despawned_this_frame: usize,
+    /// Bevy entity count (entities with Health component).
+    pub bevy_entity_count: usize,
+    /// Sample health values: [(npc_index, health), ...] for first 10.
+    pub health_samples: Vec<(usize, f32)>,
+}
+
+pub static HEALTH_DEBUG: Mutex<HealthDebugInfo> = Mutex::new(HealthDebugInfo {
+    damage_processed: 0,
+    deaths_this_frame: 0,
+    despawned_this_frame: 0,
+    bevy_entity_count: 0,
+    health_samples: Vec::new(),
+});

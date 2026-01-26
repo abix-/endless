@@ -770,6 +770,17 @@ func _setup_test_health_death() -> void:
 
 
 func _update_test_health_death() -> void:
+	# Show health debug info every frame
+	if ecs_manager.has_method("get_health_debug"):
+		var hd: Dictionary = ecs_manager.get_health_debug()
+		var bevy_ct: int = hd.get("bevy_entity_count", -1)
+		var dmg_proc: int = hd.get("damage_processed", 0)
+		var deaths: int = hd.get("deaths_this_frame", 0)
+		var despawned: int = hd.get("despawned_this_frame", 0)
+		var samples: String = hd.get("health_samples", "")
+		expected_label.text = "bevy=%d dmg=%d die=%d desp=%d" % [bevy_ct, dmg_proc, deaths, despawned]
+		velocity_label.text = "HP: %s" % samples
+
 	# Phase 1: Wait for spawn, then deal 50 damage to NPCs 0-4
 	if test_phase == 1 and test_timer > 1.0:
 		test_phase = 2
@@ -794,19 +805,15 @@ func _update_test_health_death() -> void:
 	if test_phase == 3 and test_timer > 3.0:
 		test_phase = 4
 
-		if not metrics_enabled:
-			_set_phase("Done (no validation)")
-			return
+		# Check Bevy entity count via health debug
+		var hd: Dictionary = ecs_manager.get_health_debug()
+		var bevy_count: int = hd.get("bevy_entity_count", -1)
 
-		# Check NPC count - should be 5 (the dead ones get despawned)
-		var stats: Dictionary = ecs_manager.get_debug_stats()
-		var alive_count: int = stats.get("npc_count", 0)
-
-		if alive_count == 5:
+		if bevy_count == 5:
 			_pass()
 			_set_phase("5 alive, 5 dead - correct!")
 		else:
-			_fail("Expected 5 alive, got %d" % alive_count)
+			_fail("Expected 5 alive, got %d" % bevy_count)
 
 
 # =============================================================================
