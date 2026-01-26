@@ -99,7 +99,7 @@ func _ready() -> void:
 
 
 func _log(msg: String) -> void:
-	print("[ECS Test] " + msg)
+	# Show in UI only, no console spam
 	log_lines.push_front(msg)
 	if log_lines.size() > 3:
 		log_lines.pop_back()
@@ -734,23 +734,21 @@ func _process(delta: float) -> void:
 func _update_metrics() -> void:
 	time_label.text = "Time: %.2fs" % test_timer
 	if npc_count > 1 and ecs_manager:
-		# Only compute min_sep every 60 frames (O(n²) is expensive!)
+		# Only compute expensive metrics every 60 frames
 		if frame_count % 60 == 0:
+			# O(n²) min separation check
 			var min_sep := _get_min_separation()
 			distance_label.text = "Min sep: %.1fpx" % min_sep
 
-		# Get debug stats from Rust
-		if ecs_manager.has_method("get_debug_stats"):
-			var stats: Dictionary = ecs_manager.get_debug_stats()
-			var arrived: int = stats.get("arrived_count", 0)
-			var max_bo: int = stats.get("max_backoff", 0)
-			var cells: int = stats.get("cells_used", 0)
-			var max_cell: int = stats.get("max_per_cell", 0)
-			velocity_label.text = "Arrived: %d/%d  Grid: %d cells, %d max" % [arrived, npc_count, cells, max_cell]
-			expected_label.text = "Max backoff: %d" % max_bo
-		else:
-			velocity_label.text = "Pass if >= %.0fpx" % SEP_RADIUS
-			expected_label.text = "Target: %dpx sep" % int(SEP_RADIUS)
+			# Debug stats requires GPU buffer reads
+			if ecs_manager.has_method("get_debug_stats"):
+				var stats: Dictionary = ecs_manager.get_debug_stats()
+				var arrived: int = stats.get("arrived_count", 0)
+				var max_bo: int = stats.get("max_backoff", 0)
+				var cells: int = stats.get("cells_used", 0)
+				var max_cell: int = stats.get("max_per_cell", 0)
+				velocity_label.text = "Arrived: %d/%d  Grid: %d cells, %d max" % [arrived, npc_count, cells, max_cell]
+				expected_label.text = "Max backoff: %d" % max_bo
 	elif npc_count == 1:
 		distance_label.text = "Min sep: n/a"
 		velocity_label.text = "(single NPC)"

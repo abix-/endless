@@ -566,7 +566,7 @@ impl GpuCompute {
             backoff_buffer,
         )?;
 
-        godot_print!("[GPU] Compute shader initialized");
+        // Initialization complete (no console logging)
 
         Some(Self {
             rd,
@@ -982,19 +982,14 @@ fn guard_on_duty_system(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Guard, &mut OnDuty, &NpcIndex)>,
 ) {
-    let guard_count = query.iter().len();
-    if guard_count > 0 {
-        godot_print!("[Guard] on_duty_system: {} guards on duty", guard_count);
-    }
+    let _guard_count = query.iter().len();
 
     for (entity, mut guard, mut on_duty, npc_idx) in query.iter_mut() {
         on_duty.ticks_waiting += 1;
 
         if on_duty.ticks_waiting >= GUARD_PATROL_WAIT {
             // Time to move to next post
-            let old_post = guard.current_post;
             guard.current_post = (guard.current_post + 1) % 4;
-            godot_print!("[Guard] NPC {} moving from post {} to post {}", npc_idx.0, old_post, guard.current_post);
 
             commands.entity(entity)
                 .remove::<OnDuty>()
@@ -1044,7 +1039,6 @@ fn handle_guard_arrival_system(
         for (entity, npc_idx, _guard) in patrolling_query.iter() {
             if npc_idx.0 == event.npc_index {
                 matched_count += 1;
-                godot_print!("[Guard] NPC {} arrived at post, transitioning to OnDuty", event.npc_index);
                 // Arrived at patrol post - switch to OnDuty
                 commands.entity(entity)
                     .remove::<Patrolling>()
@@ -1058,7 +1052,6 @@ fn handle_guard_arrival_system(
         // Check if a guard going to rest arrived
         for (entity, npc_idx) in going_to_rest_query.iter() {
             if npc_idx.0 == event.npc_index {
-                godot_print!("[Guard] NPC {} arrived home, transitioning to Resting", event.npc_index);
                 // Arrived at home - switch to Resting
                 commands.entity(entity)
                     .remove::<GoingToRest>()
@@ -1068,9 +1061,7 @@ fn handle_guard_arrival_system(
         }
     }
 
-    if arrival_count > 0 {
-        godot_print!("[Guard] Processed {} arrivals, {} matched patrolling guards", arrival_count, matched_count);
-    }
+    let _ = (arrival_count, matched_count); // suppress unused warnings
 }
 
 // ============================================================================
@@ -1098,7 +1089,6 @@ fn reset_bevy_system(
         count.0 = 0;
         gpu_data.npc_count = 0;
         gpu_data.dirty = false;
-        godot_print!("[ECS] Reset - despawned all Bevy entities");
     }
 }
 
@@ -1131,7 +1121,6 @@ fn build_app(app: &mut bevy::prelude::App) {
            guard_on_duty_system,
        ).chain());
 
-    godot_print!("[ECS] Bevy app initialized with guard systems");
 }
 
 // ============================================================================
@@ -1191,7 +1180,6 @@ impl INode2D for EcsNpcManager {
         }
 
         self.setup_multimesh(MAX_NPC_COUNT as i32);
-        godot_print!("[EcsNpcManager] Ready - BUILD 2026-01-25-A");
     }
 
     /// Called every frame. Dispatches GPU compute and updates rendering.
@@ -1325,7 +1313,6 @@ impl EcsNpcManager {
         rs.canvas_item_add_multimesh(self.canvas_item, self.multimesh_rid);
 
         self.mesh = Some(mesh);
-        godot_print!("[EcsNpcManager] MultiMesh allocated: {}", max_count);
     }
 
     /// Spawn a new NPC at position (x, y) with the given job type.
@@ -1726,7 +1713,6 @@ impl EcsNpcManager {
             *flag = true;
         }
 
-        godot_print!("[EcsNpcManager] Reset - NPC count and world data cleared");
     }
 
     // ========================================================================
@@ -1748,7 +1734,6 @@ impl EcsNpcManager {
         if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
             farms.occupant_count = Vec::new();
         }
-        godot_print!("[EcsNpcManager] World initialized for {} towns", town_count);
     }
 
     /// Add a town to the world.
