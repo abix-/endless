@@ -53,6 +53,7 @@
 - add /test command for clean build and test workflow
 - fix test harness perf: throttle O(n²) min_sep to once per second (20 FPS → 130 FPS @ 500 NPCs)
 - fix test harness perf: throttle get_debug_stats() GPU reads to once per second
+- fix test harness perf: run O(n²) assertions once per test, not every frame after timer
 - remove console log spam: debug info now UI-only (no godot_print/print calls)
 
 ## 2026-01-24

@@ -285,6 +285,7 @@ func _setup_test_separation() -> void:
 
 func _update_test_separation() -> void:
 	if test_phase == 1 and test_timer > 2.0:
+		test_phase = 2  # Prevent re-running O(n²) check every frame!
 		# Assert: all NPC pairs at least SEP_RADIUS apart
 		var min_sep := _get_min_separation()
 		if _assert_all_separated(SEP_RADIUS):
@@ -318,6 +319,7 @@ func _update_test_both() -> void:
 		_log("Targets set")
 
 	if test_phase == 2 and test_timer > 3.0:
+		test_phase = 3  # Prevent re-running O(n²) check every frame!
 		# Assert: near center AND separated
 		var max_dist := _get_max_dist_from_target(CENTER)
 		var min_sep := _get_min_separation()
@@ -358,6 +360,7 @@ func _update_test_circle() -> void:
 		_log("Targets set")
 
 	if test_phase == 2 and test_timer > 3.0:
+		test_phase = 3  # Prevent re-running O(n²) check every frame!
 		# Assert: formed cluster near center, all separated
 		var max_dist := _get_max_dist_from_target(CENTER)
 		var min_sep := _get_min_separation()
@@ -386,7 +389,8 @@ func _setup_test_mass() -> void:
 
 
 func _update_test_mass() -> void:
-	if test_timer > 3.0:
+	if test_phase == 1 and test_timer > 3.0:
+		test_phase = 2  # Prevent re-running O(n²) check every frame!
 		# Assert: all NPCs separated (no overlaps after explosion)
 		var min_sep := _get_min_separation()
 		if _assert_all_separated(SEP_RADIUS):
