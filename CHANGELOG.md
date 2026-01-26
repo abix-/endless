@@ -63,6 +63,15 @@
 - add WorkPosition, Working, GoingToWork components for work behavior
 - add Farmer component and spawn_farmer() GDScript API
 - add Test 8: Farmer Work Cycle (validates work/rest behavior)
+- refactor lib.rs into modules: components, constants, resources, world, messages, gpu, systems/
+- add Chunk 7a: Health + Death system
+- add Health component (100 HP default), Dead marker component
+- add DamageMsg queue and apply_damage() GDScript API
+- add damage_system (applies queued damage to Health)
+- add death_system (marks entities with Dead when health <= 0)
+- add death_cleanup_system (despawns Dead entities, hides on GPU)
+- add get_health_debug() API for health system inspection
+- add Test 9: Health/Death (validates damage, death, despawn)
 
 ## 2026-01-24
 - add start menu with world size, town count, farmers/guards/raiders sliders (max 500)

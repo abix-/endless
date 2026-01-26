@@ -367,8 +367,10 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Result: NPCs defined by component bundles, behaviors are reusable
 
 **Chunk 7: Combat**
-- [ ] GPU spatial queries for targeting
-- [ ] Damage system, death handling
+- [x] 7a: Health component, DamageMsg, death_system, death_cleanup_system
+- [x] 7a: Test 9 Health/Death validation
+- [ ] 7b: GPU spatial queries for targeting, attack system
+- [ ] 7c: Projectile system
 - [ ] Result: NPCs fight
 
 **Chunk 8: Raider Logic**
@@ -391,7 +393,8 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 | Chunk 4 (world data) | 10,000+ | 140 | ✅ Done |
 | Chunk 5 (guard logic) | 10,000+ | 140 | ✅ Done |
 | Chunk 6 (behaviors) | 10,000+ | 140 | ✅ Done |
-| Chunk 7-9 (full game) | 10,000+ | 60+ | Planned |
+| Chunk 7a (health/death) | 10,000+ | 140 | ✅ Done |
+| Chunk 7b-9 (full game) | 10,000+ | 60+ | Planned |
 | Zero-copy optimization | 20,000+ | 60+ | Future |
 
 ### Performance Lessons Learned
