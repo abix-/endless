@@ -50,3 +50,25 @@ pub const ENERGY_DRAIN_RATE: f32 = 0.02;
 
 /// Energy recovery per tick while resting.
 pub const ENERGY_RECOVER_RATE: f32 = 0.2;
+
+// ============================================================================
+// PROJECTILE CONSTANTS
+// ============================================================================
+
+/// Maximum projectiles the system can handle.
+pub const MAX_PROJECTILES: usize = 5000;
+
+/// Projectile movement speed in pixels per second.
+pub const PROJECTILE_SPEED: f32 = 200.0;
+
+/// Projectile lifetime in seconds before auto-despawn.
+pub const PROJECTILE_LIFETIME: f32 = 3.0;
+
+/// Collision detection radius for projectile hits.
+pub const PROJECTILE_HIT_RADIUS: f32 = 10.0;
+
+/// Floats per projectile instance in MultiMesh buffer.
+pub const PROJ_FLOATS_PER_INSTANCE: usize = 12;
+
+/// Size of push constants for projectile compute shader.
+pub const PROJ_PUSH_CONSTANTS_SIZE: usize = 32;

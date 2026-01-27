@@ -13,14 +13,14 @@ position = Vector2(400, 300)
 [node name="DebugPanel" type="PanelContainer" parent="UI"]
 offset_left = 10.0
 offset_top = 10.0
-offset_right = 250.0
-offset_bottom = 500.0
+offset_right = 280.0
+offset_bottom = 520.0
 
 [node name="VBox" type="VBoxContainer" parent="UI/DebugPanel"]
 offset_left = 4.0
 offset_top = 4.0
-offset_right = 236.0
-offset_bottom = 486.0
+offset_right = 266.0
+offset_bottom = 506.0
 
 [node name="TitleLabel" type="Label" parent="UI/DebugPanel/VBox"]
 text = "ECS TEST HARNESS"
@@ -42,69 +42,37 @@ value = 500.0
 text = "Collect Metrics"
 
 [node name="TestTitle" type="Label" parent="UI/DebugPanel/VBox"]
-text = "Tests"
+text = "Select Test"
 horizontal_alignment = 1
 
-[node name="TestButtons" type="HBoxContainer" parent="UI/DebugPanel/VBox"]
+[node name="TestDropdown" type="OptionButton" parent="UI/DebugPanel/VBox"]
+item_count = 12
+popup/item_0/text = "-- Select Test --"
+popup/item_1/text = "1: Arrive - Move to target"
+popup/item_1/id = 1
+popup/item_2/text = "2: Separation - Push apart"
+popup/item_2/id = 2
+popup/item_3/text = "3: Arrive+Sep - Both forces"
+popup/item_3/id = 3
+popup/item_4/text = "4: Circle - Converge inward"
+popup/item_4/id = 4
+popup/item_5/text = "5: Mass - Stress test"
+popup/item_5/id = 5
+popup/item_6/text = "6: World - Data API"
+popup/item_6/id = 6
+popup/item_7/text = "7: Guard - Patrol cycle"
+popup/item_7/id = 7
+popup/item_8/text = "8: Farmer - Work cycle"
+popup/item_8/id = 8
+popup/item_9/text = "9: Health - Damage/Death"
+popup/item_9/id = 9
+popup/item_10/text = "10: Combat - GPU targeting"
+popup/item_10/id = 10
+popup/item_11/text = "11: Projectiles - GPU bullets"
+popup/item_11/id = 11
 
-[node name="Test1" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "1"
-tooltip_text = "Arrive: Move to target"
-
-[node name="Test2" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "2"
-tooltip_text = "Separation: Push apart"
-
-[node name="Test3" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "3"
-tooltip_text = "Both: Arrive + Separate"
-
-[node name="Test4" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "4"
-tooltip_text = "Circle: Converge inward"
-
-[node name="Test5" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "5"
-tooltip_text = "Mass: Stress test"
-
-[node name="Test6" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "6"
-tooltip_text = "World: Data API test"
-
-[node name="Test7" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "7"
-tooltip_text = "Guard: Patrol cycle"
-
-[node name="Test8" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "8"
-tooltip_text = "Farmer: Work cycle"
-
-[node name="Test9" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "9"
-tooltip_text = "Health: Damage + Death"
-
-[node name="Test10" type="Button" parent="UI/DebugPanel/VBox/TestButtons"]
-custom_minimum_size = Vector2(42, 0)
-text = "10"
-tooltip_text = "Combat: Guards vs Raiders"
-
-[node name="TestDesc" type="Label" parent="UI/DebugPanel/VBox"]
-custom_minimum_size = Vector2(0, 100)
-text = "1-5: NPC physics tests
-6: World data API
-7-8: Guard/Farmer behavior
-9: Health + Death
-10: Combat (GPU targeting)"
-autowrap_mode = 2
+[node name="RunButton" type="Button" parent="UI/DebugPanel/VBox"]
+text = "Run Test"
 
 [node name="Sep2" type="HSeparator" parent="UI/DebugPanel/VBox"]
 

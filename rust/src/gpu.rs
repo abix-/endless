@@ -84,8 +84,24 @@ pub struct GpuCompute {
     pub health_buffer: Rid,
     pub combat_target_buffer: Rid,
 
-    /// Uniform set
+    // === Projectile Buffers ===
+    pub proj_position_buffer: Rid,
+    pub proj_velocity_buffer: Rid,
+    pub proj_damage_buffer: Rid,
+    pub proj_faction_buffer: Rid,
+    pub proj_shooter_buffer: Rid,
+    pub proj_lifetime_buffer: Rid,
+    pub proj_active_buffer: Rid,
+    pub proj_hit_buffer: Rid,      // ivec2: (hit_npc_idx, processed)
+
+    /// Uniform set for NPC shader
     uniform_set: Rid,
+
+    /// Projectile shader and pipeline
+    #[allow(dead_code)]
+    proj_shader: Rid,
+    proj_pipeline: Rid,
+    proj_uniform_set: Rid,
 
     /// CPU-side spatial grid
     pub grid: SpatialGrid,
@@ -104,6 +120,13 @@ pub struct GpuCompute {
 
     /// Combat targets read from GPU (-1 = no target)
     pub combat_targets: Vec<i32>,
+
+    // === Projectile CPU Caches ===
+    pub proj_positions: Vec<f32>,
+    pub proj_velocities: Vec<f32>,
+    pub proj_damages: Vec<f32>,
+    pub proj_active: Vec<i32>,
+    pub proj_count: usize,
 }
 
 impl GpuCompute {
@@ -145,12 +168,63 @@ impl GpuCompute {
         let health_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
         let combat_target_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
 
+        // Projectile buffers
+        let proj_position_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 8) as u32);
+        let proj_velocity_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 8) as u32);
+        let proj_damage_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 4) as u32);
+        let proj_faction_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 4) as u32);
+        let proj_shooter_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 4) as u32);
+        let proj_lifetime_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 4) as u32);
+        let proj_active_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 4) as u32);
+        let proj_hit_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 8) as u32); // ivec2
+
         let uniform_set = Self::create_uniform_set(
             &mut rd, shader,
             position_buffer, target_buffer, color_buffer, speed_buffer,
             grid_counts_buffer, grid_data_buffer, multimesh_buffer, arrival_buffer,
             backoff_buffer, faction_buffer, health_buffer, combat_target_buffer,
         )?;
+
+        // Load projectile shader
+        let proj_shader_file = ResourceLoader::singleton()
+            .load("res://shaders/projectile_compute.glsl");
+        let (proj_shader, proj_pipeline, proj_uniform_set) = if let Some(file) = proj_shader_file {
+            let file = file.cast::<godot::classes::RdShaderFile>();
+            if let Some(spirv) = file.get_spirv() {
+                let shader = rd.shader_create_from_spirv(&spirv);
+                if shader.is_valid() {
+                    let pipeline = rd.compute_pipeline_create(shader);
+                    if pipeline.is_valid() {
+                        let uniform_set = Self::create_projectile_uniform_set(
+                            &mut rd, shader,
+                            proj_position_buffer, proj_velocity_buffer, proj_damage_buffer,
+                            proj_faction_buffer, proj_shooter_buffer, proj_lifetime_buffer,
+                            proj_active_buffer, proj_hit_buffer,
+                            position_buffer, faction_buffer, health_buffer,
+                            grid_counts_buffer, grid_data_buffer,
+                        );
+                        if let Some(us) = uniform_set {
+                            (shader, pipeline, us)
+                        } else {
+                            godot_warn!("[GPU] Failed to create projectile uniform set");
+                            (Rid::Invalid, Rid::Invalid, Rid::Invalid)
+                        }
+                    } else {
+                        godot_warn!("[GPU] Failed to create projectile pipeline");
+                        (Rid::Invalid, Rid::Invalid, Rid::Invalid)
+                    }
+                } else {
+                    godot_warn!("[GPU] Failed to create projectile shader");
+                    (Rid::Invalid, Rid::Invalid, Rid::Invalid)
+                }
+            } else {
+                godot_warn!("[GPU] No SPIRV in projectile shader");
+                (Rid::Invalid, Rid::Invalid, Rid::Invalid)
+            }
+        } else {
+            godot_warn!("[GPU] Projectile shader not found - projectiles disabled");
+            (Rid::Invalid, Rid::Invalid, Rid::Invalid)
+        };
 
         Some(Self {
             rd,
@@ -168,13 +242,29 @@ impl GpuCompute {
             faction_buffer,
             health_buffer,
             combat_target_buffer,
+            proj_position_buffer,
+            proj_velocity_buffer,
+            proj_damage_buffer,
+            proj_faction_buffer,
+            proj_shooter_buffer,
+            proj_lifetime_buffer,
+            proj_active_buffer,
+            proj_hit_buffer,
             uniform_set,
+            proj_shader,
+            proj_pipeline,
+            proj_uniform_set,
             grid: SpatialGrid::new(),
             positions: vec![0.0; MAX_NPC_COUNT * 2],
             colors: vec![0.0; MAX_NPC_COUNT * 4],
             factions: vec![0; MAX_NPC_COUNT],
             healths: vec![0.0; MAX_NPC_COUNT],
             combat_targets: vec![-1; MAX_NPC_COUNT],
+            proj_positions: vec![0.0; MAX_PROJECTILES * 2],
+            proj_velocities: vec![0.0; MAX_PROJECTILES * 2],
+            proj_damages: vec![0.0; MAX_PROJECTILES],
+            proj_active: vec![0; MAX_PROJECTILES],
+            proj_count: 0,
         })
     }
 
@@ -209,6 +299,60 @@ impl GpuCompute {
             (9, faction_buffer),
             (10, health_buffer),
             (11, combat_target_buffer),
+        ];
+
+        for (binding, buffer) in buffers {
+            let mut uniform = RdUniform::new_gd();
+            uniform.set_uniform_type(UniformType::STORAGE_BUFFER);
+            uniform.set_binding(binding);
+            uniform.add_id(buffer);
+            uniforms.push(&uniform);
+        }
+
+        let uniform_set = rd.uniform_set_create(&uniforms, shader, 0);
+        if uniform_set.is_valid() {
+            Some(uniform_set)
+        } else {
+            None
+        }
+    }
+
+    fn create_projectile_uniform_set(
+        rd: &mut Gd<RenderingDevice>,
+        shader: Rid,
+        proj_position_buffer: Rid,
+        proj_velocity_buffer: Rid,
+        proj_damage_buffer: Rid,
+        proj_faction_buffer: Rid,
+        proj_shooter_buffer: Rid,
+        proj_lifetime_buffer: Rid,
+        proj_active_buffer: Rid,
+        proj_hit_buffer: Rid,
+        npc_position_buffer: Rid,
+        npc_faction_buffer: Rid,
+        npc_health_buffer: Rid,
+        grid_counts_buffer: Rid,
+        grid_data_buffer: Rid,
+    ) -> Option<Rid> {
+        let mut uniforms = Array::new();
+
+        // Projectile buffers (0-7)
+        let buffers = [
+            (0, proj_position_buffer),
+            (1, proj_velocity_buffer),
+            (2, proj_damage_buffer),
+            (3, proj_faction_buffer),
+            (4, proj_shooter_buffer),
+            (5, proj_lifetime_buffer),
+            (6, proj_active_buffer),
+            (7, proj_hit_buffer),
+            // NPC data for collision (8-10)
+            (8, npc_position_buffer),
+            (9, npc_faction_buffer),
+            (10, npc_health_buffer),
+            // Grid data for spatial queries (11-12)
+            (11, grid_counts_buffer),
+            (12, grid_data_buffer),
         ];
 
         for (binding, buffer) in buffers {
@@ -365,5 +509,230 @@ impl GpuCompute {
                 ]);
             }
         }
+    }
+
+    // ========================================================================
+    // PROJECTILE METHODS
+    // ========================================================================
+
+    /// Upload a single projectile to GPU buffers
+    pub fn upload_projectile(
+        &mut self,
+        idx: usize,
+        x: f32, y: f32,
+        vx: f32, vy: f32,
+        damage: f32,
+        faction: i32,
+        shooter: i32,
+    ) {
+        // Position
+        let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
+        let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
+        self.rd.buffer_update(self.proj_position_buffer, (idx * 8) as u32, 8, &pos_packed);
+        self.proj_positions[idx * 2] = x;
+        self.proj_positions[idx * 2 + 1] = y;
+
+        // Velocity
+        let vel_bytes: Vec<u8> = [vx, vy].iter().flat_map(|f| f.to_le_bytes()).collect();
+        let vel_packed = PackedByteArray::from(vel_bytes.as_slice());
+        self.rd.buffer_update(self.proj_velocity_buffer, (idx * 8) as u32, 8, &vel_packed);
+        self.proj_velocities[idx * 2] = vx;
+        self.proj_velocities[idx * 2 + 1] = vy;
+
+        // Damage
+        let dmg_bytes: Vec<u8> = damage.to_le_bytes().to_vec();
+        let dmg_packed = PackedByteArray::from(dmg_bytes.as_slice());
+        self.rd.buffer_update(self.proj_damage_buffer, (idx * 4) as u32, 4, &dmg_packed);
+        self.proj_damages[idx] = damage;
+
+        // Faction
+        let fac_bytes: Vec<u8> = faction.to_le_bytes().to_vec();
+        let fac_packed = PackedByteArray::from(fac_bytes.as_slice());
+        self.rd.buffer_update(self.proj_faction_buffer, (idx * 4) as u32, 4, &fac_packed);
+
+        // Shooter
+        let shooter_bytes: Vec<u8> = shooter.to_le_bytes().to_vec();
+        let shooter_packed = PackedByteArray::from(shooter_bytes.as_slice());
+        self.rd.buffer_update(self.proj_shooter_buffer, (idx * 4) as u32, 4, &shooter_packed);
+
+        // Lifetime
+        let lifetime_bytes: Vec<u8> = PROJECTILE_LIFETIME.to_le_bytes().to_vec();
+        let lifetime_packed = PackedByteArray::from(lifetime_bytes.as_slice());
+        self.rd.buffer_update(self.proj_lifetime_buffer, (idx * 4) as u32, 4, &lifetime_packed);
+
+        // Active
+        let active_bytes: Vec<u8> = 1i32.to_le_bytes().to_vec();
+        let active_packed = PackedByteArray::from(active_bytes.as_slice());
+        self.rd.buffer_update(self.proj_active_buffer, (idx * 4) as u32, 4, &active_packed);
+        self.proj_active[idx] = 1;
+
+        // Clear hit status (-1 = no hit)
+        let hit_bytes: Vec<u8> = [-1i32, 0i32].iter().flat_map(|i| i.to_le_bytes()).collect();
+        let hit_packed = PackedByteArray::from(hit_bytes.as_slice());
+        self.rd.buffer_update(self.proj_hit_buffer, (idx * 8) as u32, 8, &hit_packed);
+
+        // Update count
+        if idx >= self.proj_count {
+            self.proj_count = idx + 1;
+        }
+    }
+
+    /// Dispatch projectile compute shader
+    pub fn dispatch_projectiles(&mut self, proj_count: usize, npc_count: usize, delta: f32) {
+        if proj_count == 0 || !self.proj_pipeline.is_valid() {
+            return;
+        }
+
+        // Pack push constants
+        let mut push_data = vec![0u8; PROJ_PUSH_CONSTANTS_SIZE];
+        push_data[0..4].copy_from_slice(&(proj_count as u32).to_le_bytes());
+        push_data[4..8].copy_from_slice(&(npc_count as u32).to_le_bytes());
+        push_data[8..12].copy_from_slice(&delta.to_le_bytes());
+        push_data[12..16].copy_from_slice(&PROJECTILE_HIT_RADIUS.to_le_bytes());
+        push_data[16..20].copy_from_slice(&(GRID_WIDTH as u32).to_le_bytes());
+        push_data[20..24].copy_from_slice(&(GRID_HEIGHT as u32).to_le_bytes());
+        push_data[24..28].copy_from_slice(&CELL_SIZE.to_le_bytes());
+        push_data[28..32].copy_from_slice(&(MAX_PER_CELL as u32).to_le_bytes());
+        let push_constants = PackedByteArray::from(push_data.as_slice());
+
+        let compute_list = self.rd.compute_list_begin();
+        self.rd.compute_list_bind_compute_pipeline(compute_list, self.proj_pipeline);
+        self.rd.compute_list_bind_uniform_set(compute_list, self.proj_uniform_set, 0);
+        self.rd.compute_list_set_push_constant(compute_list, &push_constants, PROJ_PUSH_CONSTANTS_SIZE as u32);
+
+        let workgroups = ((proj_count + 63) / 64) as u32;
+        self.rd.compute_list_dispatch(compute_list, workgroups, 1, 1);
+        self.rd.compute_list_end();
+
+        self.rd.submit();
+        self.rd.sync();
+    }
+
+    /// Read projectile hits from GPU. Returns vec of (proj_idx, npc_idx, damage).
+    pub fn read_projectile_hits(&mut self) -> Vec<(usize, usize, f32)> {
+        let mut hits = Vec::new();
+        let bytes = self.rd.buffer_get_data(self.proj_hit_buffer);
+        let byte_slice = bytes.as_slice();
+
+        for i in 0..self.proj_count {
+            let offset = i * 8;
+            if offset + 8 > byte_slice.len() {
+                continue;
+            }
+
+            let npc_idx = i32::from_le_bytes([
+                byte_slice[offset],
+                byte_slice[offset + 1],
+                byte_slice[offset + 2],
+                byte_slice[offset + 3],
+            ]);
+            let processed = i32::from_le_bytes([
+                byte_slice[offset + 4],
+                byte_slice[offset + 5],
+                byte_slice[offset + 6],
+                byte_slice[offset + 7],
+            ]);
+
+            if npc_idx >= 0 && processed == 0 {
+                let damage = self.proj_damages[i];
+                hits.push((i, npc_idx as usize, damage));
+
+                // Mark as processed
+                let hit_bytes: Vec<u8> = [npc_idx, 1i32].iter().flat_map(|i| i.to_le_bytes()).collect();
+                let hit_packed = PackedByteArray::from(hit_bytes.as_slice());
+                self.rd.buffer_update(self.proj_hit_buffer, (i * 8) as u32, 8, &hit_packed);
+
+                // Mark projectile as inactive
+                self.proj_active[i] = 0;
+            }
+        }
+
+        hits
+    }
+
+    /// Read projectile positions from GPU for rendering
+    pub fn read_projectile_positions(&mut self) {
+        let bytes = self.rd.buffer_get_data(self.proj_position_buffer);
+        let byte_slice = bytes.as_slice();
+        for i in 0..(self.proj_count * 2) {
+            let offset = i * 4;
+            if offset + 4 <= byte_slice.len() {
+                self.proj_positions[i] = f32::from_le_bytes([
+                    byte_slice[offset],
+                    byte_slice[offset + 1],
+                    byte_slice[offset + 2],
+                    byte_slice[offset + 3],
+                ]);
+            }
+        }
+    }
+
+    /// Read projectile active flags from GPU
+    pub fn read_projectile_active(&mut self) {
+        let bytes = self.rd.buffer_get_data(self.proj_active_buffer);
+        let byte_slice = bytes.as_slice();
+        for i in 0..self.proj_count {
+            let offset = i * 4;
+            if offset + 4 <= byte_slice.len() {
+                self.proj_active[i] = i32::from_le_bytes([
+                    byte_slice[offset],
+                    byte_slice[offset + 1],
+                    byte_slice[offset + 2],
+                    byte_slice[offset + 3],
+                ]);
+            }
+        }
+    }
+
+    /// Build projectile MultiMesh buffer
+    pub fn build_proj_multimesh(&self, max_count: usize) -> PackedFloat32Array {
+        let float_count = max_count * PROJ_FLOATS_PER_INSTANCE;
+        let mut floats = vec![0.0f32; float_count];
+
+        // Initialize all as hidden
+        for i in 0..max_count {
+            let base = i * PROJ_FLOATS_PER_INSTANCE;
+            floats[base + 0] = 1.0;  // scale x
+            floats[base + 5] = 1.0;  // scale y
+            floats[base + 3] = -9999.0;  // pos x (hidden)
+            floats[base + 7] = -9999.0;  // pos y (hidden)
+        }
+
+        // Set active projectiles
+        for i in 0..self.proj_count {
+            if self.proj_active[i] == 0 {
+                continue;
+            }
+
+            let base = i * PROJ_FLOATS_PER_INSTANCE;
+            let x = self.proj_positions[i * 2];
+            let y = self.proj_positions[i * 2 + 1];
+            let vx = self.proj_velocities[i * 2];
+            let vy = self.proj_velocities[i * 2 + 1];
+
+            // Calculate rotation from velocity
+            let angle = vy.atan2(vx);
+            let cos_a = angle.cos();
+            let sin_a = angle.sin();
+
+            // Transform2D with rotation
+            floats[base + 0] = cos_a;   // a (scale_x * cos)
+            floats[base + 1] = sin_a;   // b (scale_x * sin)
+            floats[base + 2] = 0.0;
+            floats[base + 3] = x;
+            floats[base + 4] = -sin_a;  // c (-scale_y * sin)
+            floats[base + 5] = cos_a;   // d (scale_y * cos)
+            floats[base + 6] = 0.0;
+            floats[base + 7] = y;
+
+            // Color: blue for villager (0), red for raider (1)
+            // We'd need faction data here; for now use white
+            floats[base + 8] = 1.0;   // r
+            floats[base + 9] = 1.0;   // g
+            floats[base + 10] = 0.0;  // b
+            floats[base + 11] = 1.0;  // a
+        }
+
+        PackedFloat32Array::from(floats.as_slice())
     }
 }

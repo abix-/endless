@@ -83,12 +83,16 @@ pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);
 pub static FRAME_DELTA: Mutex<f32> = Mutex::new(0.016);
 
 // ============================================================================
-// SLOT REUSE: Free slot pool for recycling dead NPC indices
+// SLOT REUSE: Free slot pools for recycling dead indices
 // ============================================================================
 
 /// Free NPC slot indices available for reuse.
 /// When an NPC dies, its index is pushed here. Spawn pops from here first.
 pub static FREE_SLOTS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+/// Free projectile slot indices available for reuse.
+/// When a projectile expires or hits, its index is pushed here.
+pub static FREE_PROJ_SLOTS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
 // ============================================================================
 // GPU-FIRST: Single Update Queue (Bevy -> GPU)

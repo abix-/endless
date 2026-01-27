@@ -177,6 +177,15 @@ pub struct EcsNpcManager {
 
     /// Previous frame's arrival states (to detect new arrivals).
     prev_arrivals: Vec<bool>,
+
+    // === Projectile Rendering ===
+    /// MultiMesh for projectiles
+    proj_multimesh_rid: Rid,
+    /// Canvas item for projectile MultiMesh
+    proj_canvas_item: Rid,
+    /// Keep projectile mesh alive
+    #[allow(dead_code)]
+    proj_mesh: Option<Gd<QuadMesh>>,
 }
 
 #[godot_api]
@@ -189,6 +198,9 @@ impl INode2D for EcsNpcManager {
             canvas_item: Rid::Invalid,
             mesh: None,
             prev_arrivals: vec![false; MAX_NPC_COUNT],
+            proj_multimesh_rid: Rid::Invalid,
+            proj_canvas_item: Rid::Invalid,
+            proj_mesh: None,
         }
     }
 
@@ -199,6 +211,7 @@ impl INode2D for EcsNpcManager {
             return;
         }
         self.setup_multimesh(MAX_NPC_COUNT as i32);
+        self.setup_proj_multimesh(MAX_PROJECTILES as i32);
     }
 
     fn process(&mut self, delta: f64) {
@@ -350,6 +363,37 @@ impl INode2D for EcsNpcManager {
             let buffer = gpu.build_multimesh_from_cache(&gpu.colors, npc_count, MAX_NPC_COUNT);
             let mut rs = RenderingServer::singleton();
             rs.multimesh_set_buffer(self.multimesh_rid, &buffer);
+
+            // === PROJECTILE PROCESSING ===
+            let proj_count = gpu.proj_count;
+            if proj_count > 0 {
+                // Dispatch projectile compute shader
+                gpu.dispatch_projectiles(proj_count, npc_count, delta as f32);
+
+                // Read hit results and route to damage queue
+                let hits = gpu.read_projectile_hits();
+                for (proj_idx, npc_idx, damage) in hits {
+                    // Queue damage for Bevy to process
+                    if let Ok(mut queue) = DAMAGE_QUEUE.lock() {
+                        queue.push(DamageMsg {
+                            npc_index: npc_idx,
+                            amount: damage,
+                        });
+                    }
+                    // Return projectile slot to pool
+                    if let Ok(mut free) = FREE_PROJ_SLOTS.lock() {
+                        free.push(proj_idx);
+                    }
+                }
+
+                // Read updated positions for rendering
+                gpu.read_projectile_positions();
+                gpu.read_projectile_active();
+
+                // Update projectile MultiMesh
+                let proj_buffer = gpu.build_proj_multimesh(MAX_PROJECTILES);
+                rs.multimesh_set_buffer(self.proj_multimesh_rid, &proj_buffer);
+            }
         }
     }
 }
@@ -389,6 +433,44 @@ impl EcsNpcManager {
         rs.canvas_item_add_multimesh(self.canvas_item, self.multimesh_rid);
 
         self.mesh = Some(mesh);
+    }
+
+    fn setup_proj_multimesh(&mut self, max_count: i32) {
+        let mut rs = RenderingServer::singleton();
+
+        self.proj_multimesh_rid = rs.multimesh_create();
+
+        // Smaller elongated quad for projectiles (6x2 pixels)
+        let mut mesh = QuadMesh::new_gd();
+        mesh.set_size(Vector2::new(6.0, 2.0));
+        let mesh_rid = mesh.get_rid();
+        rs.multimesh_set_mesh(self.proj_multimesh_rid, mesh_rid);
+
+        rs.multimesh_allocate_data_ex(
+            self.proj_multimesh_rid,
+            max_count,
+            godot::classes::rendering_server::MultimeshTransformFormat::TRANSFORM_2D,
+        ).color_format(true).done();
+
+        let count = max_count as usize;
+        let mut init_buffer = vec![0.0f32; count * PROJ_FLOATS_PER_INSTANCE];
+        for i in 0..count {
+            let base = i * PROJ_FLOATS_PER_INSTANCE;
+            init_buffer[base + 0] = 1.0;  // scale x
+            init_buffer[base + 5] = 1.0;  // scale y
+            init_buffer[base + 3] = -9999.0;  // pos x (hidden)
+            init_buffer[base + 7] = -9999.0;  // pos y (hidden)
+            init_buffer[base + 11] = 1.0; // alpha
+        }
+        let packed = PackedFloat32Array::from(init_buffer.as_slice());
+        rs.multimesh_set_buffer(self.proj_multimesh_rid, &packed);
+
+        self.proj_canvas_item = rs.canvas_item_create();
+        let parent_canvas = self.base().get_canvas_item();
+        rs.canvas_item_set_parent(self.proj_canvas_item, parent_canvas);
+        rs.canvas_item_add_multimesh(self.proj_canvas_item, self.proj_multimesh_rid);
+
+        self.proj_mesh = Some(mesh);
     }
 
     // ========================================================================
@@ -706,6 +788,96 @@ impl EcsNpcManager {
     }
 
     // ========================================================================
+    // PROJECTILE API
+    // ========================================================================
+
+    /// Allocate a projectile slot: reuse a free slot or allocate new.
+    /// Returns None if at capacity.
+    fn allocate_proj_slot() -> Option<usize> {
+        // Try to reuse a free slot first
+        if let Ok(mut free) = FREE_PROJ_SLOTS.lock() {
+            if let Some(recycled) = free.pop() {
+                return Some(recycled);
+            }
+        }
+        // No free slots, check capacity
+        None  // Will be set by fire_projectile based on gpu.proj_count
+    }
+
+    /// Fire a projectile from one position toward another.
+    /// Returns the projectile index, or -1 if at capacity.
+    #[func]
+    fn fire_projectile(
+        &mut self,
+        from_x: f32, from_y: f32,
+        to_x: f32, to_y: f32,
+        damage: f32,
+        faction: i32,
+        shooter: i32,
+    ) -> i32 {
+        let gpu = match self.gpu.as_mut() {
+            Some(g) => g,
+            None => return -1,
+        };
+
+        // Allocate slot
+        let idx = if let Some(recycled) = Self::allocate_proj_slot() {
+            recycled
+        } else if gpu.proj_count < MAX_PROJECTILES {
+            let i = gpu.proj_count;
+            gpu.proj_count += 1;
+            i
+        } else {
+            return -1;  // At capacity
+        };
+
+        // Calculate velocity
+        let dx = to_x - from_x;
+        let dy = to_y - from_y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist < 0.001 {
+            return -1;  // No direction
+        }
+        let vx = (dx / dist) * PROJECTILE_SPEED;
+        let vy = (dy / dist) * PROJECTILE_SPEED;
+
+        // Upload to GPU
+        gpu.upload_projectile(idx, from_x, from_y, vx, vy, damage, faction, shooter);
+
+        idx as i32
+    }
+
+    /// Get number of active projectiles.
+    #[func]
+    fn get_projectile_count(&self) -> i32 {
+        if let Some(gpu) = &self.gpu {
+            gpu.proj_count as i32
+        } else {
+            0
+        }
+    }
+
+    /// Get projectile debug info.
+    #[func]
+    fn get_projectile_debug(&self) -> Dictionary {
+        let mut dict = Dictionary::new();
+        if let Some(gpu) = &self.gpu {
+            dict.set("proj_count", gpu.proj_count as i32);
+            let active = gpu.proj_active.iter().take(gpu.proj_count).filter(|&&x| x == 1).count();
+            dict.set("active", active as i32);
+            // Sample first projectile
+            if gpu.proj_count > 0 {
+                dict.set("pos_0_x", gpu.proj_positions.get(0).copied().unwrap_or(-999.0));
+                dict.set("pos_0_y", gpu.proj_positions.get(1).copied().unwrap_or(-999.0));
+                dict.set("vel_0_x", gpu.proj_velocities.get(0).copied().unwrap_or(0.0));
+                dict.set("vel_0_y", gpu.proj_velocities.get(1).copied().unwrap_or(0.0));
+                dict.set("active_0", gpu.proj_active.get(0).copied().unwrap_or(-1));
+            }
+        }
+        dict
+    }
+
+    // ========================================================================
     // TARGET API
     // ========================================================================
 
@@ -940,8 +1112,18 @@ impl EcsNpcManager {
         // GPU-FIRST: Clear consolidated GPU update queue
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() { queue.clear(); }
 
-        // SLOT REUSE: Clear free slot pool
+        // SLOT REUSE: Clear free slot pools
         if let Ok(mut free) = FREE_SLOTS.lock() { free.clear(); }
+        if let Ok(mut free) = FREE_PROJ_SLOTS.lock() { free.clear(); }
+
+        // Reset projectile state
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.proj_count = 0;
+            gpu.proj_positions.fill(0.0);
+            gpu.proj_velocities.fill(0.0);
+            gpu.proj_damages.fill(0.0);
+            gpu.proj_active.fill(0);
+        }
 
         if let Ok(mut world) = WORLD_DATA.lock() {
             world.towns.clear();
