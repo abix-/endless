@@ -41,7 +41,7 @@ Frame execution order ───────────────────�
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 8/10 |
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
 | [spawn.md](spawn.md) | Dual-write pattern, slot allocation, Bevy entity creation | 6/10 |
-| [behavior.md](behavior.md) | State machine, energy, patrol, rest/work cycles | 7/10 |
+| [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover | 8/10 |
 | [api.md](api.md) | Complete GDScript-to-Rust API (26 methods) | - |
 | [messages.md](messages.md) | Static queues, GPU_UPDATE_QUEUE, GPU_READ_STATE | 8/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
@@ -85,7 +85,7 @@ rust/
   src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, rendering
   src/gpu.rs            # GPU compute shader dispatch and buffer management
   src/messages.rs       # Static queues and message types (GDScript → Bevy)
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states, stealing, flee/leash)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, GpuData, NpcEntityMap)
   src/world.rs          # World data structs (Town, Farm, Bed, GuardPost)
@@ -93,7 +93,7 @@ rust/
     spawn.rs            # Bevy spawn systems (drain queues → create entities)
     combat.rs           # Attack system (GPU targets → damage → chase)
     health.rs           # Damage, death, cleanup, slot recycling
-    behavior.rs         # Energy, tired, rest, patrol, work transitions
+    behavior.rs         # Energy, tired, rest, patrol, work, steal, flee, leash, recovery
 shaders/
   npc_compute.glsl      # GPU: movement + separation + combat targeting
   projectile_compute.glsl # GPU: projectile movement + collision

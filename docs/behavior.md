@@ -2,41 +2,49 @@
 
 ## Overview
 
-Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, rest transitions, patrol cycling for guards, and work transitions for farmers. All run in `Step::Behavior` after combat is resolved.
+Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, rest transitions, patrol cycling for guards, work transitions for farmers, and stealing/fleeing for raiders. All run in `Step::Behavior` after combat is resolved.
+
+All systems are **component-driven, not job-driven**. A system like `flee_system` operates on any NPC with `FleeThreshold` + `InCombat`, regardless of whether it's a guard or raider.
 
 ## State Machine
 
 ```
-                    ┌──────────────┐
-         spawn ───▶│  GoingToWork  │ (farmers)
-                    │  Patrolling   │ (guards)
-                    └──────┬───────┘
-                           │ arrival
-                           ▼
-                    ┌──────────────┐
-                    │   Working    │ (farmers)
-                    │   OnDuty     │ (guards: 60 ticks then next post)
-                    └──────┬───────┘
-                           │ energy < 50
-                           ▼
-                    ┌──────────────┐
-                    │ GoingToRest  │
-                    │ (walk home)  │
-                    └──────┬───────┘
-                           │ arrival
-                           ▼
-                    ┌──────────────┐
-                    │   Resting    │
-                    │ (recover)    │
-                    └──────┬───────┘
-                           │ energy >= 80
-                           ▼
-                    back to Patrolling / GoingToWork
+    Guard:                Farmer:               Stealer (Raider):
+    ┌──────────┐         ┌──────────┐          ┌──────────┐
+    │Patrolling│         │GoingToWork│         │  Raiding  │ (walk to farm)
+    └────┬─────┘         └────┬─────┘          └────┬─────┘
+         │ arrival            │ arrival              │ arrival at farm
+         ▼                    ▼                      ▼
+    ┌──────────┐         ┌──────────┐          ┌──────────┐
+    │  OnDuty  │         │ Working  │          │Returning │ (+CarryingFood)
+    │ 60 ticks │         │          │          │(to camp) │
+    └────┬─────┘         └────┬─────┘          └────┬─────┘
+         └────────┬───────────┘                     │ arrival at camp
+                  │ energy < 50                     ▼
+                  ▼                            deliver food, re-enter
+             ┌──────────┐                     steal_decision_system
+             │GoingToRest│
+             └────┬─────┘
+                  │ arrival
+                  ▼
+             ┌──────────┐
+             │ Resting  │
+             └────┬─────┘
+                  │ energy >= 80
+                  ▼
+             back to previous cycle
 
-    At any point:
-    ┌──────────────┐
-    │   InCombat   │ ── blocks all behavior transitions
-    └──────────────┘    (set by attack_system, cleared when no target)
+    Combat escape (any NPC with FleeThreshold/LeashRange):
+    ┌──────────┐                         ┌────────────┐
+    │ InCombat │──health < FleeThreshold─▶│ Returning  │
+    │          │──dist > LeashRange──────▶│ (go home)  │
+    └──────────┘                          └─────┬──────┘
+                                                │ arrival (wounded)
+                                                ▼
+                                          ┌────────────┐
+                                          │ Recovering │ (+Resting)
+                                          │ until 75%  │
+                                          └────────────┘
 ```
 
 ## Components
@@ -50,11 +58,19 @@ Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, 
 | OnDuty | `{ ticks: u32 }` | Guard is stationed at a post |
 | Working | marker | Farmer is at work position |
 | GoingToWork | marker | Farmer is walking to work |
+| Raiding | marker | NPC is walking to a farm to steal |
+| Returning | marker | NPC is walking back to home base |
+| CarryingFood | marker | NPC has stolen food |
+| Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
 | Home | `{ x, y }` | NPC's home/bed position |
 | WorkPosition | `{ x, y }` | Farmer's field position |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
 | HasTarget | marker | NPC has an active movement target |
 | InCombat | marker | Blocks behavior transitions |
+| Stealer | marker | NPC steals from farms (enables steal systems) |
+| FleeThreshold | `{ pct: f32 }` | Flee combat below this HP % |
+| LeashRange | `{ distance: f32 }` | Disengage combat if this far from home |
+| WoundedThreshold | `{ pct: f32 }` | Drop everything and go home below this HP % |
 
 ## Systems
 
@@ -96,6 +112,35 @@ Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, 
 - Set target to next post via `GpuUpdate::SetTarget`
 - Add `HasTarget`
 
+### steal_arrival_system
+- Reads `ArrivalMsg` for NPCs with `Stealer`
+- `Raiding` arrival (at farm): add `CarryingFood`, remove `Raiding`, add `Returning`, set color yellow, target home
+- `Returning` arrival (at camp): if `CarryingFood` { remove, deliver food to `FOOD_STORAGE`, push `FoodDelivered`, reset color to red }. NPC has no active state → falls through to `steal_decision_system` next tick.
+
+### steal_decision_system
+- Query: `Stealer` NPCs with no active state (no `Raiding`, `Returning`, `Resting`, `InCombat`, `Recovering`, `GoingToRest`, `Dead`)
+- Priority 1: Health < `WoundedThreshold` → drop food, add `Returning`, target home
+- Priority 2: Has `CarryingFood` → add `Returning`, target home
+- Priority 3: Energy < 50 → add `Returning`, target home
+- Priority 4: Find nearest farm from `WORLD_DATA` (reads position from `GPU_READ_STATE`), add `Raiding`, target farm
+
+### flee_system
+- Query: `InCombat` + `FleeThreshold` + `Home`
+- If health < `FleeThreshold.pct`: remove `InCombat`, drop `CarryingFood` if present, add `Returning`, target home
+
+### leash_system
+- Query: `InCombat` + `LeashRange` + `Home`
+- Read position from `GPU_READ_STATE`
+- If distance to home > `LeashRange.distance`: remove `InCombat`, add `Returning`, target home
+
+### wounded_rest_system
+- On `ArrivalMsg` for NPCs with `WoundedThreshold`
+- If health < `WoundedThreshold.pct`: add `Recovering { threshold: 0.75 }` + `Resting`
+
+### recovery_system
+- Query: `Recovering` + `Resting` + `Health`
+- If health >= `Recovering.threshold`: remove both, NPC re-enters decision system next tick
+
 ## Energy Model
 
 | Constant | Value | Purpose |
@@ -128,10 +173,12 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Fixed patrol timing**: 60 ticks at every post, regardless of threat level or distance.
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Energy doesn't affect combat**: A nearly exhausted guard fights at full strength.
-- **Linear arrival scan**: handle_arrival_system iterates all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
+- **Linear arrival scan**: handle_arrival_system and steal_arrival_system iterate all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
-- **No return-to-previous after combat**: InCombat blocks behavior, but no explicit "resume prior state" when combat ends. NPC must re-enter the loop through tired_system or similar.
+- **Single camp index hardcoded**: steal_arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
+- **No HP regen in Bevy**: recovery_system checks health threshold but there's no Bevy system that regenerates HP over time. Recovery currently depends on external healing.
+- **All raiders target same farm**: steal_decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
 
-## Rating: 7/10
+## Rating: 8/10
 
-Functional state machine with clean transitions. Energy model creates natural work/rest cycles. Main gaps: no priority/urgency system, no pathfinding, InCombat can get stuck. These are design decisions more than bugs — the system works as intended, it just needs more sophistication for deeper gameplay.
+Full behavior state machine with guard patrol, farmer work, and raider steal/flee/recover cycles. All systems are component-driven (not job-specific) — any NPC given `Stealer` + `FleeThreshold` would behave as a raider. Energy hysteresis prevents oscillation. Combat escape (flee + leash) and recovery are generic. Main gaps: single-camp hardcoding, no HP regen system, linear arrival scans.

@@ -1,6 +1,18 @@
 # Changelog
 
 ## 2026-01-27
+- add Chunk 8: generic raider behavior systems (steal, flee, leash, recovery)
+- add generic components: Stealer, CarryingFood, Raiding, Returning, Recovering
+- add config components: FleeThreshold, LeashRange, WoundedThreshold
+- add steal_decision_system (wounded → carrying → tired → raid nearest farm)
+- add steal_arrival_system (farm pickup with yellow color, camp delivery to FoodStorage)
+- add flee_system (exit combat below HP threshold, drop food)
+- add leash_system (disengage combat if too far from home)
+- add wounded_rest_system + recovery_system (rest until healed to 75%)
+- add FoodStorage resource with GDScript API (init, add, get town/camp food, events)
+- update raider spawn bundle: add Energy, Stealer, FleeThreshold(0.50), LeashRange(400), WoundedThreshold(0.25), Raiding initial state
+- update tired_system to also remove Raiding/Returning states
+- fix deprecated Dictionary → VarDictionary in lib.rs (6 occurrences)
 - fix test 11 slider: per-test range config (10-10,000 for projectiles, 500-5,000 for NPCs)
 - fix slider label overwritten every frame by NPC count display
 - fix performance regression: dynamically size projectile multimesh to active count instead of max

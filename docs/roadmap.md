@@ -127,9 +127,19 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] 7c: TDD test harness (Test 11) covering all projectile behaviors
 - [x] Result: Combat working with GPU-accelerated targeting and projectiles
 
-**Chunk 8: Raider Logic**
-- [ ] Raiding, Returning states
-- [ ] Food stealing/delivery
+**Chunk 8: Raider Logic** (in progress)
+- [x] Generic components: Stealer, CarryingFood, Raiding, Returning, Recovering
+- [x] Config components: FleeThreshold, LeashRange, WoundedThreshold
+- [x] steal_decision_system (priority: wounded → carrying → tired → raid nearest farm)
+- [x] steal_arrival_system (farm pickup → camp delivery with food storage)
+- [x] flee_system (exit combat below HP threshold)
+- [x] leash_system (disengage if too far from home)
+- [x] wounded_rest_system + recovery_system (rest until healed)
+- [x] FoodStorage resource with GDScript API (init, add, get, events)
+- [x] Raider spawn bundle includes Energy, Stealer, flee/leash/wounded config
+- [ ] Wire up main.gd to sync world data and food on game start
+- [ ] Multi-camp food delivery (currently hardcoded camp_food[0])
+- [ ] HP regen system in Bevy (recovery_system checks threshold but no regen)
 - [ ] Result: Full game loop
 
 **Chunk 9: UI Integration**

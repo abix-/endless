@@ -73,7 +73,7 @@ Creates: `NpcIndex`, `Job::Guard`, `Speed(100)`, `Health(100)`, `Faction::Villag
 Creates: `NpcIndex`, `Job::Farmer`, `Speed(100)`, `Health(100)`, `Faction::Villager`, `Energy(100)`, `WorkPosition`, `Home`, `GoingToWork`, `HasTarget`
 
 ### spawn_raider_system
-Creates: `NpcIndex`, `Job::Raider`, `Speed(100)`, `Health(100)`, `Faction::Raider`, `AttackStats`, `AttackTimer(0)`, `Energy(100)`, `Home` (camp position)
+Creates: `NpcIndex`, `Job::Raider`, `Speed(100)`, `Energy(100)`, `Health(100)`, `Faction::Raider`, `AttackStats`, `AttackTimer(0)`, `Home` (camp position), `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)`, `Raiding`
 
 ### reset_bevy_system
 Checks `RESET_BEVY` flag. If set, despawns all entities with `NpcIndex`, clears `NpcEntityMap`, resets `NpcCount`.

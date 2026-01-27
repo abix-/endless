@@ -69,6 +69,16 @@ All spawn methods allocate a slot (recycled or new), write GPU buffers directly,
 | `release_farm` | `farm_idx: i32` | void | Decrement occupancy |
 | `get_world_stats` | none | `Dictionary` | town/farm/bed/guard_post counts, free_beds, free_farms |
 
+## Food Storage API
+
+| Method | Params | Returns | Description |
+|--------|--------|---------|-------------|
+| `init_food_storage` | `town_count, camp_count: i32` | void | Initialize per-town and per-camp food counters |
+| `add_town_food` | `town_idx, amount: i32` | void | Add food to a town (farmer produced) |
+| `get_town_food` | `town_idx: i32` | `i32` | Get food count for a town |
+| `get_camp_food` | `camp_idx: i32` | `i32` | Get food count for a camp |
+| `get_food_events` | none | `Dictionary` | Deliveries and consumed counts since last call (clears queues) |
+
 ## Reset API
 
 | Method | Params | Returns | Description |

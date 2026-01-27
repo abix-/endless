@@ -27,7 +27,7 @@ Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bev
 | SetFaction | idx, faction | (unused currently, available) | faction_buffer |
 | SetPosition | idx, x, y | (unused currently, available) | position_buffer |
 | SetSpeed | idx, speed | (unused currently, available) | speed_buffer |
-| SetColor | idx, r, g, b, a | (unused currently, available) | color_buffer |
+| SetColor | idx, r, g, b, a | steal_arrival_system (loot color), flee_system | color_buffer |
 | ApplyDamage | idx, amount | (unused — damage goes through Bevy) | health_buffer |
 | HideNpc | idx | death_cleanup_system | position_buffer → (-9999, -9999) |
 
@@ -68,11 +68,25 @@ Both are LIFO (stack) — most recently freed slot is reused first. No generatio
 
 COMBAT_DEBUG (defined in `systems/combat.rs`) tracks 18 fields: `attackers_queried`, `targets_found`, `attacks_made`, `chases_started`, `in_combat_added`, `sample_target_idx`, `positions_len`, `combat_targets_len`, `bounds_failures`, `sample_dist`, `in_range_count`, `timer_ready_count`, `sample_timer`, `cooldown_entities`, `frame_delta`, `sample_combat_target_0/5`, `sample_pos_0/5`.
 
+## Food Storage & Events
+
+`FOOD_STORAGE: Mutex<FoodStorage>` — Bevy-owned per-town and per-camp food counts. Keeping food in Rust avoids cross-boundary calls during raider eat decisions.
+
+| Field | Type | Writer | Reader |
+|-------|------|--------|--------|
+| town_food | `Vec<i32>` | add_town_food() API | get_town_food() API |
+| camp_food | `Vec<i32>` | steal_arrival_system | get_camp_food() API |
+
+| Queue | Type | Writer | Reader |
+|-------|------|--------|--------|
+| FOOD_DELIVERED_QUEUE | `Vec<FoodDelivered>` | steal_arrival_system | get_food_events() API |
+| FOOD_CONSUMED_QUEUE | `Vec<FoodConsumed>` | (future eat system) | get_food_events() API |
+
 ## Known Issues / Limitations
 
 - **All queues are unbounded**: No backpressure. If spawn calls outpace Bevy drain (shouldn't happen at 60fps), queues grow without limit.
 - **GPU_READ_STATE is one frame stale**: Bevy reads positions from previous frame's dispatch. Acceptable at 140fps.
-- **Several GpuUpdate variants unused**: SetFaction, SetPosition, SetSpeed, SetColor, ApplyDamage are defined but no system currently produces them (spawns write directly, damage goes through Bevy). They exist for future use.
+- **Some GpuUpdate variants unused**: SetFaction, SetPosition, SetSpeed, ApplyDamage are defined but no system currently produces them. SetColor is now used by steal_arrival_system and flee_system for loot color changes.
 - **Mutex contention**: All queues use `std::sync::Mutex`. At current scale (single Godot thread + Bevy on same thread via godot-bevy), there's no contention. Multi-threaded Bevy would need consideration.
 
 ## Rating: 8/10

@@ -165,7 +165,7 @@ There is no victory. Only the endless struggle against entropy.
 - [x] Parallel processing with thread-safe state transitions (pending arrivals)
 - [x] GPU compute shader for separation forces
 - [x] Rust/Bevy ECS POC (10,000 NPCs @ 140fps release build)
-- [ ] Rust/Bevy full integration (see Rust Migration Roadmap below)
+- [ ] Rust/Bevy full integration (Chunk 8 raider logic in progress, see Rust Migration Roadmap below)
 - [x] Combat log batching
 
 **Visual effects:**
