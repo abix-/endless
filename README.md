@@ -268,45 +268,99 @@ Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk r
 - [x] Chunk 1: EcsNpcManager spawns entities, renders via MultiMesh
 - [x] Chunk 2: CPU movement with velocity, target, arrival detection
 
-### GPU-First Architecture (Target)
+### GPU-First Architecture
 
-Following [Simon Green's CUDA Particles](https://developer.download.nvidia.com/assets/cuda/files/particles.pdf) approach for maximum performance:
+**Clear ownership boundaries. Single source of truth per data type. Two queues replace 10+ scattered Mutex queues.**
 
-1. **GPU Grid Construction** - Build spatial grid entirely on GPU (hash → sort → prefix sum)
-2. **GPU Targeting Queries** - Find enemies within range on GPU, output target indices
-3. **CPU reads targeting results only** - Minimal GPU→CPU transfer (just target indices)
+#### Data Ownership
 
-Why: Sorting-based GPU grids achieve better memory coherence than CPU-built grids. At 10K+ NPCs, GPU parallelism dominates. See [Building An Efficient Grid On GPU (2024)](https://arxiv.org/html/2403.10647v1).
+| Data | Owner | Direction | Notes |
+|------|-------|-----------|-------|
+| **GPU-Owned (Numeric/Physics)** ||||
+| Positions | GPU | GPU → Bevy | Compute shader moves NPCs each frame |
+| Targets | GPU | Bevy → GPU | Bevy decides destination, GPU interpolates movement |
+| Factions | GPU | Write-once | Set at spawn (0=Villager, 1=Raider) |
+| Combat targets | GPU | GPU → Bevy | GPU finds nearest enemy within 300px |
+| Colors | GPU | Write-once | Set at spawn based on Job |
+| Speeds | GPU | Write-once | Movement speed per NPC |
+| **Bevy-Owned (Logical State)** ||||
+| NpcIndex | Bevy | Internal | Links Bevy entity to GPU slot index |
+| Job | Bevy | Internal | Guard, Farmer, Raider - determines behavior |
+| Energy | Bevy | Internal | Drives tired/rest decisions (drain/recover rates) |
+| Health | **Both** | Bevy → GPU | Bevy authoritative, synced to GPU for targeting |
+| State markers | Bevy | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, etc. |
+| AttackTimer | Bevy | Internal | Cooldown between attacks |
+| AttackStats | Bevy | Internal | Damage, range, cooldown per NPC |
+| PatrolRoute | Bevy | Internal | Guard post sequence for patrols |
+| Home | Bevy | Internal | Rest location (bed or camp) |
+| WorkPosition | Bevy | Internal | Farm location for farmers |
 
-### Architecture
+#### Communication Queues
 
-**Bevy ECS owns logical state. GPU owns physics. GDScript is UI only.**
+**GPU_UPDATE_QUEUE** (Bevy → GPU): Batched writes per frame
+```rust
+enum GpuUpdate {
+    SetTarget { idx, x, y },      // Movement destination
+    SetHealth { idx, health },    // Sync health for targeting
+    HideNpc { idx },              // Position = -9999 (dead/despawned)
+    SetFaction { idx, faction },  // Usually at spawn only
+    SetPosition { idx, x, y },    // Teleport/spawn
+    SetSpeed { idx, speed },
+    SetColor { idx, r, g, b, a },
+}
+```
+
+**GPU_READ_STATE** (GPU → Bevy): Single lock for all GPU output
+```rust
+struct GpuReadState {
+    positions: Vec<f32>,       // [x0, y0, x1, y1, ...]
+    combat_targets: Vec<i32>,  // -1 = no target, else NPC index
+    health: Vec<f32>,          // Current HP per NPC
+    factions: Vec<i32>,        // For Bevy queries
+    npc_count: usize,
+}
+```
+
+#### Data Flow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        BEVY ECS                                 │
-│  Owns: Target, Job, State, NpcIndex, Health, Energy            │
-│  (Logical state - what NPCs WANT to do)                        │
-└────────────────────────┬────────────────────────────────────────┘
-                         │ Upload targets/states (one-way, cheap)
-                         ▼
+│  Components: NpcIndex, Job, Energy, Health, AttackTimer,       │
+│              State markers (Dead, InCombat, Patrolling...)     │
+│  Resources: NpcEntityMap (O(1) lookup), NpcCount               │
+│  Systems: attack, damage, death, patrol, energy, behavior      │
+└────────────────────────┬───────────────────▲────────────────────┘
+                         │                   │
+            GPU_UPDATE_QUEUE            GPU_READ_STATE
+           (SetTarget, SetHealth,      (positions, combat_targets,
+            HideNpc, etc.)              health, factions)
+                         │                   │
+                         ▼                   │
 ┌─────────────────────────────────────────────────────────────────┐
 │                     GPU COMPUTE                                 │
-│  Owns: Positions, Velocities (physics simulation)              │
-│  Does: Separation + Movement + Arrival detection               │
-│  Writes: Directly to MultiMesh buffer (zero-copy)              │
+│  Buffers: positions, targets, factions, health, colors, speeds │
+│  Grid: 80×80 cells, 100px each, 64 NPCs/cell max               │
+│  Shader: Movement + Separation + Combat targeting (300px range)│
+│  Output: Updated positions, combat_targets array               │
 └────────────────────────┬────────────────────────────────────────┘
-                         │ Zero-copy (already on GPU)
+                         │ Writes directly to MultiMesh buffer
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     MULTIMESH RENDER                            │
-│  (No CPU involvement - GPU wrote directly)                     │
+│  12 floats/instance: Transform2D (6) + Color (4) + padding (2) │
 └─────────────────────────────────────────────────────────────────┘
-        │
-        └───────────── GDScript (UI only) ◀─────────────────────┘
 ```
 
+#### Key Optimizations
+
+- **O(1) entity lookup**: `NpcEntityMap` (HashMap<usize, Entity>) for instant damage routing
+- **Slot reuse**: `FREE_SLOTS` pool recycles dead NPC indices (infinite churn, no 10K cap)
+- **Grid sizing**: 100px cells ensure 3×3 neighborhood covers 300px detection range
+- **Single locks**: One Mutex per direction instead of 10+ scattered queues
+
 References:
+- [Simon Green's CUDA Particles](https://developer.download.nvidia.com/assets/cuda/files/particles.pdf) - GPU spatial grid approach
 - [godot-bevy Book](https://bytemeadow.github.io/godot-bevy/getting-started/basic-concepts.html)
 - [FSM in ECS](https://www.richardlord.net/blog/ecs/finite-state-machines-with-ash)
 
@@ -334,7 +388,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] EcsNpcManager owns GpuCompute (RenderingDevice not Send-safe)
 - [x] 8 GPU buffers: position, target, color, speed, grid_counts, grid_data, multimesh, arrivals
 - [x] Push constants (48 bytes with alignment padding)
-- [x] Spatial grid for O(n) neighbor lookup (128x128 cells, 48 NPCs/cell)
+- [x] Spatial grid for O(1) neighbor lookup (80x80 cells, 64 NPCs/cell, 100px cells)
 - [x] Colors and movement confirmed working
 - [x] Separation algorithm (boids-style: accumulate proportionally, no normalization)
 - [x] Persistent arrival flag (NPCs stay arrived after being pushed)
@@ -376,14 +430,17 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Test 8: Farmer Work Cycle
 - [x] Result: NPCs defined by component bundles, behaviors are reusable
 
-**Chunk 7: Combat**
+**Chunk 7: Combat** ✓
 - [x] 7a: Health component, DamageMsg, death_system, death_cleanup_system
 - [x] 7a: Test 9 Health/Death validation
-- [ ] 7b: GPU grid construction (hash → radix sort → prefix sum)
-- [ ] 7b: GPU targeting shader (find nearest enemy, output target index)
-- [ ] 7b: Attack system (Bevy reads GPU targets, applies damage)
-- [ ] 7c: Projectile system
-- [ ] Result: NPCs fight with GPU-accelerated targeting
+- [x] 7b: GPU targeting shader (find nearest enemy within 300px, output target index)
+- [x] 7b: Attack system (Bevy reads GPU targets, checks range, applies damage)
+- [x] 7b: GPU-First Architecture refactor (consolidated 10+ queues → 2)
+- [x] 7b: O(1) entity lookup via NpcEntityMap (replaces O(n) damage iteration)
+- [x] 7b: Slot reuse for dead NPCs (FREE_SLOTS pool, infinite churn without 10K cap)
+- [x] 7b: Grid cell fix (64px → 100px cells, properly covers 300px detection range)
+- [ ] 7c: GPU projectile system (movement + collision on GPU)
+- [x] Result: Combat working with GPU-accelerated targeting
 
 **Chunk 8: Raider Logic**
 - [ ] Raiding, Returning states
@@ -406,7 +463,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 | Chunk 5 (guard logic) | 10,000+ | 140 | ✅ Done |
 | Chunk 6 (behaviors) | 10,000+ | 140 | ✅ Done |
 | Chunk 7a (health/death) | 10,000+ | 140 | ✅ Done |
-| Chunk 7b (GPU targeting) | 10,000+ | 120+ | Planned |
+| Chunk 7b (GPU targeting) | 10,000+ | 140 | ✅ Done |
 | Chunk 7c-9 (full game) | 10,000+ | 60+ | Planned |
 | GPU grid + targeting | 20,000+ | 60+ | Future |
 
