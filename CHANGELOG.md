@@ -40,6 +40,8 @@
 - fix projectile rendering: share NPC canvas item (second canvas_item_create doesn't render)
 - fix projectile hit buffer: initialize to -1 (GPU zeros misread as "hit NPC 0")
 - add get_projectile_trace() API for GPU buffer inspection (lifetime, active, position, hit)
+- add faction-colored projectiles (blue=guard, red=raider) via proj_factions cache
+- improve Test 11: spawn offset (20px forward), 50-projectile burst test
 
 ## 2026-01-25
 - add Chunk 3: GPU physics with 8-buffer architecture (position, target, color, speed, grid, multimesh, arrivals)

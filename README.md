@@ -441,7 +441,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] 7b: Grid cell fix (64px → 100px cells, properly covers 300px detection range)
 - [x] 7c: GPU projectile system (5000 projectiles, compute shader movement + collision)
 - [x] 7c: Projectile slot reuse via FREE_PROJ_SLOTS pool
-- [x] 7c: MultiMesh rendering with velocity-based rotation
+- [x] 7c: MultiMesh rendering with velocity-based rotation and faction colors
 - [x] 7c: TDD test harness (Test 11) covering all projectile behaviors
 - [x] Result: Combat working with GPU-accelerated targeting and projectiles
 
