@@ -16,16 +16,15 @@ pub fn damage_system(
         for (mut health, npc_idx) in query.iter_mut() {
             if npc_idx.0 == event.npc_index {
                 health.0 = (health.0 - event.amount).max(0.0);
-                // Sync health to GPU so targeting ignores dead NPCs
-                if let Ok(mut queue) = HEALTH_SYNC_QUEUE.lock() {
-                    queue.push((npc_idx.0, health.0));
+                // GPU-FIRST: Push to GPU_UPDATE_QUEUE instead of HEALTH_SYNC_QUEUE
+                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                    queue.push(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 });
                 }
                 break;
             }
         }
     }
 
-    // Update debug info
     if let Ok(mut debug) = HEALTH_DEBUG.lock() {
         debug.damage_processed = damage_count;
         debug.bevy_entity_count = query.iter().count();
@@ -64,12 +63,10 @@ pub fn death_cleanup_system(
         commands.entity(entity).despawn();
         despawn_count += 1;
 
-        // Queue GPU position update to hide NPC visually
-        if let Ok(mut queue) = HIDE_NPC_QUEUE.lock() {
-            queue.push(npc_idx.0);
+        // GPU-FIRST: Push to GPU_UPDATE_QUEUE instead of HIDE_NPC_QUEUE
+        if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+            queue.push(GpuUpdate::HideNpc { idx: npc_idx.0 });
         }
-        // Note: Don't decrement GPU_NPC_COUNT - that would break index mapping
-        // Instead, the shader will skip this NPC because health=0
     }
 
     if let Ok(mut debug) = HEALTH_DEBUG.lock() {

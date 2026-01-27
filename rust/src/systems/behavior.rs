@@ -21,10 +21,10 @@ pub fn tired_system(
                 .remove::<Working>()
                 .insert(GoingToRest);
 
-            // Set target to home position (push to GPU queue)
-            if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-                queue.push(SetTargetMsg {
-                    npc_index: npc_idx.0,
+            // GPU-FIRST: Push to GPU_UPDATE_QUEUE
+            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                queue.push(GpuUpdate::SetTarget {
+                    idx: npc_idx.0,
                     x: home.0.x,
                     y: home.0.y,
                 });
@@ -48,9 +48,10 @@ pub fn resume_patrol_system(
 
             // Get current patrol post and set target
             if let Some(pos) = patrol.posts.get(patrol.current) {
-                if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-                    queue.push(SetTargetMsg {
-                        npc_index: npc_idx.0,
+                // GPU-FIRST: Push to GPU_UPDATE_QUEUE
+                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                    queue.push(GpuUpdate::SetTarget {
+                        idx: npc_idx.0,
                         x: pos.x,
                         y: pos.y,
                     });
@@ -73,10 +74,10 @@ pub fn resume_work_system(
                 .remove::<Resting>()
                 .insert(GoingToWork);
 
-            // Set target to work position
-            if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-                queue.push(SetTargetMsg {
-                    npc_index: npc_idx.0,
+            // GPU-FIRST: Push to GPU_UPDATE_QUEUE
+            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                queue.push(GpuUpdate::SetTarget {
+                    idx: npc_idx.0,
                     x: work_pos.0.x,
                     y: work_pos.0.y,
                 });
@@ -104,11 +105,11 @@ pub fn patrol_system(
                 .remove::<OnDuty>()
                 .insert(Patrolling);
 
-            // Set target to next patrol post
+            // GPU-FIRST: Push to GPU_UPDATE_QUEUE
             if let Some(pos) = patrol.posts.get(patrol.current) {
-                if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-                    queue.push(SetTargetMsg {
-                        npc_index: npc_idx.0,
+                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                    queue.push(GpuUpdate::SetTarget {
+                        idx: npc_idx.0,
                         x: pos.x,
                         y: pos.y,
                     });

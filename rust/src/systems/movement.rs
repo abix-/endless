@@ -15,10 +15,15 @@ pub fn apply_targets_system(
 ) {
     for event in events.read() {
         if event.npc_index < gpu_data.npc_count {
-            // Update target in GPU data
+            // Update target in GPU data (local cache)
             gpu_data.targets[event.npc_index * 2] = event.x;
             gpu_data.targets[event.npc_index * 2 + 1] = event.y;
             gpu_data.dirty = true;
+
+            // GPU-FIRST: Push to GPU_UPDATE_QUEUE
+            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                queue.push(GpuUpdate::SetTarget { idx: event.npc_index, x: event.x, y: event.y });
+            }
 
             // Add HasTarget component to entity (if not already present)
             for (entity, npc_idx) in query.iter() {

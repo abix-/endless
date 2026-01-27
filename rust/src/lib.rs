@@ -211,79 +211,91 @@ impl INode2D for EcsNpcManager {
             None => return,
         };
 
-        let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+        // GPU-FIRST: Get npc_count from GPU_READ_STATE
+        let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
 
-        // Drain GPU target queue and upload to GPU buffers
-        if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-            for msg in queue.drain(..) {
-                if msg.npc_index < npc_count {
-                    let target_bytes: Vec<u8> = [msg.x, msg.y].iter()
-                        .flat_map(|f| f.to_le_bytes()).collect();
-                    let target_packed = PackedByteArray::from(target_bytes.as_slice());
-                    gpu.rd.buffer_update(
-                        gpu.target_buffer,
-                        (msg.npc_index * 8) as u32,
-                        8,
-                        &target_packed
-                    );
+        // GPU-FIRST: Single queue drain for all GPU updates
+        if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+            for update in queue.drain(..) {
+                match update {
+                    GpuUpdate::SetTarget { idx, x, y } => {
+                        if idx < npc_count {
+                            let target_bytes: Vec<u8> = [x, y].iter()
+                                .flat_map(|f| f.to_le_bytes()).collect();
+                            let target_packed = PackedByteArray::from(target_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &target_packed);
 
-                    let arrival_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-                    let arrival_packed = PackedByteArray::from(arrival_bytes.as_slice());
-                    gpu.rd.buffer_update(
-                        gpu.arrival_buffer,
-                        (msg.npc_index * 4) as u32,
-                        4,
-                        &arrival_packed
-                    );
-
-                    let backoff_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-                    let backoff_packed = PackedByteArray::from(backoff_bytes.as_slice());
-                    gpu.rd.buffer_update(
-                        gpu.backoff_buffer,
-                        (msg.npc_index * 4) as u32,
-                        4,
-                        &backoff_packed
-                    );
-
-                    self.prev_arrivals[msg.npc_index] = false;
-                }
-            }
-        }
-
-        // Drain health sync queue - update GPU health buffer when Bevy health changes
-        if let Ok(mut queue) = HEALTH_SYNC_QUEUE.lock() {
-            for (npc_idx, new_health) in queue.drain(..) {
-                if npc_idx < npc_count {
-                    let health_bytes: Vec<u8> = new_health.to_le_bytes().to_vec();
-                    let health_packed = PackedByteArray::from(health_bytes.as_slice());
-                    gpu.rd.buffer_update(
-                        gpu.health_buffer,
-                        (npc_idx * 4) as u32,
-                        4,
-                        &health_packed
-                    );
-                    gpu.healths[npc_idx] = new_health;
-                }
-            }
-        }
-
-        // Drain hide queue - move dead NPCs off-screen
-        if let Ok(mut queue) = HIDE_NPC_QUEUE.lock() {
-            for npc_idx in queue.drain(..) {
-                if npc_idx < npc_count {
-                    // Update GPU position buffer directly to hide NPC
-                    let hide_pos: Vec<u8> = [-9999.0f32, -9999.0f32].iter()
-                        .flat_map(|f| f.to_le_bytes()).collect();
-                    let hide_packed = PackedByteArray::from(hide_pos.as_slice());
-                    gpu.rd.buffer_update(
-                        gpu.position_buffer,
-                        (npc_idx * 8) as u32,
-                        8,
-                        &hide_packed
-                    );
-                    // Also update CPU cache
-                    gpu.positions[npc_idx * 2] = -9999.0;
-                    gpu.positions[npc_idx * 2 + 1] = -9999.0;
+                            let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
+                            let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
+                            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
+                            self.prev_arrivals[idx] = false;
+                        }
+                    }
+                    GpuUpdate::ApplyDamage { idx, amount } => {
+                        if idx < npc_count {
+                            let new_health = (gpu.healths[idx] - amount).max(0.0);
+                            gpu.healths[idx] = new_health;
+                            let health_bytes: Vec<u8> = new_health.to_le_bytes().to_vec();
+                            let health_packed = PackedByteArray::from(health_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+                        }
+                    }
+                    GpuUpdate::HideNpc { idx } => {
+                        if idx < npc_count {
+                            let hide_pos: Vec<u8> = [-9999.0f32, -9999.0f32].iter()
+                                .flat_map(|f| f.to_le_bytes()).collect();
+                            let hide_packed = PackedByteArray::from(hide_pos.as_slice());
+                            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &hide_packed);
+                            gpu.positions[idx * 2] = -9999.0;
+                            gpu.positions[idx * 2 + 1] = -9999.0;
+                        }
+                    }
+                    GpuUpdate::SetFaction { idx, faction } => {
+                        if idx < npc_count {
+                            gpu.factions[idx] = faction;
+                            let faction_bytes: Vec<u8> = faction.to_le_bytes().to_vec();
+                            let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &faction_packed);
+                        }
+                    }
+                    GpuUpdate::SetHealth { idx, health } => {
+                        if idx < npc_count {
+                            gpu.healths[idx] = health;
+                            let health_bytes: Vec<u8> = health.to_le_bytes().to_vec();
+                            let health_packed = PackedByteArray::from(health_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+                        }
+                    }
+                    GpuUpdate::SetPosition { idx, x, y } => {
+                        if idx < npc_count {
+                            gpu.positions[idx * 2] = x;
+                            gpu.positions[idx * 2 + 1] = y;
+                            let pos_bytes: Vec<u8> = [x, y].iter()
+                                .flat_map(|f| f.to_le_bytes()).collect();
+                            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
+                        }
+                    }
+                    GpuUpdate::SetSpeed { idx, speed } => {
+                        if idx < npc_count {
+                            let speed_bytes: Vec<u8> = speed.to_le_bytes().to_vec();
+                            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
+                        }
+                    }
+                    GpuUpdate::SetColor { idx, r, g, b, a } => {
+                        if idx < npc_count {
+                            gpu.colors[idx * 4] = r;
+                            gpu.colors[idx * 4 + 1] = g;
+                            gpu.colors[idx * 4 + 2] = b;
+                            gpu.colors[idx * 4 + 3] = a;
+                            let color_bytes: Vec<u8> = [r, g, b, a].iter()
+                                .flat_map(|f| f.to_le_bytes()).collect();
+                            let color_packed = PackedByteArray::from(color_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
+                        }
+                    }
                 }
             }
         }
@@ -295,14 +307,21 @@ impl INode2D for EcsNpcManager {
             // Read combat targets from GPU
             gpu.read_combat_targets(npc_count);
 
-            // Copy to static for Bevy access
-            if let Ok(mut targets) = GPU_COMBAT_TARGETS.lock() {
-                targets.clear();
-                targets.extend_from_slice(&gpu.combat_targets[..npc_count]);
-            }
-            if let Ok(mut positions) = GPU_POSITIONS.lock() {
-                positions.clear();
-                positions.extend_from_slice(&gpu.positions[..(npc_count * 2)]);
+            // GPU-FIRST: Single state update for all GPU reads
+            if let Ok(mut state) = GPU_READ_STATE.lock() {
+                state.npc_count = npc_count;
+
+                state.positions.clear();
+                state.positions.extend_from_slice(&gpu.positions[..(npc_count * 2)]);
+
+                state.combat_targets.clear();
+                state.combat_targets.extend_from_slice(&gpu.combat_targets[..npc_count]);
+
+                state.health.clear();
+                state.health.extend_from_slice(&gpu.healths[..npc_count]);
+
+                state.factions.clear();
+                state.factions.extend_from_slice(&gpu.factions[..npc_count]);
             }
 
             // Detect arrivals
@@ -378,10 +397,10 @@ impl EcsNpcManager {
     #[func]
     fn spawn_npc(&mut self, x: f32, y: f32, job: i32) {
         let idx = {
-            let mut guard = GPU_NPC_COUNT.lock().unwrap();
-            let idx = *guard;
+            let mut state = GPU_READ_STATE.lock().unwrap();
+            let idx = state.npc_count;
             if idx < MAX_NPC_COUNT {
-                *guard += 1;
+                state.npc_count += 1;
             }
             idx
         };
@@ -429,10 +448,10 @@ impl EcsNpcManager {
     #[func]
     fn spawn_guard(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32) {
         let idx = {
-            let mut guard = GPU_NPC_COUNT.lock().unwrap();
-            let idx = *guard;
+            let mut state = GPU_READ_STATE.lock().unwrap();
+            let idx = state.npc_count;
             if idx < MAX_NPC_COUNT {
-                *guard += 1;
+                state.npc_count += 1;
             }
             idx
         };
@@ -503,10 +522,10 @@ impl EcsNpcManager {
     #[func]
     fn spawn_guard_at_post(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32, starting_post: i32) {
         let idx = {
-            let mut guard = GPU_NPC_COUNT.lock().unwrap();
-            let idx = *guard;
+            let mut state = GPU_READ_STATE.lock().unwrap();
+            let idx = state.npc_count;
             if idx < MAX_NPC_COUNT {
-                *guard += 1;
+                state.npc_count += 1;
             }
             idx
         };
@@ -574,10 +593,10 @@ impl EcsNpcManager {
     #[func]
     fn spawn_farmer(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32, work_x: f32, work_y: f32) {
         let idx = {
-            let mut guard = GPU_NPC_COUNT.lock().unwrap();
-            let idx = *guard;
+            let mut state = GPU_READ_STATE.lock().unwrap();
+            let idx = state.npc_count;
             if idx < MAX_NPC_COUNT {
-                *guard += 1;
+                state.npc_count += 1;
             }
             idx
         };
@@ -645,10 +664,10 @@ impl EcsNpcManager {
     #[func]
     fn spawn_raider(&mut self, x: f32, y: f32, camp_x: f32, camp_y: f32) {
         let idx = {
-            let mut guard = GPU_NPC_COUNT.lock().unwrap();
-            let idx = *guard;
+            let mut state = GPU_READ_STATE.lock().unwrap();
+            let idx = state.npc_count;
             if idx < MAX_NPC_COUNT {
-                *guard += 1;
+                state.npc_count += 1;
             }
             idx
         };
@@ -717,7 +736,7 @@ impl EcsNpcManager {
 
         if let Some(gpu) = self.gpu.as_mut() {
             let idx = npc_index as usize;
-            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
             if idx < npc_count {
                 let target_bytes: Vec<u8> = [x, y].iter()
                     .flat_map(|f| f.to_le_bytes()).collect();
@@ -758,7 +777,7 @@ impl EcsNpcManager {
 
     #[func]
     fn get_npc_count(&self) -> i32 {
-        GPU_NPC_COUNT.lock().map(|c| *c as i32).unwrap_or(0)
+        GPU_READ_STATE.lock().map(|s| s.npc_count as i32).unwrap_or(0)
     }
 
     #[func]
@@ -772,7 +791,7 @@ impl EcsNpcManager {
     fn get_debug_stats(&mut self) -> Dictionary {
         let mut dict = Dictionary::new();
         if let Some(gpu) = &mut self.gpu {
-            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
 
             let arrival_bytes = gpu.rd.buffer_get_data(gpu.arrival_buffer);
             let arrival_slice = arrival_bytes.as_slice();
@@ -832,7 +851,7 @@ impl EcsNpcManager {
     fn get_npc_position(&self, npc_index: i32) -> Vector2 {
         if let Some(gpu) = &self.gpu {
             let idx = npc_index as usize;
-            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
             if idx < npc_count {
                 let x = gpu.positions.get(idx * 2).copied().unwrap_or(0.0);
                 let y = gpu.positions.get(idx * 2 + 1).copied().unwrap_or(0.0);
@@ -871,7 +890,7 @@ impl EcsNpcManager {
         }
         // Add grid debug info from GPU cache
         if let Some(gpu) = &self.gpu {
-            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
             // Count NPCs in grid cells near spawn location (cell 5,4 for test 10)
             // cell_size=64, CENTER=(400,300) -> guards at 375,300 -> cell 5,4
             // raiders at 425,300 -> cell 6,4
@@ -919,20 +938,26 @@ impl EcsNpcManager {
 
     #[func]
     fn reset(&mut self) {
-        if let Ok(mut count) = GPU_NPC_COUNT.lock() {
-            *count = 0;
+        // GPU-FIRST: Reset GPU read state
+        if let Ok(mut state) = GPU_READ_STATE.lock() {
+            state.positions.clear();
+            state.combat_targets.clear();
+            state.health.clear();
+            state.factions.clear();
+            state.npc_count = 0;
         }
 
+        // Clear Bevy message queues
         if let Ok(mut queue) = SPAWN_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = TARGET_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = GUARD_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = FARMER_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = RAIDER_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = ARRIVAL_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = DAMAGE_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = HEALTH_SYNC_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = HIDE_NPC_QUEUE.lock() { queue.clear(); }
+
+        // GPU-FIRST: Clear consolidated GPU update queue
+        if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() { queue.clear(); }
 
         if let Ok(mut world) = WORLD_DATA.lock() {
             world.towns.clear();
@@ -1152,7 +1177,7 @@ impl EcsNpcManager {
     fn get_guard_debug(&mut self) -> Dictionary {
         let mut dict = Dictionary::new();
         if let Some(gpu) = &mut self.gpu {
-            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
 
             let arrival_bytes = gpu.rd.buffer_get_data(gpu.arrival_buffer);
             let arrival_slice = arrival_bytes.as_slice();

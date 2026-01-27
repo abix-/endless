@@ -1,19 +1,18 @@
 //! ECS Messages - Commands sent from GDScript to Bevy
 //!
-//! Why static Mutexes?
-//! - Godot calls (spawn_npc, set_target) happen on main thread
-//! - Bevy systems run in their own scheduling context
-//! - We can't pass references between them, so we use global queues
-//! - Mutex ensures thread-safety (even though Godot is single-threaded, Bevy isn't)
+//! GPU-First Architecture:
+//! - GPU owns: positions, targets, factions, health, combat_targets
+//! - Bevy owns: state markers (Dead, Fleeing, InCombat)
+//! - Bevy reads GPU_READ_STATE, writes via GPU_UPDATE_QUEUE
+//! - One lock per direction, not 10+ scattered queues
 
 use godot_bevy::prelude::bevy_ecs_prelude::Message;
 use std::sync::Mutex;
 
 // ============================================================================
-// MESSAGE TYPES
+// MESSAGE TYPES (Bevy ECS internal messages)
 // ============================================================================
 
-/// Request to spawn a new NPC at position (x, y) with the given job type.
 #[derive(Message, Clone)]
 pub struct SpawnNpcMsg {
     pub x: f32,
@@ -21,7 +20,6 @@ pub struct SpawnNpcMsg {
     pub job: i32,
 }
 
-/// Request to set an NPC's movement target.
 #[derive(Message, Clone)]
 pub struct SetTargetMsg {
     pub npc_index: usize,
@@ -29,7 +27,6 @@ pub struct SetTargetMsg {
     pub y: f32,
 }
 
-/// Request to spawn a guard with home position and town assignment.
 #[derive(Message, Clone)]
 pub struct SpawnGuardMsg {
     pub x: f32,
@@ -40,13 +37,11 @@ pub struct SpawnGuardMsg {
     pub starting_post: u32,
 }
 
-/// Notification that an NPC has arrived at its target.
 #[derive(Message, Clone)]
 pub struct ArrivalMsg {
     pub npc_index: usize,
 }
 
-/// Request to spawn a farmer with home and work positions.
 #[derive(Message, Clone)]
 pub struct SpawnFarmerMsg {
     pub x: f32,
@@ -58,14 +53,12 @@ pub struct SpawnFarmerMsg {
     pub work_y: f32,
 }
 
-/// Request to deal damage to an NPC.
 #[derive(Message, Clone)]
 pub struct DamageMsg {
     pub npc_index: usize,
     pub amount: f32,
 }
 
-/// Request to spawn a raider with camp position.
 #[derive(Message, Clone)]
 pub struct SpawnRaiderMsg {
     pub x: f32,
@@ -75,73 +68,84 @@ pub struct SpawnRaiderMsg {
 }
 
 // ============================================================================
-// STATIC QUEUES - Thread-safe communication from Godot to Bevy
+// BEVY MESSAGE QUEUES (GDScript -> Bevy ECS)
+// These stay - they're for Bevy's internal message system
 // ============================================================================
 
-/// Queue of pending spawn requests. Drained each frame by drain_spawn_queue system.
 pub static SPAWN_QUEUE: Mutex<Vec<SpawnNpcMsg>> = Mutex::new(Vec::new());
-
-/// Queue of pending target updates. Drained each frame by drain_target_queue system.
 pub static TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
-
-/// Queue of pending guard spawn requests.
 pub static GUARD_QUEUE: Mutex<Vec<SpawnGuardMsg>> = Mutex::new(Vec::new());
-
-/// Queue of pending farmer spawn requests.
 pub static FARMER_QUEUE: Mutex<Vec<SpawnFarmerMsg>> = Mutex::new(Vec::new());
-
-/// Queue of arrival notifications (NPC index that just arrived).
-pub static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
-
-/// Queue of target updates that need to be uploaded to GPU.
-/// Bevy systems push here, process() drains and uploads.
-pub static GPU_TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
-
-/// Queue of pending damage requests.
-pub static DAMAGE_QUEUE: Mutex<Vec<DamageMsg>> = Mutex::new(Vec::new());
-
-/// Queue of health updates to sync to GPU (npc_index, new_health).
-pub static HEALTH_SYNC_QUEUE: Mutex<Vec<(usize, f32)>> = Mutex::new(Vec::new());
-
-/// Queue of NPCs to hide visually (move position to -9999).
-pub static HIDE_NPC_QUEUE: Mutex<Vec<usize>> = Mutex::new(Vec::new());
-
-/// Queue of pending raider spawn requests.
 pub static RAIDER_QUEUE: Mutex<Vec<SpawnRaiderMsg>> = Mutex::new(Vec::new());
-
-/// Authoritative NPC count. Updated immediately on spawn (not waiting for Bevy).
-/// This ensures GPU gets correct count even before Bevy processes the spawn message.
-pub static GPU_NPC_COUNT: Mutex<usize> = Mutex::new(0);
-
-/// Flag to trigger Bevy entity despawn on next frame.
+pub static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
+pub static DAMAGE_QUEUE: Mutex<Vec<DamageMsg>> = Mutex::new(Vec::new());
 pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);
-
-/// Delta time for current frame, updated by process().
 pub static FRAME_DELTA: Mutex<f32> = Mutex::new(0.016);
 
-/// Combat targets from GPU, updated by process() after GPU dispatch.
-/// Index i contains target NPC index for NPC i (-1 = no target).
-pub static GPU_COMBAT_TARGETS: Mutex<Vec<i32>> = Mutex::new(Vec::new());
-
-/// Positions from GPU, updated by process() after GPU dispatch.
-pub static GPU_POSITIONS: Mutex<Vec<f32>> = Mutex::new(Vec::new());
-
 // ============================================================================
-// DEBUG INFO - Updated by systems, read by GDScript API
+// GPU-FIRST: Single Update Queue (Bevy -> GPU)
+// Replaces: GPU_TARGET_QUEUE, HEALTH_SYNC_QUEUE, HIDE_NPC_QUEUE
 // ============================================================================
 
-/// Health system debug info.
+#[derive(Clone, Debug)]
+pub enum GpuUpdate {
+    /// Set movement target for NPC
+    SetTarget { idx: usize, x: f32, y: f32 },
+    /// Apply damage delta (GPU subtracts from current health)
+    ApplyDamage { idx: usize, amount: f32 },
+    /// Hide NPC visually (position = -9999)
+    HideNpc { idx: usize },
+    /// Set faction (usually at spawn only)
+    SetFaction { idx: usize, faction: i32 },
+    /// Set health directly (spawn/reset)
+    SetHealth { idx: usize, health: f32 },
+    /// Set position directly (spawn/teleport)
+    SetPosition { idx: usize, x: f32, y: f32 },
+    /// Set speed
+    SetSpeed { idx: usize, speed: f32 },
+    /// Set color
+    SetColor { idx: usize, r: f32, g: f32, b: f32, a: f32 },
+}
+
+pub static GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>> = Mutex::new(Vec::new());
+
+// ============================================================================
+// GPU-FIRST: Single Read State (GPU -> Bevy)
+// Replaces: GPU_POSITIONS, GPU_COMBAT_TARGETS, GPU_NPC_COUNT
+// ============================================================================
+
+#[derive(Default)]
+pub struct GpuReadState {
+    /// Positions: [x0, y0, x1, y1, ...] - 2 floats per NPC
+    pub positions: Vec<f32>,
+    /// Combat targets: index i = target for NPC i (-1 = no target)
+    pub combat_targets: Vec<i32>,
+    /// Health values (GPU authoritative)
+    pub health: Vec<f32>,
+    /// Factions (for Bevy queries)
+    pub factions: Vec<i32>,
+    /// Current NPC count
+    pub npc_count: usize,
+}
+
+pub static GPU_READ_STATE: Mutex<GpuReadState> = Mutex::new(GpuReadState {
+    positions: Vec::new(),
+    combat_targets: Vec::new(),
+    health: Vec::new(),
+    factions: Vec::new(),
+    npc_count: 0,
+});
+
+// ============================================================================
+// DEBUG INFO
+// ============================================================================
+
 #[derive(Default)]
 pub struct HealthDebugInfo {
-    /// Number of damage messages processed this frame.
     pub damage_processed: usize,
-    /// Number of entities marked Dead this frame.
     pub deaths_this_frame: usize,
-    /// Number of entities despawned this frame.
     pub despawned_this_frame: usize,
-    /// Bevy entity count (entities with Health component).
     pub bevy_entity_count: usize,
-    /// Sample health values: [(npc_index, health), ...] for first 10.
     pub health_samples: Vec<(usize, f32)>,
 }
 

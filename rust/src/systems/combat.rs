@@ -21,14 +21,13 @@ pub struct CombatDebug {
     pub sample_dist: f32,
     pub in_range_count: usize,
     pub timer_ready_count: usize,
-    pub sample_timer: f32,       // Timer value in cooldown_system (before decrement)
-    pub cooldown_entities: usize, // Entities with AttackTimer (in cooldown_system)
-    pub frame_delta: f32,         // dt used for cooldown
-    // Enhanced debug for diagnosing targeting issues
-    pub sample_combat_target_0: i32,  // combat_targets[0]
-    pub sample_combat_target_5: i32,  // combat_targets[5] (first raider in test 10)
-    pub sample_pos_0: (f32, f32),     // position of NPC 0
-    pub sample_pos_5: (f32, f32),     // position of NPC 5
+    pub sample_timer: f32,
+    pub cooldown_entities: usize,
+    pub frame_delta: f32,
+    pub sample_combat_target_0: i32,
+    pub sample_combat_target_5: i32,
+    pub sample_pos_0: (f32, f32),
+    pub sample_pos_5: (f32, f32),
 }
 
 impl CombatDebug {
@@ -58,11 +57,9 @@ impl CombatDebug {
 }
 
 /// Decrement attack cooldown timers each frame.
-/// Also updates debug with pre-cooldown timer state.
 pub fn cooldown_system(mut query: Query<&mut AttackTimer>) {
     let dt = FRAME_DELTA.lock().map(|d| *d).unwrap_or(0.016);
 
-    // Debug: capture first timer BEFORE decrement
     let mut first_timer_before = -99.0f32;
     let mut timer_count = 0usize;
 
@@ -77,7 +74,6 @@ pub fn cooldown_system(mut query: Query<&mut AttackTimer>) {
         }
     }
 
-    // Store in debug
     if let Ok(mut debug) = COMBAT_DEBUG.lock() {
         debug.sample_timer = first_timer_before;
         debug.cooldown_entities = timer_count;
@@ -87,22 +83,18 @@ pub fn cooldown_system(mut query: Query<&mut AttackTimer>) {
 
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
-/// Adds InCombat marker to NPCs with valid targets.
 pub fn attack_system(
     mut commands: Commands,
     mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>), Without<Dead>>,
 ) {
-    // Read GPU targeting results from statics (updated by process())
-    let combat_targets = match GPU_COMBAT_TARGETS.lock() {
-        Ok(t) => t.clone(),
-        Err(_) => return,
-    };
-    let positions = match GPU_POSITIONS.lock() {
-        Ok(p) => p.clone(),
-        Err(_) => return,
+    // GPU-FIRST: Read from single GpuReadState instead of scattered statics
+    let (positions, combat_targets, _npc_count) = {
+        match GPU_READ_STATE.lock() {
+            Ok(state) => (state.positions.clone(), state.combat_targets.clone(), state.npc_count),
+            Err(_) => return,
+        }
     };
 
-    // Debug tracking
     let mut attackers = 0usize;
     let mut targets_found = 0usize;
     let mut attacks = 0usize;
@@ -119,7 +111,6 @@ pub fn attack_system(
         attackers += 1;
         let i = npc_idx.0;
 
-        // Get target from GPU (already faction-filtered)
         let target_idx = combat_targets.get(i).copied().unwrap_or(-1);
 
         if attackers == 1 {
@@ -127,7 +118,6 @@ pub fn attack_system(
         }
 
         if target_idx < 0 {
-            // No enemy in range - remove InCombat marker
             if in_combat.is_some() {
                 commands.entity(entity).remove::<InCombat>();
             }
@@ -136,7 +126,6 @@ pub fn attack_system(
 
         targets_found += 1;
 
-        // Has target - add InCombat marker
         if in_combat.is_none() {
             commands.entity(entity).insert(InCombat);
             in_combat_added += 1;
@@ -144,17 +133,14 @@ pub fn attack_system(
 
         let ti = target_idx as usize;
 
-        // Bounds check
         if i * 2 + 1 >= positions.len() || ti * 2 + 1 >= positions.len() {
             bounds_failures += 1;
             continue;
         }
 
-        // Get positions
         let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
         let (tx, ty) = (positions[ti * 2], positions[ti * 2 + 1]);
 
-        // Calculate distance
         let dx = tx - x;
         let dy = ty - y;
         let dist = (dx * dx + dy * dy).sqrt();
@@ -164,12 +150,10 @@ pub fn attack_system(
         }
 
         if dist <= stats.range {
-            // In attack range
             in_range_count += 1;
             if in_range_count == 1 {
                 sample_timer = timer.0;
             }
-            // Check cooldown timer
             if timer.0 <= 0.0 {
                 timer_ready_count += 1;
                 // Attack! Queue damage
@@ -184,18 +168,14 @@ pub fn attack_system(
             }
         } else {
             // Out of range - chase target
-            if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-                queue.push(SetTargetMsg {
-                    npc_index: i,
-                    x: tx,
-                    y: ty,
-                });
+            // GPU-FIRST: Push to GPU_UPDATE_QUEUE instead of GPU_TARGET_QUEUE
+            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                queue.push(GpuUpdate::SetTarget { idx: i, x: tx, y: ty });
             }
             chases += 1;
         }
     }
 
-    // Update debug
     if let Ok(mut debug) = COMBAT_DEBUG.lock() {
         debug.attackers_queried = attackers;
         debug.targets_found = targets_found;
@@ -210,7 +190,6 @@ pub fn attack_system(
         debug.in_range_count = in_range_count;
         debug.timer_ready_count = timer_ready_count;
         debug.sample_timer = sample_timer;
-        // Sample combat targets and positions for debugging
         debug.sample_combat_target_0 = combat_targets.get(0).copied().unwrap_or(-99);
         debug.sample_combat_target_5 = combat_targets.get(5).copied().unwrap_or(-99);
         debug.sample_pos_0 = (
