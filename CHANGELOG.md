@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-01-27
+- fix test 11 slider: per-test range config (10-10,000 for projectiles, 500-5,000 for NPCs)
+- fix slider label overwritten every frame by NPC count display
+- fix performance regression: dynamically size projectile multimesh to active count instead of max
+- increase MAX_PROJECTILES from 5,000 to 50,000 (~3.2 MB VRAM, zero cost when idle)
+
 ## 2026-01-26
 - add Chunk 7a: Health + Death system
 - add Health component (100 HP default), Dead marker component

@@ -390,8 +390,16 @@ impl INode2D for EcsNpcManager {
                 gpu.read_projectile_positions();
                 gpu.read_projectile_active();
 
-                // Update projectile MultiMesh
-                let proj_buffer = gpu.build_proj_multimesh(MAX_PROJECTILES);
+                // Update projectile MultiMesh (sized to proj_count, not MAX)
+                let current_count = rs.multimesh_get_instance_count(self.proj_multimesh_rid) as usize;
+                if current_count != proj_count {
+                    rs.multimesh_allocate_data_ex(
+                        self.proj_multimesh_rid,
+                        proj_count as i32,
+                        godot::classes::rendering_server::MultimeshTransformFormat::TRANSFORM_2D,
+                    ).color_format(true).done();
+                }
+                let proj_buffer = gpu.build_proj_multimesh(proj_count);
                 rs.multimesh_set_buffer(self.proj_multimesh_rid, &proj_buffer);
             }
         }
@@ -435,7 +443,7 @@ impl EcsNpcManager {
         self.mesh = Some(mesh);
     }
 
-    fn setup_proj_multimesh(&mut self, max_count: i32) {
+    fn setup_proj_multimesh(&mut self, _max_count: i32) {
         let mut rs = RenderingServer::singleton();
 
         self.proj_multimesh_rid = rs.multimesh_create();
@@ -447,22 +455,9 @@ impl EcsNpcManager {
 
         rs.multimesh_allocate_data_ex(
             self.proj_multimesh_rid,
-            max_count,
+            0,  // Start empty, resized dynamically per-frame
             godot::classes::rendering_server::MultimeshTransformFormat::TRANSFORM_2D,
         ).color_format(true).done();
-
-        let count = max_count as usize;
-        let mut init_buffer = vec![0.0f32; count * PROJ_FLOATS_PER_INSTANCE];
-        for i in 0..count {
-            let base = i * PROJ_FLOATS_PER_INSTANCE;
-            init_buffer[base + 0] = 1.0;  // scale x
-            init_buffer[base + 5] = 1.0;  // scale y
-            init_buffer[base + 3] = -9999.0;  // pos x (hidden)
-            init_buffer[base + 7] = -9999.0;  // pos y (hidden)
-            init_buffer[base + 11] = 1.0; // alpha
-        }
-        let packed = PackedFloat32Array::from(init_buffer.as_slice());
-        rs.multimesh_set_buffer(self.proj_multimesh_rid, &packed);
 
         // Share NPC canvas item (second canvas_item_create doesn't render - Godot quirk)
         // Projectiles draw on top since this add_multimesh is called after NPC's
@@ -887,7 +882,7 @@ impl EcsNpcManager {
                 rs.multimesh_get_mesh(self.proj_multimesh_rid).is_valid()
             } else { false };
 
-            let mm = gpu.build_proj_multimesh(MAX_PROJECTILES);
+            let mm = gpu.build_proj_multimesh(gpu.proj_count);
             let mm_slice = mm.as_slice();
             let mut mm_debug = String::new();
             for i in 0..gpu.proj_count.min(2) {

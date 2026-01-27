@@ -60,7 +60,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Guards have no leash - fight anywhere
 - [x] Alert nearby allies when combat starts
 - [x] Target switching (stop chasing fleeing enemies if closer threat exists)
-- [x] GPU projectile system (5000 capacity, compute shader movement + collision)
+- [x] GPU projectile system (50,000 capacity, compute shader movement + collision)
 - [ ] Player combat abilities
 - [ ] Army units (peasant levy, archers, knights)
 
@@ -439,7 +439,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] 7b: O(1) entity lookup via NpcEntityMap (replaces O(n) damage iteration)
 - [x] 7b: Slot reuse for dead NPCs (FREE_SLOTS pool, infinite churn without 10K cap)
 - [x] 7b: Grid cell fix (64px → 100px cells, properly covers 300px detection range)
-- [x] 7c: GPU projectile system (5000 projectiles, compute shader movement + collision)
+- [x] 7c: GPU projectile system (50,000 projectiles, compute shader movement + collision)
 - [x] 7c: Projectile slot reuse via FREE_PROJ_SLOTS pool
 - [x] 7c: MultiMesh rendering with velocity-based rotation and faction colors
 - [x] 7c: TDD test harness (Test 11) covering all projectile behaviors

@@ -82,6 +82,7 @@ func _ready() -> void:
 
 	count_slider = vbox.get_node("CountSlider")
 	count_slider.value_changed.connect(_on_count_changed)
+	_configure_slider(current_test)
 	_on_count_changed(count_slider.value)  # Initialize label
 
 	metrics_check = vbox.get_node("MetricsCheck")
@@ -238,6 +239,17 @@ func _get_max_dist_from_target(target: Vector2) -> float:
 	return max_dist
 
 
+func _configure_slider(test_id: int) -> void:
+	if test_id == 11:
+		count_slider.min_value = 10
+		count_slider.max_value = 10000
+		count_slider.step = 10
+	else:
+		count_slider.min_value = 500
+		count_slider.max_value = 5000
+		count_slider.step = 1
+
+
 func _on_count_changed(value: float) -> void:
 	if current_test == 11:
 		count_label.text = "Projectile Count: %d" % int(value)
@@ -294,14 +306,7 @@ func _start_test(test_id: int) -> void:
 
 	# Reset local state
 	current_test = test_id
-	if test_id == 11:
-		count_slider.min_value = 10
-		count_slider.max_value = 10000
-		count_slider.step = 10
-	else:
-		count_slider.min_value = 500
-		count_slider.max_value = 5000
-		count_slider.step = 1
+	_configure_slider(test_id)
 	_on_count_changed(count_slider.value)
 	test_phase = 0
 	test_timer = 0.0
