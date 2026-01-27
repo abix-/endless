@@ -66,7 +66,7 @@ Both are LIFO (stack) — most recently freed slot is reused first. No generatio
 | HEALTH_DEBUG | HealthDebugInfo | damage_system, death_system, death_cleanup_system | get_health_debug() API |
 | COMBAT_DEBUG | CombatDebug | attack_system | get_combat_debug() API |
 
-COMBAT_DEBUG tracks 18 fields including: npcs_with_stats, targets_found, attacks_launched, chases_started, in_combat_set/cleared, and sample position/distance data.
+COMBAT_DEBUG (defined in `systems/combat.rs`) tracks 18 fields: `attackers_queried`, `targets_found`, `attacks_made`, `chases_started`, `in_combat_added`, `sample_target_idx`, `positions_len`, `combat_targets_len`, `bounds_failures`, `sample_dist`, `in_range_count`, `timer_ready_count`, `sample_timer`, `cooldown_entities`, `frame_delta`, `sample_combat_target_0/5`, `sample_pos_0/5`.
 
 ## Known Issues / Limitations
 

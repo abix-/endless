@@ -61,12 +61,12 @@ All spawn methods allocate a slot (recycled or new), write GPU buffers directly,
 | `get_town_center` | `town_idx: i32` | `Vector2` | Town center position |
 | `get_camp_position` | `town_idx: i32` | `Vector2` | Raider camp position |
 | `get_patrol_post` | `town_idx, order: i32` | `Vector2` | Patrol post position by order |
-| `get_nearest_free_bed` | `x, y, town_idx: i32` | `Vector2` | Nearest unoccupied bed (or Vector2(-1,-1)) |
-| `get_nearest_free_farm` | `x, y, town_idx: i32` | `Vector2` | Nearest unoccupied farm (or Vector2(-1,-1)) |
-| `reserve_bed` | `x, y, npc_idx: i32` | void | Mark bed as occupied |
-| `release_bed` | `x, y` | void | Mark bed as free |
-| `reserve_farm` | `x, y, npc_idx: i32` | void | Mark farm as occupied |
-| `release_farm` | `x, y` | void | Mark farm as free |
+| `get_nearest_free_bed` | `town_idx: i32, x, y: f32` | `i32` | Nearest free bed index or -1 |
+| `get_nearest_free_farm` | `town_idx: i32, x, y: f32` | `i32` | Nearest free farm index or -1 |
+| `reserve_bed` | `bed_idx: i32, npc_idx: i32` | `bool` | Claim bed if free |
+| `release_bed` | `bed_idx: i32` | void | Set occupant to -1 |
+| `reserve_farm` | `farm_idx: i32` | `bool` | Claim farm if count < 1 |
+| `release_farm` | `farm_idx: i32` | void | Decrement occupancy |
 | `get_world_stats` | none | `Dictionary` | town/farm/bed/guard_post counts, free_beds, free_farms |
 
 ## Reset API
