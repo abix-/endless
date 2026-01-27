@@ -142,6 +142,15 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] HP regen system in Bevy (recovery_system checks threshold but no regen)
 - [ ] Result: Full game loop
 
+**Chunk 8.5: Eliminate Direct GPU Writes**
+- [ ] Add slot index to all spawn messages (SpawnGuardMsg, SpawnFarmerMsg, SpawnRaiderMsg, SpawnNpcMsg)
+- [ ] Spawn systems push GPU_UPDATE_QUEUE (SetPosition, SetTarget, SetColor, SetSpeed, SetFaction, SetHealth) instead of writing GpuData
+- [ ] Remove direct buffer_update() calls from lib.rs spawn methods (spawn_npc, spawn_guard, spawn_guard_at_post, spawn_farmer, spawn_raider)
+- [ ] Remove GpuData Bevy Resource (dead-end intermediary)
+- [ ] Fix slot index mismatch bug (Bevy entity gets correct NpcIndex from message)
+- [ ] Verify BevyApp.process() runs before EcsNpcManager.process() in scene tree order
+- [ ] Result: Single write path (GPU_UPDATE_QUEUE), spawn matches all other systems
+
 **Chunk 9: UI Integration**
 - [ ] Signals to GDScript (death, level up, food)
 - [ ] Selection queries
