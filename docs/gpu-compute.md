@@ -119,7 +119,11 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 - **Health is CPU-authoritative**: The GPU reads health for targeting but never modifies it. If GPU-side damage were ever needed, this would require a readback.
 - **Fixed grid dimensions**: 80x80 grid is hardcoded. Larger worlds need a bigger grid or dynamic sizing.
 - **Max 64 NPCs per cell**: Exceeding this silently drops NPCs from neighbor queries. At 10K NPCs in 6,400 cells, average is ~1.5 per cell, so this is safe with margin.
+- **Wasted multimesh_buffer write**: NPC shader writes Transform2D+Color to binding 6, but the CPU rebuilds the MultiMesh from cached positions via `build_multimesh_from_cache()`. The GPU-written buffer is unused for rendering — wasted GPU work every frame.
+- **Blocking sync**: `rd.sync()` stalls CPU until GPU completes. No async readback or double-buffering.
+- **Two sequential dispatches**: NPC and projectile shaders run with a full sync between them. Could be pipelined.
+- **Hit buffer init**: Must be initialized to -1. GPU default of 0 would falsely indicate "hit NPC 0".
 
-## Rating: 9/10
+## Rating: 8/10
 
-Clean GPU-first architecture. Spatial grid is the right data structure. Separation physics, combat targeting, and projectile collision all share the same grid — no redundant computation. The CPU cache sync pattern (write CPU → upload → dispatch → readback) is standard and correct. Main improvement would be GPU-side grid construction to eliminate the upload.
+Solid GPU compute achieving 10K NPCs @ 140fps. Spatial grid shared between both shaders is efficient. TCP-style backoff produces good crowd behavior. Main waste: the GPU writes a multimesh buffer that the CPU ignores and rebuilds. Fixing this (use GPU-written buffer directly) would eliminate a per-frame CPU rebuild. Blocking sync prevents CPU/GPU overlap.

@@ -37,7 +37,7 @@ Frame execution order ───────────────────�
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, communication bridges, timing | 8/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders, 20 GPU buffers, spatial grid, CPU sync | 9/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders, 20 GPU buffers, spatial grid, CPU sync | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 8/10 |
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
 | [spawn.md](spawn.md) | Dual-write pattern, slot allocation, Bevy entity creation | 6/10 |
