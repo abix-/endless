@@ -868,8 +868,8 @@ impl EcsNpcManager {
 
     /// Get projectile debug info.
     #[func]
-    fn get_projectile_debug(&self) -> Dictionary {
-        let mut dict = Dictionary::new();
+    fn get_projectile_debug(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
         if let Some(gpu) = &self.gpu {
             dict.set("proj_count", gpu.proj_count as i32);
             let active = gpu.proj_active.iter().take(gpu.proj_count).filter(|&&x| x == 1).count();
@@ -959,8 +959,8 @@ impl EcsNpcManager {
     }
 
     #[func]
-    fn get_debug_stats(&mut self) -> Dictionary {
-        let mut dict = Dictionary::new();
+    fn get_debug_stats(&mut self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
         if let Some(gpu) = &mut self.gpu {
             let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
 
@@ -1033,8 +1033,8 @@ impl EcsNpcManager {
     }
 
     #[func]
-    fn get_combat_debug(&self) -> Dictionary {
-        let mut dict = Dictionary::new();
+    fn get_combat_debug(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
         if let Ok(debug) = systems::COMBAT_DEBUG.lock() {
             dict.set("attackers", debug.attackers_queried as i32);
             dict.set("targets_found", debug.targets_found as i32);
@@ -1086,8 +1086,8 @@ impl EcsNpcManager {
     }
 
     #[func]
-    fn get_health_debug(&self) -> Dictionary {
-        let mut dict = Dictionary::new();
+    fn get_health_debug(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
         if let Ok(debug) = HEALTH_DEBUG.lock() {
             dict.set("damage_processed", debug.damage_processed as i32);
             dict.set("deaths_this_frame", debug.deaths_this_frame as i32);
@@ -1339,8 +1339,8 @@ impl EcsNpcManager {
     }
 
     #[func]
-    fn get_world_stats(&self) -> Dictionary {
-        let mut dict = Dictionary::new();
+    fn get_world_stats(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
         if let Ok(world) = WORLD_DATA.lock() {
             dict.set("town_count", world.towns.len() as i32);
             dict.set("farm_count", world.farms.len() as i32);
@@ -1359,8 +1359,8 @@ impl EcsNpcManager {
     }
 
     #[func]
-    fn get_guard_debug(&mut self) -> Dictionary {
-        let mut dict = Dictionary::new();
+    fn get_guard_debug(&mut self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
         if let Some(gpu) = &mut self.gpu {
             let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
 
