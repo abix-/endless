@@ -237,16 +237,22 @@ pub fn spawn_raider_system(
         gpu_data.npc_count += 1;
         gpu_data.dirty = true;
 
-        // Create raider entity with combat components
+        // Create raider entity with combat + stealing components
         let entity = commands.spawn((
             NpcIndex(idx),
             Job::Raider,
             Speed::default(),
+            Energy::default(),
             Health::default(),
             Faction::Raider,
             AttackStats::default(),
             AttackTimer(0.0),
             Home(Vector2::new(event.camp_x, event.camp_y)),
+            Stealer,
+            FleeThreshold { pct: 0.50 },
+            LeashRange { distance: 400.0 },
+            WoundedThreshold { pct: 0.25 },
+            Raiding,
         )).id();
 
         // O(1) lookup: store entity in map

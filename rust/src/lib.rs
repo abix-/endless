@@ -92,11 +92,17 @@ fn build_app(app: &mut bevy::prelude::App) {
            death_system,
            death_cleanup_system,
        ).chain().in_set(Step::Combat))
-       // Behavior: energy, patrol, rest, work
+       // Behavior: energy, patrol, rest, work, stealing, combat escape
        .add_systems(Update, (
            handle_arrival_system,
+           steal_arrival_system,
            energy_system,
+           flee_system,
+           leash_system,
            tired_system,
+           wounded_rest_system,
+           recovery_system,
+           steal_decision_system,
            resume_patrol_system,
            resume_work_system,
            patrol_system,
@@ -1336,6 +1342,73 @@ impl EcsNpcManager {
                 farms.occupant_count[idx] -= 1;
             }
         }
+    }
+
+    // ========================================================================
+    // FOOD STORAGE API
+    // ========================================================================
+
+    /// Initialize food storage with the given number of towns and camps.
+    #[func]
+    fn init_food_storage(&self, town_count: i32, camp_count: i32) {
+        if let Ok(mut food) = FOOD_STORAGE.lock() {
+            food.town_food = vec![0; town_count as usize];
+            food.camp_food = vec![0; camp_count as usize];
+        }
+    }
+
+    /// Add food to a town (called when farmer produces food).
+    #[func]
+    fn add_town_food(&self, town_idx: i32, amount: i32) {
+        if let Ok(mut food) = FOOD_STORAGE.lock() {
+            let idx = town_idx as usize;
+            if idx < food.town_food.len() {
+                food.town_food[idx] += amount;
+            }
+        }
+    }
+
+    /// Get food count for a town.
+    #[func]
+    fn get_town_food(&self, town_idx: i32) -> i32 {
+        if let Ok(food) = FOOD_STORAGE.lock() {
+            let idx = town_idx as usize;
+            if idx < food.town_food.len() {
+                return food.town_food[idx];
+            }
+        }
+        0
+    }
+
+    /// Get food count for a camp.
+    #[func]
+    fn get_camp_food(&self, camp_idx: i32) -> i32 {
+        if let Ok(food) = FOOD_STORAGE.lock() {
+            let idx = camp_idx as usize;
+            if idx < food.camp_food.len() {
+                return food.camp_food[idx];
+            }
+        }
+        0
+    }
+
+    /// Get food events since last call (deliveries and consumption).
+    #[func]
+    fn get_food_events(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        let mut deliveries = 0i32;
+        let mut consumed = 0i32;
+        if let Ok(mut queue) = FOOD_DELIVERED_QUEUE.lock() {
+            deliveries = queue.len() as i32;
+            queue.clear();
+        }
+        if let Ok(mut queue) = FOOD_CONSUMED_QUEUE.lock() {
+            consumed = queue.len() as i32;
+            queue.clear();
+        }
+        dict.set("deliveries", deliveries);
+        dict.set("consumed", consumed);
+        dict
     }
 
     #[func]

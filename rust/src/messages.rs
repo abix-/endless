@@ -163,3 +163,48 @@ pub static HEALTH_DEBUG: Mutex<HealthDebugInfo> = Mutex::new(HealthDebugInfo {
     bevy_entity_count: 0,
     health_samples: Vec::new(),
 });
+
+// ============================================================================
+// FOOD STORAGE (Bevy-owned, polled by GDScript)
+// ============================================================================
+
+/// Per-town and per-camp food counts. Owned by Bevy so raider eat-decisions
+/// stay in Rust without crossing the GDScript boundary.
+pub struct FoodStorage {
+    pub town_food: Vec<i32>,
+    pub camp_food: Vec<i32>,
+}
+
+impl Default for FoodStorage {
+    fn default() -> Self {
+        Self {
+            town_food: Vec::new(),
+            camp_food: Vec::new(),
+        }
+    }
+}
+
+pub static FOOD_STORAGE: Mutex<FoodStorage> = Mutex::new(FoodStorage {
+    town_food: Vec::new(),
+    camp_food: Vec::new(),
+});
+
+// ============================================================================
+// FOOD EVENTS (Bevy -> GDScript, polled per frame)
+// ============================================================================
+
+/// A raider delivered stolen food to their camp.
+#[derive(Clone, Debug)]
+pub struct FoodDelivered {
+    pub camp_idx: u32,
+}
+
+/// An NPC consumed food at their home location.
+#[derive(Clone, Debug)]
+pub struct FoodConsumed {
+    pub location_idx: u32,
+    pub is_camp: bool,
+}
+
+pub static FOOD_DELIVERED_QUEUE: Mutex<Vec<FoodDelivered>> = Mutex::new(Vec::new());
+pub static FOOD_CONSUMED_QUEUE: Mutex<Vec<FoodConsumed>> = Mutex::new(Vec::new());

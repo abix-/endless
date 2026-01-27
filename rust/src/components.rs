@@ -195,3 +195,53 @@ pub struct AttackTimer(pub f32);
 /// Behavior systems should skip NPCs with this component.
 #[derive(Component)]
 pub struct InCombat;
+
+// ============================================================================
+// STEALING / RAIDING COMPONENTS
+// ============================================================================
+
+/// Marker: this NPC steals food from farms. Any NPC with this + Home
+/// will use the steal decision system.
+#[derive(Component)]
+pub struct Stealer;
+
+/// Marker: NPC is currently carrying stolen food.
+#[derive(Component)]
+pub struct CarryingFood;
+
+/// State: NPC is walking to a farm to steal food.
+#[derive(Component)]
+pub struct Raiding;
+
+/// State: NPC is walking back to home base (with or without food).
+#[derive(Component)]
+pub struct Returning;
+
+/// State: NPC is resting until HP reaches threshold before resuming activity.
+#[derive(Component)]
+pub struct Recovering {
+    pub threshold: f32,
+}
+
+// ============================================================================
+// BEHAVIOR CONFIG COMPONENTS (generic, attach to any NPC)
+// ============================================================================
+
+/// Flee combat when HP drops below this percentage.
+#[derive(Component)]
+pub struct FleeThreshold {
+    pub pct: f32,
+}
+
+/// Disengage combat if distance from Home exceeds this.
+#[derive(Component)]
+pub struct LeashRange {
+    pub distance: f32,
+}
+
+/// Drop everything and return home when HP drops below this percentage.
+/// Distinct from FleeThreshold: wounded NPCs enter recovery mode.
+#[derive(Component)]
+pub struct WoundedThreshold {
+    pub pct: f32,
+}
