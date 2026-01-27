@@ -83,7 +83,7 @@ Job-specific templates:
 |-----|----------------------|
 | Guard | `Energy`, `AttackStats`, `AttackTimer(0)`, `Guard { town_idx }`, `PatrolRoute`, `OnDuty { ticks: 0 }` |
 | Farmer | `Energy`, `Farmer { town_idx }`, `WorkPosition`, `GoingToWork` |
-| Raider | `Energy`, `AttackStats`, `AttackTimer(0)`, `Stealer`, `Raiding`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
+| Raider | `Energy`, `AttackStats`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
 
 GPU writes (via GPU_UPDATE_QUEUE, all jobs): `SetPosition`, `SetTarget` (= position), `SetColor` (job-based), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`
 

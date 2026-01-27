@@ -100,7 +100,7 @@ pub fn spawn_npc_system(
             Job::Raider => {
                 ec.insert(Energy::default());
                 ec.insert((AttackStats::default(), AttackTimer(0.0)));
-                ec.insert((Stealer, Raiding));
+                ec.insert(Stealer);
                 ec.insert(FleeThreshold { pct: 0.50 });
                 ec.insert(LeashRange { distance: 400.0 });
                 ec.insert(WoundedThreshold { pct: 0.25 });
