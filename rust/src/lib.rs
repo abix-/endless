@@ -901,9 +901,20 @@ impl EcsNpcManager {
                 }
             }
 
+            // Grid debug: check raider position (NPC 1) and guard position (NPC 0)
+            let npc0_x = gpu.positions.get(0).copied().unwrap_or(-1.0);
+            let npc0_y = gpu.positions.get(1).copied().unwrap_or(-1.0);
+            let npc1_x = gpu.positions.get(2).copied().unwrap_or(-1.0);
+            let npc1_y = gpu.positions.get(3).copied().unwrap_or(-1.0);
+            let (g0cx, g0cy, g0ct) = gpu.trace_grid_cell(npc0_x, npc0_y);
+            let (g1cx, g1cy, g1ct) = gpu.trace_grid_cell(npc1_x, npc1_y);
+            let grid_debug = format!("npc0=({:.0},{:.0}) cell({},{})={} npc1=({:.0},{:.0}) cell({},{})={}",
+                npc0_x, npc0_y, g0cx, g0cy, g0ct,
+                npc1_x, npc1_y, g1cx, g1cy, g1ct);
+
             let rid_debug = format!("mm={} ci={} npc_mm={} inst={} vis={} mesh={}",
                 proj_mm_valid, proj_ci_valid, npc_mm_valid, proj_inst_count, proj_vis_count, proj_mesh_valid);
-            GString::from(&format!("{}\n{}\n{}\n{}", header, rid_debug, lines.join("\n"), mm_debug))
+            GString::from(&format!("{}\n{}\n{}\n{}\n{}", header, rid_debug, grid_debug, lines.join("\n"), mm_debug))
         } else {
             GString::from("no gpu")
         }
@@ -1183,6 +1194,7 @@ impl EcsNpcManager {
             gpu.proj_positions.fill(0.0);
             gpu.proj_velocities.fill(0.0);
             gpu.proj_damages.fill(0.0);
+            gpu.proj_factions.fill(0);
             gpu.proj_active.fill(0);
         }
 

@@ -125,6 +125,7 @@ pub struct GpuCompute {
     pub proj_positions: Vec<f32>,
     pub proj_velocities: Vec<f32>,
     pub proj_damages: Vec<f32>,
+    pub proj_factions: Vec<i32>,
     pub proj_active: Vec<i32>,
     pub proj_count: usize,
 }
@@ -276,6 +277,7 @@ impl GpuCompute {
             proj_positions: vec![0.0; MAX_PROJECTILES * 2],
             proj_velocities: vec![0.0; MAX_PROJECTILES * 2],
             proj_damages: vec![0.0; MAX_PROJECTILES],
+            proj_factions: vec![0; MAX_PROJECTILES],
             proj_active: vec![0; MAX_PROJECTILES],
             proj_count: 0,
         })
@@ -562,6 +564,7 @@ impl GpuCompute {
         let fac_bytes: Vec<u8> = faction.to_le_bytes().to_vec();
         let fac_packed = PackedByteArray::from(fac_bytes.as_slice());
         self.rd.buffer_update(self.proj_faction_buffer, (idx * 4) as u32, 4, &fac_packed);
+        self.proj_factions[idx] = faction;
 
         // Shooter
         let shooter_bytes: Vec<u8> = shooter.to_le_bytes().to_vec();
@@ -699,6 +702,19 @@ impl GpuCompute {
 
     /// Read raw GPU projectile state for debugging.
     /// Returns lifetime, active, position, hit for first N projectiles.
+    /// Read grid cell count for a given position (debug)
+    pub fn trace_grid_cell(&mut self, x: f32, y: f32) -> (usize, usize, i32) {
+        let cx = (x / CELL_SIZE) as usize;
+        let cy = (y / CELL_SIZE) as usize;
+        if cx >= GRID_WIDTH || cy >= GRID_HEIGHT {
+            return (cx, cy, -1);
+        }
+        let cell_idx = cy * GRID_WIDTH + cx;
+        // Read from CPU cache (already uploaded this frame)
+        let count = self.grid.counts.get(cell_idx).copied().unwrap_or(-1);
+        (cx, cy, count)
+    }
+
     pub fn trace_projectile_gpu_state(&mut self, count: usize) -> Vec<(f32, i32, f32, f32, i32, i32)> {
         let mut result = Vec::new();
         let lifetime_bytes = self.rd.buffer_get_data(self.proj_lifetime_buffer);
@@ -777,10 +793,17 @@ impl GpuCompute {
             floats[base + 6] = 0.0;
             floats[base + 7] = y;
 
-            // Bright magenta for visibility debugging
-            floats[base + 8] = 1.0;   // r
-            floats[base + 9] = 0.0;   // g
-            floats[base + 10] = 1.0;  // b
+            // Faction color: blue for villager (0), red for raider (1)
+            let faction = self.proj_factions.get(i).copied().unwrap_or(0);
+            if faction == 1 {
+                floats[base + 8] = 1.0;   // r
+                floats[base + 9] = 0.2;   // g
+                floats[base + 10] = 0.2;  // b
+            } else {
+                floats[base + 8] = 0.3;   // r
+                floats[base + 9] = 0.5;   // g
+                floats[base + 10] = 1.0;  // b
+            }
             floats[base + 11] = 1.0;  // a
         }
 

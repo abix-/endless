@@ -1051,11 +1051,13 @@ func _update_test_projectiles() -> void:
 			_fail("fire_projectile() method doesn't exist")
 			return
 
-		# Fire projectile from guard toward raider
+		# Fire projectile from guard toward raider (offset 20px forward so it spawns in front)
 		# fire_projectile(from_x, from_y, to_x, to_y, damage, faction, shooter)
+		var guard_x := CENTER.x - 100
+		var raider_x := CENTER.x + 100
 		var idx: int = ecs_manager.fire_projectile(
-			CENTER.x - 100, CENTER.y,   # from: guard position
-			CENTER.x + 100, CENTER.y,   # to: raider position
+			guard_x + 20, CENTER.y,     # from: 20px in front of guard
+			raider_x, CENTER.y,          # to: raider position
 			25.0,                        # damage
 			0,                           # faction (guard = villager)
 			0                            # shooter NPC index
@@ -1120,10 +1122,11 @@ func _update_test_projectiles() -> void:
 		var cd: Dictionary = ecs_manager.get_combat_debug()
 		proj_test_data["target_npc_initial_hp"] = cd.get("health_5", 100.0)  # May not be right index
 
-		# Fire another projectile point-blank at raider
+		# Fire another projectile from guard toward raider
+		var guard_pos := Vector2(CENTER.x - 100, CENTER.y)
 		var raider_pos := Vector2(CENTER.x + 100, CENTER.y)
 		var idx: int = ecs_manager.fire_projectile(
-			raider_pos.x - 15, raider_pos.y,  # Very close to raider
+			guard_pos.x + 20, guard_pos.y,  # 20px in front of guard
 			raider_pos.x, raider_pos.y,
 			50.0,  # Big damage to notice
 			0,     # Guard faction
@@ -1156,11 +1159,11 @@ func _update_test_projectiles() -> void:
 		test_phase = 8
 		_set_phase("Testing no friendly fire...")
 
-		# Fire guard projectile at guard (same faction)
-		var guard_pos := Vector2(CENTER.x - 100, CENTER.y)
+		# Fire guard projectile at guard (same faction - should NOT hit)
+		var guard_pos2 := Vector2(CENTER.x - 100, CENTER.y)
 		var idx: int = ecs_manager.fire_projectile(
-			guard_pos.x - 50, guard_pos.y,
-			guard_pos.x, guard_pos.y,
+			guard_pos2.x - 50, guard_pos2.y,  # From behind guard
+			guard_pos2.x, guard_pos2.y,         # Toward guard
 			100.0,  # Lethal damage
 			0,      # Guard faction (same as target)
 			99      # Different shooter
@@ -1177,16 +1180,17 @@ func _update_test_projectiles() -> void:
 
 		var initial_count: int = ecs_manager.get_projectile_count()
 
-		# Fire 10 projectiles into empty space (will expire)
-		for i in 10:
+		# Fire projectiles into empty space (will expire) - spread across screen
+		for i in 50:
+			var angle := (float(i) / 50.0) * TAU
 			ecs_manager.fire_projectile(
-				100.0, 100.0 + i * 10,
-				50.0, 100.0 + i * 10,  # Aim left (off screen)
-				1.0, 0, 0
+				CENTER.x, CENTER.y,
+				CENTER.x + cos(angle) * 500.0, CENTER.y + sin(angle) * 500.0,
+				1.0, i % 2, 0  # Alternate factions for color variety
 			)
 
 		var after_count: int = ecs_manager.get_projectile_count()
-		_log("Slots: %d -> %d" % [initial_count, after_count])
+		_log("Slots: %d -> %d (+50)" % [initial_count, after_count])
 
 	# =========================================================================
 	# PHASE 9: Wait for projectiles to expire (3 sec lifetime)
