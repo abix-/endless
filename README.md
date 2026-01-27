@@ -60,7 +60,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 - [x] Guards have no leash - fight anywhere
 - [x] Alert nearby allies when combat starts
 - [x] Target switching (stop chasing fleeing enemies if closer threat exists)
-- [x] 500 projectile pool with faction coloring
+- [x] GPU projectile system (5000 capacity, compute shader movement + collision)
 - [ ] Player combat abilities
 - [ ] Army units (peasant levy, archers, knights)
 
@@ -439,8 +439,11 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] 7b: O(1) entity lookup via NpcEntityMap (replaces O(n) damage iteration)
 - [x] 7b: Slot reuse for dead NPCs (FREE_SLOTS pool, infinite churn without 10K cap)
 - [x] 7b: Grid cell fix (64px → 100px cells, properly covers 300px detection range)
-- [ ] 7c: GPU projectile system (movement + collision on GPU)
-- [x] Result: Combat working with GPU-accelerated targeting
+- [x] 7c: GPU projectile system (5000 projectiles, compute shader movement + collision)
+- [x] 7c: Projectile slot reuse via FREE_PROJ_SLOTS pool
+- [x] 7c: MultiMesh rendering with velocity-based rotation
+- [x] 7c: TDD test harness (Test 11) covering all projectile behaviors
+- [x] Result: Combat working with GPU-accelerated targeting and projectiles
 
 **Chunk 8: Raider Logic**
 - [ ] Raiding, Returning states
@@ -464,7 +467,8 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 | Chunk 6 (behaviors) | 10,000+ | 140 | ✅ Done |
 | Chunk 7a (health/death) | 10,000+ | 140 | ✅ Done |
 | Chunk 7b (GPU targeting) | 10,000+ | 140 | ✅ Done |
-| Chunk 7c-9 (full game) | 10,000+ | 60+ | Planned |
+| Chunk 7c (GPU projectiles) | 10,000+ | 140 | ✅ Done |
+| Chunk 8-9 (full game) | 10,000+ | 60+ | Planned |
 | GPU grid + targeting | 20,000+ | 60+ | Future |
 
 ### Performance Lessons Learned
