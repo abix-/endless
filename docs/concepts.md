@@ -605,6 +605,75 @@ Different schedules use different delta time sources:
 
 ---
 
+## Thread Safety & GodotAccess
+
+Godot APIs are only safe to call from the main thread. godot-bevy provides `GodotAccess`, a Bevy `SystemParam` that carries a `NonSend` guard, pinning any system that uses it to the main thread.
+
+### The Constraint
+
+```rust
+// This system is pinned to main thread because of GodotAccess
+fn sync_transforms(
+    godot: GodotAccess,
+    query: Query<(&Transform, &GodotNode)>,
+) {
+    for (transform, node) in query.iter() {
+        godot.set_position(node.id, transform.position); // Safe: main thread
+    }
+}
+
+// This system can run on any thread (no GodotAccess)
+fn movement_system(mut query: Query<(&mut Position, &Velocity)>) {
+    for (mut pos, vel) in query.iter_mut() {
+        pos.0 += vel.0;  // Pure ECS logic, no Godot calls
+    }
+}
+```
+
+Systems with `GodotAccess` cannot run in parallel with each other. Minimize their use to maximize Bevy's automatic parallelism.
+
+### Event-Driven Pattern
+
+For multi-threaded Bevy, the recommended pattern is:
+1. **Multi-threaded systems** handle logic and emit events
+2. **Main-thread systems** (with `GodotAccess`) consume events and call Godot APIs
+
+```rust
+// Runs on any thread — computes what to do
+fn damage_logic_system(
+    query: Query<(&Health, &Position)>,
+    mut events: EventWriter<PlaySoundEvent>,
+) {
+    for (health, pos) in query.iter() {
+        if health.just_took_damage {
+            events.send(PlaySoundEvent { pos: pos.0 });
+        }
+    }
+}
+
+// Pinned to main thread — calls Godot
+fn play_sounds_system(
+    godot: GodotAccess,
+    mut events: EventReader<PlaySoundEvent>,
+) {
+    for event in events.read() {
+        godot.play_sound_at(event.pos);
+    }
+}
+```
+
+### Endless Approach
+
+Endless currently runs Bevy single-threaded (via godot-bevy's `app.update()` on the main thread). Instead of `GodotAccess`, all Godot communication uses static Mutex queues:
+
+- **Bevy → GPU**: `GPU_UPDATE_QUEUE` (drained in `process()`)
+- **GDScript → Bevy**: `SPAWN_QUEUE`, `TARGET_QUEUE`, etc.
+- **GPU → Bevy**: `GPU_READ_STATE`, `ARRIVAL_QUEUE`, `DAMAGE_QUEUE`
+
+This pattern naturally decouples Bevy systems from Godot APIs. If Bevy moves to multi-threaded scheduling, the systems already avoid Godot calls — only the queue drain in `process()` touches Godot's `RenderingDevice`.
+
+---
+
 ## Summary
 
 | Concept | Problem | Solution |
@@ -624,3 +693,4 @@ Different schedules use different delta time sources:
 | ECS States | State machine in ECS | Marker components per state |
 | World Resources | Static world data | Singleton Resources, not Entities |
 | Frame Execution | Autoload vs scene ordering | Two counters decouple allocation from dispatch |
+| Thread Safety | Godot APIs need main thread | GodotAccess guard or static Mutex queues |
