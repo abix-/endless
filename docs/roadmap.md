@@ -160,34 +160,36 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] Selection queries
 - [ ] Result: UI works again
 
-**Phase 10: Idiomatic Bevy (Static Mutex → Resources)**
+**Phase 10: Idiomatic Bevy (Static Mutex → Resources + Events)**
 
-Currently ~20 static Mutex variables handle all cross-boundary communication. 12 of these are architectural necessities (GDScript↔Bevy and Bevy↔GPU boundaries where Bevy World is inaccessible). The remaining 8 are Bevy-internal state that should be Bevy Resources.
+Prep for multi-threaded Bevy. Currently ~20 static Mutex variables handle all communication. Every behavior system directly locks `GPU_UPDATE_QUEUE` — this serializes all systems and hides data flow from Bevy's scheduler. The godot-bevy recommended architecture is event-driven:
 
-**Pattern:** GDScript writes to a staging static, a sync system in Step::Drain copies staging → Resource each frame. Bevy systems use `Res<T>` / `ResMut<T>` instead of `.lock()`.
+```
+Multi-threaded systems (pure logic) → emit Events → main thread system → Godot/GPU APIs
+```
 
-*10.1: World Data Resources*
-- [ ] Add staging statics: WORLD_DATA_STAGING, BED_OCCUPANCY_STAGING, FARM_OCCUPANCY_STAGING
-- [ ] Add sync_world_data_system, sync_bed_occupancy_system, sync_farm_occupancy_system to Step::Drain
-- [ ] Update spawn_npc_system → `Res<WorldData>` (build_patrol_route)
-- [ ] Update steal_decision_system → `Res<WorldData>` (find nearest farm)
-- [ ] GDScript APIs (init_world, add_town, reserve_bed, etc.) write to staging statics
-- [ ] Remove old LazyLock<Mutex> statics from world.rs
-- [ ] Result: Bevy sees WorldData dependencies, cleaner system signatures
+12 statics must stay (GDScript/GPU boundaries). 8 Bevy-internal statics migrate to Resources. GPU_UPDATE_QUEUE stays static but gets a single collector system instead of every system locking it.
 
-*10.2: Debug Resources*
-- [ ] Migrate HEALTH_DEBUG, COMBAT_DEBUG to Bevy Resources
-- [ ] Add staging statics for GDScript query APIs (get_health_debug, get_combat_debug)
-- [ ] Update damage_system, death_system → `ResMut<HealthDebugInfo>`
-- [ ] Update attack_system, cooldown_system → `ResMut<CombatDebug>`
-- [ ] Result: Debug state visible to Bevy scheduler
+*10.1: GPU Update Events*
+- [ ] Add `GpuUpdateEvent` Bevy Event (wraps current GpuUpdate enum)
+- [ ] Replace `GPU_UPDATE_QUEUE.lock().push()` in all systems with `EventWriter<GpuUpdateEvent>`
+- [ ] Add `collect_gpu_updates_system` (end of Step::Behavior) — drains events, single lock, pushes to static queue
+- [ ] Result: Systems parallelizable, single lock point, Bevy sees data flow
 
-*10.3: Food Storage Resource*
-- [ ] Migrate FOOD_STORAGE to Bevy Resource
-- [ ] Add staging static for GDScript APIs (init_food_storage, add_town_food)
-- [ ] Update steal_arrival_system → `ResMut<FoodStorage>`
-- [ ] Keep FOOD_DELIVERED_QUEUE, FOOD_CONSUMED_QUEUE as static (polled by GDScript)
-- [ ] Result: Food logic uses idiomatic Bevy access
+*10.2: World Data Resources*
+- [ ] Staging statics for GDScript boundary, sync systems in Step::Drain
+- [ ] Update spawn_npc_system, steal_decision_system → `Res<WorldData>`
+- [ ] Result: Bevy sees WorldData dependencies
+
+*10.3: Debug + Food Resources*
+- [ ] Migrate HEALTH_DEBUG, COMBAT_DEBUG, FOOD_STORAGE → Bevy Resources
+- [ ] Staging statics for GDScript query/init APIs
+- [ ] Result: All Bevy-internal state uses idiomatic access
+
+*10.4: GPU Read State Resource*
+- [ ] process() writes staging static, Drain copies to `Res<GpuReadState>`
+- [ ] Update attack_system, steal_decision_system, leash_system → `Res<GpuReadState>`
+- [ ] Result: No Bevy system locks GPU_READ_STATE directly
 
 *Statics that stay (architectural necessities):*
 
@@ -195,7 +197,7 @@ Currently ~20 static Mutex variables handle all cross-boundary communication. 12
 |----------|---------|-----|
 | GDScript↔Bevy | SPAWN_QUEUE, TARGET_QUEUE, DAMAGE_QUEUE, ARRIVAL_QUEUE, RESET_BEVY, FRAME_DELTA | GDScript can't access Bevy World |
 | Slot management | NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | Shared between GDScript allocate_slot() and Bevy systems |
-| Bevy↔GPU | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | process() runs in GDScript context |
+| Bevy↔GPU | GPU_UPDATE_QUEUE, GPU_DISPATCH_COUNT | process() runs in GDScript context; GPU_UPDATE_QUEUE locked only by collector system after 10.1 |
 
 ## Performance Targets
 

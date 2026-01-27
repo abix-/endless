@@ -98,9 +98,9 @@ All communication currently uses static Mutex. This is correct for cross-boundar
 |----------|---------|---------|-------|
 | GDScript↔Bevy boundary | Static Mutex (stays) | SPAWN/TARGET/DAMAGE/ARRIVAL_QUEUE, RESET_BEVY, FRAME_DELTA, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 9 |
 | Bevy↔GPU boundary | Static Mutex (stays) | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
-| Bevy-internal state | Migrate → `Res<T>` | WORLD_DATA, BED/FARM_OCCUPANCY, HEALTH/COMBAT_DEBUG, FOOD_STORAGE, food event queues | 8 |
+| Bevy-internal state | Migrate → `Res<T>` / Events | WORLD_DATA, BED/FARM_OCCUPANCY, HEALTH/COMBAT_DEBUG, FOOD_STORAGE, food event queues | 8 |
 
-**Migration pattern:** GDScript API writes to a staging static (`Mutex<Option<T>>`). A sync system in Step::Drain copies staging → Bevy Resource via `.take()`. Bevy systems access the Resource with `Res<T>` / `ResMut<T>`. This gives Bevy visibility into data dependencies while preserving the GDScript boundary.
+**Migration pattern:** Bevy systems emit `GpuUpdateEvent` instead of locking `GPU_UPDATE_QUEUE` directly. A single collector system drains events and locks the static queue once. Bevy-internal state uses `Res<T>` / `ResMut<T>` with staging statics at the GDScript boundary. This enables multi-threaded Bevy scheduling — systems that don't share Resources can run in parallel.
 
 ## Known Issues / Limitations
 
