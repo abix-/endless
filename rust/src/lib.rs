@@ -868,9 +868,9 @@ impl EcsNpcManager {
                         i, lt, act, px, py, hit_npc, hit_proc)
                 })
                 .collect();
-            let header = format!("proj_count={} cpu_active=[{}]",
-                gpu.proj_count,
-                gpu.proj_active.iter().take(gpu.proj_count).map(|a| a.to_string()).collect::<Vec<_>>().join(","));
+            let active_count = gpu.proj_active.iter().take(gpu.proj_count).filter(|&&a| a == 1).count();
+            let header = format!("proj_count={} active={}/{}",
+                gpu.proj_count, active_count, gpu.proj_count);
 
             // Debug: check RIDs and dump multimesh floats
             let rs = RenderingServer::singleton();

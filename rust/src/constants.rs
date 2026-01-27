@@ -56,7 +56,7 @@ pub const ENERGY_RECOVER_RATE: f32 = 0.2;
 // ============================================================================
 
 /// Maximum projectiles the system can handle.
-pub const MAX_PROJECTILES: usize = 5000;
+pub const MAX_PROJECTILES: usize = 50000;
 
 /// Projectile movement speed in pixels per second.
 pub const PROJECTILE_SPEED: f32 = 200.0;

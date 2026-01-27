@@ -75,6 +75,11 @@ func _ready() -> void:
 	log_label = vbox.get_node("LogLabel")
 
 	# Controls
+	# Test dropdown (init before slider so label is correct)
+	test_dropdown = vbox.get_node("TestDropdown")
+	test_dropdown.select(test_dropdown.item_count - 1)
+	current_test = test_dropdown.get_item_id(test_dropdown.item_count - 1)
+
 	count_slider = vbox.get_node("CountSlider")
 	count_slider.value_changed.connect(_on_count_changed)
 	_on_count_changed(count_slider.value)  # Initialize label
@@ -83,8 +88,6 @@ func _ready() -> void:
 	metrics_check.toggled.connect(_on_metrics_toggled)
 	_on_metrics_toggled(metrics_check.button_pressed)  # Initialize labels
 
-	# Test dropdown and run button
-	test_dropdown = vbox.get_node("TestDropdown")
 	run_button = vbox.get_node("RunButton")
 	run_button.pressed.connect(_on_run_pressed)
 	vbox.get_node("CopyButton").pressed.connect(_copy_debug_info)
@@ -236,7 +239,10 @@ func _get_max_dist_from_target(target: Vector2) -> float:
 
 
 func _on_count_changed(value: float) -> void:
-	count_label.text = "NPC Count: %d" % int(value)
+	if current_test == 11:
+		count_label.text = "Projectile Count: %d" % int(value)
+	else:
+		count_label.text = "NPC Count: %d" % int(value)
 
 
 func _on_metrics_toggled(enabled: bool) -> void:
@@ -288,6 +294,15 @@ func _start_test(test_id: int) -> void:
 
 	# Reset local state
 	current_test = test_id
+	if test_id == 11:
+		count_slider.min_value = 10
+		count_slider.max_value = 10000
+		count_slider.step = 10
+	else:
+		count_slider.min_value = 500
+		count_slider.max_value = 5000
+		count_slider.step = 1
+	_on_count_changed(count_slider.value)
 	test_phase = 0
 	test_timer = 0.0
 	npc_count = 0
@@ -1180,9 +1195,10 @@ func _update_test_projectiles() -> void:
 
 		var initial_count: int = ecs_manager.get_projectile_count()
 
-		# Fire projectiles into empty space (will expire) - spread across screen
-		for i in 50:
-			var angle := (float(i) / 50.0) * TAU
+		# Fire projectiles into empty space (will expire) - use slider for count
+		var burst_count := int(count_slider.value)
+		for i in burst_count:
+			var angle := (float(i) / float(burst_count)) * TAU
 			ecs_manager.fire_projectile(
 				CENTER.x, CENTER.y,
 				CENTER.x + cos(angle) * 500.0, CENTER.y + sin(angle) * 500.0,
@@ -1190,7 +1206,7 @@ func _update_test_projectiles() -> void:
 			)
 
 		var after_count: int = ecs_manager.get_projectile_count()
-		_log("Slots: %d -> %d (+50)" % [initial_count, after_count])
+		_log("Slots: %d -> %d (+%d)" % [initial_count, after_count, burst_count])
 
 	# =========================================================================
 	# PHASE 9: Wait for projectiles to expire (3 sec lifetime)
@@ -1365,8 +1381,8 @@ func _process(delta: float) -> void:
 		frame_count = 0
 		fps_timer = 0.0
 
-	# NPC count
-	if ecs_manager:
+	# NPC count (don't overwrite slider label for test 11)
+	if ecs_manager and current_test != 11:
 		count_label.text = "NPCs: %d" % ecs_manager.get_npc_count()
 
 	# Update metrics
@@ -1394,7 +1410,7 @@ func _update_metrics() -> void:
 	if not metrics_enabled:
 		return
 	# Skip for test 10 - it has its own debug display
-	if current_test == 10:
+	if current_test == 11:
 		return
 	if npc_count > 1 and ecs_manager:
 		# Only compute expensive metrics every 60 frames
