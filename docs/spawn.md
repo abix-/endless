@@ -90,10 +90,11 @@ Spawn methods write to **both** GPU buffers and Bevy queues because:
 
 ## Known Issues / Limitations
 
+- **BUG: Dual npc_count counters**: `allocate_slot()` increments `GPU_READ_STATE.npc_count`, but Bevy spawn systems use `GpuData.npc_count` (line 47 of spawn.rs). These are separate counters that can drift. More critically, `allocate_slot()` may return a recycled FREE_SLOTS index, but the Bevy spawn system always uses `gpu_data.npc_count` as the index — it has no way to receive the recycled slot index. The spawn message types (SpawnNpcMsg, SpawnGuardMsg, etc.) don't carry the allocated slot index. **This means Bevy creates the entity with the wrong NpcIndex when a recycled slot is used.** The GPU has the NPC at the recycled slot, but Bevy thinks it's at a new slot. Combat targeting, damage, and death will reference the wrong entity.
 - **npc_count never decreases**: High-water mark. 1000 spawns + 999 deaths = npc_count still 1000. Grid and buffers sized to high-water mark, not active count.
 - **No spawn validation**: spawn_guard doesn't verify the town_idx is valid or that guard posts exist. Bad input silently creates a guard with no patrol route.
 - **Duplicate GPU writes**: spawn_guard writes health to GPU directly AND Bevy's damage_system writes health via GpuUpdate::SetHealth. The direct write wins initially; GpuUpdate wins on subsequent changes. Not a conflict but two paths to the same buffer.
 
-## Rating: 8/10
+## Rating: 6/10
 
-The dual-write pattern is pragmatic — GPU needs immediate data, Bevy needs entities. Slot recycling works correctly. Main risk is the lack of validation on spawn inputs.
+The dual-write pattern is pragmatic but the dual npc_count counters and missing slot index in spawn messages is a real bug. Slot recycling works on the GPU side but Bevy assigns wrong indices for recycled slots. Needs fix: add allocated index to all spawn message types.

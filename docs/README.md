@@ -40,7 +40,7 @@ Frame execution order ───────────────────�
 | [gpu-compute.md](gpu-compute.md) | Compute shaders, 20 GPU buffers, spatial grid, CPU sync | 9/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 8/10 |
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
-| [spawn.md](spawn.md) | Dual-write pattern, slot allocation, Bevy entity creation | 8/10 |
+| [spawn.md](spawn.md) | Dual-write pattern, slot allocation, Bevy entity creation | 6/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work cycles | 7/10 |
 | [api.md](api.md) | Complete GDScript-to-Rust API (26 methods) | - |
 | [messages.md](messages.md) | Static queues, GPU_UPDATE_QUEUE, GPU_READ_STATE | 8/10 |
