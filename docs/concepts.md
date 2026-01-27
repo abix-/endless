@@ -530,6 +530,81 @@ Used in: Rust `WorldData`, `BedOccupancy`, `FarmOccupancy` resources
 
 ---
 
+## godot-bevy Frame Execution Model
+
+godot-bevy bridges Godot's frame lifecycle with Bevy's ECS schedules. Understanding the execution order is critical — especially when Godot nodes and Bevy systems communicate through shared state.
+
+### Two Types of Frames
+
+**Visual frames** (`_process`) run at display refresh rate (60-144 Hz) and execute the complete Bevy `app.update()` cycle:
+
+```
+Visual Frame Start
+    ├── First
+    ├── PreUpdate (reads Godot → ECS transforms)
+    ├── Update (game logic — our systems run here)
+    ├── FixedUpdate (0, 1, or multiple times)
+    ├── PostUpdate
+    └── Last (writes ECS → Godot transforms)
+Visual Frame End
+```
+
+**Physics frames** (`_physics_process`) run at Godot's fixed tick rate (default 60 Hz) and only execute the `PhysicsUpdate` schedule. Physics frames run independently and can execute before, between, or after visual frames.
+
+### Execution Order Within a Visual Frame
+
+BevyApp is registered as a Godot **autoload singleton** by the godot-bevy plugin. In Godot, autoloads process before all scene tree nodes. This means:
+
+```
+Frame N:
+  1. BevyApp._process()           ← autoload, runs FIRST
+     └─ app.update() ticks all Bevy schedules
+  2. SceneRoot._process()         ← scene nodes run after
+     ├─ YourScript._process()
+     └─ EcsNpcManager._process()  ← child node, runs last
+```
+
+This ordering has a critical consequence: **GDScript code in `_process()` that pushes to Mutex queues won't be seen by Bevy until the next frame**, because Bevy already ticked for this frame.
+
+### Endless-Specific: Spawn Timing
+
+This caused a real bug. The spawn flow crosses the Bevy/Godot boundary:
+
+```
+Frame N:
+  BevyApp._process()        → Bevy ticks (SPAWN_QUEUE empty)
+  EcsTest._process()        → calls spawn_npc() × 10
+    → NPC_SLOT_COUNTER = 10, SPAWN_QUEUE filled
+  EcsNpcManager._process()  → must NOT dispatch these yet (no GPU data)
+
+Frame N+1:
+  BevyApp._process()        → Bevy drains SPAWN_QUEUE
+    → spawn_npc_system pushes GPU_UPDATE_QUEUE
+    → GPU_DISPATCH_COUNT = 10
+  EcsNpcManager._process()  → drains GPU_UPDATE_QUEUE, dispatch(10) ✓
+```
+
+The fix: two separate counters. `NPC_SLOT_COUNTER` (incremented immediately for slot allocation) and `GPU_DISPATCH_COUNT` (only updated after Bevy writes GPU buffer data). `process()` reads `GPU_DISPATCH_COUNT` for dispatch, ensuring it never dispatches NPCs with uninitialized buffers. See [frame-loop.md](frame-loop.md) and [messages.md](messages.md).
+
+### Delta Time
+
+Different schedules use different delta time sources:
+
+| Schedule | Delta Source | Use Case |
+|----------|-------------|----------|
+| Update | `Res<Time>` → `time.delta_seconds()` | Visual frame systems |
+| PhysicsUpdate | `Res<PhysicsDelta>` → `physics_delta.delta_seconds` | Godot physics sync |
+| FixedUpdate | Fixed rate (64 Hz default) | Consistent simulation |
+
+### Common Pitfalls
+
+- Don't modify the same data in both `Update` and `PhysicsUpdate` — they run at different rates and can conflict
+- Don't expect cross-schedule visibility within the same frame — changes in `PhysicsUpdate` won't be visible in `Update` until next frame
+- Autoloads process before scene nodes — Bevy systems run before your `_process()` code
+- Queue-based communication has one-frame latency — data pushed in `_process()` is consumed by Bevy next frame
+
+---
+
 ## Summary
 
 | Concept | Problem | Solution |
@@ -548,3 +623,4 @@ Used in: Rust `WorldData`, `BedOccupancy`, `FarmOccupancy` resources
 | TCP Dodge | Head-on collisions | Perpendicular dodge on approach |
 | ECS States | State machine in ECS | Marker components per state |
 | World Resources | Static world data | Singleton Resources, not Entities |
+| Frame Execution | Autoload vs scene ordering | Two counters decouple allocation from dispatch |
