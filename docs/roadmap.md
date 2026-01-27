@@ -9,8 +9,8 @@ Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk r
 - [x] Godot RenderingDevice with submit/sync pipeline
 - [x] Bulk `set_buffer()` MultiMesh rendering
 - [x] godot-bevy 0.11 + Bevy 0.18 integration
-- [x] Chunk 1: EcsNpcManager spawns entities, renders via MultiMesh
-- [x] Chunk 2: CPU movement with velocity, target, arrival detection
+- [x] Phase 1: EcsNpcManager spawns entities, renders via MultiMesh
+- [x] Phase 2: CPU movement with velocity, target, arrival detection
 
 ## GPU-First Architecture
 
@@ -46,17 +46,17 @@ See [gpu-compute.md](gpu-compute.md) for buffer details, [messages.md](messages.
 - **Grid sizing**: 100px cells ensure 3×3 neighborhood covers 300px detection range
 - **Single locks**: One Mutex per direction instead of 10+ scattered queues
 
-## Migration Chunks
+## Migration Phases
 
-Each chunk is a working game state. Old GDScript code kept as reference, hard cutover per chunk.
+Each phase is a working game state. Old GDScript code kept as reference, hard cutover per phase.
 
-**Chunk 1: Bevy Renders Static NPCs** ✓
+**Phase 1: Bevy Renders Static NPCs** ✓
 - [x] GDScript calls `spawn_npc(pos, job)` → Bevy creates entity with Position + Job
 - [x] Bevy system builds MultiMesh buffer from Position/Job components
 - [x] Bevy calls `RenderingServer.multimesh_set_buffer()` with full buffer
 - [x] Result: Colored NPCs render (green=Farmer, blue=Guard, red=Raider)
 
-**Chunk 2: CPU Movement** ✓
+**Phase 2: CPU Movement** ✓
 - [x] Add Velocity, Target, Speed, NpcIndex components
 - [x] Movement system: `position += velocity * delta`
 - [x] Velocity system: calculate direction toward target
@@ -64,7 +64,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] GDScript API: `set_target(npc_index, x, y)`
 - [x] Result: NPCs walk to targets and stop on arrival (proof of concept)
 
-**Chunk 3: GPU Physics** ✓
+**Phase 3: GPU Physics** ✓
 - [x] GPU owns positions (8-buffer architecture)
 - [x] Bevy owns targets/jobs/states (logical state)
 - [x] EcsNpcManager owns GpuCompute (RenderingDevice not Send-safe)
@@ -82,7 +82,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Result: 500+ NPCs @ 130 FPS with separation forces (sync() is bottleneck, not GPU)
 - [ ] Zero-copy rendering via `multimesh_get_buffer_rd_rid()` (blocked by Godot bug #105100)
 
-**Chunk 4: World Data** ✓
+**Phase 4: World Data** ✓
 - [x] Towns, patrol posts, beds, farms as Bevy Resources
 - [x] GDScript API: init_world, add_town/farm/bed/guard_post
 - [x] Query API: get_town_center, get_camp_position, get_patrol_post
@@ -92,7 +92,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] Wire up main.gd to sync world data on game start
 - [x] Result: Bevy + GPU know the world layout
 
-**Chunk 5: Guard Logic** ✓
+**Phase 5: Guard Logic** ✓
 - [x] State marker components (Patrolling, OnDuty, Resting, GoingToRest)
 - [x] Guard, Energy, HomePosition components
 - [x] Energy system (drain while active, recover while resting)
@@ -104,7 +104,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Test 7: Guard Patrol (4 guards patrol perimeter clockwise)
 - [x] Result: Guards patrol and rest autonomously
 
-**Chunk 6: Behavior-Based Architecture** ✓
+**Phase 6: Behavior-Based Architecture** ✓
 - [x] Refactor to behavior-based systems (systems ARE behaviors)
 - [x] Generic components: Home, PatrolRoute, WorkPosition
 - [x] Generic systems: tired_system, resume_patrol_system, resume_work_system, patrol_system
@@ -112,7 +112,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Test 8: Farmer Work Cycle
 - [x] Result: NPCs defined by component bundles, behaviors are reusable
 
-**Chunk 7: Combat** ✓
+**Phase 7: Combat** ✓
 - [x] 7a: Health component, DamageMsg, death_system, death_cleanup_system
 - [x] 7a: Test 9 Health/Death validation
 - [x] 7b: GPU targeting shader (find nearest enemy within 300px, output target index)
@@ -127,7 +127,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] 7c: TDD test harness (Test 11) covering all projectile behaviors
 - [x] Result: Combat working with GPU-accelerated targeting and projectiles
 
-**Chunk 8: Raider Logic** (in progress)
+**Phase 8: Raider Logic** (in progress)
 - [x] Generic components: Stealer, CarryingFood, Raiding, Returning, Recovering
 - [x] Config components: FleeThreshold, LeashRange, WoundedThreshold
 - [x] steal_decision_system (priority: wounded → carrying → tired → raid nearest farm)
@@ -142,7 +142,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] HP regen system in Bevy (recovery_system checks threshold but no regen)
 - [ ] Result: Full game loop
 
-**Chunk 8.5: Generic Spawn + Eliminate Direct GPU Writes** ✓
+**Phase 8.5: Generic Spawn + Eliminate Direct GPU Writes** ✓
 - [x] Single SpawnNpcMsg with job-as-template pattern (slot_idx, job, faction, home, work, town_idx, starting_post)
 - [x] Single spawn_npc() GDScript API (10 params) replaces spawn_guard/spawn_farmer/spawn_raider/spawn_guard_at_post
 - [x] Single SPAWN_QUEUE, single drain function, single spawn_npc_system
@@ -155,7 +155,7 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Update GDScript callers (ecs_test.gd) to use new unified API
 - [x] Result: Single spawn path, single write path, components define behavior
 
-**Chunk 9: UI Integration**
+**Phase 9: UI Integration**
 - [ ] Signals to GDScript (death, level up, food)
 - [ ] Selection queries
 - [ ] Result: UI works again
@@ -204,15 +204,15 @@ Multi-threaded systems (pure logic) → emit Events → main thread system → G
 | Phase | NPCs | FPS | Status |
 |-------|------|-----|--------|
 | GDScript baseline | 3,000 | 60 | Reference |
-| Chunk 1-2 (CPU Bevy) | 5,000 | 60+ | ✅ Done |
-| Chunk 3 (GPU physics) | 10,000+ | 140 | ✅ Done |
-| Chunk 4 (world data) | 10,000+ | 140 | ✅ Done |
-| Chunk 5 (guard logic) | 10,000+ | 140 | ✅ Done |
-| Chunk 6 (behaviors) | 10,000+ | 140 | ✅ Done |
-| Chunk 7a (health/death) | 10,000+ | 140 | ✅ Done |
-| Chunk 7b (GPU targeting) | 10,000+ | 140 | ✅ Done |
-| Chunk 7c (GPU projectiles) | 10,000+ | 140 | ✅ Done |
-| Chunk 8-9 (full game) | 10,000+ | 60+ | Planned |
+| Phase 1-2 (CPU Bevy) | 5,000 | 60+ | ✅ Done |
+| Phase 3 (GPU physics) | 10,000+ | 140 | ✅ Done |
+| Phase 4 (world data) | 10,000+ | 140 | ✅ Done |
+| Phase 5 (guard logic) | 10,000+ | 140 | ✅ Done |
+| Phase 6 (behaviors) | 10,000+ | 140 | ✅ Done |
+| Phase 7a (health/death) | 10,000+ | 140 | ✅ Done |
+| Phase 7b (GPU targeting) | 10,000+ | 140 | ✅ Done |
+| Phase 7c (GPU projectiles) | 10,000+ | 140 | ✅ Done |
+| Phase 8-9 (full game) | 10,000+ | 60+ | Planned |
 | GPU grid + targeting | 20,000+ | 60+ | Future |
 
 ## Performance Lessons Learned
