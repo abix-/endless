@@ -34,7 +34,7 @@ Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bev
 
 | Field | Type | Source | Consumers |
 |-------|------|--------|-----------|
-| npc_count | usize | High-water mark | allocate_slot(), process() |
+| npc_count | usize | Dispatch count | process(), query APIs |
 | positions | Vec\<f32\> | position_buffer readback | attack_system (range check) |
 | combat_targets | Vec\<i32\> | combat_target_buffer readback | attack_system (target selection) |
 | health | Vec\<f32\> | CPU cache (not GPU readback) | (available for queries) |
@@ -48,6 +48,17 @@ Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bev
 | FREE_PROJ_SLOTS | Vec\<usize\> | process() (projectile hits/expires) | fire_projectile() |
 
 Both are LIFO (stack) — most recently freed slot is reused first. No generational counters.
+
+## Slot Allocation vs GPU Dispatch
+
+Two separate counters decouple slot allocation from GPU dispatch, preventing uninitialized buffer data from being dispatched.
+
+| Counter | Type | Writer | Reader |
+|---------|------|--------|--------|
+| NPC_SLOT_COUNTER | `Mutex<usize>` | allocate_slot() | allocate_slot() |
+| GPU_DISPATCH_COUNT | `Mutex<usize>` | spawn_npc_system | process() for dispatch |
+
+`NPC_SLOT_COUNTER` is the high-water mark — incremented immediately when GDScript calls `spawn_npc()`. `GPU_DISPATCH_COUNT` is only updated after `spawn_npc_system` pushes GPU buffer data to `GPU_UPDATE_QUEUE`. This ensures `process()` never dispatches NPCs with uninitialized GPU buffers. See [frame-loop.md](frame-loop.md) for timing details.
 
 ## Control Flags
 

@@ -171,15 +171,17 @@ impl INode2D for EcsNpcManager {
             None => return,
         };
 
-        // GPU-FIRST: Get npc_count from GPU_READ_STATE
-        let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
+        // Get dispatch count: only includes NPCs with initialized GPU buffers
+        let npc_count = GPU_DISPATCH_COUNT.lock().map(|c| *c).unwrap_or(0);
 
-        // GPU-FIRST: Single queue drain for all GPU updates
+        // Drain GPU update queue. Guard uses MAX_NPC_COUNT (buffer size) not
+        // npc_count, so spawn data for newly-allocated slots can be written
+        // before GPU_DISPATCH_COUNT catches up next frame.
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
             for update in queue.drain(..) {
                 match update {
                     GpuUpdate::SetTarget { idx, x, y } => {
-                        if idx < npc_count {
+                        if idx < MAX_NPC_COUNT {
                             let target_bytes: Vec<u8> = [x, y].iter()
                                 .flat_map(|f| f.to_le_bytes()).collect();
                             let target_packed = PackedByteArray::from(target_bytes.as_slice());
@@ -193,7 +195,7 @@ impl INode2D for EcsNpcManager {
                         }
                     }
                     GpuUpdate::ApplyDamage { idx, amount } => {
-                        if idx < npc_count {
+                        if idx < MAX_NPC_COUNT {
                             let new_health = (gpu.healths[idx] - amount).max(0.0);
                             gpu.healths[idx] = new_health;
                             let health_bytes: Vec<u8> = new_health.to_le_bytes().to_vec();
@@ -202,7 +204,7 @@ impl INode2D for EcsNpcManager {
                         }
                     }
                     GpuUpdate::HideNpc { idx } => {
-                        if idx < npc_count {
+                        if idx < MAX_NPC_COUNT {
                             let hide_pos: Vec<u8> = [-9999.0f32, -9999.0f32].iter()
                                 .flat_map(|f| f.to_le_bytes()).collect();
                             let hide_packed = PackedByteArray::from(hide_pos.as_slice());
@@ -212,7 +214,7 @@ impl INode2D for EcsNpcManager {
                         }
                     }
                     GpuUpdate::SetFaction { idx, faction } => {
-                        if idx < npc_count {
+                        if idx < MAX_NPC_COUNT {
                             gpu.factions[idx] = faction;
                             let faction_bytes: Vec<u8> = faction.to_le_bytes().to_vec();
                             let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
@@ -220,7 +222,7 @@ impl INode2D for EcsNpcManager {
                         }
                     }
                     GpuUpdate::SetHealth { idx, health } => {
-                        if idx < npc_count {
+                        if idx < MAX_NPC_COUNT {
                             gpu.healths[idx] = health;
                             let health_bytes: Vec<u8> = health.to_le_bytes().to_vec();
                             let health_packed = PackedByteArray::from(health_bytes.as_slice());
@@ -228,7 +230,7 @@ impl INode2D for EcsNpcManager {
                         }
                     }
                     GpuUpdate::SetPosition { idx, x, y } => {
-                        if idx < npc_count {
+                        if idx < MAX_NPC_COUNT {
                             gpu.positions[idx * 2] = x;
                             gpu.positions[idx * 2 + 1] = y;
                             let pos_bytes: Vec<u8> = [x, y].iter()
@@ -238,14 +240,14 @@ impl INode2D for EcsNpcManager {
                         }
                     }
                     GpuUpdate::SetSpeed { idx, speed } => {
-                        if idx < npc_count {
+                        if idx < MAX_NPC_COUNT {
                             let speed_bytes: Vec<u8> = speed.to_le_bytes().to_vec();
                             let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
                             gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
                         }
                     }
                     GpuUpdate::SetColor { idx, r, g, b, a } => {
-                        if idx < npc_count {
+                        if idx < MAX_NPC_COUNT {
                             gpu.colors[idx * 4] = r;
                             gpu.colors[idx * 4 + 1] = g;
                             gpu.colors[idx * 4 + 2] = b;
@@ -426,11 +428,11 @@ impl EcsNpcManager {
                 return Some(recycled);
             }
         }
-        // No free slots, allocate new
-        if let Ok(mut state) = GPU_READ_STATE.lock() {
-            if state.npc_count < MAX_NPC_COUNT {
-                let idx = state.npc_count;
-                state.npc_count += 1;
+        // No free slots, allocate new from high-water mark
+        if let Ok(mut counter) = NPC_SLOT_COUNTER.lock() {
+            if *counter < MAX_NPC_COUNT {
+                let idx = *counter;
+                *counter += 1;
                 return Some(idx);
             }
         }
@@ -637,8 +639,8 @@ impl EcsNpcManager {
 
         if let Some(gpu) = self.gpu.as_mut() {
             let idx = npc_index as usize;
-            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
-            if idx < npc_count {
+            let slot_count = NPC_SLOT_COUNTER.lock().map(|c| *c).unwrap_or(0);
+            if idx < slot_count {
                 let target_bytes: Vec<u8> = [x, y].iter()
                     .flat_map(|f| f.to_le_bytes()).collect();
                 let target_packed = PackedByteArray::from(target_bytes.as_slice());
@@ -678,7 +680,7 @@ impl EcsNpcManager {
 
     #[func]
     fn get_npc_count(&self) -> i32 {
-        GPU_READ_STATE.lock().map(|s| s.npc_count as i32).unwrap_or(0)
+        NPC_SLOT_COUNTER.lock().map(|c| *c as i32).unwrap_or(0)
     }
 
     #[func]
@@ -839,7 +841,11 @@ impl EcsNpcManager {
 
     #[func]
     fn reset(&mut self) {
-        // GPU-FIRST: Reset GPU read state
+        // Reset slot allocation and dispatch counts
+        if let Ok(mut c) = NPC_SLOT_COUNTER.lock() { *c = 0; }
+        if let Ok(mut c) = GPU_DISPATCH_COUNT.lock() { *c = 0; }
+
+        // Reset GPU read state
         if let Ok(mut state) = GPU_READ_STATE.lock() {
             state.positions.clear();
             state.combat_targets.clear();

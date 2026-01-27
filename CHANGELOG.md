@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-01-27
+- fix spawn timing: decouple slot allocation from GPU dispatch count (NPC_SLOT_COUNTER + GPU_DISPATCH_COUNT)
+- fix uninitialized GPU buffers on spawn: process() now reads GPU_DISPATCH_COUNT instead of GPU_READ_STATE.npc_count
+- change GPU_UPDATE_QUEUE drain guards from idx < npc_count to idx < MAX_NPC_COUNT (allows spawn writes before dispatch count catches up)
 - add Chunk 8.5: generic spawn + eliminate direct GPU writes
 - replace 5 spawn methods (spawn_npc, spawn_guard, spawn_guard_at_post, spawn_farmer, spawn_raider) with single spawn_npc() (10 params, job-as-template)
 - remove SpawnGuardMsg, SpawnFarmerMsg, SpawnRaiderMsg and their queues/drain functions/spawn systems

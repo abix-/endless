@@ -11,7 +11,7 @@ GDScript: spawn_npc(x, y, job, faction, home_x, home_y, work_x, work_y, town_idx
 │
 ├─ allocate_slot()
 │   ├─ Try FREE_SLOTS.pop() (recycled from dead NPC)
-│   └─ Else npc_count++ from GPU_READ_STATE
+│   └─ Else NPC_SLOT_COUNTER++ (high-water mark)
 │
 ├─ Build SpawnNpcMsg with slot_idx
 │
@@ -24,6 +24,7 @@ GDScript: spawn_npc(x, y, job, faction, home_x, home_y, work_x, work_y, town_idx
    spawn_npc_system
    ├─ Push GPU_UPDATE_QUEUE: SetPosition, SetTarget,
    │   SetColor, SetSpeed, SetFaction, SetHealth
+   ├─ Update GPU_DISPATCH_COUNT (max slot + 1)
    │
    └─ match job:
       Guard  → Energy, AttackStats, AttackTimer, Guard,
@@ -42,17 +43,17 @@ fn allocate_slot() -> Option<usize> {
     if let Some(recycled) = FREE_SLOTS.pop() {
         return Some(recycled);
     }
-    // 2. Allocate new slot (if under MAX_NPC_COUNT)
-    if npc_count < MAX_NPC_COUNT {
-        let idx = npc_count;
-        npc_count += 1;
+    // 2. Allocate new slot from high-water mark
+    if NPC_SLOT_COUNTER < MAX_NPC_COUNT {
+        let idx = NPC_SLOT_COUNTER;
+        NPC_SLOT_COUNTER += 1;
         return Some(idx);
     }
     None // At capacity
 }
 ```
 
-`npc_count` is a high-water mark — it only grows. Dead slots are recycled through `FREE_SLOTS` but don't decrement the count. Slot index is carried in `SpawnNpcMsg.slot_idx` so Bevy creates the entity at the correct GPU buffer index.
+`NPC_SLOT_COUNTER` is a high-water mark — it only grows (or resets to 0). Dead slots are recycled through `FREE_SLOTS` but don't decrement the counter. Slot index is carried in `SpawnNpcMsg.slot_idx` so Bevy creates the entity at the correct GPU buffer index. `GPU_DISPATCH_COUNT` (separate from `NPC_SLOT_COUNTER`) tracks how many NPCs have initialized GPU buffers — see [messages.md](messages.md).
 
 ## GDScript Spawn API
 

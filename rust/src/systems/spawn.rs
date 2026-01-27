@@ -38,8 +38,15 @@ pub fn spawn_npc_system(
     mut count: ResMut<NpcCount>,
     mut npc_map: ResMut<NpcEntityMap>,
 ) {
+    let mut max_slot = 0usize;
+    let mut had_spawns = false;
+
     for msg in events.read() {
+        had_spawns = true;
         let idx = msg.slot_idx;
+        if idx + 1 > max_slot {
+            max_slot = idx + 1;
+        }
         let job = Job::from_i32(msg.job);
         let (r, g, b, a) = job.color();
 
@@ -102,6 +109,15 @@ pub fn spawn_npc_system(
 
         npc_map.0.insert(idx, ec.id());
         count.0 += 1;
+    }
+
+    // Update GPU dispatch count so process() includes these NPCs
+    if had_spawns {
+        if let Ok(mut dc) = GPU_DISPATCH_COUNT.lock() {
+            if max_slot > *dc {
+                *dc = max_slot;
+            }
+        }
     }
 }
 

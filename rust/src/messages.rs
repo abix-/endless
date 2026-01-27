@@ -55,6 +55,18 @@ pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);
 pub static FRAME_DELTA: Mutex<f32> = Mutex::new(0.016);
 
 // ============================================================================
+// SLOT ALLOCATION vs GPU DISPATCH (two separate counts)
+// ============================================================================
+
+/// High-water mark for slot allocation. Only grows (or resets to 0).
+/// Used by allocate_slot() to assign indices. NOT used for GPU dispatch.
+pub static NPC_SLOT_COUNTER: Mutex<usize> = Mutex::new(0);
+
+/// Number of NPCs with initialized GPU buffers. Set by spawn_npc_system
+/// after pushing GPU_UPDATE_QUEUE. Read by process() for dispatch count.
+pub static GPU_DISPATCH_COUNT: Mutex<usize> = Mutex::new(0);
+
+// ============================================================================
 // SLOT REUSE: Free slot pools for recycling dead indices
 // ============================================================================
 
