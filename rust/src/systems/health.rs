@@ -56,19 +56,29 @@ pub fn death_system(
     }
 }
 
-/// Remove dead entities, hide on GPU by setting position to -9999.
+/// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
     query: Query<(Entity, &NpcIndex), With<Dead>>,
+    mut npc_map: ResMut<NpcEntityMap>,
 ) {
     let mut despawn_count = 0;
     for (entity, npc_idx) in query.iter() {
+        let idx = npc_idx.0;
         commands.entity(entity).despawn();
         despawn_count += 1;
 
-        // GPU-FIRST: Push to GPU_UPDATE_QUEUE instead of HIDE_NPC_QUEUE
+        // Remove from entity map
+        npc_map.0.remove(&idx);
+
+        // GPU-FIRST: Hide NPC visually
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-            queue.push(GpuUpdate::HideNpc { idx: npc_idx.0 });
+            queue.push(GpuUpdate::HideNpc { idx });
+        }
+
+        // SLOT REUSE: Return slot to free pool
+        if let Ok(mut free) = FREE_SLOTS.lock() {
+            free.push(idx);
         }
     }
 

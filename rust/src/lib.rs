@@ -395,20 +395,32 @@ impl EcsNpcManager {
     // SPAWN API
     // ========================================================================
 
+    /// Allocate an NPC slot: reuse a free slot or allocate new.
+    /// Returns None if at capacity.
+    fn allocate_slot() -> Option<usize> {
+        // Try to reuse a free slot first
+        if let Ok(mut free) = FREE_SLOTS.lock() {
+            if let Some(recycled) = free.pop() {
+                return Some(recycled);
+            }
+        }
+        // No free slots, allocate new
+        if let Ok(mut state) = GPU_READ_STATE.lock() {
+            if state.npc_count < MAX_NPC_COUNT {
+                let idx = state.npc_count;
+                state.npc_count += 1;
+                return Some(idx);
+            }
+        }
+        None
+    }
+
     #[func]
     fn spawn_npc(&mut self, x: f32, y: f32, job: i32) {
-        let idx = {
-            let mut state = GPU_READ_STATE.lock().unwrap();
-            let idx = state.npc_count;
-            if idx < MAX_NPC_COUNT {
-                state.npc_count += 1;
-            }
-            idx
+        let idx = match Self::allocate_slot() {
+            Some(i) => i,
+            None => return,
         };
-
-        if idx >= MAX_NPC_COUNT {
-            return;
-        }
 
         if let Ok(mut queue) = SPAWN_QUEUE.lock() {
             queue.push(SpawnNpcMsg { x, y, job });
@@ -448,18 +460,10 @@ impl EcsNpcManager {
 
     #[func]
     fn spawn_guard(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32) {
-        let idx = {
-            let mut state = GPU_READ_STATE.lock().unwrap();
-            let idx = state.npc_count;
-            if idx < MAX_NPC_COUNT {
-                state.npc_count += 1;
-            }
-            idx
+        let idx = match Self::allocate_slot() {
+            Some(i) => i,
+            None => return,
         };
-
-        if idx >= MAX_NPC_COUNT {
-            return;
-        }
 
         if let Ok(mut queue) = GUARD_QUEUE.lock() {
             queue.push(SpawnGuardMsg {
@@ -522,18 +526,10 @@ impl EcsNpcManager {
 
     #[func]
     fn spawn_guard_at_post(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32, starting_post: i32) {
-        let idx = {
-            let mut state = GPU_READ_STATE.lock().unwrap();
-            let idx = state.npc_count;
-            if idx < MAX_NPC_COUNT {
-                state.npc_count += 1;
-            }
-            idx
+        let idx = match Self::allocate_slot() {
+            Some(i) => i,
+            None => return,
         };
-
-        if idx >= MAX_NPC_COUNT {
-            return;
-        }
 
         if let Ok(mut queue) = GUARD_QUEUE.lock() {
             queue.push(SpawnGuardMsg {
@@ -593,18 +589,10 @@ impl EcsNpcManager {
 
     #[func]
     fn spawn_farmer(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32, work_x: f32, work_y: f32) {
-        let idx = {
-            let mut state = GPU_READ_STATE.lock().unwrap();
-            let idx = state.npc_count;
-            if idx < MAX_NPC_COUNT {
-                state.npc_count += 1;
-            }
-            idx
+        let idx = match Self::allocate_slot() {
+            Some(i) => i,
+            None => return,
         };
-
-        if idx >= MAX_NPC_COUNT {
-            return;
-        }
 
         if let Ok(mut queue) = FARMER_QUEUE.lock() {
             queue.push(SpawnFarmerMsg {
@@ -664,18 +652,10 @@ impl EcsNpcManager {
 
     #[func]
     fn spawn_raider(&mut self, x: f32, y: f32, camp_x: f32, camp_y: f32) {
-        let idx = {
-            let mut state = GPU_READ_STATE.lock().unwrap();
-            let idx = state.npc_count;
-            if idx < MAX_NPC_COUNT {
-                state.npc_count += 1;
-            }
-            idx
+        let idx = match Self::allocate_slot() {
+            Some(i) => i,
+            None => return,
         };
-
-        if idx >= MAX_NPC_COUNT {
-            return;
-        }
 
         if let Ok(mut queue) = RAIDER_QUEUE.lock() {
             queue.push(SpawnRaiderMsg { x, y, camp_x, camp_y });
@@ -959,6 +939,9 @@ impl EcsNpcManager {
 
         // GPU-FIRST: Clear consolidated GPU update queue
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() { queue.clear(); }
+
+        // SLOT REUSE: Clear free slot pool
+        if let Ok(mut free) = FREE_SLOTS.lock() { free.clear(); }
 
         if let Ok(mut world) = WORLD_DATA.lock() {
             world.towns.clear();
