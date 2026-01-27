@@ -15,6 +15,7 @@ pub fn reset_bevy_system(
     query: Query<Entity, With<NpcIndex>>,
     mut count: ResMut<NpcCount>,
     mut gpu_data: ResMut<GpuData>,
+    mut npc_map: ResMut<NpcEntityMap>,
 ) {
     let should_reset = RESET_BEVY.lock().map(|mut f| {
         let val = *f;
@@ -30,6 +31,7 @@ pub fn reset_bevy_system(
         count.0 = 0;
         gpu_data.npc_count = 0;
         gpu_data.dirty = false;
+        npc_map.0.clear();  // Clear entity map on reset
     }
 }
 
@@ -39,6 +41,7 @@ pub fn spawn_npc_system(
     mut events: MessageReader<SpawnNpcMsg>,
     mut count: ResMut<NpcCount>,
     mut gpu_data: ResMut<GpuData>,
+    mut npc_map: ResMut<NpcEntityMap>,
 ) {
     for event in events.read() {
         let idx = gpu_data.npc_count;
@@ -53,7 +56,6 @@ pub fn spawn_npc_system(
         // Initialize GPU data (CPU-side copy)
         gpu_data.positions[idx * 2] = event.x;
         gpu_data.positions[idx * 2 + 1] = event.y;
-        // Target starts at spawn position (no movement until set_target called)
         gpu_data.targets[idx * 2] = event.x;
         gpu_data.targets[idx * 2 + 1] = event.y;
         gpu_data.colors[idx * 4] = r;
@@ -65,12 +67,15 @@ pub fn spawn_npc_system(
         gpu_data.dirty = true;
 
         // Create Bevy entity with components
-        commands.spawn((
+        let entity = commands.spawn((
             NpcIndex(idx),
             job,
             Speed::default(),
             Health::default(),
-        ));
+        )).id();
+
+        // O(1) lookup: store entity in map
+        npc_map.0.insert(idx, entity);
         count.0 += 1;
     }
 }
@@ -81,6 +86,7 @@ pub fn spawn_guard_system(
     mut events: MessageReader<SpawnGuardMsg>,
     mut count: ResMut<NpcCount>,
     mut gpu_data: ResMut<GpuData>,
+    mut npc_map: ResMut<NpcEntityMap>,
 ) {
     for event in events.read() {
         let idx = gpu_data.npc_count;
@@ -121,7 +127,7 @@ pub fn spawn_guard_system(
         gpu_data.healths[idx] = 100.0;
 
         // Create guard entity with full component set
-        commands.spawn((
+        let entity = commands.spawn((
             NpcIndex(idx),
             Job::Guard,
             Speed::default(),
@@ -129,15 +135,18 @@ pub fn spawn_guard_system(
             Health::default(),
             Faction::Villager,
             AttackStats::default(),
-            AttackTimer(0.0),  // Ready to attack immediately
+            AttackTimer(0.0),
             Guard { town_idx: event.town_idx },
             Home(Vector2::new(event.home_x, event.home_y)),
             PatrolRoute {
                 posts: patrol_posts,
                 current: event.starting_post as usize,
             },
-            OnDuty { ticks_waiting: 0 },  // Start on duty at their post
-        ));
+            OnDuty { ticks_waiting: 0 },
+        )).id();
+
+        // O(1) lookup: store entity in map
+        npc_map.0.insert(idx, entity);
         count.0 += 1;
     }
 }
@@ -148,6 +157,7 @@ pub fn spawn_farmer_system(
     mut events: MessageReader<SpawnFarmerMsg>,
     mut count: ResMut<NpcCount>,
     mut gpu_data: ResMut<GpuData>,
+    mut npc_map: ResMut<NpcEntityMap>,
 ) {
     for event in events.read() {
         let idx = gpu_data.npc_count;
@@ -171,12 +181,12 @@ pub fn spawn_farmer_system(
         gpu_data.npc_count += 1;
         gpu_data.dirty = true;
 
-        // Set faction in GPU data (farmers are villagers but don't fight)
+        // Set faction in GPU data
         gpu_data.factions[idx] = Faction::Villager.to_i32();
         gpu_data.healths[idx] = 100.0;
 
         // Create farmer entity with behavior components
-        commands.spawn((
+        let entity = commands.spawn((
             NpcIndex(idx),
             Job::Farmer,
             Speed::default(),
@@ -186,8 +196,11 @@ pub fn spawn_farmer_system(
             Farmer { town_idx: event.town_idx },
             Home(Vector2::new(event.home_x, event.home_y)),
             WorkPosition(Vector2::new(event.work_x, event.work_y)),
-            GoingToWork,  // Start walking to work
-        ));
+            GoingToWork,
+        )).id();
+
+        // O(1) lookup: store entity in map
+        npc_map.0.insert(idx, entity);
         count.0 += 1;
     }
 }
@@ -198,6 +211,7 @@ pub fn spawn_raider_system(
     mut events: MessageReader<SpawnRaiderMsg>,
     mut count: ResMut<NpcCount>,
     mut gpu_data: ResMut<GpuData>,
+    mut npc_map: ResMut<NpcEntityMap>,
 ) {
     for event in events.read() {
         let idx = gpu_data.npc_count;
@@ -224,16 +238,19 @@ pub fn spawn_raider_system(
         gpu_data.dirty = true;
 
         // Create raider entity with combat components
-        commands.spawn((
+        let entity = commands.spawn((
             NpcIndex(idx),
             Job::Raider,
             Speed::default(),
             Health::default(),
             Faction::Raider,
             AttackStats::default(),
-            AttackTimer(0.0),  // Ready to attack immediately
+            AttackTimer(0.0),
             Home(Vector2::new(event.camp_x, event.camp_y)),
-        ));
+        )).id();
+
+        // O(1) lookup: store entity in map
+        npc_map.0.insert(idx, entity);
         count.0 += 1;
     }
 }

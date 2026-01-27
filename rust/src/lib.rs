@@ -106,6 +106,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        .add_message::<DamageMsg>()
        .init_resource::<NpcCount>()
        .init_resource::<GpuData>()
+       .init_resource::<NpcEntityMap>()
        .init_resource::<world::WorldData>()
        .init_resource::<world::BedOccupancy>()
        .init_resource::<world::FarmOccupancy>()

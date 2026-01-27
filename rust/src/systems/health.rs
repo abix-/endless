@@ -4,23 +4,26 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 
 use crate::components::*;
 use crate::messages::*;
+use crate::resources::NpcEntityMap;
 
 /// Apply queued damage to Health component and sync to GPU.
+/// Uses NpcEntityMap for O(1) entity lookup instead of O(n) iteration.
 pub fn damage_system(
     mut events: MessageReader<DamageMsg>,
+    npc_map: Res<NpcEntityMap>,
     mut query: Query<(&mut Health, &NpcIndex)>,
 ) {
     let mut damage_count = 0;
     for event in events.read() {
         damage_count += 1;
-        for (mut health, npc_idx) in query.iter_mut() {
-            if npc_idx.0 == event.npc_index {
+        // O(1) lookup via NpcEntityMap
+        if let Some(&entity) = npc_map.0.get(&event.npc_index) {
+            if let Ok((mut health, npc_idx)) = query.get_mut(entity) {
                 health.0 = (health.0 - event.amount).max(0.0);
-                // GPU-FIRST: Push to GPU_UPDATE_QUEUE instead of HEALTH_SYNC_QUEUE
+                // GPU-FIRST: Push to GPU_UPDATE_QUEUE
                 if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
                     queue.push(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 });
                 }
-                break;
             }
         }
     }
