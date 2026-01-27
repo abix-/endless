@@ -100,13 +100,14 @@ Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, 
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| ENERGY_DRAIN_RATE | 0.1 | Per-second drain while active |
-| ENERGY_RECOVER_RATE | 0.2 | Per-second recovery while resting |
+| ENERGY_DRAIN_RATE | 0.02/tick | Drain while active |
+| ENERGY_RECOVER_RATE | 0.2/tick | Recovery while resting (10x drain) |
 | Tired threshold | 50 | Below this, NPC goes to rest |
 | Rested threshold | 80 | Above this, NPC returns to duty |
 
-At drain rate 0.1/s: ~500 seconds (8.3 min) from full to tired threshold.
-At recover rate 0.2/s: ~150 seconds (2.5 min) from 50 to 80.
+The 50-80 hysteresis band prevents oscillation. An NPC stops working at 50 and doesn't resume until 80.
+
+At 60fps: ~2500 ticks (42s) from 100 to 50. ~150 ticks (2.5s) resting from 50 to 80. Then ~1500 ticks (25s) from 80 back to 50.
 
 ## Patrol Cycle
 
@@ -127,6 +128,9 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Fixed patrol timing**: 60 ticks at every post, regardless of threat level or distance.
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Energy doesn't affect combat**: A nearly exhausted guard fights at full strength.
+- **Linear arrival scan**: handle_arrival_system iterates all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
+- **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
+- **No return-to-previous after combat**: InCombat blocks behavior, but no explicit "resume prior state" when combat ends. NPC must re-enter the loop through tired_system or similar.
 
 ## Rating: 7/10
 
