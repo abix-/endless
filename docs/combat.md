@@ -101,6 +101,8 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **Equal stats**: All NPCs have identical AttackStats (120 HP, 15 damage, 150 range, 1s cooldown). Per-NPC stats would need component variation.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **InCombat blocks all behavior**: Once in combat, NPCs can't rest, patrol, or work until the target dies or leaves range.
+- **Clone per frame**: attack_system clones positions and combat_targets vecs from GPU_READ_STATE (~80KB at 10K NPCs). Negligible but not zero-copy.
+- **Debug mutex overhead**: COMBAT_DEBUG and HEALTH_DEBUG lock every frame even in release builds.
 
 ## Rating: 8/10
 
