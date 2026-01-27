@@ -1013,12 +1013,17 @@ func _update_test_projectiles() -> void:
 		var pd: Dictionary = ecs_manager.get_projectile_debug()
 		var proj_ct: int = pd.get("proj_count", -1)
 		var active: int = pd.get("active", -1)
+		var visible: int = pd.get("visible", -1)
+		var pipeline: int = pd.get("pipeline_valid", -1)
 		var pos_x: float = pd.get("pos_0_x", -999.0)
 		var pos_y: float = pd.get("pos_0_y", -999.0)
-		var vel_x: float = pd.get("vel_0_x", 0.0)
-		var vel_y: float = pd.get("vel_0_y", 0.0)
-		expected_label.text = "proj=%d active=%d" % [proj_ct, active]
-		velocity_label.text = "pos=(%.0f,%.0f) vel=(%.0f,%.0f)" % [pos_x, pos_y, vel_x, vel_y]
+		expected_label.text = "proj=%d act=%d vis=%d pipe=%d" % [proj_ct, active, visible, pipeline]
+		velocity_label.text = "pos=(%.0f,%.0f)" % [pos_x, pos_y]
+
+	# Show raw GPU buffer trace (reads directly from GPU, not CPU cache)
+	if ecs_manager.has_method("get_projectile_trace"):
+		var trace: String = ecs_manager.get_projectile_trace()
+		distance_label.text = trace
 
 	# =========================================================================
 	# PHASE 1: Spawn NPCs - guard on left, raider on right

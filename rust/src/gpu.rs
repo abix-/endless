@@ -100,7 +100,7 @@ pub struct GpuCompute {
     /// Projectile shader and pipeline
     #[allow(dead_code)]
     proj_shader: Rid,
-    proj_pipeline: Rid,
+    pub proj_pipeline: Rid,
     proj_uniform_set: Rid,
 
     /// CPU-side spatial grid
@@ -177,6 +177,19 @@ impl GpuCompute {
         let proj_lifetime_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 4) as u32);
         let proj_active_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 4) as u32);
         let proj_hit_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 8) as u32); // ivec2
+
+        // Initialize hit buffer to all -1 (no hits) - GPU zeros by default which
+        // the shader misinterprets as "hit NPC index 0"
+        let hit_init: Vec<u8> = (0..MAX_PROJECTILES)
+            .flat_map(|_| {
+                let mut bytes = Vec::with_capacity(8);
+                bytes.extend_from_slice(&(-1i32).to_le_bytes());
+                bytes.extend_from_slice(&0i32.to_le_bytes());
+                bytes
+            })
+            .collect();
+        let hit_init_packed = PackedByteArray::from(hit_init.as_slice());
+        rd.buffer_update(proj_hit_buffer, 0, hit_init_packed.len() as u32, &hit_init_packed);
 
         let uniform_set = Self::create_uniform_set(
             &mut rd, shader,
@@ -684,6 +697,45 @@ impl GpuCompute {
         }
     }
 
+    /// Read raw GPU projectile state for debugging.
+    /// Returns lifetime, active, position, hit for first N projectiles.
+    pub fn trace_projectile_gpu_state(&mut self, count: usize) -> Vec<(f32, i32, f32, f32, i32, i32)> {
+        let mut result = Vec::new();
+        let lifetime_bytes = self.rd.buffer_get_data(self.proj_lifetime_buffer);
+        let active_bytes = self.rd.buffer_get_data(self.proj_active_buffer);
+        let pos_bytes = self.rd.buffer_get_data(self.proj_position_buffer);
+        let hit_bytes = self.rd.buffer_get_data(self.proj_hit_buffer);
+
+        let lt = lifetime_bytes.as_slice();
+        let act = active_bytes.as_slice();
+        let pos = pos_bytes.as_slice();
+        let hit = hit_bytes.as_slice();
+
+        for i in 0..count.min(self.proj_count) {
+            let lifetime = if i * 4 + 4 <= lt.len() {
+                f32::from_le_bytes([lt[i*4], lt[i*4+1], lt[i*4+2], lt[i*4+3]])
+            } else { -999.0 };
+            let active = if i * 4 + 4 <= act.len() {
+                i32::from_le_bytes([act[i*4], act[i*4+1], act[i*4+2], act[i*4+3]])
+            } else { -999 };
+            let px = if i * 8 + 4 <= pos.len() {
+                f32::from_le_bytes([pos[i*8], pos[i*8+1], pos[i*8+2], pos[i*8+3]])
+            } else { -999.0 };
+            let py = if i * 8 + 8 <= pos.len() {
+                f32::from_le_bytes([pos[i*8+4], pos[i*8+5], pos[i*8+6], pos[i*8+7]])
+            } else { -999.0 };
+            let hit_npc = if i * 8 + 4 <= hit.len() {
+                i32::from_le_bytes([hit[i*8], hit[i*8+1], hit[i*8+2], hit[i*8+3]])
+            } else { -999 };
+            let hit_proc = if i * 8 + 8 <= hit.len() {
+                i32::from_le_bytes([hit[i*8+4], hit[i*8+5], hit[i*8+6], hit[i*8+7]])
+            } else { -999 };
+
+            result.push((lifetime, active, px, py, hit_npc, hit_proc));
+        }
+        result
+    }
+
     /// Build projectile MultiMesh buffer
     pub fn build_proj_multimesh(&self, max_count: usize) -> PackedFloat32Array {
         let float_count = max_count * PROJ_FLOATS_PER_INSTANCE;
@@ -725,11 +777,10 @@ impl GpuCompute {
             floats[base + 6] = 0.0;
             floats[base + 7] = y;
 
-            // Color: blue for villager (0), red for raider (1)
-            // We'd need faction data here; for now use white
+            // Bright magenta for visibility debugging
             floats[base + 8] = 1.0;   // r
-            floats[base + 9] = 1.0;   // g
-            floats[base + 10] = 0.0;  // b
+            floats[base + 9] = 0.0;   // g
+            floats[base + 10] = 1.0;  // b
             floats[base + 11] = 1.0;  // a
         }
 

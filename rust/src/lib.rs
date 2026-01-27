@@ -440,9 +440,8 @@ impl EcsNpcManager {
 
         self.proj_multimesh_rid = rs.multimesh_create();
 
-        // Smaller elongated quad for projectiles (6x2 pixels)
         let mut mesh = QuadMesh::new_gd();
-        mesh.set_size(Vector2::new(6.0, 2.0));
+        mesh.set_size(Vector2::new(12.0, 4.0));
         let mesh_rid = mesh.get_rid();
         rs.multimesh_set_mesh(self.proj_multimesh_rid, mesh_rid);
 
@@ -465,9 +464,9 @@ impl EcsNpcManager {
         let packed = PackedFloat32Array::from(init_buffer.as_slice());
         rs.multimesh_set_buffer(self.proj_multimesh_rid, &packed);
 
-        self.proj_canvas_item = rs.canvas_item_create();
-        let parent_canvas = self.base().get_canvas_item();
-        rs.canvas_item_set_parent(self.proj_canvas_item, parent_canvas);
+        // Share NPC canvas item (second canvas_item_create doesn't render - Godot quirk)
+        // Projectiles draw on top since this add_multimesh is called after NPC's
+        self.proj_canvas_item = self.canvas_item;
         rs.canvas_item_add_multimesh(self.proj_canvas_item, self.proj_multimesh_rid);
 
         self.proj_mesh = Some(mesh);
@@ -857,6 +856,59 @@ impl EcsNpcManager {
         }
     }
 
+    /// Trace raw GPU projectile state - reads directly from GPU buffers (not CPU cache).
+    /// Returns a string with lifetime, active, pos, hit for each projectile.
+    #[func]
+    fn get_projectile_trace(&mut self) -> GString {
+        if let Some(gpu) = self.gpu.as_mut() {
+            let traces = gpu.trace_projectile_gpu_state(5);
+            let lines: Vec<String> = traces.iter().enumerate()
+                .map(|(i, (lt, act, px, py, hit_npc, hit_proc))| {
+                    format!("[{}] lt={:.2} act={} pos=({:.0},{:.0}) hit=({},{})",
+                        i, lt, act, px, py, hit_npc, hit_proc)
+                })
+                .collect();
+            let header = format!("proj_count={} cpu_active=[{}]",
+                gpu.proj_count,
+                gpu.proj_active.iter().take(gpu.proj_count).map(|a| a.to_string()).collect::<Vec<_>>().join(","));
+
+            // Debug: check RIDs and dump multimesh floats
+            let rs = RenderingServer::singleton();
+            let proj_mm_valid = self.proj_multimesh_rid.is_valid();
+            let proj_ci_valid = self.proj_canvas_item.is_valid();
+            let npc_mm_valid = self.multimesh_rid.is_valid();
+            let proj_inst_count = if proj_mm_valid {
+                rs.multimesh_get_instance_count(self.proj_multimesh_rid)
+            } else { -1 };
+            let proj_vis_count = if proj_mm_valid {
+                rs.multimesh_get_visible_instances(self.proj_multimesh_rid)
+            } else { -1 };
+            let proj_mesh_valid = if proj_mm_valid {
+                rs.multimesh_get_mesh(self.proj_multimesh_rid).is_valid()
+            } else { false };
+
+            let mm = gpu.build_proj_multimesh(MAX_PROJECTILES);
+            let mm_slice = mm.as_slice();
+            let mut mm_debug = String::new();
+            for i in 0..gpu.proj_count.min(2) {
+                let base = i * PROJ_FLOATS_PER_INSTANCE;
+                if base + 12 <= mm_slice.len() {
+                    mm_debug += &format!("mm[{}]: [{:.1},{:.1},{:.1},{:.0}, {:.1},{:.1},{:.1},{:.0}, {:.1},{:.1},{:.1},{:.1}]\n",
+                        i,
+                        mm_slice[base], mm_slice[base+1], mm_slice[base+2], mm_slice[base+3],
+                        mm_slice[base+4], mm_slice[base+5], mm_slice[base+6], mm_slice[base+7],
+                        mm_slice[base+8], mm_slice[base+9], mm_slice[base+10], mm_slice[base+11]);
+                }
+            }
+
+            let rid_debug = format!("mm={} ci={} npc_mm={} inst={} vis={} mesh={}",
+                proj_mm_valid, proj_ci_valid, npc_mm_valid, proj_inst_count, proj_vis_count, proj_mesh_valid);
+            GString::from(&format!("{}\n{}\n{}\n{}", header, rid_debug, lines.join("\n"), mm_debug))
+        } else {
+            GString::from("no gpu")
+        }
+    }
+
     /// Get projectile debug info.
     #[func]
     fn get_projectile_debug(&self) -> Dictionary {
@@ -865,6 +917,8 @@ impl EcsNpcManager {
             dict.set("proj_count", gpu.proj_count as i32);
             let active = gpu.proj_active.iter().take(gpu.proj_count).filter(|&&x| x == 1).count();
             dict.set("active", active as i32);
+            // Check if shader pipeline is valid
+            dict.set("pipeline_valid", if gpu.proj_pipeline.is_valid() { 1 } else { 0 });
             // Sample first projectile
             if gpu.proj_count > 0 {
                 dict.set("pos_0_x", gpu.proj_positions.get(0).copied().unwrap_or(-999.0));
@@ -872,7 +926,14 @@ impl EcsNpcManager {
                 dict.set("vel_0_x", gpu.proj_velocities.get(0).copied().unwrap_or(0.0));
                 dict.set("vel_0_y", gpu.proj_velocities.get(1).copied().unwrap_or(0.0));
                 dict.set("active_0", gpu.proj_active.get(0).copied().unwrap_or(-1));
+                dict.set("damage_0", gpu.proj_damages.get(0).copied().unwrap_or(-1.0));
             }
+            // Count how many have valid positions (not -9999)
+            let visible = gpu.proj_positions.chunks(2)
+                .take(gpu.proj_count)
+                .filter(|p| p.len() == 2 && p[0] > -9000.0)
+                .count();
+            dict.set("visible", visible as i32);
         }
         dict
     }
