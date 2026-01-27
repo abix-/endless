@@ -87,7 +87,7 @@ The README serves as both documentation and a development roadmap.
 - Short description with inspirations (LOTR2, RimWorld, Factorio)
 - Gameplay loop overview (6-step cycle)
 - Features section with categorized checkboxes
-- Architecture tree showing file purposes
+- Link to docs/ for architecture (file tree lives in docs/README.md)
 - Controls and configuration tables
 
 **Feature checkboxes:**
@@ -105,27 +105,15 @@ The README serves as both documentation and a development roadmap.
 
 Performance target: 10,000 NPCs @ 140fps — **achieved** (release build).
 
-**Status:** godot-bevy integrated. Bevy App running alongside Godot, ready for state machine migration.
-
-**Key optimizations discovered:**
-- Bulk `set_buffer()` vs per-instance calls: 55fps → 140fps (2.5x improvement)
-- Pre-allocated transform buffer in Rust, single upload per frame
-- Colors set once at init (not per-frame)
+See [docs/](docs/README.md) for architecture, system maps, and known issues. See [docs/roadmap.md](docs/roadmap.md) for migration progress and performance lessons.
 
 **Setup:**
 1. Install Rust from https://rustup.rs/
 2. `cd rust && cargo build`
-3. Run `scenes/bevy_poc.tscn` in Godot
+3. Run `scenes/ecs_test.tscn` in Godot
 
-**Architecture:** GDExtension (`bevy_npc.gdextension`) loads `rust/target/debug/endless_ecs.dll`. The `NpcBenchmark` node owns a Bevy App internally, ticks ECS systems each frame, bulk uploads positions to MultiMesh via `set_buffer()`.
-
-**Next steps:** See README "Rust Migration Roadmap" for phased plan to reach 20K+ NPCs:
-1. GPU compute integration (port separation_compute.glsl)
-2. Game logic migration (state machines, decisions)
-3. Zero-copy rendering (compute shader writes directly to MultiMesh buffer)
-
-**Files:**
-- `rust/Cargo.toml` - bevy_ecs + godot-rust dependencies
-- `rust/src/lib.rs` - NpcBenchmark class, ECS components + systems
+**Key files:**
+- `rust/src/lib.rs` - EcsNpcManager: GDScript API bridge, GPU dispatch, rendering
+- `rust/src/gpu.rs` - GPU compute buffer management
+- `rust/src/systems/` - Bevy systems (spawn, combat, health, behavior)
 - `bevy_npc.gdextension` - library paths for Godot
-- `scenes/bevy_poc.tscn` - test scene

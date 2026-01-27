@@ -1,9 +1,5 @@
-//! GPU Compute - Runs physics on thousands of NPCs in parallel
-//!
-//! Why GPU compute instead of CPU?
-//! - GPU has thousands of cores vs CPU's ~8-16
-//! - Separation physics is "embarrassingly parallel" - each NPC is independent
-//! - Memory bandwidth: GPU can read/write 10K positions in microseconds
+//! GPU Compute - Runs physics on thousands of NPCs in parallel.
+//! See docs/gpu-compute.md for architecture.
 
 use godot::prelude::*;
 use godot::classes::{RenderingServer, RenderingDevice, RdUniform};

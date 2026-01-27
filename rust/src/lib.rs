@@ -1,54 +1,5 @@
-//! # Endless ECS - GPU-Accelerated NPC Physics
-//!
-//! This module implements a hybrid CPU/GPU architecture for managing thousands of NPCs:
-//!
-//! ## Architecture Overview
-//!
-//! ```text
-//! ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-//! │    GDScript     │────▶│   Bevy ECS      │────▶│   GPU Compute   │
-//! │  (game logic)   │     │ (logical state) │     │   (physics)     │
-//! └─────────────────┘     └─────────────────┘     └─────────────────┘
-//!         │                       │                       │
-//!         │ spawn_npc()           │ Components            │ Positions
-//!         │ set_target()          │ Messages              │ Velocities
-//!         ▼                       ▼                       ▼
-//! ┌─────────────────────────────────────────────────────────────────┐
-//! │                        GPU Buffers                               │
-//! │  [positions] [targets] [colors] [speeds] [grid] [arrivals]      │
-//! └─────────────────────────────────────────────────────────────────┘
-//!                                 │
-//!                                 ▼
-//!                         ┌─────────────────┐
-//!                         │   MultiMesh     │
-//!                         │  (rendering)    │
-//!                         └─────────────────┘
-//! ```
-//!
-//! ## Data Flow
-//!
-//! 1. **GDScript** calls `spawn_npc()` or `set_target()` on EcsNpcManager
-//! 2. Commands are queued in static Mutex queues (thread-safe)
-//! 3. **Bevy ECS** drains queues each frame and updates logical state
-//! 4. **GPU Compute** runs separation physics on all NPCs in parallel
-//! 5. **MultiMesh** receives position/color data for batch rendering
-//!
-//! ## Why This Architecture?
-//!
-//! - **Bevy ECS**: Handles game logic (state machines, decisions) with cache-friendly DOD
-//! - **GPU Compute**: Runs O(n) neighbor queries in parallel (10,000 NPCs @ 140fps)
-//! - **Static Mutexes**: Bridge between Godot's single-threaded calls and Bevy's systems
-//! - **RenderingDevice**: Godot's GPU abstraction (not Send-safe, so owned by EcsNpcManager)
-//!
-//! ## Module Structure
-//!
-//! - `components` - ECS components (NpcIndex, Job, Energy, Health, state markers)
-//! - `constants` - Tuning parameters (grid size, separation strength, energy rates)
-//! - `resources` - Bevy resources (NpcCount, GpuData)
-//! - `world` - World data structs (Town, Farm, Bed, GuardPost) and static storage
-//! - `messages` - Message types and static queues for GDScript→Bevy communication
-//! - `gpu` - GPU compute shader dispatch and buffer management
-//! - `systems` - Bevy systems (spawn, movement, energy, behavior, health)
+//! Endless ECS - GDExtension bridge between Godot, Bevy ECS, and GPU compute.
+//! See docs/ for architecture documentation.
 
 // ============================================================================
 // MODULES

@@ -1,10 +1,5 @@
-//! ECS Messages - Commands sent from GDScript to Bevy
-//!
-//! GPU-First Architecture:
-//! - GPU owns: positions, targets, factions, health, combat_targets
-//! - Bevy owns: state markers (Dead, Fleeing, InCombat)
-//! - Bevy reads GPU_READ_STATE, writes via GPU_UPDATE_QUEUE
-//! - One lock per direction, not 10+ scattered queues
+//! ECS Messages - Commands sent from GDScript to Bevy.
+//! See docs/messages.md for architecture.
 
 use godot_bevy::prelude::bevy_ecs_prelude::Message;
 use std::sync::Mutex;

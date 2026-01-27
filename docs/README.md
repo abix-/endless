@@ -44,6 +44,65 @@ Frame execution order ───────────────────�
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work cycles | 7/10 |
 | [api.md](api.md) | Complete GDScript-to-Rust API (26 methods) | - |
 | [messages.md](messages.md) | Static queues, GPU_UPDATE_QUEUE, GPU_READ_STATE | 8/10 |
+| [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
+| [roadmap.md](roadmap.md) | Migration chunks, performance targets, lessons learned | - |
+
+## File Map
+
+```
+main.gd                 # World generation, food tracking, game setup
+autoloads/
+  config.gd             # All tunable constants
+  world_clock.gd        # Day/night cycle, time signals
+  user_settings.gd      # Persistent user preferences
+systems/
+  npc_manager.gd        # Core orchestration, 30+ parallel data arrays
+  npc_state.gd          # Activity-specific states, validation per job
+  npc_navigation.gd     # Predicted movement, LOD intervals, separation
+  npc_combat.gd         # Threat detection, targeting, damage, leashing
+  npc_needs.gd          # Energy, schedules, decision trees
+  npc_grid.gd           # Spatial partitioning (64x64 cells)
+  npc_renderer.gd       # MultiMesh rendering, culling, indicators
+  projectile_manager.gd # Projectile pooling, collision
+  gpu_separation.gd     # Compute shader separation forces
+entities/
+  player.gd             # Camera controls
+world/
+  location.gd           # Sprite definitions, interaction radii
+  terrain_renderer.gd   # Terrain tile rendering with sprite tiling
+ui/
+  start_menu.gd         # Start menu (world size, towns, populations)
+  left_panel.gd         # Stats, performance, NPC inspector (collapsible)
+  combat_log.gd         # Resizable event log at bottom
+  settings_menu.gd      # Options menu with log filters
+  upgrade_menu.gd       # Town management, upgrades, population caps
+  build_menu.gd         # Grid slot building (farms, beds)
+  policies_panel.gd     # Faction policies (flee thresholds, off-duty behavior)
+  roster_panel.gd       # NPC roster with sorting and filtering
+  farm_menu.gd          # Farm info popup (click farm to see occupant)
+rust/
+  Cargo.toml            # Bevy 0.18 + godot-bevy 0.11 dependencies
+  src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, rendering
+  src/gpu.rs            # GPU compute shader dispatch and buffer management
+  src/messages.rs       # Static queues and message types (GDScript → Bevy)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
+  src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
+  src/resources.rs      # Bevy resources (NpcCount, GpuData, NpcEntityMap)
+  src/world.rs          # World data structs (Town, Farm, Bed, GuardPost)
+  src/systems/
+    spawn.rs            # Bevy spawn systems (drain queues → create entities)
+    combat.rs           # Attack system (GPU targets → damage → chase)
+    health.rs           # Damage, death, cleanup, slot recycling
+    behavior.rs         # Energy, tired, rest, patrol, work transitions
+shaders/
+  npc_compute.glsl      # GPU: movement + separation + combat targeting
+  projectile_compute.glsl # GPU: projectile movement + collision
+scenes/
+  ecs_test.tscn         # 11 behavior tests with visual markers and PASS/FAIL
+  bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
+scripts/
+  ecs_test.gd           # Test harness (500-10000 NPCs configurable)
+```
 
 ## Aggregate Known Issues
 
