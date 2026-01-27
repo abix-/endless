@@ -16,7 +16,7 @@ pub fn tired_system(
                  (Without<GoingToRest>, Without<Resting>, Without<InCombat>)>,
 ) {
     for (entity, energy, npc_idx, home) in query.iter() {
-        if energy.0 < ENERGY_HUNGRY {
+        if energy.0 < ENERGY_HUNGRY && home.is_valid() {
             // Low energy - go rest
             commands.entity(entity)
                 .remove::<OnDuty>()
@@ -258,7 +258,7 @@ pub fn steal_decision_system(
 
         // Priority 1: Wounded — drop food, go home, rest
         if let Some(w) = wounded {
-            if health_pct < w.pct {
+            if health_pct < w.pct && home.is_valid() {
                 let mut cmds = commands.entity(entity);
                 cmds.remove::<CarryingFood>();
                 cmds.insert(Returning);
@@ -285,7 +285,7 @@ pub fn steal_decision_system(
         }
 
         // Priority 2: Carrying food — deliver it
-        if carrying.is_some() {
+        if carrying.is_some() && home.is_valid() {
             commands.entity(entity).insert(Returning);
             if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
                 queue.push(GpuUpdate::SetTarget {
@@ -299,7 +299,7 @@ pub fn steal_decision_system(
 
         // Priority 3: Low energy — go home
         if let Some(e) = energy {
-            if e.0 < ENERGY_HUNGRY {
+            if e.0 < ENERGY_HUNGRY && home.is_valid() {
                 commands.entity(entity).insert(Returning);
                 if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
                     queue.push(GpuUpdate::SetTarget {

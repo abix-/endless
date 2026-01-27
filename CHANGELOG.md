@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-01-27
+- fix raider yellow-on-spawn: remove Raiding from spawn bundle, let steal_decision_system assign first target
+- fix NPCs drifting to (-1,-1): add Home.is_valid() guard to tired_system and steal_decision_system
+- fix farmers stuck in bed: set GPU target to work position on spawn (not spawn position)
 - fix spawn timing: decouple slot allocation from GPU dispatch count (NPC_SLOT_COUNTER + GPU_DISPATCH_COUNT)
 - fix uninitialized GPU buffers on spawn: process() now reads GPU_DISPATCH_COUNT instead of GPU_READ_STATE.npc_count
 - change GPU_UPDATE_QUEUE drain guards from idx < npc_count to idx < MAX_NPC_COUNT (allows spawn writes before dispatch count catches up)

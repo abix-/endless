@@ -51,9 +51,15 @@ pub fn spawn_npc_system(
         let (r, g, b, a) = job.color();
 
         // GPU writes via queue — no direct buffer_update()
+        // Target defaults to spawn position; overridden below for jobs with initial destinations
+        let (target_x, target_y) = if job == Job::Farmer && msg.work_x >= 0.0 {
+            (msg.work_x, msg.work_y)
+        } else {
+            (msg.x, msg.y)
+        };
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
             queue.push(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y });
-            queue.push(GpuUpdate::SetTarget { idx, x: msg.x, y: msg.y });
+            queue.push(GpuUpdate::SetTarget { idx, x: target_x, y: target_y });
             queue.push(GpuUpdate::SetColor { idx, r, g, b, a });
             queue.push(GpuUpdate::SetSpeed { idx, speed: 100.0 });
             queue.push(GpuUpdate::SetFaction { idx, faction: msg.faction });

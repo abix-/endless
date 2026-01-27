@@ -11,9 +11,14 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 ```
     Guard:                Farmer:               Stealer (Raider):
     ┌──────────┐         ┌──────────┐          ┌──────────┐
-    │Patrolling│         │GoingToWork│         │  Raiding  │ (walk to farm)
+    │Patrolling│         │GoingToWork│         │  (idle)  │ spawns stateless
     └────┬─────┘         └────┬─────┘          └────┬─────┘
-         │ arrival            │ arrival              │ arrival at farm
+         │ arrival            │ arrival              │ steal_decision_system
+         ▼                    ▼                      ▼
+    ┌──────────┐         ┌──────────┐          ┌──────────┐
+    │  OnDuty  │         │ Working  │          │  Raiding  │ (walk to farm)
+    │ 60 ticks │         │          │          └────┬─────┘
+    └────┬─────┘         └────┬─────┘               │ arrival at farm
          ▼                    ▼                      ▼
     ┌──────────┐         ┌──────────┐          ┌──────────┐
     │  OnDuty  │         │ Working  │          │Returning │ (+CarryingFood)
@@ -87,7 +92,7 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 - Clamp to 0.0-100.0
 
 ### tired_system
-- Query: Energy < 50, not `Resting`, not `GoingToRest`, not `InCombat`
+- Query: Energy < 50, not `Resting`, not `GoingToRest`, not `InCombat`, `Home.is_valid()`
 - Remove current state (`OnDuty`, `Working`, `Patrolling`, `GoingToWork`)
 - Add `GoingToRest`
 - Set target to `Home` position via `GpuUpdate::SetTarget`
@@ -119,9 +124,9 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 
 ### steal_decision_system
 - Query: `Stealer` NPCs with no active state (no `Raiding`, `Returning`, `Resting`, `InCombat`, `Recovering`, `GoingToRest`, `Dead`)
-- Priority 1: Health < `WoundedThreshold` → drop food, add `Returning`, target home
-- Priority 2: Has `CarryingFood` → add `Returning`, target home
-- Priority 3: Energy < 50 → add `Returning`, target home
+- Priority 1: Health < `WoundedThreshold` (+ valid home) → drop food, add `Returning`, target home
+- Priority 2: Has `CarryingFood` (+ valid home) → add `Returning`, target home
+- Priority 3: Energy < 50 (+ valid home) → add `Returning`, target home
 - Priority 4: Find nearest farm from `WORLD_DATA` (reads position from `GPU_READ_STATE`), add `Raiding`, target farm
 
 ### flee_system

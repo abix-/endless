@@ -85,7 +85,7 @@ Job-specific templates:
 | Farmer | `Energy`, `Farmer { town_idx }`, `WorkPosition`, `GoingToWork` |
 | Raider | `Energy`, `AttackStats`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
 
-GPU writes (via GPU_UPDATE_QUEUE, all jobs): `SetPosition`, `SetTarget` (= position), `SetColor` (job-based), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`
+GPU writes (via GPU_UPDATE_QUEUE, all jobs): `SetPosition`, `SetTarget` (= spawn position, or work position for farmers), `SetColor` (job-based), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`
 
 ### reset_bevy_system
 Checks `RESET_BEVY` flag. If set, despawns all entities with `NpcIndex`, clears `NpcEntityMap`, resets `NpcCount`.

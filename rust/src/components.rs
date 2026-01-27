@@ -89,8 +89,15 @@ impl Default for Energy {
 }
 
 /// Where the NPC goes to rest (bed position).
+/// Home(-1, -1) means no home assigned — behavior systems should skip.
 #[derive(Component)]
 pub struct Home(pub Vector2);
+
+impl Home {
+    pub fn is_valid(&self) -> bool {
+        self.0.x >= 0.0 && self.0.y >= 0.0
+    }
+}
 
 /// Patrol route for guards (or any NPC that patrols).
 #[derive(Component)]
