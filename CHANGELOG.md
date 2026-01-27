@@ -1,6 +1,13 @@
 # Changelog
 
 ## 2026-01-27
+- add Chunk 8.5: generic spawn + eliminate direct GPU writes
+- replace 5 spawn methods (spawn_npc, spawn_guard, spawn_guard_at_post, spawn_farmer, spawn_raider) with single spawn_npc() (10 params, job-as-template)
+- remove SpawnGuardMsg, SpawnFarmerMsg, SpawnRaiderMsg and their queues/drain functions/spawn systems
+- remove GpuData Bevy Resource (dead-end intermediary)
+- remove all direct buffer_update() calls from spawn path — all GPU writes via GPU_UPDATE_QUEUE
+- fix slot mismatch bug: slot_idx carried in SpawnNpcMsg (spawn.md rating 6→8/10)
+- update ecs_test.gd to use unified spawn API
 - add Chunk 8: generic raider behavior systems (steal, flee, leash, recovery)
 - add generic components: Stealer, CarryingFood, Raiding, Returning, Recovering
 - add config components: FleeThreshold, LeashRange, WoundedThreshold

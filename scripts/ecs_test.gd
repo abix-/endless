@@ -341,7 +341,7 @@ func _setup_test_arrive() -> void:
 	npc_count = int(count_slider.value)
 	for i in npc_count:
 		var y_offset := (i - npc_count / 2.0) * 25.0
-		ecs_manager.spawn_npc(100, CENTER.y + y_offset, i % 3)
+		ecs_manager.spawn_npc(100, CENTER.y + y_offset, i % 3, 0, -1, -1, -1, -1, -1, -1)
 	test_phase = 1
 	_set_phase("Waiting 0.5s...")
 	_log("%d NPCs on left" % npc_count)
@@ -377,7 +377,7 @@ func _update_test_arrive() -> void:
 func _setup_test_separation() -> void:
 	npc_count = int(count_slider.value)
 	for i in npc_count:
-		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3)
+		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3, 0, -1, -1, -1, -1, -1, -1)
 	test_phase = 1
 	_set_phase("Separating...")
 	_log("%d NPCs at same point" % npc_count)
@@ -407,7 +407,7 @@ func _setup_test_both() -> void:
 	for i in npc_count:
 		var side := 100 if i % 2 == 0 else 700
 		var y_offset := (i / 2 - npc_count / 4.0) * 25.0
-		ecs_manager.spawn_npc(side, CENTER.y + y_offset, i % 3)
+		ecs_manager.spawn_npc(side, CENTER.y + y_offset, i % 3, 0, -1, -1, -1, -1, -1, -1)
 	test_phase = 1
 	_set_phase("Waiting 0.5s...")
 	_log("%d NPCs on sides" % npc_count)
@@ -451,7 +451,7 @@ func _setup_test_circle() -> void:
 		var angle := (float(i) / npc_count) * TAU
 		var x := CENTER.x + cos(angle) * radius
 		var y := CENTER.y + sin(angle) * radius
-		ecs_manager.spawn_npc(x, y, i % 3)
+		ecs_manager.spawn_npc(x, y, i % 3, 0, -1, -1, -1, -1, -1, -1)
 	test_phase = 1
 	_set_phase("Waiting 0.5s...")
 	_log("%d NPCs in circle" % npc_count)
@@ -491,7 +491,7 @@ func _update_test_circle() -> void:
 func _setup_test_mass() -> void:
 	npc_count = int(count_slider.value)
 	for i in npc_count:
-		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3)
+		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3, 0, -1, -1, -1, -1, -1, -1)
 	test_phase = 1
 	_set_phase("Exploding outward...")
 	_log("%d NPCs at center" % npc_count)
@@ -715,7 +715,7 @@ func _update_test_guard_patrol() -> void:
 		]
 		for i in 4:
 			var pos: Vector2 = post_positions[i]
-			ecs_manager.spawn_guard_at_post(pos.x, pos.y, 0, CENTER.x, CENTER.y, i)
+			ecs_manager.spawn_npc(pos.x, pos.y, 1, 0, CENTER.x, CENTER.y, -1, -1, 0, i)
 
 		_log("Spawned 4 guards at posts")
 
@@ -795,11 +795,12 @@ func _update_test_farmer_work() -> void:
 			Vector2(CENTER.x + 50, CENTER.y - 80),
 		]
 		for i in 2:
-			ecs_manager.spawn_farmer(
+			ecs_manager.spawn_npc(
 				bed_positions[i].x, bed_positions[i].y,  # Start at bed
-				0,  # town_idx
+				0, 0,  # job=Farmer, faction=Villager
 				bed_positions[i].x, bed_positions[i].y,  # home position
-				farm_positions[i].x, farm_positions[i].y  # work position
+				farm_positions[i].x, farm_positions[i].y,  # work position
+				0, -1  # town_idx=0, no patrol
 			)
 
 		_log("Spawned 2 farmers")
@@ -838,7 +839,7 @@ func _setup_test_health_death() -> void:
 		var angle := (float(i) / 10) * TAU
 		var x := CENTER.x + cos(angle) * 50.0
 		var y := CENTER.y + sin(angle) * 50.0
-		ecs_manager.spawn_npc(x, y, i % 3)
+		ecs_manager.spawn_npc(x, y, i % 3, 0, -1, -1, -1, -1, -1, -1)
 
 	queue_redraw()
 
@@ -919,11 +920,11 @@ func _update_test_combat() -> void:
 		# Spawn guards left, raiders right - 50px apart (cells 5 and 6, adjacent)
 		for i in 5:
 			var y_offset := (i - 2) * 25.0
-			ecs_manager.spawn_guard(CENTER.x - 25, CENTER.y + y_offset, 0, CENTER.x - 100, CENTER.y)
+			ecs_manager.spawn_npc(CENTER.x - 25, CENTER.y + y_offset, 1, 0, CENTER.x - 100, CENTER.y, -1, -1, 0, -1)
 		var camp_pos := Vector2(CENTER.x + 300, CENTER.y)
 		for i in 5:
 			var y_offset := (i - 2) * 25.0
-			ecs_manager.spawn_raider(CENTER.x + 25, CENTER.y + y_offset, camp_pos.x, camp_pos.y)
+			ecs_manager.spawn_npc(CENTER.x + 25, CENTER.y + y_offset, 2, 1, camp_pos.x, camp_pos.y, -1, -1, -1, -1)
 
 		_log("Spawned 5 guards, 5 raiders")
 
@@ -1053,9 +1054,9 @@ func _update_test_projectiles() -> void:
 		_set_phase("Spawning NPCs...")
 
 		# Guard at left (faction 0)
-		ecs_manager.spawn_guard(CENTER.x - 100, CENTER.y, 0, CENTER.x - 100, CENTER.y)
+		ecs_manager.spawn_npc(CENTER.x - 100, CENTER.y, 1, 0, CENTER.x - 100, CENTER.y, -1, -1, 0, -1)
 		# Raider at right (faction 1)
-		ecs_manager.spawn_raider(CENTER.x + 100, CENTER.y, CENTER.x + 200, CENTER.y)
+		ecs_manager.spawn_npc(CENTER.x + 100, CENTER.y, 2, 1, CENTER.x + 200, CENTER.y, -1, -1, -1, -1)
 
 		_log("Spawned guard + raider")
 

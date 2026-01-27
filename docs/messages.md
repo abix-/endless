@@ -8,10 +8,7 @@ Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bev
 
 | Queue | Message Type | Fields | Producer | Consumer |
 |-------|-------------|--------|----------|----------|
-| SPAWN_QUEUE | SpawnNpcMsg | x, y, job | spawn_npc() | drain_spawn_queue → spawn_npc_system |
-| GUARD_QUEUE | SpawnGuardMsg | x, y, town_idx, home_x, home_y, starting_post | spawn_guard() | drain_guard_queue → spawn_guard_system |
-| FARMER_QUEUE | SpawnFarmerMsg | x, y, town_idx, home_x, home_y, work_x, work_y | spawn_farmer() | drain_farmer_queue → spawn_farmer_system |
-| RAIDER_QUEUE | SpawnRaiderMsg | x, y, camp_x, camp_y | spawn_raider() | drain_raider_queue → spawn_raider_system |
+| SPAWN_QUEUE | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post | spawn_npc() | drain_spawn_queue → spawn_npc_system |
 | TARGET_QUEUE | SetTargetMsg | npc_index, x, y | set_target() | drain_target_queue → apply_targets_system |
 | ARRIVAL_QUEUE | ArrivalMsg | npc_index | process() arrival detection | drain_arrival_queue → handle_arrival_system |
 | DAMAGE_QUEUE | DamageMsg | npc_index, amount | attack_system, projectile hits | drain_damage_queue → damage_system |
@@ -24,10 +21,10 @@ Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bev
 |---------|--------|----------|-------------------|
 | SetTarget | idx, x, y | attack_system, behavior systems | target_buffer, arrival_buffer, backoff_buffer |
 | SetHealth | idx, health | damage_system | health_buffer |
-| SetFaction | idx, faction | (unused currently, available) | faction_buffer |
-| SetPosition | idx, x, y | (unused currently, available) | position_buffer |
-| SetSpeed | idx, speed | (unused currently, available) | speed_buffer |
-| SetColor | idx, r, g, b, a | steal_arrival_system (loot color), flee_system | color_buffer |
+| SetFaction | idx, faction | spawn_npc_system | faction_buffer |
+| SetPosition | idx, x, y | spawn_npc_system | position_buffer |
+| SetSpeed | idx, speed | spawn_npc_system | speed_buffer |
+| SetColor | idx, r, g, b, a | spawn_npc_system, steal_arrival_system, flee_system | color_buffer |
 | ApplyDamage | idx, amount | (unused — damage goes through Bevy) | health_buffer |
 | HideNpc | idx | death_cleanup_system | position_buffer → (-9999, -9999) |
 
@@ -86,9 +83,8 @@ COMBAT_DEBUG (defined in `systems/combat.rs`) tracks 18 fields: `attackers_queri
 
 - **All queues are unbounded**: No backpressure. If spawn calls outpace Bevy drain (shouldn't happen at 60fps), queues grow without limit.
 - **GPU_READ_STATE is one frame stale**: Bevy reads positions from previous frame's dispatch. Acceptable at 140fps.
-- **Some GpuUpdate variants unused**: SetFaction, SetPosition, SetSpeed, ApplyDamage are defined but no system currently produces them. SetColor is now used by steal_arrival_system and flee_system for loot color changes.
 - **Mutex contention**: All queues use `std::sync::Mutex`. At current scale (single Godot thread + Bevy on same thread via godot-bevy), there's no contention. Multi-threaded Bevy would need consideration.
 
 ## Rating: 8/10
 
-Clean unified queue architecture. GPU_UPDATE_QUEUE consolidates what was originally 10+ separate queues. The static Mutex pattern is simple and correct for single-threaded Godot. The unused variants are minor dead code — they provide a clear extension surface.
+Clean unified queue architecture. GPU_UPDATE_QUEUE consolidates what was originally 10+ separate queues. Spawn path now routes all GPU writes through the queue — no more direct `buffer_update()` calls. The static Mutex pattern is simple and correct for single-threaded Godot.

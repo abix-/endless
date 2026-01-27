@@ -5,7 +5,7 @@
 These docs are the **source of truth** for system architecture. When building new features or modifying existing systems:
 
 1. **Before coding**: Read the relevant doc to understand the current architecture, data flow, and known issues.
-2. **During coding**: Follow the patterns documented here (dual-write spawn, chained combat, GPU buffer layout). If you need to deviate, update the doc first.
+2. **During coding**: Follow the patterns documented here (job-as-template spawn, chained combat, GPU buffer layout). If you need to deviate, update the doc first.
 3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation. Adjust ratings if improvements were made.
 4. **Code comments** stay educational (explain what code does for someone learning Rust/GLSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
 
@@ -40,7 +40,7 @@ Frame execution order ───────────────────�
 | [gpu-compute.md](gpu-compute.md) | Compute shaders, 20 GPU buffers, spatial grid, CPU sync | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 8/10 |
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
-| [spawn.md](spawn.md) | Dual-write pattern, slot allocation, Bevy entity creation | 6/10 |
+| [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover | 8/10 |
 | [api.md](api.md) | Complete GDScript-to-Rust API (26 methods) | - |
 | [messages.md](messages.md) | Static queues, GPU_UPDATE_QUEUE, GPU_READ_STATE | 8/10 |
@@ -87,7 +87,7 @@ rust/
   src/messages.rs       # Static queues and message types (GDScript → Bevy)
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states, stealing, flee/leash)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
-  src/resources.rs      # Bevy resources (NpcCount, GpuData, NpcEntityMap)
+  src/resources.rs      # Bevy resources (NpcCount, DeltaTime, NpcEntityMap)
   src/world.rs          # World data structs (Town, Farm, Bed, GuardPost)
   src/systems/
     spawn.rs            # Bevy spawn systems (drain queues → create entities)

@@ -167,6 +167,13 @@ impl Faction {
     pub fn to_i32(self) -> i32 {
         self as i32
     }
+
+    pub fn from_i32(v: i32) -> Self {
+        match v {
+            1 => Faction::Raider,
+            _ => Faction::Villager,
+        }
+    }
 }
 
 /// Combat stats for NPCs that can fight.

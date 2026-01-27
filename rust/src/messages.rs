@@ -8,11 +8,21 @@ use std::sync::Mutex;
 // MESSAGE TYPES (Bevy ECS internal messages)
 // ============================================================================
 
+/// Unified spawn message. Job determines component template at spawn time.
+/// Replaces SpawnNpcMsg, SpawnGuardMsg, SpawnFarmerMsg, SpawnRaiderMsg.
 #[derive(Message, Clone)]
 pub struct SpawnNpcMsg {
+    pub slot_idx: usize,
     pub x: f32,
     pub y: f32,
-    pub job: i32,
+    pub job: i32,           // 0=Farmer, 1=Guard, 2=Raider
+    pub faction: i32,       // 0=Villager, 1=Raider
+    pub town_idx: i32,      // -1 = none
+    pub home_x: f32,
+    pub home_y: f32,
+    pub work_x: f32,        // -1 = none
+    pub work_y: f32,
+    pub starting_post: i32, // -1 = none
 }
 
 #[derive(Message, Clone)]
@@ -23,29 +33,8 @@ pub struct SetTargetMsg {
 }
 
 #[derive(Message, Clone)]
-pub struct SpawnGuardMsg {
-    pub x: f32,
-    pub y: f32,
-    pub town_idx: u32,
-    pub home_x: f32,
-    pub home_y: f32,
-    pub starting_post: u32,
-}
-
-#[derive(Message, Clone)]
 pub struct ArrivalMsg {
     pub npc_index: usize,
-}
-
-#[derive(Message, Clone)]
-pub struct SpawnFarmerMsg {
-    pub x: f32,
-    pub y: f32,
-    pub town_idx: u32,
-    pub home_x: f32,
-    pub home_y: f32,
-    pub work_x: f32,
-    pub work_y: f32,
 }
 
 #[derive(Message, Clone)]
@@ -54,24 +43,12 @@ pub struct DamageMsg {
     pub amount: f32,
 }
 
-#[derive(Message, Clone)]
-pub struct SpawnRaiderMsg {
-    pub x: f32,
-    pub y: f32,
-    pub camp_x: f32,
-    pub camp_y: f32,
-}
-
 // ============================================================================
 // BEVY MESSAGE QUEUES (GDScript -> Bevy ECS)
-// These stay - they're for Bevy's internal message system
 // ============================================================================
 
 pub static SPAWN_QUEUE: Mutex<Vec<SpawnNpcMsg>> = Mutex::new(Vec::new());
 pub static TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
-pub static GUARD_QUEUE: Mutex<Vec<SpawnGuardMsg>> = Mutex::new(Vec::new());
-pub static FARMER_QUEUE: Mutex<Vec<SpawnFarmerMsg>> = Mutex::new(Vec::new());
-pub static RAIDER_QUEUE: Mutex<Vec<SpawnRaiderMsg>> = Mutex::new(Vec::new());
 pub static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
 pub static DAMAGE_QUEUE: Mutex<Vec<DamageMsg>> = Mutex::new(Vec::new());
 pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);

@@ -4,22 +4,17 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 
 use crate::components::*;
 use crate::messages::*;
-use crate::resources::*;
 
-/// Process target messages: update GPU data and add HasTarget component.
+/// Process target messages: push to GPU update queue and add HasTarget component.
 pub fn apply_targets_system(
     mut commands: Commands,
     mut events: MessageReader<SetTargetMsg>,
-    mut gpu_data: ResMut<GpuData>,
     query: Query<(Entity, &NpcIndex), Without<HasTarget>>,
 ) {
-    for event in events.read() {
-        if event.npc_index < gpu_data.npc_count {
-            // Update target in GPU data (local cache)
-            gpu_data.targets[event.npc_index * 2] = event.x;
-            gpu_data.targets[event.npc_index * 2 + 1] = event.y;
-            gpu_data.dirty = true;
+    let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
 
+    for event in events.read() {
+        if event.npc_index < npc_count {
             // GPU-FIRST: Push to GPU_UPDATE_QUEUE
             if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
                 queue.push(GpuUpdate::SetTarget { idx: event.npc_index, x: event.x, y: event.y });

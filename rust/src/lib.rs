@@ -22,7 +22,6 @@ use godot_bevy::prelude::godot_prelude::*;
 use godot_bevy::prelude::*;
 use godot::classes::{RenderingServer, QuadMesh, INode2D};
 
-use components::*;
 use constants::*;
 use gpu::GpuCompute;
 use messages::*;
@@ -50,13 +49,9 @@ fn build_app(app: &mut bevy::prelude::App) {
 
     app.add_message::<SpawnNpcMsg>()
        .add_message::<SetTargetMsg>()
-       .add_message::<SpawnGuardMsg>()
-       .add_message::<SpawnFarmerMsg>()
-       .add_message::<SpawnRaiderMsg>()
        .add_message::<ArrivalMsg>()
        .add_message::<DamageMsg>()
        .init_resource::<NpcCount>()
-       .init_resource::<GpuData>()
        .init_resource::<NpcEntityMap>()
        .init_resource::<world::WorldData>()
        .init_resource::<world::BedOccupancy>()
@@ -70,18 +65,12 @@ fn build_app(app: &mut bevy::prelude::App) {
            reset_bevy_system,
            drain_spawn_queue,
            drain_target_queue,
-           drain_guard_queue,
-           drain_farmer_queue,
-           drain_raider_queue,
            drain_arrival_queue,
            drain_damage_queue,
        ).in_set(Step::Drain))
        // Spawn: create entities
        .add_systems(Update, (
            spawn_npc_system,
-           spawn_guard_system,
-           spawn_farmer_system,
-           spawn_raider_system,
            apply_targets_system,
        ).in_set(Step::Spawn))
        // Combat: cooldowns, attacks, damage, death
@@ -448,294 +437,29 @@ impl EcsNpcManager {
         None
     }
 
+    /// Unified spawn API. Job determines component template.
+    /// No direct GPU writes — all go through GPU_UPDATE_QUEUE.
     #[func]
-    fn spawn_npc(&mut self, x: f32, y: f32, job: i32) {
+    fn spawn_npc(&mut self, x: f32, y: f32, job: i32, faction: i32,
+        home_x: f32, home_y: f32, work_x: f32, work_y: f32,
+        town_idx: i32, starting_post: i32,
+    ) -> i32 {
         let idx = match Self::allocate_slot() {
             Some(i) => i,
-            None => return,
+            None => return -1,
+        };
+
+        let msg = SpawnNpcMsg {
+            slot_idx: idx,
+            x, y, job, faction,
+            town_idx, home_x, home_y, work_x, work_y, starting_post,
         };
 
         if let Ok(mut queue) = SPAWN_QUEUE.lock() {
-            queue.push(SpawnNpcMsg { x, y, job });
+            queue.push(msg);
         }
 
-        if let Some(gpu) = self.gpu.as_mut() {
-            let (r, g, b, a) = Job::from_i32(job).color();
-
-            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
-            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
-
-            // CRITICAL: Update CPU cache so grid is built correctly
-            gpu.positions[idx * 2] = x;
-            gpu.positions[idx * 2 + 1] = y;
-
-            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let color_packed = PackedByteArray::from(color_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
-
-            gpu.colors[idx * 4] = r;
-            gpu.colors[idx * 4 + 1] = g;
-            gpu.colors[idx * 4 + 2] = b;
-            gpu.colors[idx * 4 + 3] = a;
-
-            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
-
-            let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-            let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
-            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
-        }
-    }
-
-    #[func]
-    fn spawn_guard(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32) {
-        let idx = match Self::allocate_slot() {
-            Some(i) => i,
-            None => return,
-        };
-
-        if let Ok(mut queue) = GUARD_QUEUE.lock() {
-            queue.push(SpawnGuardMsg {
-                x, y,
-                town_idx: town_idx as u32,
-                home_x, home_y,
-                starting_post: 0,
-            });
-        }
-
-        if let Some(gpu) = self.gpu.as_mut() {
-            let (r, g, b, a) = Job::Guard.color();
-
-            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
-            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
-
-            // CRITICAL: Update CPU cache so grid is built correctly
-            gpu.positions[idx * 2] = x;
-            gpu.positions[idx * 2 + 1] = y;
-
-            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let color_packed = PackedByteArray::from(color_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
-
-            gpu.colors[idx * 4] = r;
-            gpu.colors[idx * 4 + 1] = g;
-            gpu.colors[idx * 4 + 2] = b;
-            gpu.colors[idx * 4 + 3] = a;
-
-            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
-
-            let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-            let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
-            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
-
-            // Upload faction (villager = 0)
-            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &zero_packed);
-            gpu.factions[idx] = 0;
-
-            // Upload health
-            let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let health_packed = PackedByteArray::from(health_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
-            gpu.healths[idx] = 100.0;
-        }
-
-        if let Ok(world) = WORLD_DATA.lock() {
-            if let Some(post) = world.guard_posts.iter()
-                .find(|p| p.town_idx == town_idx as u32 && p.patrol_order == 0)
-            {
-                self.set_target(idx as i32, post.position.x, post.position.y);
-            }
-        }
-    }
-
-    #[func]
-    fn spawn_guard_at_post(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32, starting_post: i32) {
-        let idx = match Self::allocate_slot() {
-            Some(i) => i,
-            None => return,
-        };
-
-        if let Ok(mut queue) = GUARD_QUEUE.lock() {
-            queue.push(SpawnGuardMsg {
-                x, y,
-                town_idx: town_idx as u32,
-                home_x, home_y,
-                starting_post: starting_post as u32,
-            });
-        }
-
-        if let Some(gpu) = self.gpu.as_mut() {
-            let (r, g, b, a) = Job::Guard.color();
-
-            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
-            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
-
-            // CRITICAL: Update CPU cache so grid is built correctly
-            gpu.positions[idx * 2] = x;
-            gpu.positions[idx * 2 + 1] = y;
-
-            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let color_packed = PackedByteArray::from(color_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
-
-            gpu.colors[idx * 4] = r;
-            gpu.colors[idx * 4 + 1] = g;
-            gpu.colors[idx * 4 + 2] = b;
-            gpu.colors[idx * 4 + 3] = a;
-
-            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
-
-            let one_bytes: Vec<u8> = 1i32.to_le_bytes().to_vec();
-            let one_packed = PackedByteArray::from(one_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &one_packed);
-
-            let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-            let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
-
-            // Upload faction (villager = 0)
-            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &zero_packed);
-            gpu.factions[idx] = 0;
-
-            // Upload health
-            let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let health_packed = PackedByteArray::from(health_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
-            gpu.healths[idx] = 100.0;
-        }
-
-        self.prev_arrivals[idx] = true;
-    }
-
-    #[func]
-    fn spawn_farmer(&mut self, x: f32, y: f32, town_idx: i32, home_x: f32, home_y: f32, work_x: f32, work_y: f32) {
-        let idx = match Self::allocate_slot() {
-            Some(i) => i,
-            None => return,
-        };
-
-        if let Ok(mut queue) = FARMER_QUEUE.lock() {
-            queue.push(SpawnFarmerMsg {
-                x, y,
-                town_idx: town_idx as u32,
-                home_x, home_y,
-                work_x, work_y,
-            });
-        }
-
-        if let Some(gpu) = self.gpu.as_mut() {
-            let (r, g, b, a) = Job::Farmer.color();
-
-            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
-
-            // CRITICAL: Update CPU cache so grid is built correctly
-            gpu.positions[idx * 2] = x;
-            gpu.positions[idx * 2 + 1] = y;
-
-            let work_bytes: Vec<u8> = [work_x, work_y].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let work_packed = PackedByteArray::from(work_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &work_packed);
-
-            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let color_packed = PackedByteArray::from(color_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
-
-            gpu.colors[idx * 4] = r;
-            gpu.colors[idx * 4 + 1] = g;
-            gpu.colors[idx * 4 + 2] = b;
-            gpu.colors[idx * 4 + 3] = a;
-
-            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
-
-            let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-            let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
-            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
-
-            // Upload faction (villager)
-            let faction_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-            let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &faction_packed);
-            gpu.factions[idx] = 0;
-
-            // Upload health
-            let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let health_packed = PackedByteArray::from(health_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
-            gpu.healths[idx] = 100.0;
-        }
-    }
-
-    #[func]
-    fn spawn_raider(&mut self, x: f32, y: f32, camp_x: f32, camp_y: f32) {
-        let idx = match Self::allocate_slot() {
-            Some(i) => i,
-            None => return,
-        };
-
-        if let Ok(mut queue) = RAIDER_QUEUE.lock() {
-            queue.push(SpawnRaiderMsg { x, y, camp_x, camp_y });
-        }
-
-        if let Some(gpu) = self.gpu.as_mut() {
-            let (r, g, b, a) = Job::Raider.color();
-
-            let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
-            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
-
-            // CRITICAL: Update CPU cache so grid is built correctly
-            gpu.positions[idx * 2] = x;
-            gpu.positions[idx * 2 + 1] = y;
-
-            let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let color_packed = PackedByteArray::from(color_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
-
-            gpu.colors[idx * 4] = r;
-            gpu.colors[idx * 4 + 1] = g;
-            gpu.colors[idx * 4 + 2] = b;
-            gpu.colors[idx * 4 + 3] = a;
-
-            let speed_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
-
-            let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-            let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
-            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
-
-            // Upload faction (raider = 1)
-            let faction_bytes: Vec<u8> = 1i32.to_le_bytes().to_vec();
-            let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &faction_packed);
-            gpu.factions[idx] = 1;
-
-            // Upload health
-            let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
-            let health_packed = PackedByteArray::from(health_bytes.as_slice());
-            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
-            gpu.healths[idx] = 100.0;
-        }
+        idx as i32
     }
 
     // ========================================================================
@@ -1127,9 +851,6 @@ impl EcsNpcManager {
         // Clear Bevy message queues
         if let Ok(mut queue) = SPAWN_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = TARGET_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = GUARD_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = FARMER_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = RAIDER_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = ARRIVAL_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = DAMAGE_QUEUE.lock() { queue.clear(); }
 

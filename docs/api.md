@@ -8,13 +8,18 @@ All GDScript interaction with the ECS goes through `EcsNpcManager`, a Godot `Nod
 
 | Method | Params | Returns | Description |
 |--------|--------|---------|-------------|
-| `spawn_npc` | `x, y, job: i32` | void | Generic NPC. Job: 0=Villager, 1=Guard, 2=Farmer, 3=Raider |
-| `spawn_guard` | `x, y, town_idx, home_x, home_y` | void | Guard with patrol route, faction 0, starts at post 0 |
-| `spawn_guard_at_post` | `x, y, town_idx, home_x, home_y, starting_post` | void | Guard starting at specific patrol post (arrival pre-set) |
-| `spawn_farmer` | `x, y, town_idx, home_x, home_y, work_x, work_y` | void | Farmer with work position, faction 0 |
-| `spawn_raider` | `x, y, camp_x, camp_y` | void | Raider with camp as home, faction 1 |
+| `spawn_npc` | `x, y, job, faction, home_x, home_y, work_x, work_y, town_idx, starting_post` | `i32` | Unified spawn. Returns slot index or -1. Job: 0=Farmer, 1=Guard, 2=Raider. Use -1 for unused params. |
 
-All spawn methods allocate a slot (recycled or new), write GPU buffers directly, and queue a Bevy message. See [spawn.md](spawn.md).
+Job determines component template at spawn time. See [spawn.md](spawn.md).
+
+```gdscript
+# Guard at patrol post 2:
+ecs.spawn_npc(pos.x, pos.y, 1, 0, home.x, home.y, -1, -1, town_idx, 2)
+# Farmer:
+ecs.spawn_npc(pos.x, pos.y, 0, 0, home.x, home.y, farm.x, farm.y, town_idx, -1)
+# Raider:
+ecs.spawn_npc(pos.x, pos.y, 2, 1, camp.x, camp.y, -1, -1, -1, -1)
+```
 
 ## Projectile API
 
