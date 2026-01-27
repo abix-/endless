@@ -23,6 +23,20 @@
 - add faction/health upload to GPU on spawn (guards, farmers, raiders)
 - add Test 10: Combat (5 guards vs 5 raiders, validates GPU targeting and damage)
 - add InCombat marker prevents behavior systems from overriding combat chase
+- fix SystemSet phases with explicit apply_deferred between Spawn and Combat
+- fix combat: sync positions/health to GPU, hide dead NPCs, enhance debug
+- refactor GPU-First Architecture: consolidate 10+ queues → 2 (GPU_UPDATE_QUEUE, GPU_READ_STATE)
+- fix grid cells: 64px → 100px (properly covers 300px detection range with 3x3 neighborhood)
+- add O(1) entity lookup via NpcEntityMap (replaces O(n) iteration in damage system)
+- add slot reuse: FREE_SLOTS pool recycles dead NPC indices (infinite churn without 10K cap)
+- add Chunk 7c: GPU Projectile system
+- add projectile_compute.glsl shader (movement + spatial grid collision detection)
+- add projectile buffers: position, velocity, damage, faction, shooter, lifetime, active, hit
+- add fire_projectile() GDScript API with slot reuse via FREE_PROJ_SLOTS
+- add projectile MultiMesh rendering with velocity-based rotation
+- add get_projectile_count() and get_projectile_debug() APIs
+- add Test 11: Projectiles (TDD test covering fire, move, collide, damage, expire, recycle)
+- refactor test harness: replace 10 buttons with dropdown + run button
 
 ## 2026-01-25
 - add Chunk 3: GPU physics with 8-buffer architecture (position, target, color, speed, grid, multimesh, arrivals)
