@@ -142,14 +142,19 @@ Each chunk is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] HP regen system in Bevy (recovery_system checks threshold but no regen)
 - [ ] Result: Full game loop
 
-**Chunk 8.5: Eliminate Direct GPU Writes**
-- [ ] Add slot index to all spawn messages (SpawnGuardMsg, SpawnFarmerMsg, SpawnRaiderMsg, SpawnNpcMsg)
-- [ ] Spawn systems push GPU_UPDATE_QUEUE (SetPosition, SetTarget, SetColor, SetSpeed, SetFaction, SetHealth) instead of writing GpuData
-- [ ] Remove direct buffer_update() calls from lib.rs spawn methods (spawn_npc, spawn_guard, spawn_guard_at_post, spawn_farmer, spawn_raider)
+**Chunk 8.5: Generic Spawn + Eliminate Direct GPU Writes**
+- [ ] Single SpawnNpcMsg with all optional fields (slot_idx, job, faction, home, work_pos, patrol_posts, stealer, flee/leash/wounded thresholds)
+- [ ] Single spawn_npc() GDScript API replaces spawn_guard/spawn_farmer/spawn_raider/spawn_guard_at_post
+- [ ] Single SPAWN_QUEUE, single drain function, single spawn_npc_system
+- [ ] spawn_npc_system attaches components based on which fields are present (not job enum)
+- [ ] spawn_npc_system pushes GPU_UPDATE_QUEUE (SetPosition, SetTarget, SetColor, SetSpeed, SetFaction, SetHealth) — no direct buffer_update()
+- [ ] Remove 4 job-specific spawn messages, queues, drain functions, spawn systems
 - [ ] Remove GpuData Bevy Resource (dead-end intermediary)
-- [ ] Fix slot index mismatch bug (Bevy entity gets correct NpcIndex from message)
+- [ ] Remove direct buffer_update() calls from lib.rs spawn methods
+- [ ] Slot index carried in message — fixes slot mismatch bug (spawn.md 6/10)
 - [ ] Verify BevyApp.process() runs before EcsNpcManager.process() in scene tree order
-- [ ] Result: Single write path (GPU_UPDATE_QUEUE), spawn matches all other systems
+- [ ] Update GDScript callers (ecs_test.gd, main.gd) to use new unified API
+- [ ] Result: Single spawn path, single write path, components define behavior
 
 **Chunk 9: UI Integration**
 - [ ] Signals to GDScript (death, level up, food)
