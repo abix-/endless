@@ -90,12 +90,24 @@ COMBAT_DEBUG (defined in `systems/combat.rs`) tracks 18 fields: `attackers_queri
 | FOOD_DELIVERED_QUEUE | `Vec<FoodDelivered>` | steal_arrival_system | get_food_events() API |
 | FOOD_CONSUMED_QUEUE | `Vec<FoodConsumed>` | (future eat system) | get_food_events() API |
 
+## Architecture: What Stays Static vs What Migrates
+
+All communication currently uses static Mutex. This is correct for cross-boundary state but not idiomatic for Bevy-internal state. See [roadmap.md](roadmap.md) Phase 10.
+
+| Category | Pattern | Statics | Count |
+|----------|---------|---------|-------|
+| GDScript↔Bevy boundary | Static Mutex (stays) | SPAWN/TARGET/DAMAGE/ARRIVAL_QUEUE, RESET_BEVY, FRAME_DELTA, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 9 |
+| Bevy↔GPU boundary | Static Mutex (stays) | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
+| Bevy-internal state | Migrate → `Res<T>` | WORLD_DATA, BED/FARM_OCCUPANCY, HEALTH/COMBAT_DEBUG, FOOD_STORAGE, food event queues | 8 |
+
+**Migration pattern:** GDScript API writes to a staging static (`Mutex<Option<T>>`). A sync system in Step::Drain copies staging → Bevy Resource via `.take()`. Bevy systems access the Resource with `Res<T>` / `ResMut<T>`. This gives Bevy visibility into data dependencies while preserving the GDScript boundary.
+
 ## Known Issues / Limitations
 
 - **All queues are unbounded**: No backpressure. If spawn calls outpace Bevy drain (shouldn't happen at 60fps), queues grow without limit.
 - **GPU_READ_STATE is one frame stale**: Bevy reads positions from previous frame's dispatch. Acceptable at 140fps.
-- **Mutex contention**: All queues use `std::sync::Mutex`. At current scale (single Godot thread + Bevy on same thread via godot-bevy), there's no contention. Multi-threaded Bevy would need consideration.
+- **Bevy-internal statics**: 8 statics that should be Bevy Resources still use static Mutex. Functional but hides data dependencies from Bevy's scheduler. See Phase 10 migration plan.
 
 ## Rating: 8/10
 
-Clean unified queue architecture. GPU_UPDATE_QUEUE consolidates what was originally 10+ separate queues. Spawn path now routes all GPU writes through the queue — no more direct `buffer_update()` calls. The static Mutex pattern is simple and correct for single-threaded Godot.
+Clean unified queue architecture. GPU_UPDATE_QUEUE consolidates what was originally 10+ separate queues. Spawn path now routes all GPU writes through the queue — no more direct `buffer_update()` calls. The static Mutex pattern is correct for cross-boundary state (12 statics). Bevy-internal state (8 statics) planned for migration to Resources.
