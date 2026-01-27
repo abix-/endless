@@ -1,12 +1,11 @@
 //! Health systems - Damage, death detection, cleanup
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
-use godot_bevy::prelude::*;
 
 use crate::components::*;
 use crate::messages::*;
 
-/// Apply queued damage to Health component.
+/// Apply queued damage to Health component and sync to GPU.
 pub fn damage_system(
     mut events: MessageReader<DamageMsg>,
     mut query: Query<(&mut Health, &NpcIndex)>,
@@ -17,6 +16,10 @@ pub fn damage_system(
         for (mut health, npc_idx) in query.iter_mut() {
             if npc_idx.0 == event.npc_index {
                 health.0 = (health.0 - event.amount).max(0.0);
+                // Sync health to GPU so targeting ignores dead NPCs
+                if let Ok(mut queue) = HEALTH_SYNC_QUEUE.lock() {
+                    queue.push((npc_idx.0, health.0));
+                }
                 break;
             }
         }
@@ -61,19 +64,12 @@ pub fn death_cleanup_system(
         commands.entity(entity).despawn();
         despawn_count += 1;
 
-        // Queue GPU position update to hide (-9999, -9999)
-        if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() {
-            queue.push(SetTargetMsg {
-                npc_index: npc_idx.0,
-                x: -9999.0,
-                y: -9999.0,
-            });
+        // Queue GPU position update to hide NPC visually
+        if let Ok(mut queue) = HIDE_NPC_QUEUE.lock() {
+            queue.push(npc_idx.0);
         }
-
-        // Decrement authoritative NPC count
-        if let Ok(mut count) = GPU_NPC_COUNT.lock() {
-            *count = count.saturating_sub(1);
-        }
+        // Note: Don't decrement GPU_NPC_COUNT - that would break index mapping
+        // Instead, the shader will skip this NPC because health=0
     }
 
     if let Ok(mut debug) = HEALTH_DEBUG.lock() {

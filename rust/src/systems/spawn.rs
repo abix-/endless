@@ -2,7 +2,6 @@
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::godot_prelude::*;
-use godot_bevy::prelude::*;
 
 use crate::components::*;
 use crate::messages::*;

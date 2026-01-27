@@ -119,24 +119,61 @@ func _log(msg: String) -> void:
 
 
 func _copy_debug_info() -> void:
-	var info := "Test: %s | Time: %.1fs | NPCs: %d\n" % [TEST_NAMES.get(current_test, "?"), test_timer, npc_count]
+	var info := "=== ECS TEST DEBUG DUMP ===\n"
+	info += "Test: %s | Time: %.1fs | NPCs: %d\n" % [TEST_NAMES.get(current_test, "?"), test_timer, npc_count]
 	info += state_label.text + "\n"
 	info += phase_label.text + "\n"
+	info += "\n--- UI Labels ---\n"
+	info += expected_label.text + "\n"
+	info += velocity_label.text + "\n"
+	info += distance_label.text + "\n"
 
-	# Combat debug for test 10
+	# For combat test, get ALL debug data
 	if current_test == 10 and ecs_manager:
-		var cd: Dictionary = ecs_manager.call("get_combat_debug") if ecs_manager.has_method("get_combat_debug") else {}
-		info += "attackers=%d targets=%d attacks=%d chases=%d\n" % [cd.get("attackers", -1), cd.get("targets_found", -1), cd.get("attacks", -1), cd.get("chases", -1)]
-		info += "in_range=%d timer_ready=%d timer=%.2f\n" % [cd.get("in_range", -1), cd.get("timer_ready", -1), cd.get("sample_timer", -1.0)]
-		var hd: Dictionary = ecs_manager.call("get_health_debug") if ecs_manager.has_method("get_health_debug") else {}
-		info += "bevy_entities=%d damage_processed=%d\n" % [hd.get("bevy_entity_count", -1), hd.get("damage_processed", -1)]
-	else:
-		info += "Min sep: %.1fpx\n" % _get_min_separation() if npc_count > 1 else ""
-		if ecs_manager and ecs_manager.has_method("get_debug_stats"):
-			var stats: Dictionary = ecs_manager.get_debug_stats()
-			info += "arrived: %d/%d\n" % [stats.get("arrived_count", 0), npc_count]
-			info += "max_backoff: %d\n" % stats.get("max_backoff", 0)
-			info += "grid_cells: %d, max_per_cell: %d\n" % [stats.get("cells_used", 0), stats.get("max_per_cell", 0)]
+		info += "\n--- Combat Debug (Rust) ---\n"
+		var cd: Dictionary = ecs_manager.get_combat_debug()
+		info += "attackers: %d\n" % cd.get("attackers", -1)
+		info += "targets_found: %d\n" % cd.get("targets_found", -1)
+		info += "attacks: %d\n" % cd.get("attacks", -1)
+		info += "in_range: %d\n" % cd.get("in_range", -1)
+		info += "timer_ready: %d\n" % cd.get("timer_ready", -1)
+		info += "chases: %d\n" % cd.get("chases", -1)
+		info += "cooldown_entities: %d\n" % cd.get("cooldown_entities", -1)
+		info += "sample_timer: %.3f\n" % cd.get("sample_timer", -1.0)
+		info += "frame_delta: %.4f\n" % cd.get("frame_delta", -1.0)
+		info += "bounds_fail: %d\n" % cd.get("bounds_fail", -1)
+		info += "positions_len: %d\n" % cd.get("positions_len", -1)
+		info += "combat_targets_len: %d\n" % cd.get("combat_targets_len", -1)
+
+		info += "\n--- GPU Targeting (Samples) ---\n"
+		info += "combat_target[0]: %d  (guard -> expects raider idx)\n" % cd.get("combat_target_0", -99)
+		info += "combat_target[5]: %d  (raider -> expects guard idx)\n" % cd.get("combat_target_5", -99)
+
+		info += "\n--- Positions (from GPU_POSITIONS static) ---\n"
+		info += "NPC 0 pos: (%.1f, %.1f)\n" % [cd.get("pos_0_x", -999), cd.get("pos_0_y", -999)]
+		info += "NPC 5 pos: (%.1f, %.1f)\n" % [cd.get("pos_5_x", -999), cd.get("pos_5_y", -999)]
+
+		info += "\n--- CPU Position Cache (for grid building) ---\n"
+		info += "cpu_pos[0]: (%.1f, %.1f)\n" % [cd.get("cpu_pos_0_x", -999), cd.get("cpu_pos_0_y", -999)]
+		info += "cpu_pos[5]: (%.1f, %.1f)\n" % [cd.get("cpu_pos_5_x", -999), cd.get("cpu_pos_5_y", -999)]
+
+		info += "\n--- Grid Cell Counts ---\n"
+		info += "cell (5,4): %d NPCs  (guards should be here)\n" % cd.get("grid_cell_5_4", -1)
+		info += "cell (6,4): %d NPCs  (raiders should be here)\n" % cd.get("grid_cell_6_4", -1)
+
+		info += "\n--- Faction/Health Cache ---\n"
+		info += "faction[0]: %d (0=villager, 1=raider)\n" % cd.get("faction_0", -99)
+		info += "faction[5]: %d\n" % cd.get("faction_5", -99)
+		info += "health[0]: %.1f\n" % cd.get("health_0", -99.0)
+		info += "health[5]: %.1f\n" % cd.get("health_5", -99.0)
+		info += "npc_count: %d\n" % cd.get("npc_count", -1)
+
+		info += "\n--- Health Debug ---\n"
+		var hd: Dictionary = ecs_manager.get_health_debug()
+		info += "bevy_entity_count: %d\n" % hd.get("bevy_entity_count", -1)
+		info += "damage_processed: %d\n" % hd.get("damage_processed", -1)
+		info += "deaths_this_frame: %d\n" % hd.get("deaths_this_frame", -1)
+
 	DisplayServer.clipboard_set(info)
 	_log("Copied to clipboard")
 
@@ -873,12 +910,13 @@ func _update_test_combat() -> void:
 		var attackers: int = cd.get("attackers", -1)
 		var targets: int = cd.get("targets_found", -1)
 		var attacks: int = cd.get("attacks", -1)
-		var chases: int = cd.get("chases", -1)
-		var sample_tgt: int = cd.get("sample_target", -99)
-		var pos_len: int = cd.get("positions_len", -1)
-		var tgt_len: int = cd.get("combat_targets_len", -1)
-		expected_label.text = "atk=%d tgt=%d dmg=%d chase=%d" % [attackers, targets, attacks, chases]
-		velocity_label.text = "tgt[0]=%d pos=%d tgts=%d" % [sample_tgt, pos_len, tgt_len]
+		var in_range: int = cd.get("in_range", -1)
+		var timer_ready: int = cd.get("timer_ready", -1)
+		var sample_timer: float = cd.get("sample_timer", -1.0)
+		var frame_dt: float = cd.get("frame_delta", -1.0)
+		var cooldown_ents: int = cd.get("cooldown_entities", -1)
+		expected_label.text = "atk=%d tgt=%d dmg=%d rng=%d" % [attackers, targets, attacks, in_range]
+		velocity_label.text = "rdy=%d t=%.2f dt=%.4f cd_ent=%d" % [timer_ready, sample_timer, frame_dt, cooldown_ents]
 
 		# Show health debug
 		var hd: Dictionary = ecs_manager.call("get_health_debug") if ecs_manager.has_method("get_health_debug") else {}
@@ -908,12 +946,16 @@ func _update_test_combat() -> void:
 
 		_set_phase("Fighting: %d alive (%.0fs)" % [bevy_ct, test_timer])
 
-		# Check if combat resolved (< 10 NPCs means some died)
-		if bevy_ct < 10 and bevy_ct > 0:
+		# Check if combat resolved (< 10 NPCs means some died, including mutual annihilation)
+		if bevy_ct < 10:
 			test_phase = 4
 			_pass()
-			_set_phase("Combat resolved: %d survivors" % bevy_ct)
-			_log("PASS: Combat works!")
+			if bevy_ct == 0:
+				_set_phase("Combat resolved: mutual annihilation!")
+				_log("PASS: Combat works! (all combatants eliminated)")
+			else:
+				_set_phase("Combat resolved: %d survivors" % bevy_ct)
+				_log("PASS: Combat works!")
 
 		# Timeout after 30 seconds
 		if test_timer > 30.0:

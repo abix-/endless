@@ -1,6 +1,5 @@
 //! Queue drain systems - Move messages from static queues to Bevy events
 
-use godot_bevy::prelude::*;
 use godot_bevy::prelude::bevy_ecs_prelude::MessageWriter;
 use crate::messages::*;
 

@@ -1,7 +1,6 @@
 //! Movement systems - Target tracking and arrival detection
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
-use godot_bevy::prelude::*;
 
 use crate::components::*;
 use crate::messages::*;

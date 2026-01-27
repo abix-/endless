@@ -250,11 +250,45 @@ impl INode2D for EcsNpcManager {
             }
         }
 
-        if npc_count > 0 {
-            // Note: factions are uploaded at spawn time, no need to re-upload
-            // Health updates would need a sync from Bevy, but for now GPU targeting
-            // works with spawn-time health (dead NPCs get despawned anyway)
+        // Drain health sync queue - update GPU health buffer when Bevy health changes
+        if let Ok(mut queue) = HEALTH_SYNC_QUEUE.lock() {
+            for (npc_idx, new_health) in queue.drain(..) {
+                if npc_idx < npc_count {
+                    let health_bytes: Vec<u8> = new_health.to_le_bytes().to_vec();
+                    let health_packed = PackedByteArray::from(health_bytes.as_slice());
+                    gpu.rd.buffer_update(
+                        gpu.health_buffer,
+                        (npc_idx * 4) as u32,
+                        4,
+                        &health_packed
+                    );
+                    gpu.healths[npc_idx] = new_health;
+                }
+            }
+        }
 
+        // Drain hide queue - move dead NPCs off-screen
+        if let Ok(mut queue) = HIDE_NPC_QUEUE.lock() {
+            for npc_idx in queue.drain(..) {
+                if npc_idx < npc_count {
+                    // Update GPU position buffer directly to hide NPC
+                    let hide_pos: Vec<u8> = [-9999.0f32, -9999.0f32].iter()
+                        .flat_map(|f| f.to_le_bytes()).collect();
+                    let hide_packed = PackedByteArray::from(hide_pos.as_slice());
+                    gpu.rd.buffer_update(
+                        gpu.position_buffer,
+                        (npc_idx * 8) as u32,
+                        8,
+                        &hide_packed
+                    );
+                    // Also update CPU cache
+                    gpu.positions[npc_idx * 2] = -9999.0;
+                    gpu.positions[npc_idx * 2 + 1] = -9999.0;
+                }
+            }
+        }
+
+        if npc_count > 0 {
             gpu.dispatch(npc_count, delta as f32);
             gpu.read_positions_from_gpu(npc_count);
 
@@ -368,6 +402,10 @@ impl EcsNpcManager {
             gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
             gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
 
+            // CRITICAL: Update CPU cache so grid is built correctly
+            gpu.positions[idx * 2] = x;
+            gpu.positions[idx * 2 + 1] = y;
+
             let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
             let color_packed = PackedByteArray::from(color_bytes.as_slice());
             gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
@@ -420,6 +458,10 @@ impl EcsNpcManager {
             gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
             gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
 
+            // CRITICAL: Update CPU cache so grid is built correctly
+            gpu.positions[idx * 2] = x;
+            gpu.positions[idx * 2 + 1] = y;
+
             let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
             let color_packed = PackedByteArray::from(color_bytes.as_slice());
             gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
@@ -440,11 +482,13 @@ impl EcsNpcManager {
 
             // Upload faction (villager = 0)
             gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &zero_packed);
+            gpu.factions[idx] = 0;
 
             // Upload health
             let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
             let health_packed = PackedByteArray::from(health_bytes.as_slice());
             gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+            gpu.healths[idx] = 100.0;
         }
 
         if let Ok(world) = WORLD_DATA.lock() {
@@ -488,6 +532,10 @@ impl EcsNpcManager {
             gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
             gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
 
+            // CRITICAL: Update CPU cache so grid is built correctly
+            gpu.positions[idx * 2] = x;
+            gpu.positions[idx * 2 + 1] = y;
+
             let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
             let color_packed = PackedByteArray::from(color_bytes.as_slice());
             gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
@@ -511,11 +559,13 @@ impl EcsNpcManager {
 
             // Upload faction (villager = 0)
             gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &zero_packed);
+            gpu.factions[idx] = 0;
 
             // Upload health
             let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
             let health_packed = PackedByteArray::from(health_bytes.as_slice());
             gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+            gpu.healths[idx] = 100.0;
         }
 
         self.prev_arrivals[idx] = true;
@@ -552,6 +602,10 @@ impl EcsNpcManager {
             let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
             gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
 
+            // CRITICAL: Update CPU cache so grid is built correctly
+            gpu.positions[idx * 2] = x;
+            gpu.positions[idx * 2 + 1] = y;
+
             let work_bytes: Vec<u8> = [work_x, work_y].iter().flat_map(|f| f.to_le_bytes()).collect();
             let work_packed = PackedByteArray::from(work_bytes.as_slice());
             gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &work_packed);
@@ -578,11 +632,13 @@ impl EcsNpcManager {
             let faction_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
             let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
             gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &faction_packed);
+            gpu.factions[idx] = 0;
 
             // Upload health
             let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
             let health_packed = PackedByteArray::from(health_bytes.as_slice());
             gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+            gpu.healths[idx] = 100.0;
         }
     }
 
@@ -613,6 +669,10 @@ impl EcsNpcManager {
             gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
             gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &pos_packed);
 
+            // CRITICAL: Update CPU cache so grid is built correctly
+            gpu.positions[idx * 2] = x;
+            gpu.positions[idx * 2 + 1] = y;
+
             let color_bytes: Vec<u8> = [r, g, b, a].iter().flat_map(|f| f.to_le_bytes()).collect();
             let color_packed = PackedByteArray::from(color_bytes.as_slice());
             gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
@@ -635,11 +695,13 @@ impl EcsNpcManager {
             let faction_bytes: Vec<u8> = 1i32.to_le_bytes().to_vec();
             let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
             gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &faction_packed);
+            gpu.factions[idx] = 1;
 
             // Upload health
             let health_bytes: Vec<u8> = 100.0f32.to_le_bytes().to_vec();
             let health_packed = PackedByteArray::from(health_bytes.as_slice());
             gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+            gpu.healths[idx] = 100.0;
         }
     }
 
@@ -797,6 +859,38 @@ impl EcsNpcManager {
             dict.set("in_range", debug.in_range_count as i32);
             dict.set("timer_ready", debug.timer_ready_count as i32);
             dict.set("sample_timer", debug.sample_timer);
+            dict.set("cooldown_entities", debug.cooldown_entities as i32);
+            dict.set("frame_delta", debug.frame_delta);
+            // Enhanced debug data
+            dict.set("combat_target_0", debug.sample_combat_target_0);
+            dict.set("combat_target_5", debug.sample_combat_target_5);
+            dict.set("pos_0_x", debug.sample_pos_0.0);
+            dict.set("pos_0_y", debug.sample_pos_0.1);
+            dict.set("pos_5_x", debug.sample_pos_5.0);
+            dict.set("pos_5_y", debug.sample_pos_5.1);
+        }
+        // Add grid debug info from GPU cache
+        if let Some(gpu) = &self.gpu {
+            let npc_count = GPU_NPC_COUNT.lock().map(|c| *c).unwrap_or(0);
+            // Count NPCs in grid cells near spawn location (cell 5,4 for test 10)
+            // cell_size=64, CENTER=(400,300) -> guards at 375,300 -> cell 5,4
+            // raiders at 425,300 -> cell 6,4
+            let cell_5_4 = 4 * GRID_WIDTH + 5;
+            let cell_6_4 = 4 * GRID_WIDTH + 6;
+            dict.set("grid_cell_5_4", gpu.grid.counts.get(cell_5_4).copied().unwrap_or(-1));
+            dict.set("grid_cell_6_4", gpu.grid.counts.get(cell_6_4).copied().unwrap_or(-1));
+            // Sample factions from cache
+            dict.set("faction_0", gpu.factions.get(0).copied().unwrap_or(-99));
+            dict.set("faction_5", gpu.factions.get(5).copied().unwrap_or(-99));
+            // Sample healths from cache
+            dict.set("health_0", gpu.healths.get(0).copied().unwrap_or(-99.0) as f32);
+            dict.set("health_5", gpu.healths.get(5).copied().unwrap_or(-99.0) as f32);
+            // CPU-side position cache
+            dict.set("cpu_pos_0_x", gpu.positions.get(0).copied().unwrap_or(-999.0));
+            dict.set("cpu_pos_0_y", gpu.positions.get(1).copied().unwrap_or(-999.0));
+            dict.set("cpu_pos_5_x", gpu.positions.get(10).copied().unwrap_or(-999.0));
+            dict.set("cpu_pos_5_y", gpu.positions.get(11).copied().unwrap_or(-999.0));
+            dict.set("npc_count", npc_count as i32);
         }
         dict
     }
@@ -837,6 +931,8 @@ impl EcsNpcManager {
         if let Ok(mut queue) = ARRIVAL_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = GPU_TARGET_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = DAMAGE_QUEUE.lock() { queue.clear(); }
+        if let Ok(mut queue) = HEALTH_SYNC_QUEUE.lock() { queue.clear(); }
+        if let Ok(mut queue) = HIDE_NPC_QUEUE.lock() { queue.clear(); }
 
         if let Ok(mut world) = WORLD_DATA.lock() {
             world.towns.clear();

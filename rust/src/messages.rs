@@ -6,7 +6,6 @@
 //! - We can't pass references between them, so we use global queues
 //! - Mutex ensures thread-safety (even though Godot is single-threaded, Bevy isn't)
 
-use godot_bevy::prelude::*;
 use godot_bevy::prelude::bevy_ecs_prelude::Message;
 use std::sync::Mutex;
 
@@ -100,6 +99,12 @@ pub static GPU_TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
 
 /// Queue of pending damage requests.
 pub static DAMAGE_QUEUE: Mutex<Vec<DamageMsg>> = Mutex::new(Vec::new());
+
+/// Queue of health updates to sync to GPU (npc_index, new_health).
+pub static HEALTH_SYNC_QUEUE: Mutex<Vec<(usize, f32)>> = Mutex::new(Vec::new());
+
+/// Queue of NPCs to hide visually (move position to -9999).
+pub static HIDE_NPC_QUEUE: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
 /// Queue of pending raider spawn requests.
 pub static RAIDER_QUEUE: Mutex<Vec<SpawnRaiderMsg>> = Mutex::new(Vec::new());

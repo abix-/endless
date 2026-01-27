@@ -21,7 +21,14 @@ pub struct CombatDebug {
     pub sample_dist: f32,
     pub in_range_count: usize,
     pub timer_ready_count: usize,
-    pub sample_timer: f32,
+    pub sample_timer: f32,       // Timer value in cooldown_system (before decrement)
+    pub cooldown_entities: usize, // Entities with AttackTimer (in cooldown_system)
+    pub frame_delta: f32,         // dt used for cooldown
+    // Enhanced debug for diagnosing targeting issues
+    pub sample_combat_target_0: i32,  // combat_targets[0]
+    pub sample_combat_target_5: i32,  // combat_targets[5] (first raider in test 10)
+    pub sample_pos_0: (f32, f32),     // position of NPC 0
+    pub sample_pos_5: (f32, f32),     // position of NPC 5
 }
 
 impl CombatDebug {
@@ -40,17 +47,41 @@ impl CombatDebug {
             in_range_count: 0,
             timer_ready_count: 0,
             sample_timer: -1.0,
+            cooldown_entities: 0,
+            frame_delta: 0.0,
+            sample_combat_target_0: -99,
+            sample_combat_target_5: -99,
+            sample_pos_0: (0.0, 0.0),
+            sample_pos_5: (0.0, 0.0),
         }
     }
 }
 
 /// Decrement attack cooldown timers each frame.
+/// Also updates debug with pre-cooldown timer state.
 pub fn cooldown_system(mut query: Query<&mut AttackTimer>) {
     let dt = FRAME_DELTA.lock().map(|d| *d).unwrap_or(0.016);
+
+    // Debug: capture first timer BEFORE decrement
+    let mut first_timer_before = -99.0f32;
+    let mut timer_count = 0usize;
+
     for mut timer in query.iter_mut() {
+        if timer_count == 0 {
+            first_timer_before = timer.0;
+        }
+        timer_count += 1;
+
         if timer.0 > 0.0 {
             timer.0 = (timer.0 - dt).max(0.0);
         }
+    }
+
+    // Store in debug
+    if let Ok(mut debug) = COMBAT_DEBUG.lock() {
+        debug.sample_timer = first_timer_before;
+        debug.cooldown_entities = timer_count;
+        debug.frame_delta = dt;
     }
 }
 
@@ -179,5 +210,16 @@ pub fn attack_system(
         debug.in_range_count = in_range_count;
         debug.timer_ready_count = timer_ready_count;
         debug.sample_timer = sample_timer;
+        // Sample combat targets and positions for debugging
+        debug.sample_combat_target_0 = combat_targets.get(0).copied().unwrap_or(-99);
+        debug.sample_combat_target_5 = combat_targets.get(5).copied().unwrap_or(-99);
+        debug.sample_pos_0 = (
+            positions.get(0).copied().unwrap_or(-999.0),
+            positions.get(1).copied().unwrap_or(-999.0),
+        );
+        debug.sample_pos_5 = (
+            positions.get(10).copied().unwrap_or(-999.0),
+            positions.get(11).copied().unwrap_or(-999.0),
+        );
     }
 }
