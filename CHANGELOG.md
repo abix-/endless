@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-01-27 (WIP)
+- wire EcsNpcManager into main.gd (Phase 1): replace npc_manager + projectile_manager with Rust ECS
+- comment out: food production, respawning, building, upgrades, active radius, NPC selection (future phases)
+- spawn_npc() calls for farmers, guards, raiders with Dictionary opts
+
 ## 2026-01-27
 - fix test 11: add combat_target_2/3 to get_combat_debug() (was returning -99 default)
 - fix test 11: move ranged pair from 200px to 150px apart (200px spans 2 grid cells, outside 3x3 neighborhood)

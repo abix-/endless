@@ -1,7 +1,7 @@
 extends Node2D
 
-var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
-var projectile_manager_scene: PackedScene = preload("res://systems/projectile_manager.tscn")
+#var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
+#var projectile_manager_scene: PackedScene = preload("res://systems/projectile_manager.tscn")
 var player_scene: PackedScene = preload("res://entities/player.tscn")
 var location_scene: PackedScene = preload("res://world/location.tscn")
 var terrain_scene: PackedScene = preload("res://world/terrain_renderer.tscn")
@@ -14,8 +14,8 @@ var build_menu_scene: PackedScene = preload("res://ui/build_menu.tscn")
 var policies_panel_scene: PackedScene = preload("res://ui/policies_panel.tscn")
 var guard_post_menu_scene: PackedScene = preload("res://ui/guard_post_menu.tscn")
 
-var npc_manager: Node
-var projectile_manager: Node
+var npc_manager  # EcsNpcManager (Rust)
+#var projectile_manager: Node  # ECS handles projectiles
 var player: Node
 var left_panel: Node
 var settings_menu: Node
@@ -142,14 +142,14 @@ func _draw() -> void:
 	# Draw buildable slot indicators for player's town
 	_draw_buildable_slots()
 
-	# Debug: Active radius circle (entity sleeping zone)
-	if UserSettings.show_active_radius:
-		var camera: Camera2D = get_viewport().get_camera_2d()
-		if camera:
-			var cam_pos: Vector2 = camera.global_position
-			var radius: float = npc_manager.ACTIVE_RADIUS
-			var color := Color(0.2, 0.8, 1.0, 0.4)
-			draw_arc(cam_pos, radius, 0, TAU, 64, color, 2.0)
+	# Debug: Active radius circle (entity sleeping zone) — needs ECS API
+	#if UserSettings.show_active_radius:
+	#	var camera: Camera2D = get_viewport().get_camera_2d()
+	#	if camera:
+	#		var cam_pos: Vector2 = camera.global_position
+	#		var radius: float = npc_manager.ACTIVE_RADIUS
+	#		var color := Color(0.2, 0.8, 1.0, 0.4)
+	#		draw_arc(cam_pos, radius, 0, TAU, 64, color, 2.0)
 
 
 func _generate_world() -> void:
@@ -340,85 +340,33 @@ func _setup_terrain() -> void:
 
 
 func _setup_managers() -> void:
-	npc_manager = npc_manager_scene.instantiate()
+	# EcsNpcManager (Rust) replaces GDScript npc_manager + projectile_manager
+	npc_manager = ClassDB.instantiate("EcsNpcManager")
 	add_child(npc_manager)
-	npc_manager.raider_delivered_food.connect(_on_raider_delivered_food)
 
-	projectile_manager = projectile_manager_scene.instantiate()
-	add_child(projectile_manager)
+	# Wire world data into ECS
+	npc_manager.init_world(NUM_TOWNS)
+	npc_manager.init_food_storage(NUM_TOWNS, NUM_TOWNS)
 
-	projectile_manager.set_npc_manager(npc_manager)
-	npc_manager.set_projectile_manager(projectile_manager)
-
-	# Pass farm positions to npc_manager
-	for town in towns:
-		var farms := _get_farms_from_town(town)
-		for farm in farms:
-			npc_manager.farm_positions.append(farm.global_position)
-
-	# Pass guard post positions per town
-	for town in towns:
-		var posts: Array[Vector2] = []
-		for post in town.guard_posts:
-			posts.append(post.global_position)
-		npc_manager.guard_posts_by_town.append(posts)
-
-	# Pass town centers (fountains) for flee destinations
-	for town in towns:
-		npc_manager.town_centers.append(town.center)
-
-	# Pass bed positions per town and initialize occupancy arrays
-	for town in towns:
-		var beds := _get_beds_from_town(town)
-		var bed_positions: Array[Vector2] = []
-		for bed in beds:
-			bed_positions.append(bed.global_position)
-		npc_manager.beds_by_town.append(bed_positions)
-		# Initialize occupancy: -1 = free
-		var occupants: PackedInt32Array
-		occupants.resize(bed_positions.size())
-		for bi in bed_positions.size():
-			occupants[bi] = -1
-		npc_manager.bed_occupants.append(occupants)
-
-	# Pass farm positions per town and initialize occupancy counts
-	for town in towns:
-		var farms := _get_farms_from_town(town)
-		var farm_positions: Array[Vector2] = []
-		for farm in farms:
-			farm_positions.append(farm.global_position)
-		npc_manager.farms_by_town.append(farm_positions)
-		# Initialize counts: 0 = empty
-		var counts: PackedInt32Array
-		counts.resize(farm_positions.size())
-		for fi in farm_positions.size():
-			counts[fi] = 0
-		npc_manager.farm_occupant_counts.append(counts)
-
-	# Pass town upgrades and policies references
-	npc_manager.town_upgrades = town_upgrades
-	npc_manager.town_policies = town_policies
-
-	# Pass food references for eating
-	npc_manager.town_food = town_food
-	npc_manager.camp_food = camp_food
-	npc_manager.npc_ate_food.connect(_on_npc_ate_food)
-
-	# Set village center to world center (for compatibility)
-	@warning_ignore("integer_division")
-	npc_manager.village_center = Vector2(Config.world_width / 2, Config.world_height / 2)
-
-	# Set up guard post combat system
-	npc_manager.set_main_reference(self)
-
-	# Register existing guard posts with combat system
 	for town_idx in towns.size():
 		var town: Dictionary = towns[town_idx]
-		for slot_key in town.slots:
-			for building in town.slots[slot_key]:
-				if building.type == "guard_post":
-					var pos: Vector2 = building.node.global_position
-					npc_manager._guard_post_combat.register_post(pos, town_idx, slot_key)
+		var camp_pos: Vector2 = town.camp.global_position
+		npc_manager.add_town(town.name, town.center.x, town.center.y, camp_pos.x, camp_pos.y)
+
+		# Add farms
+		var farms := _get_farms_from_town(town)
+		for farm in farms:
+			npc_manager.add_farm(farm.global_position.x, farm.global_position.y, town_idx)
+
+		# Add beds
+		var beds := _get_beds_from_town(town)
+		for bed in beds:
+			npc_manager.add_bed(bed.global_position.x, bed.global_position.y, town_idx)
+
+		# Add guard posts (patrol_order = index within town)
+		for post_idx in town.guard_posts.size():
+			var post = town.guard_posts[post_idx]
+			npc_manager.add_guard_post(post.global_position.x, post.global_position.y, town_idx, post_idx)
 
 
 func _setup_player() -> void:
@@ -436,7 +384,7 @@ func _setup_ui() -> void:
 	add_child(settings_menu)
 
 	upgrade_menu = upgrade_menu_scene.instantiate()
-	upgrade_menu.upgrade_purchased.connect(_on_upgrade_purchased)
+	#upgrade_menu.upgrade_purchased.connect(_on_upgrade_purchased)  # Phase 6
 	add_child(upgrade_menu)
 
 	var combat_log = combat_log_scene.instantiate()
@@ -446,9 +394,9 @@ func _setup_ui() -> void:
 	add_child(roster_panel)
 
 	build_menu = build_menu_scene.instantiate()
-	build_menu.build_requested.connect(_on_build_requested)
-	build_menu.destroy_requested.connect(_on_destroy_requested)
-	build_menu.unlock_requested.connect(_on_unlock_requested)
+	#build_menu.build_requested.connect(_on_build_requested)  # Phase 5
+	#build_menu.destroy_requested.connect(_on_destroy_requested)  # Phase 5
+	#build_menu.unlock_requested.connect(_on_unlock_requested)  # Phase 5
 	add_child(build_menu)
 
 	var policies_panel = policies_panel_scene.instantiate()
@@ -472,43 +420,45 @@ func _spawn_npcs() -> void:
 		var beds := _get_beds_from_town(town)
 		var farms := _get_farms_from_town(town)
 		var camp = town.camp
+		var post_count: int = town.guard_posts.size()
 
-		# Spawn farmers (target building centers, spawn with small offset)
+		# Spawn farmers
 		for i in Config.farmers_per_town:
 			var bed = beds[i % beds.size()]
 			var farm = farms[i % farms.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
-			npc_manager.spawn_farmer(
-				bed.global_position + spawn_offset,
-				bed.global_position,  # home center
-				farm.global_position,  # farm center
-				town_idx
-			)
+			var pos: Vector2 = bed.global_position + spawn_offset
+			npc_manager.spawn_npc(pos.x, pos.y, 0, 0, {
+				"home_x": bed.global_position.x,
+				"home_y": bed.global_position.y,
+				"work_x": farm.global_position.x,
+				"work_y": farm.global_position.y,
+				"town_idx": town_idx
+			})
 			total_farmers += 1
 
-		# Spawn guards (live in beds, patrol at posts)
-		# Alternate day/night shifts for even coverage
+		# Spawn guards
 		for i in Config.guards_per_town:
 			var bed = beds[i % beds.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
-			var night_shift: bool = i % 2 == 1  # Odd = night, even = day
-			npc_manager.spawn_guard(
-				bed.global_position + spawn_offset,
-				bed.global_position,  # home center
-				bed.global_position,  # unused - guards patrol all posts
-				night_shift,
-				town_idx
-			)
+			var pos: Vector2 = bed.global_position + spawn_offset
+			npc_manager.spawn_npc(pos.x, pos.y, 1, 0, {
+				"home_x": bed.global_position.x,
+				"home_y": bed.global_position.y,
+				"town_idx": town_idx,
+				"starting_post": i % post_count
+			})
 			total_guards += 1
 
 		# Spawn raiders at camp
 		for i in Config.raiders_per_camp:
 			var spawn_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
-			npc_manager.spawn_raider(
-				camp.global_position + spawn_offset,
-				camp.global_position,  # camp center
-				town_idx
-			)
+			var pos: Vector2 = camp.global_position + spawn_offset
+			npc_manager.spawn_npc(pos.x, pos.y, 2, 1, {
+				"home_x": camp.global_position.x,
+				"home_y": camp.global_position.y,
+				"town_idx": town_idx
+			})
 			total_raiders += 1
 
 	print("Spawned: %d farmers, %d guards, %d raiders" % [total_farmers, total_guards, total_raiders])
@@ -518,94 +468,30 @@ func _on_day_changed(day: int) -> void:
 	print("=== DAY %d ===" % day)
 
 
-func _on_time_tick(_hour: int, minute: int) -> void:
-	# Only process on the hour
-	if minute != 0:
-		return
-
-	# Generate food when farmers are working
-	for i in npc_manager.count:
-		if npc_manager.healths[i] <= 0:
-			continue
-		if npc_manager.jobs[i] != NPCState.Job.FARMER:
-			continue
-		if npc_manager.states[i] != NPCState.State.FARMING:
-			continue
-
-		var town_idx: int = npc_manager.town_indices[i]
-		if town_idx >= 0 and town_idx < town_food.size():
-			var yield_level: int = town_upgrades[town_idx].farm_yield
-			var yield_mult: float = 1.0 + yield_level * Config.UPGRADE_FARM_YIELD_BONUS
-			var npc_trait: int = npc_manager.traits[i]
-			if npc_trait == NPCState.Trait.EFFICIENT:
-				yield_mult *= 1.25
-			elif npc_trait == NPCState.Trait.LAZY:
-				yield_mult *= 0.8
-			town_food[town_idx] += int(FOOD_PER_WORK_HOUR * yield_mult)
-
-	# Spawn new NPCs at regular intervals
-	for town_idx in towns.size():
-		spawn_timers[town_idx] += 1
-		if spawn_timers[town_idx] >= Config.SPAWN_INTERVAL_HOURS:
-			spawn_timers[town_idx] = 0
-			_spawn_town_npcs(town_idx)
+func _on_time_tick(_hour: int, _minute: int) -> void:
+	pass  # Phase 2: food production + respawning
+	#if minute != 0:
+	#	return
+	# TODO: get_working_farmer_count() + count_alive() queries
+	# TODO: respawn logic via spawn_npc()
 
 
-func _spawn_town_npcs(town_idx: int) -> void:
-	var town: Dictionary = towns[town_idx]
-	var beds := _get_beds_from_town(town)
-	var farms := _get_farms_from_town(town)
-	var camp = town.camp
-	var town_center: Vector2 = town.center
-
-	# Spawn 1 farmer at fountain (if under cap)
-	var farmer_count: int = npc_manager.count_alive_by_job_and_town(NPCState.Job.FARMER, town_idx)
-	if farmer_count < town_max_farmers[town_idx] and beds.size() > 0 and farms.size() > 0:
-		var bed = beds[randi() % beds.size()]
-		var farm = farms[randi() % farms.size()]
-		var farmer_idx: int = npc_manager.spawn_farmer(
-			town_center,
-			bed.global_position,
-			farm.global_position,
-			town_idx
-		)
-		npc_manager.npc_spawned.emit(farmer_idx, NPCState.Job.FARMER, town_idx)
-
-	# Spawn 1 guard at fountain (if under cap)
-	var guard_count: int = npc_manager.count_alive_by_job_and_town(NPCState.Job.GUARD, town_idx)
-	if guard_count < town_max_guards[town_idx] and beds.size() > 0:
-		var bed = beds[randi() % beds.size()]
-		var night_shift: bool = randi() % 2 == 1
-		var guard_idx: int = npc_manager.spawn_guard(
-			town_center,
-			bed.global_position,
-			bed.global_position,
-			night_shift,
-			town_idx
-		)
-		npc_manager.npc_spawned.emit(guard_idx, NPCState.Job.GUARD, town_idx)
-
-	# Spawn 1 raider at camp
-	var raider_idx: int = npc_manager.spawn_raider(
-		camp.global_position,
-		camp.global_position,
-		town_idx
-	)
-	npc_manager.npc_spawned.emit(raider_idx, NPCState.Job.RAIDER, town_idx)
+#func _spawn_town_npcs(town_idx: int) -> void:
+	# Phase 2: respawn via count_alive() + spawn_npc()
 
 
-func _on_raider_delivered_food(town_idx: int) -> void:
-	if town_idx >= 0 and town_idx < camp_food.size():
-		camp_food[town_idx] += 1
+#func _on_raider_delivered_food(town_idx: int) -> void:
+#	if town_idx >= 0 and town_idx < camp_food.size():
+#		camp_food[town_idx] += 1
 
 
-func _on_npc_ate_food(_npc_index: int, town_idx: int, job: int, _hp_before: float, _energy_before: float, _hp_after: float) -> void:
-	if job == NPCState.Job.RAIDER:
-		if town_idx >= 0 and town_idx < camp_food.size():
-			camp_food[town_idx] -= Config.FOOD_PER_MEAL
-	else:
-		if town_idx >= 0 and town_idx < town_food.size():
-			town_food[town_idx] -= Config.FOOD_PER_MEAL
+#func _on_npc_ate_food(_npc_index: int, town_idx: int, job: int, _hp_before: float, _energy_before: float, _hp_after: float) -> void:
+#	if job == NPCState.Job.RAIDER:
+#		if town_idx >= 0 and town_idx < camp_food.size():
+#			camp_food[town_idx] -= Config.FOOD_PER_MEAL
+#	else:
+#		if town_idx >= 0 and town_idx < town_food.size():
+#			town_food[town_idx] -= Config.FOOD_PER_MEAL
 
 
 func _process(_delta: float) -> void:
@@ -648,25 +534,24 @@ func _input(event: InputEvent) -> void:
 			guard_post_menu.open(post_info.slot_key, post_info.town_idx, event.position)
 			get_viewport().set_input_as_handled()
 		else:
-			var farm_info := _get_clicked_farm(world_pos)
-			if farm_info.farm_idx >= 0:
-				farm_menu.open(farm_info.town_idx, farm_info.farm_idx, event.position)
-				get_viewport().set_input_as_handled()
+			#var farm_info := _get_clicked_farm(world_pos)
+			#if farm_info.farm_idx >= 0:
+			#	farm_menu.open(farm_info.town_idx, farm_info.farm_idx, event.position)
+			#	get_viewport().set_input_as_handled()
 			# If no NPC or guard post or farm clicked, select terrain tile
-			elif npc_manager.selected_npc < 0:
-				selected_tile = terrain_renderer.get_tile_at(world_pos)
+			#elif npc_manager.selected_npc < 0:
+			selected_tile = terrain_renderer.get_tile_at(world_pos)
 
 
-func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
-	# Handle population cap upgrades
-	if upgrade_type == "farmer_cap":
-		town_max_farmers[player_town_idx] = Config.max_farmers_per_town + new_level * Config.UPGRADE_FARMER_CAP_BONUS
-		return
-	if upgrade_type == "guard_cap":
-		town_max_guards[player_town_idx] = Config.max_guards_per_town + new_level * Config.UPGRADE_GUARD_CAP_BONUS
-		return
-	# Apply upgrade to all guards in this town
-	npc_manager.apply_town_upgrade(player_town_idx, upgrade_type, new_level)
+#func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:
+#	# Phase 6: config-driven upgrades
+#	if upgrade_type == "farmer_cap":
+#		town_max_farmers[player_town_idx] = Config.max_farmers_per_town + new_level * Config.UPGRADE_FARMER_CAP_BONUS
+#		return
+#	if upgrade_type == "guard_cap":
+#		town_max_guards[player_town_idx] = Config.max_guards_per_town + new_level * Config.UPGRADE_GUARD_CAP_BONUS
+#		return
+#	npc_manager.apply_town_upgrade(player_town_idx, upgrade_type, new_level)
 
 
 func _draw_buildable_slots() -> void:
@@ -809,15 +694,9 @@ func _get_clicked_guard_post(world_pos: Vector2) -> Dictionary:
 	return {"slot_key": "", "town_idx": -1}
 
 
-func _get_clicked_farm(world_pos: Vector2) -> Dictionary:
-	var click_radius := 40.0  # Farm is 3x3 (48px), use generous click area
-	for town_idx in npc_manager.farms_by_town.size():
-		var farms: Array = npc_manager.farms_by_town[town_idx]
-		for farm_idx in farms.size():
-			var farm_pos: Vector2 = farms[farm_idx]
-			if world_pos.distance_to(farm_pos) < click_radius:
-				return {"town_idx": town_idx, "farm_idx": farm_idx}
-	return {"town_idx": -1, "farm_idx": -1}
+#func _get_clicked_farm(world_pos: Vector2) -> Dictionary:
+#	# Phase 5: needs ECS farm query API
+#	return {"town_idx": -1, "farm_idx": -1}
 
 
 func _on_build_requested(slot_key: String, building_type: String) -> void:
