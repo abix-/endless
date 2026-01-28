@@ -6,7 +6,8 @@ Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk r
 - [x] Phases 1-8.5: Full ECS pipeline (spawn, movement, GPU physics, world data, guards, behaviors, combat, raider logic, unified spawn API)
 - [x] Phase 9.1: EcsNpcManager wired into main.gd — game boots with Rust ECS, NPCs render/move/fight
 - [x] Phase 9.2: Food production and respawning fully in Bevy (Clan, GameTime, PopulationStats, economy_tick_system)
-- [ ] Phase 9.3-9.7: Events, UI queries, building, upgrades, GDScript cleanup
+- [x] Phase 9.4: UI data queries (NPC_META, NPC_STATES, NPC_ENERGY, selection, 10 query APIs, sprite rendering)
+- [ ] Phase 9.3, 9.5-9.7: Events, building, upgrades, GDScript cleanup
 - [ ] Phase 10: Idiomatic Bevy (static Mutex → Resources + Events)
 
 ## GPU-First Architecture
@@ -185,13 +186,20 @@ Each step is a working game state. Old GDScript npc_manager kept as reference un
 - [ ] main.gd _process() polls events, feeds combat_log and UI
 - [ ] Result: Combat log shows deaths, food stolen events appear
 
-*9.4: UI data queries*
-- [ ] NpcMeta component (name, level, xp) — names generated on spawn
-- [ ] get_npc_info(idx) API — position, job, faction, health, energy, state, name, level
-- [ ] get_population_stats(town_idx) API — alive farmers/guards/raiders count
-- [ ] get_npc_state(idx) API — current state as int for UI display
-- [ ] left_panel.gd and roster_panel.gd use dictionary queries instead of array reads
-- [ ] Result: Click NPC → inspector shows name, HP, job, energy. Roster panel lists NPCs
+*9.4: UI data queries* ✓
+- [x] NPC_META static — per-NPC name/level/xp/trait cached for UI queries
+- [x] NPC_STATES static — per-NPC state ID updated by behavior systems
+- [x] NPC_ENERGY static — per-NPC energy synced from Bevy
+- [x] KILL_STATS static — tracks guard/villager kills for UI display
+- [x] SELECTED_NPC static — currently selected NPC index for inspector
+- [x] NPCS_BY_TOWN static — per-town NPC lists for O(1) roster queries
+- [x] Name generation — "Adjective Noun" names based on job (Swift Tiller, Brave Shield, etc.)
+- [x] 10 query APIs: get_population_stats, get_town_population, get_npc_info, get_npcs_by_town, get/set_selected_npc, get_npc_name, get_npc_trait, set_npc_name, get_bed_stats
+- [x] get_npc_at_position(x, y, radius) API for click selection
+- [x] NPC click selection in main.gd — left-click selects nearest NPC within 20px
+- [x] Sprite rendering — ShaderMaterial kept alive, custom_data in MultiMesh buffer for sprite frames
+- [x] left_panel.gd, roster_panel.gd, upgrade_menu.gd use ECS query APIs
+- [x] Result: Click NPC → inspector shows name/HP/job/energy. Roster panel lists NPCs with sorting/filtering.
 
 *9.5: Building system*
 - [ ] Runtime add/remove farm/bed/guard_post APIs that update Bevy world data resources
@@ -265,7 +273,7 @@ Multi-threaded systems (pure logic) → emit Events → main thread system → G
 | Phase 7a (health/death) | 10,000+ | 140 | ✅ Done |
 | Phase 7b (GPU targeting) | 10,000+ | 140 | ✅ Done |
 | Phase 7c (GPU projectiles) | 10,000+ | 140 | ✅ Done |
-| Phase 8-9 (full game) | 10,000+ | 60+ | 9.1-9.2 done |
+| Phase 8-9 (full game) | 10,000+ | 60+ | 9.1-9.2, 9.4 done |
 | GPU grid + targeting | 20,000+ | 60+ | Future |
 
 ## Performance Lessons Learned
