@@ -170,7 +170,7 @@ Same situation, different outcomes. That's emergent behavior.
 - Reads `Res<PhysicsDelta>` (godot-bevy's Godot-synced delta time)
 - Accumulates elapsed time, triggers on hour boundaries
 - **Food production**: counts `Working` farmers per `TownId`, adds food to `FOOD_STORAGE`
-- **Respawn check**: compares `PopulationStats` alive counts vs `GameConfig` caps, spawns replacements
+- **Respawn check**: (disabled) code exists to compare `PopulationStats` vs `GameConfig` caps and spawn replacements
 
 ## Energy Model
 

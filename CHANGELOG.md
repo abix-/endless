@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-01-28
+- delete raider_idle_system: dead code now absorbed into npc_decision_system
+- disable autospawning: comment out check_respawns call (code kept for later)
+- remove console spam from economy_tick_system and produce_food
 - add utility AI: weighted random decision system replaces priority cascades
 - add Personality component: 0-2 traits (Brave, Tough, Swift, Focused) with magnitude 0.5-1.5
 - add TraitKind, TraitInstance types for trait data

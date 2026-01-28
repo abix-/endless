@@ -243,121 +243,9 @@ pub fn raider_arrival_system(
                     }
                 }
 
-                // Fall through to raider_idle_system next tick
+                // Fall through to npc_decision_system next tick
                 // (entity has no active state markers)
                 break;
-            }
-        }
-    }
-}
-
-/// Idle brain for raiders: pick next action when not busy.
-/// Runs on Stealer NPCs without any active state.
-pub fn raider_idle_system(
-    mut commands: Commands,
-    query: Query<
-        (Entity, &NpcIndex, &Home, &Health, Option<&CarryingFood>, Option<&Energy>, Option<&WoundedThreshold>),
-        (With<Stealer>,
-         Without<Raiding>, Without<Returning>, Without<Resting>,
-         Without<InCombat>, Without<Recovering>, Without<GoingToRest>,
-         Without<Dead>)
-    >,
-) {
-    for (entity, npc_idx, home, health, carrying, energy, wounded) in query.iter() {
-        let health_pct = health.0 / 100.0;
-
-        // Priority 1: Wounded — drop food, go home, rest
-        if let Some(w) = wounded {
-            if health_pct < w.pct && home.is_valid() {
-                let mut cmds = commands.entity(entity);
-                cmds.remove::<CarryingFood>();
-                cmds.insert(Returning);
-
-                if carrying.is_some() {
-                    // Reset color when dropping food
-                    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                        let (r, g, b, a) = Job::Raider.color();
-                        queue.push(GpuUpdate::SetColor {
-                            idx: npc_idx.0, r, g, b, a,
-                        });
-                    }
-                }
-
-                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                    queue.push(GpuUpdate::SetTarget {
-                        idx: npc_idx.0,
-                        x: home.0.x,
-                        y: home.0.y,
-                    });
-                }
-                continue;
-            }
-        }
-
-        // Priority 2: Carrying food — deliver it
-        if carrying.is_some() && home.is_valid() {
-            commands.entity(entity).insert(Returning);
-            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetTarget {
-                    idx: npc_idx.0,
-                    x: home.0.x,
-                    y: home.0.y,
-                });
-            }
-            continue;
-        }
-
-        // Priority 3: Low energy — go home
-        if let Some(e) = energy {
-            if e.0 < ENERGY_HUNGRY && home.is_valid() {
-                commands.entity(entity).insert(Returning);
-                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                    queue.push(GpuUpdate::SetTarget {
-                        idx: npc_idx.0,
-                        x: home.0.x,
-                        y: home.0.y,
-                    });
-                }
-                continue;
-            }
-        }
-
-        // Priority 4: Go raid nearest farm
-        let nearest_farm = if let Ok(world) = WORLD_DATA.lock() {
-            // Read NPC position from GPU state
-            let pos = if let Ok(state) = GPU_READ_STATE.lock() {
-                let i = npc_idx.0;
-                if i * 2 + 1 < state.positions.len() {
-                    Vector2::new(state.positions[i * 2], state.positions[i * 2 + 1])
-                } else {
-                    home.0 // fallback
-                }
-            } else {
-                home.0
-            };
-
-            let mut best: Option<(f32, Vector2)> = None;
-            for farm in &world.farms {
-                let dx = farm.position.x - pos.x;
-                let dy = farm.position.y - pos.y;
-                let dist_sq = dx * dx + dy * dy;
-                if best.is_none() || dist_sq < best.unwrap().0 {
-                    best = Some((dist_sq, farm.position));
-                }
-            }
-            best.map(|(_, p)| p)
-        } else {
-            None
-        };
-
-        if let Some(farm_pos) = nearest_farm {
-            commands.entity(entity).insert(Raiding);
-            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetTarget {
-                    idx: npc_idx.0,
-                    x: farm_pos.x,
-                    y: farm_pos.y,
-                });
             }
         }
     }
@@ -482,9 +370,10 @@ pub fn recovery_system(
 
 /// Actions an NPC can take.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)]
 enum Action {
-    Fight,
-    Flee,
+    Fight,  // Reserved for combat decisions
+    Flee,   // Reserved for combat decisions
     Eat,
     Rest,
     Work,
@@ -529,14 +418,13 @@ pub fn npc_decision_system(
          Without<Resting>, Without<GoingToRest>, Without<Raiding>, Without<Returning>,
          Without<InCombat>, Without<Recovering>, Without<Dead>)
     >,
-    mut pop_stats: ResMut<PopulationStats>,
+    _pop_stats: ResMut<PopulationStats>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    for (entity, npc_idx, job, energy, health, home, personality, work_pos, patrol, _stealer) in query.iter() {
-        let hp = health.0;
+    for (entity, npc_idx, job, energy, _health, home, personality, work_pos, patrol, _stealer) in query.iter() {
         let en = energy.0;
-        let (fight_m, flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
+        let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
 
         // Check if food is available at home (simplified: assume yes if home is valid)
         let food_available = home.is_valid();

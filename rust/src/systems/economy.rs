@@ -1,14 +1,16 @@
 //! Economy systems - Population tracking, food production, respawning
 
-use godot_bevy::prelude::godot_prelude::godot_print;
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::PhysicsDelta;
 
 use crate::components::*;
+#[allow(unused_imports)]
 use crate::messages::{FOOD_STORAGE, SPAWN_QUEUE, SpawnNpcMsg, FREE_SLOTS, NPC_SLOT_COUNTER};
 use crate::resources::*;
 use crate::world::{WORLD_DATA, BED_OCCUPANCY, FARM_OCCUPANCY};
 
+// Respawn system constants (disabled but kept for later)
+#[allow(dead_code)]
 const MAX_NPC_COUNT: usize = 10_000;
 
 // ============================================================================
@@ -44,10 +46,11 @@ pub fn pop_dec_working(stats: &mut PopulationStats, job: Job, clan: i32) {
 }
 
 // ============================================================================
-// SLOT AND POSITION HELPERS
+// SLOT AND POSITION HELPERS (used by disabled respawn system)
 // ============================================================================
 
 /// Allocate a slot for a new NPC (reuse free slots first).
+#[allow(dead_code)]
 fn allocate_slot() -> Option<usize> {
     if let Ok(mut free) = FREE_SLOTS.lock() {
         if let Some(recycled) = free.pop() {
@@ -65,6 +68,7 @@ fn allocate_slot() -> Option<usize> {
 }
 
 /// Find a free bed for a given town, returns (bed_index, position).
+#[allow(dead_code)]
 fn find_free_bed(town_idx: u32) -> Option<(usize, (f32, f32))> {
     let world = WORLD_DATA.lock().ok()?;
     let occupancy = BED_OCCUPANCY.lock().ok()?;
@@ -110,23 +114,12 @@ pub fn economy_tick_system(
     delta: Res<PhysicsDelta>,
     mut game_time: ResMut<GameTime>,
     working_farmers: Query<&TownId, (With<Farmer>, With<Working>)>,
-    pop_stats: Res<PopulationStats>,
+    _pop_stats: Res<PopulationStats>,
     config: Res<GameConfig>,
-    mut timers: ResMut<RespawnTimers>,
+    _timers: ResMut<RespawnTimers>,
 ) {
     // Accumulate elapsed time
     game_time.elapsed_seconds += delta.delta_seconds;
-
-    // Debug: print every ~60 frames
-    static mut FRAME_COUNT: u32 = 0;
-    unsafe {
-        FRAME_COUNT += 1;
-        if FRAME_COUNT % 60 == 0 {
-            let working_count = working_farmers.iter().count();
-            godot_print!("Economy: delta={:.4}, elapsed={:.1}/{:.0}s, working_farmers={}",
-                delta.delta_seconds, game_time.elapsed_seconds, game_time.seconds_per_hour, working_count);
-        }
-    }
 
     // Check for hour boundary
     if game_time.elapsed_seconds < game_time.seconds_per_hour {
@@ -137,14 +130,11 @@ pub fn economy_tick_system(
     game_time.elapsed_seconds -= game_time.seconds_per_hour;
     game_time.current_hour = (game_time.current_hour + 1) % 24;
 
-    let working_count = working_farmers.iter().count();
-    godot_print!("=== HOUR {} === Working farmers: {}", game_time.current_hour, working_count);
-
     // --- FOOD PRODUCTION ---
     produce_food(&working_farmers, &config);
 
-    // --- RESPAWN CHECK ---
-    check_respawns(&pop_stats, &config, &mut timers);
+    // --- RESPAWN CHECK --- (disabled, keeping code for later)
+    // check_respawns(&_pop_stats, &config, &mut _timers);
 }
 
 /// Produce food based on working farmers.
@@ -160,15 +150,10 @@ fn produce_food(
 
     // Add food to each clan's storage
     if let Ok(mut food) = FOOD_STORAGE.lock() {
-        godot_print!("produce_food: storage len={}, farmers_per_clan={:?}, food_per_hour={}",
-            food.food.len(), farmers_per_clan, config.food_per_work_hour);
         for (clan_id, farmer_count) in farmers_per_clan {
             let food_produced = farmer_count * config.food_per_work_hour;
             if clan_id >= 0 && (clan_id as usize) < food.food.len() {
                 food.food[clan_id as usize] += food_produced;
-                godot_print!("  clan {} += {} food (now {})", clan_id, food_produced, food.food[clan_id as usize]);
-            } else {
-                godot_print!("  clan {} OUT OF RANGE (len={})", clan_id, food.food.len());
             }
         }
     }
