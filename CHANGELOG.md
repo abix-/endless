@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-01-28
+- add utility AI: weighted random decision system replaces priority cascades
+- add Personality component: 0-2 traits (Brave, Tough, Swift, Focused) with magnitude 0.5-1.5
+- add TraitKind, TraitInstance types for trait data
+- add npc_decision_system: scores Eat/Rest/Work/Wander actions, weighted random selection
+- remove tired_system, resume_patrol_system, resume_work_system, raider_idle_system (absorbed into npc_decision_system)
+- add action score constants (SCORE_FIGHT_BASE, SCORE_WORK_BASE, SCORE_WANDER_BASE, etc.)
+- change start menu sliders: now per-town values instead of totals (2 farmers, 4 guards, 6 raiders default)
+- update config.gd defaults to match (BASE_FARMERS=2, BASE_GUARDS=4, BASE_RAIDERS=6)
+
+## 2026-01-28 (earlier)
 - add Phase 9.4: UI data queries (10 new APIs for population stats, NPC info, roster, selection)
 - add unified Town model: all settlements are "towns" with faction field (0=Villager, 1=Raider)
 - add NPC_META static: per-NPC name/level/xp/trait cached for UI queries

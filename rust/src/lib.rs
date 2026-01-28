@@ -93,14 +93,11 @@ fn build_app(app: &mut bevy::prelude::App) {
            energy_system,
            flee_system,
            leash_system,
-           tired_system,
            wounded_rest_system,
            recovery_system,
-           raider_idle_system,
-           resume_patrol_system,
-           resume_work_system,
            patrol_system,
            economy_tick_system,
+           npc_decision_system,  // Utility AI: replaces tired, resume_*, raider_idle
        ).in_set(Step::Behavior));
 }
 

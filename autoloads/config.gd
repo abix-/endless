@@ -47,14 +47,14 @@ const WORLD_MARGIN := 400  # Keep towns away from edges
 const TILE_SIZE := 32
 
 # Town settings (base values, scaled by population_scale at game start)
-const BASE_FARMERS_PER_TOWN := 10
-const BASE_GUARDS_PER_TOWN := 30
-const BASE_RAIDERS_PER_CAMP := 15
-var farmers_per_town := 10
-var guards_per_town := 30
-var raiders_per_camp := 15
-var max_farmers_per_town := 10
-var max_guards_per_town := 30
+const BASE_FARMERS_PER_TOWN := 2
+const BASE_GUARDS_PER_TOWN := 4
+const BASE_RAIDERS_PER_CAMP := 6
+var farmers_per_town := 2
+var guards_per_town := 4
+var raiders_per_camp := 6
+var max_farmers_per_town := 2
+var max_guards_per_town := 4
 const TOWN_GRID_SPACING := 34  # 32px buildings + 1px border on each side
 const FARMS_PER_TOWN := 2
 const GUARD_POSTS_PER_TOWN := 6

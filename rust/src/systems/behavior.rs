@@ -471,7 +471,220 @@ pub fn recovery_system(
             commands.entity(entity)
                 .remove::<Recovering>()
                 .remove::<Resting>();
-            // Falls through to raider_idle_system or resume_patrol next tick
+            // Falls through to npc_decision_system next tick
+        }
+    }
+}
+
+// ============================================================================
+// UTILITY AI DECISION SYSTEM
+// ============================================================================
+
+/// Actions an NPC can take.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Action {
+    Fight,
+    Flee,
+    Eat,
+    Rest,
+    Work,
+    Wander,
+}
+
+/// Simple deterministic "random" for weighted selection.
+fn pseudo_random(seed: usize, frame: usize) -> f32 {
+    let x = ((seed.wrapping_mul(1103515245).wrapping_add(frame)) >> 16) & 0x7fff;
+    (x as f32) / 32767.0
+}
+
+/// Weighted random selection from scored actions.
+fn weighted_random(scores: &[(Action, f32)], seed: usize, frame: usize) -> Action {
+    let total: f32 = scores.iter().map(|(_, s)| *s).sum();
+    if total <= 0.0 {
+        return Action::Wander;
+    }
+
+    let roll = pseudo_random(seed, frame) * total;
+    let mut acc = 0.0;
+    for (action, score) in scores {
+        acc += score;
+        if roll < acc {
+            return *action;
+        }
+    }
+    scores.last().map(|(a, _)| *a).unwrap_or(Action::Wander)
+}
+
+/// Frame counter for pseudo-random seeding.
+static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Unified decision system: score actions, weighted random, execute.
+/// Runs on NPCs without an active state.
+pub fn npc_decision_system(
+    mut commands: Commands,
+    query: Query<
+        (Entity, &NpcIndex, &Job, &Energy, &Health, &Home, &Personality,
+         Option<&WorkPosition>, Option<&PatrolRoute>, Option<&Stealer>),
+        (Without<Patrolling>, Without<OnDuty>, Without<Working>, Without<GoingToWork>,
+         Without<Resting>, Without<GoingToRest>, Without<Raiding>, Without<Returning>,
+         Without<InCombat>, Without<Recovering>, Without<Dead>)
+    >,
+    mut pop_stats: ResMut<PopulationStats>,
+) {
+    let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    for (entity, npc_idx, job, energy, health, home, personality, work_pos, patrol, _stealer) in query.iter() {
+        let hp = health.0;
+        let en = energy.0;
+        let (fight_m, flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
+
+        // Check if food is available at home (simplified: assume yes if home is valid)
+        let food_available = home.is_valid();
+
+        // Score all possible actions
+        let mut scores: Vec<(Action, f32)> = Vec::with_capacity(6);
+
+        // Eat: based on low energy, higher multiplier than rest
+        if food_available {
+            let eat_score = (100.0 - en) * SCORE_EAT_MULT * eat_m;
+            if eat_score > 0.0 {
+                scores.push((Action::Eat, eat_score));
+            }
+        }
+
+        // Rest: based on low energy
+        let rest_score = (100.0 - en) * SCORE_REST_MULT * rest_m;
+        if rest_score > 0.0 && home.is_valid() {
+            scores.push((Action::Rest, rest_score));
+        }
+
+        // Work: job-specific
+        let can_work = match job {
+            Job::Farmer => work_pos.is_some(),
+            Job::Guard => patrol.is_some(),
+            Job::Raider => true, // Raiders "work" by raiding
+            Job::Fighter => false,
+        };
+        if can_work {
+            let work_score = SCORE_WORK_BASE * work_m;
+            scores.push((Action::Work, work_score));
+        }
+
+        // Wander: always available baseline
+        let wander_score = SCORE_WANDER_BASE * wander_m;
+        scores.push((Action::Wander, wander_score));
+
+        // Choose action via weighted random
+        let action = weighted_random(&scores, npc_idx.0, frame);
+
+        // Execute chosen action
+        match action {
+            Action::Eat | Action::Rest => {
+                // Go home to eat or rest
+                if home.is_valid() {
+                    commands.entity(entity).insert(GoingToRest);
+                    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                        queue.push(GpuUpdate::SetTarget {
+                            idx: npc_idx.0,
+                            x: home.0.x,
+                            y: home.0.y,
+                        });
+                    }
+                }
+            }
+            Action::Work => {
+                match job {
+                    Job::Farmer => {
+                        if let Some(wp) = work_pos {
+                            commands.entity(entity).insert(GoingToWork);
+                            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                                queue.push(GpuUpdate::SetTarget {
+                                    idx: npc_idx.0,
+                                    x: wp.0.x,
+                                    y: wp.0.y,
+                                });
+                            }
+                        }
+                    }
+                    Job::Guard => {
+                        if let Some(p) = patrol {
+                            commands.entity(entity).insert(Patrolling);
+                            if let Some(pos) = p.posts.get(p.current) {
+                                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                                    queue.push(GpuUpdate::SetTarget {
+                                        idx: npc_idx.0,
+                                        x: pos.x,
+                                        y: pos.y,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Job::Raider => {
+                        // Find nearest farm and raid it
+                        let nearest_farm = if let Ok(world) = WORLD_DATA.lock() {
+                            let pos = if let Ok(state) = GPU_READ_STATE.lock() {
+                                let i = npc_idx.0;
+                                if i * 2 + 1 < state.positions.len() {
+                                    Vector2::new(state.positions[i * 2], state.positions[i * 2 + 1])
+                                } else {
+                                    home.0
+                                }
+                            } else {
+                                home.0
+                            };
+
+                            let mut best: Option<(f32, Vector2)> = None;
+                            for farm in &world.farms {
+                                let dx = farm.position.x - pos.x;
+                                let dy = farm.position.y - pos.y;
+                                let dist_sq = dx * dx + dy * dy;
+                                if best.is_none() || dist_sq < best.unwrap().0 {
+                                    best = Some((dist_sq, farm.position));
+                                }
+                            }
+                            best.map(|(_, p)| p)
+                        } else {
+                            None
+                        };
+
+                        if let Some(farm_pos) = nearest_farm {
+                            commands.entity(entity).insert(Raiding);
+                            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                                queue.push(GpuUpdate::SetTarget {
+                                    idx: npc_idx.0,
+                                    x: farm_pos.x,
+                                    y: farm_pos.y,
+                                });
+                            }
+                        }
+                    }
+                    Job::Fighter => {}
+                }
+            }
+            Action::Wander => {
+                // Random wander near current position
+                if let Ok(state) = GPU_READ_STATE.lock() {
+                    let i = npc_idx.0;
+                    if i * 2 + 1 < state.positions.len() {
+                        let x = state.positions[i * 2];
+                        let y = state.positions[i * 2 + 1];
+                        // Wander within 100px
+                        let offset_x = (pseudo_random(npc_idx.0, frame + 1) - 0.5) * 200.0;
+                        let offset_y = (pseudo_random(npc_idx.0, frame + 2) - 0.5) * 200.0;
+                        if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+                            queue.push(GpuUpdate::SetTarget {
+                                idx: npc_idx.0,
+                                x: x + offset_x,
+                                y: y + offset_y,
+                            });
+                        }
+                    }
+                }
+            }
+            Action::Fight | Action::Flee => {
+                // These are handled by combat systems, not here
+            }
         }
     }
 }

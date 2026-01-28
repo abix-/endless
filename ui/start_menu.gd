@@ -24,16 +24,16 @@ const TOWNS_MAX := 7
 const TOWNS_DEFAULT := 1
 
 const FARMERS_MIN := 0
-const FARMERS_MAX := 500
-const FARMERS_DEFAULT := 5
+const FARMERS_MAX := 50
+const FARMERS_DEFAULT := 2  # per villager town
 
 const GUARDS_MIN := 0
-const GUARDS_MAX := 500
-const GUARDS_DEFAULT := 20
+const GUARDS_MAX := 50
+const GUARDS_DEFAULT := 4  # per villager town
 
 const RAIDERS_MIN := 0
-const RAIDERS_MAX := 500
-const RAIDERS_DEFAULT := 25
+const RAIDERS_MAX := 50
+const RAIDERS_DEFAULT := 6  # per raider town
 
 
 func _ready() -> void:
@@ -122,15 +122,15 @@ func _on_raiders_changed(_value: float) -> void:
 
 
 func _update_farmers_label() -> void:
-	farmers_value.text = "%d" % int(farmers_slider.value)
+	farmers_value.text = "%d per town" % int(farmers_slider.value)
 
 
 func _update_guards_label() -> void:
-	guards_value.text = "%d" % int(guards_slider.value)
+	guards_value.text = "%d per town" % int(guards_slider.value)
 
 
 func _update_raiders_label() -> void:
-	raiders_value.text = "%d" % int(raiders_slider.value)
+	raiders_value.text = "%d per camp" % int(raiders_slider.value)
 
 
 func _on_start_pressed() -> void:
@@ -139,13 +139,10 @@ func _on_start_pressed() -> void:
 	Config.world_height = size
 	Config.num_towns = int(towns_slider.value)
 
-	var num_towns := Config.num_towns
-	@warning_ignore("integer_division")
-	Config.farmers_per_town = maxi(0, int(farmers_slider.value) / num_towns)
-	@warning_ignore("integer_division")
-	Config.guards_per_town = maxi(0, int(guards_slider.value) / num_towns)
-	@warning_ignore("integer_division")
-	Config.raiders_per_camp = maxi(0, int(raiders_slider.value) / num_towns)
+	# Values are per-town, not totals
+	Config.farmers_per_town = int(farmers_slider.value)
+	Config.guards_per_town = int(guards_slider.value)
+	Config.raiders_per_camp = int(raiders_slider.value)
 	Config.max_farmers_per_town = Config.farmers_per_town
 	Config.max_guards_per_town = Config.guards_per_town
 

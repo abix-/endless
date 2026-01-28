@@ -59,6 +59,28 @@ pub const ENERGY_DRAIN_RATE: f32 = 0.02;
 pub const ENERGY_RECOVER_RATE: f32 = 0.2;
 
 // ============================================================================
+// UTILITY AI ACTION SCORES
+// ============================================================================
+
+/// Base score for fighting when in combat.
+pub const SCORE_FIGHT_BASE: f32 = 50.0;
+
+/// Base score for working (doing job).
+pub const SCORE_WORK_BASE: f32 = 40.0;
+
+/// Base score for wandering (idle movement).
+pub const SCORE_WANDER_BASE: f32 = 10.0;
+
+/// Multiplier for eat score (energy-based, slightly higher than rest).
+pub const SCORE_EAT_MULT: f32 = 1.5;
+
+/// Multiplier for rest score (energy-based).
+pub const SCORE_REST_MULT: f32 = 1.0;
+
+/// Multiplier for flee score (hp-based).
+pub const SCORE_FLEE_MULT: f32 = 1.0;
+
+// ============================================================================
 // PROJECTILE CONSTANTS
 // ============================================================================
 

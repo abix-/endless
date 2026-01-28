@@ -6,6 +6,43 @@ Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, 
 
 All systems are **component-driven, not job-driven**. A system like `flee_system` operates on any NPC with `FleeThreshold` + `InCombat`, regardless of whether it's a guard or raider.
 
+## Utility AI (Weighted Random Decisions)
+
+NPCs use utility AI for idle decisions. Instead of priority cascades (if tired→rest, else work), actions are scored and selected via weighted random.
+
+### Personality Component
+
+Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
+
+| Trait | Stat Effect | Behavior Effect |
+|-------|-------------|-----------------|
+| Brave(m) | +25% × m damage | Fight ×(1+m), Flee ×(1/(1+m)) |
+| Tough(m) | +25% × m HP | Rest ×(1/(1+m)), Eat ×(1/(1+m)) |
+| Swift(m) | +25% × m speed | Wander ×(1+m) |
+| Focused(m) | +25% × m yield | Work ×(1+m), Wander ×(1/(1+m)) |
+
+### Action Scoring
+
+| Action | Base Score | Condition |
+|--------|-----------|-----------|
+| Eat | `(100 - energy) * 1.5` | food available |
+| Rest | `100 - energy` | home valid |
+| Work | `40.0` | has job |
+| Wander | `10.0` | always |
+
+Scores are multiplied by personality multipliers, then weighted random selects an action:
+
+```
+Example: Energy=40, Tough(1.0) + Focused(1.0)
+  Eat:    60 × 0.5 = 30
+  Rest:   60 × 0.5 = 30
+  Work:   40 × 2.0 = 80
+  Wander: 10 × 0.5 = 5
+  → 21% eat, 21% rest, 55% work, 3% wander
+```
+
+Same situation, different outcomes. That's emergent behavior.
+
 ## State Machine
 
 ```
@@ -13,7 +50,7 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
     ┌──────────┐         ┌──────────┐          ┌──────────┐
     │Patrolling│         │GoingToWork│         │  (idle)  │ spawns stateless
     └────┬─────┘         └────┬─────┘          └────┬─────┘
-         │ arrival            │ arrival              │ raider_idle_system
+         │ arrival            │ arrival              │ npc_decision_system
          ▼                    ▼                      ▼
     ┌──────────┐         ┌──────────┐          ┌──────────┐
     │  OnDuty  │         │ Working  │          │  Raiding  │ (walk to farm)
@@ -25,9 +62,9 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
     │ 60 ticks │         │          │          │(to camp) │
     └────┬─────┘         └────┬─────┘          └────┬─────┘
          └────────┬───────────┘                     │ arrival at camp
-                  │ energy < 50                     ▼
-                  ▼                            deliver food, re-enter
-             ┌──────────┐                     raider_idle_system
+                  │ npc_decision_system             ▼
+                  ▼ (weighted random)          deliver food, re-enter
+             ┌──────────┐                     npc_decision_system
              │GoingToRest│
              └────┬─────┘
                   │ arrival
@@ -35,8 +72,8 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
              ┌──────────┐
              │ Resting  │
              └────┬─────┘
-                  │ energy >= 80
-                  ▼
+                  │ npc_decision_system
+                  ▼ (weighted random)
              back to previous cycle
 
     Combat escape (any NPC with FleeThreshold/LeashRange):
@@ -56,8 +93,9 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 
 | Component | Type | Purpose |
 |-----------|------|---------|
-| Clan | `i32` | Town/camp identifier — every NPC belongs to one |
+| TownId | `i32` | Town/camp identifier — every NPC belongs to one |
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
+| Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
 | Resting | marker | NPC is at home, recovering energy |
 | GoingToRest | marker | NPC is walking home to rest |
 | Patrolling | marker | Guard is walking to next patrol post |
@@ -80,6 +118,13 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 
 ## Systems
 
+### npc_decision_system (Utility AI)
+- Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, Resting, GoingToRest, Raiding, Returning, InCombat, Recovering, Dead)
+- Score actions: Eat, Rest, Work, Wander (with personality multipliers)
+- Select via weighted random
+- Execute: set state marker, push GPU target
+- Replaces: tired_system, resume_patrol_system, resume_work_system, raider_idle_system
+
 ### handle_arrival_system
 - Reads `ArrivalMsg` events (from GPU arrival detection)
 - Transitions based on current state:
@@ -92,25 +137,6 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 - NPCs with `Resting`: recover `ENERGY_RECOVER_RATE * delta`
 - Clamp to 0.0-100.0
 
-### tired_system
-- Query: Energy < 50, not `Resting`, not `GoingToRest`, not `InCombat`, `Home.is_valid()`
-- Remove current state (`OnDuty`, `Working`, `Patrolling`, `GoingToWork`)
-- Add `GoingToRest`
-- Set target to `Home` position via `GpuUpdate::SetTarget`
-- Add `HasTarget`
-
-### resume_patrol_system
-- Query: `Resting` guards with Energy >= 80
-- Remove `Resting`, add `Patrolling`
-- Set target to current patrol post via `GpuUpdate::SetTarget`
-- Add `HasTarget`
-
-### resume_work_system
-- Query: `Resting` farmers with Energy >= 80
-- Remove `Resting`, add `GoingToWork`
-- Set target to `WorkPosition` via `GpuUpdate::SetTarget`
-- Add `HasTarget`
-
 ### patrol_system
 - Query: `OnDuty` guards
 - Increment `ticks` each frame
@@ -121,14 +147,7 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 ### raider_arrival_system
 - Reads `ArrivalMsg` for NPCs with `Stealer`
 - `Raiding` arrival (at farm): add `CarryingFood`, remove `Raiding`, add `Returning`, set color yellow, target home
-- `Returning` arrival (at camp): if `CarryingFood` { remove, deliver food to `FOOD_STORAGE`, push `FoodDelivered`, reset color to red }. NPC has no active state → falls through to `raider_idle_system` next tick.
-
-### raider_idle_system
-- Query: `Stealer` NPCs with no active state (no `Raiding`, `Returning`, `Resting`, `InCombat`, `Recovering`, `GoingToRest`, `Dead`)
-- Priority 1: Health < `WoundedThreshold` (+ valid home) → drop food, add `Returning`, target home
-- Priority 2: Has `CarryingFood` (+ valid home) → add `Returning`, target home
-- Priority 3: Energy < 50 (+ valid home) → add `Returning`, target home
-- Priority 4: Find nearest farm from `WORLD_DATA` (reads position from `GPU_READ_STATE`), add `Raiding`, target farm
+- `Returning` arrival (at camp): if `CarryingFood` { remove, deliver food to `FOOD_STORAGE`, push `FoodDelivered`, reset color to red }. NPC has no active state → falls through to `npc_decision_system` next tick.
 
 ### flee_system
 - Query: `InCombat` + `FleeThreshold` + `Home`
@@ -150,7 +169,7 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 ### economy_tick_system
 - Reads `Res<PhysicsDelta>` (godot-bevy's Godot-synced delta time)
 - Accumulates elapsed time, triggers on hour boundaries
-- **Food production**: counts `Working` farmers per `Clan`, adds food to `FOOD_STORAGE`
+- **Food production**: counts `Working` farmers per `TownId`, adds food to `FOOD_STORAGE`
 - **Respawn check**: compares `PopulationStats` alive counts vs `GameConfig` caps, spawns replacements
 
 ## Energy Model
@@ -159,12 +178,8 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 |----------|-------|---------|
 | ENERGY_DRAIN_RATE | 0.02/tick | Drain while active |
 | ENERGY_RECOVER_RATE | 0.2/tick | Recovery while resting (10x drain) |
-| Tired threshold | 50 | Below this, NPC goes to rest |
-| Rested threshold | 80 | Above this, NPC returns to duty |
 
-The 50-80 hysteresis band prevents oscillation. An NPC stops working at 50 and doesn't resume until 80.
-
-At 60fps: ~2500 ticks (42s) from 100 to 50. ~150 ticks (2.5s) resting from 50 to 80. Then ~1500 ticks (25s) from 80 back to 50.
+With utility AI, there are no fixed thresholds. Low energy increases Rest/Eat scores, but NPCs might still choose Work if their Focused trait outweighs tiredness.
 
 ## Patrol Cycle
 
@@ -181,16 +196,14 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 ## Known Issues / Limitations
 
 - **InCombat is sticky**: If a target dies out of detection range, the NPC may stay `InCombat` until attack_system clears it. No timeout.
-- **No priority system**: A farmer at 51% energy ignores a raid happening nearby. Combat only engages via GPU targeting, not behavior decisions.
-- **Fixed patrol timing**: 60 ticks at every post, regardless of threat level or distance.
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
-- **Energy doesn't affect combat**: A nearly exhausted guard fights at full strength.
 - **Linear arrival scan**: handle_arrival_system and raider_arrival_system iterate all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
 - **Single camp index hardcoded**: raider_arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
 - **No HP regen in Bevy**: recovery_system checks health threshold but there's no Bevy system that regenerates HP over time. Recovery currently depends on external healing.
-- **All raiders target same farm**: raider_idle_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
+- **All raiders target same farm**: npc_decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
+- **Deterministic pseudo-random**: npc_decision_system uses slot index as random seed, so same NPC makes same choices each run.
 
 ## Rating: 8/10
 
-Full behavior state machine with guard patrol, farmer work, and raider steal/flee/recover cycles. All systems are component-driven (not job-specific) — any NPC given `Stealer` + `FleeThreshold` would behave as a raider. Energy hysteresis prevents oscillation. Combat escape (flee + leash) and recovery are generic. Main gaps: single-camp hardcoding, no HP regen system, linear arrival scans.
+Utility AI with weighted random decisions replaces deterministic priority cascades. Personality traits (Brave, Tough, Swift, Focused) affect both stats and decision weights. Same situation can produce different outcomes based on trait magnitudes and random roll. Combat escape (flee + leash) and recovery remain deterministic for reliability. Main gaps: deterministic pseudo-random (not true random), linear arrival scans, single-camp hardcoding.

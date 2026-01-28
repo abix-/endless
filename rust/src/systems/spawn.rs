@@ -27,6 +27,37 @@ fn generate_name(job: Job, slot: usize) -> String {
     format!("{} {}", adj, noun)
 }
 
+/// Generate a random personality with 0-2 traits.
+/// Each trait has 30% chance, magnitude 0.5-1.5.
+fn generate_personality(slot: usize) -> Personality {
+    // Simple deterministic "random" based on slot for reproducibility
+    let seed = slot as u32;
+    let r1 = ((seed.wrapping_mul(1103515245).wrapping_add(12345)) >> 16) & 0x7fff;
+    let r2 = ((seed.wrapping_mul(1103515245).wrapping_add(12345).wrapping_mul(1103515245).wrapping_add(12345)) >> 16) & 0x7fff;
+    let r3 = (r1.wrapping_mul(1103515245).wrapping_add(12345) >> 16) & 0x7fff;
+    let r4 = (r2.wrapping_mul(1103515245).wrapping_add(12345) >> 16) & 0x7fff;
+
+    let mut traits = Vec::new();
+
+    // 30% chance for each trait
+    let kinds = [TraitKind::Brave, TraitKind::Tough, TraitKind::Swift, TraitKind::Focused];
+    let randoms = [r1, r2, r3, r4];
+
+    for (i, &kind) in kinds.iter().enumerate() {
+        if randoms[i] % 100 < 30 {
+            // Magnitude 0.5 to 1.5
+            let mag = 0.5 + ((randoms[i] % 1000) as f32 / 1000.0);
+            traits.push(TraitInstance { kind, magnitude: mag });
+        }
+    }
+
+    // Keep at most 2
+    Personality {
+        trait1: traits.get(0).copied(),
+        trait2: traits.get(1).copied(),
+    }
+}
+
 /// Despawn all Bevy entities when RESET_BEVY flag is set.
 pub fn reset_bevy_system(
     mut commands: Commands,
@@ -95,6 +126,9 @@ pub fn spawn_npc_system(
             queue.push(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row });
         }
 
+        // Generate personality for this NPC
+        let personality = generate_personality(idx);
+
         // Base entity (all NPCs get these)
         let mut ec = commands.spawn((
             NpcIndex(idx),
@@ -104,6 +138,7 @@ pub fn spawn_npc_system(
             Health::default(),
             Faction::from_i32(msg.faction),
             Home(Vector2::new(msg.home_x, msg.home_y)),
+            personality,
         ));
 
         // Job template — determines component bundle

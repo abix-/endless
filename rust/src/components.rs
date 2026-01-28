@@ -284,3 +284,89 @@ pub struct LeashRange {
 pub struct WoundedThreshold {
     pub pct: f32,
 }
+
+// ============================================================================
+// PERSONALITY SYSTEM (Utility AI)
+// ============================================================================
+
+/// Trait types that affect both stats and behavior weights.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TraitKind {
+    /// +damage, fights more, flees less
+    Brave,
+    /// +HP, rests/eats less (pushes through)
+    Tough,
+    /// +speed, wanders more
+    Swift,
+    /// +yield, works more, wanders less
+    Focused,
+}
+
+/// A trait with its magnitude (0.5 = weak, 1.0 = normal, 1.5 = strong).
+#[derive(Clone, Copy, Debug)]
+pub struct TraitInstance {
+    pub kind: TraitKind,
+    pub magnitude: f32,
+}
+
+/// NPC personality: 0-2 traits that modify stats and decision weights.
+#[derive(Component, Clone, Debug, Default)]
+pub struct Personality {
+    pub trait1: Option<TraitInstance>,
+    pub trait2: Option<TraitInstance>,
+}
+
+impl Personality {
+    /// Get behavior multipliers: (fight, flee, rest, eat, work, wander)
+    pub fn get_multipliers(&self) -> (f32, f32, f32, f32, f32, f32) {
+        let mut fight = 1.0;
+        let mut flee = 1.0;
+        let mut rest = 1.0;
+        let mut eat = 1.0;
+        let mut work = 1.0;
+        let mut wander = 1.0;
+
+        for t in [self.trait1, self.trait2].iter().flatten() {
+            let m = t.magnitude;
+            match t.kind {
+                TraitKind::Brave => {
+                    fight *= 1.0 + m;
+                    flee *= 1.0 / (1.0 + m);
+                }
+                TraitKind::Tough => {
+                    rest *= 1.0 / (1.0 + m);
+                    eat *= 1.0 / (1.0 + m);
+                }
+                TraitKind::Swift => {
+                    wander *= 1.0 + m;
+                }
+                TraitKind::Focused => {
+                    work *= 1.0 + m;
+                    wander *= 1.0 / (1.0 + m);
+                }
+            }
+        }
+
+        (fight, flee, rest, eat, work, wander)
+    }
+
+    /// Get stat multipliers: (damage, hp, speed, yield)
+    pub fn get_stat_multipliers(&self) -> (f32, f32, f32, f32) {
+        let mut damage = 1.0;
+        let mut hp = 1.0;
+        let mut speed = 1.0;
+        let mut work_yield = 1.0;
+
+        for t in [self.trait1, self.trait2].iter().flatten() {
+            let bonus = 0.25 * t.magnitude;
+            match t.kind {
+                TraitKind::Brave => damage += bonus,
+                TraitKind::Tough => hp += bonus,
+                TraitKind::Swift => speed += bonus,
+                TraitKind::Focused => work_yield += bonus,
+            }
+        }
+
+        (damage, hp, speed, work_yield)
+    }
+}
