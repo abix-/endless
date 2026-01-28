@@ -103,6 +103,12 @@ layout(set = 0, binding = 11, std430) restrict writeonly buffer CombatTargetBuff
     int combat_targets[];
 };
 
+// Binding 12: Sprite frame buffer (read-only - set at spawn)
+// Layout: [frame_x, frame_y] per NPC - column/row in sprite sheet
+layout(set = 0, binding = 12, std430) restrict readonly buffer SpriteFrameBuffer {
+    vec2 sprite_frames[];
+};
+
 // =============================================================================
 // PUSH CONSTANTS - Small, fast-changing parameters passed each frame
 // =============================================================================
@@ -436,9 +442,11 @@ void main() {
     backoff[i] = my_backoff;
 
     // Write directly to MultiMesh buffer for rendering (zero-copy!)
-    // Layout: 12 floats per instance
+    // Layout: 16 floats per instance
     // Transform2D: [a.x, b.x, 0, origin.x, a.y, b.y, 0, origin.y]
-    uint base = i * 12;
+    // Color: [r, g, b, a]
+    // CustomData: [health_pct, flash, sprite_x/255, sprite_y/255]
+    uint base = i * 16;
     multimesh_data[base + 0] = 1.0;      // scale x (identity transform)
     multimesh_data[base + 1] = 0.0;      // shear
     multimesh_data[base + 2] = 0.0;      // unused
@@ -452,4 +460,11 @@ void main() {
     multimesh_data[base + 9] = color.g;
     multimesh_data[base + 10] = color.b;
     multimesh_data[base + 11] = color.a;
+    // Custom data for sprite shader
+    float health_pct = clamp(healths[i] / 100.0, 0.0, 1.0);
+    vec2 sprite = sprite_frames[i];
+    multimesh_data[base + 12] = health_pct;          // INSTANCE_CUSTOM.r = health percent
+    multimesh_data[base + 13] = 0.0;                 // INSTANCE_CUSTOM.g = flash (CPU sets this)
+    multimesh_data[base + 14] = sprite.x / 255.0;   // INSTANCE_CUSTOM.b = sprite column
+    multimesh_data[base + 15] = sprite.y / 255.0;   // INSTANCE_CUSTOM.a = sprite row
 }

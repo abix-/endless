@@ -4,6 +4,7 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::godot_prelude::*;
 
 use crate::components::*;
+use crate::constants::*;
 use crate::messages::*;
 use crate::resources::*;
 use crate::systems::economy::*;
@@ -76,6 +77,14 @@ pub fn spawn_npc_system(
         } else {
             (msg.x, msg.y)
         };
+        // Get sprite frame for this job
+        let (sprite_col, sprite_row) = match job {
+            Job::Farmer => SPRITE_FARMER,
+            Job::Guard => SPRITE_GUARD,
+            Job::Raider => SPRITE_RAIDER,
+            Job::Fighter => SPRITE_FIGHTER,
+        };
+
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
             queue.push(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y });
             queue.push(GpuUpdate::SetTarget { idx, x: target_x, y: target_y });
@@ -83,6 +92,7 @@ pub fn spawn_npc_system(
             queue.push(GpuUpdate::SetSpeed { idx, speed: 100.0 });
             queue.push(GpuUpdate::SetFaction { idx, faction: msg.faction });
             queue.push(GpuUpdate::SetHealth { idx, health: 100.0 });
+            queue.push(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row });
         }
 
         // Base entity (all NPCs get these)

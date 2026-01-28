@@ -27,7 +27,14 @@ pub const SEPARATION_STRENGTH: f32 = 50.0;
 pub const ARRIVAL_THRESHOLD: f32 = 8.0;
 
 /// Floats per NPC instance in the MultiMesh buffer.
-pub const FLOATS_PER_INSTANCE: usize = 12;
+/// Transform2D (8) + Color (4) + CustomData (4) = 16
+pub const FLOATS_PER_INSTANCE: usize = 16;
+
+// Sprite frames (column, row) in the character sheet (17px cells with 1px margin)
+pub const SPRITE_FARMER: (f32, f32) = (1.0, 6.0);
+pub const SPRITE_GUARD: (f32, f32) = (0.0, 11.0);
+pub const SPRITE_RAIDER: (f32, f32) = (0.0, 6.0);
+pub const SPRITE_FIGHTER: (f32, f32) = (7.0, 0.0);
 
 /// Size of push constants passed to the compute shader.
 pub const PUSH_CONSTANTS_SIZE: usize = 48;

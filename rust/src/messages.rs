@@ -118,6 +118,8 @@ pub enum GpuUpdate {
     SetSpeed { idx: usize, speed: f32 },
     /// Set color
     SetColor { idx: usize, r: f32, g: f32, b: f32, a: f32 },
+    /// Set sprite frame (column, row in sprite sheet)
+    SetSpriteFrame { idx: usize, col: f32, row: f32 },
 }
 
 pub static GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>> = Mutex::new(Vec::new());

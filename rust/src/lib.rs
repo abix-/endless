@@ -20,7 +20,7 @@ pub mod world;
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::godot_prelude::*;
 use godot_bevy::prelude::*;
-use godot::classes::{RenderingServer, QuadMesh, INode2D};
+use godot::classes::{RenderingServer, QuadMesh, INode2D, ShaderMaterial, ResourceLoader};
 
 use constants::*;
 use gpu::GpuCompute;
@@ -259,6 +259,16 @@ impl INode2D for EcsNpcManager {
                             gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
                         }
                     }
+                    GpuUpdate::SetSpriteFrame { idx, col, row } => {
+                        if idx < MAX_NPC_COUNT {
+                            gpu.sprite_frames[idx * 2] = col;
+                            gpu.sprite_frames[idx * 2 + 1] = row;
+                            let frame_bytes: Vec<u8> = [col, row].iter()
+                                .flat_map(|f| f.to_le_bytes()).collect();
+                            let frame_packed = PackedByteArray::from(frame_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.sprite_frame_buffer, (idx * 8) as u32, 8, &frame_packed);
+                        }
+                    }
                 }
             }
         }
@@ -396,19 +406,21 @@ impl EcsNpcManager {
         let mesh_rid = mesh.get_rid();
         rs.multimesh_set_mesh(self.multimesh_rid, mesh_rid);
 
+        // Enable custom_data for sprite shader (health, flash, sprite frame)
         rs.multimesh_allocate_data_ex(
             self.multimesh_rid,
             max_count,
             godot::classes::rendering_server::MultimeshTransformFormat::TRANSFORM_2D,
-        ).color_format(true).done();
+        ).color_format(true).custom_data_format(true).done();
 
         let count = max_count as usize;
         let mut init_buffer = vec![0.0f32; count * FLOATS_PER_INSTANCE];
         for i in 0..count {
             let base = i * FLOATS_PER_INSTANCE;
-            init_buffer[base + 0] = 1.0;
-            init_buffer[base + 5] = 1.0;
-            init_buffer[base + 11] = 1.0;
+            init_buffer[base + 0] = 1.0;   // scale x
+            init_buffer[base + 5] = 1.0;   // scale y
+            init_buffer[base + 11] = 1.0;  // color alpha
+            init_buffer[base + 12] = 1.0;  // custom_data.r = health (100%)
         }
         let packed = PackedFloat32Array::from(init_buffer.as_slice());
         rs.multimesh_set_buffer(self.multimesh_rid, &packed);
@@ -416,6 +428,23 @@ impl EcsNpcManager {
         self.canvas_item = rs.canvas_item_create();
         let parent_canvas = self.base().get_canvas_item();
         rs.canvas_item_set_parent(self.canvas_item, parent_canvas);
+
+        // Load and apply sprite shader material
+        let mut loader = ResourceLoader::singleton();
+        if let Some(shader) = loader.load("res://systems/npc_sprite.gdshader") {
+            if let Some(texture) = loader.load("res://assets/roguelikeChar_transparent.png") {
+                let mut material = ShaderMaterial::new_gd();
+                let shader_res: Gd<godot::classes::Shader> = shader.cast();
+                material.set_shader(&shader_res);
+                material.set_shader_parameter("sprite_sheet", &texture.to_variant());
+                material.set_shader_parameter("sheet_size", &Vector2::new(918.0, 203.0).to_variant());
+                material.set_shader_parameter("sprite_size", &Vector2::new(16.0, 16.0).to_variant());
+                material.set_shader_parameter("margin", &1.0f32.to_variant());
+                material.set_shader_parameter("hp_bar_mode", &1i32.to_variant());
+                rs.canvas_item_set_material(self.canvas_item, material.get_rid());
+            }
+        }
+
         rs.canvas_item_add_multimesh(self.canvas_item, self.multimesh_rid);
         // Disable visibility culling — Godot's auto AABB is wrong for world-spanning MultiMesh
         rs.canvas_item_set_custom_rect_ex(self.canvas_item, true).rect(Rect2::new(Vector2::new(-100000.0, -100000.0), Vector2::new(200000.0, 200000.0))).done();

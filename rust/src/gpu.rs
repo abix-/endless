@@ -80,6 +80,9 @@ pub struct GpuCompute {
     pub health_buffer: Rid,
     pub combat_target_buffer: Rid,
 
+    // === Sprite Buffer ===
+    pub sprite_frame_buffer: Rid,
+
     // === Projectile Buffers ===
     pub proj_position_buffer: Rid,
     pub proj_velocity_buffer: Rid,
@@ -116,6 +119,9 @@ pub struct GpuCompute {
 
     /// Combat targets read from GPU (-1 = no target)
     pub combat_targets: Vec<i32>,
+
+    /// Sprite frames (column, row) per NPC - set at spawn
+    pub sprite_frames: Vec<f32>,
 
     // === Projectile CPU Caches ===
     pub proj_positions: Vec<f32>,
@@ -165,6 +171,9 @@ impl GpuCompute {
         let health_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
         let combat_target_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
 
+        // Sprite buffer (vec2 per NPC = 8 bytes)
+        let sprite_frame_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 8) as u32);
+
         // Projectile buffers
         let proj_position_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 8) as u32);
         let proj_velocity_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 8) as u32);
@@ -193,6 +202,7 @@ impl GpuCompute {
             position_buffer, target_buffer, color_buffer, speed_buffer,
             grid_counts_buffer, grid_data_buffer, multimesh_buffer, arrival_buffer,
             backoff_buffer, faction_buffer, health_buffer, combat_target_buffer,
+            sprite_frame_buffer,
         )?;
 
         // Load projectile shader
@@ -252,6 +262,7 @@ impl GpuCompute {
             faction_buffer,
             health_buffer,
             combat_target_buffer,
+            sprite_frame_buffer,
             proj_position_buffer,
             proj_velocity_buffer,
             proj_damage_buffer,
@@ -270,6 +281,7 @@ impl GpuCompute {
             factions: vec![0; MAX_NPC_COUNT],
             healths: vec![0.0; MAX_NPC_COUNT],
             combat_targets: vec![-1; MAX_NPC_COUNT],
+            sprite_frames: vec![0.0; MAX_NPC_COUNT * 2],
             proj_positions: vec![0.0; MAX_PROJECTILES * 2],
             proj_velocities: vec![0.0; MAX_PROJECTILES * 2],
             proj_damages: vec![0.0; MAX_PROJECTILES],
@@ -294,6 +306,7 @@ impl GpuCompute {
         faction_buffer: Rid,
         health_buffer: Rid,
         combat_target_buffer: Rid,
+        sprite_frame_buffer: Rid,
     ) -> Option<Rid> {
         let mut uniforms = Array::new();
 
@@ -310,6 +323,7 @@ impl GpuCompute {
             (9, faction_buffer),
             (10, health_buffer),
             (11, combat_target_buffer),
+            (12, sprite_frame_buffer),
         ];
 
         for (binding, buffer) in buffers {
