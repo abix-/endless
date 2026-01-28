@@ -5,7 +5,8 @@ Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk r
 ## Current State
 - [x] Phases 1-8.5: Full ECS pipeline (spawn, movement, GPU physics, world data, guards, behaviors, combat, raider logic, unified spawn API)
 - [x] Phase 9.1: EcsNpcManager wired into main.gd — game boots with Rust ECS, NPCs render/move/fight
-- [ ] Phase 9.2-9.7: Food production, events, UI queries, building, upgrades, GDScript cleanup
+- [x] Phase 9.2: Food production and respawning fully in Bevy (Clan, GameTime, PopulationStats, economy_tick_system)
+- [ ] Phase 9.3-9.7: Events, UI queries, building, upgrades, GDScript cleanup
 - [ ] Phase 10: Idiomatic Bevy (static Mutex → Resources + Events)
 
 ## GPU-First Architecture
@@ -169,13 +170,14 @@ Each step is a working game state. Old GDScript npc_manager kept as reference un
 - [x] Fix multimesh culling (canvas_item_set_custom_rect for world-spanning MultiMesh)
 - [x] Result: Game boots, NPCs render, move, patrol, fight
 
-*9.2: Food production and respawning*
-- [ ] Add Clan(i32) component — attached to every NPC at spawn, replaces town_idx inside Farmer/Guard structs
-- [ ] get_working_farmer_count(clan) API — Bevy query: Farmer + Clan + Working + Without<Dead>
-- [ ] count_alive(job, clan) API — Bevy query: Job + Clan + Without<Dead>
-- [ ] main.gd _on_time_tick() calls get_working_farmer_count(), adds food via add_town_food()
-- [ ] main.gd checks deficit via count_alive(), spawns replacements
-- [ ] Result: Food counter increases, dead NPCs respawn after timer
+*9.2: Food production and respawning* ✓
+- [x] Add Clan(i32) component — attached to every NPC at spawn
+- [x] GameTime resource — Bevy-owned game time (no GDScript bridge needed)
+- [x] GameConfig resource — farmers/guards per town, spawn interval, food per hour
+- [x] PopulationStats resource — tracks alive/working counts per (job, clan)
+- [x] RespawnTimers resource — per-clan respawn cooldowns
+- [x] economy_tick_system — unified hourly economy (food production + respawning) using PhysicsDelta
+- [x] Result: Food counter increases, dead NPCs respawn after timer (all in Bevy)
 
 *9.3: Events from ECS to GDScript*
 - [ ] DEATH_EVENT_QUEUE in messages.rs — pushed by death_cleanup_system (npc_idx, job, faction, town_idx)
@@ -263,7 +265,7 @@ Multi-threaded systems (pure logic) → emit Events → main thread system → G
 | Phase 7a (health/death) | 10,000+ | 140 | ✅ Done |
 | Phase 7b (GPU targeting) | 10,000+ | 140 | ✅ Done |
 | Phase 7c (GPU projectiles) | 10,000+ | 140 | ✅ Done |
-| Phase 8-9 (full game) | 10,000+ | 60+ | 9.1 done |
+| Phase 8-9 (full game) | 10,000+ | 60+ | 9.1-9.2 done |
 | GPU grid + targeting | 20,000+ | 60+ | Future |
 
 ## Performance Lessons Learned
