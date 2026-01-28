@@ -89,14 +89,14 @@ fn build_app(app: &mut bevy::prelude::App) {
        // Behavior: energy, patrol, rest, work, stealing, combat escape, economy
        .add_systems(Update, (
            handle_arrival_system,
-           steal_arrival_system,
+           raider_arrival_system,
            energy_system,
            flee_system,
            leash_system,
            tired_system,
            wounded_rest_system,
            recovery_system,
-           steal_decision_system,
+           raider_idle_system,
            resume_patrol_system,
            resume_work_system,
            patrol_system,

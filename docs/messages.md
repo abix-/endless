@@ -25,7 +25,7 @@ Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bev
 | SetFaction | idx, faction | spawn_npc_system | faction_buffer |
 | SetPosition | idx, x, y | spawn_npc_system | position_buffer |
 | SetSpeed | idx, speed | spawn_npc_system | speed_buffer |
-| SetColor | idx, r, g, b, a | spawn_npc_system, steal_arrival_system, flee_system | color_buffer |
+| SetColor | idx, r, g, b, a | spawn_npc_system, raider_arrival_system, flee_system | color_buffer |
 | ApplyDamage | idx, amount | (unused — damage goes through Bevy) | health_buffer |
 | HideNpc | idx | death_cleanup_system | position_buffer → (-9999, -9999) |
 
@@ -84,11 +84,11 @@ COMBAT_DEBUG (defined in `systems/combat.rs`) tracks 18 fields: `attackers_queri
 
 | Field | Type | Writer | Reader |
 |-------|------|--------|--------|
-| food | `Vec<i32>` | add_town_food() API, steal_arrival_system | get_town_food() API |
+| food | `Vec<i32>` | add_town_food() API, raider_arrival_system | get_town_food() API |
 
 | Queue | Type | Writer | Reader |
 |-------|------|--------|--------|
-| FOOD_DELIVERED_QUEUE | `Vec<FoodDelivered>` | steal_arrival_system | get_food_events() API |
+| FOOD_DELIVERED_QUEUE | `Vec<FoodDelivered>` | raider_arrival_system | get_food_events() API |
 | FOOD_CONSUMED_QUEUE | `Vec<FoodConsumed>` | (future eat system) | get_food_events() API |
 
 ## UI Query State

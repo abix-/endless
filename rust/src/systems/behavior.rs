@@ -179,8 +179,8 @@ pub fn handle_arrival_system(
 // STEALING SYSTEMS (generic — any NPC with Stealer component)
 // ============================================================================
 
-/// Handle arrivals for stealing NPCs (Raiding → pickup, Returning → deliver).
-pub fn steal_arrival_system(
+/// Handle arrivals for raiders (Raiding → pickup, Returning → deliver).
+pub fn raider_arrival_system(
     mut commands: Commands,
     mut events: MessageReader<ArrivalMsg>,
     raiding_query: Query<(Entity, &NpcIndex, &Home, &Health, Option<&WoundedThreshold>), With<Raiding>>,
@@ -243,7 +243,7 @@ pub fn steal_arrival_system(
                     }
                 }
 
-                // Fall through to steal_decision_system next tick
+                // Fall through to raider_idle_system next tick
                 // (entity has no active state markers)
                 break;
             }
@@ -251,9 +251,9 @@ pub fn steal_arrival_system(
     }
 }
 
-/// Decision system for idle stealers: pick next action.
+/// Idle brain for raiders: pick next action when not busy.
 /// Runs on Stealer NPCs without any active state.
-pub fn steal_decision_system(
+pub fn raider_idle_system(
     mut commands: Commands,
     query: Query<
         (Entity, &NpcIndex, &Home, &Health, Option<&CarryingFood>, Option<&Energy>, Option<&WoundedThreshold>),
@@ -471,7 +471,7 @@ pub fn recovery_system(
             commands.entity(entity)
                 .remove::<Recovering>()
                 .remove::<Resting>();
-            // Falls through to steal_decision_system or resume_patrol next tick
+            // Falls through to raider_idle_system or resume_patrol next tick
         }
     }
 }

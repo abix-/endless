@@ -133,8 +133,8 @@ Each phase is a working game state. Old GDScript code kept as reference, hard cu
 **Phase 8: Raider Logic** (2 items remaining)
 - [x] Generic components: Stealer, CarryingFood, Raiding, Returning, Recovering
 - [x] Config components: FleeThreshold, LeashRange, WoundedThreshold
-- [x] steal_decision_system (priority: wounded → carrying → tired → raid nearest farm)
-- [x] steal_arrival_system (farm pickup → camp delivery with food storage)
+- [x] raider_idle_system (priority: wounded → carrying → tired → raid nearest farm)
+- [x] raider_arrival_system (farm pickup → camp delivery with food storage)
 - [x] flee_system (exit combat below HP threshold)
 - [x] leash_system (disengage if too far from home)
 - [x] wounded_rest_system + recovery_system (rest until healed)
@@ -239,7 +239,7 @@ Multi-threaded systems (pure logic) → emit Events → main thread system → G
 
 *10.2: World Data Resources*
 - [ ] Staging statics for GDScript boundary, sync systems in Step::Drain
-- [ ] Update spawn_npc_system, steal_decision_system → `Res<WorldData>`
+- [ ] Update spawn_npc_system, raider_idle_system → `Res<WorldData>`
 - [ ] Result: Bevy sees WorldData dependencies
 
 *10.3: Debug + Food Resources*
@@ -249,7 +249,7 @@ Multi-threaded systems (pure logic) → emit Events → main thread system → G
 
 *10.4: GPU Read State Resource*
 - [ ] process() writes staging static, Drain copies to `Res<GpuReadState>`
-- [ ] Update attack_system, steal_decision_system, leash_system → `Res<GpuReadState>`
+- [ ] Update attack_system, raider_idle_system, leash_system → `Res<GpuReadState>`
 - [ ] Result: No Bevy system locks GPU_READ_STATE directly
 
 *Statics that stay (architectural necessities):*

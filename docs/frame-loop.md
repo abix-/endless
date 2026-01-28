@@ -26,9 +26,9 @@ BevyApp._process() (autoload — runs FIRST in frame)
 │     death_system → death_cleanup_system
 │
 └─ Step::Behavior
-      handle_arrival_system, steal_arrival_system, energy_system,
+      handle_arrival_system, raider_arrival_system, energy_system,
       flee_system, leash_system, tired_system, wounded_rest_system,
-      recovery_system, steal_decision_system, resume_patrol_system,
+      recovery_system, raider_idle_system, resume_patrol_system,
       resume_work_system, patrol_system, economy_tick_system
 
 EcsNpcManager._process(delta) (scene node — runs AFTER autoloads)

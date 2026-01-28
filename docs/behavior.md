@@ -13,7 +13,7 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
     ┌──────────┐         ┌──────────┐          ┌──────────┐
     │Patrolling│         │GoingToWork│         │  (idle)  │ spawns stateless
     └────┬─────┘         └────┬─────┘          └────┬─────┘
-         │ arrival            │ arrival              │ steal_decision_system
+         │ arrival            │ arrival              │ raider_idle_system
          ▼                    ▼                      ▼
     ┌──────────┐         ┌──────────┐          ┌──────────┐
     │  OnDuty  │         │ Working  │          │  Raiding  │ (walk to farm)
@@ -27,7 +27,7 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
          └────────┬───────────┘                     │ arrival at camp
                   │ energy < 50                     ▼
                   ▼                            deliver food, re-enter
-             ┌──────────┐                     steal_decision_system
+             ┌──────────┐                     raider_idle_system
              │GoingToRest│
              └────┬─────┘
                   │ arrival
@@ -118,12 +118,12 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 - Set target to next post via `GpuUpdate::SetTarget`
 - Add `HasTarget`
 
-### steal_arrival_system
+### raider_arrival_system
 - Reads `ArrivalMsg` for NPCs with `Stealer`
 - `Raiding` arrival (at farm): add `CarryingFood`, remove `Raiding`, add `Returning`, set color yellow, target home
-- `Returning` arrival (at camp): if `CarryingFood` { remove, deliver food to `FOOD_STORAGE`, push `FoodDelivered`, reset color to red }. NPC has no active state → falls through to `steal_decision_system` next tick.
+- `Returning` arrival (at camp): if `CarryingFood` { remove, deliver food to `FOOD_STORAGE`, push `FoodDelivered`, reset color to red }. NPC has no active state → falls through to `raider_idle_system` next tick.
 
-### steal_decision_system
+### raider_idle_system
 - Query: `Stealer` NPCs with no active state (no `Raiding`, `Returning`, `Resting`, `InCombat`, `Recovering`, `GoingToRest`, `Dead`)
 - Priority 1: Health < `WoundedThreshold` (+ valid home) → drop food, add `Returning`, target home
 - Priority 2: Has `CarryingFood` (+ valid home) → add `Returning`, target home
@@ -185,11 +185,11 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Fixed patrol timing**: 60 ticks at every post, regardless of threat level or distance.
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Energy doesn't affect combat**: A nearly exhausted guard fights at full strength.
-- **Linear arrival scan**: handle_arrival_system and steal_arrival_system iterate all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
+- **Linear arrival scan**: handle_arrival_system and raider_arrival_system iterate all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
-- **Single camp index hardcoded**: steal_arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
+- **Single camp index hardcoded**: raider_arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
 - **No HP regen in Bevy**: recovery_system checks health threshold but there's no Bevy system that regenerates HP over time. Recovery currently depends on external healing.
-- **All raiders target same farm**: steal_decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
+- **All raiders target same farm**: raider_idle_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
 
 ## Rating: 8/10
 
