@@ -62,12 +62,13 @@ Workgroup: 64 threads. Dispatched as `ceil(proj_count / 64)` workgroups.
 | 3 | speed_buffer | float | 4B | R | Movement speed |
 | 4 | grid_counts_buffer | int[] | - | R | NPCs per grid cell |
 | 5 | grid_data_buffer | int[] | - | R | NPC indices per cell |
-| 6 | multimesh_buffer | float[12] | 48B | W | Direct render output |
+| 6 | multimesh_buffer | float[16] | 64B | W | Direct render output (Transform2D + Color + CustomData) |
 | 7 | arrival_buffer | int | 4B | RW | Settled/arrived flag |
 | 8 | backoff_buffer | int | 4B | RW | Collision backoff counter |
 | 9 | faction_buffer | int | 4B | R | 0=Villager, 1=Raider |
 | 10 | health_buffer | float | 4B | R | Current HP |
 | 11 | combat_target_buffer | int | 4B | W | Nearest enemy index or -1 |
+| 12 | sprite_frame_buffer | vec2 | 8B | R | Sprite sheet column/row |
 
 ### Projectile Buffers (projectile_compute.glsl)
 
@@ -119,7 +120,7 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 - **Health is CPU-authoritative**: The GPU reads health for targeting but never modifies it. If GPU-side damage were ever needed, this would require a readback.
 - **Fixed grid dimensions**: 80x80 grid is hardcoded. Larger worlds need a bigger grid or dynamic sizing.
 - **Max 64 NPCs per cell**: Exceeding this silently drops NPCs from neighbor queries. At 10K NPCs in 6,400 cells, average is ~1.5 per cell, so this is safe with margin.
-- **Wasted multimesh_buffer write**: NPC shader writes Transform2D+Color to binding 6, but the CPU rebuilds the MultiMesh from cached positions via `build_multimesh_from_cache()`. The GPU-written buffer is unused for rendering — wasted GPU work every frame.
+- **Wasted multimesh_buffer write**: NPC shader writes Transform2D+Color+CustomData to binding 6, but the CPU rebuilds the MultiMesh from cached positions/colors/sprite_frames via `build_multimesh_from_cache()`. The GPU-written buffer is unused for rendering — wasted GPU work every frame.
 - **Blocking sync**: `rd.sync()` stalls CPU until GPU completes. No async readback or double-buffering.
 - **Two sequential dispatches**: NPC and projectile shaders run with a full sync between them. Could be pipelined.
 - **Hit buffer init**: Must be initialized to -1. GPU default of 0 would falsely indicate "hit NPC 0".

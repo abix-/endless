@@ -14,7 +14,7 @@
 - add get/set_selected_npc(), get_npc_name(), get_npc_trait(), set_npc_name(), get_bed_stats() APIs
 - add get_npc_at_position(x, y, radius) API for click selection
 - add NPC click selection in main.gd: left-click selects nearest NPC within 20px
-- wip: add sprite rendering support (custom_data, sprite_frame buffer, shader material)
+- fix sprite rendering: store ShaderMaterial reference to prevent garbage collection, include custom_data in build_multimesh_from_cache
 - update left_panel.gd: uses ECS APIs for stats, bed info, and NPC inspector
 - update roster_panel.gd: uses ECS APIs for NPC roster with sorting/filtering
 - update upgrade_menu.gd: uses ECS APIs for farmer/guard counts

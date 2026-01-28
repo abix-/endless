@@ -467,6 +467,7 @@ impl GpuCompute {
 
         for i in 0..npc_count {
             let base = i * FLOATS_PER_INSTANCE;
+            // Transform2D (8 floats)
             floats[base + 0] = 1.0;
             floats[base + 1] = 0.0;
             floats[base + 2] = 0.0;
@@ -475,10 +476,19 @@ impl GpuCompute {
             floats[base + 5] = 1.0;
             floats[base + 6] = 0.0;
             floats[base + 7] = self.positions[i * 2 + 1];
+            // Color (4 floats)
             floats[base + 8] = colors[i * 4];
             floats[base + 9] = colors[i * 4 + 1];
             floats[base + 10] = colors[i * 4 + 2];
             floats[base + 11] = colors[i * 4 + 3];
+            // CustomData (4 floats): health_pct, flash, sprite_x/255, sprite_y/255
+            let health_pct = (self.healths[i] / 100.0).clamp(0.0, 1.0);
+            let sprite_col = self.sprite_frames[i * 2];
+            let sprite_row = self.sprite_frames[i * 2 + 1];
+            floats[base + 12] = health_pct;
+            floats[base + 13] = 0.0;  // flash (set by damage events if needed)
+            floats[base + 14] = sprite_col / 255.0;
+            floats[base + 15] = sprite_row / 255.0;
         }
 
         PackedFloat32Array::from(floats.as_slice())

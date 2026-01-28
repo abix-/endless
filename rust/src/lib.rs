@@ -127,6 +127,10 @@ pub struct EcsNpcManager {
     #[allow(dead_code)]
     mesh: Option<Gd<QuadMesh>>,
 
+    /// Keep material alive (Godot reference counting)
+    #[allow(dead_code)]
+    material: Option<Gd<ShaderMaterial>>,
+
     /// Previous frame's arrival states (to detect new arrivals).
     prev_arrivals: Vec<bool>,
 
@@ -149,6 +153,7 @@ impl INode2D for EcsNpcManager {
             multimesh_rid: Rid::Invalid,
             canvas_item: Rid::Invalid,
             mesh: None,
+            material: None,
             prev_arrivals: vec![false; MAX_NPC_COUNT],
             proj_multimesh_rid: Rid::Invalid,
             proj_canvas_item: Rid::Invalid,
@@ -430,6 +435,7 @@ impl EcsNpcManager {
         rs.canvas_item_set_parent(self.canvas_item, parent_canvas);
 
         // Load and apply sprite shader material
+        // IMPORTANT: Store material in struct to keep it alive (RenderingServer expects references to be kept around)
         let mut loader = ResourceLoader::singleton();
         if let Some(shader) = loader.load("res://systems/npc_sprite.gdshader") {
             if let Some(texture) = loader.load("res://assets/roguelikeChar_transparent.png") {
@@ -442,6 +448,7 @@ impl EcsNpcManager {
                 material.set_shader_parameter("margin", &1.0f32.to_variant());
                 material.set_shader_parameter("hp_bar_mode", &1i32.to_variant());
                 rs.canvas_item_set_material(self.canvas_item, material.get_rid());
+                self.material = Some(material);
             }
         }
 
