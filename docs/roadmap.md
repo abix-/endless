@@ -25,14 +25,15 @@ See [gpu-compute.md](gpu-compute.md) for buffer details, [messages.md](messages.
 | Targets | GPU | Bevy → GPU | Bevy decides destination, GPU interpolates movement |
 | Factions | GPU | Write-once | Set at spawn (0=Villager, 1=Raider) |
 | Combat targets | GPU | GPU → Bevy | GPU finds nearest enemy within 300px |
-| Colors | GPU | Write-once | Set at spawn based on Job |
+| Colors | GPU | Bevy → GPU | Set at spawn, updated by steal/flee systems |
 | Speeds | GPU | Write-once | Movement speed per NPC |
 | **Bevy-Owned (Logical State)** ||||
 | NpcIndex | Bevy | Internal | Links Bevy entity to GPU slot index |
-| Job | Bevy | Internal | Guard, Farmer, Raider - determines behavior |
+| Job | Bevy | Internal | Guard, Farmer, Raider, Fighter - determines behavior |
 | Energy | Bevy | Internal | Drives tired/rest decisions (drain/recover rates) |
 | Health | **Both** | Bevy → GPU | Bevy authoritative, synced to GPU for targeting |
-| State markers | Bevy | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, etc. |
+| State markers | Bevy | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, Returning, Recovering, etc. |
+| Config components | Bevy | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer |
 | AttackTimer | Bevy | Internal | Cooldown between attacks |
 | AttackStats | Bevy | Internal | melee(range=150, speed=500) or ranged(range=300, speed=200) |
 | PatrolRoute | Bevy | Internal | Guard post sequence for patrols |
