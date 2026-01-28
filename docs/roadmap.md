@@ -90,7 +90,7 @@ Each phase is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Query API: get_nearest_free_bed/farm
 - [x] Occupancy API: reserve/release bed/farm
 - [x] Test 6 with visual markers (town, camp, farms, beds, posts)
-- [ ] Wire up main.gd to sync world data on game start
+- [x] Wire up main.gd to sync world data on game start
 - [x] Result: Bevy + GPU know the world layout
 
 **Phase 5: Guard Logic** ✓
@@ -142,7 +142,7 @@ Each phase is a working game state. Old GDScript code kept as reference, hard cu
 - [x] wounded_rest_system + recovery_system (rest until healed)
 - [x] FoodStorage resource with GDScript API (init, add, get, events)
 - [x] Raider spawn bundle includes Energy, Stealer, flee/leash/wounded config
-- [ ] Wire up main.gd to sync world data and food on game start
+- [x] Wire up main.gd to sync world data and food on game start
 - [ ] Multi-camp food delivery (currently hardcoded camp_food[0])
 - [ ] HP regen system in Bevy (recovery_system checks threshold but no regen)
 - [ ] Result: Full game loop
@@ -234,6 +234,11 @@ Multi-threaded systems (pure logic) → emit Events → main thread system → G
 - Test assertions must run ONCE when triggered, not every frame after timer passes
 - Debug metrics (min separation) must be throttled to 1/sec, not every frame
 - `get_debug_stats()` does GPU reads - don't call every frame
+
+**MultiMesh culling:**
+- Godot auto-calculates AABB for canvas items — wrong for world-spanning MultiMesh
+- NPCs disappear at close zoom without `canvas_item_set_custom_rect` on the canvas item
+- Fix: set large custom rect (-100K to +100K) to disable culling
 
 **What worked:**
 - Build multimesh from cached positions on CPU (eliminates 480KB GPU readback)

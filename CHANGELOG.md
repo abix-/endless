@@ -4,6 +4,7 @@
 - wire EcsNpcManager into main.gd (Phase 1): replace npc_manager + projectile_manager with Rust ECS
 - comment out: food production, respawning, building, upgrades, active radius, NPC selection (future phases)
 - spawn_npc() calls for farmers, guards, raiders with Dictionary opts
+- fix multimesh culling: set custom visibility rect on canvas item (NPCs disappeared at close zoom)
 
 ## 2026-01-27
 - fix test 11: add combat_target_2/3 to get_combat_debug() (was returning -99 default)

@@ -416,6 +416,8 @@ impl EcsNpcManager {
         let parent_canvas = self.base().get_canvas_item();
         rs.canvas_item_set_parent(self.canvas_item, parent_canvas);
         rs.canvas_item_add_multimesh(self.canvas_item, self.multimesh_rid);
+        // Disable visibility culling — Godot's auto AABB is wrong for world-spanning MultiMesh
+        rs.canvas_item_set_custom_rect_ex(self.canvas_item, true).rect(Rect2::new(Vector2::new(-100000.0, -100000.0), Vector2::new(200000.0, 200000.0))).done();
 
         self.mesh = Some(mesh);
     }
