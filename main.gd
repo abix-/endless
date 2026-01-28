@@ -539,7 +539,7 @@ func _input(event: InputEvent) -> void:
 			if _unlock_slot(player_town_idx, slot_info.slot_key):
 				get_viewport().set_input_as_handled()
 
-	# Left-click on guard post opens upgrade menu
+	# Left-click: guard post > NPC > terrain
 	if event is InputEventMouseButton and event.pressed and not event.double_click and event.button_index == MOUSE_BUTTON_LEFT:
 		var world_pos: Vector2 = get_global_mouse_position()
 		var post_info := _get_clicked_guard_post(world_pos)
@@ -547,13 +547,15 @@ func _input(event: InputEvent) -> void:
 			guard_post_menu.open(post_info.slot_key, post_info.town_idx, event.position)
 			get_viewport().set_input_as_handled()
 		else:
-			#var farm_info := _get_clicked_farm(world_pos)
-			#if farm_info.farm_idx >= 0:
-			#	farm_menu.open(farm_info.town_idx, farm_info.farm_idx, event.position)
-			#	get_viewport().set_input_as_handled()
-			# If no NPC or guard post or farm clicked, select terrain tile
-			#elif npc_manager.selected_npc < 0:
-			selected_tile = terrain_renderer.get_tile_at(world_pos)
+			# Check for NPC click (20px radius)
+			var clicked_npc: int = npc_manager.get_npc_at_position(world_pos.x, world_pos.y, 20.0)
+			if clicked_npc >= 0:
+				npc_manager.set_selected_npc(clicked_npc)
+				get_viewport().set_input_as_handled()
+			else:
+				# Deselect NPC and select terrain
+				npc_manager.set_selected_npc(-1)
+				selected_tile = terrain_renderer.get_tile_at(world_pos)
 
 
 #func _on_upgrade_purchased(upgrade_type: String, new_level: int) -> void:

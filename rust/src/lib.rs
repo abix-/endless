@@ -1417,6 +1417,35 @@ impl EcsNpcManager {
         }
     }
 
+    /// Find nearest NPC at a position within radius (for click selection).
+    #[func]
+    fn get_npc_at_position(&self, x: f32, y: f32, radius: f32) -> i32 {
+        let mut best_idx: i32 = -1;
+        let mut best_dist = radius;
+
+        if let Ok(state) = GPU_READ_STATE.lock() {
+            for i in 0..state.npc_count {
+                // Skip dead NPCs
+                if i >= state.health.len() || state.health[i] <= 0.0 {
+                    continue;
+                }
+
+                let px = state.positions.get(i * 2).copied().unwrap_or(0.0);
+                let py = state.positions.get(i * 2 + 1).copied().unwrap_or(0.0);
+                let dx = px - x;
+                let dy = py - y;
+                let dist = (dx * dx + dy * dy).sqrt();
+
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_idx = i as i32;
+                }
+            }
+        }
+
+        best_idx
+    }
+
     /// Get bed statistics for a town.
     #[func]
     fn get_bed_stats(&self, town_idx: i32) -> VarDictionary {
