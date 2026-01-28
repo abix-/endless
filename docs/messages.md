@@ -66,7 +66,8 @@ Two separate counters decouple slot allocation from GPU dispatch, preventing uni
 | Flag | Type | Writer | Reader |
 |------|------|--------|--------|
 | RESET_BEVY | bool | reset() API | reset_bevy_system (despawns all entities) |
-| FRAME_DELTA | f32 | process() | cooldown_system, energy_system |
+
+Note: `FRAME_DELTA` was removed — systems now use `Res<PhysicsDelta>` from godot-bevy (synced with Godot's physics frame).
 
 ## Debug State
 
@@ -97,7 +98,7 @@ All communication currently uses static Mutex. This is correct for cross-boundar
 
 | Category | Pattern | Statics | Count |
 |----------|---------|---------|-------|
-| GDScript↔Bevy boundary | Static Mutex (stays) | SPAWN/TARGET/DAMAGE/ARRIVAL_QUEUE, RESET_BEVY, FRAME_DELTA, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 9 |
+| GDScript↔Bevy boundary | Static Mutex (stays) | SPAWN/TARGET/DAMAGE/ARRIVAL_QUEUE, RESET_BEVY, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 8 |
 | Bevy↔GPU boundary | Static Mutex (stays) | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
 | Bevy-internal state | Migrate → `Res<T>` / Events | WORLD_DATA, BED/FARM_OCCUPANCY, HEALTH/COMBAT_DEBUG, FOOD_STORAGE, food event queues | 8 |
 

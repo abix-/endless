@@ -1,6 +1,7 @@
 //! Combat systems - Attack processing using GPU targeting results
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
+use godot_bevy::prelude::PhysicsDelta;
 
 use crate::components::*;
 use crate::messages::*;
@@ -57,8 +58,8 @@ impl CombatDebug {
 }
 
 /// Decrement attack cooldown timers each frame.
-pub fn cooldown_system(mut query: Query<&mut AttackTimer>) {
-    let dt = FRAME_DELTA.lock().map(|d| *d).unwrap_or(0.016);
+pub fn cooldown_system(delta: Res<PhysicsDelta>, mut query: Query<&mut AttackTimer>) {
+    let dt = delta.delta_seconds;
 
     let mut first_timer_before = -99.0f32;
     let mut timer_count = 0usize;

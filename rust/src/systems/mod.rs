@@ -7,6 +7,7 @@ mod energy;
 mod behavior;
 mod health;
 mod combat;
+mod economy;
 
 pub use drain::*;
 pub use spawn::*;
@@ -15,3 +16,4 @@ pub use energy::*;
 pub use behavior::*;
 pub use health::*;
 pub use combat::*;
+pub use economy::*;

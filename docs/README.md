@@ -107,13 +107,14 @@ rust/
   src/messages.rs       # Static queues and message types (GDScript → Bevy)
   src/components.rs     # ECS components (NpcIndex, Job[Farmer/Guard/Raider/Fighter], Energy, Health, states, stealing, flee/leash)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
-  src/resources.rs      # Bevy resources (NpcCount, DeltaTime, NpcEntityMap)
+  src/resources.rs      # Bevy resources (NpcCount, NpcEntityMap, GameTime, GameConfig, PopulationStats, RespawnTimers)
   src/world.rs          # World data structs (Town, Farm, Bed, GuardPost)
   src/systems/
     spawn.rs            # Bevy spawn systems (drain queues → create entities)
     combat.rs           # Attack system (GPU targets → damage → chase)
     health.rs           # Damage, death, cleanup, slot recycling
     behavior.rs         # Energy, tired, rest, patrol, work, steal, flee, leash, recovery
+    economy.rs          # Food production, respawning, population tracking (uses PhysicsDelta)
 shaders/
   npc_compute.glsl      # GPU: movement + separation + combat targeting
   projectile_compute.glsl # GPU: projectile movement + collision

@@ -6,6 +6,7 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::components::*;
 use crate::messages::*;
 use crate::resources::*;
+use crate::systems::economy::*;
 use crate::world::WORLD_DATA;
 
 /// Despawn all Bevy entities when RESET_BEVY flag is set.
@@ -37,6 +38,7 @@ pub fn spawn_npc_system(
     mut events: MessageReader<SpawnNpcMsg>,
     mut count: ResMut<NpcCount>,
     mut npc_map: ResMut<NpcEntityMap>,
+    mut pop_stats: ResMut<PopulationStats>,
 ) {
     let mut max_slot = 0usize;
     let mut had_spawns = false;
@@ -70,6 +72,7 @@ pub fn spawn_npc_system(
         let mut ec = commands.spawn((
             NpcIndex(idx),
             job,
+            Clan(msg.town_idx),
             Speed::default(),
             Health::default(),
             Faction::from_i32(msg.faction),
@@ -81,7 +84,7 @@ pub fn spawn_npc_system(
             Job::Guard => {
                 ec.insert(Energy::default());
                 ec.insert((AttackStats::melee(), AttackTimer(0.0)));
-                ec.insert(Guard { town_idx: msg.town_idx as u32 });
+                ec.insert(Guard);
                 if msg.starting_post >= 0 {
                     let patrol_posts = build_patrol_route(msg.town_idx as u32);
                     ec.insert((
@@ -95,7 +98,7 @@ pub fn spawn_npc_system(
             }
             Job::Farmer => {
                 ec.insert(Energy::default());
-                ec.insert(Farmer { town_idx: msg.town_idx as u32 });
+                ec.insert(Farmer);
                 if msg.work_x >= 0.0 {
                     ec.insert((
                         WorkPosition(Vector2::new(msg.work_x, msg.work_y)),
@@ -119,6 +122,7 @@ pub fn spawn_npc_system(
 
         npc_map.0.insert(idx, ec.id());
         count.0 += 1;
+        pop_inc_alive(&mut pop_stats, job, msg.town_idx);
     }
 
     // Update GPU dispatch count so process() includes these NPCs

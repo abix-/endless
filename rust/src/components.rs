@@ -67,15 +67,16 @@ impl Default for Speed {
 
 /// Guard marker - identifies NPC as a guard (for queries).
 #[derive(Component)]
-pub struct Guard {
-    pub town_idx: u32,
-}
+pub struct Guard;
 
 /// Farmer marker - identifies NPC as a farmer.
 #[derive(Component)]
-pub struct Farmer {
-    pub town_idx: u32,
-}
+pub struct Farmer;
+
+/// Clan identifies which town/camp an NPC belongs to.
+/// Universal component on every NPC — replaces per-struct town_idx fields.
+#[derive(Component, Clone, Copy)]
+pub struct Clan(pub i32);
 
 // ============================================================================
 // BEHAVIOR DATA COMPONENTS

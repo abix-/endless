@@ -70,7 +70,6 @@ pub struct FireProjectileMsg {
 pub static PROJECTILE_FIRE_QUEUE: Mutex<Vec<FireProjectileMsg>> = Mutex::new(Vec::new());
 
 pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);
-pub static FRAME_DELTA: Mutex<f32> = Mutex::new(0.016);
 
 // ============================================================================
 // SLOT ALLOCATION vs GPU DISPATCH (two separate counts)
@@ -215,3 +214,13 @@ pub struct FoodConsumed {
 
 pub static FOOD_DELIVERED_QUEUE: Mutex<Vec<FoodDelivered>> = Mutex::new(Vec::new());
 pub static FOOD_CONSUMED_QUEUE: Mutex<Vec<FoodConsumed>> = Mutex::new(Vec::new());
+
+// ============================================================================
+// GAME CONFIG (write-once from GDScript, drained into Res<GameConfig>)
+// ============================================================================
+
+use crate::resources::GameConfig;
+
+/// Staging area for GameConfig. Set by GDScript set_game_config(), drained once by Bevy.
+pub static GAME_CONFIG_STAGING: Mutex<Option<GameConfig>> = Mutex::new(None);
+

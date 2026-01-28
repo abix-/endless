@@ -29,37 +29,36 @@ BevyApp._process() (autoload — runs FIRST in frame)
       handle_arrival_system, steal_arrival_system, energy_system,
       flee_system, leash_system, tired_system, wounded_rest_system,
       recovery_system, steal_decision_system, resume_patrol_system,
-      resume_work_system, patrol_system
+      resume_work_system, patrol_system, economy_tick_system
 
 EcsNpcManager._process(delta) (scene node — runs AFTER autoloads)
 │
-├─ 1. Write FRAME_DELTA for Bevy systems
-├─ 2. Read npc_count from GPU_DISPATCH_COUNT
+├─ 1. Read npc_count from GPU_DISPATCH_COUNT
 │
-├─ 3. Drain GPU_UPDATE_QUEUE → write to GPU buffers
+├─ 2. Drain GPU_UPDATE_QUEUE → write to GPU buffers
 │     Guard: idx < MAX_NPC_COUNT (buffer size, not dispatch count)
 │     SetTarget, SetHealth, SetFaction, SetPosition,
 │     SetSpeed, SetColor, ApplyDamage, HideNpc
 │
-├─ 4. GPU NPC Dispatch (npc_compute.glsl)
+├─ 3. GPU NPC Dispatch (npc_compute.glsl)
 │     ├─ Build spatial grid (CPU) → upload grid buffers
 │     ├─ Dispatch compute shader (separation + movement + combat targeting)
 │     ├─ Read back: positions, combat_targets
 │     └─ Write GPU_READ_STATE (positions, targets, health, factions)
 │
-├─ 5. Detect arrivals (compare arrival_buffer to prev_arrivals)
+├─ 4. Detect arrivals (compare arrival_buffer to prev_arrivals)
 │     └─ Push new arrivals to ARRIVAL_QUEUE
 │
-├─ 6. Build NPC MultiMesh buffer → upload to RenderingServer
+├─ 5. Build NPC MultiMesh buffer → upload to RenderingServer
 │
-├─ 7. GPU Projectile Dispatch (projectile_compute.glsl)
+├─ 6. GPU Projectile Dispatch (projectile_compute.glsl)
 │     ├─ Dispatch compute shader (movement + collision)
 │     ├─ Read hit results → push to DAMAGE_QUEUE + FREE_PROJ_SLOTS
 │     ├─ Read positions + active flags
 │     ├─ Resize projectile MultiMesh to proj_count (if changed)
 │     └─ Build projectile MultiMesh buffer → upload
 │
-└─ 8. (Godot renders the frame)
+└─ 7. (Godot renders the frame)
 ```
 
 ## Communication Bridges

@@ -1,6 +1,6 @@
 //! Queue drain systems - Move messages from static queues to Bevy events
 
-use godot_bevy::prelude::bevy_ecs_prelude::MessageWriter;
+use godot_bevy::prelude::bevy_ecs_prelude::{MessageWriter, ResMut};
 use crate::messages::*;
 
 /// Drain the spawn queue.
@@ -26,6 +26,15 @@ pub fn drain_arrival_queue(mut messages: MessageWriter<ArrivalMsg>) {
     if let Ok(mut queue) = ARRIVAL_QUEUE.lock() {
         for msg in queue.drain(..) {
             messages.write(msg);
+        }
+    }
+}
+
+/// Drain game config staging into Bevy Resource (one-shot).
+pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>) {
+    if let Ok(mut staging) = GAME_CONFIG_STAGING.lock() {
+        if let Some(new_config) = staging.take() {
+            *config = new_config;
         }
     }
 }

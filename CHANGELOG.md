@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-01-28
+- add Phase 9.2: food production and respawning in Bevy ECS
+- add economy_tick_system: unified hourly economy (food + respawn) using PhysicsDelta
+- add Clan component: universal town/camp identifier on every NPC
+- add GameTime resource: Bevy-owned game time tracking (no GDScript bridge needed)
+- add GameConfig resource: farmers/guards per town, spawn interval, food per hour
+- add PopulationStats resource: tracks alive/working counts per (job, clan)
+- add RespawnTimers resource: per-clan respawn cooldowns
+- remove FRAME_DELTA static: all timing now uses godot-bevy's PhysicsDelta (Godot-synced)
+- remove GAME_TIME static: game time fully owned by Bevy
+- refactor cooldown_system to use PhysicsDelta instead of FRAME_DELTA
+- add Animal Crossing to inspirations: existence is the game, NPCs have their own lives
+- add Factorio philosophy: satisfaction of watching your creation work
+
 ## 2026-01-27 (WIP)
 - wire EcsNpcManager into main.gd (Phase 1): replace npc_manager + projectile_manager with Rust ECS
 - comment out: food production, respawning, building, upgrades, active radius, NPC selection (future phases)

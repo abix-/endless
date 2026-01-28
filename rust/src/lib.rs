@@ -53,6 +53,10 @@ fn build_app(app: &mut bevy::prelude::App) {
        .add_message::<DamageMsg>()
        .init_resource::<NpcCount>()
        .init_resource::<NpcEntityMap>()
+       .init_resource::<PopulationStats>()
+       .init_resource::<GameConfig>()
+       .init_resource::<resources::GameTime>()
+       .init_resource::<RespawnTimers>()
        .init_resource::<world::WorldData>()
        .init_resource::<world::BedOccupancy>()
        .init_resource::<world::FarmOccupancy>()
@@ -67,6 +71,7 @@ fn build_app(app: &mut bevy::prelude::App) {
            drain_target_queue,
            drain_arrival_queue,
            drain_damage_queue,
+           drain_game_config,
        ).in_set(Step::Drain))
        // Spawn: create entities
        .add_systems(Update, (
@@ -81,7 +86,7 @@ fn build_app(app: &mut bevy::prelude::App) {
            death_system,
            death_cleanup_system,
        ).chain().in_set(Step::Combat))
-       // Behavior: energy, patrol, rest, work, stealing, combat escape
+       // Behavior: energy, patrol, rest, work, stealing, combat escape, economy
        .add_systems(Update, (
            handle_arrival_system,
            steal_arrival_system,
@@ -95,6 +100,7 @@ fn build_app(app: &mut bevy::prelude::App) {
            resume_patrol_system,
            resume_work_system,
            patrol_system,
+           economy_tick_system,
        ).in_set(Step::Behavior));
 }
 
@@ -161,11 +167,6 @@ impl INode2D for EcsNpcManager {
     }
 
     fn process(&mut self, delta: f64) {
-        // Update FRAME_DELTA for Bevy combat systems
-        if let Ok(mut d) = FRAME_DELTA.lock() {
-            *d = delta as f32;
-        }
-
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,
             None => return,

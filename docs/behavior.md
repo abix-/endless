@@ -56,6 +56,7 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 
 | Component | Type | Purpose |
 |-----------|------|---------|
+| Clan | `i32` | Town/camp identifier — every NPC belongs to one |
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
 | Resting | marker | NPC is at home, recovering energy |
 | GoingToRest | marker | NPC is walking home to rest |
@@ -145,6 +146,12 @@ All systems are **component-driven, not job-driven**. A system like `flee_system
 ### recovery_system
 - Query: `Recovering` + `Resting` + `Health`
 - If health >= `Recovering.threshold`: remove both, NPC re-enters decision system next tick
+
+### economy_tick_system
+- Reads `Res<PhysicsDelta>` (godot-bevy's Godot-synced delta time)
+- Accumulates elapsed time, triggers on hour boundaries
+- **Food production**: counts `Working` farmers per `Clan`, adds food to `FOOD_STORAGE`
+- **Respawn check**: compares `PopulationStats` alive counts vs `GameConfig` caps, spawns replacements
 
 ## Energy Model
 

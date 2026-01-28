@@ -11,6 +11,11 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
   - Balance farming vs other jobs (woodcutting, mining, blacksmithing, army)
 - **RimWorld** - colonist needs, AI storytelling, emergent chaos
 - **Factorio** - scale to thousands of entities, predicted rendering, dormant states, spatial partitioning
+  - The satisfaction of watching your creation work — farmers farming, guards patrolling, systems humming
+  - Content with where you are, but always knowing there's more to build
+- **Animal Crossing** - existence is the game, not winning
+  - NPCs have their own lives, schedules, personalities
+  - The world is worth inhabiting, not just optimizing
 
 ## The Struggle
 

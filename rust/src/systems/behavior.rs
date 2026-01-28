@@ -6,17 +6,23 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::components::*;
 use crate::messages::*;
 use crate::constants::*;
+use crate::resources::*;
+use crate::systems::economy::*;
 use crate::world::WORLD_DATA;
 
 /// Tired system: anyone with Home + Energy below threshold goes to rest.
 /// Skip NPCs in combat - they fight until the enemy is dead or they flee.
 pub fn tired_system(
     mut commands: Commands,
-    query: Query<(Entity, &Energy, &NpcIndex, &Home),
+    query: Query<(Entity, &Energy, &NpcIndex, &Home, &Job, &Clan, Option<&Working>),
                  (Without<GoingToRest>, Without<Resting>, Without<InCombat>)>,
+    mut pop_stats: ResMut<PopulationStats>,
 ) {
-    for (entity, energy, npc_idx, home) in query.iter() {
+    for (entity, energy, npc_idx, home, job, clan, working) in query.iter() {
         if energy.0 < ENERGY_HUNGRY && home.is_valid() {
+            if working.is_some() {
+                pop_dec_working(&mut pop_stats, *job, clan.0);
+            }
             // Low energy - go rest
             commands.entity(entity)
                 .remove::<OnDuty>()
@@ -132,7 +138,8 @@ pub fn handle_arrival_system(
     mut events: MessageReader<ArrivalMsg>,
     patrolling_query: Query<(Entity, &NpcIndex), With<Patrolling>>,
     going_to_rest_query: Query<(Entity, &NpcIndex), With<GoingToRest>>,
-    going_to_work_query: Query<(Entity, &NpcIndex), With<GoingToWork>>,
+    going_to_work_query: Query<(Entity, &NpcIndex, &Job, &Clan), With<GoingToWork>>,
+    mut pop_stats: ResMut<PopulationStats>,
 ) {
     for event in events.read() {
         // Check if a patrolling NPC arrived at post
@@ -156,11 +163,12 @@ pub fn handle_arrival_system(
         }
 
         // Check if an NPC going to work arrived
-        for (entity, npc_idx) in going_to_work_query.iter() {
+        for (entity, npc_idx, job, clan) in going_to_work_query.iter() {
             if npc_idx.0 == event.npc_index {
                 commands.entity(entity)
                     .remove::<GoingToWork>()
                     .insert(Working);
+                pop_inc_working(&mut pop_stats, *job, clan.0);
                 break;
             }
         }

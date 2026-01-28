@@ -4,7 +4,8 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 
 use crate::components::*;
 use crate::messages::*;
-use crate::resources::NpcEntityMap;
+use crate::resources::*;
+use crate::systems::economy::*;
 
 /// Apply queued damage to Health component and sync to GPU.
 /// Uses NpcEntityMap for O(1) entity lookup instead of O(n) iteration.
@@ -59,14 +60,19 @@ pub fn death_system(
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex), With<Dead>>,
+    query: Query<(Entity, &NpcIndex, &Job, &Clan, Option<&Working>), With<Dead>>,
     mut npc_map: ResMut<NpcEntityMap>,
+    mut pop_stats: ResMut<PopulationStats>,
 ) {
     let mut despawn_count = 0;
-    for (entity, npc_idx) in query.iter() {
+    for (entity, npc_idx, job, clan, working) in query.iter() {
         let idx = npc_idx.0;
         commands.entity(entity).despawn();
         despawn_count += 1;
+        pop_dec_alive(&mut pop_stats, *job, clan.0);
+        if working.is_some() {
+            pop_dec_working(&mut pop_stats, *job, clan.0);
+        }
 
         // Remove from entity map
         npc_map.0.remove(&idx);
