@@ -58,6 +58,7 @@ var raider_kills: Label
 var npc_manager: Node
 var main_node: Node
 var player: Node
+var _uses_methods := false  # True for EcsNpcManager, false for GDScript manager
 
 # State
 var pinned := true  # Always pinned - keep showing last selected NPC
@@ -70,12 +71,41 @@ const SETTINGS_KEY := "left_panel_pos"
 const COLLAPSE_KEY := "left_panel_collapse"
 
 
+# Helpers to abstract EcsNpcManager (methods) vs GDScript manager (properties)
+func _get_npc_count() -> int:
+	if not npc_manager:
+		return 0
+	if _uses_methods:
+		return npc_manager.get_npc_count()
+	return npc_manager.count
+
+func _get_npc_health(idx: int) -> float:
+	if not npc_manager or idx < 0:
+		return 0.0
+	if _uses_methods:
+		return npc_manager.get_npc_health(idx)
+	if idx < npc_manager.healths.size():
+		return npc_manager.healths[idx]
+	return 0.0
+
+func _get_npc_position(idx: int) -> Vector2:
+	if not npc_manager or idx < 0:
+		return Vector2.ZERO
+	if _uses_methods:
+		return npc_manager.get_npc_position(idx)
+	if idx < npc_manager.positions.size():
+		return npc_manager.positions[idx]
+	return Vector2.ZERO
+
+
 func _ready() -> void:
 	add_to_group("left_panel")
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	player = get_tree().get_first_node_in_group("player")
 	main_node = get_parent()
+	# Detect EcsNpcManager (uses methods) vs GDScript manager (uses properties)
+	_uses_methods = npc_manager and npc_manager.has_method("get_npc_count")
 
 	# Connect headers
 	stats_header.pressed.connect(_toggle_section.bind("stats"))
@@ -147,8 +177,8 @@ func _process(_delta: float) -> void:
 
 	# Camera follow
 	if following and last_idx >= 0:
-		if last_idx < npc_manager.count and npc_manager.healths[last_idx] > 0:
-			var npc_pos: Vector2 = npc_manager.positions[last_idx]
+		if last_idx < _get_npc_count() and _get_npc_health(last_idx) > 0:
+			var npc_pos: Vector2 = _get_npc_position(last_idx)
 			if player:
 				player.global_position = npc_pos
 		else:
@@ -167,16 +197,27 @@ func _update_stats() -> void:
 	if not stats_content.visible:
 		return
 
-	# Unit counts
-	farmer_alive.text = str(npc_manager.alive_farmers)
-	farmer_dead.text = str(npc_manager.dead_farmers)
-	farmer_kills.text = "-"
-	guard_alive.text = str(npc_manager.alive_guards)
-	guard_dead.text = str(npc_manager.dead_guards)
-	guard_kills.text = str(npc_manager.raider_kills)
-	raider_alive.text = str(npc_manager.alive_raiders)
-	raider_dead.text = str(npc_manager.dead_raiders)
-	raider_kills.text = str(npc_manager.villager_kills)
+	# Unit counts (EcsNpcManager doesn't expose these yet)
+	if _uses_methods:
+		farmer_alive.text = "-"
+		farmer_dead.text = "-"
+		farmer_kills.text = "-"
+		guard_alive.text = "-"
+		guard_dead.text = "-"
+		guard_kills.text = "-"
+		raider_alive.text = "-"
+		raider_dead.text = "-"
+		raider_kills.text = "-"
+	else:
+		farmer_alive.text = str(npc_manager.alive_farmers)
+		farmer_dead.text = str(npc_manager.dead_farmers)
+		farmer_kills.text = "-"
+		guard_alive.text = str(npc_manager.alive_guards)
+		guard_dead.text = str(npc_manager.dead_guards)
+		guard_kills.text = str(npc_manager.raider_kills)
+		raider_alive.text = str(npc_manager.alive_raiders)
+		raider_dead.text = str(npc_manager.dead_raiders)
+		raider_kills.text = str(npc_manager.villager_kills)
 
 	# Time
 	var period := "Day" if WorldClock.is_daytime() else "Night"
@@ -187,22 +228,20 @@ func _update_stats() -> void:
 		period
 	]
 
-	# Food
-	if main_node and "town_food" in main_node and "towns" in main_node and not main_node.towns.is_empty():
-		var town_total := 0
-		var camp_total := 0
-		for i in main_node.towns.size():
-			town_total += main_node.town_food[i]
-			camp_total += main_node.camp_food[i]
-		food_label.text = "Food: %d vs %d" % [town_total, camp_total]
+	# Food (read from Rust ECS)
+	var town_total: int = npc_manager.get_town_food(0)
+	var camp_total: int = npc_manager.get_camp_food(0)
+	food_label.text = "Food: %d vs %d" % [town_total, camp_total]
 
-	# Beds (player's town)
-	if main_node and "player_town_idx" in main_node:
+	# Beds (player's town) - GDScript manager only
+	if not _uses_methods and main_node and "player_town_idx" in main_node:
 		var player_town: int = main_node.player_town_idx
 		var free_beds: int = npc_manager.get_free_bed_count(player_town)
 		var total_beds: int = npc_manager.get_total_bed_count(player_town)
 		var used_beds: int = total_beds - free_beds
 		bed_label.text = "Beds: %d used, %d free" % [used_beds, free_beds]
+	elif _uses_methods:
+		bed_label.text = "Beds: -"
 
 
 func _update_perf() -> void:
@@ -220,6 +259,14 @@ func _update_perf() -> void:
 		if camera:
 			zoom_str = "%.1fx" % camera.zoom.x
 	lines.append("FPS: %d | Zoom: %s" % [fps, zoom_str])
+
+	# EcsNpcManager: simple stats from debug methods
+	if _uses_methods:
+		var stats: Dictionary = m.get_debug_stats()
+		lines.append("NPCs: %d" % stats.get("npc_count", 0))
+		lines.append("Arrived: %d | Cells: %d" % [stats.get("arrived_count", 0), stats.get("cells_used", 0)])
+		perf_label.text = "\n".join(lines)
+		return
 
 	# NPC breakdown
 	var alive: int = m.alive_farmers + m.alive_guards + m.alive_raiders
@@ -261,6 +308,21 @@ func _update_perf() -> void:
 
 
 func _update_inspector() -> void:
+	# EcsNpcManager doesn't expose inspector data yet
+	if _uses_methods:
+		inspector_header.text = "▼ Inspector" if inspector_content.visible else "▶ Inspector"
+		if inspector_content.visible:
+			job_level.text = "ECS mode"
+			town_label.visible = false
+			health_bar.get_parent().visible = false
+			energy_bar.get_parent().visible = false
+			xp_label.visible = false
+			state_label.visible = false
+			target_label.visible = false
+			stats_label.visible = false
+			extra_label.visible = false
+		return
+
 	var idx: int = npc_manager.selected_npc
 
 	# Update header with selection state
@@ -290,7 +352,7 @@ func _update_inspector() -> void:
 
 	if idx < 0:
 		idx = last_idx
-	if idx < 0 or idx >= npc_manager.count or npc_manager.healths[idx] <= 0:
+	if idx < 0 or idx >= _get_npc_count() or _get_npc_health(idx) <= 0:
 		if following:
 			_set_following(false)
 		return
@@ -468,31 +530,37 @@ func _update_radius_toggle() -> void:
 
 
 func _on_parallel_toggled(enabled: bool) -> void:
-	if npc_manager:
+	if npc_manager and "use_parallel" in npc_manager:
 		npc_manager.use_parallel = enabled
 	_update_parallel_toggle()
 
 
 func _update_parallel_toggle() -> void:
-	if npc_manager:
-		parallel_toggle.button_pressed = npc_manager.use_parallel
-		parallel_toggle.text = "Parallel: " + ("ON" if npc_manager.use_parallel else "OFF")
+	# EcsNpcManager runs parallel by default, hide toggle
+	if not npc_manager or not "use_parallel" in npc_manager:
+		parallel_toggle.visible = false
+		return
+	parallel_toggle.visible = true
+	parallel_toggle.button_pressed = npc_manager.use_parallel
+	parallel_toggle.text = "Parallel: " + ("ON" if npc_manager.use_parallel else "OFF")
 
 
 func _on_gpu_toggled(enabled: bool) -> void:
-	if npc_manager:
+	if npc_manager and "use_gpu_separation" in npc_manager:
 		npc_manager.use_gpu_separation = enabled
 	_update_gpu_toggle()
 
 
 func _update_gpu_toggle() -> void:
-	if npc_manager:
-		# Hide GPU toggle if not available (requires Forward+ or Mobile renderer)
-		var gpu_available: bool = npc_manager._gpu_separation and npc_manager._gpu_separation.is_initialized
-		gpu_toggle.visible = gpu_available
-		if gpu_available:
-			gpu_toggle.button_pressed = npc_manager.use_gpu_separation
-			gpu_toggle.text = "GPU: " + ("ON" if npc_manager.use_gpu_separation else "OFF")
+	# EcsNpcManager uses GPU compute, hide toggle
+	if not npc_manager or not "_gpu_separation" in npc_manager:
+		gpu_toggle.visible = false
+		return
+	var gpu_available: bool = npc_manager._gpu_separation and npc_manager._gpu_separation.is_initialized
+	gpu_toggle.visible = gpu_available
+	if gpu_available:
+		gpu_toggle.button_pressed = npc_manager.use_gpu_separation
+		gpu_toggle.text = "GPU: " + ("ON" if npc_manager.use_gpu_separation else "OFF")
 
 
 func _on_perf_copy_pressed() -> void:
@@ -503,7 +571,7 @@ func _on_perf_copy_pressed() -> void:
 
 
 func _on_copy_pressed() -> void:
-	if last_idx < 0 or last_idx >= npc_manager.count:
+	if _uses_methods or last_idx < 0 or last_idx >= _get_npc_count():
 		return
 	DisplayServer.clipboard_set(_format_npc_data(last_idx))
 	copy_btn.text = "Copied!"
@@ -522,7 +590,7 @@ func _set_following(enabled: bool) -> void:
 
 
 func _on_rename_pressed() -> void:
-	if last_idx < 0 or last_idx >= npc_manager.count:
+	if _uses_methods or last_idx < 0 or last_idx >= _get_npc_count():
 		return
 	name_edit.text = npc_manager.npc_names[last_idx]
 	job_level.visible = false
@@ -532,7 +600,7 @@ func _on_rename_pressed() -> void:
 
 
 func _on_name_submitted(new_name: String) -> void:
-	if last_idx >= 0 and last_idx < npc_manager.count and not new_name.strip_edges().is_empty():
+	if not _uses_methods and last_idx >= 0 and last_idx < _get_npc_count() and not new_name.strip_edges().is_empty():
 		npc_manager.npc_names[last_idx] = new_name.strip_edges()
 	_close_name_edit()
 
@@ -547,6 +615,9 @@ func _close_name_edit() -> void:
 
 
 func _format_npc_data(i: int) -> String:
+	if _uses_methods:
+		return "NPC #%d (ECS mode - export not available)" % i
+
 	var lines: PackedStringArray = []
 	lines.append("NPC Export #%d" % i)
 

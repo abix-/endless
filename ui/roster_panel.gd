@@ -20,6 +20,7 @@ extends CanvasLayer
 
 var npc_manager: Node
 var main_node: Node
+var _uses_methods := false  # True for EcsNpcManager
 
 enum Filter { ALL, FARMERS, GUARDS }
 enum SortBy { NAME, JOB, LEVEL, HP, STATE, TRAIT }
@@ -38,6 +39,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	main_node = get_parent()
+	_uses_methods = npc_manager and npc_manager.has_method("get_npc_count")
 
 	close_btn.pressed.connect(close)
 	all_btn.pressed.connect(_on_filter_all)
@@ -137,6 +139,11 @@ func _update_sort_headers() -> void:
 
 func _refresh() -> void:
 	if not npc_manager or not main_node:
+		return
+
+	# EcsNpcManager doesn't expose per-NPC data yet
+	if _uses_methods:
+		count_label.text = "ECS mode - roster not available"
 		return
 
 	var player_town: int = main_node.player_town_idx if "player_town_idx" in main_node else 0
@@ -286,10 +293,14 @@ func _update_row(row: HBoxContainer, npc: Dictionary) -> void:
 
 
 func _on_select(idx: int) -> void:
+	if _uses_methods:
+		return
 	npc_manager.selected_npc = idx
 
 
 func _on_follow(idx: int) -> void:
+	if _uses_methods:
+		return
 	npc_manager.selected_npc = idx
 	var left_panel = get_tree().get_first_node_in_group("left_panel")
 	if left_panel and "following" in left_panel:

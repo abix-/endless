@@ -8,6 +8,7 @@ extends CanvasLayer
 
 var npc_manager: Node
 var main_node: Node
+var _uses_methods := false  # True for EcsNpcManager
 
 const SETTINGS_KEY := "combat_log"
 const DEFAULT_WIDTH := 400
@@ -30,9 +31,10 @@ func _ready() -> void:
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	main_node = get_parent()
+	_uses_methods = npc_manager and npc_manager.has_method("get_npc_count")
 
-	# Connect signals
-	if npc_manager:
+	# Connect signals (GDScript manager only - EcsNpcManager doesn't emit these yet)
+	if npc_manager and npc_manager.has_signal("npc_leveled_up"):
 		npc_manager.npc_leveled_up.connect(_on_npc_leveled_up)
 		npc_manager.npc_died.connect(_on_npc_died)
 		npc_manager.npc_spawned.connect(_on_npc_spawned)
@@ -119,8 +121,10 @@ func _on_npc_died(npc_index: int, job: int, level: int, _town_idx: int, killer_j
 
 
 func _format_npc(idx: int, job: int, level: int = -1) -> String:
-	var npc_name: String = npc_manager.npc_names[idx] if idx >= 0 else "NPC"
 	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
+	if _uses_methods:
+		return "%s #%d" % [job_name, idx]
+	var npc_name: String = npc_manager.npc_names[idx] if idx >= 0 else "NPC"
 	var npc_trait: int = npc_manager.traits[idx] if idx >= 0 else 0
 	var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
 	var result := "%s - %s" % [npc_name, job_name]

@@ -1,5 +1,6 @@
 //! Economy systems - Population tracking, food production, respawning
 
+use godot_bevy::prelude::godot_prelude::godot_print;
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::PhysicsDelta;
 
@@ -116,6 +117,17 @@ pub fn economy_tick_system(
     // Accumulate elapsed time
     game_time.elapsed_seconds += delta.delta_seconds;
 
+    // Debug: print every ~60 frames
+    static mut FRAME_COUNT: u32 = 0;
+    unsafe {
+        FRAME_COUNT += 1;
+        if FRAME_COUNT % 60 == 0 {
+            let working_count = working_farmers.iter().count();
+            godot_print!("Economy: delta={:.4}, elapsed={:.1}/{:.0}s, working_farmers={}",
+                delta.delta_seconds, game_time.elapsed_seconds, game_time.seconds_per_hour, working_count);
+        }
+    }
+
     // Check for hour boundary
     if game_time.elapsed_seconds < game_time.seconds_per_hour {
         return;
@@ -124,6 +136,9 @@ pub fn economy_tick_system(
     // Hour boundary crossed - do hourly tasks
     game_time.elapsed_seconds -= game_time.seconds_per_hour;
     game_time.current_hour = (game_time.current_hour + 1) % 24;
+
+    let working_count = working_farmers.iter().count();
+    godot_print!("=== HOUR {} === Working farmers: {}", game_time.current_hour, working_count);
 
     // --- FOOD PRODUCTION ---
     produce_food(&working_farmers, &config);
@@ -145,10 +160,15 @@ fn produce_food(
 
     // Add food to each clan's storage
     if let Ok(mut food) = FOOD_STORAGE.lock() {
+        godot_print!("produce_food: storage len={}, farmers_per_clan={:?}, food_per_hour={}",
+            food.town_food.len(), farmers_per_clan, config.food_per_work_hour);
         for (clan_id, farmer_count) in farmers_per_clan {
             let food_produced = farmer_count * config.food_per_work_hour;
             if clan_id >= 0 && (clan_id as usize) < food.town_food.len() {
                 food.town_food[clan_id as usize] += food_produced;
+                godot_print!("  clan {} += {} food (now {})", clan_id, food_produced, food.town_food[clan_id as usize]);
+            } else {
+                godot_print!("  clan {} OUT OF RANGE (len={})", clan_id, food.town_food.len());
             }
         }
     }

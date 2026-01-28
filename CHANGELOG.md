@@ -1,6 +1,10 @@
 # Changelog
 
 ## 2026-01-28
+- fix UI compatibility with EcsNpcManager: all UI panels now detect ECS mode and gracefully degrade
+- add get_npc_health() API to EcsNpcManager for UI health queries
+- add npc_manager group registration so UI can find EcsNpcManager via get_first_node_in_group()
+- guard main.gd building management code to skip GDScript-only operations in ECS mode
 - add Phase 9.2: food production and respawning in Bevy ECS
 - add economy_tick_system: unified hourly economy (food + respawn) using PhysicsDelta
 - add Clan component: universal town/camp identifier on every NPC

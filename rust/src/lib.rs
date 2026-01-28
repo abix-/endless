@@ -760,6 +760,18 @@ impl EcsNpcManager {
     }
 
     #[func]
+    fn get_npc_health(&self, npc_index: i32) -> f32 {
+        if let Some(gpu) = &self.gpu {
+            let idx = npc_index as usize;
+            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
+            if idx < npc_count {
+                return gpu.healths.get(idx).copied().unwrap_or(0.0);
+            }
+        }
+        0.0
+    }
+
+    #[func]
     fn get_combat_debug(&mut self) -> VarDictionary {
         let mut dict = VarDictionary::new();
         if let Ok(debug) = systems::COMBAT_DEBUG.lock() {

@@ -62,7 +62,7 @@ impl Default for GameTime {
         Self {
             elapsed_seconds: 0.0,
             current_hour: 6, // Start at 6am
-            seconds_per_hour: 60.0, // 1 game-hour = 60 real seconds (adjustable)
+            seconds_per_hour: 5.0, // 1 game-hour = 5 real seconds (for testing)
         }
     }
 }

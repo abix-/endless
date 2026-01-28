@@ -15,6 +15,7 @@ var policies_panel_scene: PackedScene = preload("res://ui/policies_panel.tscn")
 var guard_post_menu_scene: PackedScene = preload("res://ui/guard_post_menu.tscn")
 
 var npc_manager  # EcsNpcManager (Rust)
+var _uses_ecs := false  # True for EcsNpcManager
 #var projectile_manager: Node  # ECS handles projectiles
 var player: Node
 var left_panel: Node
@@ -343,6 +344,8 @@ func _setup_managers() -> void:
 	# EcsNpcManager (Rust) replaces GDScript npc_manager + projectile_manager
 	npc_manager = ClassDB.instantiate("EcsNpcManager")
 	add_child(npc_manager)
+	npc_manager.add_to_group("npc_manager")
+	_uses_ecs = npc_manager.has_method("get_npc_count")
 
 	# Wire world data into ECS
 	npc_manager.init_world(NUM_TOWNS)
@@ -714,12 +717,12 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		farm.global_position = slot_pos
 		add_child(farm)
 		town.slots[slot_key].append({"type": "farm", "node": farm})
-		# Add to npc_manager farm positions
-		npc_manager.farm_positions.append(slot_pos)
-		# Add to per-town farm tracking
-		if player_town_idx < npc_manager.farms_by_town.size():
-			npc_manager.farms_by_town[player_town_idx].append(slot_pos)
-			npc_manager.farm_occupant_counts[player_town_idx].append(0)
+		# Add to npc_manager farm positions (GDScript manager only)
+		if not _uses_ecs:
+			npc_manager.farm_positions.append(slot_pos)
+			if player_town_idx < npc_manager.farms_by_town.size():
+				npc_manager.farms_by_town[player_town_idx].append(slot_pos)
+				npc_manager.farm_occupant_counts[player_town_idx].append(0)
 
 	elif building_type == "bed":
 		var slot_contents: Array = town.slots[slot_key]
@@ -740,8 +743,8 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		bed.global_position = slot_pos + bed_offset
 		add_child(bed)
 		town.slots[slot_key].append({"type": "bed", "node": bed})
-		# Add to bed tracking
-		if player_town_idx < npc_manager.beds_by_town.size():
+		# Add to bed tracking (GDScript manager only)
+		if not _uses_ecs and player_town_idx < npc_manager.beds_by_town.size():
 			npc_manager.beds_by_town[player_town_idx].append(bed.global_position)
 			npc_manager.bed_occupants[player_town_idx].append(-1)
 
@@ -754,18 +757,18 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		town.slots[slot_key].append({"type": "guard_post", "node": post})
 		# Add to guard posts for this town
 		town.guard_posts.append(post)
-		# Update npc_manager's guard post list for this town
-		if player_town_idx < npc_manager.guard_posts_by_town.size():
-			npc_manager.guard_posts_by_town[player_town_idx].append(slot_pos)
+		# Update npc_manager's guard post list (GDScript manager only)
+		if not _uses_ecs:
+			if player_town_idx < npc_manager.guard_posts_by_town.size():
+				npc_manager.guard_posts_by_town[player_town_idx].append(slot_pos)
+			if npc_manager._guard_post_combat:
+				npc_manager._guard_post_combat.register_post(slot_pos, player_town_idx, slot_key)
 		# Initialize guard post upgrades
 		guard_post_upgrades[player_town_idx][slot_key] = {
 			"attack_enabled": false,
 			"range_level": 0,
 			"damage_level": 0
 		}
-		# Register with combat system
-		if npc_manager._guard_post_combat:
-			npc_manager._guard_post_combat.register_post(slot_pos, player_town_idx, slot_key)
 
 	queue_redraw()  # Update slot indicators
 
@@ -782,59 +785,55 @@ func _on_destroy_requested(slot_key: String) -> void:
 		var node = building.node
 		var btype = building.type
 
-		# Remove from tracking arrays
+		# Remove from tracking arrays (GDScript manager only)
 		if btype == "farm":
-			var pos: Vector2 = node.global_position
-			var farm_idx: int = npc_manager.farm_positions.find(pos)
-			if farm_idx >= 0:
-				npc_manager.farm_positions.remove_at(farm_idx)
-			# Remove from per-town farm tracking
-			if player_town_idx < npc_manager.farms_by_town.size():
-				var farms: Array = npc_manager.farms_by_town[player_town_idx]
-				for fi in farms.size():
-					if farms[fi] == pos:
-						# Release all farmers using this farm
-						for npc_i in npc_manager.count:
-							if npc_manager.current_farm_idx[npc_i] == fi and npc_manager.town_indices[npc_i] == player_town_idx:
-								npc_manager.current_farm_idx[npc_i] = -1
-							# Adjust farm indices for farmers using higher-indexed farms
-							elif npc_manager.current_farm_idx[npc_i] > fi and npc_manager.town_indices[npc_i] == player_town_idx:
-								npc_manager.current_farm_idx[npc_i] -= 1
-						farms.remove_at(fi)
-						npc_manager.farm_occupant_counts[player_town_idx].remove_at(fi)
-						break
+			if not _uses_ecs:
+				var pos: Vector2 = node.global_position
+				var farm_idx: int = npc_manager.farm_positions.find(pos)
+				if farm_idx >= 0:
+					npc_manager.farm_positions.remove_at(farm_idx)
+				if player_town_idx < npc_manager.farms_by_town.size():
+					var farms: Array = npc_manager.farms_by_town[player_town_idx]
+					for fi in farms.size():
+						if farms[fi] == pos:
+							for npc_i in npc_manager.count:
+								if npc_manager.current_farm_idx[npc_i] == fi and npc_manager.town_indices[npc_i] == player_town_idx:
+									npc_manager.current_farm_idx[npc_i] = -1
+								elif npc_manager.current_farm_idx[npc_i] > fi and npc_manager.town_indices[npc_i] == player_town_idx:
+									npc_manager.current_farm_idx[npc_i] -= 1
+							farms.remove_at(fi)
+							npc_manager.farm_occupant_counts[player_town_idx].remove_at(fi)
+							break
 		elif btype == "guard_post":
-			var pos: Vector2 = node.global_position
-			if player_town_idx < npc_manager.guard_posts_by_town.size():
-				var posts: Array = npc_manager.guard_posts_by_town[player_town_idx]
-				for pi in posts.size():
-					if posts[pi] == pos:
-						posts.remove_at(pi)
-						break
+			if not _uses_ecs:
+				var pos: Vector2 = node.global_position
+				if player_town_idx < npc_manager.guard_posts_by_town.size():
+					var posts: Array = npc_manager.guard_posts_by_town[player_town_idx]
+					for pi in posts.size():
+						if posts[pi] == pos:
+							posts.remove_at(pi)
+							break
+				if npc_manager._guard_post_combat:
+					npc_manager._guard_post_combat.unregister_post(player_town_idx, slot_key)
 			for gi in town.guard_posts.size():
 				if town.guard_posts[gi] == node:
 					town.guard_posts.remove_at(gi)
 					break
-			# Unregister from combat system
-			if npc_manager._guard_post_combat:
-				npc_manager._guard_post_combat.unregister_post(player_town_idx, slot_key)
-			# Remove from upgrades
 			if guard_post_upgrades[player_town_idx].has(slot_key):
 				guard_post_upgrades[player_town_idx].erase(slot_key)
 		elif btype == "bed":
-			var pos: Vector2 = node.global_position
-			if player_town_idx < npc_manager.beds_by_town.size():
-				var beds: Array = npc_manager.beds_by_town[player_town_idx]
-				for bi in beds.size():
-					if beds[bi] == pos:
-						# Release bed if occupied
-						var occupant: int = npc_manager.bed_occupants[player_town_idx][bi]
-						if occupant >= 0:
-							npc_manager.current_bed_idx[occupant] = -1
-						# Remove from arrays
-						beds.remove_at(bi)
-						npc_manager.bed_occupants[player_town_idx].remove_at(bi)
-						break
+			if not _uses_ecs:
+				var pos: Vector2 = node.global_position
+				if player_town_idx < npc_manager.beds_by_town.size():
+					var beds: Array = npc_manager.beds_by_town[player_town_idx]
+					for bi in beds.size():
+						if beds[bi] == pos:
+							var occupant: int = npc_manager.bed_occupants[player_town_idx][bi]
+							if occupant >= 0:
+								npc_manager.current_bed_idx[occupant] = -1
+							beds.remove_at(bi)
+							npc_manager.bed_occupants[player_town_idx].remove_at(bi)
+							break
 
 		node.queue_free()
 
