@@ -7,11 +7,7 @@ GPU-accelerated projectiles with compute shader movement and spatial grid collis
 ## Data Flow
 
 ```
-Two fire paths:
-1. GDScript: fire_projectile() → fixed PROJECTILE_LIFETIME
-2. Bevy: attack_system → PROJECTILE_FIRE_QUEUE → per-projectile lifetime
-
-PROJECTILE_FIRE_QUEUE (attack_system → process()):
+attack_system → PROJECTILE_FIRE_QUEUE → process() drains queue:
 ├─ Allocate slot (FREE_PROJ_SLOTS or proj_count++)
 ├─ Calculate velocity from speed + direction
 ├─ upload_projectile(idx, pos, vel, damage, faction, shooter, lifetime)
@@ -30,17 +26,18 @@ process() each frame (if proj_count > 0):
 └─ Build + upload MultiMesh buffer
 ```
 
-## Fire API
+## Fire Path
 
-`fire_projectile(from_x, from_y, to_x, to_y, damage, faction, shooter_idx) -> i32`
+All projectiles originate from Bevy's `attack_system` via `PROJECTILE_FIRE_QUEUE`. No GDScript fire API.
+
+`process()` drains `PROJECTILE_FIRE_QUEUE` each frame:
 
 1. Try `FREE_PROJ_SLOTS.pop()` for a recycled slot
 2. If none, use `gpu.proj_count` and increment
-3. If at `MAX_PROJECTILES` (50,000), return -1
-4. Calculate velocity: `normalize(to - from) * PROJECTILE_SPEED`
-5. Write all 7 projectile GPU buffers directly via `buffer_update()`
-6. Update CPU caches (positions, velocities, damages, factions, active)
-7. Return slot index
+3. If at `MAX_PROJECTILES` (50,000), skip
+4. Calculate velocity: `normalize(to - from) * msg.speed`
+5. `upload_projectile()` writes GPU buffers with per-projectile `lifetime`
+6. Melee: speed=500, lifetime=0.5s. Ranged: speed=200, lifetime=3.0s
 
 ## GPU Dispatch
 
@@ -83,7 +80,7 @@ Damage is processed by Bevy's `damage_system` in the **next frame's** Combat pha
 ## Slot Lifecycle
 
 ```
-fire_projectile() ── allocate slot ──▶ ACTIVE on GPU
+PROJECTILE_FIRE_QUEUE ── allocate slot ──▶ ACTIVE on GPU
                          ▲                   │
                          │            hit or expire
                          │                   │
@@ -98,7 +95,7 @@ Slots are `usize` indices. `proj_count` only grows (represents high-water mark).
 | Constant | Value | Purpose |
 |----------|-------|---------|
 | MAX_PROJECTILES | 50,000 | Pool capacity (~3.2 MB VRAM) |
-| PROJECTILE_SPEED | 200.0 | Default speed (GDScript API). Bevy uses per-projectile speed. |
+| PROJECTILE_HIT_RADIUS | 10.0 | Collision detection radius (px) |
 | Melee speed | 500.0 | AttackStats::melee() projectile speed |
 | Ranged speed | 200.0 | AttackStats::ranged() projectile speed |
 | Melee lifetime | 0.5s | AttackStats::melee() projectile lifetime |

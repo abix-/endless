@@ -513,50 +513,7 @@ impl EcsNpcManager {
             }
         }
         // No free slots, check capacity
-        None  // Will be set by fire_projectile based on gpu.proj_count
-    }
-
-    /// Fire a projectile from one position toward another.
-    /// Returns the projectile index, or -1 if at capacity.
-    #[func]
-    fn fire_projectile(
-        &mut self,
-        from_x: f32, from_y: f32,
-        to_x: f32, to_y: f32,
-        damage: f32,
-        faction: i32,
-        shooter: i32,
-    ) -> i32 {
-        let gpu = match self.gpu.as_mut() {
-            Some(g) => g,
-            None => return -1,
-        };
-
-        // Allocate slot
-        let idx = if let Some(recycled) = Self::allocate_proj_slot() {
-            recycled
-        } else if gpu.proj_count < MAX_PROJECTILES {
-            let i = gpu.proj_count;
-            gpu.proj_count += 1;
-            i
-        } else {
-            return -1;  // At capacity
-        };
-
-        // Calculate velocity
-        let dx = to_x - from_x;
-        let dy = to_y - from_y;
-        let dist = (dx * dx + dy * dy).sqrt();
-        if dist < 0.001 {
-            return -1;  // No direction
-        }
-        let vx = (dx / dist) * PROJECTILE_SPEED;
-        let vy = (dy / dist) * PROJECTILE_SPEED;
-
-        // Upload to GPU
-        gpu.upload_projectile(idx, from_x, from_y, vx, vy, damage, faction, shooter, PROJECTILE_LIFETIME);
-
-        idx as i32
+        None  // Caller handles proj_count increment
     }
 
     /// Get number of active projectiles.

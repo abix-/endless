@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-01-27
+- remove fire_projectile() GDScript API: all projectiles now created via PROJECTILE_FIRE_QUEUE from Bevy attack_system
+- remove dead constants PROJECTILE_SPEED and PROJECTILE_LIFETIME (speed/lifetime now per-projectile via AttackStats)
 - unify melee and ranged attacks: attack_system fires projectiles via PROJECTILE_FIRE_QUEUE instead of direct DamageMsg
 - add AttackStats::melee() (range=150, speed=500, lifetime=0.5s) and AttackStats::ranged() (range=300, speed=200, lifetime=3.0s)
 - add FireProjectileMsg and PROJECTILE_FIRE_QUEUE (attack_system → process() → GPU projectile system)

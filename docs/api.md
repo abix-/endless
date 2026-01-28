@@ -25,9 +25,10 @@ ecs.spawn_npc(pos.x, pos.y, 3, 1, {"attack_type": 1})
 
 ## Projectile API
 
+Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIRE_QUEUE`. No GDScript fire API — all combat projectiles originate from Bevy ECS.
+
 | Method | Params | Returns | Description |
 |--------|--------|---------|-------------|
-| `fire_projectile` | `from_x, from_y, to_x, to_y, damage, faction, shooter_idx` | `i32` | Fire projectile. Returns slot index or -1 if at capacity. |
 | `get_projectile_count` | none | `i32` | Current proj_count (high-water mark) |
 | `get_projectile_debug` | none | `Dictionary` | proj_count, active, visible, pipeline_valid, sample positions |
 | `get_projectile_trace` | none | `String` | First N projectiles with lifetime/active/pos/hit data |
