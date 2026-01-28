@@ -3,14 +3,10 @@
 Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
 
 ## Current State
-- [x] GPU compute shader for separation forces (`shaders/separation_compute.glsl`)
-- [x] 10,000 NPCs @ 140fps validated (release build, bevy_poc scene)
-- [x] Spatial grid built on CPU, uploaded to GPU each frame
-- [x] Godot RenderingDevice with submit/sync pipeline
-- [x] Bulk `set_buffer()` MultiMesh rendering
-- [x] godot-bevy 0.11 + Bevy 0.18 integration
-- [x] Phase 1: EcsNpcManager spawns entities, renders via MultiMesh
-- [x] Phase 2: CPU movement with velocity, target, arrival detection
+- [x] Phases 1-8.5: Full ECS pipeline (spawn, movement, GPU physics, world data, guards, behaviors, combat, raider logic, unified spawn API)
+- [x] Phase 9.1: EcsNpcManager wired into main.gd — game boots with Rust ECS, NPCs render/move/fight
+- [ ] Phase 9.2-9.7: Food production, events, UI queries, building, upgrades, GDScript cleanup
+- [ ] Phase 10: Idiomatic Bevy (static Mutex → Resources + Events)
 
 ## GPU-First Architecture
 
@@ -132,7 +128,7 @@ Each phase is a working game state. Old GDScript code kept as reference, hard cu
 - [x] 7d: Test 10 (combat TDD, 6 phases) and Test 11 (unified attacks TDD, 7 phases)
 - [x] Result: Combat working with GPU-accelerated targeting and unified projectile pipeline
 
-**Phase 8: Raider Logic** (in progress)
+**Phase 8: Raider Logic** (2 items remaining)
 - [x] Generic components: Stealer, CarryingFood, Raiding, Returning, Recovering
 - [x] Config components: FleeThreshold, LeashRange, WoundedThreshold
 - [x] steal_decision_system (priority: wounded → carrying → tired → raid nearest farm)
