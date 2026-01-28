@@ -34,7 +34,7 @@ See [gpu-compute.md](gpu-compute.md) for buffer details, [messages.md](messages.
 | Health | **Both** | Bevy → GPU | Bevy authoritative, synced to GPU for targeting |
 | State markers | Bevy | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, etc. |
 | AttackTimer | Bevy | Internal | Cooldown between attacks |
-| AttackStats | Bevy | Internal | Damage, range, cooldown per NPC |
+| AttackStats | Bevy | Internal | melee(range=150, speed=500) or ranged(range=300, speed=200) |
 | PatrolRoute | Bevy | Internal | Guard post sequence for patrols |
 | Home | Bevy | Internal | Rest location (bed or camp) |
 | WorkPosition | Bevy | Internal | Farm location for farmers |
@@ -124,8 +124,12 @@ Each phase is a working game state. Old GDScript code kept as reference, hard cu
 - [x] 7c: GPU projectile system (50,000 projectiles, compute shader movement + collision)
 - [x] 7c: Projectile slot reuse via FREE_PROJ_SLOTS pool
 - [x] 7c: MultiMesh rendering with velocity-based rotation and faction colors
-- [x] 7c: TDD test harness (Test 11) covering all projectile behaviors
-- [x] Result: Combat working with GPU-accelerated targeting and projectiles
+- [x] 7d: Unified attacks — melee and ranged both fire projectiles via PROJECTILE_FIRE_QUEUE
+- [x] 7d: AttackStats::melee() (range=150, speed=500, lifetime=0.5s) and AttackStats::ranged() (range=300, speed=200, lifetime=3.0s)
+- [x] 7d: Fighter job (job=3) — combat-only NPC for isolated testing
+- [x] 7d: Remove GDScript fire_projectile() — all projectiles from Bevy attack_system
+- [x] 7d: Test 10 (combat TDD, 6 phases) and Test 11 (unified attacks TDD, 7 phases)
+- [x] Result: Combat working with GPU-accelerated targeting and unified projectile pipeline
 
 **Phase 8: Raider Logic** (in progress)
 - [x] Generic components: Stealer, CarryingFood, Raiding, Returning, Recovering
@@ -143,8 +147,8 @@ Each phase is a working game state. Old GDScript code kept as reference, hard cu
 - [ ] Result: Full game loop
 
 **Phase 8.5: Generic Spawn + Eliminate Direct GPU Writes** ✓
-- [x] Single SpawnNpcMsg with job-as-template pattern (slot_idx, job, faction, home, work, town_idx, starting_post)
-- [x] Single spawn_npc() GDScript API (10 params) replaces spawn_guard/spawn_farmer/spawn_raider/spawn_guard_at_post
+- [x] Single SpawnNpcMsg with job-as-template pattern (slot_idx, job, faction, home, work, town_idx, starting_post, attack_type)
+- [x] Single spawn_npc(x, y, job, faction, opts: Dictionary) API — 4 required + Dictionary for optional params
 - [x] Single SPAWN_QUEUE, single drain function, single spawn_npc_system
 - [x] spawn_npc_system attaches components via `match job` template
 - [x] spawn_npc_system pushes GPU_UPDATE_QUEUE (SetPosition, SetTarget, SetColor, SetSpeed, SetFaction, SetHealth) — no direct buffer_update()
@@ -153,7 +157,8 @@ Each phase is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Remove direct buffer_update() calls from lib.rs spawn methods
 - [x] Slot index carried in message — fixes slot mismatch bug (spawn.md 6→8/10)
 - [x] Update GDScript callers (ecs_test.gd) to use new unified API
-- [x] Result: Single spawn path, single write path, components define behavior
+- [x] Optional params via Dictionary: home_x/y, work_x/y, town_idx, starting_post, attack_type (defaults to -1 or 0)
+- [x] Result: Single spawn path, single write path, components define behavior, extensible without breaking callers
 
 **Phase 9: UI Integration**
 - [ ] Signals to GDScript (death, level up, food)
