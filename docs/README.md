@@ -62,7 +62,7 @@ Frame execution order ───────────────────�
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover | 8/10 |
-| [api.md](api.md) | Complete GDScript-to-Rust API (35 methods) | - |
+| [api.md](api.md) | Complete GDScript-to-Rust API (36 methods) | - |
 | [messages.md](messages.md) | Static queues, GPU_UPDATE_QUEUE, GPU_READ_STATE | 8/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Migration chunks, performance targets, lessons learned | - |

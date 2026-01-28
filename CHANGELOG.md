@@ -12,6 +12,8 @@
 - add name generation: "Adjective Noun" names based on job (Swift Tiller, Brave Shield, etc.)
 - add get_population_stats(), get_town_population(), get_npc_info(), get_npcs_by_town() APIs
 - add get/set_selected_npc(), get_npc_name(), get_npc_trait(), set_npc_name(), get_bed_stats() APIs
+- add get_npc_at_position(x, y, radius) API for click selection
+- add NPC click selection in main.gd: left-click selects nearest NPC within 20px
 - update left_panel.gd: uses ECS APIs for stats, bed info, and NPC inspector
 - update roster_panel.gd: uses ECS APIs for NPC roster with sorting/filtering
 - update upgrade_menu.gd: uses ECS APIs for farmer/guard counts
