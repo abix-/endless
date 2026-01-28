@@ -133,4 +133,4 @@ Collected from all docs. Priority order:
 3. **Spatial grid built on CPU** — uploaded every frame. GPU-side grid build would eliminate transfer. ([gpu-compute.md](gpu-compute.md))
 4. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
 5. **InCombat can stick** — no timeout if target dies out of detection range. ([behavior.md](behavior.md))
-6. **Fixed stats** — all NPCs have identical attack stats. ([combat.md](combat.md))
+6. **Two stat presets only** — AttackStats has melee and ranged constructors but no per-NPC variation beyond these. ([combat.md](combat.md))

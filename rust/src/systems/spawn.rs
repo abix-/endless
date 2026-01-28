@@ -80,7 +80,7 @@ pub fn spawn_npc_system(
         match job {
             Job::Guard => {
                 ec.insert(Energy::default());
-                ec.insert((AttackStats::default(), AttackTimer(0.0)));
+                ec.insert((AttackStats::melee(), AttackTimer(0.0)));
                 ec.insert(Guard { town_idx: msg.town_idx as u32 });
                 if msg.starting_post >= 0 {
                     let patrol_posts = build_patrol_route(msg.town_idx as u32);
@@ -105,14 +105,15 @@ pub fn spawn_npc_system(
             }
             Job::Raider => {
                 ec.insert(Energy::default());
-                ec.insert((AttackStats::default(), AttackTimer(0.0)));
+                ec.insert((AttackStats::melee(), AttackTimer(0.0)));
                 ec.insert(Stealer);
                 ec.insert(FleeThreshold { pct: 0.50 });
                 ec.insert(LeashRange { distance: 400.0 });
                 ec.insert(WoundedThreshold { pct: 0.25 });
             }
             Job::Fighter => {
-                ec.insert((AttackStats::default(), AttackTimer(0.0)));
+                let stats = if msg.attack_type == 1 { AttackStats::ranged() } else { AttackStats::melee() };
+                ec.insert((stats, AttackTimer(0.0)));
             }
         }
 

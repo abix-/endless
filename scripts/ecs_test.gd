@@ -52,7 +52,7 @@ const TEST_NAMES := {
 	8: "Farmer Work",
 	9: "Health/Death",
 	10: "Combat",
-	11: "Projectiles"
+	11: "Unified Attacks"
 }
 
 
@@ -203,6 +203,7 @@ func _pass() -> void:
 
 func _fail(reason: String) -> void:
 	test_result = "FAIL: " + reason
+	test_phase = 99  # Terminal — stop all phase checks
 	_set_state("FAIL")
 	_log("FAIL: " + reason)
 
@@ -350,7 +351,7 @@ func _setup_test_arrive() -> void:
 	npc_count = int(count_slider.value)
 	for i in npc_count:
 		var y_offset := (i - npc_count / 2.0) * 25.0
-		ecs_manager.spawn_npc(100, CENTER.y + y_offset, i % 3, 0, -1, -1, -1, -1, -1, -1)
+		ecs_manager.spawn_npc(100, CENTER.y + y_offset, i % 3, 0, {})
 	test_phase = 1
 	_set_phase("Waiting 0.5s...")
 	_log("%d NPCs on left" % npc_count)
@@ -386,7 +387,7 @@ func _update_test_arrive() -> void:
 func _setup_test_separation() -> void:
 	npc_count = int(count_slider.value)
 	for i in npc_count:
-		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3, 0, -1, -1, -1, -1, -1, -1)
+		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3, 0, {})
 	test_phase = 1
 	_set_phase("Separating...")
 	_log("%d NPCs at same point" % npc_count)
@@ -416,7 +417,7 @@ func _setup_test_both() -> void:
 	for i in npc_count:
 		var side := 100 if i % 2 == 0 else 700
 		var y_offset := (i / 2 - npc_count / 4.0) * 25.0
-		ecs_manager.spawn_npc(side, CENTER.y + y_offset, i % 3, 0, -1, -1, -1, -1, -1, -1)
+		ecs_manager.spawn_npc(side, CENTER.y + y_offset, i % 3, 0, {})
 	test_phase = 1
 	_set_phase("Waiting 0.5s...")
 	_log("%d NPCs on sides" % npc_count)
@@ -460,7 +461,7 @@ func _setup_test_circle() -> void:
 		var angle := (float(i) / npc_count) * TAU
 		var x := CENTER.x + cos(angle) * radius
 		var y := CENTER.y + sin(angle) * radius
-		ecs_manager.spawn_npc(x, y, i % 3, 0, -1, -1, -1, -1, -1, -1)
+		ecs_manager.spawn_npc(x, y, i % 3, 0, {})
 	test_phase = 1
 	_set_phase("Waiting 0.5s...")
 	_log("%d NPCs in circle" % npc_count)
@@ -500,7 +501,7 @@ func _update_test_circle() -> void:
 func _setup_test_mass() -> void:
 	npc_count = int(count_slider.value)
 	for i in npc_count:
-		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3, 0, -1, -1, -1, -1, -1, -1)
+		ecs_manager.spawn_npc(CENTER.x, CENTER.y, i % 3, 0, {})
 	test_phase = 1
 	_set_phase("Exploding outward...")
 	_log("%d NPCs at center" % npc_count)
@@ -724,7 +725,7 @@ func _update_test_guard_patrol() -> void:
 		]
 		for i in 4:
 			var pos: Vector2 = post_positions[i]
-			ecs_manager.spawn_npc(pos.x, pos.y, 1, 0, CENTER.x, CENTER.y, -1, -1, 0, i)
+			ecs_manager.spawn_npc(pos.x, pos.y, 1, 0, {"home_x": CENTER.x, "home_y": CENTER.y, "town_idx": 0, "starting_post": i})
 
 		_log("Spawned 4 guards at posts")
 
@@ -805,11 +806,9 @@ func _update_test_farmer_work() -> void:
 		]
 		for i in 2:
 			ecs_manager.spawn_npc(
-				bed_positions[i].x, bed_positions[i].y,  # Start at bed
-				0, 0,  # job=Farmer, faction=Villager
-				bed_positions[i].x, bed_positions[i].y,  # home position
-				farm_positions[i].x, farm_positions[i].y,  # work position
-				0, -1  # town_idx=0, no patrol
+				bed_positions[i].x, bed_positions[i].y, 0, 0,
+				{"home_x": bed_positions[i].x, "home_y": bed_positions[i].y,
+				 "work_x": farm_positions[i].x, "work_y": farm_positions[i].y, "town_idx": 0}
 			)
 
 		_log("Spawned 2 farmers")
@@ -848,7 +847,7 @@ func _setup_test_health_death() -> void:
 		var angle := (float(i) / 10) * TAU
 		var x := CENTER.x + cos(angle) * 50.0
 		var y := CENTER.y + sin(angle) * 50.0
-		ecs_manager.spawn_npc(x, y, i % 3, 0, -1, -1, -1, -1, -1, -1)
+		ecs_manager.spawn_npc(x, y, i % 3, 0, {})
 
 	queue_redraw()
 
@@ -923,8 +922,8 @@ func _setup_test_combat() -> void:
 	ecs_manager.add_bed(CENTER.x - 100, CENTER.y, 0)
 
 	# Spawn 2 fighters (job=3) with opposing factions, 50px apart. No behavior — just sit and fight.
-	ecs_manager.spawn_npc(CENTER.x - 25, CENTER.y, 3, 0, CENTER.x, CENTER.y, -1, -1, -1, -1)
-	ecs_manager.spawn_npc(CENTER.x + 25, CENTER.y, 3, 1, CENTER.x, CENTER.y, -1, -1, -1, -1)
+	ecs_manager.spawn_npc(CENTER.x - 25, CENTER.y, 3, 0, {"home_x": CENTER.x, "home_y": CENTER.y})
+	ecs_manager.spawn_npc(CENTER.x + 25, CENTER.y, 3, 1, {"home_x": CENTER.x, "home_y": CENTER.y})
 	_log("Spawned fighter idx=0 (faction 0), fighter idx=1 (faction 1)")
 
 	test_phase = 1
@@ -992,21 +991,21 @@ func _update_test_combat() -> void:
 				phase_results.append("P3 FAIL (%.1fs): ct0=%d ct1=%d" % [test_timer, ct0, ct1])
 				_fail("Phase 3: No targets — ct0=%d ct1=%d" % [ct0, ct1])
 
-	# Phase 4: Damage (t=4s)
+	# Phase 4: Damage (t=4s) - check GPU health decreased from 100
 	elif test_phase == 4:
-		_set_phase("Phase 4: Damage (%.1fs)" % test_timer)
+		_set_phase("Phase 4: Damage (%.1fs) h0=%.0f h1=%.0f" % [test_timer, gpu_h0, gpu_h1])
 		if test_timer > 4.0:
-			if dmg_proc > 0:
-				phase_results.append("P4 PASS (%.1fs): dmg=%d" % [test_timer, dmg_proc])
+			if gpu_h0 < 100.0 or gpu_h1 < 100.0:
+				phase_results.append("P4 PASS (%.1fs): h0=%.0f h1=%.0f" % [test_timer, gpu_h0, gpu_h1])
 				test_phase = 5
 			else:
-				phase_results.append("P4 FAIL (%.1fs): dmg=%d bevy=%d" % [test_timer, dmg_proc, bevy_ct])
-				_fail("Phase 4: No damage after 4s — dmg=%d" % dmg_proc)
+				phase_results.append("P4 FAIL (%.1fs): h0=%.0f h1=%.0f (no damage)" % [test_timer, gpu_h0, gpu_h1])
+				_fail("Phase 4: No damage after 4s — h0=%.0f h1=%.0f" % [gpu_h0, gpu_h1])
 
-	# Phase 5: Death (t=10s)
+	# Phase 5: Death (t=15s)
 	elif test_phase == 5:
 		_set_phase("Phase 5: Death (%d alive, %.1fs)" % [bevy_ct, test_timer])
-		if test_timer > 10.0:
+		if test_timer > 15.0:
 			if bevy_ct < 2:
 				phase_results.append("P5 PASS (%.1fs): bevy=%d" % [test_timer, bevy_ct])
 				test_phase = 6
@@ -1014,12 +1013,12 @@ func _update_test_combat() -> void:
 				phase_results.append("P5 FAIL (%.1fs): bevy=%d" % [test_timer, bevy_ct])
 				_fail("Phase 5: Nobody died after 10s — bevy=%d" % bevy_ct)
 
-	# Phase 6: Slot Recycling (t=11s)
+	# Phase 6: Slot Recycling (t=16s)
 	elif test_phase == 6:
 		_set_phase("Phase 6: Slot recycling (%.1fs)" % test_timer)
-		if test_timer > 11.0:
+		if test_timer > 16.0:
 			test_phase = 7
-			var slot: int = ecs_manager.spawn_npc(CENTER.x, CENTER.y, 3, 0, CENTER.x, CENTER.y, -1, -1, -1, -1)
+			var slot: int = ecs_manager.spawn_npc(CENTER.x, CENTER.y, 3, 0, {"home_x": CENTER.x, "home_y": CENTER.y})
 			if slot >= 0 and slot < 2:
 				phase_results.append("P6 PASS (%.1fs): recycled slot=%d" % [test_timer, slot])
 				_pass()
@@ -1031,293 +1030,150 @@ func _update_test_combat() -> void:
 
 
 # =============================================================================
-# TEST 11: Projectiles - GPU-computed projectile movement and collision
-# Purpose: Verify projectiles spawn, move, hit enemies, deal damage, and recycle
+# TEST 11: Unified Attacks - Melee and ranged use same projectile pipeline
+# Purpose: Verify attack_system fires projectiles (not direct DamageMsg),
+#          both melee (fast/short) and ranged (slow/long) deliver damage.
 #
-# TDD EXPECTATIONS (all must pass for complete implementation):
-# 1. fire_projectile() returns valid index (0+) or -1 if at capacity
-# 2. get_projectile_count() returns number of allocated projectiles
-# 3. get_projectile_debug() returns position, velocity, active state
-# 4. Projectiles move at PROJECTILE_SPEED (200 px/sec) toward target direction
-# 5. Projectiles expire after PROJECTILE_LIFETIME (3 sec) and become inactive
-# 6. Projectiles hit enemy faction NPCs within PROJECTILE_HIT_RADIUS (10px)
-# 7. Projectiles don't hit same faction (no friendly fire)
-# 8. Projectiles don't hit dead NPCs
-# 9. On hit: projectile deactivates, target takes damage
-# 10. Expired/hit projectile slots are reused (slot recycling)
-# 11. Projectiles render as oriented sprites facing velocity direction
+# TDD: This test is written FIRST. It will FAIL until attack_system is
+# modified to fire projectiles instead of queuing DamageMsg directly.
+#
+# Uses Fighter NPCs (job=3, no behavior) to isolate combat.
 # =============================================================================
 
-# Test state for projectile test
-var proj_test_data := {
-	"fired_indices": [],        # Indices returned by fire_projectile
-	"initial_positions": [],    # Starting positions of projectiles
-	"target_npc_initial_hp": 0.0,  # Target's HP before hit
-}
-
 func _setup_test_projectiles() -> void:
-	npc_count = 2  # 1 guard (faction 0), 1 raider (faction 1)
-	test_phase = 1
-	_set_phase("Setting up...")
-	_log("Testing GPU projectiles")
-	proj_test_data = {"fired_indices": [], "initial_positions": [], "target_npc_initial_hp": 0.0}
+	npc_count = 4  # 2 melee fighters + 2 ranged fighters
+	test_phase = 0
+	_set_phase("Setting up unified attack test...")
+	_log("Unified attacks: melee + ranged via projectile pipeline")
 
-	# Initialize minimal world
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("ProjTown", CENTER.x, CENTER.y, CENTER.x + 200, CENTER.y)
-	ecs_manager.add_bed(CENTER.x, CENTER.y - 50, 0)
+	ecs_manager.add_town("AttackTown", CENTER.x, CENTER.y, CENTER.x + 300, CENTER.y)
 
+	# Spawn 2 melee fighters (opposing factions, 30px apart)
+	# Melee fighters: job=3, faction 0 vs 1
+	ecs_manager.spawn_npc(CENTER.x - 15, CENTER.y - 50, 3, 0, {"home_x": CENTER.x, "home_y": CENTER.y - 50})
+	ecs_manager.spawn_npc(CENTER.x + 15, CENTER.y - 50, 3, 1, {"home_x": CENTER.x, "home_y": CENTER.y - 50})
+	_log("Spawned melee pair: idx=0 (f0) vs idx=1 (f1), 30px apart")
+
+	# Spawn 2 ranged fighters (opposing factions, 200px apart)
+	ecs_manager.spawn_npc(CENTER.x - 100, CENTER.y + 50, 3, 0, {"home_x": CENTER.x - 100, "home_y": CENTER.y + 50, "attack_type": 1})
+	ecs_manager.spawn_npc(CENTER.x + 100, CENTER.y + 50, 3, 1, {"home_x": CENTER.x + 100, "home_y": CENTER.y + 50, "attack_type": 1})
+	_log("Spawned ranged pair: idx=2 (f0) vs idx=3 (f1), 200px apart")
+
+	test_phase = 1
 	queue_redraw()
 
 
 func _update_test_projectiles() -> void:
-	# Show projectile debug every frame
-	if ecs_manager.has_method("get_projectile_debug"):
-		var pd: Dictionary = ecs_manager.get_projectile_debug()
-		var proj_ct: int = pd.get("proj_count", -1)
-		var active: int = pd.get("active", -1)
-		var visible: int = pd.get("visible", -1)
-		var pipeline: int = pd.get("pipeline_valid", -1)
-		var pos_x: float = pd.get("pos_0_x", -999.0)
-		var pos_y: float = pd.get("pos_0_y", -999.0)
-		expected_label.text = "proj=%d act=%d vis=%d pipe=%d" % [proj_ct, active, visible, pipeline]
-		velocity_label.text = "pos=(%.0f,%.0f)" % [pos_x, pos_y]
+	# Always show debug info
+	var hd: Dictionary = ecs_manager.call("get_health_debug") if ecs_manager.has_method("get_health_debug") else {}
+	var pd: Dictionary = ecs_manager.call("get_projectile_debug") if ecs_manager.has_method("get_projectile_debug") else {}
+	var cd: Dictionary = ecs_manager.call("get_combat_debug") if ecs_manager.has_method("get_combat_debug") else {}
 
-	# Show raw GPU buffer trace (reads directly from GPU, not CPU cache)
-	if ecs_manager.has_method("get_projectile_trace"):
-		var trace: String = ecs_manager.get_projectile_trace()
-		distance_label.text = trace
+	var proj_ct: int = pd.get("proj_count", -1)
+	var active: int = pd.get("active", -1)
+	var bevy_ct: int = hd.get("bevy_entity_count", -1)
+	var dmg_proc: int = hd.get("damage_processed", -1)
+	var attacks: int = cd.get("attacks", -1)
 
-	# =========================================================================
-	# PHASE 1: Spawn NPCs - guard on left, raider on right
-	# =========================================================================
-	if test_phase == 1 and test_timer > 0.3:
-		test_phase = 2
-		_set_phase("Spawning NPCs...")
+	expected_label.text = "proj=%d active=%d bevy=%d" % [proj_ct, active, bevy_ct]
+	velocity_label.text = "attacks=%d dmg=%d" % [attacks, dmg_proc]
+	distance_label.text = "ct0=%d ct1=%d ct2=%d ct3=%d" % [
+		cd.get("combat_target_0", -99), cd.get("combat_target_1", -99),
+		cd.get("combat_target_2", -99), cd.get("combat_target_3", -99)]
 
-		# Guard at left (faction 0)
-		ecs_manager.spawn_npc(CENTER.x - 100, CENTER.y, 1, 0, CENTER.x - 100, CENTER.y, -1, -1, 0, -1)
-		# Raider at right (faction 1)
-		ecs_manager.spawn_npc(CENTER.x + 100, CENTER.y, 2, 1, CENTER.x + 200, CENTER.y, -1, -1, -1, -1)
+	# Phase 1: GPU Buffer Integrity (t=1s)
+	if test_phase == 1:
+		_set_phase("Phase 1: GPU buffers (%.1fs)" % test_timer)
+		if test_timer > 1.0:
+			var gpu_f0: int = cd.get("gpu_faction_0", -99)
+			var gpu_f1: int = cd.get("gpu_faction_1", -99)
+			var gpu_h0: float = cd.get("gpu_health_0", -99.0)
+			var gpu_h1: float = cd.get("gpu_health_1", -99.0)
+			if gpu_f0 == 0 and gpu_f1 == 1 and gpu_h0 > 0 and gpu_h1 > 0:
+				phase_results.append("P1 PASS (%.1fs): f0=%d f1=%d h0=%.0f h1=%.0f" % [test_timer, gpu_f0, gpu_f1, gpu_h0, gpu_h1])
+				test_phase = 2
+			else:
+				phase_results.append("P1 FAIL (%.1fs): f0=%d f1=%d h0=%.0f h1=%.0f" % [test_timer, gpu_f0, gpu_f1, gpu_h0, gpu_h1])
+				_fail("Phase 1: GPU buffers wrong — f0=%d f1=%d h0=%.0f h1=%.0f" % [gpu_f0, gpu_f1, gpu_h0, gpu_h1])
 
-		_log("Spawned guard + raider")
+	# Phase 2: Melee projectile fired (t=2s)
+	# attack_system should fire a projectile when in range, NOT queue DamageMsg directly
+	elif test_phase == 2:
+		_set_phase("Phase 2: Melee projectile (%.1fs) proj=%d" % [test_timer, proj_ct])
+		if test_timer > 2.0:
+			if proj_ct > 0:
+				phase_results.append("P2 PASS (%.1fs): proj_count=%d" % [test_timer, proj_ct])
+				test_phase = 3
+			else:
+				phase_results.append("P2 FAIL (%.1fs): proj_count=%d (attack_system not firing projectiles)" % [test_timer, proj_ct])
+				_fail("Phase 2: No projectiles fired — attack_system still using direct DamageMsg?")
 
-	# =========================================================================
-	# PHASE 2: Test fire_projectile() API exists and returns valid index
-	# =========================================================================
-	if test_phase == 2 and test_timer > 0.6:
-		test_phase = 3
-		_set_phase("Testing fire_projectile API...")
+	# Phase 3: Melee damage dealt (t=3s) - check GPU health of melee pair decreased
+	elif test_phase == 3:
+		var h0: float = cd.get("gpu_health_0", 100.0)
+		var h1: float = cd.get("gpu_health_1", 100.0)
+		_set_phase("Phase 3: Melee damage (%.1fs) h0=%.0f h1=%.0f" % [test_timer, h0, h1])
+		if test_timer > 3.0:
+			if h0 < 100.0 or h1 < 100.0:
+				phase_results.append("P3 PASS (%.1fs): h0=%.0f h1=%.0f" % [test_timer, h0, h1])
+				test_phase = 4
+			else:
+				phase_results.append("P3 FAIL (%.1fs): h0=%.0f h1=%.0f (no melee damage)" % [test_timer, h0, h1])
+				_fail("Phase 3: No melee damage after 3s — h0=%.0f h1=%.0f" % [h0, h1])
 
-		# Check method exists
-		if not ecs_manager.has_method("fire_projectile"):
-			_fail("fire_projectile() method doesn't exist")
-			return
+	# Phase 4: Ranged pair GPU targeting (t=5s)
+	# Ranged fighters are 200px apart — GPU targeting should find them within detection range (300px)
+	elif test_phase == 4:
+		_set_phase("Phase 4: Ranged targeting (%.1fs)" % test_timer)
+		if test_timer > 5.0:
+			var ct2: int = cd.get("combat_target_2", -99)
+			var ct3: int = cd.get("combat_target_3", -99)
+			if ct2 >= 0 and ct3 >= 0:
+				phase_results.append("P4 PASS (%.1fs): ct2=%d ct3=%d" % [test_timer, ct2, ct3])
+				test_phase = 5
+			else:
+				phase_results.append("P4 FAIL (%.1fs): ct2=%d ct3=%d" % [test_timer, ct2, ct3])
+				_fail("Phase 4: Ranged pair not targeting — ct2=%d ct3=%d" % [ct2, ct3])
 
-		# Fire projectile from guard toward raider (offset 20px forward so it spawns in front)
-		# fire_projectile(from_x, from_y, to_x, to_y, damage, faction, shooter)
-		var guard_x := CENTER.x - 100
-		var raider_x := CENTER.x + 100
-		var idx: int = ecs_manager.fire_projectile(
-			guard_x + 20, CENTER.y,     # from: 20px in front of guard
-			raider_x, CENTER.y,          # to: raider position
-			25.0,                        # damage
-			0,                           # faction (guard = villager)
-			0                            # shooter NPC index
-		)
+	# Phase 5: Ranged projectile traveling (t=7s)
+	# Ranged fighters should fire projectiles that take time to travel
+	elif test_phase == 5:
+		_set_phase("Phase 5: Ranged projectile (%.1fs) proj=%d" % [test_timer, proj_ct])
+		if test_timer > 7.0:
+			# Should have more projectiles than just melee (melee are instant, ranged accumulate)
+			if proj_ct > 2:
+				phase_results.append("P5 PASS (%.1fs): proj_count=%d (ranged accumulating)" % [test_timer, proj_ct])
+				test_phase = 6
+			else:
+				phase_results.append("P5 FAIL (%.1fs): proj_count=%d (expected >2 for ranged)" % [test_timer, proj_ct])
+				_fail("Phase 5: Not enough projectiles for ranged — proj=%d" % proj_ct)
 
-		if idx < 0:
-			_fail("fire_projectile returned %d, expected >= 0" % idx)
-			return
+	# Phase 6: Ranged damage dealt (t=10s) - check GPU health of ranged pair decreased
+	elif test_phase == 6:
+		var h2: float = cd.get("gpu_health_2", 100.0)
+		var h3: float = cd.get("gpu_health_3", 100.0)
+		_set_phase("Phase 6: Ranged damage (%.1fs) h2=%.0f h3=%.0f" % [test_timer, h2, h3])
+		if test_timer > 10.0:
+			if h2 < 100.0 or h3 < 100.0:
+				phase_results.append("P6 PASS (%.1fs): h2=%.0f h3=%.0f" % [test_timer, h2, h3])
+				test_phase = 7
+			else:
+				phase_results.append("P6 FAIL (%.1fs): h2=%.0f h3=%.0f (no ranged damage)" % [test_timer, h2, h3])
+				_fail("Phase 6: No ranged damage after 10s — h2=%.0f h3=%.0f" % [h2, h3])
 
-		proj_test_data["fired_indices"].append(idx)
-		proj_test_data["initial_positions"].append(Vector2(CENTER.x - 100, CENTER.y))
-		_log("Fired projectile, idx=%d" % idx)
-
-	# =========================================================================
-	# PHASE 3: Test get_projectile_count() returns correct count
-	# =========================================================================
-	if test_phase == 3 and test_timer > 0.7:
-		test_phase = 4
-		_set_phase("Testing projectile count...")
-
-		if not ecs_manager.has_method("get_projectile_count"):
-			_fail("get_projectile_count() method doesn't exist")
-			return
-
-		var count: int = ecs_manager.get_projectile_count()
-		if count < 1:
-			_fail("get_projectile_count=%d, expected >= 1" % count)
-			return
-
-		_log("Projectile count: %d" % count)
-
-	# =========================================================================
-	# PHASE 4: Test projectile movement (position should change over time)
-	# =========================================================================
-	if test_phase == 4 and test_timer > 1.0:
-		test_phase = 5
-		_set_phase("Testing projectile movement...")
-
-		var pd: Dictionary = ecs_manager.get_projectile_debug()
-		var pos_x: float = pd.get("pos_0_x", -999.0)
-		var initial_x: float = proj_test_data["initial_positions"][0].x
-
-		# Projectile should have moved right (toward raider)
-		# At 200 px/sec, after ~0.3 sec it should have moved ~60px
-		var moved: float = pos_x - initial_x
-		if moved < 30.0:  # Allow some tolerance
-			_fail("Projectile didn't move: pos_x=%.0f, initial=%.0f, moved=%.0f" % [pos_x, initial_x, moved])
-			return
-
-		_log("Projectile moved %.0fpx" % moved)
-
-	# =========================================================================
-	# PHASE 5: Test collision - fire projectile directly at raider, verify hit
-	# =========================================================================
-	if test_phase == 5 and test_timer > 1.2:
-		test_phase = 6
-		_set_phase("Testing collision...")
-
-		# Record raider's current HP (NPC index 1)
-		var hd: Dictionary = ecs_manager.get_health_debug()
-		# We need a way to get individual NPC health - using combat debug for now
-		var cd: Dictionary = ecs_manager.get_combat_debug()
-		proj_test_data["target_npc_initial_hp"] = cd.get("health_5", 100.0)  # May not be right index
-
-		# Fire another projectile from guard toward raider
-		var guard_pos := Vector2(CENTER.x - 100, CENTER.y)
-		var raider_pos := Vector2(CENTER.x + 100, CENTER.y)
-		var idx: int = ecs_manager.fire_projectile(
-			guard_pos.x + 20, guard_pos.y,  # 20px in front of guard
-			raider_pos.x, raider_pos.y,
-			50.0,  # Big damage to notice
-			0,     # Guard faction
-			0      # Shooter
-		)
-		proj_test_data["fired_indices"].append(idx)
-		_log("Fired point-blank projectile idx=%d" % idx)
-
-	# =========================================================================
-	# PHASE 6: Verify hit caused damage
-	# =========================================================================
-	if test_phase == 6 and test_timer > 1.8:
-		test_phase = 7
-		_set_phase("Verifying damage...")
-
-		var hd: Dictionary = ecs_manager.get_health_debug()
-		var dmg_processed: int = hd.get("damage_processed", 0)
-
-		# Check if any damage was processed from projectile hits
-		if dmg_processed > 0:
-			_log("Damage dealt via projectile!")
-		else:
-			# This might fail if collision isn't working yet
-			_log("WARN: No damage processed yet")
-
-	# =========================================================================
-	# PHASE 7: Test friendly fire prevention - projectile shouldn't hit same faction
-	# =========================================================================
-	if test_phase == 7 and test_timer > 2.0:
-		test_phase = 8
-		_set_phase("Testing no friendly fire...")
-
-		# Fire guard projectile at guard (same faction - should NOT hit)
-		var guard_pos2 := Vector2(CENTER.x - 100, CENTER.y)
-		var idx: int = ecs_manager.fire_projectile(
-			guard_pos2.x - 50, guard_pos2.y,  # From behind guard
-			guard_pos2.x, guard_pos2.y,         # Toward guard
-			100.0,  # Lethal damage
-			0,      # Guard faction (same as target)
-			99      # Different shooter
-		)
-		proj_test_data["fired_indices"].append(idx)
-		_log("Fired friendly fire test projectile")
-
-	# =========================================================================
-	# PHASE 8: Test slot reuse - fire many, let them expire/hit, fire more
-	# =========================================================================
-	if test_phase == 8 and test_timer > 2.5:
-		test_phase = 9
-		_set_phase("Testing slot reuse...")
-
-		var initial_count: int = ecs_manager.get_projectile_count()
-
-		# Fire projectiles into empty space (will expire) - use slider for count
-		var burst_count := int(count_slider.value)
-		for i in burst_count:
-			var angle := (float(i) / float(burst_count)) * TAU
-			ecs_manager.fire_projectile(
-				CENTER.x, CENTER.y,
-				CENTER.x + cos(angle) * 500.0, CENTER.y + sin(angle) * 500.0,
-				1.0, i % 2, 0  # Alternate factions for color variety
-			)
-
-		var after_count: int = ecs_manager.get_projectile_count()
-		_log("Slots: %d -> %d (+%d)" % [initial_count, after_count, burst_count])
-
-	# =========================================================================
-	# PHASE 9: Wait for projectiles to expire (3 sec lifetime)
-	# =========================================================================
-	if test_phase == 9:
-		var pd: Dictionary = ecs_manager.get_projectile_debug()
-		var active: int = pd.get("active", -1)
-		distance_label.text = "Active: %d (waiting for expiry)" % active
-
-		if test_timer > 6.0:  # 3 sec lifetime + buffer
-			test_phase = 10
-			_set_phase("Testing expired slots...")
-
-	# =========================================================================
-	# PHASE 10: Verify expired projectiles freed slots (active count dropped)
-	# =========================================================================
-	if test_phase == 10 and test_timer > 6.5:
-		test_phase = 11
-		_set_phase("Verifying slot recycling...")
-
-		var pd: Dictionary = ecs_manager.get_projectile_debug()
-		var active: int = pd.get("active", 0)
-
-		# Most projectiles should be inactive now
-		_log("Active after expiry: %d" % active)
-
-		# Fire new projectile - should reuse a slot
-		var count_before: int = ecs_manager.get_projectile_count()
-		var idx: int = ecs_manager.fire_projectile(
-			CENTER.x, CENTER.y,
-			CENTER.x + 100, CENTER.y,
-			10.0, 0, 0
-		)
-		var count_after: int = ecs_manager.get_projectile_count()
-
-		# If slot reuse works, count shouldn't increase (reused expired slot)
-		if count_after > count_before:
-			_log("WARN: Slot count increased %d->%d (reuse may not work)" % [count_before, count_after])
-		else:
-			_log("Slot reused! Count stayed at %d" % count_after)
-
-	# =========================================================================
-	# PHASE 11: Final summary
-	# =========================================================================
-	if test_phase == 11 and test_timer > 7.0:
-		test_phase = 12
-
-		# Gather final stats
-		var pd: Dictionary = ecs_manager.get_projectile_debug()
-		var hd: Dictionary = ecs_manager.get_health_debug()
-		var proj_count: int = pd.get("proj_count", 0)
-		var active: int = pd.get("active", 0)
-		var dmg_proc: int = hd.get("damage_processed", 0)
-
-		_log("Final: %d proj, %d active, %d dmg" % [proj_count, active, dmg_proc])
-
-		# Pass criteria: projectiles fired, moved, and system didn't crash
-		# Stricter TDD would require damage dealt, but we verify that separately
-		if proj_count > 0:
-			_pass()
-			_set_phase("Projectile system functional!")
-		else:
-			_fail("No projectiles registered")
+	# Phase 7: Death (t=20s)
+	elif test_phase == 7:
+		_set_phase("Phase 7: Death (%d alive, %.1fs)" % [bevy_ct, test_timer])
+		if test_timer > 20.0:
+			test_phase = 8
+			if bevy_ct < 4:
+				phase_results.append("P7 PASS (%.1fs): bevy=%d (at least 1 died)" % [test_timer, bevy_ct])
+				_pass()
+				_set_phase("ALL 7 PHASES PASSED")
+			else:
+				phase_results.append("P7 FAIL (%.1fs): bevy=%d" % [test_timer, bevy_ct])
+				_fail("Phase 7: Nobody died after 12s — bevy=%d" % bevy_ct)
 
 
 # =============================================================================

@@ -312,6 +312,35 @@ impl INode2D for EcsNpcManager {
             let mut rs = RenderingServer::singleton();
             rs.multimesh_set_buffer(self.multimesh_rid, &buffer);
 
+            // === DRAIN PROJECTILE FIRE QUEUE (Bevy attack_system -> GPU) ===
+            if let Ok(mut queue) = PROJECTILE_FIRE_QUEUE.lock() {
+                for msg in queue.drain(..) {
+                    // Allocate slot
+                    let idx = if let Some(recycled) = Self::allocate_proj_slot() {
+                        recycled
+                    } else if gpu.proj_count < MAX_PROJECTILES {
+                        let i = gpu.proj_count;
+                        gpu.proj_count += 1;
+                        i
+                    } else {
+                        continue; // At capacity, drop this projectile
+                    };
+
+                    // Calculate velocity from direction + speed
+                    let dx = msg.to_x - msg.from_x;
+                    let dy = msg.to_y - msg.from_y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    if dist < 0.001 { continue; }
+                    let vx = (dx / dist) * msg.speed;
+                    let vy = (dy / dist) * msg.speed;
+
+                    gpu.upload_projectile(
+                        idx, msg.from_x, msg.from_y, vx, vy,
+                        msg.damage, msg.faction, msg.shooter as i32, msg.lifetime,
+                    );
+                }
+            }
+
             // === PROJECTILE PROCESSING ===
             let proj_count = gpu.proj_count;
             if proj_count > 0 {
@@ -442,19 +471,25 @@ impl EcsNpcManager {
     /// Unified spawn API. Job determines component template.
     /// No direct GPU writes — all go through GPU_UPDATE_QUEUE.
     #[func]
-    fn spawn_npc(&mut self, x: f32, y: f32, job: i32, faction: i32,
-        home_x: f32, home_y: f32, work_x: f32, work_y: f32,
-        town_idx: i32, starting_post: i32,
-    ) -> i32 {
+    fn spawn_npc(&mut self, x: f32, y: f32, job: i32, faction: i32, opts: VarDictionary) -> i32 {
         let idx = match Self::allocate_slot() {
             Some(i) => i,
             None => return -1,
         };
 
+        // Extract optional params from dictionary (defaults = "not set")
+        let home_x: f32 = opts.get("home_x").and_then(|v| v.try_to::<f32>().ok()).unwrap_or(-1.0);
+        let home_y: f32 = opts.get("home_y").and_then(|v| v.try_to::<f32>().ok()).unwrap_or(-1.0);
+        let work_x: f32 = opts.get("work_x").and_then(|v| v.try_to::<f32>().ok()).unwrap_or(-1.0);
+        let work_y: f32 = opts.get("work_y").and_then(|v| v.try_to::<f32>().ok()).unwrap_or(-1.0);
+        let town_idx: i32 = opts.get("town_idx").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(-1);
+        let starting_post: i32 = opts.get("starting_post").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(-1);
+        let attack_type: i32 = opts.get("attack_type").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0);
+
         let msg = SpawnNpcMsg {
             slot_idx: idx,
             x, y, job, faction,
-            town_idx, home_x, home_y, work_x, work_y, starting_post,
+            town_idx, home_x, home_y, work_x, work_y, starting_post, attack_type,
         };
 
         if let Ok(mut queue) = SPAWN_QUEUE.lock() {
@@ -519,7 +554,7 @@ impl EcsNpcManager {
         let vy = (dy / dist) * PROJECTILE_SPEED;
 
         // Upload to GPU
-        gpu.upload_projectile(idx, from_x, from_y, vx, vy, damage, faction, shooter);
+        gpu.upload_projectile(idx, from_x, from_y, vx, vy, damage, faction, shooter, PROJECTILE_LIFETIME);
 
         idx as i32
     }
@@ -855,6 +890,8 @@ impl EcsNpcManager {
             dict.set("gpu_faction_1", read_i32(fac_slice, 1));
             dict.set("gpu_health_0", read_f32(hp_slice, 0));
             dict.set("gpu_health_1", read_f32(hp_slice, 1));
+            dict.set("gpu_health_2", read_f32(hp_slice, 2));
+            dict.set("gpu_health_3", read_f32(hp_slice, 3));
         }
         dict
     }
@@ -901,6 +938,7 @@ impl EcsNpcManager {
         if let Ok(mut queue) = TARGET_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = ARRIVAL_QUEUE.lock() { queue.clear(); }
         if let Ok(mut queue) = DAMAGE_QUEUE.lock() { queue.clear(); }
+        if let Ok(mut queue) = PROJECTILE_FIRE_QUEUE.lock() { queue.clear(); }
 
         // GPU-FIRST: Clear consolidated GPU update queue
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() { queue.clear(); }

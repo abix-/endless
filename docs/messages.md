@@ -8,10 +8,11 @@ Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bev
 
 | Queue | Message Type | Fields | Producer | Consumer |
 |-------|-------------|--------|----------|----------|
-| SPAWN_QUEUE | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post | spawn_npc() | drain_spawn_queue → spawn_npc_system |
+| SPAWN_QUEUE | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | spawn_npc() | drain_spawn_queue → spawn_npc_system |
 | TARGET_QUEUE | SetTargetMsg | npc_index, x, y | set_target() | drain_target_queue → apply_targets_system |
 | ARRIVAL_QUEUE | ArrivalMsg | npc_index | process() arrival detection | drain_arrival_queue → handle_arrival_system |
-| DAMAGE_QUEUE | DamageMsg | npc_index, amount | attack_system, projectile hits | drain_damage_queue → damage_system |
+| DAMAGE_QUEUE | DamageMsg | npc_index, amount | projectile hits (GPU→CPU) | drain_damage_queue → damage_system |
+| PROJECTILE_FIRE_QUEUE | FireProjectileMsg | from_x/y, to_x/y, damage, faction, shooter, speed, lifetime | attack_system | process() → upload_projectile() |
 
 ## GPU Update Queue
 

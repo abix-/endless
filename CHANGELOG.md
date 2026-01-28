@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-01-27
+- unify melee and ranged attacks: attack_system fires projectiles via PROJECTILE_FIRE_QUEUE instead of direct DamageMsg
+- add AttackStats::melee() (range=150, speed=500, lifetime=0.5s) and AttackStats::ranged() (range=300, speed=200, lifetime=3.0s)
+- add FireProjectileMsg and PROJECTILE_FIRE_QUEUE (attack_system → process() → GPU projectile system)
+- add upload_projectile() lifetime parameter (was hardcoded PROJECTILE_LIFETIME constant)
+- add spawn_npc opts Dictionary: optional params (home_x/y, work_x/y, town_idx, starting_post, attack_type) with defaults
+- refactor spawn_npc from 10 positional params to 4 required + Dictionary (no more -1 padding)
+- add attack_type spawn param: 0=melee (default), 1=ranged (fighters only)
+- add gpu_health_2/3 to get_combat_debug() for 4-NPC test scenarios
+- fix test 10 phase 4: check GPU health decrease instead of per-frame damage_processed counter
+- fix melee projectile speed: 9999→500 px/s (was overshooting 10px hit radius at 60fps)
 - add Fighter job (job=3): combat-only NPC with AttackStats+AttackTimer, no behavior components (yellow)
 - rewrite Test 10 as 6-phase TDD combat test using Fighter NPCs (GPU buffers → grid → targeting → damage → death → slot recycle)
 - add phase_results tracking: each phase records timestamp + values at pass/fail, included in debug dump

@@ -187,20 +187,41 @@ impl Faction {
 }
 
 /// Combat stats for NPCs that can fight.
+/// Both melee and ranged attacks use projectiles — melee is just a fast, short-range projectile.
 #[derive(Component)]
 pub struct AttackStats {
-    pub range: f32,      // Attack range in pixels (150.0)
-    pub damage: f32,     // Damage per hit (15.0)
-    pub cooldown: f32,   // Seconds between attacks (1.0)
+    pub range: f32,              // Attack range in pixels
+    pub damage: f32,             // Damage per hit
+    pub cooldown: f32,           // Seconds between attacks
+    pub projectile_speed: f32,   // Projectile travel speed (9999 = instant melee)
+    pub projectile_lifetime: f32, // Projectile lifetime in seconds
 }
 
-impl Default for AttackStats {
-    fn default() -> Self {
+impl AttackStats {
+    pub fn melee() -> Self {
         Self {
             range: 150.0,
             damage: 15.0,
             cooldown: 1.0,
+            projectile_speed: 500.0,
+            projectile_lifetime: 0.5,
         }
+    }
+
+    pub fn ranged() -> Self {
+        Self {
+            range: 300.0,
+            damage: 10.0,
+            cooldown: 1.5,
+            projectile_speed: 200.0,
+            projectile_lifetime: 3.0,
+        }
+    }
+}
+
+impl Default for AttackStats {
+    fn default() -> Self {
+        Self::melee()
     }
 }
 

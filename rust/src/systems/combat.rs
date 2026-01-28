@@ -156,11 +156,18 @@ pub fn attack_system(
             }
             if timer.0 <= 0.0 {
                 timer_ready_count += 1;
-                // Attack! Queue damage
-                if let Ok(mut queue) = DAMAGE_QUEUE.lock() {
-                    queue.push(DamageMsg {
-                        npc_index: ti,
-                        amount: stats.damage,
+                // Attack! Fire projectile (melee = fast projectile, ranged = slow projectile)
+                if let Ok(mut queue) = PROJECTILE_FIRE_QUEUE.lock() {
+                    queue.push(FireProjectileMsg {
+                        from_x: x,
+                        from_y: y,
+                        to_x: tx,
+                        to_y: ty,
+                        damage: stats.damage,
+                        faction: _faction.to_i32(),
+                        shooter: i,
+                        speed: stats.projectile_speed,
+                        lifetime: stats.projectile_lifetime,
                     });
                 }
                 attacks += 1;

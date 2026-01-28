@@ -23,6 +23,7 @@ pub struct SpawnNpcMsg {
     pub work_x: f32,        // -1 = none
     pub work_y: f32,
     pub starting_post: i32, // -1 = none
+    pub attack_type: i32,   // 0=melee, 1=ranged
 }
 
 #[derive(Message, Clone)]
@@ -51,6 +52,23 @@ pub static SPAWN_QUEUE: Mutex<Vec<SpawnNpcMsg>> = Mutex::new(Vec::new());
 pub static TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
 pub static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
 pub static DAMAGE_QUEUE: Mutex<Vec<DamageMsg>> = Mutex::new(Vec::new());
+
+/// Projectile fire request from attack_system (Bevy -> GPU projectile system).
+/// Drained in process() to create GPU projectiles.
+pub struct FireProjectileMsg {
+    pub from_x: f32,
+    pub from_y: f32,
+    pub to_x: f32,
+    pub to_y: f32,
+    pub damage: f32,
+    pub faction: i32,
+    pub shooter: usize,
+    pub speed: f32,
+    pub lifetime: f32,
+}
+
+pub static PROJECTILE_FIRE_QUEUE: Mutex<Vec<FireProjectileMsg>> = Mutex::new(Vec::new());
+
 pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);
 pub static FRAME_DELTA: Mutex<f32> = Mutex::new(0.016);
 

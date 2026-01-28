@@ -7,7 +7,7 @@ NPCs are created through a single unified `spawn_npc()` API. Slot allocation reu
 ## Data Flow
 
 ```
-GDScript: spawn_npc(x, y, job, faction, home_x, home_y, work_x, work_y, town_idx, starting_post)
+GDScript: spawn_npc(x, y, job, faction, opts: Dictionary)
 │
 ├─ allocate_slot()
 │   ├─ Try FREE_SLOTS.pop() (recycled from dead NPC)
@@ -62,17 +62,37 @@ Single method replaces 5 job-specific methods:
 
 ```gdscript
 # Returns slot index or -1 if at capacity
-spawn_npc(x, y, job, faction, home_x, home_y, work_x, work_y, town_idx, starting_post) -> int
+spawn_npc(x, y, job, faction, opts: Dictionary) -> int
 ```
+
+**Required params:**
 
 | Param | Values | Notes |
 |-------|--------|-------|
+| x, y | float | Spawn position |
 | job | 0=Farmer, 1=Guard, 2=Raider, 3=Fighter | Determines component template |
 | faction | 0=Villager, 1=Raider | GPU targeting |
-| home_x/y | position or -1,-1 | Home/camp position |
-| work_x/y | position or -1,-1 | Farm position (farmers only) |
-| town_idx | 0+ or -1 | Town association |
-| starting_post | 0+ or -1 | Patrol start (guards only) |
+
+**Optional params (Dictionary):**
+
+| Key | Type | Default | Notes |
+|-----|------|---------|-------|
+| home_x, home_y | float | -1.0 | Home/camp position |
+| work_x, work_y | float | -1.0 | Farm position (farmers only) |
+| town_idx | int | -1 | Town association |
+| starting_post | int | -1 | Patrol start (guards only) |
+| attack_type | int | 0 | 0=melee, 1=ranged (fighters only) |
+
+```gdscript
+# Guard at patrol post 2:
+ecs.spawn_npc(pos.x, pos.y, 1, 0, {"home_x": home.x, "home_y": home.y, "town_idx": 0, "starting_post": 2})
+# Farmer:
+ecs.spawn_npc(pos.x, pos.y, 0, 0, {"home_x": home.x, "home_y": home.y, "work_x": farm.x, "work_y": farm.y, "town_idx": 0})
+# Ranged fighter:
+ecs.spawn_npc(pos.x, pos.y, 3, 1, {"attack_type": 1})
+# Simple NPC (all defaults):
+ecs.spawn_npc(pos.x, pos.y, 3, 0, {})
+```
 
 ## spawn_npc_system (generic)
 
@@ -85,7 +105,7 @@ Job-specific templates:
 | Guard | `Energy`, `AttackStats`, `AttackTimer(0)`, `Guard { town_idx }`, `PatrolRoute`, `OnDuty { ticks: 0 }` |
 | Farmer | `Energy`, `Farmer { town_idx }`, `WorkPosition`, `GoingToWork` |
 | Raider | `Energy`, `AttackStats`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
-| Fighter | `AttackStats`, `AttackTimer(0)` |
+| Fighter | `AttackStats` (melee or ranged via attack_type), `AttackTimer(0)` |
 
 GPU writes (via GPU_UPDATE_QUEUE, all jobs): `SetPosition`, `SetTarget` (= spawn position, or work position for farmers), `SetColor` (job-based), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`
 

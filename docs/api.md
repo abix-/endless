@@ -8,17 +8,19 @@ All GDScript interaction with the ECS goes through `EcsNpcManager`, a Godot `Nod
 
 | Method | Params | Returns | Description |
 |--------|--------|---------|-------------|
-| `spawn_npc` | `x, y, job, faction, home_x, home_y, work_x, work_y, town_idx, starting_post` | `i32` | Unified spawn. Returns slot index or -1. Job: 0=Farmer, 1=Guard, 2=Raider. Use -1 for unused params. |
+| `spawn_npc` | `x, y, job, faction, opts: Dictionary` | `i32` | Unified spawn. Returns slot index or -1. Job: 0=Farmer, 1=Guard, 2=Raider, 3=Fighter. |
 
-Job determines component template at spawn time. See [spawn.md](spawn.md).
+Job determines component template at spawn time. Optional params in Dictionary: `home_x`, `home_y`, `work_x`, `work_y`, `town_idx`, `starting_post`, `attack_type`. All default to -1 or 0. See [spawn.md](spawn.md).
 
 ```gdscript
 # Guard at patrol post 2:
-ecs.spawn_npc(pos.x, pos.y, 1, 0, home.x, home.y, -1, -1, town_idx, 2)
+ecs.spawn_npc(pos.x, pos.y, 1, 0, {"home_x": home.x, "home_y": home.y, "town_idx": town_idx, "starting_post": 2})
 # Farmer:
-ecs.spawn_npc(pos.x, pos.y, 0, 0, home.x, home.y, farm.x, farm.y, town_idx, -1)
+ecs.spawn_npc(pos.x, pos.y, 0, 0, {"home_x": home.x, "home_y": home.y, "work_x": farm.x, "work_y": farm.y, "town_idx": town_idx})
 # Raider:
-ecs.spawn_npc(pos.x, pos.y, 2, 1, camp.x, camp.y, -1, -1, -1, -1)
+ecs.spawn_npc(pos.x, pos.y, 2, 1, {"home_x": camp.x, "home_y": camp.y})
+# Ranged fighter:
+ecs.spawn_npc(pos.x, pos.y, 3, 1, {"attack_type": 1})
 ```
 
 ## Projectile API

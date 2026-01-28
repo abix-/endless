@@ -535,6 +535,7 @@ impl GpuCompute {
         damage: f32,
         faction: i32,
         shooter: i32,
+        lifetime: f32,
     ) {
         // Position
         let pos_bytes: Vec<u8> = [x, y].iter().flat_map(|f| f.to_le_bytes()).collect();
@@ -568,7 +569,7 @@ impl GpuCompute {
         self.rd.buffer_update(self.proj_shooter_buffer, (idx * 4) as u32, 4, &shooter_packed);
 
         // Lifetime
-        let lifetime_bytes: Vec<u8> = PROJECTILE_LIFETIME.to_le_bytes().to_vec();
+        let lifetime_bytes: Vec<u8> = lifetime.to_le_bytes().to_vec();
         let lifetime_packed = PackedByteArray::from(lifetime_bytes.as_slice());
         self.rd.buffer_update(self.proj_lifetime_buffer, (idx * 4) as u32, 4, &lifetime_packed);
 

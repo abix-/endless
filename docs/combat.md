@@ -10,10 +10,18 @@ Five chained Bevy systems handle the complete combat loop: cooldown management, 
 GPU combat_target_buffer
         │
         ▼
-  attack_system ──── DamageMsg ────▶ damage_system
-  (range check,                      (apply to Health,
-   cooldown check,                    sync GPU health)
-   queue damage)                           │
+  attack_system ── FireProjectileMsg ──▶ PROJECTILE_FIRE_QUEUE
+  (range check,                              │
+   cooldown check,                    process() drains queue
+   fire projectile)                   ├─ allocate proj slot
+        │                             ├─ upload_projectile()
+        │                             └─ GPU collision → DamageMsg
+        │                                      │
+        │                                      ▼
+        │                              damage_system
+        │                              (apply to Health,
+        │                               sync GPU health)
+        │                                      │
         │                                  ▼
         │                           death_system
         │                           (health <= 0 → Dead)
@@ -34,7 +42,7 @@ GPU combat_target_buffer
 | Health | `f32` | Current HP (default 100.0) |
 | Dead | marker | Inserted when health <= 0 |
 | Faction | enum | Villager(0) or Raider(1) |
-| AttackStats | struct | `range: f32, damage: f32, cooldown: f32` |
+| AttackStats | struct | `range, damage, cooldown, projectile_speed, projectile_lifetime` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
 | InCombat | marker | Prevents behavior systems from overriding chase target |
 
@@ -49,7 +57,7 @@ Execution order is **chained** — each system completes before the next starts.
 ### 2. attack_system (combat.rs)
 - Reads `GPU_READ_STATE.combat_targets` for each NPC with AttackStats
 - If target is valid (not -1) and target is alive:
-  - **In range**: queue `DamageMsg`, reset `AttackTimer`, mark `InCombat`
+  - **In range**: push `FireProjectileMsg` to `PROJECTILE_FIRE_QUEUE`, reset `AttackTimer`, mark `InCombat`
   - **Out of range**: push `SetTarget` to chase, mark `InCombat`
 - If no target: remove `InCombat`
 
@@ -106,7 +114,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 ## Known Issues / Limitations
 
 - **No generational indices**: Stale references to recycled slots would silently alias. Currently safe due to chained execution, but would break if damage messages span frames.
-- **Equal stats**: All NPCs have identical AttackStats (100 HP, 15 damage, 150 range, 1s cooldown). Per-NPC stats would need component variation.
+- **Two stat presets only**: AttackStats has melee() and ranged() constructors. Per-NPC stat variation beyond these presets would need spawn-time overrides.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **InCombat blocks all behavior**: Once in combat, NPCs can't rest, patrol, or work until the target dies or leaves range.
 - **Clone per frame**: attack_system clones positions and combat_targets vecs from GPU_READ_STATE (~80KB at 10K NPCs). Negligible but not zero-copy.

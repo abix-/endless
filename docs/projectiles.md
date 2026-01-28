@@ -7,10 +7,15 @@ GPU-accelerated projectiles with compute shader movement and spatial grid collis
 ## Data Flow
 
 ```
-fire_projectile()
+Two fire paths:
+1. GDScript: fire_projectile() → fixed PROJECTILE_LIFETIME
+2. Bevy: attack_system → PROJECTILE_FIRE_QUEUE → per-projectile lifetime
+
+PROJECTILE_FIRE_QUEUE (attack_system → process()):
 ├─ Allocate slot (FREE_PROJ_SLOTS or proj_count++)
-├─ Write GPU buffers (position, velocity, damage, faction, shooter, lifetime, active)
-└─ Return proj index
+├─ Calculate velocity from speed + direction
+├─ upload_projectile(idx, pos, vel, damage, faction, shooter, lifetime)
+└─ Supports melee (speed=500, lifetime=0.5s) and ranged (speed=200, lifetime=3.0s)
 
 process() each frame (if proj_count > 0):
 ├─ Dispatch projectile_compute.glsl
@@ -93,7 +98,11 @@ Slots are `usize` indices. `proj_count` only grows (represents high-water mark).
 | Constant | Value | Purpose |
 |----------|-------|---------|
 | MAX_PROJECTILES | 50,000 | Pool capacity (~3.2 MB VRAM) |
-| PROJECTILE_SPEED | 200.0 | Pixels per second |
+| PROJECTILE_SPEED | 200.0 | Default speed (GDScript API). Bevy uses per-projectile speed. |
+| Melee speed | 500.0 | AttackStats::melee() projectile speed |
+| Ranged speed | 200.0 | AttackStats::ranged() projectile speed |
+| Melee lifetime | 0.5s | AttackStats::melee() projectile lifetime |
+| Ranged lifetime | 3.0s | AttackStats::ranged() projectile lifetime |
 | PROJ_FLOATS_PER_INSTANCE | 12 | Transform2D (8) + color (4) |
 
 ## Known Issues / Limitations
