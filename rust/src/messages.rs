@@ -221,3 +221,74 @@ use crate::resources::GameConfig;
 /// Staging area for GameConfig. Set by GDScript set_game_config(), drained once by Bevy.
 pub static GAME_CONFIG_STAGING: Mutex<Option<GameConfig>> = Mutex::new(None);
 
+// ============================================================================
+// NPC UI QUERY DATA (Phase 9.4)
+// ============================================================================
+
+use std::sync::LazyLock;
+
+/// Per-NPC metadata for UI display (names, levels, traits).
+/// Indexed by NPC slot. Reset on spawn, cleared on death.
+#[derive(Clone, Default)]
+pub struct NpcMeta {
+    pub name: String,
+    pub level: i32,
+    pub xp: i32,
+    pub trait_id: i32,
+    pub town_id: i32,
+    pub job: i32,
+}
+
+/// Kill statistics for UI display.
+#[derive(Clone, Default)]
+pub struct KillStats {
+    pub guard_kills: i32,      // Raiders killed by guards
+    pub villager_kills: i32,   // Villagers (farmers/guards) killed by raiders
+}
+
+// State constants matching GDScript NPCState.State
+pub const STATE_IDLE: i32 = 0;
+pub const STATE_WALKING: i32 = 1;
+pub const STATE_RESTING: i32 = 2;
+pub const STATE_WORKING: i32 = 3;
+pub const STATE_PATROLLING: i32 = 4;
+pub const STATE_ON_DUTY: i32 = 5;
+pub const STATE_FIGHTING: i32 = 6;
+pub const STATE_RAIDING: i32 = 7;
+pub const STATE_RETURNING: i32 = 8;
+pub const STATE_RECOVERING: i32 = 9;
+pub const STATE_FLEEING: i32 = 10;
+pub const STATE_GOING_TO_REST: i32 = 11;
+pub const STATE_GOING_TO_WORK: i32 = 12;
+
+const MAX_NPC_COUNT: usize = 10_000;
+
+/// Per-NPC metadata (names, levels, traits). Indexed by slot.
+pub static NPC_META: LazyLock<Mutex<Vec<NpcMeta>>> = LazyLock::new(|| {
+    Mutex::new(vec![NpcMeta::default(); MAX_NPC_COUNT])
+});
+
+/// Current state ID per NPC. Updated by behavior systems.
+pub static NPC_STATES: LazyLock<Mutex<Vec<i32>>> = LazyLock::new(|| {
+    Mutex::new(vec![STATE_IDLE; MAX_NPC_COUNT])
+});
+
+/// Energy per NPC. Synced from Bevy Energy component.
+pub static NPC_ENERGY: LazyLock<Mutex<Vec<f32>>> = LazyLock::new(|| {
+    Mutex::new(vec![100.0; MAX_NPC_COUNT])
+});
+
+/// Kill statistics.
+pub static KILL_STATS: Mutex<KillStats> = Mutex::new(KillStats {
+    guard_kills: 0,
+    villager_kills: 0,
+});
+
+/// Currently selected NPC index (-1 = none).
+pub static SELECTED_NPC: Mutex<i32> = Mutex::new(-1);
+
+/// Per-town NPC lists for O(1) roster queries. Index = town_id, value = Vec of NPC slots.
+pub static NPCS_BY_TOWN: LazyLock<Mutex<Vec<Vec<usize>>>> = LazyLock::new(|| {
+    Mutex::new(Vec::new())
+});
+

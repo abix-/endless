@@ -80,17 +80,35 @@ COMBAT_DEBUG (defined in `systems/combat.rs`) tracks 18 fields: `attackers_queri
 
 ## Food Storage & Events
 
-`FOOD_STORAGE: Mutex<FoodStorage>` — Bevy-owned per-town and per-camp food counts. Keeping food in Rust avoids cross-boundary calls during raider eat decisions.
+`FOOD_STORAGE: Mutex<FoodStorage>` — Bevy-owned per-town food counts. All settlements are "towns" (villager towns first, then raider towns by index).
 
 | Field | Type | Writer | Reader |
 |-------|------|--------|--------|
-| town_food | `Vec<i32>` | add_town_food() API | get_town_food() API |
-| camp_food | `Vec<i32>` | steal_arrival_system | get_camp_food() API |
+| food | `Vec<i32>` | add_town_food() API, steal_arrival_system | get_town_food() API |
 
 | Queue | Type | Writer | Reader |
 |-------|------|--------|--------|
 | FOOD_DELIVERED_QUEUE | `Vec<FoodDelivered>` | steal_arrival_system | get_food_events() API |
 | FOOD_CONSUMED_QUEUE | `Vec<FoodConsumed>` | (future eat system) | get_food_events() API |
+
+## UI Query State
+
+Static registries for UI panels to query NPC data. GDScript can't access Bevy World directly, so these caches bridge the boundary.
+
+| Static | Type | Writer | Reader |
+|--------|------|--------|--------|
+| NPC_META | `Vec<NpcMeta>` | spawn_npc_system (init), set_npc_name() | get_npc_info(), get_npcs_by_town(), get_npc_name() |
+| NPC_STATES | `Vec<i32>` | spawn_npc_system, behavior systems | get_npc_info(), get_npcs_by_town() |
+| NPC_ENERGY | `Vec<f32>` | energy_system | get_npc_info() |
+| KILL_STATS | `KillStats` | death_cleanup_system | get_population_stats() |
+| SELECTED_NPC | `i32` | set_selected_npc() | get_selected_npc() |
+| NPCS_BY_TOWN | `Vec<Vec<usize>>` | spawn_npc_system (add), death_cleanup_system (remove) | get_npcs_by_town(), get_population_stats(), get_town_population() |
+
+**NpcMeta struct:** name (String), level (i32), xp (i32), trait_id (i32), town_id (i32), job (i32)
+
+**KillStats struct:** guard_kills (i32), villager_kills (i32)
+
+**State constants:** STATE_IDLE=0, STATE_WALKING=1, STATE_RESTING=2, STATE_WORKING=3, STATE_PATROLLING=4, STATE_ON_DUTY=5, STATE_FIGHTING=6, STATE_RAIDING=7, STATE_RETURNING=8, STATE_RECOVERING=9, STATE_FLEEING=10, STATE_GOING_TO_REST=11, STATE_GOING_TO_WORK=12
 
 ## Architecture: What Stays Static vs What Migrates
 
@@ -100,6 +118,7 @@ All communication currently uses static Mutex. This is correct for cross-boundar
 |----------|---------|---------|-------|
 | GDScript↔Bevy boundary | Static Mutex (stays) | SPAWN/TARGET/DAMAGE/ARRIVAL_QUEUE, RESET_BEVY, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 8 |
 | Bevy↔GPU boundary | Static Mutex (stays) | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
+| UI query state | Static Mutex (stays) | NPC_META, NPC_STATES, NPC_ENERGY, KILL_STATS, SELECTED_NPC, NPCS_BY_TOWN | 6 |
 | Bevy-internal state | Migrate → `Res<T>` / Events | WORLD_DATA, BED/FARM_OCCUPANCY, HEALTH/COMBAT_DEBUG, FOOD_STORAGE, food event queues | 8 |
 
 **Migration pattern:** Bevy systems emit `GpuUpdateEvent` instead of locking `GPU_UPDATE_QUEUE` directly. A single collector system drains events and locks the static queue once. Bevy-internal state uses `Res<T>` / `ResMut<T>` with staging statics at the GDScript boundary. This enables multi-threaded Bevy scheduling — systems that don't share Resources can run in parallel.

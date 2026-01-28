@@ -62,7 +62,7 @@ Frame execution order ───────────────────�
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover | 8/10 |
-| [api.md](api.md) | Complete GDScript-to-Rust API (26 methods) | - |
+| [api.md](api.md) | Complete GDScript-to-Rust API (35 methods) | - |
 | [messages.md](messages.md) | Static queues, GPU_UPDATE_QUEUE, GPU_READ_STATE | 8/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Migration chunks, performance targets, lessons learned | - |
@@ -92,13 +92,13 @@ world/
   terrain_renderer.gd   # Terrain tile rendering with sprite tiling
 ui/
   start_menu.gd         # Start menu (world size, towns, populations)
-  left_panel.gd         # Stats, performance, NPC inspector (ECS-only, API stubs)
+  left_panel.gd         # Stats, performance, NPC inspector (uses ECS query APIs)
   combat_log.gd         # Resizable event log (ECS-only, waiting for signals)
   settings_menu.gd      # Options menu with log filters
-  upgrade_menu.gd       # Town management, upgrades (ECS-only, population stubs)
+  upgrade_menu.gd       # Town management, upgrades (uses ECS query APIs)
   build_menu.gd         # Grid slot building (farms, beds)
   policies_panel.gd     # Faction policies (flee thresholds, off-duty behavior)
-  roster_panel.gd       # NPC roster (ECS-only, waiting for per-NPC API)
+  roster_panel.gd       # NPC roster with sorting/filtering (uses ECS query APIs)
   farm_menu.gd          # Farm info popup (ECS-only, waiting for farm API)
 rust/
   Cargo.toml            # Bevy 0.18 + godot-bevy 0.11 dependencies

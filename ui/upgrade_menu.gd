@@ -118,25 +118,9 @@ func _refresh_stats() -> void:
 	if not npc_manager:
 		return
 
-	# === ECS API NEEDED: get_town_population(town_idx) -> Dictionary ===
-	# Should return: {farmer_count, guard_count}
-	# OLD CODE:
-	# var farmer_count := 0
-	# var guard_count := 0
-	# for i in npc_manager.count:
-	#     if npc_manager.healths[i] <= 0:
-	#         continue
-	#     if npc_manager.town_indices[i] != town_idx:
-	#         continue
-	#     var job: int = npc_manager.jobs[i]
-	#     if job == NPCState.Job.FARMER:
-	#         farmer_count += 1
-	#     elif job == NPCState.Job.GUARD:
-	#         guard_count += 1
-	# farmers_label.text = str(farmer_count)
-	# guards_label.text = str(guard_count)
-	farmers_label.text = "-"
-	guards_label.text = "-"
+	var pop: Dictionary = npc_manager.get_town_population(town_idx)
+	farmers_label.text = str(pop.get("farmer_count", 0))
+	guards_label.text = str(pop.get("guard_count", 0))
 
 	# Farm count
 	if "towns" in main and town_idx < main.towns.size():

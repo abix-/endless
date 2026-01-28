@@ -166,27 +166,17 @@ func _update_stats() -> void:
 	if not stats_content.visible:
 		return
 
-	# === ECS API NEEDED: get_population_stats() -> Dictionary ===
-	# Should return: {farmers_alive, farmers_dead, guards_alive, guards_dead,
-	#                 raiders_alive, raiders_dead, guard_kills, villager_kills}
-	# Old code:
-	#   farmer_alive.text = str(npc_manager.alive_farmers)
-	#   farmer_dead.text = str(npc_manager.dead_farmers)
-	#   guard_alive.text = str(npc_manager.alive_guards)
-	#   guard_dead.text = str(npc_manager.dead_guards)
-	#   guard_kills.text = str(npc_manager.raider_kills)
-	#   raider_alive.text = str(npc_manager.alive_raiders)
-	#   raider_dead.text = str(npc_manager.dead_raiders)
-	#   raider_kills.text = str(npc_manager.villager_kills)
-	farmer_alive.text = "-"
-	farmer_dead.text = "-"
-	farmer_kills.text = "-"
-	guard_alive.text = "-"
-	guard_dead.text = "-"
-	guard_kills.text = "-"
-	raider_alive.text = "-"
-	raider_dead.text = "-"
-	raider_kills.text = "-"
+	# Population stats from ECS
+	var pop: Dictionary = npc_manager.get_population_stats()
+	farmer_alive.text = str(pop.get("farmers_alive", 0))
+	farmer_dead.text = "-"  # Dead tracking not yet in ECS
+	farmer_kills.text = "-"  # Farmers don't kill
+	guard_alive.text = str(pop.get("guards_alive", 0))
+	guard_dead.text = "-"  # Dead tracking not yet in ECS
+	guard_kills.text = str(pop.get("guard_kills", 0))
+	raider_alive.text = str(pop.get("raiders_alive", 0))
+	raider_dead.text = "-"  # Dead tracking not yet in ECS
+	raider_kills.text = str(pop.get("villager_kills", 0))
 
 	# Time (works - uses WorldClock autoload)
 	var period := "Day" if WorldClock.is_daytime() else "Night"
@@ -203,13 +193,14 @@ func _update_stats() -> void:
 	var camp_total: int = npc_manager.get_town_food(raider_town_idx)
 	food_label.text = "Food: %d vs %d" % [town_total, camp_total]
 
-	# === ECS API NEEDED: get_bed_stats(town_idx) -> Dictionary ===
-	# Should return: {free_beds, total_beds}
-	# Old code:
-	#   var free_beds: int = npc_manager.get_free_bed_count(player_town)
-	#   var total_beds: int = npc_manager.get_total_bed_count(player_town)
-	#   bed_label.text = "Beds: %d used, %d free" % [total_beds - free_beds, free_beds]
-	bed_label.text = "Beds: -"
+	# Bed stats from ECS
+	var player_town: int = 0
+	if main_node and "player_town_idx" in main_node:
+		player_town = main_node.player_town_idx
+	var beds: Dictionary = npc_manager.get_bed_stats(player_town)
+	var total_beds: int = beds.get("total_beds", 0)
+	var free_beds: int = beds.get("free_beds", 0)
+	bed_label.text = "Beds: %d used, %d free" % [total_beds - free_beds, free_beds]
 
 
 func _update_perf() -> void:
@@ -260,91 +251,93 @@ func _update_inspector() -> void:
 	if not inspector_content.visible:
 		return
 
-	# === ECS API NEEDED: selected_npc property + get_npc_info(idx) -> Dictionary ===
-	# get_npc_info should return: {job, level, name, trait, town_idx, hp, max_hp, energy,
-	#                              xp, state, target_idx, attack_damage, attack_range,
-	#                              works_at_night, carrying_food, recovering, size_bonus}
-	#
-	# OLD INSPECTOR CODE (port this when API available):
-	# ------------------------------------------------
-	# var idx: int = npc_manager.selected_npc
-	# if idx < 0: idx = last_idx
-	# if idx < 0 or idx >= npc_manager.get_npc_count() or npc_manager.get_npc_health(idx) <= 0:
-	#     return
-	# last_idx = idx
-	#
-	# var job: int = npc_manager.jobs[idx]
-	# var level: int = npc_manager.levels[idx]
-	# var job_name: String = NPCState.JOB_NAMES[job]
-	# var npc_name: String = npc_manager.npc_names[idx]
-	# var npc_trait: int = npc_manager.traits[idx]
-	# var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
-	# job_level.text = "%s - %s Lv.%d" % [npc_name, job_name, level]
-	# if not trait_name.is_empty():
-	#     job_level.text += " (%s)" % trait_name
-	#
-	# # Town
-	# var town_idx: int = npc_manager.town_indices[idx]
-	# if town_idx >= 0 and main_node and "towns" in main_node:
-	#     town_label.text = main_node.towns[town_idx].name
-	#
-	# # Health
-	# var hp: float = npc_manager.healths[idx]
-	# var max_hp: float = npc_manager.get_scaled_max_health(idx)
-	# health_bar.value = hp / max_hp if max_hp > 0 else 0.0
-	# health_value.text = "%d/%d" % [int(hp), int(max_hp)]
-	#
-	# # Energy
-	# var energy: float = npc_manager.energies[idx]
-	# energy_bar.value = energy / Config.ENERGY_MAX
-	# energy_value.text = "%d" % int(energy)
-	#
-	# # XP
-	# var xp: int = npc_manager.xp[idx]
-	# var next_xp: int = npc_manager.get_xp_for_next_level(level)
-	# xp_label.text = "XP: %d/%d" % [xp, next_xp]
-	#
-	# # State
-	# var state: int = npc_manager.states[idx]
-	# state_label.text = NPCState.STATE_NAMES.get(state, "?")
-	#
-	# # Target
-	# var target_npc: int = npc_manager.current_targets[idx]
-	# if target_npc >= 0 and target_npc < npc_manager.get_npc_count():
-	#     var t_job: int = npc_manager.jobs[target_npc]
-	#     target_label.text = "Target: %s #%d" % [NPCState.JOB_NAMES[t_job], target_npc]
-	# else:
-	#     target_label.text = "Target: -"
-	#
-	# # Stats
-	# var base_dmg: float = npc_manager.attack_damages[idx]
-	# var base_rng: float = npc_manager.attack_ranges[idx]
-	# var eff_dmg: float = npc_manager.get_scaled_damage(idx)
-	# var pos: Vector2 = npc_manager.positions[idx]
-	# stats_label.text = "Dmg: %.0f | Rng: %.0f\nPos: %d, %d" % [eff_dmg, base_rng, int(pos.x), int(pos.y)]
-	#
-	# # Extra flags
-	# var extra: PackedStringArray = []
-	# if job == NPCState.Job.GUARD:
-	#     extra.append("Night: %s" % ("Y" if npc_manager.works_at_night[idx] else "N"))
-	# if npc_manager.recovering[idx]:
-	#     extra.append("Recovering")
-	# extra_label.text = " | ".join(extra)
-	# ------------------------------------------------
+	# Get selected NPC or use last
+	var idx: int = npc_manager.get_selected_npc()
+	if idx < 0:
+		idx = last_idx
+	if idx < 0 or idx >= npc_manager.get_npc_count() or npc_manager.get_npc_health(idx) <= 0.0:
+		job_level.text = "Click NPC to inspect"
+		town_label.visible = false
+		health_bar.get_parent().visible = false
+		energy_bar.get_parent().visible = false
+		xp_label.visible = false
+		state_label.visible = false
+		target_label.visible = false
+		stats_label.visible = false
+		extra_label.visible = false
+		copy_btn.visible = false
+		rename_btn.visible = false
+		return
 
-	job_level.text = "Click NPC to inspect"
-	town_label.visible = false
-	health_bar.get_parent().visible = false
-	energy_bar.get_parent().visible = false
-	xp_label.visible = false
-	state_label.visible = false
-	target_label.visible = false
-	stats_label.visible = false
+	last_idx = idx
+
+	# Get NPC info from ECS
+	var info: Dictionary = npc_manager.get_npc_info(idx)
+
+	var job: int = info.get("job", 0)
+	var level: int = info.get("level", 1)
+	var npc_name: String = info.get("name", "NPC")
+	var npc_trait: int = info.get("trait", 0)
+
+	var job_name: String = NPCState.JOB_NAMES[job] if job < NPCState.JOB_NAMES.size() else "?"
+	var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
+	job_level.text = "%s - %s Lv.%d" % [npc_name, job_name, level]
+	if not trait_name.is_empty():
+		job_level.text += " (%s)" % trait_name
+
+	# Town
+	var npc_town_idx: int = info.get("town_id", -1)
+	if npc_town_idx >= 0 and main_node and "towns" in main_node and npc_town_idx < main_node.towns.size():
+		town_label.text = main_node.towns[npc_town_idx].name
+		town_label.visible = true
+	else:
+		town_label.visible = false
+
+	# Health
+	var hp: float = info.get("hp", 0.0)
+	var max_hp: float = info.get("max_hp", 100.0)
+	health_bar.get_parent().visible = true
+	health_bar.value = hp / max_hp if max_hp > 0 else 0.0
+	health_value.text = "%d/%d" % [int(hp), int(max_hp)]
+
+	# Energy
+	var energy: float = info.get("energy", 100.0)
+	energy_bar.get_parent().visible = true
+	energy_bar.value = energy / Config.ENERGY_MAX
+	energy_value.text = "%d" % int(energy)
+
+	# XP
+	var xp: int = info.get("xp", 0)
+	xp_label.visible = true
+	xp_label.text = "XP: %d" % xp
+
+	# State
+	var state: int = info.get("state", 0)
+	state_label.visible = true
+	state_label.text = NPCState.STATE_NAMES.get(state, "?")
+
+	# Target
+	var target_npc: int = info.get("target_idx", -1)
+	target_label.visible = true
+	if target_npc >= 0 and target_npc < npc_manager.get_npc_count():
+		var target_info: Dictionary = npc_manager.get_npc_info(target_npc)
+		var t_job: int = target_info.get("job", 0)
+		target_label.text = "Target: %s #%d" % [NPCState.JOB_NAMES[t_job] if t_job < NPCState.JOB_NAMES.size() else "?", target_npc]
+	else:
+		target_label.text = "Target: -"
+
+	# Stats (position)
+	var pos_x: float = info.get("x", 0.0)
+	var pos_y: float = info.get("y", 0.0)
+	stats_label.visible = true
+	stats_label.text = "Pos: %d, %d" % [int(pos_x), int(pos_y)]
+
+	# Extra label (placeholder for now)
 	extra_label.visible = false
 
-	# Hide buttons that need per-NPC data
-	copy_btn.visible = false
-	rename_btn.visible = false
+	# Show buttons
+	copy_btn.visible = true
+	rename_btn.visible = true
 
 
 func _toggle_section(section: String) -> void:
@@ -404,12 +397,16 @@ func _set_following(enabled: bool) -> void:
 
 
 func _on_rename_pressed() -> void:
-	# === ECS API NEEDED: set_npc_name(idx, name) ===
-	pass
+	if last_idx >= 0:
+		name_edit.text = npc_manager.get_npc_name(last_idx)
+		job_level.visible = false
+		name_edit.visible = true
+		name_edit.grab_focus()
 
 
 func _on_name_submitted(new_name: String) -> void:
-	# === ECS API NEEDED: set_npc_name(idx, name) ===
+	if last_idx >= 0 and not new_name.is_empty():
+		npc_manager.set_npc_name(last_idx, new_name)
 	_close_name_edit()
 
 

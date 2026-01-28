@@ -945,6 +945,28 @@ impl EcsNpcManager {
 
         self.prev_arrivals.fill(false);
 
+        // Reset UI query statics (Phase 9.4)
+        if let Ok(mut meta) = NPC_META.lock() {
+            for m in meta.iter_mut() {
+                *m = NpcMeta::default();
+            }
+        }
+        if let Ok(mut states) = NPC_STATES.lock() {
+            states.fill(STATE_IDLE);
+        }
+        if let Ok(mut energies) = NPC_ENERGY.lock() {
+            energies.fill(100.0);
+        }
+        if let Ok(mut kills) = KILL_STATS.lock() {
+            *kills = KillStats::default();
+        }
+        if let Ok(mut selected) = SELECTED_NPC.lock() {
+            *selected = -1;
+        }
+        if let Ok(mut by_town) = NPCS_BY_TOWN.lock() {
+            by_town.clear();
+        }
+
         if let Ok(mut flag) = RESET_BEVY.lock() { *flag = true; }
     }
 
@@ -962,6 +984,14 @@ impl EcsNpcManager {
         }
         if let Ok(mut beds) = BED_OCCUPANCY.lock() { beds.occupant_npc = Vec::new(); }
         if let Ok(mut farms) = FARM_OCCUPANCY.lock() { farms.occupant_count = Vec::new(); }
+
+        // Initialize per-town NPC lists for UI queries
+        if let Ok(mut by_town) = NPCS_BY_TOWN.lock() {
+            by_town.clear();
+            for _ in 0..town_count {
+                by_town.push(Vec::new());
+            }
+        }
     }
 
     /// Add a town (villager or raider settlement).
@@ -1191,6 +1221,222 @@ impl EcsNpcManager {
             let free_farms = farms.occupant_count.iter().filter(|&&x| x < 1).count();
             dict.set("free_farms", free_farms as i32);
         }
+        dict
+    }
+
+    // ========================================================================
+    // UI QUERY API (Phase 9.4)
+    // ========================================================================
+
+    /// Get population statistics for UI display.
+    #[func]
+    fn get_population_stats(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        let mut farmers_alive = 0i32;
+        let mut guards_alive = 0i32;
+        let mut raiders_alive = 0i32;
+
+        // Count alive NPCs from NPC_META + GPU health
+        if let (Ok(by_town), Ok(meta), Ok(state)) = (NPCS_BY_TOWN.lock(), NPC_META.lock(), GPU_READ_STATE.lock()) {
+            for town_npcs in by_town.iter() {
+                for &idx in town_npcs {
+                    if idx < state.health.len() && state.health[idx] > 0.0 {
+                        match meta[idx].job {
+                            0 => farmers_alive += 1,
+                            1 => guards_alive += 1,
+                            2 => raiders_alive += 1,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        dict.set("farmers_alive", farmers_alive);
+        dict.set("guards_alive", guards_alive);
+        dict.set("raiders_alive", raiders_alive);
+
+        if let Ok(kills) = KILL_STATS.lock() {
+            dict.set("guard_kills", kills.guard_kills);
+            dict.set("villager_kills", kills.villager_kills);
+        }
+
+        dict
+    }
+
+    /// Get population for a specific town.
+    #[func]
+    fn get_town_population(&self, town_idx: i32) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        let mut farmer_count = 0i32;
+        let mut guard_count = 0i32;
+        let mut raider_count = 0i32;
+
+        if let (Ok(by_town), Ok(meta), Ok(state)) = (NPCS_BY_TOWN.lock(), NPC_META.lock(), GPU_READ_STATE.lock()) {
+            if (town_idx as usize) < by_town.len() {
+                for &idx in &by_town[town_idx as usize] {
+                    if idx < state.health.len() && state.health[idx] > 0.0 {
+                        match meta[idx].job {
+                            0 => farmer_count += 1,
+                            1 => guard_count += 1,
+                            2 => raider_count += 1,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        dict.set("farmer_count", farmer_count);
+        dict.set("guard_count", guard_count);
+        dict.set("raider_count", raider_count);
+        dict
+    }
+
+    /// Get detailed info for a single NPC (for inspector panel).
+    #[func]
+    fn get_npc_info(&self, idx: i32) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        let i = idx as usize;
+
+        if let Ok(state) = GPU_READ_STATE.lock() {
+            if i < state.npc_count {
+                dict.set("hp", state.health.get(i).copied().unwrap_or(0.0));
+                dict.set("x", state.positions.get(i * 2).copied().unwrap_or(0.0));
+                dict.set("y", state.positions.get(i * 2 + 1).copied().unwrap_or(0.0));
+                dict.set("faction", state.factions.get(i).copied().unwrap_or(0));
+                dict.set("target_idx", state.combat_targets.get(i).copied().unwrap_or(-1));
+            }
+        }
+
+        if let Ok(meta) = NPC_META.lock() {
+            if i < meta.len() {
+                dict.set("name", GString::from(&meta[i].name));
+                dict.set("level", meta[i].level);
+                dict.set("xp", meta[i].xp);
+                dict.set("trait", meta[i].trait_id);
+                dict.set("town_id", meta[i].town_id);
+                dict.set("job", meta[i].job);
+            }
+        }
+
+        if let Ok(states) = NPC_STATES.lock() {
+            dict.set("state", states.get(i).copied().unwrap_or(0));
+        }
+
+        if let Ok(energies) = NPC_ENERGY.lock() {
+            dict.set("energy", energies.get(i).copied().unwrap_or(0.0));
+        }
+
+        dict.set("max_hp", 100.0);
+        dict
+    }
+
+    /// Get list of NPCs in a town (for roster panel).
+    #[func]
+    fn get_npcs_by_town(&self, town_idx: i32, filter: i32) -> VarArray {
+        let mut result = VarArray::new();
+
+        if let (Ok(by_town), Ok(meta), Ok(state), Ok(states)) =
+            (NPCS_BY_TOWN.lock(), NPC_META.lock(), GPU_READ_STATE.lock(), NPC_STATES.lock())
+        {
+            if (town_idx as usize) < by_town.len() {
+                for &idx in &by_town[town_idx as usize] {
+                    // Skip dead NPCs
+                    if idx >= state.health.len() || state.health[idx] <= 0.0 {
+                        continue;
+                    }
+
+                    // Apply job filter (-1 = all)
+                    let job = meta[idx].job;
+                    if filter >= 0 && job != filter {
+                        continue;
+                    }
+
+                    let mut npc_dict = VarDictionary::new();
+                    npc_dict.set("idx", idx as i32);
+                    npc_dict.set("name", GString::from(&meta[idx].name));
+                    npc_dict.set("job", job);
+                    npc_dict.set("level", meta[idx].level);
+                    npc_dict.set("hp", state.health[idx]);
+                    npc_dict.set("max_hp", 100.0f32);
+                    npc_dict.set("state", states.get(idx).copied().unwrap_or(0));
+                    npc_dict.set("trait", meta[idx].trait_id);
+
+                    result.push(&npc_dict.to_variant());
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Get currently selected NPC index.
+    #[func]
+    fn get_selected_npc(&self) -> i32 {
+        SELECTED_NPC.lock().map(|s| *s).unwrap_or(-1)
+    }
+
+    /// Set currently selected NPC index.
+    #[func]
+    fn set_selected_npc(&mut self, idx: i32) {
+        if let Ok(mut s) = SELECTED_NPC.lock() {
+            *s = idx;
+        }
+    }
+
+    /// Get NPC name by index.
+    #[func]
+    fn get_npc_name(&self, idx: i32) -> GString {
+        if let Ok(meta) = NPC_META.lock() {
+            if (idx as usize) < meta.len() {
+                return GString::from(&meta[idx as usize].name);
+            }
+        }
+        GString::new()
+    }
+
+    /// Get NPC trait by index.
+    #[func]
+    fn get_npc_trait(&self, idx: i32) -> i32 {
+        if let Ok(meta) = NPC_META.lock() {
+            if (idx as usize) < meta.len() {
+                return meta[idx as usize].trait_id;
+            }
+        }
+        0
+    }
+
+    /// Set NPC name (for rename feature).
+    #[func]
+    fn set_npc_name(&mut self, idx: i32, name: GString) {
+        if let Ok(mut meta) = NPC_META.lock() {
+            if (idx as usize) < meta.len() {
+                meta[idx as usize].name = name.to_string();
+            }
+        }
+    }
+
+    /// Get bed statistics for a town.
+    #[func]
+    fn get_bed_stats(&self, town_idx: i32) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        let mut total = 0i32;
+        let mut free = 0i32;
+
+        if let (Ok(world), Ok(beds)) = (WORLD_DATA.lock(), BED_OCCUPANCY.lock()) {
+            for (i, bed) in world.beds.iter().enumerate() {
+                if bed.town_idx == town_idx as u32 {
+                    total += 1;
+                    if i < beds.occupant_npc.len() && beds.occupant_npc[i] < 0 {
+                        free += 1;
+                    }
+                }
+            }
+        }
+
+        dict.set("total_beds", total);
+        dict.set("free_beds", free);
         dict
     }
 

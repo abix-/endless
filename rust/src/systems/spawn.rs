@@ -9,6 +9,23 @@ use crate::resources::*;
 use crate::systems::economy::*;
 use crate::world::WORLD_DATA;
 
+// Name generation word lists
+const ADJECTIVES: &[&str] = &["Swift", "Brave", "Calm", "Bold", "Sharp", "Quick", "Stern", "Wise", "Keen", "Strong"];
+const FARMER_NOUNS: &[&str] = &["Tiller", "Sower", "Reaper", "Plower", "Grower"];
+const GUARD_NOUNS: &[&str] = &["Shield", "Sword", "Watcher", "Sentinel", "Defender"];
+const RAIDER_NOUNS: &[&str] = &["Blade", "Fang", "Shadow", "Claw", "Storm"];
+
+fn generate_name(job: Job, slot: usize) -> String {
+    let adj = ADJECTIVES[slot % ADJECTIVES.len()];
+    let noun = match job {
+        Job::Farmer => FARMER_NOUNS[(slot / ADJECTIVES.len()) % FARMER_NOUNS.len()],
+        Job::Guard => GUARD_NOUNS[(slot / ADJECTIVES.len()) % GUARD_NOUNS.len()],
+        Job::Raider => RAIDER_NOUNS[(slot / ADJECTIVES.len()) % RAIDER_NOUNS.len()],
+        Job::Fighter => "Fighter",
+    };
+    format!("{} {}", adj, noun)
+}
+
 /// Despawn all Bevy entities when RESET_BEVY flag is set.
 pub fn reset_bevy_system(
     mut commands: Commands,
@@ -123,6 +140,43 @@ pub fn spawn_npc_system(
         npc_map.0.insert(idx, ec.id());
         count.0 += 1;
         pop_inc_alive(&mut pop_stats, job, msg.town_idx);
+
+        // Initialize NPC metadata for UI queries
+        if let Ok(mut meta) = NPC_META.lock() {
+            if idx < meta.len() {
+                meta[idx] = NpcMeta {
+                    name: generate_name(job, idx),
+                    level: 1,
+                    xp: 0,
+                    trait_id: (idx % 5) as i32,  // Simple trait assignment (0-4)
+                    town_id: msg.town_idx,
+                    job: msg.job,
+                };
+            }
+        }
+
+        // Set initial state for UI
+        let initial_state = match job {
+            Job::Guard => if msg.starting_post >= 0 { STATE_ON_DUTY } else { STATE_IDLE },
+            Job::Farmer => if msg.work_x >= 0.0 { STATE_GOING_TO_WORK } else { STATE_IDLE },
+            Job::Raider => STATE_IDLE,  // Will be set by steal_decision_system
+            Job::Fighter => STATE_IDLE,
+        };
+        if let Ok(mut states) = NPC_STATES.lock() {
+            if idx < states.len() {
+                states[idx] = initial_state;
+            }
+        }
+
+        // Add to per-town NPC list
+        if msg.town_idx >= 0 {
+            if let Ok(mut by_town) = NPCS_BY_TOWN.lock() {
+                let town_idx = msg.town_idx as usize;
+                if town_idx < by_town.len() {
+                    by_town[town_idx].push(idx);
+                }
+            }
+        }
     }
 
     // Update GPU dispatch count so process() includes these NPCs

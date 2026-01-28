@@ -140,17 +140,41 @@ func _refresh() -> void:
 	if not npc_manager or not main_node:
 		return
 
-	# === ECS API NEEDED: get_npcs_by_town(town_idx, filter) -> Array[Dictionary] ===
-	# Should return array of {idx, name, job, level, hp, max_hp, state, trait} for each NPC
-	# Old code iterated npc_manager.count and accessed:
-	#   npc_manager.healths[i], npc_manager.town_indices[i], npc_manager.jobs[i],
-	#   npc_manager.traits[i], npc_manager.npc_names[i], npc_manager.levels[i],
-	#   npc_manager.get_scaled_max_health(i), npc_manager.states[i]
-	count_label.text = "Roster not available yet"
+	# Get player's town index
+	var player_town: int = 0
+	if "player_town_idx" in main_node:
+		player_town = main_node.player_town_idx
 
-	# Hide all rows
-	for row in row_pool:
-		row.visible = false
+	# Get filter job type (-1 = all, 0 = farmer, 1 = guard)
+	var filter_job: int = -1
+	match current_filter:
+		Filter.FARMERS:
+			filter_job = 0
+		Filter.GUARDS:
+			filter_job = 1
+
+	# Get NPCs from ECS
+	var npcs: Array = npc_manager.get_npcs_by_town(player_town, filter_job)
+
+	# Sort NPCs
+	npcs.sort_custom(_compare_npcs)
+
+	# Update count label
+	count_label.text = "%d NPCs" % npcs.size()
+
+	# Ensure we have enough rows
+	while row_pool.size() < npcs.size():
+		row_pool.append(_create_row())
+
+	# Update visible rows
+	for i in npcs.size():
+		var row: HBoxContainer = row_pool[i]
+		row.visible = true
+		_update_row(row, npcs[i])
+
+	# Hide unused rows
+	for i in range(npcs.size(), row_pool.size()):
+		row_pool[i].visible = false
 
 
 func _compare_npcs(a: Dictionary, b: Dictionary) -> bool:
@@ -246,12 +270,14 @@ func _update_row(row: HBoxContainer, npc: Dictionary) -> void:
 
 
 func _on_select(idx: int) -> void:
-	# === ECS API NEEDED: selected_npc property (read/write) ===
-	pass
+	npc_manager.set_selected_npc(idx)
+	var left_panel = get_tree().get_first_node_in_group("left_panel")
+	if left_panel:
+		left_panel.last_idx = idx
 
 
 func _on_follow(idx: int) -> void:
-	# === ECS API NEEDED: selected_npc property ===
+	npc_manager.set_selected_npc(idx)
 	var left_panel = get_tree().get_first_node_in_group("left_panel")
 	if left_panel:
 		left_panel.last_idx = idx

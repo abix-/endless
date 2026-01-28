@@ -58,17 +58,31 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | `get_health_debug` | none | `Dictionary` | damage_processed, deaths, despawned, entity_count, health_samples |
 | `get_guard_debug` | none | `Dictionary` | arrived_flags, prev_arrivals_true, arrival_queue_len |
 
+## UI Query API
+
+| Method | Params | Returns | Description |
+|--------|--------|---------|-------------|
+| `get_population_stats` | none | `Dictionary` | farmers_alive, guards_alive, raiders_alive, guard_kills, villager_kills |
+| `get_town_population` | `town_idx: i32` | `Dictionary` | farmer_count, guard_count, raider_count for one town |
+| `get_npc_info` | `idx: i32` | `Dictionary` | Full NPC details: name, job, level, xp, trait, town_id, hp, max_hp, energy, state, target_idx, x, y, faction |
+| `get_npcs_by_town` | `town_idx, filter: i32` | `Array` | Array of NPC dicts (idx, name, job, level, hp, max_hp, state, trait). Filter: -1=all, 0=farmer, 1=guard, 2=raider |
+| `get_selected_npc` | none | `i32` | Currently selected NPC index (-1 = none) |
+| `set_selected_npc` | `idx: i32` | void | Set selected NPC for inspector |
+| `get_npc_name` | `idx: i32` | `String` | NPC name by index |
+| `get_npc_trait` | `idx: i32` | `i32` | NPC trait ID by index |
+| `set_npc_name` | `idx, name: String` | void | Rename NPC |
+| `get_bed_stats` | `town_idx: i32` | `Dictionary` | total_beds, free_beds for a town |
+
 ## World Data API
 
 | Method | Params | Returns | Description |
 |--------|--------|---------|-------------|
 | `init_world` | `town_count: i32` | void | Initialize world data structures |
-| `add_town` | `name: String, cx, cy, camp_x, camp_y` | void | Register town with center and camp positions |
+| `add_town` | `name: String, cx, cy, faction: i32` | void | Register town with center and faction (0=Villager, 1=Raider) |
 | `add_farm` | `x, y, town_idx: i32` | void | Register farm, init occupancy |
 | `add_bed` | `x, y, town_idx: i32` | void | Register bed, init occupancy |
 | `add_guard_post` | `x, y, town_idx, patrol_order: i32` | void | Register patrol post with order |
-| `get_town_center` | `town_idx: i32` | `Vector2` | Town center position |
-| `get_camp_position` | `town_idx: i32` | `Vector2` | Raider camp position |
+| `get_town_center` | `town_idx: i32` | `Vector2` | Town center position (works for all towns) |
 | `get_patrol_post` | `town_idx, order: i32` | `Vector2` | Patrol post position by order |
 | `get_nearest_free_bed` | `town_idx: i32, x, y: f32` | `i32` | Nearest free bed index or -1 |
 | `get_nearest_free_farm` | `town_idx: i32, x, y: f32` | `i32` | Nearest free farm index or -1 |
@@ -82,10 +96,9 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 
 | Method | Params | Returns | Description |
 |--------|--------|---------|-------------|
-| `init_food_storage` | `town_count, camp_count: i32` | void | Initialize per-town and per-camp food counters |
+| `init_food_storage` | `total_towns: i32` | void | Initialize per-town food counters (villager + raider towns unified) |
 | `add_town_food` | `town_idx, amount: i32` | void | Add food to a town (farmer produced) |
-| `get_town_food` | `town_idx: i32` | `i32` | Get food count for a town |
-| `get_camp_food` | `camp_idx: i32` | `i32` | Get food count for a camp |
+| `get_town_food` | `town_idx: i32` | `i32` | Get food count for any town (villager or raider) |
 | `get_food_events` | none | `Dictionary` | Deliveries and consumed counts since last call (clears queues) |
 
 ## Reset API

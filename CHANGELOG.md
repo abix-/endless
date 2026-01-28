@@ -1,6 +1,22 @@
 # Changelog
 
 ## 2026-01-28
+- add Phase 9.4: UI data queries (10 new APIs for population stats, NPC info, roster, selection)
+- add unified Town model: all settlements are "towns" with faction field (0=Villager, 1=Raider)
+- add NPC_META static: per-NPC name/level/xp/trait cached for UI queries
+- add NPC_STATES static: per-NPC state ID updated by behavior systems
+- add NPC_ENERGY static: per-NPC energy synced from Bevy
+- add KILL_STATS static: tracks guard/villager kills for UI display
+- add SELECTED_NPC static: currently selected NPC index for inspector
+- add NPCS_BY_TOWN static: per-town NPC lists for O(1) roster queries
+- add name generation: "Adjective Noun" names based on job (Swift Tiller, Brave Shield, etc.)
+- add get_population_stats(), get_town_population(), get_npc_info(), get_npcs_by_town() APIs
+- add get/set_selected_npc(), get_npc_name(), get_npc_trait(), set_npc_name(), get_bed_stats() APIs
+- update left_panel.gd: uses ECS APIs for stats, bed info, and NPC inspector
+- update roster_panel.gd: uses ECS APIs for NPC roster with sorting/filtering
+- update upgrade_menu.gd: uses ECS APIs for farmer/guard counts
+- rename Clan component to TownId for clarity
+- fix deprecated VariantArray → VarArray in lib.rs
 - refactor UI to ECS-only: remove _uses_methods dual-mode code from all UI panels
 - add ECS API NEEDED comments documenting required ECS API for each UI feature
 - preserve old GDScript code as comments for future porting reference

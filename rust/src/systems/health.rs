@@ -60,18 +60,36 @@ pub fn death_system(
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &Job, &TownId, Option<&Working>), With<Dead>>,
+    query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, Option<&Working>), With<Dead>>,
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
 ) {
     let mut despawn_count = 0;
-    for (entity, npc_idx, job, clan, working) in query.iter() {
+    for (entity, npc_idx, job, town_id, faction, working) in query.iter() {
         let idx = npc_idx.0;
         commands.entity(entity).despawn();
         despawn_count += 1;
-        pop_dec_alive(&mut pop_stats, *job, clan.0);
+        pop_dec_alive(&mut pop_stats, *job, town_id.0);
         if working.is_some() {
-            pop_dec_working(&mut pop_stats, *job, clan.0);
+            pop_dec_working(&mut pop_stats, *job, town_id.0);
+        }
+
+        // Track kill statistics for UI
+        if let Ok(mut kills) = KILL_STATS.lock() {
+            match faction {
+                Faction::Villager => kills.villager_kills += 1,
+                Faction::Raider => kills.guard_kills += 1,
+            }
+        }
+
+        // Remove from NPCS_BY_TOWN
+        if town_id.0 >= 0 {
+            if let Ok(mut by_town) = NPCS_BY_TOWN.lock() {
+                let town_idx = town_id.0 as usize;
+                if town_idx < by_town.len() {
+                    by_town[town_idx].retain(|&i| i != idx);
+                }
+            }
         }
 
         // Remove from entity map
