@@ -161,10 +161,59 @@ Each phase is a working game state. Old GDScript code kept as reference, hard cu
 - [x] Optional params via Dictionary: home_x/y, work_x/y, town_idx, starting_post, attack_type (defaults to -1 or 0)
 - [x] Result: Single spawn path, single write path, components define behavior, extensible without breaking callers
 
-**Phase 9: UI Integration**
-- [ ] Signals to GDScript (death, level up, food)
-- [ ] Selection queries
-- [ ] Result: UI works again
+**Phase 9: Wire ECS into Real Game**
+
+Each step is a working game state. Old GDScript npc_manager kept as reference until Phase 9.6.
+
+*9.1: Boot ECS in main.gd* ✓
+- [x] Replace npc_manager instantiation with EcsNpcManager (ClassDB.instantiate)
+- [x] Wire init_world, add_town/farm/bed/guard_post from Location nodes
+- [x] Replace spawn calls with spawn_npc(x, y, job, faction, opts)
+- [x] Comment out broken signal connections, food, building, upgrades, selection
+- [x] Fix multimesh culling (canvas_item_set_custom_rect for world-spanning MultiMesh)
+- [x] Result: Game boots, NPCs render, move, patrol, fight
+
+*9.2: Food production and respawning*
+- [ ] Add Clan(i32) component — attached to every NPC at spawn, replaces town_idx inside Farmer/Guard structs
+- [ ] get_working_farmer_count(clan) API — Bevy query: Farmer + Clan + Working + Without<Dead>
+- [ ] count_alive(job, clan) API — Bevy query: Job + Clan + Without<Dead>
+- [ ] main.gd _on_time_tick() calls get_working_farmer_count(), adds food via add_town_food()
+- [ ] main.gd checks deficit via count_alive(), spawns replacements
+- [ ] Result: Food counter increases, dead NPCs respawn after timer
+
+*9.3: Events from ECS to GDScript*
+- [ ] DEATH_EVENT_QUEUE in messages.rs — pushed by death_cleanup_system (npc_idx, job, faction, town_idx)
+- [ ] poll_events() API — drains all queues, returns { deaths: [...], food_delivered: [...] }
+- [ ] main.gd _process() polls events, feeds combat_log and UI
+- [ ] Result: Combat log shows deaths, food stolen events appear
+
+*9.4: UI data queries*
+- [ ] NpcMeta component (name, level, xp) — names generated on spawn
+- [ ] get_npc_info(idx) API — position, job, faction, health, energy, state, name, level
+- [ ] get_population_stats(town_idx) API — alive farmers/guards/raiders count
+- [ ] get_npc_state(idx) API — current state as int for UI display
+- [ ] left_panel.gd and roster_panel.gd use dictionary queries instead of array reads
+- [ ] Result: Click NPC → inspector shows name, HP, job, energy. Roster panel lists NPCs
+
+*9.5: Building system*
+- [ ] Runtime add/remove farm/bed/guard_post APIs that update Bevy world data resources
+- [ ] Uncomment _on_build_requested(), _on_destroy_requested(), _get_clicked_farm()
+- [ ] Replace npc_manager array writes with EcsNpcManager API calls
+- [ ] Result: Build menu works, new farms/beds/posts appear, NPCs use them
+
+*9.6: Config-driven stats and upgrades*
+- [ ] CombatConfig Bevy resource with configurable melee/ranged stats
+- [ ] set_combat_config() API — push Config.gd values to ECS at startup
+- [ ] spawn_npc_system reads config instead of hardcoded AttackStats
+- [ ] apply_upgrade(town_idx, upgrade_type, level) API for stat multipliers
+- [ ] Result: NPC stats match Config.gd, upgrades affect combat
+
+*9.7: Cleanup*
+- [ ] Delete npc_manager.gd, npc_state.gd, npc_navigation.gd, npc_combat.gd, npc_needs.gd, npc_grid.gd, npc_renderer.gd
+- [ ] Delete projectile_manager.gd, npc_manager.tscn, projectile_manager.tscn
+- [ ] Remove preloads from main.gd
+- [ ] Update README
+- [ ] Result: No GDScript NPC code remains
 
 **Phase 10: Idiomatic Bevy (Static Mutex → Resources + Events)**
 
@@ -218,7 +267,7 @@ Multi-threaded systems (pure logic) → emit Events → main thread system → G
 | Phase 7a (health/death) | 10,000+ | 140 | ✅ Done |
 | Phase 7b (GPU targeting) | 10,000+ | 140 | ✅ Done |
 | Phase 7c (GPU projectiles) | 10,000+ | 140 | ✅ Done |
-| Phase 8-9 (full game) | 10,000+ | 60+ | Planned |
+| Phase 8-9 (full game) | 10,000+ | 60+ | 9.1 done |
 | GPU grid + targeting | 20,000+ | 60+ | Future |
 
 ## Performance Lessons Learned
