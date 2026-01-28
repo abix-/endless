@@ -33,6 +33,7 @@ GDScript: spawn_npc(x, y, job, faction, home_x, home_y, work_x, work_y, town_idx
       Raider → Energy, AttackStats, AttackTimer, Stealer,
                Raiding, FleeThreshold, LeashRange,
                WoundedThreshold
+      Fighter→ AttackStats, AttackTimer
 ```
 
 ## Slot Allocation
@@ -66,7 +67,7 @@ spawn_npc(x, y, job, faction, home_x, home_y, work_x, work_y, town_idx, starting
 
 | Param | Values | Notes |
 |-------|--------|-------|
-| job | 0=Farmer, 1=Guard, 2=Raider | Determines component template |
+| job | 0=Farmer, 1=Guard, 2=Raider, 3=Fighter | Determines component template |
 | faction | 0=Villager, 1=Raider | GPU targeting |
 | home_x/y | position or -1,-1 | Home/camp position |
 | work_x/y | position or -1,-1 | Farm position (farmers only) |
@@ -84,6 +85,7 @@ Job-specific templates:
 | Guard | `Energy`, `AttackStats`, `AttackTimer(0)`, `Guard { town_idx }`, `PatrolRoute`, `OnDuty { ticks: 0 }` |
 | Farmer | `Energy`, `Farmer { town_idx }`, `WorkPosition`, `GoingToWork` |
 | Raider | `Energy`, `AttackStats`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
+| Fighter | `AttackStats`, `AttackTimer(0)` |
 
 GPU writes (via GPU_UPDATE_QUEUE, all jobs): `SetPosition`, `SetTarget` (= spawn position, or work position for farmers), `SetColor` (job-based), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`
 

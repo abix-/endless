@@ -111,6 +111,9 @@ pub fn spawn_npc_system(
                 ec.insert(LeashRange { distance: 400.0 });
                 ec.insert(WoundedThreshold { pct: 0.25 });
             }
+            Job::Fighter => {
+                ec.insert((AttackStats::default(), AttackTimer(0.0)));
+            }
         }
 
         npc_map.0.insert(idx, ec.id());

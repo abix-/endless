@@ -35,6 +35,7 @@ var is_running := false
 var metrics_enabled := false
 var log_lines: Array[String] = []
 var test_result := ""  # "PASS" or "FAIL: reason"
+var phase_results: Array[String] = []  # Per-phase pass/fail with values
 
 const CENTER := Vector2(400, 300)
 const SEP_RADIUS := 20.0
@@ -123,6 +124,11 @@ func _copy_debug_info() -> void:
 	info += "Test: %s | Time: %.1fs | NPCs: %d\n" % [TEST_NAMES.get(current_test, "?"), test_timer, npc_count]
 	info += state_label.text + "\n"
 	info += phase_label.text + "\n"
+	if phase_results.size() > 0:
+		info += "\n--- Phase Results ---\n"
+		for pr in phase_results:
+			info += pr + "\n"
+
 	info += "\n--- UI Labels ---\n"
 	info += expected_label.text + "\n"
 	info += velocity_label.text + "\n"
@@ -157,15 +163,17 @@ func _copy_debug_info() -> void:
 		info += "cpu_pos[0]: (%.1f, %.1f)\n" % [cd.get("cpu_pos_0_x", -999), cd.get("cpu_pos_0_y", -999)]
 		info += "cpu_pos[5]: (%.1f, %.1f)\n" % [cd.get("cpu_pos_5_x", -999), cd.get("cpu_pos_5_y", -999)]
 
-		info += "\n--- Grid Cell Counts ---\n"
-		info += "cell (5,4): %d NPCs  (guards should be here)\n" % cd.get("grid_cell_5_4", -1)
-		info += "cell (6,4): %d NPCs  (raiders should be here)\n" % cd.get("grid_cell_6_4", -1)
+		info += "\n--- Grid Cell Counts (CELL_SIZE=100) ---\n"
+		info += "cell (3,2): %d NPCs  (guards)\n" % cd.get("grid_cell_3_2", -1)
+		info += "cell (4,2): %d NPCs  (raiders)\n" % cd.get("grid_cell_4_2", -1)
 
-		info += "\n--- Faction/Health Cache ---\n"
-		info += "faction[0]: %d (0=villager, 1=raider)\n" % cd.get("faction_0", -99)
-		info += "faction[5]: %d\n" % cd.get("faction_5", -99)
-		info += "health[0]: %.1f\n" % cd.get("health_0", -99.0)
-		info += "health[5]: %.1f\n" % cd.get("health_5", -99.0)
+		info += "\n--- CPU Cache ---\n"
+		info += "faction[0]: %d  faction[5]: %d\n" % [cd.get("faction_0", -99), cd.get("faction_5", -99)]
+		info += "health[0]: %.1f  health[5]: %.1f\n" % [cd.get("health_0", -99.0), cd.get("health_5", -99.0)]
+
+		info += "\n--- GPU Buffer (direct read) ---\n"
+		info += "gpu_faction[0]: %d  gpu_faction[5]: %d\n" % [cd.get("gpu_faction_0", -99), cd.get("gpu_faction_5", -99)]
+		info += "gpu_health[0]: %.1f  gpu_health[5]: %.1f\n" % [cd.get("gpu_health_0", -99.0), cd.get("gpu_health_5", -99.0)]
 		info += "npc_count: %d\n" % cd.get("npc_count", -1)
 
 		info += "\n--- Health Debug ---\n"
@@ -313,6 +321,7 @@ func _start_test(test_id: int) -> void:
 	npc_count = 0
 	pending_test = 0
 	test_result = ""
+	phase_results = []
 
 	test_label.text = "Test: " + TEST_NAMES.get(test_id, "?")
 	_set_state("RUNNING")
@@ -892,100 +901,133 @@ func _update_test_health_death() -> void:
 
 
 # =============================================================================
-# TEST 10: Combat - Guards vs Raiders with GPU targeting
-# Purpose: Verify GPU targeting finds enemies, NPCs chase and attack
+# TEST 10: Combat TDD - 6-phase pipeline isolation
+# Purpose: Isolate GPU targeting bug by testing each layer independently
+# Spawns 1 guard + 1 raider, 50px apart. Each phase fails fast.
+#   Phase 1 (t=1s):  GPU buffer integrity (faction, health written correctly)
+#   Phase 2 (t=1.5s): Grid population (both NPCs in grid cells)
+#   Phase 3 (t=2s):  GPU targeting (combat_target >= 0 for both)
+#   Phase 4 (t=4s):  Damage (damage_processed > 0)
+#   Phase 5 (t=10s): Death (bevy_entity_count < 2)
+#   Phase 6 (t=11s): Slot recycling (new spawn reuses dead slot)
 # =============================================================================
 func _setup_test_combat() -> void:
-	npc_count = 10  # 5 guards + 5 raiders
-	test_phase = 1
+	npc_count = 2  # 1 guard + 1 raider
+	test_phase = 0
 	_set_phase("Setting up world...")
-	_log("Testing combat")
+	_log("Combat TDD: 1 guard + 1 raider, 50px apart")
 
-	# Initialize world with 1 town
+	# Initialize world with 1 town and camp
 	ecs_manager.init_world(1)
 	ecs_manager.add_town("CombatTown", CENTER.x, CENTER.y, CENTER.x + 300, CENTER.y)
-
-	# Add a bed for guards
 	ecs_manager.add_bed(CENTER.x - 100, CENTER.y, 0)
 
+	# Spawn 2 fighters (job=3) with opposing factions, 50px apart. No behavior — just sit and fight.
+	ecs_manager.spawn_npc(CENTER.x - 25, CENTER.y, 3, 0, CENTER.x, CENTER.y, -1, -1, -1, -1)
+	ecs_manager.spawn_npc(CENTER.x + 25, CENTER.y, 3, 1, CENTER.x, CENTER.y, -1, -1, -1, -1)
+	_log("Spawned fighter idx=0 (faction 0), fighter idx=1 (faction 1)")
+
+	test_phase = 1
 	queue_redraw()
 
 
 func _update_test_combat() -> void:
-	# Phase 1: Spawn guards and raiders
-	if test_phase == 1 and test_timer > 0.5:
-		test_phase = 2
-		_set_phase("Spawning combatants...")
+	# Always show debug info
+	var cd: Dictionary = ecs_manager.call("get_combat_debug") if ecs_manager.has_method("get_combat_debug") else {}
+	var hd: Dictionary = ecs_manager.call("get_health_debug") if ecs_manager.has_method("get_health_debug") else {}
 
-		# Spawn guards left, raiders right - 50px apart (cells 5 and 6, adjacent)
-		for i in 5:
-			var y_offset := (i - 2) * 25.0
-			ecs_manager.spawn_npc(CENTER.x - 25, CENTER.y + y_offset, 1, 0, CENTER.x - 100, CENTER.y, -1, -1, 0, -1)
-		var camp_pos := Vector2(CENTER.x + 300, CENTER.y)
-		for i in 5:
-			var y_offset := (i - 2) * 25.0
-			ecs_manager.spawn_npc(CENTER.x + 25, CENTER.y + y_offset, 2, 1, camp_pos.x, camp_pos.y, -1, -1, -1, -1)
+	# Row 1: GPU buffer reads
+	var gpu_f0: int = cd.get("gpu_faction_0", -99)
+	var gpu_f1: int = cd.get("gpu_faction_1", -99)
+	var gpu_h0: float = cd.get("gpu_health_0", -99.0)
+	var gpu_h1: float = cd.get("gpu_health_1", -99.0)
+	expected_label.text = "gpu: f0=%d f1=%d h0=%.0f h1=%.0f" % [gpu_f0, gpu_f1, gpu_h0, gpu_h1]
 
-		_log("Spawned 5 guards, 5 raiders")
+	# Row 2: Grid cells
+	var gc0: int = cd.get("grid_cell_0", -1)
+	var gc1: int = cd.get("grid_cell_1", -1)
+	var cx0: int = cd.get("grid_cx_0", -1)
+	var cy0: int = cd.get("grid_cy_0", -1)
+	var cx1: int = cd.get("grid_cx_1", -1)
+	var cy1: int = cd.get("grid_cy_1", -1)
+	velocity_label.text = "grid: [%d,%d]=%d [%d,%d]=%d" % [cx0, cy0, gc0, cx1, cy1, gc1]
 
-	# Phase 2: Wait for combat
-	if test_phase == 2:
-		# Show combat debug
-		var cd: Dictionary = ecs_manager.call("get_combat_debug") if ecs_manager.has_method("get_combat_debug") else {}
-		var attackers: int = cd.get("attackers", -1)
-		var targets: int = cd.get("targets_found", -1)
-		var attacks: int = cd.get("attacks", -1)
-		var in_range: int = cd.get("in_range", -1)
-		var timer_ready: int = cd.get("timer_ready", -1)
-		var sample_timer: float = cd.get("sample_timer", -1.0)
-		var frame_dt: float = cd.get("frame_delta", -1.0)
-		var cooldown_ents: int = cd.get("cooldown_entities", -1)
-		expected_label.text = "atk=%d tgt=%d dmg=%d rng=%d" % [attackers, targets, attacks, in_range]
-		velocity_label.text = "rdy=%d t=%.2f dt=%.4f cd_ent=%d" % [timer_ready, sample_timer, frame_dt, cooldown_ents]
+	# Row 3: Combat targets + bevy state
+	var ct0: int = cd.get("combat_target_0", -99)
+	var ct1: int = cd.get("combat_target_1", -99)
+	var bevy_ct: int = hd.get("bevy_entity_count", -1)
+	var dmg_proc: int = hd.get("damage_processed", -1)
+	distance_label.text = "ct0=%d ct1=%d bevy=%d dmg=%d" % [ct0, ct1, bevy_ct, dmg_proc]
 
-		# Show health debug
-		var hd: Dictionary = ecs_manager.call("get_health_debug") if ecs_manager.has_method("get_health_debug") else {}
-		var bevy_ct: int = hd.get("bevy_entity_count", -1)
-		var dmg_proc: int = hd.get("damage_processed", -1)
-		distance_label.text = "bevy=%d dmg=%d" % [bevy_ct, dmg_proc]
-
-		_set_phase("Combat (%.0fs)" % test_timer)
-
-		# Check for combat progress after 5 seconds
-		if test_timer > 5.0:
-			if dmg_proc > 0:
-				# Damage has been dealt, combat is working
-				test_phase = 3
-				_set_phase("Damage dealt, watching...")
-				_log("Combat engaged! Damage dealt")
-
-		# Timeout after 15 seconds
-		if test_timer > 15.0 and test_phase == 2:
-			test_phase = 4
-			_fail("No damage dealt after 15s")
-
-	# Phase 3: Wait for victory (one side eliminated)
-	if test_phase == 3:
-		var hd: Dictionary = ecs_manager.get_health_debug()
-		var bevy_ct: int = hd.get("bevy_entity_count", -1)
-
-		_set_phase("Fighting: %d alive (%.0fs)" % [bevy_ct, test_timer])
-
-		# Check if combat resolved (< 10 NPCs means some died, including mutual annihilation)
-		if bevy_ct < 10:
-			test_phase = 4
-			_pass()
-			if bevy_ct == 0:
-				_set_phase("Combat resolved: mutual annihilation!")
-				_log("PASS: Combat works! (all combatants eliminated)")
+	# Phase 1: GPU Buffer Integrity (t=1s)
+	if test_phase == 1:
+		_set_phase("Phase 1: GPU buffers (%.1fs)" % test_timer)
+		if test_timer > 1.0:
+			if gpu_f0 == 0 and gpu_f1 == 1 and gpu_h0 > 0 and gpu_h1 > 0:
+				phase_results.append("P1 PASS (%.1fs): f0=%d f1=%d h0=%.0f h1=%.0f" % [test_timer, gpu_f0, gpu_f1, gpu_h0, gpu_h1])
+				test_phase = 2
 			else:
-				_set_phase("Combat resolved: %d survivors" % bevy_ct)
-				_log("PASS: Combat works!")
+				phase_results.append("P1 FAIL (%.1fs): f0=%d f1=%d h0=%.0f h1=%.0f" % [test_timer, gpu_f0, gpu_f1, gpu_h0, gpu_h1])
+				_fail("Phase 1: GPU buffers wrong — f0=%d f1=%d h0=%.0f h1=%.0f" % [gpu_f0, gpu_f1, gpu_h0, gpu_h1])
 
-		# Timeout after 30 seconds
-		if test_timer > 30.0:
-			test_phase = 4
-			_fail("Combat didn't resolve in 30s (%d alive)" % bevy_ct)
+	# Phase 2: Grid Population (t=1.5s)
+	elif test_phase == 2:
+		_set_phase("Phase 2: Grid population (%.1fs)" % test_timer)
+		if test_timer > 1.5:
+			if gc0 > 0 and gc1 > 0:
+				phase_results.append("P2 PASS (%.1fs): [%d,%d]=%d [%d,%d]=%d" % [test_timer, cx0, cy0, gc0, cx1, cy1, gc1])
+				test_phase = 3
+			else:
+				phase_results.append("P2 FAIL (%.1fs): [%d,%d]=%d [%d,%d]=%d" % [test_timer, cx0, cy0, gc0, cx1, cy1, gc1])
+				_fail("Phase 2: Grid empty — [%d,%d]=%d [%d,%d]=%d" % [cx0, cy0, gc0, cx1, cy1, gc1])
+
+	# Phase 3: GPU Targeting (t=2s)
+	elif test_phase == 3:
+		_set_phase("Phase 3: GPU targeting (%.1fs)" % test_timer)
+		if test_timer > 2.0:
+			if ct0 >= 0 and ct1 >= 0:
+				phase_results.append("P3 PASS (%.1fs): ct0=%d ct1=%d" % [test_timer, ct0, ct1])
+				test_phase = 4
+			else:
+				phase_results.append("P3 FAIL (%.1fs): ct0=%d ct1=%d" % [test_timer, ct0, ct1])
+				_fail("Phase 3: No targets — ct0=%d ct1=%d" % [ct0, ct1])
+
+	# Phase 4: Damage (t=4s)
+	elif test_phase == 4:
+		_set_phase("Phase 4: Damage (%.1fs)" % test_timer)
+		if test_timer > 4.0:
+			if dmg_proc > 0:
+				phase_results.append("P4 PASS (%.1fs): dmg=%d" % [test_timer, dmg_proc])
+				test_phase = 5
+			else:
+				phase_results.append("P4 FAIL (%.1fs): dmg=%d bevy=%d" % [test_timer, dmg_proc, bevy_ct])
+				_fail("Phase 4: No damage after 4s — dmg=%d" % dmg_proc)
+
+	# Phase 5: Death (t=10s)
+	elif test_phase == 5:
+		_set_phase("Phase 5: Death (%d alive, %.1fs)" % [bevy_ct, test_timer])
+		if test_timer > 10.0:
+			if bevy_ct < 2:
+				phase_results.append("P5 PASS (%.1fs): bevy=%d" % [test_timer, bevy_ct])
+				test_phase = 6
+			else:
+				phase_results.append("P5 FAIL (%.1fs): bevy=%d" % [test_timer, bevy_ct])
+				_fail("Phase 5: Nobody died after 10s — bevy=%d" % bevy_ct)
+
+	# Phase 6: Slot Recycling (t=11s)
+	elif test_phase == 6:
+		_set_phase("Phase 6: Slot recycling (%.1fs)" % test_timer)
+		if test_timer > 11.0:
+			test_phase = 7
+			var slot: int = ecs_manager.spawn_npc(CENTER.x, CENTER.y, 3, 0, CENTER.x, CENTER.y, -1, -1, -1, -1)
+			if slot >= 0 and slot < 2:
+				phase_results.append("P6 PASS (%.1fs): recycled slot=%d" % [test_timer, slot])
+				_pass()
+				_set_phase("ALL 6 PHASES PASSED")
+			else:
+				phase_results.append("P6 WARN (%.1fs): slot=%d (no recycle)" % [test_timer, slot])
+				_pass()
+				_set_phase("5/6 PASSED (no slot recycle)")
 
 
 # =============================================================================

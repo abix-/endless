@@ -9,6 +9,26 @@ These docs are the **source of truth** for system architecture. When building ne
 3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation. Adjust ratings if improvements were made.
 4. **Code comments** stay educational (explain what code does for someone learning Rust/GLSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
 
+## Test-Driven Development
+
+All systems are validated through TDD tests in `ecs_test.gd` (Test 1-11). Tests use **phased assertions** — each phase checks one layer of the pipeline and fails fast with diagnostic values.
+
+**Pattern:**
+1. Spawn minimal NPCs with **Fighter** job (job=3) — no behavior components, NPCs sit still
+2. Each phase has a time gate and assertion (e.g., "at t=2s, GPU targeting should find enemies")
+3. Phase results record timestamp + values at pass/fail, included in debug dump
+4. Early phases isolate infrastructure (GPU buffers, grid) before testing logic (damage, death)
+
+**Example (Test 10 — Combat):**
+- Phase 1: GPU buffer integrity (faction/health written)
+- Phase 2: Spatial grid populated
+- Phase 3: GPU targeting finds enemies
+- Phase 4: Damage processed
+- Phase 5: Death occurs
+- Phase 6: Slot recycling
+
+When a test fails, the phase results show exactly which layer broke and what values it saw.
+
 ## System Map
 
 ```
@@ -85,7 +105,7 @@ rust/
   src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, rendering
   src/gpu.rs            # GPU compute shader dispatch and buffer management
   src/messages.rs       # Static queues and message types (GDScript → Bevy)
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states, stealing, flee/leash)
+  src/components.rs     # ECS components (NpcIndex, Job[Farmer/Guard/Raider/Fighter], Energy, Health, states, stealing, flee/leash)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, DeltaTime, NpcEntityMap)
   src/world.rs          # World data structs (Town, Farm, Bed, GuardPost)

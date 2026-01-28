@@ -1,6 +1,11 @@
 # Changelog
 
 ## 2026-01-27
+- add Fighter job (job=3): combat-only NPC with AttackStats+AttackTimer, no behavior components (yellow)
+- rewrite Test 10 as 6-phase TDD combat test using Fighter NPCs (GPU buffers → grid → targeting → damage → death → slot recycle)
+- add phase_results tracking: each phase records timestamp + values at pass/fail, included in debug dump
+- add get_combat_debug() GPU buffer direct reads and grid cell data for NPC 0 and 1
+- fix test 10 phase 6 infinite spawn: missing terminal test_phase assignment caused spawn every frame
 - fix raider yellow-on-spawn: remove Raiding from spawn bundle, let steal_decision_system assign first target
 - fix NPCs drifting to (-1,-1): add Home.is_valid() guard to tired_system and steal_decision_system
 - fix farmers stuck in bed: set GPU target to work position on spawn (not spawn position)

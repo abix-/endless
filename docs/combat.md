@@ -95,6 +95,14 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` sets position to (-9999, -9999) |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
 
+## Debug API
+
+`get_combat_debug()` returns a Dictionary with:
+- **Bevy combat stats**: attackers, targets_found, attacks, in_range, timer_ready, chases
+- **CPU cache**: positions, factions, healths for NPC 0 and 1
+- **Grid cells**: cell coordinates and counts for each NPC's position
+- **GPU buffer direct reads**: faction and health read back from GPU buffers (not CPU cache)
+
 ## Known Issues / Limitations
 
 - **No generational indices**: Stale references to recycled slots would silently alias. Currently safe due to chained execution, but would break if damage messages span frames.

@@ -765,7 +765,7 @@ impl EcsNpcManager {
     }
 
     #[func]
-    fn get_combat_debug(&self) -> VarDictionary {
+    fn get_combat_debug(&mut self) -> VarDictionary {
         let mut dict = VarDictionary::new();
         if let Ok(debug) = systems::COMBAT_DEBUG.lock() {
             dict.set("attackers", debug.attackers_queried as i32);
@@ -785,34 +785,76 @@ impl EcsNpcManager {
             dict.set("frame_delta", debug.frame_delta);
             // Enhanced debug data
             dict.set("combat_target_0", debug.sample_combat_target_0);
-            dict.set("combat_target_5", debug.sample_combat_target_5);
+            dict.set("combat_target_1", debug.sample_combat_target_1);
             dict.set("pos_0_x", debug.sample_pos_0.0);
             dict.set("pos_0_y", debug.sample_pos_0.1);
-            dict.set("pos_5_x", debug.sample_pos_5.0);
-            dict.set("pos_5_y", debug.sample_pos_5.1);
+            dict.set("pos_1_x", debug.sample_pos_1.0);
+            dict.set("pos_1_y", debug.sample_pos_1.1);
         }
-        // Add grid debug info from GPU cache
-        if let Some(gpu) = &self.gpu {
+        // GPU cache and buffer debug for NPC 0 and NPC 1
+        if let Some(gpu) = &mut self.gpu {
             let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
-            // Count NPCs in grid cells near spawn location (cell 5,4 for test 10)
-            // cell_size=64, CENTER=(400,300) -> guards at 375,300 -> cell 5,4
-            // raiders at 425,300 -> cell 6,4
-            let cell_5_4 = 4 * GRID_WIDTH + 5;
-            let cell_6_4 = 4 * GRID_WIDTH + 6;
-            dict.set("grid_cell_5_4", gpu.grid.counts.get(cell_5_4).copied().unwrap_or(-1));
-            dict.set("grid_cell_6_4", gpu.grid.counts.get(cell_6_4).copied().unwrap_or(-1));
-            // Sample factions from cache
-            dict.set("faction_0", gpu.factions.get(0).copied().unwrap_or(-99));
-            dict.set("faction_5", gpu.factions.get(5).copied().unwrap_or(-99));
-            // Sample healths from cache
-            dict.set("health_0", gpu.healths.get(0).copied().unwrap_or(-99.0) as f32);
-            dict.set("health_5", gpu.healths.get(5).copied().unwrap_or(-99.0) as f32);
-            // CPU-side position cache
-            dict.set("cpu_pos_0_x", gpu.positions.get(0).copied().unwrap_or(-999.0));
-            dict.set("cpu_pos_0_y", gpu.positions.get(1).copied().unwrap_or(-999.0));
-            dict.set("cpu_pos_5_x", gpu.positions.get(10).copied().unwrap_or(-999.0));
-            dict.set("cpu_pos_5_y", gpu.positions.get(11).copied().unwrap_or(-999.0));
             dict.set("npc_count", npc_count as i32);
+
+            // CPU cache: positions
+            let p0x = gpu.positions.get(0).copied().unwrap_or(-999.0);
+            let p0y = gpu.positions.get(1).copied().unwrap_or(-999.0);
+            let p1x = gpu.positions.get(2).copied().unwrap_or(-999.0);
+            let p1y = gpu.positions.get(3).copied().unwrap_or(-999.0);
+            dict.set("cpu_pos_0_x", p0x);
+            dict.set("cpu_pos_0_y", p0y);
+            dict.set("cpu_pos_1_x", p1x);
+            dict.set("cpu_pos_1_y", p1y);
+
+            // CPU cache: factions, healths
+            dict.set("faction_0", gpu.factions.get(0).copied().unwrap_or(-99));
+            dict.set("faction_1", gpu.factions.get(1).copied().unwrap_or(-99));
+            dict.set("health_0", gpu.healths.get(0).copied().unwrap_or(-99.0) as f32);
+            dict.set("health_1", gpu.healths.get(1).copied().unwrap_or(-99.0) as f32);
+
+            // Grid cells for each NPC's position
+            let grid_cell = |px: f32, py: f32| -> (i32, i32, i32) {
+                let cx = (px / CELL_SIZE) as usize;
+                let cy = (py / CELL_SIZE) as usize;
+                if cx < GRID_WIDTH && cy < GRID_HEIGHT {
+                    let cell_idx = cy * GRID_WIDTH + cx;
+                    (cx as i32, cy as i32, gpu.grid.counts.get(cell_idx).copied().unwrap_or(-1))
+                } else {
+                    (-1, -1, -1)
+                }
+            };
+            let (cx0, cy0, gc0) = grid_cell(p0x, p0y);
+            let (cx1, cy1, gc1) = grid_cell(p1x, p1y);
+            dict.set("grid_cx_0", cx0);
+            dict.set("grid_cy_0", cy0);
+            dict.set("grid_cell_0", gc0);
+            dict.set("grid_cx_1", cx1);
+            dict.set("grid_cy_1", cy1);
+            dict.set("grid_cell_1", gc1);
+
+            // Direct GPU buffer reads (not CPU cache)
+            let fac_bytes = gpu.rd.buffer_get_data(gpu.faction_buffer);
+            let fac_slice = fac_bytes.as_slice();
+            let hp_bytes = gpu.rd.buffer_get_data(gpu.health_buffer);
+            let hp_slice = hp_bytes.as_slice();
+
+            let read_i32 = |slice: &[u8], idx: usize| -> i32 {
+                let o = idx * 4;
+                if o + 4 <= slice.len() {
+                    i32::from_le_bytes([slice[o], slice[o+1], slice[o+2], slice[o+3]])
+                } else { -99 }
+            };
+            let read_f32 = |slice: &[u8], idx: usize| -> f32 {
+                let o = idx * 4;
+                if o + 4 <= slice.len() {
+                    f32::from_le_bytes([slice[o], slice[o+1], slice[o+2], slice[o+3]])
+                } else { -99.0 }
+            };
+
+            dict.set("gpu_faction_0", read_i32(fac_slice, 0));
+            dict.set("gpu_faction_1", read_i32(fac_slice, 1));
+            dict.set("gpu_health_0", read_f32(hp_slice, 0));
+            dict.set("gpu_health_1", read_f32(hp_slice, 1));
         }
         dict
     }

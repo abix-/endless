@@ -25,9 +25,9 @@ pub struct CombatDebug {
     pub cooldown_entities: usize,
     pub frame_delta: f32,
     pub sample_combat_target_0: i32,
-    pub sample_combat_target_5: i32,
+    pub sample_combat_target_1: i32,
     pub sample_pos_0: (f32, f32),
-    pub sample_pos_5: (f32, f32),
+    pub sample_pos_1: (f32, f32),
 }
 
 impl CombatDebug {
@@ -49,9 +49,9 @@ impl CombatDebug {
             cooldown_entities: 0,
             frame_delta: 0.0,
             sample_combat_target_0: -99,
-            sample_combat_target_5: -99,
+            sample_combat_target_1: -99,
             sample_pos_0: (0.0, 0.0),
-            sample_pos_5: (0.0, 0.0),
+            sample_pos_1: (0.0, 0.0),
         }
     }
 }
@@ -191,14 +191,14 @@ pub fn attack_system(
         debug.timer_ready_count = timer_ready_count;
         debug.sample_timer = sample_timer;
         debug.sample_combat_target_0 = combat_targets.get(0).copied().unwrap_or(-99);
-        debug.sample_combat_target_5 = combat_targets.get(5).copied().unwrap_or(-99);
+        debug.sample_combat_target_1 = combat_targets.get(1).copied().unwrap_or(-99);
         debug.sample_pos_0 = (
             positions.get(0).copied().unwrap_or(-999.0),
             positions.get(1).copied().unwrap_or(-999.0),
         );
-        debug.sample_pos_5 = (
-            positions.get(10).copied().unwrap_or(-999.0),
-            positions.get(11).copied().unwrap_or(-999.0),
+        debug.sample_pos_1 = (
+            positions.get(2).copied().unwrap_or(-999.0),
+            positions.get(3).copied().unwrap_or(-999.0),
         );
     }
 }

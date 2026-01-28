@@ -21,14 +21,16 @@ pub enum Job {
     Farmer,
     Guard,
     Raider,
+    Fighter,
 }
 
 impl Job {
-    /// Convert from GDScript integer (0=Farmer, 1=Guard, 2=Raider)
+    /// Convert from GDScript integer (0=Farmer, 1=Guard, 2=Raider, 3=Fighter)
     pub fn from_i32(v: i32) -> Self {
         match v {
             1 => Job::Guard,
             2 => Job::Raider,
+            3 => Job::Fighter,
             _ => Job::Farmer,
         }
     }
@@ -39,6 +41,7 @@ impl Job {
             Job::Farmer => (0.2, 0.8, 0.2, 1.0),  // Green
             Job::Guard => (0.2, 0.4, 0.9, 1.0),   // Blue
             Job::Raider => (0.9, 0.2, 0.2, 1.0),  // Red
+            Job::Fighter => (0.8, 0.8, 0.2, 1.0), // Yellow
         }
     }
 }
