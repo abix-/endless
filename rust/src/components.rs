@@ -73,10 +73,10 @@ pub struct Guard;
 #[derive(Component)]
 pub struct Farmer;
 
-/// Clan identifies which town/camp an NPC belongs to.
-/// Universal component on every NPC — replaces per-struct town_idx fields.
+/// TownId identifies which town an NPC belongs to.
+/// Universal component on every NPC. All settlements are "towns" (villager or raider).
 #[derive(Component, Clone, Copy)]
-pub struct Clan(pub i32);
+pub struct TownId(pub i32);
 
 // ============================================================================
 // BEHAVIOR DATA COMPONENTS

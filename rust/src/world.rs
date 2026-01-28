@@ -8,12 +8,12 @@ use std::sync::{Mutex, LazyLock};
 // WORLD DATA STRUCTS
 // ============================================================================
 
-/// A town with its center position and associated raider camp.
+/// A town (villager or raider settlement).
 #[derive(Clone, Debug)]
 pub struct Town {
     pub name: String,
     pub center: Vector2,
-    pub camp_position: Vector2,
+    pub faction: i32,  // 0=Villager, 1=Raider
 }
 
 /// A farm building that farmers work at.

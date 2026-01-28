@@ -14,7 +14,7 @@ use crate::world::WORLD_DATA;
 /// Skip NPCs in combat - they fight until the enemy is dead or they flee.
 pub fn tired_system(
     mut commands: Commands,
-    query: Query<(Entity, &Energy, &NpcIndex, &Home, &Job, &Clan, Option<&Working>),
+    query: Query<(Entity, &Energy, &NpcIndex, &Home, &Job, &TownId, Option<&Working>),
                  (Without<GoingToRest>, Without<Resting>, Without<InCombat>)>,
     mut pop_stats: ResMut<PopulationStats>,
 ) {
@@ -138,7 +138,7 @@ pub fn handle_arrival_system(
     mut events: MessageReader<ArrivalMsg>,
     patrolling_query: Query<(Entity, &NpcIndex), With<Patrolling>>,
     going_to_rest_query: Query<(Entity, &NpcIndex), With<GoingToRest>>,
-    going_to_work_query: Query<(Entity, &NpcIndex, &Job, &Clan), With<GoingToWork>>,
+    going_to_work_query: Query<(Entity, &NpcIndex, &Job, &TownId), With<GoingToWork>>,
     mut pop_stats: ResMut<PopulationStats>,
 ) {
     for event in events.read() {
@@ -229,11 +229,13 @@ pub fn steal_arrival_system(
                         });
                     }
 
-                    // Deliver food to camp
+                    // Deliver food to raider town
+                    // TODO: use NPC's TownId component to determine which town
                     if let Ok(mut food) = FOOD_STORAGE.lock() {
-                        // Camp idx 0 for now — TODO: multi-camp support via component
-                        if !food.camp_food.is_empty() {
-                            food.camp_food[0] += 1;
+                        if !food.food.is_empty() {
+                            // Raider towns are at the end of the food array
+                            let last_idx = food.food.len() - 1;
+                            food.food[last_idx] += 1;
                         }
                     }
                     if let Ok(mut queue) = FOOD_DELIVERED_QUEUE.lock() {

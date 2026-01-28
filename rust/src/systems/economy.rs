@@ -109,7 +109,7 @@ fn find_available_farm(town_idx: u32) -> Option<(f32, f32)> {
 pub fn economy_tick_system(
     delta: Res<PhysicsDelta>,
     mut game_time: ResMut<GameTime>,
-    working_farmers: Query<&Clan, (With<Farmer>, With<Working>)>,
+    working_farmers: Query<&TownId, (With<Farmer>, With<Working>)>,
     pop_stats: Res<PopulationStats>,
     config: Res<GameConfig>,
     mut timers: ResMut<RespawnTimers>,
@@ -149,7 +149,7 @@ pub fn economy_tick_system(
 
 /// Produce food based on working farmers.
 fn produce_food(
-    working_farmers: &Query<&Clan, (With<Farmer>, With<Working>)>,
+    working_farmers: &Query<&TownId, (With<Farmer>, With<Working>)>,
     config: &GameConfig,
 ) {
     // Count working farmers per clan
@@ -161,14 +161,14 @@ fn produce_food(
     // Add food to each clan's storage
     if let Ok(mut food) = FOOD_STORAGE.lock() {
         godot_print!("produce_food: storage len={}, farmers_per_clan={:?}, food_per_hour={}",
-            food.town_food.len(), farmers_per_clan, config.food_per_work_hour);
+            food.food.len(), farmers_per_clan, config.food_per_work_hour);
         for (clan_id, farmer_count) in farmers_per_clan {
             let food_produced = farmer_count * config.food_per_work_hour;
-            if clan_id >= 0 && (clan_id as usize) < food.town_food.len() {
-                food.town_food[clan_id as usize] += food_produced;
-                godot_print!("  clan {} += {} food (now {})", clan_id, food_produced, food.town_food[clan_id as usize]);
+            if clan_id >= 0 && (clan_id as usize) < food.food.len() {
+                food.food[clan_id as usize] += food_produced;
+                godot_print!("  clan {} += {} food (now {})", clan_id, food_produced, food.food[clan_id as usize]);
             } else {
-                godot_print!("  clan {} OUT OF RANGE (len={})", clan_id, food.town_food.len());
+                godot_print!("  clan {} OUT OF RANGE (len={})", clan_id, food.food.len());
             }
         }
     }

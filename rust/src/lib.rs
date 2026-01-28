@@ -964,13 +964,15 @@ impl EcsNpcManager {
         if let Ok(mut farms) = FARM_OCCUPANCY.lock() { farms.occupant_count = Vec::new(); }
     }
 
+    /// Add a town (villager or raider settlement).
+    /// faction: 0=Villager, 1=Raider
     #[func]
-    fn add_town(&mut self, name: GString, center_x: f32, center_y: f32, camp_x: f32, camp_y: f32) {
+    fn add_town(&mut self, name: GString, center_x: f32, center_y: f32, faction: i32) {
         if let Ok(mut world) = WORLD_DATA.lock() {
             world.towns.push(Town {
                 name: name.to_string(),
                 center: Vector2::new(center_x, center_y),
-                camp_position: Vector2::new(camp_x, camp_y),
+                faction,
             });
         }
     }
@@ -1017,16 +1019,6 @@ impl EcsNpcManager {
         if let Ok(world) = WORLD_DATA.lock() {
             if let Some(town) = world.towns.get(town_idx as usize) {
                 return town.center;
-            }
-        }
-        Vector2::ZERO
-    }
-
-    #[func]
-    fn get_camp_position(&self, town_idx: i32) -> Vector2 {
-        if let Ok(world) = WORLD_DATA.lock() {
-            if let Some(town) = world.towns.get(town_idx as usize) {
-                return town.camp_position;
             }
         }
         Vector2::ZERO
@@ -1132,12 +1124,11 @@ impl EcsNpcManager {
     // FOOD STORAGE API
     // ========================================================================
 
-    /// Initialize food storage with the given number of towns and camps.
+    /// Initialize food storage for all towns (villager and raider).
     #[func]
-    fn init_food_storage(&self, town_count: i32, camp_count: i32) {
+    fn init_food_storage(&self, total_town_count: i32) {
         if let Ok(mut food) = FOOD_STORAGE.lock() {
-            food.town_food = vec![0; town_count as usize];
-            food.camp_food = vec![0; camp_count as usize];
+            food.food = vec![0; total_town_count as usize];
         }
     }
 
@@ -1146,31 +1137,19 @@ impl EcsNpcManager {
     fn add_town_food(&self, town_idx: i32, amount: i32) {
         if let Ok(mut food) = FOOD_STORAGE.lock() {
             let idx = town_idx as usize;
-            if idx < food.town_food.len() {
-                food.town_food[idx] += amount;
+            if idx < food.food.len() {
+                food.food[idx] += amount;
             }
         }
     }
 
-    /// Get food count for a town.
+    /// Get food count for a town (works for both villager and raider towns).
     #[func]
     fn get_town_food(&self, town_idx: i32) -> i32 {
         if let Ok(food) = FOOD_STORAGE.lock() {
             let idx = town_idx as usize;
-            if idx < food.town_food.len() {
-                return food.town_food[idx];
-            }
-        }
-        0
-    }
-
-    /// Get food count for a camp.
-    #[func]
-    fn get_camp_food(&self, camp_idx: i32) -> i32 {
-        if let Ok(food) = FOOD_STORAGE.lock() {
-            let idx = camp_idx as usize;
-            if idx < food.camp_food.len() {
-                return food.camp_food[idx];
+            if idx < food.food.len() {
+                return food.food[idx];
             }
         }
         0

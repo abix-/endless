@@ -72,7 +72,7 @@ pub fn spawn_npc_system(
         let mut ec = commands.spawn((
             NpcIndex(idx),
             job,
-            Clan(msg.town_idx),
+            TownId(msg.town_idx),
             Speed::default(),
             Health::default(),
             Faction::from_i32(msg.faction),

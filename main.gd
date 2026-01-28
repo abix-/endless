@@ -348,13 +348,15 @@ func _setup_managers() -> void:
 	_uses_ecs = npc_manager.has_method("get_npc_count")
 
 	# Wire world data into ECS
-	npc_manager.init_world(NUM_TOWNS)
-	npc_manager.init_food_storage(NUM_TOWNS, NUM_TOWNS)
+	# Unified town model: villager towns (0..N-1) + raider towns (N..2N-1)
+	var total_towns: int = NUM_TOWNS * 2
+	npc_manager.init_world(total_towns)
+	npc_manager.init_food_storage(total_towns)
 
+	# Add villager towns (faction=0) with their buildings
 	for town_idx in towns.size():
 		var town: Dictionary = towns[town_idx]
-		var camp_pos: Vector2 = town.camp.global_position
-		npc_manager.add_town(town.name, town.center.x, town.center.y, camp_pos.x, camp_pos.y)
+		npc_manager.add_town(town.name, town.center.x, town.center.y, 0)  # faction=Villager
 
 		# Add farms
 		var farms := _get_farms_from_town(town)
@@ -370,6 +372,13 @@ func _setup_managers() -> void:
 		for post_idx in town.guard_posts.size():
 			var post = town.guard_posts[post_idx]
 			npc_manager.add_guard_post(post.global_position.x, post.global_position.y, town_idx, post_idx)
+
+	# Add raider towns (faction=1) - what were previously "camps"
+	for town_idx in towns.size():
+		var town: Dictionary = towns[town_idx]
+		if town.camp:
+			var camp_pos: Vector2 = town.camp.global_position
+			npc_manager.add_town("Raider Camp %d" % town_idx, camp_pos.x, camp_pos.y, 1)  # faction=Raider
 
 
 func _setup_player() -> void:
@@ -453,14 +462,15 @@ func _spawn_npcs() -> void:
 			})
 			total_guards += 1
 
-		# Spawn raiders at camp
+		# Spawn raiders at camp (raider towns are at indices NUM_TOWNS..2*NUM_TOWNS-1)
+		var raider_town_idx: int = NUM_TOWNS + town_idx
 		for i in Config.raiders_per_camp:
 			var spawn_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
 			var pos: Vector2 = camp.global_position + spawn_offset
 			npc_manager.spawn_npc(pos.x, pos.y, 2, 1, {
 				"home_x": camp.global_position.x,
 				"home_y": camp.global_position.y,
-				"town_idx": town_idx
+				"town_idx": raider_town_idx
 			})
 			total_raiders += 1
 

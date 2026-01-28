@@ -174,25 +174,22 @@ pub static HEALTH_DEBUG: Mutex<HealthDebugInfo> = Mutex::new(HealthDebugInfo {
 // FOOD STORAGE (Bevy-owned, polled by GDScript)
 // ============================================================================
 
-/// Per-town and per-camp food counts. Owned by Bevy so raider eat-decisions
-/// stay in Rust without crossing the GDScript boundary.
+/// Per-town food counts. All settlements are "towns" (villager or raider).
+/// Owned by Bevy so eat-decisions stay in Rust without crossing the GDScript boundary.
 pub struct FoodStorage {
-    pub town_food: Vec<i32>,
-    pub camp_food: Vec<i32>,
+    pub food: Vec<i32>,  // One entry per town (villager towns first, then raider towns)
 }
 
 impl Default for FoodStorage {
     fn default() -> Self {
         Self {
-            town_food: Vec::new(),
-            camp_food: Vec::new(),
+            food: Vec::new(),
         }
     }
 }
 
 pub static FOOD_STORAGE: Mutex<FoodStorage> = Mutex::new(FoodStorage {
-    town_food: Vec::new(),
-    camp_food: Vec::new(),
+    food: Vec::new(),
 });
 
 // ============================================================================

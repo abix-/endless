@@ -60,7 +60,7 @@ pub fn death_system(
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &Job, &Clan, Option<&Working>), With<Dead>>,
+    query: Query<(Entity, &NpcIndex, &Job, &TownId, Option<&Working>), With<Dead>>,
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
 ) {

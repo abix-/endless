@@ -533,11 +533,12 @@ func _setup_test_world_data() -> void:
 	_log("Testing world data API")
 	queue_redraw()  # Show visual markers
 
-	# Initialize world with 1 town
-	ecs_manager.init_world(1)
+	# Initialize world with 2 towns (villager + raider)
+	ecs_manager.init_world(2)
 
-	# Add town
-	ecs_manager.add_town("TestTown", CENTER.x, CENTER.y, CENTER.x + 200, CENTER.y)
+	# Add towns
+	ecs_manager.add_town("TestTown", CENTER.x, CENTER.y, 0)  # faction=Villager (idx 0)
+	ecs_manager.add_town("TestCamp", CENTER.x + 200, CENTER.y, 1)  # faction=Raider (idx 1)
 
 	# Add 2 farms (west and east of center)
 	ecs_manager.add_farm(CENTER.x - 100, CENTER.y, 0)
@@ -572,8 +573,8 @@ func _update_test_world_data() -> void:
 
 		_log("towns=%d farms=%d beds=%d posts=%d" % [town_count, farm_count, bed_count, post_count])
 
-		if town_count != 1:
-			_fail("town_count=%d expected 1" % town_count)
+		if town_count != 2:
+			_fail("town_count=%d expected 2" % town_count)
 			return
 		if farm_count != 2:
 			_fail("farm_count=%d expected 2" % farm_count)
@@ -595,11 +596,11 @@ func _update_test_world_data() -> void:
 			_fail("town_center wrong: %s" % town_center)
 			return
 
-		# Test camp position query
-		var camp_pos: Vector2 = ecs_manager.get_camp_position(0)
-		var expected_camp := Vector2(CENTER.x + 200, CENTER.y)
-		if camp_pos.distance_to(expected_camp) > 1.0:
-			_fail("camp_pos wrong: %s" % camp_pos)
+		# Test raider town position query (raider town is at index 1)
+		var raider_town_pos: Vector2 = ecs_manager.get_town_center(1)
+		var expected_raider := Vector2(CENTER.x + 200, CENTER.y)
+		if raider_town_pos.distance_to(expected_raider) > 1.0:
+			_fail("raider_town_pos wrong: %s" % raider_town_pos)
 			return
 
 		# Test patrol post query
@@ -692,7 +693,7 @@ func _setup_test_guard_patrol() -> void:
 
 	# Initialize world with 1 town
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("GuardTown", CENTER.x, CENTER.y, CENTER.x + 200, CENTER.y)
+	ecs_manager.add_town("GuardTown", CENTER.x, CENTER.y, 0)  # faction=Villager
 
 	# Add 4 guard posts (corners, clockwise)
 	var post_positions: Array[Vector2] = [
@@ -768,7 +769,7 @@ func _setup_test_farmer_work() -> void:
 
 	# Initialize world with 1 town
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("FarmTown", CENTER.x, CENTER.y, CENTER.x + 200, CENTER.y)
+	ecs_manager.add_town("FarmTown", CENTER.x, CENTER.y, 0)  # faction=Villager
 
 	# Add 2 farms (left and right of center)
 	var farm_positions: Array[Vector2] = [
@@ -918,7 +919,7 @@ func _setup_test_combat() -> void:
 
 	# Initialize world with 1 town and camp
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("CombatTown", CENTER.x, CENTER.y, CENTER.x + 300, CENTER.y)
+	ecs_manager.add_town("CombatTown", CENTER.x, CENTER.y, 0)  # faction=Villager
 	ecs_manager.add_bed(CENTER.x - 100, CENTER.y, 0)
 
 	# Spawn 2 fighters (job=3) with opposing factions, 50px apart. No behavior — just sit and fight.
@@ -1047,7 +1048,7 @@ func _setup_test_projectiles() -> void:
 	_log("Unified attacks: melee + ranged via projectile pipeline")
 
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("AttackTown", CENTER.x, CENTER.y, CENTER.x + 300, CENTER.y)
+	ecs_manager.add_town("AttackTown", CENTER.x, CENTER.y, 0)  # faction=Villager
 
 	# Spawn 2 melee fighters (opposing factions, 30px apart)
 	# Melee fighters: job=3, faction 0 vs 1
@@ -1195,12 +1196,12 @@ func _draw() -> void:
 			draw_arc(town_center, 30.0, 0, TAU, 32, Color.GOLD, 2.0)
 			draw_string(ThemeDB.fallback_font, town_center + Vector2(-20, -35), "TOWN", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.GOLD)
 
-		# Camp (red X)
-		var camp_pos: Vector2 = ecs_manager.get_camp_position(0)
-		if camp_pos != Vector2.ZERO:
-			draw_line(camp_pos - Vector2(15, 15), camp_pos + Vector2(15, 15), Color.RED, 2.0)
-			draw_line(camp_pos - Vector2(15, -15), camp_pos + Vector2(15, -15), Color.RED, 2.0)
-			draw_string(ThemeDB.fallback_font, camp_pos + Vector2(-15, -20), "CAMP", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.RED)
+		# Raider town (red X) - index 1
+		var raider_pos: Vector2 = ecs_manager.get_town_center(1)
+		if raider_pos != Vector2.ZERO:
+			draw_line(raider_pos - Vector2(15, 15), raider_pos + Vector2(15, 15), Color.RED, 2.0)
+			draw_line(raider_pos - Vector2(15, -15), raider_pos + Vector2(15, -15), Color.RED, 2.0)
+			draw_string(ThemeDB.fallback_font, raider_pos + Vector2(-15, -20), "RAIDER", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.RED)
 
 		# Farms (green squares)
 		for i in 2:

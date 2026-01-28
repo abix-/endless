@@ -197,9 +197,10 @@ func _update_stats() -> void:
 		period
 	]
 
-	# Food (works - ECS has get_town_food/get_camp_food)
+	# Food - unified town model: raider towns start at index towns.size()
 	var town_total: int = npc_manager.get_town_food(0)
-	var camp_total: int = npc_manager.get_camp_food(0)
+	var raider_town_idx: int = main_node.towns.size() if main_node and "towns" in main_node else 1
+	var camp_total: int = npc_manager.get_town_food(raider_town_idx)
 	food_label.text = "Food: %d vs %d" % [town_total, camp_total]
 
 	# === ECS API NEEDED: get_bed_stats(town_idx) -> Dictionary ===
