@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-01-27
+- fix test 11: add combat_target_2/3 to get_combat_debug() (was returning -99 default)
+- fix test 11: move ranged pair from 200px to 150px apart (200px spans 2 grid cells, outside 3x3 neighborhood)
+- test 11 unified attacks: all 7 phases passing (melee + ranged projectile pipeline)
 - remove fire_projectile() GDScript API: all projectiles now created via PROJECTILE_FIRE_QUEUE from Bevy attack_system
 - remove dead constants PROJECTILE_SPEED and PROJECTILE_LIFETIME (speed/lifetime now per-projectile via AttackStats)
 - unify melee and ranged attacks: attack_system fires projectiles via PROJECTILE_FIRE_QUEUE instead of direct DamageMsg

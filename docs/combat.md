@@ -108,8 +108,9 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 `get_combat_debug()` returns a Dictionary with:
 - **Bevy combat stats**: attackers, targets_found, attacks, in_range, timer_ready, chases
 - **CPU cache**: positions, factions, healths for NPC 0 and 1
+- **Combat targets**: indices 0-3 from GPU_READ_STATE (combat_target_0 through combat_target_3)
 - **Grid cells**: cell coordinates and counts for each NPC's position
-- **GPU buffer direct reads**: faction and health read back from GPU buffers (not CPU cache)
+- **GPU buffer direct reads**: faction, health (indices 0-3) read back from GPU buffers (not CPU cache)
 
 ## Known Issues / Limitations
 

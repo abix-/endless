@@ -1055,10 +1055,10 @@ func _setup_test_projectiles() -> void:
 	ecs_manager.spawn_npc(CENTER.x + 15, CENTER.y - 50, 3, 1, {"home_x": CENTER.x, "home_y": CENTER.y - 50})
 	_log("Spawned melee pair: idx=0 (f0) vs idx=1 (f1), 30px apart")
 
-	# Spawn 2 ranged fighters (opposing factions, 200px apart)
-	ecs_manager.spawn_npc(CENTER.x - 100, CENTER.y + 50, 3, 0, {"home_x": CENTER.x - 100, "home_y": CENTER.y + 50, "attack_type": 1})
-	ecs_manager.spawn_npc(CENTER.x + 100, CENTER.y + 50, 3, 1, {"home_x": CENTER.x + 100, "home_y": CENTER.y + 50, "attack_type": 1})
-	_log("Spawned ranged pair: idx=2 (f0) vs idx=3 (f1), 200px apart")
+	# Spawn 2 ranged fighters (opposing factions, 150px apart — must be within 3x3 grid neighborhood)
+	ecs_manager.spawn_npc(CENTER.x - 75, CENTER.y + 50, 3, 0, {"home_x": CENTER.x - 75, "home_y": CENTER.y + 50, "attack_type": 1})
+	ecs_manager.spawn_npc(CENTER.x + 75, CENTER.y + 50, 3, 1, {"home_x": CENTER.x + 75, "home_y": CENTER.y + 50, "attack_type": 1})
+	_log("Spawned ranged pair: idx=2 (f0) vs idx=3 (f1), 150px apart")
 
 	test_phase = 1
 	queue_redraw()

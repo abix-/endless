@@ -783,6 +783,11 @@ impl EcsNpcManager {
             dict.set("pos_1_x", debug.sample_pos_1.0);
             dict.set("pos_1_y", debug.sample_pos_1.1);
         }
+        // Read combat targets for indices 2-3 directly from GPU_READ_STATE
+        if let Ok(state) = GPU_READ_STATE.lock() {
+            dict.set("combat_target_2", state.combat_targets.get(2).copied().unwrap_or(-99));
+            dict.set("combat_target_3", state.combat_targets.get(3).copied().unwrap_or(-99));
+        }
         // GPU cache and buffer debug for NPC 0 and NPC 1
         if let Some(gpu) = &mut self.gpu {
             let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
