@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-01-28
+- refactor UI to ECS-only: remove _uses_methods dual-mode code from all UI panels
+- add ECS API NEEDED comments documenting required ECS API for each UI feature
+- preserve old GDScript code as comments for future porting reference
 - fix UI compatibility with EcsNpcManager: all UI panels now detect ECS mode and gracefully degrade
 - add get_npc_health() API to EcsNpcManager for UI health queries
 - add npc_manager group registration so UI can find EcsNpcManager via get_first_node_in_group()

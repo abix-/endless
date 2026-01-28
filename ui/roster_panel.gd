@@ -1,5 +1,6 @@
 # roster_panel.gd
 # Shows all guards and farmers in player's faction
+# ECS-only: per-NPC iteration not yet available from ECS
 extends CanvasLayer
 
 @onready var panel: PanelContainer = $Panel
@@ -20,7 +21,6 @@ extends CanvasLayer
 
 var npc_manager: Node
 var main_node: Node
-var _uses_methods := false  # True for EcsNpcManager
 
 enum Filter { ALL, FARMERS, GUARDS }
 enum SortBy { NAME, JOB, LEVEL, HP, STATE, TRAIT }
@@ -39,7 +39,6 @@ func _ready() -> void:
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	main_node = get_parent()
-	_uses_methods = npc_manager and npc_manager.has_method("get_npc_count")
 
 	close_btn.pressed.connect(close)
 	all_btn.pressed.connect(_on_filter_all)
@@ -141,63 +140,17 @@ func _refresh() -> void:
 	if not npc_manager or not main_node:
 		return
 
-	# EcsNpcManager doesn't expose per-NPC data yet
-	if _uses_methods:
-		count_label.text = "ECS mode - roster not available"
-		return
+	# === ECS API NEEDED: get_npcs_by_town(town_idx, filter) -> Array[Dictionary] ===
+	# Should return array of {idx, name, job, level, hp, max_hp, state, trait} for each NPC
+	# Old code iterated npc_manager.count and accessed:
+	#   npc_manager.healths[i], npc_manager.town_indices[i], npc_manager.jobs[i],
+	#   npc_manager.traits[i], npc_manager.npc_names[i], npc_manager.levels[i],
+	#   npc_manager.get_scaled_max_health(i), npc_manager.states[i]
+	count_label.text = "Roster not available yet"
 
-	var player_town: int = main_node.player_town_idx if "player_town_idx" in main_node else 0
-
-	# Collect NPCs matching filter
-	var npcs: Array[Dictionary] = []
-	for i in npc_manager.count:
-		if npc_manager.healths[i] <= 0:
-			continue
-		if npc_manager.town_indices[i] != player_town:
-			continue
-
-		var job: int = npc_manager.jobs[i]
-		if job == NPCState.Job.RAIDER:
-			continue
-		if current_filter == Filter.FARMERS and job != NPCState.Job.FARMER:
-			continue
-		if current_filter == Filter.GUARDS and job != NPCState.Job.GUARD:
-			continue
-
-		var npc_trait: int = npc_manager.traits[i]
-		npcs.append({
-			"idx": i,
-			"name": npc_manager.npc_names[i],
-			"job": job,
-			"level": npc_manager.levels[i],
-			"hp": npc_manager.healths[i],
-			"max_hp": npc_manager.get_scaled_max_health(i),
-			"state": npc_manager.states[i],
-			"trait": npc_trait,
-		})
-
-	# Sort
-	npcs.sort_custom(_compare_npcs)
-
-	# Update count
-	count_label.text = "%d units" % npcs.size()
-
-	# Ensure enough rows
-	while row_pool.size() < npcs.size():
-		row_pool.append(_create_row())
-
-	# Update rows
-	for i in npcs.size():
-		var row := row_pool[i]
-		var npc: Dictionary = npcs[i]
-		_update_row(row, npc)
-		row.visible = true
-
-	# Hide unused rows
-	for i in range(npcs.size(), row_pool.size()):
-		row_pool[i].visible = false
-
-	active_rows = npcs.size()
+	# Hide all rows
+	for row in row_pool:
+		row.visible = false
 
 
 func _compare_npcs(a: Dictionary, b: Dictionary) -> bool:
@@ -281,28 +234,25 @@ func _update_row(row: HBoxContainer, npc: Dictionary) -> void:
 
 	# Reconnect buttons
 	var select_btn: Button = children[6]
-	var follow_btn: Button = children[7]
+	var follow_btn_node: Button = children[7]
 
 	for conn in select_btn.pressed.get_connections():
 		select_btn.pressed.disconnect(conn.callable)
-	for conn in follow_btn.pressed.get_connections():
-		follow_btn.pressed.disconnect(conn.callable)
+	for conn in follow_btn_node.pressed.get_connections():
+		follow_btn_node.pressed.disconnect(conn.callable)
 
 	select_btn.pressed.connect(_on_select.bind(idx))
-	follow_btn.pressed.connect(_on_follow.bind(idx))
+	follow_btn_node.pressed.connect(_on_follow.bind(idx))
 
 
 func _on_select(idx: int) -> void:
-	if _uses_methods:
-		return
-	npc_manager.selected_npc = idx
+	# === ECS API NEEDED: selected_npc property (read/write) ===
+	pass
 
 
 func _on_follow(idx: int) -> void:
-	if _uses_methods:
-		return
-	npc_manager.selected_npc = idx
+	# === ECS API NEEDED: selected_npc property ===
 	var left_panel = get_tree().get_first_node_in_group("left_panel")
-	if left_panel and "following" in left_panel:
+	if left_panel:
 		left_panel.last_idx = idx
 		left_panel._set_following(true)

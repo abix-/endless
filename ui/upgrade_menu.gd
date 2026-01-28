@@ -38,7 +38,6 @@ const TOOLTIPS := {
 var main: Node
 var npc_manager: Node
 var town_idx: int = -1
-var _uses_methods := false  # True for EcsNpcManager
 
 
 func _ready() -> void:
@@ -46,7 +45,6 @@ func _ready() -> void:
 	await get_tree().process_frame
 	main = get_parent()
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
-	_uses_methods = npc_manager and npc_manager.has_method("get_npc_count")
 	if main and "player_town_idx" in main:
 		town_idx = main.player_town_idx
 
@@ -120,28 +118,25 @@ func _refresh_stats() -> void:
 	if not npc_manager:
 		return
 
-	# EcsNpcManager doesn't expose per-NPC data yet
-	if _uses_methods:
-		farmers_label.text = "-"
-		guards_label.text = "-"
-		return
-
-	# Count farmers and guards for this town
-	var farmer_count := 0
-	var guard_count := 0
-	for i in npc_manager.count:
-		if npc_manager.healths[i] <= 0:
-			continue
-		if npc_manager.town_indices[i] != town_idx:
-			continue
-		var job: int = npc_manager.jobs[i]
-		if job == NPCState.Job.FARMER:
-			farmer_count += 1
-		elif job == NPCState.Job.GUARD:
-			guard_count += 1
-
-	farmers_label.text = str(farmer_count)
-	guards_label.text = str(guard_count)
+	# === ECS API NEEDED: get_town_population(town_idx) -> Dictionary ===
+	# Should return: {farmer_count, guard_count}
+	# OLD CODE:
+	# var farmer_count := 0
+	# var guard_count := 0
+	# for i in npc_manager.count:
+	#     if npc_manager.healths[i] <= 0:
+	#         continue
+	#     if npc_manager.town_indices[i] != town_idx:
+	#         continue
+	#     var job: int = npc_manager.jobs[i]
+	#     if job == NPCState.Job.FARMER:
+	#         farmer_count += 1
+	#     elif job == NPCState.Job.GUARD:
+	#         guard_count += 1
+	# farmers_label.text = str(farmer_count)
+	# guards_label.text = str(guard_count)
+	farmers_label.text = "-"
+	guards_label.text = "-"
 
 	# Farm count
 	if "towns" in main and town_idx < main.towns.size():

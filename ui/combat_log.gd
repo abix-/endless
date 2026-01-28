@@ -1,5 +1,6 @@
 # combat_log.gd
 # Resizable combat log panel at bottom of screen
+# ECS-only: needs signals from EcsNpcManager to show events
 extends CanvasLayer
 
 @onready var panel: PanelContainer = $Panel
@@ -8,7 +9,6 @@ extends CanvasLayer
 
 var npc_manager: Node
 var main_node: Node
-var _uses_methods := false  # True for EcsNpcManager
 
 const SETTINGS_KEY := "combat_log"
 const DEFAULT_WIDTH := 400
@@ -31,14 +31,19 @@ func _ready() -> void:
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	main_node = get_parent()
-	_uses_methods = npc_manager and npc_manager.has_method("get_npc_count")
 
-	# Connect signals (GDScript manager only - EcsNpcManager doesn't emit these yet)
-	if npc_manager and npc_manager.has_signal("npc_leveled_up"):
-		npc_manager.npc_leveled_up.connect(_on_npc_leveled_up)
-		npc_manager.npc_died.connect(_on_npc_died)
-		npc_manager.npc_spawned.connect(_on_npc_spawned)
-		npc_manager.npc_ate_food.connect(_on_npc_ate_food)
+	# === ECS API NEEDED: signals for combat log ===
+	# npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int)
+	# npc_died(npc_index: int, job: int, level: int, town_idx: int, killer_job: int, killer_level: int)
+	# npc_spawned(npc_index: int, job: int, town_idx: int)
+	# npc_ate_food(npc_index: int, town_idx: int, job: int, hp_before: float, energy_before: float, hp_after: float)
+	#
+	# OLD CONNECTION CODE:
+	# if npc_manager:
+	#     npc_manager.npc_leveled_up.connect(_on_npc_leveled_up)
+	#     npc_manager.npc_died.connect(_on_npc_died)
+	#     npc_manager.npc_spawned.connect(_on_npc_spawned)
+	#     npc_manager.npc_ate_food.connect(_on_npc_ate_food)
 
 	# Setup resize handle
 	resize_handle.gui_input.connect(_on_resize_input)
@@ -98,6 +103,8 @@ func _get_timestamp() -> String:
 	return ""
 
 
+# === Signal handlers (ready to connect when ECS signals are available) ===
+
 func _on_npc_leveled_up(npc_index: int, job: int, old_level: int, new_level: int) -> void:
 	if UserSettings.level_log_mode == UserSettings.LogMode.OFF:
 		return
@@ -122,16 +129,18 @@ func _on_npc_died(npc_index: int, job: int, level: int, _town_idx: int, killer_j
 
 func _format_npc(idx: int, job: int, level: int = -1) -> String:
 	var job_name: String = JOB_NAMES[job] if job < JOB_NAMES.size() else "NPC"
-	if _uses_methods:
-		return "%s #%d" % [job_name, idx]
-	var npc_name: String = npc_manager.npc_names[idx] if idx >= 0 else "NPC"
-	var npc_trait: int = npc_manager.traits[idx] if idx >= 0 else 0
-	var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
-	var result := "%s - %s" % [npc_name, job_name]
+	# === ECS API NEEDED: get_npc_name(idx), get_npc_trait(idx) ===
+	# OLD CODE:
+	# var npc_name: String = npc_manager.npc_names[idx]
+	# var npc_trait: int = npc_manager.traits[idx]
+	# var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
+	# var result := "%s - %s" % [npc_name, job_name]
+	# if level > 0: result += " Lv.%d" % level
+	# if not trait_name.is_empty(): result += " (%s)" % trait_name
+	# return result
+	var result := "%s #%d" % [job_name, idx]
 	if level > 0:
 		result += " Lv.%d" % level
-	if not trait_name.is_empty():
-		result += " (%s)" % trait_name
 	return result
 
 

@@ -1,5 +1,6 @@
 # farm_menu.gd
 # Simple popup showing farm occupancy when clicked
+# ECS-only: farm occupancy data not yet available from ECS
 extends CanvasLayer
 
 var panel: PanelContainer
@@ -9,13 +10,11 @@ var farmer_label: Label
 var npc_manager: Node
 var current_town_idx: int = -1
 var current_farm_idx: int = -1
-var _uses_methods := false  # True for EcsNpcManager
 
 
 func _ready() -> void:
 	await get_tree().process_frame
 	npc_manager = get_parent().npc_manager
-	_uses_methods = npc_manager and npc_manager.has_method("get_npc_count")
 
 	panel = PanelContainer.new()
 	panel.custom_minimum_size = Vector2(160, 0)
@@ -91,26 +90,19 @@ func _refresh() -> void:
 	if current_town_idx < 0 or current_farm_idx < 0:
 		return
 
-	# EcsNpcManager doesn't expose farm data yet
-	if _uses_methods:
-		farmer_label.text = "Farmer: -"
-		return
-
-	var count: int = npc_manager.farm_occupant_counts[current_town_idx][current_farm_idx]
-	if count == 0:
-		farmer_label.text = "Farmer: none"
-	else:
-		# Find which NPC is working this farm
-		var farmer_name := ""
-		for i in npc_manager.count:
-			if npc_manager.healths[i] <= 0:
-				continue
-			if npc_manager.town_indices[i] != current_town_idx:
-				continue
-			if npc_manager.current_farm_idx[i] == current_farm_idx:
-				farmer_name = npc_manager.npc_names[i]
-				break
-		if farmer_name != "":
-			farmer_label.text = "Farmer: %s" % farmer_name
-		else:
-			farmer_label.text = "Farmer: %d/1" % count
+	# === ECS API NEEDED: get_farm_info(town_idx, farm_idx) -> Dictionary ===
+	# Should return: {occupant_count, farmer_name (or null)}
+	# OLD CODE:
+	# var count: int = npc_manager.farm_occupant_counts[current_town_idx][current_farm_idx]
+	# if count == 0:
+	#     farmer_label.text = "Farmer: none"
+	# else:
+	#     var farmer_name := ""
+	#     for i in npc_manager.count:
+	#         if npc_manager.healths[i] <= 0: continue
+	#         if npc_manager.town_indices[i] != current_town_idx: continue
+	#         if npc_manager.current_farm_idx[i] == current_farm_idx:
+	#             farmer_name = npc_manager.npc_names[i]
+	#             break
+	#     farmer_label.text = "Farmer: %s" % farmer_name if farmer_name else "Farmer: %d/1" % count
+	farmer_label.text = "Farmer: -"

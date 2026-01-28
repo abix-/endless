@@ -92,14 +92,14 @@ world/
   terrain_renderer.gd   # Terrain tile rendering with sprite tiling
 ui/
   start_menu.gd         # Start menu (world size, towns, populations)
-  left_panel.gd         # Stats, performance, NPC inspector (collapsible)
-  combat_log.gd         # Resizable event log at bottom
+  left_panel.gd         # Stats, performance, NPC inspector (ECS-only, API stubs)
+  combat_log.gd         # Resizable event log (ECS-only, waiting for signals)
   settings_menu.gd      # Options menu with log filters
-  upgrade_menu.gd       # Town management, upgrades, population caps
+  upgrade_menu.gd       # Town management, upgrades (ECS-only, population stubs)
   build_menu.gd         # Grid slot building (farms, beds)
   policies_panel.gd     # Faction policies (flee thresholds, off-duty behavior)
-  roster_panel.gd       # NPC roster with sorting and filtering
-  farm_menu.gd          # Farm info popup (click farm to see occupant)
+  roster_panel.gd       # NPC roster (ECS-only, waiting for per-NPC API)
+  farm_menu.gd          # Farm info popup (ECS-only, waiting for farm API)
 rust/
   Cargo.toml            # Bevy 0.18 + godot-bevy 0.11 dependencies
   src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, rendering
