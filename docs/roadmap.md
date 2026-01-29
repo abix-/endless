@@ -221,44 +221,50 @@ Each step is a working game state. Old GDScript npc_manager kept as reference un
 - [ ] Update README
 - [ ] Result: No GDScript NPC code remains
 
-**Phase 10: Idiomatic Bevy (Static Mutex → Resources + Events)**
+**Phase 10: Proper godot-bevy Architecture (Static Mutex → Events + GodotAccess)**
 
-Prep for multi-threaded Bevy. Currently ~20 static Mutex variables handle all communication. Every behavior system directly locks `GPU_UPDATE_QUEUE` — this serializes all systems and hides data flow from Bevy's scheduler. The godot-bevy recommended architecture is event-driven:
+Currently ~20 static Mutex variables handle all communication. Every behavior system directly locks `GPU_UPDATE_QUEUE` — this serializes all systems and hides data flow from Bevy's scheduler. The godot-bevy recommended architecture is event-driven:
 
 ```
-Multi-threaded systems (pure logic) → emit Events → main thread system → Godot/GPU APIs
+Multi-threaded systems (pure logic) → emit Events → main thread system (GodotAccess) → Godot/GPU APIs
 ```
 
-12 statics must stay (GDScript/GPU boundaries). 8 Bevy-internal statics migrate to Resources. GPU_UPDATE_QUEUE stays static but gets a single collector system instead of every system locking it.
+In godot-bevy, systems with `GodotAccess` are forced to main thread. This is the collector pattern - parallel systems do logic, one main-thread system syncs to Godot.
 
-*10.1: GPU Update Events*
+*10.1: Register EcsNpcManager as Bevy Entity*
+- [ ] EcsNpcManager auto-registered as entity when added to scene tree (godot-bevy does this)
+- [ ] Add `EcsNpcManagerMarker` component for querying
+- [ ] Result: Can query EcsNpcManager from Bevy systems via `Query<&GodotNodeHandle, With<EcsNpcManagerMarker>>`
+
+*10.2: GPU Update Events*
 - [ ] Add `GpuUpdateEvent` Bevy Event (wraps current GpuUpdate enum)
 - [ ] Replace `GPU_UPDATE_QUEUE.lock().push()` in all systems with `EventWriter<GpuUpdateEvent>`
-- [ ] Add `collect_gpu_updates_system` (end of Step::Behavior) — drains events, single lock, pushes to static queue
-- [ ] Result: Systems parallelizable, single lock point, Bevy sees data flow
+- [ ] Add `render_sync_system` with `GodotAccess` (end of Step::Behavior) — reads events, calls EcsNpcManager GPU methods
+- [ ] Result: Systems parallelizable, single main-thread sync point, Bevy sees data flow
 
-*10.2: World Data Resources*
-- [ ] Staging statics for GDScript boundary, sync systems in Step::Drain
-- [ ] Update spawn_npc_system, raider_idle_system → `Res<WorldData>`
-- [ ] Result: Bevy sees WorldData dependencies
-
-*10.3: Debug + Food Resources*
+*10.3: World Data + Debug Resources*
+- [ ] Migrate WORLD_DATA, BED_OCCUPANCY, FARM_OCCUPANCY → Bevy Resources
 - [ ] Migrate HEALTH_DEBUG, COMBAT_DEBUG, FOOD_STORAGE → Bevy Resources
-- [ ] Staging statics for GDScript query/init APIs
+- [ ] GDScript APIs use `get_bevy_app()` pattern (like Time API) instead of statics
 - [ ] Result: All Bevy-internal state uses idiomatic access
 
 *10.4: GPU Read State Resource*
-- [ ] process() writes staging static, Drain copies to `Res<GpuReadState>`
-- [ ] Update attack_system, raider_idle_system, leash_system → `Res<GpuReadState>`
+- [ ] process() writes to staging static, Step::Drain copies to `Res<GpuReadState>`
+- [ ] Update attack_system, raider systems → `Res<GpuReadState>`
 - [ ] Result: No Bevy system locks GPU_READ_STATE directly
 
-*Statics that stay (architectural necessities):*
+*10.5: Simplify process()*
+- [ ] process() only does: dispatch GPU compute, read results, update MultiMesh
+- [ ] All game logic in Bevy systems, all GPU writes via render_sync_system
+- [ ] Result: Clean separation — Godot renders, Bevy thinks
+
+*Statics that remain:*
 
 | Category | Statics | Why |
 |----------|---------|-----|
-| GDScript↔Bevy | SPAWN_QUEUE, TARGET_QUEUE, DAMAGE_QUEUE, ARRIVAL_QUEUE, RESET_BEVY, FRAME_DELTA | GDScript can't access Bevy World |
-| Slot management | NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | Shared between GDScript allocate_slot() and Bevy systems |
-| Bevy↔GPU | GPU_UPDATE_QUEUE, GPU_DISPATCH_COUNT | process() runs in GDScript context; GPU_UPDATE_QUEUE locked only by collector system after 10.1 |
+| Slot management | NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | Allocation shared between GDScript spawn API and Bevy death cleanup |
+| GPU dispatch | GPU_DISPATCH_COUNT | process() needs count before Bevy runs |
+| UI query cache | NPC_META, NPC_STATES, NPC_ENERGY | Fast UI reads (could become components later) |
 
 ## Performance Targets
 

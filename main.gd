@@ -511,13 +511,13 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_EQUAL:
-				var time := npc_manager.get_game_time()
+				var time: Dictionary = npc_manager.get_game_time()
 				npc_manager.set_time_scale(time.get("time_scale", 1.0) * 2.0)
 			KEY_MINUS:
-				var time := npc_manager.get_game_time()
+				var time: Dictionary = npc_manager.get_game_time()
 				npc_manager.set_time_scale(time.get("time_scale", 1.0) / 2.0)
 			KEY_SPACE:
-				var time := npc_manager.get_game_time()
+				var time: Dictionary = npc_manager.get_game_time()
 				npc_manager.set_paused(not time.get("paused", false))
 
 	# Right-click on buildable slot opens build menu
