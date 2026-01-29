@@ -11,3 +11,4 @@ crate-type = ["cdylib"]
 godot = "0.4"
 godot-bevy = { git = "https://github.com/bytemeadow/godot-bevy.git", branch = "main" }
 bevy = { version = "0.18", default-features = false }
+crossbeam-channel = "0.5"

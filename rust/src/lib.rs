@@ -5,6 +5,7 @@
 // MODULES
 // ============================================================================
 
+pub mod channels;
 pub mod components;
 pub mod constants;
 pub mod gpu;
@@ -151,6 +152,12 @@ pub struct EcsNpcManager {
     /// Keep projectile mesh alive
     #[allow(dead_code)]
     proj_mesh: Option<Gd<QuadMesh>>,
+
+    // === Channels (Phase 11) ===
+    /// Sender for Godot → Bevy messages
+    godot_to_bevy: Option<channels::GodotToBevySender>,
+    /// Receiver for Bevy → Godot messages
+    bevy_to_godot: Option<channels::BevyToGodotReceiver>,
 }
 
 #[godot_api]
@@ -167,6 +174,8 @@ impl INode2D for EcsNpcManager {
             proj_multimesh_rid: Rid::Invalid,
             proj_canvas_item: Rid::Invalid,
             proj_mesh: None,
+            godot_to_bevy: None,
+            bevy_to_godot: None,
         }
     }
 
@@ -178,6 +187,19 @@ impl INode2D for EcsNpcManager {
         }
         self.setup_multimesh(MAX_NPC_COUNT as i32);
         self.setup_proj_multimesh(MAX_PROJECTILES as i32);
+
+        // Create channels and register Bevy resources
+        let channels = channels::create_channels();
+        self.godot_to_bevy = Some(channels.godot_to_bevy_sender);
+        self.bevy_to_godot = Some(channels.bevy_to_godot_receiver);
+
+        // Insert channel resources into Bevy app
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                app.world_mut().insert_resource(channels.godot_to_bevy_receiver);
+                app.world_mut().insert_resource(channels.bevy_to_godot_sender);
+            }
+        }
     }
 
     fn process(&mut self, delta: f64) {
@@ -1807,5 +1829,132 @@ impl EcsNpcManager {
             dict.set("arrival_queue_len", queue_len as i32);
         }
         dict
+    }
+
+    // ========================================================================
+    // CHANNEL API (Phase 11)
+    // ========================================================================
+
+    /// Send message to Bevy via channel.
+    /// Commands: spawn, target, damage, select, reset, pause, time_scale
+    #[func]
+    fn send_to_bevy(&self, cmd: GString, data: VarDictionary) {
+        let sender = match &self.godot_to_bevy {
+            Some(s) => s,
+            None => return,
+        };
+
+        let msg = match cmd.to_string().as_str() {
+            "spawn" => channels::GodotToBevyMsg::SpawnNpc {
+                x: data.get("x").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+                y: data.get("y").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+                job: data.get("job").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
+                faction: data.get("faction").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
+                town_idx: data.get("town_idx").and_then(|v| v.try_to().ok()).unwrap_or(-1),
+                home_x: data.get("home_x").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
+                home_y: data.get("home_y").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
+                work_x: data.get("work_x").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
+                work_y: data.get("work_y").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
+                starting_post: data.get("starting_post").and_then(|v| v.try_to().ok()).unwrap_or(-1),
+                attack_type: data.get("attack_type").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
+            },
+            "target" => channels::GodotToBevyMsg::SetTarget {
+                slot: data.get("slot").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as usize,
+                x: data.get("x").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+                y: data.get("y").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+            },
+            "damage" => channels::GodotToBevyMsg::ApplyDamage {
+                slot: data.get("slot").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as usize,
+                amount: data.get("amount").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+            },
+            "select" => channels::GodotToBevyMsg::SelectNpc {
+                slot: data.get("slot").and_then(|v| v.try_to().ok()).unwrap_or(-1),
+            },
+            "click" => channels::GodotToBevyMsg::PlayerClick {
+                x: data.get("x").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+                y: data.get("y").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+            },
+            "reset" => channels::GodotToBevyMsg::Reset,
+            "pause" => channels::GodotToBevyMsg::SetPaused(
+                data.get("paused").and_then(|v| v.try_to().ok()).unwrap_or(false)
+            ),
+            "time_scale" => channels::GodotToBevyMsg::SetTimeScale(
+                data.get("scale").and_then(|v| v.try_to().ok()).unwrap_or(1.0)
+            ),
+            _ => return,
+        };
+
+        let _ = sender.0.send(msg);
+    }
+
+    /// Poll messages from Bevy. Call every frame.
+    #[func]
+    fn poll_from_bevy(&self) -> VarArray {
+        let mut result = VarArray::new();
+
+        let receiver = match &self.bevy_to_godot {
+            Some(r) => r,
+            None => return result,
+        };
+
+        while let Ok(msg) = receiver.0.try_recv() {
+            let mut d = VarDictionary::new();
+            match msg {
+                channels::BevyToGodotMsg::SpawnView { slot, job, x, y } => {
+                    d.set("type", "spawn_view");
+                    d.set("slot", slot as i32);
+                    d.set("job", job as i32);
+                    d.set("x", x);
+                    d.set("y", y);
+                }
+                channels::BevyToGodotMsg::DespawnView { slot } => {
+                    d.set("type", "despawn_view");
+                    d.set("slot", slot as i32);
+                }
+                channels::BevyToGodotMsg::SyncTransform { slot, x, y } => {
+                    d.set("type", "sync_transform");
+                    d.set("slot", slot as i32);
+                    d.set("x", x);
+                    d.set("y", y);
+                }
+                channels::BevyToGodotMsg::SyncHealth { slot, hp, max_hp } => {
+                    d.set("type", "sync_health");
+                    d.set("slot", slot as i32);
+                    d.set("hp", hp);
+                    d.set("max_hp", max_hp);
+                }
+                channels::BevyToGodotMsg::SyncColor { slot, r, g, b, a } => {
+                    d.set("type", "sync_color");
+                    d.set("slot", slot as i32);
+                    d.set("r", r);
+                    d.set("g", g);
+                    d.set("b", b);
+                    d.set("a", a);
+                }
+                channels::BevyToGodotMsg::SyncSprite { slot, col, row } => {
+                    d.set("type", "sync_sprite");
+                    d.set("slot", slot as i32);
+                    d.set("col", col);
+                    d.set("row", row);
+                }
+                channels::BevyToGodotMsg::FireProjectile {
+                    from_x, from_y, to_x, to_y, speed, damage, faction, shooter, lifetime,
+                } => {
+                    d.set("type", "fire_projectile");
+                    d.set("from_x", from_x);
+                    d.set("from_y", from_y);
+                    d.set("to_x", to_x);
+                    d.set("to_y", to_y);
+                    d.set("speed", speed);
+                    d.set("damage", damage);
+                    d.set("faction", faction);
+                    d.set("shooter", shooter as i32);
+                    d.set("lifetime", lifetime);
+                }
+            }
+            result.push(&d.to_variant());
+        }
+
+        result
     }
 }

@@ -874,6 +874,7 @@ name = "endless-ecs"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "crossbeam-channel",
  "godot",
  "godot-bevy",
 ]
