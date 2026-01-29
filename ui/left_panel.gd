@@ -178,12 +178,13 @@ func _update_stats() -> void:
 	raider_dead.text = "-"  # Dead tracking not yet in ECS
 	raider_kills.text = str(pop.get("villager_kills", 0))
 
-	# Time (works - uses WorldClock autoload)
-	var period := "Day" if WorldClock.is_daytime() else "Night"
+	# Time (ECS GameTime resource)
+	var game_time: Dictionary = npc_manager.get_game_time()
+	var period := "Day" if game_time.get("is_daytime", true) else "Night"
 	time_label.text = "Day %d - %02d:%02d (%s)" % [
-		WorldClock.current_day,
-		WorldClock.current_hour,
-		WorldClock.current_minute,
+		game_time.get("day", 1),
+		game_time.get("hour", 6),
+		game_time.get("minute", 0),
 		period
 	]
 

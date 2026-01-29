@@ -73,7 +73,6 @@ Frame execution order ───────────────────�
 main.gd                 # World generation, food tracking, game setup
 autoloads/
   config.gd             # All tunable constants
-  world_clock.gd        # Day/night cycle, time signals
   user_settings.gd      # Persistent user preferences
 systems/
   npc_manager.gd        # Core orchestration, 30+ parallel data arrays

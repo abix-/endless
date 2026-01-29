@@ -95,9 +95,6 @@ const TOWN_NAMES := [
 
 func _ready() -> void:
 	NUM_TOWNS = Config.num_towns
-	WorldClock.day_changed.connect(_on_day_changed)
-	WorldClock.time_tick.connect(_on_time_tick)
-
 	_generate_world()
 	_setup_terrain()
 	_setup_managers()
@@ -480,16 +477,6 @@ func _spawn_npcs() -> void:
 	print("Spawned: %d farmers, %d guards, %d raiders" % [total_farmers, total_guards, total_raiders])
 
 
-func _on_day_changed(day: int) -> void:
-	print("=== DAY %d ===" % day)
-
-
-func _on_time_tick(_hour: int, _minute: int) -> void:
-	pass  # Phase 2: food production + respawning
-	#if minute != 0:
-	#	return
-	# TODO: get_working_farmer_count() + count_alive() queries
-	# TODO: respawn logic via spawn_npc()
 
 
 #func _spawn_town_npcs(town_idx: int) -> void:
@@ -524,11 +511,14 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_EQUAL:
-				WorldClock.ticks_per_real_second *= 2.0
+				var time := npc_manager.get_game_time()
+				npc_manager.set_time_scale(time.get("time_scale", 1.0) * 2.0)
 			KEY_MINUS:
-				WorldClock.ticks_per_real_second /= 2.0
+				var time := npc_manager.get_game_time()
+				npc_manager.set_time_scale(time.get("time_scale", 1.0) / 2.0)
 			KEY_SPACE:
-				WorldClock.paused = not WorldClock.paused
+				var time := npc_manager.get_game_time()
+				npc_manager.set_paused(not time.get("paused", false))
 
 	# Right-click on buildable slot opens build menu
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:

@@ -95,11 +95,14 @@ func _update_position() -> void:
 
 
 func _get_timestamp() -> String:
+	if not npc_manager:
+		return ""
+	var t: Dictionary = npc_manager.get_game_time()
 	match UserSettings.log_timestamp:
 		UserSettings.TimestampMode.TIME:
-			return "[%02d:%02d] " % [WorldClock.current_hour, WorldClock.current_minute]
+			return "[%02d:%02d] " % [t.get("hour", 0), t.get("minute", 0)]
 		UserSettings.TimestampMode.DAY_TIME:
-			return "[D%d %02d:%02d] " % [WorldClock.current_day, WorldClock.current_hour, WorldClock.current_minute]
+			return "[D%d %02d:%02d] " % [t.get("day", 1), t.get("hour", 0), t.get("minute", 0)]
 	return ""
 
 
