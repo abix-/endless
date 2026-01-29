@@ -75,10 +75,11 @@ fn build_app(app: &mut bevy::prelude::App) {
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        // Flush commands after Spawn so Combat sees new entities
        .add_systems(Update, bevy::ecs::schedule::ApplyDeferred.after(Step::Spawn).before(Step::Combat))
-       // Drain: reset + drain queues
+       // Drain: reset + drain queues (channels + legacy mutexes)
        .add_systems(Update, (
            reset_bevy_system,
-           drain_spawn_queue,
+           drain_godot_channel,  // Phase 11: lock-free channel
+           drain_spawn_queue,    // Legacy: will be removed
            drain_target_queue,
            drain_arrival_queue,
            drain_damage_queue,
@@ -1838,7 +1839,7 @@ impl EcsNpcManager {
     /// Send message to Bevy via channel.
     /// Commands: spawn, target, damage, select, reset, pause, time_scale
     #[func]
-    fn send_to_bevy(&self, cmd: GString, data: VarDictionary) {
+    fn godot_to_bevy(&self, cmd: GString, data: VarDictionary) {
         let sender = match &self.godot_to_bevy {
             Some(s) => s,
             None => return,
@@ -1889,7 +1890,7 @@ impl EcsNpcManager {
 
     /// Poll messages from Bevy. Call every frame.
     #[func]
-    fn poll_from_bevy(&self) -> VarArray {
+    fn bevy_to_godot(&self) -> VarArray {
         let mut result = VarArray::new();
 
         let receiver = match &self.bevy_to_godot {
