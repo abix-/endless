@@ -120,17 +120,14 @@ pub fn attack_system(
 
         if target_idx < 0 {
             if in_combat.is_some() {
-                commands.entity(entity).remove::<InCombat>();
+                commands.entity(entity)
+                    .remove::<InCombat>()
+                    .remove::<CombatOrigin>();
             }
             continue;
         }
 
         targets_found += 1;
-
-        if in_combat.is_none() {
-            commands.entity(entity).insert(InCombat);
-            in_combat_added += 1;
-        }
 
         let ti = target_idx as usize;
 
@@ -140,6 +137,13 @@ pub fn attack_system(
         }
 
         let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
+
+        if in_combat.is_none() {
+            commands.entity(entity)
+                .insert(InCombat)
+                .insert(CombatOrigin { x, y });  // Store where combat started
+            in_combat_added += 1;
+        }
         let (tx, ty) = (positions[ti * 2], positions[ti * 2 + 1]);
 
         let dx = tx - x;

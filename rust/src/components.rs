@@ -235,6 +235,14 @@ pub struct AttackTimer(pub f32);
 #[derive(Component)]
 pub struct InCombat;
 
+/// Position where combat started. Used for leash distance calculation.
+/// Leash triggers if NPC moves too far from this point while chasing.
+#[derive(Component)]
+pub struct CombatOrigin {
+    pub x: f32,
+    pub y: f32,
+}
+
 // ============================================================================
 // STEALING / RAIDING COMPONENTS
 // ============================================================================

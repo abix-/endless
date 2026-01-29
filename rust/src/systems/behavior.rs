@@ -292,6 +292,8 @@ pub fn flee_system(
         if health_pct < flee.pct {
             let mut cmds = commands.entity(entity);
             cmds.remove::<InCombat>();
+            cmds.remove::<CombatOrigin>();
+            cmds.remove::<Raiding>();  // Clear raiding state when fleeing
             cmds.insert(Returning);
 
             if carrying.is_some() {
@@ -316,17 +318,17 @@ pub fn flee_system(
     }
 }
 
-/// Disengage combat when too far from home.
+/// Disengage combat when too far from where combat started.
 pub fn leash_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &LeashRange, &Home), With<InCombat>>,
+    query: Query<(Entity, &NpcIndex, &LeashRange, &Home, &CombatOrigin), With<InCombat>>,
 ) {
     let positions = match GPU_READ_STATE.lock() {
         Ok(state) => state.positions.clone(),
         Err(_) => return,
     };
 
-    for (entity, npc_idx, leash, home) in query.iter() {
+    for (entity, npc_idx, leash, home, origin) in query.iter() {
         let i = npc_idx.0;
         if i * 2 + 1 >= positions.len() {
             continue;
@@ -334,15 +336,19 @@ pub fn leash_system(
 
         let x = positions[i * 2];
         let y = positions[i * 2 + 1];
-        let dx = x - home.0.x;
-        let dy = y - home.0.y;
+        // Check distance from combat origin, not home
+        let dx = x - origin.x;
+        let dy = y - origin.y;
         let dist = (dx * dx + dy * dy).sqrt();
 
         if dist > leash.distance {
             commands.entity(entity)
                 .remove::<InCombat>()
+                .remove::<CombatOrigin>()
+                .remove::<Raiding>()  // Clear raiding state when leashing
                 .insert(Returning);
 
+            // Return home after disengaging
             if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
                 queue.push(GpuUpdate::SetTarget {
                     idx: npc_idx.0,

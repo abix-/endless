@@ -111,9 +111,10 @@ Same situation, different outcomes. That's emergent behavior.
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
 | HasTarget | marker | NPC has an active movement target |
 | InCombat | marker | Blocks behavior transitions |
+| CombatOrigin | `{ x, y }` | Position where combat started; leash measures from here |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
 | FleeThreshold | `{ pct: f32 }` | Flee combat below this HP % |
-| LeashRange | `{ distance: f32 }` | Disengage combat if this far from home |
+| LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin |
 | WoundedThreshold | `{ pct: f32 }` | Drop everything and go home below this HP % |
 
 ## Systems
@@ -151,12 +152,13 @@ Same situation, different outcomes. That's emergent behavior.
 
 ### flee_system
 - Query: `InCombat` + `FleeThreshold` + `Home`
-- If health < `FleeThreshold.pct`: remove `InCombat`, drop `CarryingFood` if present, add `Returning`, target home
+- If health < `FleeThreshold.pct`: remove `InCombat`, `CombatOrigin`, `Raiding`, drop `CarryingFood` if present, add `Returning`, target home
 
 ### leash_system
-- Query: `InCombat` + `LeashRange` + `Home`
+- Query: `InCombat` + `LeashRange` + `Home` + `CombatOrigin`
 - Read position from `GPU_READ_STATE`
-- If distance to home > `LeashRange.distance`: remove `InCombat`, add `Returning`, target home
+- If distance from **combat origin** > `LeashRange.distance`: remove `InCombat`, `CombatOrigin`, `Raiding`, add `Returning`, target home
+- Note: Leash is based on distance from where combat started, not from home. This allows NPCs to travel far for objectives (raids) but prevents chasing enemies forever.
 
 ### wounded_rest_system
 - On `ArrivalMsg` for NPCs with `WoundedThreshold`

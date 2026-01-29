@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-01-28
+- add CombatOrigin component: stores position where combat started
+- fix leash_system: now measures distance from combat origin, not home (allows raiders to travel far for raids without premature leashing)
+- fix flee_system and leash_system: clear Raiding marker when disengaging (prevents stuck state after returning home)
 - fix raider arrival bug: verify raider is within 100px of farm before food pickup (prevents stale arrival events from spawn/home triggering false pickups)
 - fix fake arrival bug: blocked NPCs no longer trigger arrival, cap backoff at 200 instead of giving up
 - add get_npc_target() API: returns NPC movement target from cached GPU data

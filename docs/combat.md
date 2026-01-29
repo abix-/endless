@@ -45,6 +45,7 @@ GPU combat_target_buffer
 | AttackStats | struct | `range, damage, cooldown, projectile_speed, projectile_lifetime` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
 | InCombat | marker | Prevents behavior systems from overriding chase target |
+| CombatOrigin | `{ x, y }` | Position where combat started; used for leash distance |
 
 ## System Pipeline
 
@@ -57,9 +58,9 @@ Execution order is **chained** — each system completes before the next starts.
 ### 2. attack_system (combat.rs)
 - Reads `GPU_READ_STATE.combat_targets` for each NPC with AttackStats
 - If target is valid (not -1) and target is alive:
-  - **In range**: push `FireProjectileMsg` to `PROJECTILE_FIRE_QUEUE`, reset `AttackTimer`, mark `InCombat`
-  - **Out of range**: push `SetTarget` to chase, mark `InCombat`
-- If no target: remove `InCombat`
+  - **In range**: push `FireProjectileMsg` to `PROJECTILE_FIRE_QUEUE`, reset `AttackTimer`, mark `InCombat`, add `CombatOrigin` (stores current position)
+  - **Out of range**: push `SetTarget` to chase, mark `InCombat`, add `CombatOrigin`
+- If no target: remove `InCombat` and `CombatOrigin`
 
 ### 3. damage_system (health.rs)
 - Drains `DamageMsg` events from Bevy MessageReader
