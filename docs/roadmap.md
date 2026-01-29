@@ -243,29 +243,84 @@ godot-bevy distinguishes **Messages** (high-frequency batch operations) from **O
 - [x] Systems updated: spawn_npc_system, tired_system, resume_patrol_system, resume_work_system, patrol_system, raider_arrival_system, flee_system, leash_system, npc_decision_system, attack_system
 - [x] Result: Systems use idiomatic godot-bevy messaging, single lock point at end of frame
 
-*10.3: World Data + Debug Resources*
-- [ ] Migrate WORLD_DATA, BED_OCCUPANCY, FARM_OCCUPANCY → Bevy Resources
-- [ ] Migrate HEALTH_DEBUG, COMBAT_DEBUG, FOOD_STORAGE → Bevy Resources
-- [ ] GDScript APIs use `get_bevy_app()` pattern (like Time API) instead of statics
-- [ ] Result: All Bevy-internal state uses idiomatic access
+*10.3: World Data + Debug + UI Resources* ✓
+- [x] Migrate WORLD_DATA, BED_OCCUPANCY, FARM_OCCUPANCY → Bevy Resources
+- [x] Migrate HEALTH_DEBUG, COMBAT_DEBUG → Bevy Resources
+- [x] Migrate KILL_STATS, SELECTED_NPC → Bevy Resources
+- [x] Migrate NPC_META, NPC_STATES, NPC_ENERGY, NPCS_BY_TOWN, NPC_LOGS → Bevy Resources
+- [x] Migrate FOOD_DELIVERED_QUEUE, FOOD_CONSUMED_QUEUE → FoodEvents Resource
+- [x] GDScript APIs use `get_bevy_app()` pattern instead of statics
+- [x] Result: 14 statics eliminated (28 → 14), all Bevy-internal state uses idiomatic access
 
-*10.4: GPU Read State Resource*
-- [ ] process() writes to staging static, Step::Drain copies to `Res<GpuReadState>`
-- [ ] Update attack_system, raider systems → `Res<GpuReadState>`
-- [ ] Result: No Bevy system locks GPU_READ_STATE directly
-
-*10.5: Simplify process()*
-- [ ] process() only does: dispatch GPU compute, read results, update MultiMesh
-- [ ] All game logic in Bevy systems, all GPU writes via render_sync_system
-- [ ] Result: Clean separation — Godot renders, Bevy thinks
-
-*Statics that remain:*
+*Statics that remain (14 total):*
 
 | Category | Statics | Why |
 |----------|---------|-----|
-| Slot management | NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | Allocation shared between GDScript spawn API and Bevy death cleanup |
-| GPU dispatch | GPU_DISPATCH_COUNT | process() needs count before Bevy runs |
-| UI query cache | NPC_META, NPC_STATES, NPC_ENERGY | Fast UI reads (could become components later) |
+| GDScript→Bevy queues | SPAWN_QUEUE, TARGET_QUEUE, ARRIVAL_QUEUE, DAMAGE_QUEUE | Thread boundary |
+| Bevy→GPU queues | GPU_UPDATE_QUEUE, PROJECTILE_FIRE_QUEUE | Thread boundary |
+| GPU→Bevy state | GPU_READ_STATE, GPU_DISPATCH_COUNT | Thread boundary |
+| Slot management | NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | Cross-thread allocation |
+| Other bridges | RESET_BEVY, FOOD_STORAGE, GAME_CONFIG_STAGING | Thread boundary |
+
+**Phase 11: Clean Architecture (Channels + GPU Accelerator)**
+
+See [phase11-clean-architecture.md](phase11-clean-architecture.md) for full implementation details.
+
+Goal: Eliminate ALL remaining statics via proper architecture:
+- **Inbox/Outbox channels** for Godot ↔ Bevy (lock-free, replace 14 mutexes)
+- **Bevy owns all state** (Position, Health, Target as components)
+- **GPU as accelerator** (upload state → compute → readback results)
+- **Changed<T> sync** (only sync moved NPCs to Godot, not all 10k)
+
+```
+BEFORE: GPU owns positions → Bevy locks mutex to read → confusing ownership
+AFTER:  Bevy owns state → uploads to GPU → GPU computes → Bevy reads back → syncs Changed<T> to Godot
+```
+
+*11.1: Channel Infrastructure*
+- [ ] Add crossbeam-channel dependency
+- [ ] Create InboxMsg enum (Spawn, SetTarget, Damage, Reset, etc.)
+- [ ] Create OutboxMsg enum (SpawnView, DespawnView, SyncTransform, SyncHealth, FireProjectile)
+- [ ] Create Inbox/Outbox Resources with channel endpoints
+- [ ] Add send_*/poll_outbox GDScript APIs
+- [ ] Result: Channels exist alongside old statics (parallel path)
+
+*11.2: Bevy Position Component*
+- [ ] Add Position, Velocity, MoveTarget, GpuSlot components
+- [ ] spawn_npc_system attaches Position component (Bevy-owned)
+- [ ] Send SpawnView to outbox on spawn
+- [ ] Result: NPCs have Bevy-owned positions
+
+*11.3: GPU Upload/Readback Pattern*
+- [ ] Create GpuBuffers resource (CPU-side mirrors)
+- [ ] upload_to_gpu_system: Query components → fill buffers → upload
+- [ ] GPU compute runs (physics, targeting, projectiles)
+- [ ] readback_from_gpu_system: Read results → apply to components
+- [ ] Result: GPU is accelerator, not authority
+
+*11.4: Drain Inbox System*
+- [ ] drain_inbox_system processes InboxMsg → spawns, sets targets, applies damage
+- [ ] Replaces drain_spawn_queue, drain_target_queue, drain_damage_queue
+- [ ] Result: Single inbox replaces 4 queues
+
+*11.5: Godot Outbox Drain*
+- [ ] GDScript _process() drains outbox via poll_outbox()
+- [ ] Apply SyncTransform to GPU buffers (or node positions)
+- [ ] Handle SpawnView/DespawnView for visual lifecycle
+- [ ] Result: Godot receives only changed state
+
+*11.6: Changed<T> Sync*
+- [ ] emit_transform_sync_system: Query Changed<Position> → SyncTransform
+- [ ] emit_health_sync_system: Query Changed<Health> → SyncHealth
+- [ ] emit_despawn_system: Query Added<Dead> → DespawnView
+- [ ] Result: Only 500 moved NPCs sync, not 10,000
+
+*11.7: Delete All Statics*
+- [ ] Remove SPAWN_QUEUE, TARGET_QUEUE, ARRIVAL_QUEUE, DAMAGE_QUEUE
+- [ ] Remove GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT
+- [ ] Remove NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS (→ SlotAllocator Resource)
+- [ ] Remove PROJECTILE_FIRE_QUEUE, RESET_BEVY, FOOD_STORAGE, GAME_CONFIG_STAGING
+- [ ] Result: 0 static mutexes, clean architecture
 
 ## Performance Targets
 
