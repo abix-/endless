@@ -277,43 +277,44 @@ BEFORE: GPU owns positions → Bevy locks mutex to read → confusing ownership
 AFTER:  Bevy owns state → uploads to GPU → GPU computes → Bevy reads back → syncs Changed<T> to Godot
 ```
 
-*11.1: Channel Infrastructure*
-- [ ] Add crossbeam-channel dependency
-- [ ] Create InboxMsg enum (Spawn, SetTarget, Damage, Reset, etc.)
-- [ ] Create OutboxMsg enum (SpawnView, DespawnView, SyncTransform, SyncHealth, FireProjectile)
-- [ ] Create Inbox/Outbox Resources with channel endpoints
-- [ ] Add send_*/poll_outbox GDScript APIs
-- [ ] Result: Channels exist alongside old statics (parallel path)
+*11.1: Channel Infrastructure* ✓
+- [x] Add crossbeam-channel dependency (Sender is Sync, allows parallel Bevy systems)
+- [x] Create GodotToBevyMsg enum (SpawnNpc, SetTarget, ApplyDamage, SelectNpc, Reset, SetPaused, SetTimeScale)
+- [x] Create BevyToGodotMsg enum (SpawnView, DespawnView, SyncHealth, SyncColor, SyncSprite, FireProjectile)
+- [x] Create GodotToBevy/BevyToGodot Resources with channel endpoints
+- [x] Add godot_to_bevy(cmd, data) / bevy_to_godot() GDScript APIs
+- [x] Result: Channels exist alongside old statics (parallel path)
 
-*11.2: Bevy Position Component*
-- [ ] Add Position, Velocity, MoveTarget, GpuSlot components
-- [ ] spawn_npc_system attaches Position component (Bevy-owned)
-- [ ] Send SpawnView to outbox on spawn
-- [ ] Result: NPCs have Bevy-owned positions
+*11.2: Bevy Position Component* ✓
+- [x] Add Position component (Bevy-owned, synced from GPU)
+- [x] spawn_npc_system attaches Position component
+- [x] Send SpawnView to outbox on spawn
+- [x] Send DespawnView to outbox on death
+- [x] Result: NPCs have Bevy-owned positions
 
-*11.3: GPU Upload/Readback Pattern*
+*11.3: GPU Upload/Readback Pattern* (partial)
+- [x] gpu_position_readback system: GPU → Bevy Position (only if changed > epsilon)
 - [ ] Create GpuBuffers resource (CPU-side mirrors)
 - [ ] upload_to_gpu_system: Query components → fill buffers → upload
-- [ ] GPU compute runs (physics, targeting, projectiles)
-- [ ] readback_from_gpu_system: Read results → apply to components
-- [ ] Result: GPU is accelerator, not authority
+- [x] GPU compute runs (physics, targeting, projectiles)
+- [x] Result: GPU positions sync to Bevy, GPU still handles rendering
 
-*11.4: Drain Inbox System*
-- [ ] drain_inbox_system processes InboxMsg → spawns, sets targets, applies damage
-- [ ] Replaces drain_spawn_queue, drain_target_queue, drain_damage_queue
+*11.4: Drain Inbox System* (partial)
+- [x] godot_to_bevy_read processes channel → spawns, sets targets, applies damage
+- [ ] Remove old drain_spawn_queue, drain_target_queue, drain_damage_queue
 - [ ] Result: Single inbox replaces 4 queues
 
-*11.5: Godot Outbox Drain*
-- [ ] GDScript _process() drains outbox via poll_outbox()
-- [ ] Apply SyncTransform to GPU buffers (or node positions)
-- [ ] Handle SpawnView/DespawnView for visual lifecycle
-- [ ] Result: Godot receives only changed state
+*11.5: Godot Outbox Drain* ✓
+- [x] GDScript _process() drains outbox via bevy_to_godot()
+- [x] Handle SpawnView/DespawnView for visual lifecycle
+- [x] SyncTransform removed (GPU handles rendering directly)
+- [x] Result: Godot receives only changed state
 
-*11.6: Changed<T> Sync*
-- [ ] emit_transform_sync_system: Query Changed<Position> → SyncTransform
-- [ ] emit_health_sync_system: Query Changed<Health> → SyncHealth
-- [ ] emit_despawn_system: Query Added<Dead> → DespawnView
-- [ ] Result: Only 500 moved NPCs sync, not 10,000
+*11.6: Changed<T> Sync* ✓
+- [x] bevy_to_godot_write system: Query Changed<Health> → SyncHealth
+- [x] death_cleanup_system: Query With<Dead> → DespawnView
+- [x] SyncTransform removed (not needed, GPU renders via MultiMesh)
+- [x] Result: Only changed health syncs, not all 10,000 NPCs
 
 *11.7: Delete All Statics*
 - [ ] Remove SPAWN_QUEUE, TARGET_QUEUE, ARRIVAL_QUEUE, DAMAGE_QUEUE
