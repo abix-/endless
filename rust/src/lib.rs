@@ -1275,6 +1275,63 @@ impl EcsNpcManager {
     }
 
     // ========================================================================
+    // TIME API
+    // ========================================================================
+
+    /// Get the BevyApp autoload node.
+    fn get_bevy_app(&self) -> Option<Gd<godot_bevy::app::BevyApp>> {
+        let tree = self.base().get_tree()?;
+        let root = tree.get_root()?;
+        // Window inherits from Node, use upcast to access try_get_node_as
+        let root_node: Gd<godot::classes::Node> = root.upcast();
+        root_node.try_get_node_as::<godot_bevy::app::BevyApp>("BevyAppSingleton")
+    }
+
+    /// Get current game time.
+    #[func]
+    fn get_game_time(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(time) = app.world().get_resource::<resources::GameTime>() {
+                    dict.set("day", time.day());
+                    dict.set("hour", time.hour());
+                    dict.set("minute", time.minute());
+                    dict.set("is_daytime", time.is_daytime());
+                    dict.set("time_scale", time.time_scale);
+                    dict.set("paused", time.paused);
+                }
+            }
+        }
+        dict
+    }
+
+    /// Set game time scale (1.0 = normal, 2.0 = 2x speed).
+    #[func]
+    fn set_time_scale(&mut self, scale: f32) {
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut time) = app.world_mut().get_resource_mut::<resources::GameTime>() {
+                    time.time_scale = scale.max(0.0);
+                }
+            }
+        }
+    }
+
+    /// Pause or unpause game time.
+    #[func]
+    fn set_paused(&mut self, paused: bool) {
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut time) = app.world_mut().get_resource_mut::<resources::GameTime>() {
+                    time.paused = paused;
+                }
+            }
+        }
+    }
+
+    // ========================================================================
     // UI QUERY API (Phase 9.4)
     // ========================================================================
 
@@ -1380,6 +1437,33 @@ impl EcsNpcManager {
 
         dict.set("max_hp", 100.0);
         dict
+    }
+
+    /// Get activity log for an NPC (decisions, state changes, combat events).
+    /// Returns array of dicts with {day, hour, minute, message} for last N entries.
+    #[func]
+    fn get_npc_log(&self, idx: i32, limit: i32) -> VarArray {
+        let mut result = VarArray::new();
+        let i = idx as usize;
+        let limit = limit.max(1) as usize;
+
+        if let Ok(logs) = NPC_LOGS.lock() {
+            if let Some(log) = logs.get(i) {
+                // Get last `limit` entries (most recent first)
+                let entries: Vec<_> = log.iter().collect();
+                let start = entries.len().saturating_sub(limit);
+                for entry in entries[start..].iter().rev() {
+                    let mut entry_dict = VarDictionary::new();
+                    entry_dict.set("day", entry.day);
+                    entry_dict.set("hour", entry.hour);
+                    entry_dict.set("minute", entry.minute);
+                    entry_dict.set("message", GString::from(&entry.message));
+                    result.push(&entry_dict.to_variant());
+                }
+            }
+        }
+
+        result
     }
 
     /// Get list of NPCs in a town (for roster panel).

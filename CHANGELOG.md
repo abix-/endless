@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-01-28
+- add Time API: get_game_time(), set_time_scale(), set_paused() via BevyApp world access
+- add get_npc_log() API: per-NPC activity log with timestamps
+- add get_bevy_app() helper: fetches BevyApp autoload for direct Bevy resource access
 - add CombatOrigin component: stores position where combat started
 - fix leash_system: now measures distance from combat origin, not home (allows raiders to travel far for raids without premature leashing)
 - fix flee_system and leash_system: clear Raiding marker when disengaging (prevents stuck state after returning home)

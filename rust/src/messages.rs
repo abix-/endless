@@ -294,3 +294,39 @@ pub static NPCS_BY_TOWN: LazyLock<Mutex<Vec<Vec<usize>>>> = LazyLock::new(|| {
     Mutex::new(Vec::new())
 });
 
+// ============================================================================
+// NPC ACTIVITY LOG (per-NPC decision/state change history)
+// ============================================================================
+
+/// A single log entry for an NPC's activity history.
+#[derive(Clone)]
+pub struct NpcLogEntry {
+    pub day: i32,
+    pub hour: i32,
+    pub minute: i32,
+    pub message: String,
+}
+
+const NPC_LOG_CAPACITY: usize = 500;
+
+/// Per-NPC activity logs. Indexed by slot. 500 entries max per NPC.
+pub static NPC_LOGS: LazyLock<Mutex<Vec<std::collections::VecDeque<NpcLogEntry>>>> = LazyLock::new(|| {
+    Mutex::new((0..MAX_NPC_COUNT).map(|_| std::collections::VecDeque::with_capacity(NPC_LOG_CAPACITY)).collect())
+});
+
+/// Push a log message for an NPC with timestamp.
+pub fn npc_log(idx: usize, day: i32, hour: i32, minute: i32, message: String) {
+    if idx >= MAX_NPC_COUNT {
+        return;
+    }
+    let entry = NpcLogEntry { day, hour, minute, message };
+    if let Ok(mut logs) = NPC_LOGS.lock() {
+        if let Some(log) = logs.get_mut(idx) {
+            if log.len() >= NPC_LOG_CAPACITY {
+                log.pop_front();
+            }
+            log.push_back(entry);
+        }
+    }
+}
+

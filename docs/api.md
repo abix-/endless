@@ -103,6 +103,22 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | `get_town_food` | `town_idx: i32` | `i32` | Get food count for any town (villager or raider) |
 | `get_food_events` | none | `Dictionary` | Deliveries and consumed counts since last call (clears queues) |
 
+## Time API
+
+| Method | Params | Returns | Description |
+|--------|--------|---------|-------------|
+| `get_game_time` | none | `Dictionary` | day, hour, minute, is_daytime, time_scale, paused |
+| `set_time_scale` | `scale: f32` | void | Set time multiplier (1.0 = normal, 2.0 = 2x speed, clamped >= 0) |
+| `set_paused` | `paused: bool` | void | Pause or unpause game time |
+
+Time API accesses Bevy's `GameTime` resource directly through the BevyApp autoload (no static bridge needed).
+
+## NPC Activity Log API
+
+| Method | Params | Returns | Description |
+|--------|--------|---------|-------------|
+| `get_npc_log` | `idx, limit: i32` | `Array` | Last N log entries (dicts with day, hour, minute, message), most recent first |
+
 ## Reset API
 
 | Method | Params | Returns | Description |

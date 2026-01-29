@@ -113,24 +113,28 @@ fn find_available_farm(town_idx: u32) -> Option<(f32, f32)> {
 pub fn economy_tick_system(
     delta: Res<PhysicsDelta>,
     mut game_time: ResMut<GameTime>,
+    mut prev_hour: Local<i32>,
     working_farmers: Query<&TownId, (With<Farmer>, With<Working>)>,
     _pop_stats: Res<PopulationStats>,
     config: Res<GameConfig>,
     _timers: ResMut<RespawnTimers>,
 ) {
-    // Accumulate elapsed time
-    game_time.elapsed_seconds += delta.delta_seconds;
-
-    // Check for hour boundary
-    if game_time.elapsed_seconds < game_time.seconds_per_hour {
+    // Respect pause
+    if game_time.paused {
         return;
     }
 
-    // Hour boundary crossed - do hourly tasks
-    game_time.elapsed_seconds -= game_time.seconds_per_hour;
-    game_time.current_hour = (game_time.current_hour + 1) % 24;
+    // Accumulate time (scaled)
+    game_time.total_seconds += delta.delta_seconds * game_time.time_scale;
 
-    // --- FOOD PRODUCTION ---
+    // Check for hour boundary
+    let current_hour = game_time.hour();
+    if current_hour == *prev_hour {
+        return;
+    }
+    *prev_hour = current_hour;
+
+    // --- HOURLY TASKS ---
     produce_food(&working_farmers, &config);
 
     // --- RESPAWN CHECK --- (disabled, keeping code for later)

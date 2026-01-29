@@ -17,7 +17,7 @@ config/features=PackedStringArray("4.5")
 [autoload]
 
 Config="*res://autoloads/config.gd"
-WorldClock="*res://autoloads/world_clock.gd"
+WorldClock="res://autoloads/world_clock.gd"
 UserSettings="*res://autoloads/user_settings.gd"
 BevyAppSingleton="*res://addons/godot-bevy/bevy_app_singleton.tscn"
 

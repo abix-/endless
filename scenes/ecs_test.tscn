@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://ecs_test_001"]
+[gd_scene load_steps=2 format=3 uid="uid://dj2qmeum7k8pt"]
 
-[ext_resource type="Script" path="res://scripts/ecs_test.gd" id="1"]
+[ext_resource type="Script" uid="uid://dinhimj7wmqv0" path="res://scripts/ecs_test.gd" id="1"]
 
 [node name="EcsTest" type="Node2D"]
 script = ExtResource("1")
@@ -17,37 +17,43 @@ offset_right = 280.0
 offset_bottom = 520.0
 
 [node name="VBox" type="VBoxContainer" parent="UI/DebugPanel"]
-offset_left = 4.0
-offset_top = 4.0
-offset_right = 266.0
-offset_bottom = 506.0
+layout_mode = 2
 
 [node name="TitleLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "ECS TEST HARNESS"
 horizontal_alignment = 1
 
 [node name="Sep0" type="HSeparator" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 
 [node name="CountLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "NPC Count: 500"
 
 [node name="CountSlider" type="HSlider" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 min_value = 500.0
 max_value = 5000.0
 value = 500.0
 
 [node name="Sep1" type="HSeparator" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 
 [node name="MetricsCheck" type="CheckBox" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Collect Metrics"
 
 [node name="TestTitle" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Select Test"
 horizontal_alignment = 1
 
 [node name="TestDropdown" type="OptionButton" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 item_count = 12
 popup/item_0/text = "-- Select Test --"
+popup/item_0/id = 0
 popup/item_1/text = "1: Arrive - Move to target"
 popup/item_1/id = 1
 popup/item_2/text = "2: Separation - Push apart"
@@ -72,49 +78,64 @@ popup/item_11/text = "11: Projectiles - GPU bullets"
 popup/item_11/id = 11
 
 [node name="RunButton" type="Button" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Run Test"
 
 [node name="Sep2" type="HSeparator" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 
 [node name="StatusTitle" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Status"
 horizontal_alignment = 1
 
 [node name="StateLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "State: IDLE"
 
 [node name="TestLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Test: None"
 
 [node name="PhaseLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Phase: --"
 
 [node name="FPSLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "FPS: --"
 
 [node name="TimeLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Time: 0.0s"
 
 [node name="DistanceLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "NPCs: --"
 
 [node name="VelocityLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Status: --"
 
 [node name="ExpectedLabel" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Sep radius: 20px"
 
 [node name="Sep3" type="HSeparator" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 
 [node name="LogTitle" type="Label" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Log"
 horizontal_alignment = 1
 
 [node name="LogLabel" type="Label" parent="UI/DebugPanel/VBox"]
 custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
 text = "--"
 vertical_alignment = 1
 autowrap_mode = 2
 
 [node name="CopyButton" type="Button" parent="UI/DebugPanel/VBox"]
+layout_mode = 2
 text = "Copy Debug Info"

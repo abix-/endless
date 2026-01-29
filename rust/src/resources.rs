@@ -50,19 +50,48 @@ impl Default for GameConfig {
 }
 
 /// Game time tracking - Bevy-owned, uses PhysicsDelta from godot-bevy.
+/// Only total_seconds is mutable. Day/hour/minute are derived on demand.
 #[derive(Resource)]
 pub struct GameTime {
-    pub elapsed_seconds: f32,
-    pub current_hour: i32,
-    pub seconds_per_hour: f32,
+    pub total_seconds: f32,        // Only mutable state - accumulates from PhysicsDelta
+    pub seconds_per_hour: f32,     // Game speed: 5.0 = 1 game-hour per 5 real seconds
+    pub start_hour: i32,           // Hour at game start (6 = 6am)
+    pub time_scale: f32,           // 1.0 = normal, 2.0 = 2x speed
+    pub paused: bool,
+}
+
+impl GameTime {
+    pub fn total_hours(&self) -> i32 {
+        (self.total_seconds / self.seconds_per_hour) as i32
+    }
+
+    pub fn day(&self) -> i32 {
+        (self.start_hour + self.total_hours()) / 24 + 1
+    }
+
+    pub fn hour(&self) -> i32 {
+        (self.start_hour + self.total_hours()) % 24
+    }
+
+    pub fn minute(&self) -> i32 {
+        let seconds_into_hour = self.total_seconds % self.seconds_per_hour;
+        ((seconds_into_hour / self.seconds_per_hour) * 60.0) as i32
+    }
+
+    pub fn is_daytime(&self) -> bool {
+        let h = self.hour();
+        h >= 6 && h < 20
+    }
 }
 
 impl Default for GameTime {
     fn default() -> Self {
         Self {
-            elapsed_seconds: 0.0,
-            current_hour: 6, // Start at 6am
-            seconds_per_hour: 5.0, // 1 game-hour = 5 real seconds (for testing)
+            total_seconds: 0.0,
+            seconds_per_hour: 5.0,
+            start_hour: 6,
+            time_scale: 1.0,
+            paused: false,
         }
     }
 }
