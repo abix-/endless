@@ -78,8 +78,9 @@ fn build_app(app: &mut bevy::prelude::App) {
        // Drain: reset + drain queues (channels + legacy mutexes)
        .add_systems(Update, (
            reset_bevy_system,
-           godot_to_bevy_read,   // Phase 11: lock-free channel
-           drain_spawn_queue,    // Legacy: will be removed
+           gpu_position_readback, // Phase 11: GPU → Bevy position sync
+           godot_to_bevy_read,    // Phase 11: lock-free channel
+           drain_spawn_queue,     // Legacy: will be removed
            drain_target_queue,
            drain_arrival_queue,
            drain_damage_queue,

@@ -1,4 +1,4 @@
-//! Movement systems - Target tracking and arrival detection
+//! Movement systems - Target tracking, arrival detection, position sync
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 
@@ -27,6 +27,38 @@ pub fn apply_targets_system(
                     break;
                 }
             }
+        }
+    }
+}
+
+/// Read positions from GPU and update Bevy Position components.
+/// This makes Bevy the source of truth, with GPU as accelerator.
+/// Only updates positions that actually changed (within epsilon).
+pub fn gpu_position_readback(
+    mut query: Query<(&NpcIndex, &mut Position)>,
+) {
+    let positions = match GPU_READ_STATE.lock() {
+        Ok(state) => state.positions.clone(),
+        Err(_) => return,
+    };
+
+    const EPSILON: f32 = 0.01;
+
+    for (npc_idx, mut pos) in query.iter_mut() {
+        let i = npc_idx.0;
+        if i * 2 + 1 >= positions.len() {
+            continue;
+        }
+
+        let gpu_x = positions[i * 2];
+        let gpu_y = positions[i * 2 + 1];
+
+        // Only update if position actually changed (avoids spurious Changed<Position>)
+        let dx = (gpu_x - pos.x).abs();
+        let dy = (gpu_y - pos.y).abs();
+        if dx > EPSILON || dy > EPSILON {
+            pos.x = gpu_x;
+            pos.y = gpu_y;
         }
     }
 }
