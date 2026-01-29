@@ -5,60 +5,14 @@ use godot_bevy::prelude::PhysicsDelta;
 
 use crate::components::*;
 use crate::messages::{GPU_READ_STATE, GpuUpdate, GpuUpdateMsg, PROJECTILE_FIRE_QUEUE, FireProjectileMsg};
-
-/// Debug: track combat system activity
-pub static COMBAT_DEBUG: std::sync::Mutex<CombatDebug> = std::sync::Mutex::new(CombatDebug::new());
-
-pub struct CombatDebug {
-    pub attackers_queried: usize,
-    pub targets_found: usize,
-    pub attacks_made: usize,
-    pub chases_started: usize,
-    pub in_combat_added: usize,
-    pub sample_target_idx: i32,
-    pub positions_len: usize,
-    pub combat_targets_len: usize,
-    pub bounds_failures: usize,
-    pub sample_dist: f32,
-    pub in_range_count: usize,
-    pub timer_ready_count: usize,
-    pub sample_timer: f32,
-    pub cooldown_entities: usize,
-    pub frame_delta: f32,
-    pub sample_combat_target_0: i32,
-    pub sample_combat_target_1: i32,
-    pub sample_pos_0: (f32, f32),
-    pub sample_pos_1: (f32, f32),
-}
-
-impl CombatDebug {
-    pub const fn new() -> Self {
-        Self {
-            attackers_queried: 0,
-            targets_found: 0,
-            attacks_made: 0,
-            chases_started: 0,
-            in_combat_added: 0,
-            sample_target_idx: -99,
-            positions_len: 0,
-            combat_targets_len: 0,
-            bounds_failures: 0,
-            sample_dist: -1.0,
-            in_range_count: 0,
-            timer_ready_count: 0,
-            sample_timer: -1.0,
-            cooldown_entities: 0,
-            frame_delta: 0.0,
-            sample_combat_target_0: -99,
-            sample_combat_target_1: -99,
-            sample_pos_0: (0.0, 0.0),
-            sample_pos_1: (0.0, 0.0),
-        }
-    }
-}
+use crate::resources::CombatDebug;
 
 /// Decrement attack cooldown timers each frame.
-pub fn cooldown_system(delta: Res<PhysicsDelta>, mut query: Query<&mut AttackTimer>) {
+pub fn cooldown_system(
+    delta: Res<PhysicsDelta>,
+    mut query: Query<&mut AttackTimer>,
+    mut debug: ResMut<CombatDebug>,
+) {
     let dt = delta.delta_seconds;
 
     let mut first_timer_before = -99.0f32;
@@ -75,11 +29,9 @@ pub fn cooldown_system(delta: Res<PhysicsDelta>, mut query: Query<&mut AttackTim
         }
     }
 
-    if let Ok(mut debug) = COMBAT_DEBUG.lock() {
-        debug.sample_timer = first_timer_before;
-        debug.cooldown_entities = timer_count;
-        debug.frame_delta = dt;
-    }
+    debug.sample_timer = first_timer_before;
+    debug.cooldown_entities = timer_count;
+    debug.frame_delta = dt;
 }
 
 /// Process attacks using GPU targeting results.
@@ -88,6 +40,7 @@ pub fn attack_system(
     mut commands: Commands,
     mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut debug: ResMut<CombatDebug>,
 ) {
     // GPU-FIRST: Read from single GpuReadState instead of scattered statics
     let (positions, combat_targets, _npc_count) = {
@@ -186,29 +139,27 @@ pub fn attack_system(
         }
     }
 
-    if let Ok(mut debug) = COMBAT_DEBUG.lock() {
-        debug.attackers_queried = attackers;
-        debug.targets_found = targets_found;
-        debug.attacks_made = attacks;
-        debug.chases_started = chases;
-        debug.in_combat_added = in_combat_added;
-        debug.sample_target_idx = sample_target;
-        debug.positions_len = positions.len();
-        debug.combat_targets_len = combat_targets.len();
-        debug.bounds_failures = bounds_failures;
-        debug.sample_dist = sample_dist;
-        debug.in_range_count = in_range_count;
-        debug.timer_ready_count = timer_ready_count;
-        debug.sample_timer = sample_timer;
-        debug.sample_combat_target_0 = combat_targets.get(0).copied().unwrap_or(-99);
-        debug.sample_combat_target_1 = combat_targets.get(1).copied().unwrap_or(-99);
-        debug.sample_pos_0 = (
-            positions.get(0).copied().unwrap_or(-999.0),
-            positions.get(1).copied().unwrap_or(-999.0),
-        );
-        debug.sample_pos_1 = (
-            positions.get(2).copied().unwrap_or(-999.0),
-            positions.get(3).copied().unwrap_or(-999.0),
-        );
-    }
+    debug.attackers_queried = attackers;
+    debug.targets_found = targets_found;
+    debug.attacks_made = attacks;
+    debug.chases_started = chases;
+    debug.in_combat_added = in_combat_added;
+    debug.sample_target_idx = sample_target;
+    debug.positions_len = positions.len();
+    debug.combat_targets_len = combat_targets.len();
+    debug.bounds_failures = bounds_failures;
+    debug.sample_dist = sample_dist;
+    debug.in_range_count = in_range_count;
+    debug.timer_ready_count = timer_ready_count;
+    debug.sample_timer = sample_timer;
+    debug.sample_combat_target_0 = combat_targets.get(0).copied().unwrap_or(-99);
+    debug.sample_combat_target_1 = combat_targets.get(1).copied().unwrap_or(-99);
+    debug.sample_pos_0 = (
+        positions.get(0).copied().unwrap_or(-999.0),
+        positions.get(1).copied().unwrap_or(-999.0),
+    );
+    debug.sample_pos_1 = (
+        positions.get(2).copied().unwrap_or(-999.0),
+        positions.get(3).copied().unwrap_or(-999.0),
+    );
 }

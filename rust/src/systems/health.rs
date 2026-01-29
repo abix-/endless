@@ -13,6 +13,7 @@ pub fn damage_system(
     mut events: MessageReader<DamageMsg>,
     npc_map: Res<NpcEntityMap>,
     mut query: Query<(&mut Health, &NpcIndex)>,
+    mut debug: ResMut<HealthDebug>,
 ) {
     let mut damage_count = 0;
     for event in events.read() {
@@ -29,13 +30,11 @@ pub fn damage_system(
         }
     }
 
-    if let Ok(mut debug) = HEALTH_DEBUG.lock() {
-        debug.damage_processed = damage_count;
-        debug.bevy_entity_count = query.iter().count();
-        debug.health_samples.clear();
-        for (health, npc_idx) in query.iter().take(10) {
-            debug.health_samples.push((npc_idx.0, health.0));
-        }
+    debug.damage_processed = damage_count;
+    debug.bevy_entity_count = query.iter().count();
+    debug.health_samples.clear();
+    for (health, npc_idx) in query.iter().take(10) {
+        debug.health_samples.push((npc_idx.0, health.0));
     }
 }
 
@@ -43,6 +42,7 @@ pub fn damage_system(
 pub fn death_system(
     mut commands: Commands,
     query: Query<(Entity, &Health, &NpcIndex), Without<Dead>>,
+    mut debug: ResMut<HealthDebug>,
 ) {
     let mut death_count = 0;
     for (entity, health, _npc_idx) in query.iter() {
@@ -52,9 +52,7 @@ pub fn death_system(
         }
     }
 
-    if let Ok(mut debug) = HEALTH_DEBUG.lock() {
-        debug.deaths_this_frame = death_count;
-    }
+    debug.deaths_this_frame = death_count;
 }
 
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
@@ -63,6 +61,9 @@ pub fn death_cleanup_system(
     query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, Option<&Working>), With<Dead>>,
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
+    mut debug: ResMut<HealthDebug>,
+    mut kill_stats: ResMut<KillStats>,
+    mut npcs_by_town: ResMut<NpcsByTownCache>,
 ) {
     let mut despawn_count = 0;
     for (entity, npc_idx, job, town_id, faction, working) in query.iter() {
@@ -75,20 +76,16 @@ pub fn death_cleanup_system(
         }
 
         // Track kill statistics for UI
-        if let Ok(mut kills) = KILL_STATS.lock() {
-            match faction {
-                Faction::Villager => kills.villager_kills += 1,
-                Faction::Raider => kills.guard_kills += 1,
-            }
+        match faction {
+            Faction::Villager => kill_stats.villager_kills += 1,
+            Faction::Raider => kill_stats.guard_kills += 1,
         }
 
-        // Remove from NPCS_BY_TOWN
+        // Remove from per-town NPC list
         if town_id.0 >= 0 {
-            if let Ok(mut by_town) = NPCS_BY_TOWN.lock() {
-                let town_idx = town_id.0 as usize;
-                if town_idx < by_town.len() {
-                    by_town[town_idx].retain(|&i| i != idx);
-                }
+            let town_idx = town_id.0 as usize;
+            if town_idx < npcs_by_town.0.len() {
+                npcs_by_town.0[town_idx].retain(|&i| i != idx);
             }
         }
 
@@ -106,7 +103,5 @@ pub fn death_cleanup_system(
         }
     }
 
-    if let Ok(mut debug) = HEALTH_DEBUG.lock() {
-        debug.despawned_this_frame = despawn_count;
-    }
+    debug.despawned_this_frame = despawn_count;
 }

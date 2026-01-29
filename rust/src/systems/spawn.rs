@@ -7,11 +7,11 @@ use crate::components::*;
 use crate::constants::*;
 use crate::messages::{
     SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, GPU_DISPATCH_COUNT, RESET_BEVY,
-    NPC_META, NpcMeta, NPC_STATES, STATE_IDLE, STATE_ON_DUTY, STATE_GOING_TO_WORK, NPCS_BY_TOWN,
+    STATE_IDLE, STATE_ON_DUTY, STATE_GOING_TO_WORK,
 };
 use crate::resources::*;
 use crate::systems::economy::*;
-use crate::world::WORLD_DATA;
+use crate::world::WorldData;
 
 // Name generation word lists
 const ADJECTIVES: &[&str] = &["Swift", "Brave", "Calm", "Bold", "Sharp", "Quick", "Stern", "Wise", "Keen", "Strong"];
@@ -92,6 +92,10 @@ pub fn spawn_npc_system(
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    world_data: Res<WorldData>,
+    mut npc_meta: ResMut<NpcMetaCache>,
+    mut npc_states: ResMut<NpcStateCache>,
+    mut npcs_by_town: ResMut<NpcsByTownCache>,
 ) {
     let mut max_slot = 0usize;
     let mut had_spawns = false;
@@ -150,7 +154,7 @@ pub fn spawn_npc_system(
                 ec.insert((AttackStats::melee(), AttackTimer(0.0)));
                 ec.insert(Guard);
                 if msg.starting_post >= 0 {
-                    let patrol_posts = build_patrol_route(msg.town_idx as u32);
+                    let patrol_posts = build_patrol_route(&world_data, msg.town_idx as u32);
                     ec.insert((
                         PatrolRoute {
                             posts: patrol_posts,
@@ -189,17 +193,15 @@ pub fn spawn_npc_system(
         pop_inc_alive(&mut pop_stats, job, msg.town_idx);
 
         // Initialize NPC metadata for UI queries
-        if let Ok(mut meta) = NPC_META.lock() {
-            if idx < meta.len() {
-                meta[idx] = NpcMeta {
-                    name: generate_name(job, idx),
-                    level: 1,
-                    xp: 0,
-                    trait_id: (idx % 5) as i32,  // Simple trait assignment (0-4)
-                    town_id: msg.town_idx,
-                    job: msg.job,
-                };
-            }
+        if idx < npc_meta.0.len() {
+            npc_meta.0[idx] = NpcMeta {
+                name: generate_name(job, idx),
+                level: 1,
+                xp: 0,
+                trait_id: (idx % 5) as i32,  // Simple trait assignment (0-4)
+                town_id: msg.town_idx,
+                job: msg.job,
+            };
         }
 
         // Set initial state for UI
@@ -209,19 +211,15 @@ pub fn spawn_npc_system(
             Job::Raider => STATE_IDLE,  // Will be set by npc_decision_system
             Job::Fighter => STATE_IDLE,
         };
-        if let Ok(mut states) = NPC_STATES.lock() {
-            if idx < states.len() {
-                states[idx] = initial_state;
-            }
+        if idx < npc_states.0.len() {
+            npc_states.0[idx] = initial_state;
         }
 
         // Add to per-town NPC list
         if msg.town_idx >= 0 {
-            if let Ok(mut by_town) = NPCS_BY_TOWN.lock() {
-                let town_idx = msg.town_idx as usize;
-                if town_idx < by_town.len() {
-                    by_town[town_idx].push(idx);
-                }
+            let town_idx = msg.town_idx as usize;
+            if town_idx < npcs_by_town.0.len() {
+                npcs_by_town.0[town_idx].push(idx);
             }
         }
     }
@@ -237,15 +235,11 @@ pub fn spawn_npc_system(
 }
 
 /// Build sorted patrol route from WorldData for a given town.
-fn build_patrol_route(town_idx: u32) -> Vec<Vector2> {
-    if let Ok(world) = WORLD_DATA.lock() {
-        let mut posts: Vec<(u32, Vector2)> = world.guard_posts.iter()
-            .filter(|p| p.town_idx == town_idx)
-            .map(|p| (p.patrol_order, p.position))
-            .collect();
-        posts.sort_by_key(|(order, _)| *order);
-        posts.into_iter().map(|(_, pos)| pos).collect()
-    } else {
-        Vec::new()
-    }
+fn build_patrol_route(world: &WorldData, town_idx: u32) -> Vec<Vector2> {
+    let mut posts: Vec<(u32, Vector2)> = world.guard_posts.iter()
+        .filter(|p| p.town_idx == town_idx)
+        .map(|p| (p.patrol_order, p.position))
+        .collect();
+    posts.sort_by_key(|(order, _)| *order);
+    posts.into_iter().map(|(_, pos)| pos).collect()
 }

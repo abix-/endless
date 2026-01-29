@@ -7,7 +7,7 @@ use crate::components::*;
 #[allow(unused_imports)]
 use crate::messages::{FOOD_STORAGE, SPAWN_QUEUE, SpawnNpcMsg, FREE_SLOTS, NPC_SLOT_COUNTER};
 use crate::resources::*;
-use crate::world::{WORLD_DATA, BED_OCCUPANCY, FARM_OCCUPANCY};
+// WorldData, BedOccupancy, FarmOccupancy available via Resources when needed
 
 // Respawn system constants (disabled but kept for later)
 #[allow(dead_code)]
@@ -43,65 +43,6 @@ pub fn pop_dec_working(stats: &mut PopulationStats, job: Job, clan: i32) {
     if let Some(entry) = stats.0.get_mut(&key) {
         entry.working = (entry.working - 1).max(0);
     }
-}
-
-// ============================================================================
-// SLOT AND POSITION HELPERS (used by disabled respawn system)
-// ============================================================================
-
-/// Allocate a slot for a new NPC (reuse free slots first).
-#[allow(dead_code)]
-fn allocate_slot() -> Option<usize> {
-    if let Ok(mut free) = FREE_SLOTS.lock() {
-        if let Some(recycled) = free.pop() {
-            return Some(recycled);
-        }
-    }
-    if let Ok(mut counter) = NPC_SLOT_COUNTER.lock() {
-        if *counter < MAX_NPC_COUNT {
-            let idx = *counter;
-            *counter += 1;
-            return Some(idx);
-        }
-    }
-    None
-}
-
-/// Find a free bed for a given town, returns (bed_index, position).
-#[allow(dead_code)]
-fn find_free_bed(town_idx: u32) -> Option<(usize, (f32, f32))> {
-    let world = WORLD_DATA.lock().ok()?;
-    let occupancy = BED_OCCUPANCY.lock().ok()?;
-
-    for (i, bed) in world.beds.iter().enumerate() {
-        if bed.town_idx == town_idx {
-            if i < occupancy.occupant_npc.len() && occupancy.occupant_npc[i] < 0 {
-                return Some((i, (bed.position.x, bed.position.y)));
-            }
-        }
-    }
-    None
-}
-
-/// Find a farm with lowest occupancy for a given town.
-fn find_available_farm(town_idx: u32) -> Option<(f32, f32)> {
-    let world = WORLD_DATA.lock().ok()?;
-    let occupancy = FARM_OCCUPANCY.lock().ok()?;
-
-    let mut best: Option<(usize, i32, (f32, f32))> = None;
-    for (i, farm) in world.farms.iter().enumerate() {
-        if farm.town_idx == town_idx {
-            let count = occupancy.occupant_count.get(i).copied().unwrap_or(0);
-            match &best {
-                None => best = Some((i, count, (farm.position.x, farm.position.y))),
-                Some((_, best_count, _)) if count < *best_count => {
-                    best = Some((i, count, (farm.position.x, farm.position.y)));
-                }
-                _ => {}
-            }
-        }
-    }
-    best.map(|(_, _, pos)| pos)
 }
 
 // ============================================================================
@@ -163,97 +104,3 @@ fn produce_food(
     }
 }
 
-/// Check each town for respawns.
-fn check_respawns(
-    pop_stats: &PopulationStats,
-    config: &GameConfig,
-    timers: &mut RespawnTimers,
-) {
-    // Get town count from world data
-    let town_count = match WORLD_DATA.lock() {
-        Ok(world) => world.towns.len(),
-        Err(_) => return,
-    };
-
-    for town_idx in 0..town_count {
-        let clan_id = town_idx as i32;
-
-        // Check/update timer for this clan
-        let timer = timers.0.entry(clan_id).or_insert(0);
-        if *timer > 0 {
-            *timer -= 1;
-            continue;
-        }
-
-        // Timer expired, check if we need to spawn
-        let farmer_key = (Job::Farmer as i32, clan_id);
-        let guard_key = (Job::Guard as i32, clan_id);
-
-        let farmers_alive = pop_stats.0.get(&farmer_key).map(|s| s.alive).unwrap_or(0);
-        let guards_alive = pop_stats.0.get(&guard_key).map(|s| s.alive).unwrap_or(0);
-
-        let mut spawned_any = false;
-
-        // Spawn farmer if below cap
-        if farmers_alive < config.farmers_per_town {
-            if let Some(slot) = allocate_slot() {
-                if let Some((_bed_idx, (home_x, home_y))) = find_free_bed(town_idx as u32) {
-                    let (work_x, work_y) = find_available_farm(town_idx as u32).unwrap_or((home_x, home_y));
-                    let spawn_pos = match WORLD_DATA.lock() {
-                        Ok(world) => world.towns.get(town_idx).map(|t| (t.center.x, t.center.y)),
-                        Err(_) => None,
-                    };
-                    if let Some((x, y)) = spawn_pos {
-                        if let Ok(mut queue) = SPAWN_QUEUE.lock() {
-                            queue.push(SpawnNpcMsg {
-                                slot_idx: slot,
-                                x, y,
-                                job: 0, // Farmer
-                                faction: 0, // Villager
-                                town_idx: clan_id,
-                                home_x, home_y,
-                                work_x, work_y,
-                                starting_post: -1,
-                                attack_type: 0,
-                            });
-                            spawned_any = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Spawn guard if below cap
-        if guards_alive < config.guards_per_town {
-            if let Some(slot) = allocate_slot() {
-                if let Some((_bed_idx, (home_x, home_y))) = find_free_bed(town_idx as u32) {
-                    let spawn_pos = match WORLD_DATA.lock() {
-                        Ok(world) => world.towns.get(town_idx).map(|t| (t.center.x, t.center.y)),
-                        Err(_) => None,
-                    };
-                    if let Some((x, y)) = spawn_pos {
-                        if let Ok(mut queue) = SPAWN_QUEUE.lock() {
-                            queue.push(SpawnNpcMsg {
-                                slot_idx: slot,
-                                x, y,
-                                job: 1, // Guard
-                                faction: 0, // Villager
-                                town_idx: clan_id,
-                                home_x, home_y,
-                                work_x: -1.0, work_y: -1.0,
-                                starting_post: 0, // First patrol post
-                                attack_type: 0,
-                            });
-                            spawned_any = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Reset timer if we spawned anything
-        if spawned_any {
-            *timers.0.get_mut(&clan_id).unwrap() = config.spawn_interval_hours;
-        }
-    }
-}

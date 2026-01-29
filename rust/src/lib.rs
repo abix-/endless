@@ -27,7 +27,6 @@ use gpu::GpuCompute;
 use messages::*;
 use resources::*;
 use systems::*;
-use world::*;
 
 // ============================================================================
 // BEVY APP - Initializes ECS world and systems
@@ -61,6 +60,16 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<world::WorldData>()
        .init_resource::<world::BedOccupancy>()
        .init_resource::<world::FarmOccupancy>()
+       .init_resource::<resources::HealthDebug>()
+       .init_resource::<resources::CombatDebug>()
+       .init_resource::<resources::KillStats>()
+       .init_resource::<resources::SelectedNpc>()
+       .init_resource::<resources::NpcMetaCache>()
+       .init_resource::<resources::NpcStateCache>()
+       .init_resource::<resources::NpcEnergyCache>()
+       .init_resource::<resources::NpcsByTownCache>()
+       .init_resource::<resources::NpcLogCache>()
+       .init_resource::<resources::FoodEvents>()
        // Chain phases with explicit command flush between Spawn and Combat
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        // Flush commands after Spawn so Combat sees new entities
@@ -827,29 +836,34 @@ impl EcsNpcManager {
     #[func]
     fn get_combat_debug(&mut self) -> VarDictionary {
         let mut dict = VarDictionary::new();
-        if let Ok(debug) = systems::COMBAT_DEBUG.lock() {
-            dict.set("attackers", debug.attackers_queried as i32);
-            dict.set("targets_found", debug.targets_found as i32);
-            dict.set("attacks", debug.attacks_made as i32);
-            dict.set("chases", debug.chases_started as i32);
-            dict.set("in_combat_added", debug.in_combat_added as i32);
-            dict.set("sample_target", debug.sample_target_idx);
-            dict.set("positions_len", debug.positions_len as i32);
-            dict.set("combat_targets_len", debug.combat_targets_len as i32);
-            dict.set("bounds_fail", debug.bounds_failures as i32);
-            dict.set("sample_dist", debug.sample_dist);
-            dict.set("in_range", debug.in_range_count as i32);
-            dict.set("timer_ready", debug.timer_ready_count as i32);
-            dict.set("sample_timer", debug.sample_timer);
-            dict.set("cooldown_entities", debug.cooldown_entities as i32);
-            dict.set("frame_delta", debug.frame_delta);
-            // Enhanced debug data
-            dict.set("combat_target_0", debug.sample_combat_target_0);
-            dict.set("combat_target_1", debug.sample_combat_target_1);
-            dict.set("pos_0_x", debug.sample_pos_0.0);
-            dict.set("pos_0_y", debug.sample_pos_0.1);
-            dict.set("pos_1_x", debug.sample_pos_1.0);
-            dict.set("pos_1_y", debug.sample_pos_1.1);
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(debug) = app.world().get_resource::<resources::CombatDebug>() {
+                    dict.set("attackers", debug.attackers_queried as i32);
+                    dict.set("targets_found", debug.targets_found as i32);
+                    dict.set("attacks", debug.attacks_made as i32);
+                    dict.set("chases", debug.chases_started as i32);
+                    dict.set("in_combat_added", debug.in_combat_added as i32);
+                    dict.set("sample_target", debug.sample_target_idx);
+                    dict.set("positions_len", debug.positions_len as i32);
+                    dict.set("combat_targets_len", debug.combat_targets_len as i32);
+                    dict.set("bounds_fail", debug.bounds_failures as i32);
+                    dict.set("sample_dist", debug.sample_dist);
+                    dict.set("in_range", debug.in_range_count as i32);
+                    dict.set("timer_ready", debug.timer_ready_count as i32);
+                    dict.set("sample_timer", debug.sample_timer);
+                    dict.set("cooldown_entities", debug.cooldown_entities as i32);
+                    dict.set("frame_delta", debug.frame_delta);
+                    // Enhanced debug data
+                    dict.set("combat_target_0", debug.sample_combat_target_0);
+                    dict.set("combat_target_1", debug.sample_combat_target_1);
+                    dict.set("pos_0_x", debug.sample_pos_0.0);
+                    dict.set("pos_0_y", debug.sample_pos_0.1);
+                    dict.set("pos_1_x", debug.sample_pos_1.0);
+                    dict.set("pos_1_y", debug.sample_pos_1.1);
+                }
+            }
         }
         // Read combat targets for indices 2-3 directly from GPU_READ_STATE
         if let Ok(state) = GPU_READ_STATE.lock() {
@@ -929,17 +943,22 @@ impl EcsNpcManager {
     #[func]
     fn get_health_debug(&self) -> VarDictionary {
         let mut dict = VarDictionary::new();
-        if let Ok(debug) = HEALTH_DEBUG.lock() {
-            dict.set("damage_processed", debug.damage_processed as i32);
-            dict.set("deaths_this_frame", debug.deaths_this_frame as i32);
-            dict.set("despawned_this_frame", debug.despawned_this_frame as i32);
-            dict.set("bevy_entity_count", debug.bevy_entity_count as i32);
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(debug) = app.world().get_resource::<resources::HealthDebug>() {
+                    dict.set("damage_processed", debug.damage_processed as i32);
+                    dict.set("deaths_this_frame", debug.deaths_this_frame as i32);
+                    dict.set("despawned_this_frame", debug.despawned_this_frame as i32);
+                    dict.set("bevy_entity_count", debug.bevy_entity_count as i32);
 
-            // Health samples as string for easy display
-            let samples: Vec<String> = debug.health_samples.iter()
-                .map(|(idx, hp)| format!("{}:{:.0}", idx, hp))
-                .collect();
-            dict.set("health_samples", GString::from(&samples.join(" ")));
+                    // Health samples as string for easy display
+                    let samples: Vec<String> = debug.health_samples.iter()
+                        .map(|(idx, hp)| format!("{}:{:.0}", idx, hp))
+                        .collect();
+                    dict.set("health_samples", GString::from(&samples.join(" ")));
+                }
+            }
         }
         dict
     }
@@ -987,37 +1006,45 @@ impl EcsNpcManager {
             gpu.proj_active.fill(0);
         }
 
-        if let Ok(mut world) = WORLD_DATA.lock() {
-            world.towns.clear();
-            world.farms.clear();
-            world.beds.clear();
-            world.guard_posts.clear();
-        }
-        if let Ok(mut beds) = BED_OCCUPANCY.lock() { beds.occupant_npc.clear(); }
-        if let Ok(mut farms) = FARM_OCCUPANCY.lock() { farms.occupant_count.clear(); }
-
         self.prev_arrivals.fill(false);
 
-        // Reset UI query statics (Phase 9.4)
-        if let Ok(mut meta) = NPC_META.lock() {
-            for m in meta.iter_mut() {
-                *m = NpcMeta::default();
+        // Reset Bevy Resources (world data, occupancy, stats, UI caches)
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                    world.towns.clear();
+                    world.farms.clear();
+                    world.beds.clear();
+                    world.guard_posts.clear();
+                }
+                if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                    beds.occupant_npc.clear();
+                }
+                if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                    farms.occupant_count.clear();
+                }
+                if let Some(mut kills) = app.world_mut().get_resource_mut::<resources::KillStats>() {
+                    *kills = resources::KillStats::default();
+                }
+                if let Some(mut selected) = app.world_mut().get_resource_mut::<resources::SelectedNpc>() {
+                    selected.0 = -1;
+                }
+                // Reset UI caches
+                if let Some(mut meta) = app.world_mut().get_resource_mut::<resources::NpcMetaCache>() {
+                    for m in meta.0.iter_mut() {
+                        *m = resources::NpcMeta::default();
+                    }
+                }
+                if let Some(mut states) = app.world_mut().get_resource_mut::<resources::NpcStateCache>() {
+                    states.0.fill(STATE_IDLE);
+                }
+                if let Some(mut energies) = app.world_mut().get_resource_mut::<resources::NpcEnergyCache>() {
+                    energies.0.fill(100.0);
+                }
+                if let Some(mut by_town) = app.world_mut().get_resource_mut::<resources::NpcsByTownCache>() {
+                    by_town.0.clear();
+                }
             }
-        }
-        if let Ok(mut states) = NPC_STATES.lock() {
-            states.fill(STATE_IDLE);
-        }
-        if let Ok(mut energies) = NPC_ENERGY.lock() {
-            energies.fill(100.0);
-        }
-        if let Ok(mut kills) = KILL_STATS.lock() {
-            *kills = KillStats::default();
-        }
-        if let Ok(mut selected) = SELECTED_NPC.lock() {
-            *selected = -1;
-        }
-        if let Ok(mut by_town) = NPCS_BY_TOWN.lock() {
-            by_town.clear();
         }
 
         if let Ok(mut flag) = RESET_BEVY.lock() { *flag = true; }
@@ -1029,20 +1056,27 @@ impl EcsNpcManager {
 
     #[func]
     fn init_world(&mut self, town_count: i32) {
-        if let Ok(mut world) = WORLD_DATA.lock() {
-            world.towns = Vec::with_capacity(town_count as usize);
-            world.farms = Vec::new();
-            world.beds = Vec::new();
-            world.guard_posts = Vec::new();
-        }
-        if let Ok(mut beds) = BED_OCCUPANCY.lock() { beds.occupant_npc = Vec::new(); }
-        if let Ok(mut farms) = FARM_OCCUPANCY.lock() { farms.occupant_count = Vec::new(); }
-
-        // Initialize per-town NPC lists for UI queries
-        if let Ok(mut by_town) = NPCS_BY_TOWN.lock() {
-            by_town.clear();
-            for _ in 0..town_count {
-                by_town.push(Vec::new());
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                    world.towns = Vec::with_capacity(town_count as usize);
+                    world.farms = Vec::new();
+                    world.beds = Vec::new();
+                    world.guard_posts = Vec::new();
+                }
+                if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                    beds.occupant_npc = Vec::new();
+                }
+                if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                    farms.occupant_count = Vec::new();
+                }
+                // Initialize per-town NPC lists for UI queries
+                if let Some(mut by_town) = app.world_mut().get_resource_mut::<resources::NpcsByTownCache>() {
+                    by_town.0.clear();
+                    for _ in 0..town_count {
+                        by_town.0.push(Vec::new());
+                    }
+                }
             }
         }
     }
@@ -1051,45 +1085,65 @@ impl EcsNpcManager {
     /// faction: 0=Villager, 1=Raider
     #[func]
     fn add_town(&mut self, name: GString, center_x: f32, center_y: f32, faction: i32) {
-        if let Ok(mut world) = WORLD_DATA.lock() {
-            world.towns.push(Town {
-                name: name.to_string(),
-                center: Vector2::new(center_x, center_y),
-                faction,
-            });
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                    world.towns.push(world::Town {
+                        name: name.to_string(),
+                        center: Vector2::new(center_x, center_y),
+                        faction,
+                    });
+                }
+            }
         }
     }
 
     #[func]
     fn add_farm(&mut self, x: f32, y: f32, town_idx: i32) {
-        if let Ok(mut world) = WORLD_DATA.lock() {
-            world.farms.push(Farm {
-                position: Vector2::new(x, y),
-                town_idx: town_idx as u32,
-            });
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                    world.farms.push(world::Farm {
+                        position: Vector2::new(x, y),
+                        town_idx: town_idx as u32,
+                    });
+                }
+                if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                    farms.occupant_count.push(0);
+                }
+            }
         }
-        if let Ok(mut farms) = FARM_OCCUPANCY.lock() { farms.occupant_count.push(0); }
     }
 
     #[func]
     fn add_bed(&mut self, x: f32, y: f32, town_idx: i32) {
-        if let Ok(mut world) = WORLD_DATA.lock() {
-            world.beds.push(Bed {
-                position: Vector2::new(x, y),
-                town_idx: town_idx as u32,
-            });
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                    world.beds.push(world::Bed {
+                        position: Vector2::new(x, y),
+                        town_idx: town_idx as u32,
+                    });
+                }
+                if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                    beds.occupant_npc.push(-1);
+                }
+            }
         }
-        if let Ok(mut beds) = BED_OCCUPANCY.lock() { beds.occupant_npc.push(-1); }
     }
 
     #[func]
     fn add_guard_post(&mut self, x: f32, y: f32, town_idx: i32, patrol_order: i32) {
-        if let Ok(mut world) = WORLD_DATA.lock() {
-            world.guard_posts.push(GuardPost {
-                position: Vector2::new(x, y),
-                town_idx: town_idx as u32,
-                patrol_order: patrol_order as u32,
-            });
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                    world.guard_posts.push(world::GuardPost {
+                        position: Vector2::new(x, y),
+                        town_idx: town_idx as u32,
+                        patrol_order: patrol_order as u32,
+                    });
+                }
+            }
         }
     }
 
@@ -1099,9 +1153,14 @@ impl EcsNpcManager {
 
     #[func]
     fn get_town_center(&self, town_idx: i32) -> Vector2 {
-        if let Ok(world) = WORLD_DATA.lock() {
-            if let Some(town) = world.towns.get(town_idx as usize) {
-                return town.center;
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(world) = app.world().get_resource::<world::WorldData>() {
+                    if let Some(town) = world.towns.get(town_idx as usize) {
+                        return town.center;
+                    }
+                }
             }
         }
         Vector2::ZERO
@@ -1109,10 +1168,15 @@ impl EcsNpcManager {
 
     #[func]
     fn get_patrol_post(&self, town_idx: i32, patrol_order: i32) -> Vector2 {
-        if let Ok(world) = WORLD_DATA.lock() {
-            for post in &world.guard_posts {
-                if post.town_idx == town_idx as u32 && post.patrol_order == patrol_order as u32 {
-                    return post.position;
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(world) = app.world().get_resource::<world::WorldData>() {
+                    for post in &world.guard_posts {
+                        if post.town_idx == town_idx as u32 && post.patrol_order == patrol_order as u32 {
+                            return post.position;
+                        }
+                    }
                 }
             }
         }
@@ -1125,15 +1189,22 @@ impl EcsNpcManager {
         let mut best_idx: i32 = -1;
         let mut best_dist = f32::MAX;
 
-        if let (Ok(world), Ok(beds)) = (WORLD_DATA.lock(), BED_OCCUPANCY.lock()) {
-            for (i, bed) in world.beds.iter().enumerate() {
-                if bed.town_idx != town_idx as u32 { continue; }
-                if i >= beds.occupant_npc.len() { continue; }
-                if beds.occupant_npc[i] >= 0 { continue; }
-                let dist = pos.distance_to(bed.position);
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_idx = i as i32;
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                let world = app.world().get_resource::<world::WorldData>();
+                let beds = app.world().get_resource::<world::BedOccupancy>();
+                if let (Some(world), Some(beds)) = (world, beds) {
+                    for (i, bed) in world.beds.iter().enumerate() {
+                        if bed.town_idx != town_idx as u32 { continue; }
+                        if i >= beds.occupant_npc.len() { continue; }
+                        if beds.occupant_npc[i] >= 0 { continue; }
+                        let dist = pos.distance_to(bed.position);
+                        if dist < best_dist {
+                            best_dist = dist;
+                            best_idx = i as i32;
+                        }
+                    }
                 }
             }
         }
@@ -1146,15 +1217,22 @@ impl EcsNpcManager {
         let mut best_idx: i32 = -1;
         let mut best_dist = f32::MAX;
 
-        if let (Ok(world), Ok(farms)) = (WORLD_DATA.lock(), FARM_OCCUPANCY.lock()) {
-            for (i, farm) in world.farms.iter().enumerate() {
-                if farm.town_idx != town_idx as u32 { continue; }
-                if i >= farms.occupant_count.len() { continue; }
-                if farms.occupant_count[i] >= 1 { continue; }
-                let dist = pos.distance_to(farm.position);
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_idx = i as i32;
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                let world = app.world().get_resource::<world::WorldData>();
+                let farms = app.world().get_resource::<world::FarmOccupancy>();
+                if let (Some(world), Some(farms)) = (world, farms) {
+                    for (i, farm) in world.farms.iter().enumerate() {
+                        if farm.town_idx != town_idx as u32 { continue; }
+                        if i >= farms.occupant_count.len() { continue; }
+                        if farms.occupant_count[i] >= 1 { continue; }
+                        let dist = pos.distance_to(farm.position);
+                        if dist < best_dist {
+                            best_dist = dist;
+                            best_idx = i as i32;
+                        }
+                    }
                 }
             }
         }
@@ -1163,11 +1241,15 @@ impl EcsNpcManager {
 
     #[func]
     fn reserve_bed(&mut self, bed_idx: i32, npc_idx: i32) -> bool {
-        if let Ok(mut beds) = BED_OCCUPANCY.lock() {
-            let idx = bed_idx as usize;
-            if idx < beds.occupant_npc.len() && beds.occupant_npc[idx] < 0 {
-                beds.occupant_npc[idx] = npc_idx;
-                return true;
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                    let idx = bed_idx as usize;
+                    if idx < beds.occupant_npc.len() && beds.occupant_npc[idx] < 0 {
+                        beds.occupant_npc[idx] = npc_idx;
+                        return true;
+                    }
+                }
             }
         }
         false
@@ -1175,19 +1257,29 @@ impl EcsNpcManager {
 
     #[func]
     fn release_bed(&mut self, bed_idx: i32) {
-        if let Ok(mut beds) = BED_OCCUPANCY.lock() {
-            let idx = bed_idx as usize;
-            if idx < beds.occupant_npc.len() { beds.occupant_npc[idx] = -1; }
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                    let idx = bed_idx as usize;
+                    if idx < beds.occupant_npc.len() {
+                        beds.occupant_npc[idx] = -1;
+                    }
+                }
+            }
         }
     }
 
     #[func]
     fn reserve_farm(&mut self, farm_idx: i32) -> bool {
-        if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
-            let idx = farm_idx as usize;
-            if idx < farms.occupant_count.len() && farms.occupant_count[idx] < 1 {
-                farms.occupant_count[idx] += 1;
-                return true;
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                    let idx = farm_idx as usize;
+                    if idx < farms.occupant_count.len() && farms.occupant_count[idx] < 1 {
+                        farms.occupant_count[idx] += 1;
+                        return true;
+                    }
+                }
             }
         }
         false
@@ -1195,10 +1287,14 @@ impl EcsNpcManager {
 
     #[func]
     fn release_farm(&mut self, farm_idx: i32) {
-        if let Ok(mut farms) = FARM_OCCUPANCY.lock() {
-            let idx = farm_idx as usize;
-            if idx < farms.occupant_count.len() && farms.occupant_count[idx] > 0 {
-                farms.occupant_count[idx] -= 1;
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                    let idx = farm_idx as usize;
+                    if idx < farms.occupant_count.len() && farms.occupant_count[idx] > 0 {
+                        farms.occupant_count[idx] -= 1;
+                    }
+                }
             }
         }
     }
@@ -1240,17 +1336,19 @@ impl EcsNpcManager {
 
     /// Get food events since last call (deliveries and consumption).
     #[func]
-    fn get_food_events(&self) -> VarDictionary {
+    fn get_food_events(&mut self) -> VarDictionary {
         let mut dict = VarDictionary::new();
         let mut deliveries = 0i32;
         let mut consumed = 0i32;
-        if let Ok(mut queue) = FOOD_DELIVERED_QUEUE.lock() {
-            deliveries = queue.len() as i32;
-            queue.clear();
-        }
-        if let Ok(mut queue) = FOOD_CONSUMED_QUEUE.lock() {
-            consumed = queue.len() as i32;
-            queue.clear();
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut events) = app.world_mut().get_resource_mut::<resources::FoodEvents>() {
+                    deliveries = events.delivered.len() as i32;
+                    consumed = events.consumed.len() as i32;
+                    events.delivered.clear();
+                    events.consumed.clear();
+                }
+            }
         }
         dict.set("deliveries", deliveries);
         dict.set("consumed", consumed);
@@ -1260,19 +1358,24 @@ impl EcsNpcManager {
     #[func]
     fn get_world_stats(&self) -> VarDictionary {
         let mut dict = VarDictionary::new();
-        if let Ok(world) = WORLD_DATA.lock() {
-            dict.set("town_count", world.towns.len() as i32);
-            dict.set("farm_count", world.farms.len() as i32);
-            dict.set("bed_count", world.beds.len() as i32);
-            dict.set("guard_post_count", world.guard_posts.len() as i32);
-        }
-        if let Ok(beds) = BED_OCCUPANCY.lock() {
-            let free_beds = beds.occupant_npc.iter().filter(|&&x| x < 0).count();
-            dict.set("free_beds", free_beds as i32);
-        }
-        if let Ok(farms) = FARM_OCCUPANCY.lock() {
-            let free_farms = farms.occupant_count.iter().filter(|&&x| x < 1).count();
-            dict.set("free_farms", free_farms as i32);
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(world) = app.world().get_resource::<world::WorldData>() {
+                    dict.set("town_count", world.towns.len() as i32);
+                    dict.set("farm_count", world.farms.len() as i32);
+                    dict.set("bed_count", world.beds.len() as i32);
+                    dict.set("guard_post_count", world.guard_posts.len() as i32);
+                }
+                if let Some(beds) = app.world().get_resource::<world::BedOccupancy>() {
+                    let free_beds = beds.occupant_npc.iter().filter(|&&x| x < 0).count();
+                    dict.set("free_beds", free_beds as i32);
+                }
+                if let Some(farms) = app.world().get_resource::<world::FarmOccupancy>() {
+                    let free_farms = farms.occupant_count.iter().filter(|&&x| x < 1).count();
+                    dict.set("free_farms", free_farms as i32);
+                }
+            }
         }
         dict
     }
@@ -1346,18 +1449,32 @@ impl EcsNpcManager {
         let mut guards_alive = 0i32;
         let mut raiders_alive = 0i32;
 
-        // Count alive NPCs from NPC_META + GPU health
-        if let (Ok(by_town), Ok(meta), Ok(state)) = (NPCS_BY_TOWN.lock(), NPC_META.lock(), GPU_READ_STATE.lock()) {
-            for town_npcs in by_town.iter() {
-                for &idx in town_npcs {
-                    if idx < state.health.len() && state.health[idx] > 0.0 {
-                        match meta[idx].job {
-                            0 => farmers_alive += 1,
-                            1 => guards_alive += 1,
-                            2 => raiders_alive += 1,
-                            _ => {}
+        // Count alive NPCs from NpcMetaCache + GPU health
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let (Some(by_town), Some(meta)) = (
+                    app.world().get_resource::<resources::NpcsByTownCache>(),
+                    app.world().get_resource::<resources::NpcMetaCache>(),
+                ) {
+                    if let Ok(state) = GPU_READ_STATE.lock() {
+                        for town_npcs in by_town.0.iter() {
+                            for &idx in town_npcs {
+                                if idx < state.health.len() && state.health[idx] > 0.0 {
+                                    match meta.0[idx].job {
+                                        0 => farmers_alive += 1,
+                                        1 => guards_alive += 1,
+                                        2 => raiders_alive += 1,
+                                        _ => {}
+                                    }
+                                }
+                            }
                         }
                     }
+                }
+                if let Some(kills) = app.world().get_resource::<resources::KillStats>() {
+                    dict.set("guard_kills", kills.guard_kills);
+                    dict.set("villager_kills", kills.villager_kills);
                 }
             }
         }
@@ -1365,12 +1482,6 @@ impl EcsNpcManager {
         dict.set("farmers_alive", farmers_alive);
         dict.set("guards_alive", guards_alive);
         dict.set("raiders_alive", raiders_alive);
-
-        if let Ok(kills) = KILL_STATS.lock() {
-            dict.set("guard_kills", kills.guard_kills);
-            dict.set("villager_kills", kills.villager_kills);
-        }
-
         dict
     }
 
@@ -1382,15 +1493,25 @@ impl EcsNpcManager {
         let mut guard_count = 0i32;
         let mut raider_count = 0i32;
 
-        if let (Ok(by_town), Ok(meta), Ok(state)) = (NPCS_BY_TOWN.lock(), NPC_META.lock(), GPU_READ_STATE.lock()) {
-            if (town_idx as usize) < by_town.len() {
-                for &idx in &by_town[town_idx as usize] {
-                    if idx < state.health.len() && state.health[idx] > 0.0 {
-                        match meta[idx].job {
-                            0 => farmer_count += 1,
-                            1 => guard_count += 1,
-                            2 => raider_count += 1,
-                            _ => {}
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let (Some(by_town), Some(meta)) = (
+                    app.world().get_resource::<resources::NpcsByTownCache>(),
+                    app.world().get_resource::<resources::NpcMetaCache>(),
+                ) {
+                    if let Ok(state) = GPU_READ_STATE.lock() {
+                        if (town_idx as usize) < by_town.0.len() {
+                            for &idx in &by_town.0[town_idx as usize] {
+                                if idx < state.health.len() && state.health[idx] > 0.0 {
+                                    match meta.0[idx].job {
+                                        0 => farmer_count += 1,
+                                        1 => guard_count += 1,
+                                        2 => raider_count += 1,
+                                        _ => {}
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1419,23 +1540,26 @@ impl EcsNpcManager {
             }
         }
 
-        if let Ok(meta) = NPC_META.lock() {
-            if i < meta.len() {
-                dict.set("name", GString::from(&meta[i].name));
-                dict.set("level", meta[i].level);
-                dict.set("xp", meta[i].xp);
-                dict.set("trait", meta[i].trait_id);
-                dict.set("town_id", meta[i].town_id);
-                dict.set("job", meta[i].job);
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(meta) = app.world().get_resource::<resources::NpcMetaCache>() {
+                    if i < meta.0.len() {
+                        dict.set("name", GString::from(&meta.0[i].name));
+                        dict.set("level", meta.0[i].level);
+                        dict.set("xp", meta.0[i].xp);
+                        dict.set("trait", meta.0[i].trait_id);
+                        dict.set("town_id", meta.0[i].town_id);
+                        dict.set("job", meta.0[i].job);
+                    }
+                }
+                if let Some(states) = app.world().get_resource::<resources::NpcStateCache>() {
+                    dict.set("state", states.0.get(i).copied().unwrap_or(0));
+                }
+                if let Some(energies) = app.world().get_resource::<resources::NpcEnergyCache>() {
+                    dict.set("energy", energies.0.get(i).copied().unwrap_or(0.0));
+                }
             }
-        }
-
-        if let Ok(states) = NPC_STATES.lock() {
-            dict.set("state", states.get(i).copied().unwrap_or(0));
-        }
-
-        if let Ok(energies) = NPC_ENERGY.lock() {
-            dict.set("energy", energies.get(i).copied().unwrap_or(0.0));
         }
 
         dict.set("max_hp", 100.0);
@@ -1450,18 +1574,23 @@ impl EcsNpcManager {
         let i = idx as usize;
         let limit = limit.max(1) as usize;
 
-        if let Ok(logs) = NPC_LOGS.lock() {
-            if let Some(log) = logs.get(i) {
-                // Get last `limit` entries (most recent first)
-                let entries: Vec<_> = log.iter().collect();
-                let start = entries.len().saturating_sub(limit);
-                for entry in entries[start..].iter().rev() {
-                    let mut entry_dict = VarDictionary::new();
-                    entry_dict.set("day", entry.day);
-                    entry_dict.set("hour", entry.hour);
-                    entry_dict.set("minute", entry.minute);
-                    entry_dict.set("message", GString::from(&entry.message));
-                    result.push(&entry_dict.to_variant());
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(logs) = app.world().get_resource::<resources::NpcLogCache>() {
+                    if let Some(log) = logs.0.get(i) {
+                        // Get last `limit` entries (most recent first)
+                        let entries: Vec<_> = log.iter().collect();
+                        let start = entries.len().saturating_sub(limit);
+                        for entry in entries[start..].iter().rev() {
+                            let mut entry_dict = VarDictionary::new();
+                            entry_dict.set("day", entry.day);
+                            entry_dict.set("hour", entry.hour);
+                            entry_dict.set("minute", entry.minute);
+                            entry_dict.set("message", GString::from(&entry.message));
+                            result.push(&entry_dict.to_variant());
+                        }
+                    }
                 }
             }
         }
@@ -1474,33 +1603,42 @@ impl EcsNpcManager {
     fn get_npcs_by_town(&self, town_idx: i32, filter: i32) -> VarArray {
         let mut result = VarArray::new();
 
-        if let (Ok(by_town), Ok(meta), Ok(state), Ok(states)) =
-            (NPCS_BY_TOWN.lock(), NPC_META.lock(), GPU_READ_STATE.lock(), NPC_STATES.lock())
-        {
-            if (town_idx as usize) < by_town.len() {
-                for &idx in &by_town[town_idx as usize] {
-                    // Skip dead NPCs
-                    if idx >= state.health.len() || state.health[idx] <= 0.0 {
-                        continue;
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let (Some(by_town), Some(meta), Some(states)) = (
+                    app.world().get_resource::<resources::NpcsByTownCache>(),
+                    app.world().get_resource::<resources::NpcMetaCache>(),
+                    app.world().get_resource::<resources::NpcStateCache>(),
+                ) {
+                    if let Ok(state) = GPU_READ_STATE.lock() {
+                        if (town_idx as usize) < by_town.0.len() {
+                            for &idx in &by_town.0[town_idx as usize] {
+                                // Skip dead NPCs
+                                if idx >= state.health.len() || state.health[idx] <= 0.0 {
+                                    continue;
+                                }
+
+                                // Apply job filter (-1 = all)
+                                let job = meta.0[idx].job;
+                                if filter >= 0 && job != filter {
+                                    continue;
+                                }
+
+                                let mut npc_dict = VarDictionary::new();
+                                npc_dict.set("idx", idx as i32);
+                                npc_dict.set("name", GString::from(&meta.0[idx].name));
+                                npc_dict.set("job", job);
+                                npc_dict.set("level", meta.0[idx].level);
+                                npc_dict.set("hp", state.health[idx]);
+                                npc_dict.set("max_hp", 100.0f32);
+                                npc_dict.set("state", states.0.get(idx).copied().unwrap_or(0));
+                                npc_dict.set("trait", meta.0[idx].trait_id);
+
+                                result.push(&npc_dict.to_variant());
+                            }
+                        }
                     }
-
-                    // Apply job filter (-1 = all)
-                    let job = meta[idx].job;
-                    if filter >= 0 && job != filter {
-                        continue;
-                    }
-
-                    let mut npc_dict = VarDictionary::new();
-                    npc_dict.set("idx", idx as i32);
-                    npc_dict.set("name", GString::from(&meta[idx].name));
-                    npc_dict.set("job", job);
-                    npc_dict.set("level", meta[idx].level);
-                    npc_dict.set("hp", state.health[idx]);
-                    npc_dict.set("max_hp", 100.0f32);
-                    npc_dict.set("state", states.get(idx).copied().unwrap_or(0));
-                    npc_dict.set("trait", meta[idx].trait_id);
-
-                    result.push(&npc_dict.to_variant());
                 }
             }
         }
@@ -1511,23 +1649,40 @@ impl EcsNpcManager {
     /// Get currently selected NPC index.
     #[func]
     fn get_selected_npc(&self) -> i32 {
-        SELECTED_NPC.lock().map(|s| *s).unwrap_or(-1)
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(selected) = app.world().get_resource::<resources::SelectedNpc>() {
+                    return selected.0;
+                }
+            }
+        }
+        -1
     }
 
     /// Set currently selected NPC index.
     #[func]
     fn set_selected_npc(&mut self, idx: i32) {
-        if let Ok(mut s) = SELECTED_NPC.lock() {
-            *s = idx;
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut selected) = app.world_mut().get_resource_mut::<resources::SelectedNpc>() {
+                    selected.0 = idx;
+                }
+            }
         }
     }
 
     /// Get NPC name by index.
     #[func]
     fn get_npc_name(&self, idx: i32) -> GString {
-        if let Ok(meta) = NPC_META.lock() {
-            if (idx as usize) < meta.len() {
-                return GString::from(&meta[idx as usize].name);
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(meta) = app.world().get_resource::<resources::NpcMetaCache>() {
+                    if (idx as usize) < meta.0.len() {
+                        return GString::from(&meta.0[idx as usize].name);
+                    }
+                }
             }
         }
         GString::new()
@@ -1536,9 +1691,14 @@ impl EcsNpcManager {
     /// Get NPC trait by index.
     #[func]
     fn get_npc_trait(&self, idx: i32) -> i32 {
-        if let Ok(meta) = NPC_META.lock() {
-            if (idx as usize) < meta.len() {
-                return meta[idx as usize].trait_id;
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(meta) = app.world().get_resource::<resources::NpcMetaCache>() {
+                    if (idx as usize) < meta.0.len() {
+                        return meta.0[idx as usize].trait_id;
+                    }
+                }
             }
         }
         0
@@ -1547,9 +1707,13 @@ impl EcsNpcManager {
     /// Set NPC name (for rename feature).
     #[func]
     fn set_npc_name(&mut self, idx: i32, name: GString) {
-        if let Ok(mut meta) = NPC_META.lock() {
-            if (idx as usize) < meta.len() {
-                meta[idx as usize].name = name.to_string();
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut meta) = app.world_mut().get_resource_mut::<resources::NpcMetaCache>() {
+                    if (idx as usize) < meta.0.len() {
+                        meta.0[idx as usize].name = name.to_string();
+                    }
+                }
             }
         }
     }
@@ -1590,12 +1754,20 @@ impl EcsNpcManager {
         let mut total = 0i32;
         let mut free = 0i32;
 
-        if let (Ok(world), Ok(beds)) = (WORLD_DATA.lock(), BED_OCCUPANCY.lock()) {
-            for (i, bed) in world.beds.iter().enumerate() {
-                if bed.town_idx == town_idx as u32 {
-                    total += 1;
-                    if i < beds.occupant_npc.len() && beds.occupant_npc[i] < 0 {
-                        free += 1;
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let (Some(world), Some(beds)) = (
+                    app.world().get_resource::<world::WorldData>(),
+                    app.world().get_resource::<world::BedOccupancy>(),
+                ) {
+                    for (i, bed) in world.beds.iter().enumerate() {
+                        if bed.town_idx == town_idx as u32 {
+                            total += 1;
+                            if i < beds.occupant_npc.len() && beds.occupant_npc[i] < 0 {
+                                free += 1;
+                            }
+                        }
                     }
                 }
             }

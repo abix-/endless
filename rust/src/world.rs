@@ -2,7 +2,6 @@
 
 use godot_bevy::prelude::godot_prelude::*;
 use godot_bevy::prelude::bevy_ecs_prelude::*;
-use std::sync::{Mutex, LazyLock};
 
 // ============================================================================
 // WORLD DATA STRUCTS
@@ -63,16 +62,3 @@ pub struct BedOccupancy {
 pub struct FarmOccupancy {
     pub occupant_count: Vec<i32>,
 }
-
-// ============================================================================
-// STATIC WORLD DATA
-// ============================================================================
-
-/// World data (towns, farms, beds, guard posts). Initialized once from GDScript.
-pub static WORLD_DATA: LazyLock<Mutex<WorldData>> = LazyLock::new(|| Mutex::new(WorldData::default()));
-
-/// Bed occupancy tracking (-1 = free, >= 0 = NPC index).
-pub static BED_OCCUPANCY: LazyLock<Mutex<BedOccupancy>> = LazyLock::new(|| Mutex::new(BedOccupancy::default()));
-
-/// Farm occupancy tracking (count of NPCs working at each farm).
-pub static FARM_OCCUPANCY: LazyLock<Mutex<FarmOccupancy>> = LazyLock::new(|| Mutex::new(FarmOccupancy::default()));

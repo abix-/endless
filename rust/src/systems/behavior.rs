@@ -8,7 +8,7 @@ use crate::messages::*;
 use crate::constants::*;
 use crate::resources::*;
 use crate::systems::economy::*;
-use crate::world::WORLD_DATA;
+use crate::world::WorldData;
 
 /// Tired system: anyone with Home + Energy below threshold goes to rest.
 /// Skip NPCs in combat - they fight until the enemy is dead or they flee.
@@ -178,16 +178,15 @@ pub fn raider_arrival_system(
     raiding_query: Query<(Entity, &NpcIndex, &Home, &Health, Option<&WoundedThreshold>), With<Raiding>>,
     returning_query: Query<(Entity, &NpcIndex, Option<&CarryingFood>), With<Returning>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    world_data: Res<WorldData>,
+    mut food_events: ResMut<FoodEvents>,
 ) {
     // Get current positions and farm locations
     let positions = match GPU_READ_STATE.lock() {
         Ok(state) => state.positions.clone(),
         Err(_) => return,
     };
-    let farms: Vec<Vector2> = match WORLD_DATA.lock() {
-        Ok(world) => world.farms.iter().map(|f| f.position).collect(),
-        Err(_) => Vec::new(),
-    };
+    let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
     const FARM_ARRIVAL_RADIUS: f32 = 100.0;
 
     for event in events.read() {
@@ -254,9 +253,7 @@ pub fn raider_arrival_system(
                             food.food[last_idx] += 1;
                         }
                     }
-                    if let Ok(mut queue) = FOOD_DELIVERED_QUEUE.lock() {
-                        queue.push(FoodDelivered { camp_idx: 0 });
-                    }
+                    food_events.delivered.push(FoodDelivered { camp_idx: 0 });
                 }
 
                 // Fall through to npc_decision_system next tick
@@ -438,6 +435,7 @@ pub fn npc_decision_system(
     >,
     _pop_stats: ResMut<PopulationStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    world_data: Res<WorldData>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -523,7 +521,7 @@ pub fn npc_decision_system(
                     }
                     Job::Raider => {
                         // Find nearest farm and raid it
-                        let nearest_farm = if let Ok(world) = WORLD_DATA.lock() {
+                        let nearest_farm = {
                             let pos = if let Ok(state) = GPU_READ_STATE.lock() {
                                 let i = npc_idx.0;
                                 if i * 2 + 1 < state.positions.len() {
@@ -536,7 +534,7 @@ pub fn npc_decision_system(
                             };
 
                             let mut best: Option<(f32, Vector2)> = None;
-                            for farm in &world.farms {
+                            for farm in &world_data.farms {
                                 let dx = farm.position.x - pos.x;
                                 let dy = farm.position.y - pos.y;
                                 let dist_sq = dx * dx + dy * dy;
@@ -545,8 +543,6 @@ pub fn npc_decision_system(
                                 }
                             }
                             best.map(|(_, p)| p)
-                        } else {
-                            None
                         };
 
                         if let Some(farm_pos) = nearest_farm {

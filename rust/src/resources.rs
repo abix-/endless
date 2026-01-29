@@ -1,7 +1,7 @@
 //! ECS Resources - Shared state accessible by all systems
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 /// Tracks total number of active NPCs.
 #[derive(Resource, Default)]
@@ -99,3 +99,193 @@ impl Default for GameTime {
 /// Per-clan respawn cooldowns. Maps clan_id -> hours until next spawn check.
 #[derive(Resource, Default)]
 pub struct RespawnTimers(pub HashMap<i32, i32>);
+
+// ============================================================================
+// UI STATE RESOURCES
+// ============================================================================
+
+/// Kill statistics for UI display.
+#[derive(Resource, Clone, Default)]
+pub struct KillStats {
+    pub guard_kills: i32,      // Raiders killed by guards
+    pub villager_kills: i32,   // Villagers (farmers/guards) killed by raiders
+}
+
+/// Currently selected NPC index (-1 = none).
+#[derive(Resource, Default)]
+pub struct SelectedNpc(pub i32);
+
+// ============================================================================
+// DEBUG RESOURCES
+// ============================================================================
+
+/// Health system debug info - updated by damage/death systems, read by GDScript.
+#[derive(Resource, Default)]
+pub struct HealthDebug {
+    pub damage_processed: usize,
+    pub deaths_this_frame: usize,
+    pub despawned_this_frame: usize,
+    pub bevy_entity_count: usize,
+    pub health_samples: Vec<(usize, f32)>,
+}
+
+/// Combat system debug info - updated by cooldown/attack systems, read by GDScript.
+#[derive(Resource)]
+pub struct CombatDebug {
+    pub attackers_queried: usize,
+    pub targets_found: usize,
+    pub attacks_made: usize,
+    pub chases_started: usize,
+    pub in_combat_added: usize,
+    pub sample_target_idx: i32,
+    pub positions_len: usize,
+    pub combat_targets_len: usize,
+    pub bounds_failures: usize,
+    pub sample_dist: f32,
+    pub in_range_count: usize,
+    pub timer_ready_count: usize,
+    pub sample_timer: f32,
+    pub cooldown_entities: usize,
+    pub frame_delta: f32,
+    pub sample_combat_target_0: i32,
+    pub sample_combat_target_1: i32,
+    pub sample_pos_0: (f32, f32),
+    pub sample_pos_1: (f32, f32),
+}
+
+impl Default for CombatDebug {
+    fn default() -> Self {
+        Self {
+            attackers_queried: 0,
+            targets_found: 0,
+            attacks_made: 0,
+            chases_started: 0,
+            in_combat_added: 0,
+            sample_target_idx: -99,
+            positions_len: 0,
+            combat_targets_len: 0,
+            bounds_failures: 0,
+            sample_dist: -1.0,
+            in_range_count: 0,
+            timer_ready_count: 0,
+            sample_timer: -1.0,
+            cooldown_entities: 0,
+            frame_delta: 0.0,
+            sample_combat_target_0: -99,
+            sample_combat_target_1: -99,
+            sample_pos_0: (0.0, 0.0),
+            sample_pos_1: (0.0, 0.0),
+        }
+    }
+}
+
+// ============================================================================
+// UI CACHE RESOURCES
+// ============================================================================
+
+const MAX_NPC_COUNT: usize = 10_000;
+const NPC_LOG_CAPACITY: usize = 500;
+
+/// Per-NPC metadata for UI display (names, levels, traits).
+#[derive(Clone, Default)]
+pub struct NpcMeta {
+    pub name: String,
+    pub level: i32,
+    pub xp: i32,
+    pub trait_id: i32,
+    pub town_id: i32,
+    pub job: i32,
+}
+
+/// A single log entry for an NPC's activity history.
+#[derive(Clone)]
+pub struct NpcLogEntry {
+    pub day: i32,
+    pub hour: i32,
+    pub minute: i32,
+    pub message: String,
+}
+
+/// Per-NPC metadata cache (names, levels, traits). Indexed by slot.
+#[derive(Resource)]
+pub struct NpcMetaCache(pub Vec<NpcMeta>);
+
+impl Default for NpcMetaCache {
+    fn default() -> Self {
+        Self(vec![NpcMeta::default(); MAX_NPC_COUNT])
+    }
+}
+
+/// Current state ID per NPC. Updated by behavior systems.
+#[derive(Resource)]
+pub struct NpcStateCache(pub Vec<i32>);
+
+impl Default for NpcStateCache {
+    fn default() -> Self {
+        Self(vec![0; MAX_NPC_COUNT])  // STATE_IDLE = 0
+    }
+}
+
+/// Energy per NPC. Synced from Bevy Energy component.
+#[derive(Resource)]
+pub struct NpcEnergyCache(pub Vec<f32>);
+
+impl Default for NpcEnergyCache {
+    fn default() -> Self {
+        Self(vec![100.0; MAX_NPC_COUNT])
+    }
+}
+
+/// Per-town NPC lists for O(1) roster queries. Index = town_id, value = Vec of NPC slots.
+#[derive(Resource, Default)]
+pub struct NpcsByTownCache(pub Vec<Vec<usize>>);
+
+/// Per-NPC activity logs. Indexed by slot. 500 entries max per NPC.
+#[derive(Resource)]
+pub struct NpcLogCache(pub Vec<VecDeque<NpcLogEntry>>);
+
+impl Default for NpcLogCache {
+    fn default() -> Self {
+        Self((0..MAX_NPC_COUNT).map(|_| VecDeque::with_capacity(NPC_LOG_CAPACITY)).collect())
+    }
+}
+
+impl NpcLogCache {
+    /// Push a log message for an NPC with timestamp.
+    pub fn push(&mut self, idx: usize, day: i32, hour: i32, minute: i32, message: String) {
+        if idx >= MAX_NPC_COUNT {
+            return;
+        }
+        let entry = NpcLogEntry { day, hour, minute, message };
+        if let Some(log) = self.0.get_mut(idx) {
+            if log.len() >= NPC_LOG_CAPACITY {
+                log.pop_front();
+            }
+            log.push_back(entry);
+        }
+    }
+}
+
+// ============================================================================
+// FOOD EVENT RESOURCES
+// ============================================================================
+
+/// A raider delivered stolen food to their camp.
+#[derive(Clone, Debug)]
+pub struct FoodDelivered {
+    pub camp_idx: u32,
+}
+
+/// An NPC consumed food at their home location.
+#[derive(Clone, Debug)]
+pub struct FoodConsumed {
+    pub location_idx: u32,
+    pub is_camp: bool,
+}
+
+/// Food events (deliveries and consumption). Polled and drained by GDScript.
+#[derive(Resource, Default)]
+pub struct FoodEvents {
+    pub delivered: Vec<FoodDelivered>,
+    pub consumed: Vec<FoodConsumed>,
+}

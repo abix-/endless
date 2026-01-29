@@ -158,27 +158,6 @@ pub static GPU_READ_STATE: Mutex<GpuReadState> = Mutex::new(GpuReadState {
 });
 
 // ============================================================================
-// DEBUG INFO
-// ============================================================================
-
-#[derive(Default)]
-pub struct HealthDebugInfo {
-    pub damage_processed: usize,
-    pub deaths_this_frame: usize,
-    pub despawned_this_frame: usize,
-    pub bevy_entity_count: usize,
-    pub health_samples: Vec<(usize, f32)>,
-}
-
-pub static HEALTH_DEBUG: Mutex<HealthDebugInfo> = Mutex::new(HealthDebugInfo {
-    damage_processed: 0,
-    deaths_this_frame: 0,
-    despawned_this_frame: 0,
-    bevy_entity_count: 0,
-    health_samples: Vec::new(),
-});
-
-// ============================================================================
 // FOOD STORAGE (Bevy-owned, polled by GDScript)
 // ============================================================================
 
@@ -200,25 +179,6 @@ pub static FOOD_STORAGE: Mutex<FoodStorage> = Mutex::new(FoodStorage {
     food: Vec::new(),
 });
 
-// ============================================================================
-// FOOD EVENTS (Bevy -> GDScript, polled per frame)
-// ============================================================================
-
-/// A raider delivered stolen food to their camp.
-#[derive(Clone, Debug)]
-pub struct FoodDelivered {
-    pub camp_idx: u32,
-}
-
-/// An NPC consumed food at their home location.
-#[derive(Clone, Debug)]
-pub struct FoodConsumed {
-    pub location_idx: u32,
-    pub is_camp: bool,
-}
-
-pub static FOOD_DELIVERED_QUEUE: Mutex<Vec<FoodDelivered>> = Mutex::new(Vec::new());
-pub static FOOD_CONSUMED_QUEUE: Mutex<Vec<FoodConsumed>> = Mutex::new(Vec::new());
 
 // ============================================================================
 // GAME CONFIG (write-once from GDScript, drained into Res<GameConfig>)
@@ -230,29 +190,8 @@ use crate::resources::GameConfig;
 pub static GAME_CONFIG_STAGING: Mutex<Option<GameConfig>> = Mutex::new(None);
 
 // ============================================================================
-// NPC UI QUERY DATA (Phase 9.4)
+// NPC STATE CONSTANTS (for UI display)
 // ============================================================================
-
-use std::sync::LazyLock;
-
-/// Per-NPC metadata for UI display (names, levels, traits).
-/// Indexed by NPC slot. Reset on spawn, cleared on death.
-#[derive(Clone, Default)]
-pub struct NpcMeta {
-    pub name: String,
-    pub level: i32,
-    pub xp: i32,
-    pub trait_id: i32,
-    pub town_id: i32,
-    pub job: i32,
-}
-
-/// Kill statistics for UI display.
-#[derive(Clone, Default)]
-pub struct KillStats {
-    pub guard_kills: i32,      // Raiders killed by guards
-    pub villager_kills: i32,   // Villagers (farmers/guards) killed by raiders
-}
 
 // State constants matching GDScript NPCState.State
 pub const STATE_IDLE: i32 = 0;
@@ -268,71 +207,4 @@ pub const STATE_RECOVERING: i32 = 9;
 pub const STATE_FLEEING: i32 = 10;
 pub const STATE_GOING_TO_REST: i32 = 11;
 pub const STATE_GOING_TO_WORK: i32 = 12;
-
-const MAX_NPC_COUNT: usize = 10_000;
-
-/// Per-NPC metadata (names, levels, traits). Indexed by slot.
-pub static NPC_META: LazyLock<Mutex<Vec<NpcMeta>>> = LazyLock::new(|| {
-    Mutex::new(vec![NpcMeta::default(); MAX_NPC_COUNT])
-});
-
-/// Current state ID per NPC. Updated by behavior systems.
-pub static NPC_STATES: LazyLock<Mutex<Vec<i32>>> = LazyLock::new(|| {
-    Mutex::new(vec![STATE_IDLE; MAX_NPC_COUNT])
-});
-
-/// Energy per NPC. Synced from Bevy Energy component.
-pub static NPC_ENERGY: LazyLock<Mutex<Vec<f32>>> = LazyLock::new(|| {
-    Mutex::new(vec![100.0; MAX_NPC_COUNT])
-});
-
-/// Kill statistics.
-pub static KILL_STATS: Mutex<KillStats> = Mutex::new(KillStats {
-    guard_kills: 0,
-    villager_kills: 0,
-});
-
-/// Currently selected NPC index (-1 = none).
-pub static SELECTED_NPC: Mutex<i32> = Mutex::new(-1);
-
-/// Per-town NPC lists for O(1) roster queries. Index = town_id, value = Vec of NPC slots.
-pub static NPCS_BY_TOWN: LazyLock<Mutex<Vec<Vec<usize>>>> = LazyLock::new(|| {
-    Mutex::new(Vec::new())
-});
-
-// ============================================================================
-// NPC ACTIVITY LOG (per-NPC decision/state change history)
-// ============================================================================
-
-/// A single log entry for an NPC's activity history.
-#[derive(Clone)]
-pub struct NpcLogEntry {
-    pub day: i32,
-    pub hour: i32,
-    pub minute: i32,
-    pub message: String,
-}
-
-const NPC_LOG_CAPACITY: usize = 500;
-
-/// Per-NPC activity logs. Indexed by slot. 500 entries max per NPC.
-pub static NPC_LOGS: LazyLock<Mutex<Vec<std::collections::VecDeque<NpcLogEntry>>>> = LazyLock::new(|| {
-    Mutex::new((0..MAX_NPC_COUNT).map(|_| std::collections::VecDeque::with_capacity(NPC_LOG_CAPACITY)).collect())
-});
-
-/// Push a log message for an NPC with timestamp.
-pub fn npc_log(idx: usize, day: i32, hour: i32, minute: i32, message: String) {
-    if idx >= MAX_NPC_COUNT {
-        return;
-    }
-    let entry = NpcLogEntry { day, hour, minute, message };
-    if let Ok(mut logs) = NPC_LOGS.lock() {
-        if let Some(log) = logs.get_mut(idx) {
-            if log.len() >= NPC_LOG_CAPACITY {
-                log.pop_front();
-            }
-            log.push_back(entry);
-        }
-    }
-}
 
