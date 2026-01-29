@@ -3,6 +3,7 @@
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::godot_prelude::*;
 
+use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
 use crate::constants::*;
 use crate::messages::{
@@ -96,6 +97,7 @@ pub fn spawn_npc_system(
     mut npc_meta: ResMut<NpcMetaCache>,
     mut npc_states: ResMut<NpcStateCache>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
+    outbox: Option<Res<BevyToGodot>>,
 ) {
     let mut max_slot = 0usize;
     let mut had_spawns = false;
@@ -221,6 +223,16 @@ pub fn spawn_npc_system(
             if town_idx < npcs_by_town.0.len() {
                 npcs_by_town.0[town_idx].push(idx);
             }
+        }
+
+        // Send SpawnView to Godot via channel
+        if let Some(ref out) = outbox {
+            let _ = out.0.send(BevyToGodotMsg::SpawnView {
+                slot: idx,
+                job: msg.job as u8,
+                x: msg.x,
+                y: msg.y,
+            });
         }
     }
 

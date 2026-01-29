@@ -2,6 +2,7 @@
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 
+use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
 use crate::messages::*;
 use crate::resources::*;
@@ -64,6 +65,7 @@ pub fn death_cleanup_system(
     mut debug: ResMut<HealthDebug>,
     mut kill_stats: ResMut<KillStats>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
+    outbox: Option<Res<BevyToGodot>>,
 ) {
     let mut despawn_count = 0;
     for (entity, npc_idx, job, town_id, faction, working) in query.iter() {
@@ -100,6 +102,11 @@ pub fn death_cleanup_system(
         // SLOT REUSE: Return slot to free pool
         if let Ok(mut free) = FREE_SLOTS.lock() {
             free.push(idx);
+        }
+
+        // Send DespawnView to Godot via channel
+        if let Some(ref out) = outbox {
+            let _ = out.0.send(BevyToGodotMsg::DespawnView { slot: idx });
         }
     }
 
