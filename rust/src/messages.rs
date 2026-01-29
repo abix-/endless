@@ -100,6 +100,12 @@ pub static FREE_PROJ_SLOTS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 // Replaces: GPU_TARGET_QUEUE, HEALTH_SYNC_QUEUE, HIDE_NPC_QUEUE
 // ============================================================================
 
+/// GPU update message for event-driven architecture.
+/// Systems send these via MessageWriter instead of locking GPU_UPDATE_QUEUE directly.
+/// Uses Message pattern (not Observer) because GPU updates are high-frequency batch operations.
+#[derive(Message, Clone)]
+pub struct GpuUpdateMsg(pub GpuUpdate);
+
 #[derive(Clone, Debug)]
 pub enum GpuUpdate {
     /// Set movement target for NPC

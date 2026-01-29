@@ -56,14 +56,14 @@ Frame execution order ───────────────────�
 
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
-| [frame-loop.md](frame-loop.md) | Per-frame execution order, communication bridges, timing | 8/10 |
+| [frame-loop.md](frame-loop.md) | Per-frame execution order, communication bridges, timing | 9/10 |
 | [gpu-compute.md](gpu-compute.md) | Compute shaders, 20 GPU buffers, spatial grid, CPU sync | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 8/10 |
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover | 8/10 |
 | [api.md](api.md) | Complete GDScript-to-Rust API (36 methods) | - |
-| [messages.md](messages.md) | Static queues, GPU_UPDATE_QUEUE, GPU_READ_STATE | 8/10 |
+| [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 9/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Migration chunks, performance targets, lessons learned | - |
 

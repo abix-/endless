@@ -5,7 +5,10 @@ use godot_bevy::prelude::godot_prelude::*;
 
 use crate::components::*;
 use crate::constants::*;
-use crate::messages::*;
+use crate::messages::{
+    SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, GPU_DISPATCH_COUNT, RESET_BEVY,
+    NPC_META, NpcMeta, NPC_STATES, STATE_IDLE, STATE_ON_DUTY, STATE_GOING_TO_WORK, NPCS_BY_TOWN,
+};
 use crate::resources::*;
 use crate::systems::economy::*;
 use crate::world::WORLD_DATA;
@@ -81,13 +84,14 @@ pub fn reset_bevy_system(
 }
 
 /// Generic spawn system. Job determines the component template.
-/// All GPU writes go through GPU_UPDATE_QUEUE (no direct buffer_update).
+/// All GPU writes go through GpuUpdateMsg messages (collected at end of frame).
 pub fn spawn_npc_system(
     mut commands: Commands,
     mut events: MessageReader<SpawnNpcMsg>,
     mut count: ResMut<NpcCount>,
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     let mut max_slot = 0usize;
     let mut had_spawns = false;
@@ -101,7 +105,7 @@ pub fn spawn_npc_system(
         let job = Job::from_i32(msg.job);
         let (r, g, b, a) = job.color();
 
-        // GPU writes via queue — no direct buffer_update()
+        // GPU writes via messages — collected at end of frame
         // Target defaults to spawn position; overridden below for jobs with initial destinations
         let (target_x, target_y) = if job == Job::Farmer && msg.work_x >= 0.0 {
             (msg.work_x, msg.work_y)
@@ -116,15 +120,13 @@ pub fn spawn_npc_system(
             Job::Fighter => SPRITE_FIGHTER,
         };
 
-        if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-            queue.push(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y });
-            queue.push(GpuUpdate::SetTarget { idx, x: target_x, y: target_y });
-            queue.push(GpuUpdate::SetColor { idx, r, g, b, a });
-            queue.push(GpuUpdate::SetSpeed { idx, speed: 100.0 });
-            queue.push(GpuUpdate::SetFaction { idx, faction: msg.faction });
-            queue.push(GpuUpdate::SetHealth { idx, health: 100.0 });
-            queue.push(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row });
-        }
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target_x, y: target_y }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: 100.0 }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx, faction: msg.faction }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 100.0 }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row }));
 
         // Generate personality for this NPC
         let personality = generate_personality(idx);

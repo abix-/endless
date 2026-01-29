@@ -25,11 +25,14 @@ BevyApp._process() (autoload — runs FIRST in frame)
 │     cooldown_system → attack_system → damage_system →
 │     death_system → death_cleanup_system
 │
-└─ Step::Behavior
-      handle_arrival_system, raider_arrival_system, energy_system,
-      flee_system, leash_system, tired_system, wounded_rest_system,
-      recovery_system, raider_idle_system, resume_patrol_system,
-      resume_work_system, patrol_system, economy_tick_system
+├─ Step::Behavior
+│     handle_arrival_system, raider_arrival_system, energy_system,
+│     flee_system, leash_system, wounded_rest_system,
+│     recovery_system, patrol_system, economy_tick_system,
+│     npc_decision_system (replaces tired, resume_*, raider_idle)
+│
+└─ collect_gpu_updates (after Step::Behavior)
+      Drains all GpuUpdateMsg messages → single GPU_UPDATE_QUEUE.lock()
 
 EcsNpcManager._process(delta) (scene node — runs AFTER autoloads)
 │
@@ -66,10 +69,12 @@ EcsNpcManager._process(delta) (scene node — runs AFTER autoloads)
 | Direction | Mechanism | Examples |
 |-----------|-----------|---------|
 | GDScript → Bevy | Static Mutex queues (SPAWN_QUEUE, etc.) | spawn_npc() pushes SpawnNpcMsg |
-| Bevy → GPU | GPU_UPDATE_QUEUE (drained in process step 3) | SetTarget, SetHealth, SetPosition, HideNpc |
+| Bevy systems → GPU | MessageWriter<GpuUpdateMsg> → collect_gpu_updates → GPU_UPDATE_QUEUE | SetTarget, SetHealth, SetPosition |
 | GPU → Bevy | GPU_READ_STATE (written in process step 4) | Positions, combat_targets, health |
 | GPU → Bevy | ARRIVAL_QUEUE (written in process step 5) | Arrival events |
 | GPU → Bevy | DAMAGE_QUEUE (written in process step 7) | Projectile hit damage |
+
+**Message vs static Mutex:** Bevy systems no longer lock GPU_UPDATE_QUEUE directly. They emit `GpuUpdateMsg` via godot-bevy's Message system. `collect_gpu_updates` runs after all behavior systems and does a single Mutex lock to batch updates. This enables parallel system execution.
 
 ## Key Invariant: Two Separate Counts
 
@@ -86,6 +91,6 @@ BevyApp (autoload) processes before scene nodes. godot-bevy ticks Bevy's `app.up
 - **One-frame latency**: Bevy systems read GPU_READ_STATE from the *previous* frame's dispatch. Combat targeting uses positions that are one frame old.
 - **No generational indices on GPU side**: NPC slot indices are raw `usize`. Currently safe because chained Combat systems prevent stale references within a frame. See [combat.md](combat.md) for analysis.
 
-## Rating: 8/10
+## Rating: 9/10
 
-The frame loop is well-structured with clear separation between GPU compute, Bevy logic, and rendering. The one-frame latency is standard for CPU/GPU architectures. The Mutex-based communication is simple and correct, though it won't scale to multi-threaded Bevy (not needed today).
+The frame loop is well-structured with clear separation between GPU compute, Bevy logic, and rendering. The one-frame latency is standard for CPU/GPU architectures. GPU update communication now uses godot-bevy Message pattern — systems emit messages, collector batches to single Mutex lock. This enables multi-threaded Bevy scheduling.

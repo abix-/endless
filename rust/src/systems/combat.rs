@@ -4,7 +4,7 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::PhysicsDelta;
 
 use crate::components::*;
-use crate::messages::*;
+use crate::messages::{GPU_READ_STATE, GpuUpdate, GpuUpdateMsg, PROJECTILE_FIRE_QUEUE, FireProjectileMsg};
 
 /// Debug: track combat system activity
 pub static COMBAT_DEBUG: std::sync::Mutex<CombatDebug> = std::sync::Mutex::new(CombatDebug::new());
@@ -87,6 +87,7 @@ pub fn cooldown_system(delta: Res<PhysicsDelta>, mut query: Query<&mut AttackTim
 pub fn attack_system(
     mut commands: Commands,
     mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>), Without<Dead>>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     // GPU-FIRST: Read from single GpuReadState instead of scattered statics
     let (positions, combat_targets, _npc_count) = {
@@ -180,10 +181,7 @@ pub fn attack_system(
             }
         } else {
             // Out of range - chase target
-            // GPU-FIRST: Push to GPU_UPDATE_QUEUE instead of GPU_TARGET_QUEUE
-            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetTarget { idx: i, x: tx, y: ty });
-            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: tx, y: ty }));
             chases += 1;
         }
     }

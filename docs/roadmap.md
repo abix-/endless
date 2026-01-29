@@ -8,7 +8,7 @@ Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk r
 - [x] Phase 9.2: Food production and respawning fully in Bevy (Clan, GameTime, PopulationStats, economy_tick_system)
 - [x] Phase 9.4: UI data queries (NPC_META, NPC_STATES, NPC_ENERGY, selection, 10 query APIs, sprite rendering)
 - [ ] Phase 9.3, 9.5-9.7: Events, building, upgrades, GDScript cleanup
-- [ ] Phase 10: Idiomatic Bevy (static Mutex → Resources + Events)
+- [x] Phase 10.2: GPU Update Messages (static Mutex → MessageWriter/MessageReader)
 
 ## GPU-First Architecture
 
@@ -221,26 +221,27 @@ Each step is a working game state. Old GDScript npc_manager kept as reference un
 - [ ] Update README
 - [ ] Result: No GDScript NPC code remains
 
-**Phase 10: Proper godot-bevy Architecture (Static Mutex → Events + GodotAccess)**
+**Phase 10: Proper godot-bevy Architecture (Static Mutex → Messages + GodotAccess)**
 
-Currently ~20 static Mutex variables handle all communication. Every behavior system directly locks `GPU_UPDATE_QUEUE` — this serializes all systems and hides data flow from Bevy's scheduler. The godot-bevy recommended architecture is event-driven:
+Currently ~20 static Mutex variables handle all communication. Every behavior system directly locks `GPU_UPDATE_QUEUE` — this serializes all systems and hides data flow from Bevy's scheduler. The godot-bevy recommended architecture is message-driven:
 
 ```
-Multi-threaded systems (pure logic) → emit Events → main thread system (GodotAccess) → Godot/GPU APIs
+Multi-threaded systems (pure logic) → emit Messages → collector system → single Mutex lock
 ```
 
-In godot-bevy, systems with `GodotAccess` are forced to main thread. This is the collector pattern - parallel systems do logic, one main-thread system syncs to Godot.
+godot-bevy distinguishes **Messages** (high-frequency batch operations) from **Observers** (infrequent reactive events like button presses). GPU updates happen every frame from multiple systems → Message pattern.
 
 *10.1: Register EcsNpcManager as Bevy Entity*
 - [ ] EcsNpcManager auto-registered as entity when added to scene tree (godot-bevy does this)
 - [ ] Add `EcsNpcManagerMarker` component for querying
 - [ ] Result: Can query EcsNpcManager from Bevy systems via `Query<&GodotNodeHandle, With<EcsNpcManagerMarker>>`
 
-*10.2: GPU Update Events*
-- [ ] Add `GpuUpdateEvent` Bevy Event (wraps current GpuUpdate enum)
-- [ ] Replace `GPU_UPDATE_QUEUE.lock().push()` in all systems with `EventWriter<GpuUpdateEvent>`
-- [ ] Add `render_sync_system` with `GodotAccess` (end of Step::Behavior) — reads events, calls EcsNpcManager GPU methods
-- [ ] Result: Systems parallelizable, single main-thread sync point, Bevy sees data flow
+*10.2: GPU Update Messages* ✓
+- [x] Add `GpuUpdateMsg` Message type (wraps GpuUpdate enum)
+- [x] Replace `GPU_UPDATE_QUEUE.lock().push()` in all systems with `MessageWriter<GpuUpdateMsg>`
+- [x] Add `collect_gpu_updates` system (end of Step::Behavior) — reads messages, pushes to GPU_UPDATE_QUEUE
+- [x] Systems updated: spawn_npc_system, tired_system, resume_patrol_system, resume_work_system, patrol_system, raider_arrival_system, flee_system, leash_system, npc_decision_system, attack_system
+- [x] Result: Systems use idiomatic godot-bevy messaging, single lock point at end of frame
 
 *10.3: World Data + Debug Resources*
 - [ ] Migrate WORLD_DATA, BED_OCCUPANCY, FARM_OCCUPANCY → Bevy Resources

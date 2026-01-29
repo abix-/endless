@@ -14,20 +14,34 @@ Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bev
 | DAMAGE_QUEUE | DamageMsg | npc_index, amount | projectile hits (GPU→CPU) | drain_damage_queue → damage_system |
 | PROJECTILE_FIRE_QUEUE | FireProjectileMsg | from_x/y, to_x/y, damage, faction, shooter, speed, lifetime | attack_system | process() → upload_projectile() |
 
-## GPU Update Queue
+## GPU Update Messages
 
-`GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>>` — unified queue for Bevy systems to write GPU buffer updates. Drained at the start of each `process()` call.
+Systems emit `GpuUpdateMsg` messages via `MessageWriter<GpuUpdateMsg>`. A collector system (`collect_gpu_updates`) runs at end of frame and drains all messages into `GPU_UPDATE_QUEUE` with a single Mutex lock. `process()` then drains the static queue to write GPU buffers.
 
-| Variant | Fields | Producer | GPU Buffer Updated |
-|---------|--------|----------|-------------------|
-| SetTarget | idx, x, y | attack_system, behavior systems | target_buffer, arrival_buffer, backoff_buffer |
-| SetHealth | idx, health | damage_system | health_buffer |
+**Why Messages, not Events?** godot-bevy distinguishes:
+- **Messages** (`#[derive(Message)]`) — high-frequency batch operations (every frame)
+- **Observers** (`#[derive(Event)]`) — infrequent reactive events (button presses, signals)
+
+GPU updates happen every frame from 10+ systems → Message pattern is correct.
+
+```rust
+#[derive(Message, Clone)]
+pub struct GpuUpdateMsg(pub GpuUpdate);
+```
+
+| Variant | Fields | Producer Systems | GPU Buffer Updated |
+|---------|--------|------------------|-------------------|
+| SetTarget | idx, x, y | attack_system, tired_system, resume_patrol_system, resume_work_system, patrol_system, raider_arrival_system, flee_system, leash_system, npc_decision_system | target_buffer, arrival_buffer, backoff_buffer |
+| SetHealth | idx, health | spawn_npc_system, damage_system | health_buffer |
 | SetFaction | idx, faction | spawn_npc_system | faction_buffer |
 | SetPosition | idx, x, y | spawn_npc_system | position_buffer |
 | SetSpeed | idx, speed | spawn_npc_system | speed_buffer |
 | SetColor | idx, r, g, b, a | spawn_npc_system, raider_arrival_system, flee_system | color_buffer |
 | ApplyDamage | idx, amount | (unused — damage goes through Bevy) | health_buffer |
 | HideNpc | idx | death_cleanup_system | position_buffer → (-9999, -9999) |
+| SetSpriteFrame | idx, col, row | spawn_npc_system | sprite_frame_buffer |
+
+**Static Queue (Bevy↔GPU boundary):** `GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>>` — written by `collect_gpu_updates`, drained by `process()`.
 
 ## GPU Read State
 
@@ -112,23 +126,23 @@ Static registries for UI panels to query NPC data. GDScript can't access Bevy Wo
 
 ## Architecture: What Stays Static vs What Migrates
 
-All communication currently uses static Mutex. This is correct for cross-boundary state but not idiomatic for Bevy-internal state. See [roadmap.md](roadmap.md) Phase 10.
+Most cross-boundary state uses static Mutex. Bevy-internal communication uses Messages (high-frequency) or Observers (infrequent). See [roadmap.md](roadmap.md) Phase 10.
 
 | Category | Pattern | Statics | Count |
 |----------|---------|---------|-------|
 | GDScript↔Bevy boundary | Static Mutex (stays) | SPAWN/TARGET/DAMAGE/ARRIVAL_QUEUE, RESET_BEVY, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 8 |
 | Bevy↔GPU boundary | Static Mutex (stays) | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
 | UI query state | Static Mutex (stays) | NPC_META, NPC_STATES, NPC_ENERGY, KILL_STATS, SELECTED_NPC, NPCS_BY_TOWN | 6 |
-| Bevy-internal state | Migrate → `Res<T>` / Events | WORLD_DATA, BED/FARM_OCCUPANCY, HEALTH/COMBAT_DEBUG, FOOD_STORAGE, food event queues | 8 |
+| Bevy-internal state | Migrate → `Res<T>` | WORLD_DATA, BED/FARM_OCCUPANCY, HEALTH/COMBAT_DEBUG, FOOD_STORAGE, food event queues | 8 |
 
-**Migration pattern:** Bevy systems emit `GpuUpdateEvent` instead of locking `GPU_UPDATE_QUEUE` directly. A single collector system drains events and locks the static queue once. Bevy-internal state uses `Res<T>` / `ResMut<T>` with staging statics at the GDScript boundary. This enables multi-threaded Bevy scheduling — systems that don't share Resources can run in parallel.
+**Migration completed (Phase 10.2):** Bevy systems emit `GpuUpdateMsg` via `MessageWriter` instead of locking `GPU_UPDATE_QUEUE` directly. `collect_gpu_updates` system runs at end of frame and does a single Mutex lock to batch all updates. This enables multi-threaded Bevy scheduling — systems that don't share MessageWriter can run in parallel.
 
 ## Known Issues / Limitations
 
 - **All queues are unbounded**: No backpressure. If spawn calls outpace Bevy drain (shouldn't happen at 60fps), queues grow without limit.
 - **GPU_READ_STATE is one frame stale**: Bevy reads positions from previous frame's dispatch. Acceptable at 140fps.
-- **Bevy-internal statics**: 8 statics that should be Bevy Resources still use static Mutex. Functional but hides data dependencies from Bevy's scheduler. See Phase 10 migration plan.
+- **Bevy-internal statics**: 8 statics (WORLD_DATA, occupancy, debug, food) should be Bevy Resources. Functional but hides data dependencies from Bevy's scheduler. See Phase 10.3+ migration plan.
 
-## Rating: 8/10
+## Rating: 9/10
 
-Clean unified queue architecture. GPU_UPDATE_QUEUE consolidates what was originally 10+ separate queues. Spawn path now routes all GPU writes through the queue — no more direct `buffer_update()` calls. The static Mutex pattern is correct for cross-boundary state (12 statics). Bevy-internal state (8 statics) planned for migration to Resources.
+Clean unified queue architecture. GPU updates now use idiomatic godot-bevy Message pattern — systems emit `GpuUpdateMsg` via `MessageWriter`, `collect_gpu_updates` does single Mutex lock at end of frame. Spawn path routes all GPU writes through messages. The static Mutex pattern is correct for cross-boundary state (17 statics). 8 Bevy-internal statics planned for migration to Resources.

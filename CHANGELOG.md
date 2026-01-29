@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-01-29
+- add Phase 10.2: GPU update messages replace direct Mutex locks
+- add GpuUpdateMsg message type (wraps GpuUpdate enum)
+- add collect_gpu_updates system: drains messages, single Mutex lock at end of frame
+- update spawn_npc_system: uses MessageWriter<GpuUpdateMsg>
+- update behavior systems (8 systems): use MessageWriter<GpuUpdateMsg>
+- update attack_system: uses MessageWriter<GpuUpdateMsg>
+- pattern: godot-bevy Messages for high-frequency batch operations (not Observers)
+
 ## 2026-01-28
 - add Time API: get_game_time(), set_time_scale(), set_paused() via BevyApp world access
 - add get_npc_log() API: per-NPC activity log with timestamps

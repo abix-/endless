@@ -51,6 +51,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        .add_message::<SetTargetMsg>()
        .add_message::<ArrivalMsg>()
        .add_message::<DamageMsg>()
+       .add_message::<GpuUpdateMsg>()
        .init_resource::<NpcCount>()
        .init_resource::<NpcEntityMap>()
        .init_resource::<PopulationStats>()
@@ -98,7 +99,9 @@ fn build_app(app: &mut bevy::prelude::App) {
            patrol_system,
            economy_tick_system,
            npc_decision_system,  // Utility AI: replaces tired, resume_*, raider_idle
-       ).in_set(Step::Behavior));
+       ).in_set(Step::Behavior))
+       // Collect GPU updates at end of frame (single Mutex lock point)
+       .add_systems(Update, collect_gpu_updates.after(Step::Behavior));
 }
 
 // ============================================================================

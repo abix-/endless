@@ -1,6 +1,6 @@
 //! Queue drain systems - Move messages from static queues to Bevy events
 
-use godot_bevy::prelude::bevy_ecs_prelude::{MessageWriter, ResMut};
+use godot_bevy::prelude::bevy_ecs_prelude::{MessageWriter, MessageReader, ResMut};
 use crate::messages::*;
 
 /// Drain the spawn queue.
@@ -44,6 +44,16 @@ pub fn drain_damage_queue(mut messages: MessageWriter<DamageMsg>) {
     if let Ok(mut queue) = DAMAGE_QUEUE.lock() {
         for msg in queue.drain(..) {
             messages.write(msg);
+        }
+    }
+}
+
+/// Collect GPU update messages from all systems into the static queue.
+/// Runs at end of Behavior phase - single lock point for all GPU writes.
+pub fn collect_gpu_updates(mut messages: MessageReader<GpuUpdateMsg>) {
+    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+        for msg in messages.read() {
+            queue.push(msg.0.clone());
         }
     }
 }

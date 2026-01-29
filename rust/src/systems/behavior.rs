@@ -17,6 +17,7 @@ pub fn tired_system(
     query: Query<(Entity, &Energy, &NpcIndex, &Home, &Job, &TownId, Option<&Working>),
                  (Without<GoingToRest>, Without<Resting>, Without<InCombat>)>,
     mut pop_stats: ResMut<PopulationStats>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     for (entity, energy, npc_idx, home, job, clan, working) in query.iter() {
         if energy.0 < ENERGY_HUNGRY && home.is_valid() {
@@ -31,14 +32,11 @@ pub fn tired_system(
                 .remove::<Returning>()
                 .insert(GoingToRest);
 
-            // GPU-FIRST: Push to GPU_UPDATE_QUEUE
-            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetTarget {
-                    idx: npc_idx.0,
-                    x: home.0.x,
-                    y: home.0.y,
-                });
-            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                idx: npc_idx.0,
+                x: home.0.x,
+                y: home.0.y,
+            }));
         }
     }
 }
@@ -48,6 +46,7 @@ pub fn tired_system(
 pub fn resume_patrol_system(
     mut commands: Commands,
     query: Query<(Entity, &PatrolRoute, &Energy, &NpcIndex), (With<Resting>, Without<InCombat>)>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     for (entity, patrol, energy, npc_idx) in query.iter() {
         if energy.0 >= ENERGY_RESTED {
@@ -58,14 +57,11 @@ pub fn resume_patrol_system(
 
             // Get current patrol post and set target
             if let Some(pos) = patrol.posts.get(patrol.current) {
-                // GPU-FIRST: Push to GPU_UPDATE_QUEUE
-                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                    queue.push(GpuUpdate::SetTarget {
-                        idx: npc_idx.0,
-                        x: pos.x,
-                        y: pos.y,
-                    });
-                }
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                    idx: npc_idx.0,
+                    x: pos.x,
+                    y: pos.y,
+                }));
             }
         }
     }
@@ -76,6 +72,7 @@ pub fn resume_patrol_system(
 pub fn resume_work_system(
     mut commands: Commands,
     query: Query<(Entity, &WorkPosition, &Energy, &NpcIndex), (With<Resting>, Without<InCombat>)>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     for (entity, work_pos, energy, npc_idx) in query.iter() {
         if energy.0 >= ENERGY_RESTED {
@@ -84,14 +81,11 @@ pub fn resume_work_system(
                 .remove::<Resting>()
                 .insert(GoingToWork);
 
-            // GPU-FIRST: Push to GPU_UPDATE_QUEUE
-            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetTarget {
-                    idx: npc_idx.0,
-                    x: work_pos.0.x,
-                    y: work_pos.0.y,
-                });
-            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                idx: npc_idx.0,
+                x: work_pos.0.x,
+                y: work_pos.0.y,
+            }));
         }
     }
 }
@@ -101,6 +95,7 @@ pub fn resume_work_system(
 pub fn patrol_system(
     mut commands: Commands,
     mut query: Query<(Entity, &mut PatrolRoute, &mut OnDuty, &NpcIndex), Without<InCombat>>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     for (entity, mut patrol, mut on_duty, npc_idx) in query.iter_mut() {
         on_duty.ticks_waiting += 1;
@@ -115,15 +110,12 @@ pub fn patrol_system(
                 .remove::<OnDuty>()
                 .insert(Patrolling);
 
-            // GPU-FIRST: Push to GPU_UPDATE_QUEUE
             if let Some(pos) = patrol.posts.get(patrol.current) {
-                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                    queue.push(GpuUpdate::SetTarget {
-                        idx: npc_idx.0,
-                        x: pos.x,
-                        y: pos.y,
-                    });
-                }
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                    idx: npc_idx.0,
+                    x: pos.x,
+                    y: pos.y,
+                }));
             }
         }
     }
@@ -185,6 +177,7 @@ pub fn raider_arrival_system(
     mut events: MessageReader<ArrivalMsg>,
     raiding_query: Query<(Entity, &NpcIndex, &Home, &Health, Option<&WoundedThreshold>), With<Raiding>>,
     returning_query: Query<(Entity, &NpcIndex, Option<&CarryingFood>), With<Returning>>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     // Get current positions and farm locations
     let positions = match GPU_READ_STATE.lock() {
@@ -224,17 +217,15 @@ pub fn raider_arrival_system(
                     .insert(Returning);
 
                 // Change color to yellow (carrying food)
-                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                    queue.push(GpuUpdate::SetColor {
-                        idx: npc_idx.0,
-                        r: 1.0, g: 0.9, b: 0.2, a: 1.0,
-                    });
-                    queue.push(GpuUpdate::SetTarget {
-                        idx: npc_idx.0,
-                        x: home.0.x,
-                        y: home.0.y,
-                    });
-                }
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
+                    idx: npc_idx.0,
+                    r: 1.0, g: 0.9, b: 0.2, a: 1.0,
+                }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                    idx: npc_idx.0,
+                    x: home.0.x,
+                    y: home.0.y,
+                }));
                 break;
             }
         }
@@ -249,12 +240,10 @@ pub fn raider_arrival_system(
                     cmds.remove::<CarryingFood>();
 
                     // Reset color to raider red
-                    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                        let (r, g, b, a) = Job::Raider.color();
-                        queue.push(GpuUpdate::SetColor {
-                            idx: npc_idx.0, r, g, b, a,
-                        });
-                    }
+                    let (r, g, b, a) = Job::Raider.color();
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
+                        idx: npc_idx.0, r, g, b, a,
+                    }));
 
                     // Deliver food to raider town
                     // TODO: use NPC's TownId component to determine which town
@@ -286,6 +275,7 @@ pub fn raider_arrival_system(
 pub fn flee_system(
     mut commands: Commands,
     query: Query<(Entity, &NpcIndex, &Health, &FleeThreshold, &Home, Option<&CarryingFood>), With<InCombat>>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     for (entity, npc_idx, health, flee, home, carrying) in query.iter() {
         let health_pct = health.0 / 100.0;
@@ -299,21 +289,17 @@ pub fn flee_system(
             if carrying.is_some() {
                 cmds.remove::<CarryingFood>();
                 // Reset color
-                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                    let (r, g, b, a) = Job::Raider.color();
-                    queue.push(GpuUpdate::SetColor {
-                        idx: npc_idx.0, r, g, b, a,
-                    });
-                }
+                let (r, g, b, a) = Job::Raider.color();
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
+                    idx: npc_idx.0, r, g, b, a,
+                }));
             }
 
-            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetTarget {
-                    idx: npc_idx.0,
-                    x: home.0.x,
-                    y: home.0.y,
-                });
-            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                idx: npc_idx.0,
+                x: home.0.x,
+                y: home.0.y,
+            }));
         }
     }
 }
@@ -322,6 +308,7 @@ pub fn flee_system(
 pub fn leash_system(
     mut commands: Commands,
     query: Query<(Entity, &NpcIndex, &LeashRange, &Home, &CombatOrigin), With<InCombat>>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     let positions = match GPU_READ_STATE.lock() {
         Ok(state) => state.positions.clone(),
@@ -349,13 +336,11 @@ pub fn leash_system(
                 .insert(Returning);
 
             // Return home after disengaging
-            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetTarget {
-                    idx: npc_idx.0,
-                    x: home.0.x,
-                    y: home.0.y,
-                });
-            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                idx: npc_idx.0,
+                x: home.0.x,
+                y: home.0.y,
+            }));
         }
     }
 }
@@ -452,6 +437,7 @@ pub fn npc_decision_system(
          Without<InCombat>, Without<Recovering>, Without<Dead>)
     >,
     _pop_stats: ResMut<PopulationStats>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -504,13 +490,11 @@ pub fn npc_decision_system(
                 // Go home to eat or rest
                 if home.is_valid() {
                     commands.entity(entity).insert(GoingToRest);
-                    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                        queue.push(GpuUpdate::SetTarget {
-                            idx: npc_idx.0,
-                            x: home.0.x,
-                            y: home.0.y,
-                        });
-                    }
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                        idx: npc_idx.0,
+                        x: home.0.x,
+                        y: home.0.y,
+                    }));
                 }
             }
             Action::Work => {
@@ -518,26 +502,22 @@ pub fn npc_decision_system(
                     Job::Farmer => {
                         if let Some(wp) = work_pos {
                             commands.entity(entity).insert(GoingToWork);
-                            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                                queue.push(GpuUpdate::SetTarget {
-                                    idx: npc_idx.0,
-                                    x: wp.0.x,
-                                    y: wp.0.y,
-                                });
-                            }
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx: npc_idx.0,
+                                x: wp.0.x,
+                                y: wp.0.y,
+                            }));
                         }
                     }
                     Job::Guard => {
                         if let Some(p) = patrol {
                             commands.entity(entity).insert(Patrolling);
                             if let Some(pos) = p.posts.get(p.current) {
-                                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                                    queue.push(GpuUpdate::SetTarget {
-                                        idx: npc_idx.0,
-                                        x: pos.x,
-                                        y: pos.y,
-                                    });
-                                }
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                    idx: npc_idx.0,
+                                    x: pos.x,
+                                    y: pos.y,
+                                }));
                             }
                         }
                     }
@@ -571,13 +551,11 @@ pub fn npc_decision_system(
 
                         if let Some(farm_pos) = nearest_farm {
                             commands.entity(entity).insert(Raiding);
-                            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                                queue.push(GpuUpdate::SetTarget {
-                                    idx: npc_idx.0,
-                                    x: farm_pos.x,
-                                    y: farm_pos.y,
-                                });
-                            }
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx: npc_idx.0,
+                                x: farm_pos.x,
+                                y: farm_pos.y,
+                            }));
                         }
                     }
                     Job::Fighter => {}
@@ -593,13 +571,11 @@ pub fn npc_decision_system(
                         // Wander within 100px
                         let offset_x = (pseudo_random(npc_idx.0, frame + 1) - 0.5) * 200.0;
                         let offset_y = (pseudo_random(npc_idx.0, frame + 2) - 0.5) * 200.0;
-                        if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                            queue.push(GpuUpdate::SetTarget {
-                                idx: npc_idx.0,
-                                x: x + offset_x,
-                                y: y + offset_y,
-                            });
-                        }
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                            idx: npc_idx.0,
+                            x: x + offset_x,
+                            y: y + offset_y,
+                        }));
                     }
                 }
             }
