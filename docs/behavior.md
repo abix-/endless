@@ -145,8 +145,8 @@ Same situation, different outcomes. That's emergent behavior.
 - Add `HasTarget`
 
 ### raider_arrival_system
-- Reads `ArrivalMsg` for NPCs with `Stealer`
-- `Raiding` arrival (at farm): add `CarryingFood`, remove `Raiding`, add `Returning`, set color yellow, target home
+- Reads `ArrivalMsg` for NPCs with `Raiding` or `Returning` markers
+- `Raiding` arrival: **verifies NPC is within 100px of a farm** before pickup (prevents stale arrival events from spawning or returning home from triggering false pickups). If near farm: add `CarryingFood`, remove `Raiding`, add `Returning`, set color yellow, target home
 - `Returning` arrival (at camp): if `CarryingFood` { remove, deliver food to `FOOD_STORAGE`, push `FoodDelivered`, reset color to red }. NPC has no active state → falls through to `npc_decision_system` next tick.
 
 ### flee_system

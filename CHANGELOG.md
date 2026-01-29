@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-01-28
+- fix raider arrival bug: verify raider is within 100px of farm before food pickup (prevents stale arrival events from spawn/home triggering false pickups)
 - fix fake arrival bug: blocked NPCs no longer trigger arrival, cap backoff at 200 instead of giving up
 - add get_npc_target() API: returns NPC movement target from cached GPU data
 - add target visualization: selected NPC shows cyan line to target + magenta crosshair marker

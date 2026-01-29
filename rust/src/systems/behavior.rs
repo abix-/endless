@@ -186,10 +186,37 @@ pub fn raider_arrival_system(
     raiding_query: Query<(Entity, &NpcIndex, &Home, &Health, Option<&WoundedThreshold>), With<Raiding>>,
     returning_query: Query<(Entity, &NpcIndex, Option<&CarryingFood>), With<Returning>>,
 ) {
+    // Get current positions and farm locations
+    let positions = match GPU_READ_STATE.lock() {
+        Ok(state) => state.positions.clone(),
+        Err(_) => return,
+    };
+    let farms: Vec<Vector2> = match WORLD_DATA.lock() {
+        Ok(world) => world.farms.iter().map(|f| f.position).collect(),
+        Err(_) => Vec::new(),
+    };
+    const FARM_ARRIVAL_RADIUS: f32 = 100.0;
+
     for event in events.read() {
         // Raiding NPC arrived at farm → pick up food
         for (entity, npc_idx, home, _health, _wounded) in raiding_query.iter() {
             if npc_idx.0 == event.npc_index {
+                // Verify raider is actually near a farm (not a stale arrival event)
+                let idx = npc_idx.0;
+                if idx * 2 + 1 >= positions.len() {
+                    break;
+                }
+                let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                let near_farm = farms.iter().any(|farm| {
+                    let dx = pos.x - farm.x;
+                    let dy = pos.y - farm.y;
+                    (dx * dx + dy * dy).sqrt() < FARM_ARRIVAL_RADIUS
+                });
+                if !near_farm {
+                    // Stale arrival event - ignore
+                    break;
+                }
+
                 // Arrived at farm: pick up food, head home
                 commands.entity(entity)
                     .remove::<Raiding>()
