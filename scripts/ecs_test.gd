@@ -1286,6 +1286,12 @@ func _process(delta: float) -> void:
 		frame_count = 0
 		fps_timer = 0.0
 
+	# Poll Bevy→Godot channel messages (Phase 11)
+	if ecs_manager and ecs_manager.has_method("bevy_to_godot"):
+		var messages: Array = ecs_manager.bevy_to_godot()
+		for msg in messages:
+			_log("Channel: %s" % str(msg))
+
 	# NPC count (don't overwrite slider label for test 11)
 	if ecs_manager and current_test != 11:
 		count_label.text = "NPCs: %d" % ecs_manager.get_npc_count()
