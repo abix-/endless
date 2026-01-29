@@ -95,6 +95,7 @@ fn build_app(app: &mut bevy::prelude::App) {
            cooldown_system,
            attack_system,
            damage_system,
+           sync_health_system,  // Phase 11: notify Godot of health changes
            death_system,
            death_cleanup_system,
        ).chain().in_set(Step::Combat))

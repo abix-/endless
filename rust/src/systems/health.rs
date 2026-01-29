@@ -56,6 +56,24 @@ pub fn death_system(
     debug.deaths_this_frame = death_count;
 }
 
+/// Sync changed health to Godot via channel (only sends when health actually changes).
+pub fn sync_health_system(
+    query: Query<(&NpcIndex, &Health), Changed<Health>>,
+    outbox: Option<Res<BevyToGodot>>,
+) {
+    let outbox = match outbox {
+        Some(o) => o,
+        None => return,
+    };
+    for (npc_idx, health) in query.iter() {
+        let _ = outbox.0.send(BevyToGodotMsg::SyncHealth {
+            slot: npc_idx.0,
+            hp: health.0,
+            max_hp: 100.0,  // TODO: make max_hp a component
+        });
+    }
+}
+
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
