@@ -8,6 +8,8 @@ use crate::messages::*;
 use crate::resources::*;
 use crate::systems::economy::*;
 
+// Note: sync_health_system moved to sync.rs (unified sync_to_godot system)
+
 /// Apply queued damage to Health component and sync to GPU.
 /// Uses NpcEntityMap for O(1) entity lookup instead of O(n) iteration.
 pub fn damage_system(
@@ -54,24 +56,6 @@ pub fn death_system(
     }
 
     debug.deaths_this_frame = death_count;
-}
-
-/// Sync changed health to Godot via channel (only sends when health actually changes).
-pub fn sync_health_system(
-    query: Query<(&NpcIndex, &Health), Changed<Health>>,
-    outbox: Option<Res<BevyToGodot>>,
-) {
-    let outbox = match outbox {
-        Some(o) => o,
-        None => return,
-    };
-    for (npc_idx, health) in query.iter() {
-        let _ = outbox.0.send(BevyToGodotMsg::SyncHealth {
-            slot: npc_idx.0,
-            hp: health.0,
-            max_hp: 100.0,  // TODO: make max_hp a component
-        });
-    }
 }
 
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.

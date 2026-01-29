@@ -12,6 +12,20 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 #[derive(Component, Clone, Copy)]
 pub struct NpcIndex(pub usize);
 
+/// NPC position in world coordinates. Bevy owns this, syncs to GPU for physics.
+/// Phase 11: Replaces GPU-owned positions with Bevy-owned + GPU accelerated.
+#[derive(Component, Clone, Copy)]
+pub struct Position {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Position {
+    pub fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+}
+
 /// NPC's job determines behavior and color.
 /// - Farmer (green): works at farms, avoids combat
 /// - Guard (blue): patrols and fights raiders

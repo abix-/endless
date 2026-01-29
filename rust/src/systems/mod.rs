@@ -8,6 +8,7 @@ mod behavior;
 mod health;
 mod combat;
 mod economy;
+mod sync;
 
 pub use drain::*;
 pub use spawn::*;
@@ -17,3 +18,4 @@ pub use behavior::*;
 pub use health::*;
 pub use combat::*;
 pub use economy::*;
+pub use sync::*;

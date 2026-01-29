@@ -78,7 +78,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        // Drain: reset + drain queues (channels + legacy mutexes)
        .add_systems(Update, (
            reset_bevy_system,
-           drain_godot_channel,  // Phase 11: lock-free channel
+           godot_to_bevy_read,   // Phase 11: lock-free channel
            drain_spawn_queue,    // Legacy: will be removed
            drain_target_queue,
            drain_arrival_queue,
@@ -95,7 +95,6 @@ fn build_app(app: &mut bevy::prelude::App) {
            cooldown_system,
            attack_system,
            damage_system,
-           sync_health_system,  // Phase 11: notify Godot of health changes
            death_system,
            death_cleanup_system,
        ).chain().in_set(Step::Combat))
@@ -113,7 +112,9 @@ fn build_app(app: &mut bevy::prelude::App) {
            npc_decision_system,  // Utility AI: replaces tired, resume_*, raider_idle
        ).in_set(Step::Behavior))
        // Collect GPU updates at end of frame (single Mutex lock point)
-       .add_systems(Update, collect_gpu_updates.after(Step::Behavior));
+       .add_systems(Update, collect_gpu_updates.after(Step::Behavior))
+       // Phase 11: Write changed state to BevyToGodot outbox
+       .add_systems(Update, bevy_to_godot_write.after(Step::Behavior));
 }
 
 // ============================================================================

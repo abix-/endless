@@ -61,9 +61,9 @@ pub fn collect_gpu_updates(mut messages: MessageReader<GpuUpdateMsg>) {
     }
 }
 
-/// Drain the GodotToBevy channel and dispatch to Bevy messages/resources.
+/// Read from GodotToBevy inbox and dispatch to Bevy messages/resources.
 /// Phase 11: Replaces static mutex queues with lock-free channel.
-pub fn drain_godot_channel(
+pub fn godot_to_bevy_read(
     inbox: Option<Res<GodotToBevy>>,
     mut spawn_msgs: MessageWriter<SpawnNpcMsg>,
     mut target_msgs: MessageWriter<SetTargetMsg>,

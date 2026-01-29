@@ -140,6 +140,7 @@ pub fn spawn_npc_system(
         // Base entity (all NPCs get these)
         let mut ec = commands.spawn((
             NpcIndex(idx),
+            Position::new(msg.x, msg.y),  // Phase 11: Bevy owns position
             job,
             TownId(msg.town_idx),
             Speed::default(),
