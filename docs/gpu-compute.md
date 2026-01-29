@@ -34,7 +34,7 @@ Workgroup: 64 threads. Dispatched as `ceil(npc_count / 64)` workgroups.
 | 2 | Avoidance force — scan 3x3 grid neighborhood, push away from NPCs within 20px. Asymmetric: moving NPCs shove harder through settled ones. Golden angle spreading for stack-ups. |
 | 2b | TCP-style dodge — head-on, overtaking, crossing path avoidance |
 | 3 | Movement toward target — `velocity = normalize(target - pos) * speed * (1 / (1 + backoff))` |
-| 4 | Blocking detection — push away from target = blocked (backoff += 2), push toward = progress (backoff -= 2), backoff > 120 = give up (settled) |
+| 4 | Blocking detection — push away from target = blocked (backoff += 2), push toward = progress (backoff -= 2), backoff capped at 200 (no fake arrivals) |
 | 5 | Apply movement — `pos += (movement + avoidance) * delta` |
 | 5b | Combat targeting — find nearest hostile NPC within 300px using 3x3 grid. Skip dead (health <= 0) and same faction. |
 | 6 | Write output — positions, arrivals, backoff, combat_targets, MultiMesh buffer |

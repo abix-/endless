@@ -1,6 +1,10 @@
 # Changelog
 
 ## 2026-01-28
+- fix fake arrival bug: blocked NPCs no longer trigger arrival, cap backoff at 200 instead of giving up
+- add get_npc_target() API: returns NPC movement target from cached GPU data
+- add target visualization: selected NPC shows cyan line to target + magenta crosshair marker
+- add targets cache in GpuState for CPU-side target tracking
 - delete raider_idle_system: dead code now absorbed into npc_decision_system
 - disable autospawning: comment out check_respawns call (code kept for later)
 - remove console spam from economy_tick_system and produce_food

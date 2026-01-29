@@ -51,6 +51,7 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 |--------|--------|---------|-------------|
 | `get_npc_count` | none | `i32` | Current NPC count from GPU_READ_STATE |
 | `get_npc_position` | `idx: i32` | `Vector2` | Position from cached GPU data |
+| `get_npc_target` | `idx: i32` | `Vector2` | Movement target from cached GPU data |
 | `get_npc_health` | `idx: i32` | `f32` | Health from cached GPU data |
 | `get_build_info` | none | `String` | Build timestamp and commit hash |
 | `get_debug_stats` | none | `Dictionary` | npc_count, arrived_count, avg/max_backoff, cells_used, max_per_cell |

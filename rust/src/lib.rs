@@ -185,6 +185,10 @@ impl INode2D for EcsNpcManager {
                 match update {
                     GpuUpdate::SetTarget { idx, x, y } => {
                         if idx < MAX_NPC_COUNT {
+                            // Update CPU cache
+                            gpu.targets[idx * 2] = x;
+                            gpu.targets[idx * 2 + 1] = y;
+
                             let target_bytes: Vec<u8> = [x, y].iter()
                                 .flat_map(|f| f.to_le_bytes()).collect();
                             let target_packed = PackedByteArray::from(target_bytes.as_slice());
@@ -786,6 +790,19 @@ impl EcsNpcManager {
             if idx < npc_count {
                 let x = gpu.positions.get(idx * 2).copied().unwrap_or(0.0);
                 let y = gpu.positions.get(idx * 2 + 1).copied().unwrap_or(0.0);
+                return Vector2::new(x, y);
+            }
+        }
+        Vector2::ZERO
+    }
+
+    #[func]
+    fn get_npc_target(&self, npc_index: i32) -> Vector2 {
+        if let Some(gpu) = &self.gpu {
+            let idx = npc_index as usize;
+            if idx < MAX_NPC_COUNT {
+                let x = gpu.targets.get(idx * 2).copied().unwrap_or(0.0);
+                let y = gpu.targets.get(idx * 2 + 1).copied().unwrap_or(0.0);
                 return Vector2::new(x, y);
             }
         }

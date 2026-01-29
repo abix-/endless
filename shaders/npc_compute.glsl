@@ -361,10 +361,8 @@ void main() {
             my_backoff = max(0, my_backoff - 1);
         }
 
-        // Give up after sustained blocking (~2 seconds at 60fps)
-        if (my_backoff > 120) {
-            settled = 1;
-        }
+        // Cap backoff but don't fake arrival - blocked NPCs keep trying
+        my_backoff = min(my_backoff, 200);
     } else if (wants_target && dist_to_target <= params.arrival_threshold) {
         // Reached target!
         settled = 1;

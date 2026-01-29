@@ -108,6 +108,9 @@ pub struct GpuCompute {
     /// Cached positions
     pub positions: Vec<f32>,
 
+    /// Cached targets (movement destination)
+    pub targets: Vec<f32>,
+
     /// Cached colors
     pub colors: Vec<f32>,
 
@@ -277,6 +280,7 @@ impl GpuCompute {
             proj_uniform_set,
             grid: SpatialGrid::new(),
             positions: vec![0.0; MAX_NPC_COUNT * 2],
+            targets: vec![0.0; MAX_NPC_COUNT * 2],
             colors: vec![0.0; MAX_NPC_COUNT * 4],
             factions: vec![0; MAX_NPC_COUNT],
             healths: vec![0.0; MAX_NPC_COUNT],

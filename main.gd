@@ -143,6 +143,9 @@ func _draw() -> void:
 	# Draw buildable slot indicators for player's town
 	_draw_buildable_slots()
 
+	# Draw selected NPC's target visualization
+	_draw_selected_npc_target()
+
 	# Debug: Active radius circle (entity sleeping zone) — needs ECS API
 	#if UserSettings.show_active_radius:
 	#	var camera: Camera2D = get_viewport().get_camera_2d()
@@ -512,6 +515,10 @@ func _process(_delta: float) -> void:
 	if UserSettings.show_active_radius:
 		queue_redraw()
 
+	# Redraw to update selected NPC target visualization
+	if npc_manager.get_selected_npc() >= 0:
+		queue_redraw()
+
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
@@ -628,6 +635,34 @@ func _draw_buildable_slots() -> void:
 		# Bottom-right
 		draw_line(slot_pos + Vector2(half_slot, half_slot), slot_pos + Vector2(half_slot - corner_size, half_slot), locked_color, 1.0)
 		draw_line(slot_pos + Vector2(half_slot, half_slot), slot_pos + Vector2(half_slot, half_slot - corner_size), locked_color, 1.0)
+
+
+func _draw_selected_npc_target() -> void:
+	var selected: int = npc_manager.get_selected_npc()
+	if selected < 0:
+		return
+
+	var npc_pos: Vector2 = npc_manager.get_npc_position(selected)
+	var target_pos: Vector2 = npc_manager.get_npc_target(selected)
+
+	# Skip if no valid target (position 0,0 usually means not set)
+	if target_pos == Vector2.ZERO or npc_pos == Vector2.ZERO:
+		return
+
+	# Draw line from NPC to target
+	var line_color := Color(0.0, 1.0, 1.0, 0.7)  # Cyan
+	draw_line(npc_pos, target_pos, line_color, 2.0)
+
+	# Draw target marker (crosshair)
+	var marker_size := 12.0
+	var marker_color := Color(1.0, 0.0, 1.0, 0.9)  # Magenta
+	draw_line(target_pos + Vector2(-marker_size, 0), target_pos + Vector2(marker_size, 0), marker_color, 2.0)
+	draw_line(target_pos + Vector2(0, -marker_size), target_pos + Vector2(0, marker_size), marker_color, 2.0)
+	draw_circle(target_pos, 8.0, marker_color)
+
+	# Draw distance text
+	var dist: float = npc_pos.distance_to(target_pos)
+	# Note: Drawing text in _draw requires a font - skip for now, just show visual
 
 
 func _calculate_grid_positions(center: Vector2) -> Dictionary:
