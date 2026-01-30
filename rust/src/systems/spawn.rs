@@ -7,7 +7,7 @@ use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
 use crate::constants::*;
 use crate::messages::{
-    SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, GPU_DISPATCH_COUNT, RESET_BEVY,
+    SpawnNpcMsg, GpuUpdate, GpuUpdateMsg,
     STATE_IDLE, STATE_ON_DUTY, STATE_GOING_TO_WORK,
 };
 use crate::resources::*;
@@ -62,20 +62,16 @@ fn generate_personality(slot: usize) -> Personality {
     }
 }
 
-/// Despawn all Bevy entities when RESET_BEVY flag is set.
+/// Despawn all Bevy entities when reset flag is set.
 pub fn reset_bevy_system(
     mut commands: Commands,
     query: Query<Entity, With<NpcIndex>>,
     mut count: ResMut<NpcCount>,
     mut npc_map: ResMut<NpcEntityMap>,
+    mut reset_flag: ResMut<ResetFlag>,
 ) {
-    let should_reset = RESET_BEVY.lock().map(|mut f| {
-        let val = *f;
-        *f = false;
-        val
-    }).unwrap_or(false);
-
-    if should_reset {
+    if reset_flag.0 {
+        reset_flag.0 = false;
         for entity in query.iter() {
             commands.entity(entity).despawn();
         }
@@ -98,6 +94,7 @@ pub fn spawn_npc_system(
     mut npc_states: ResMut<NpcStateCache>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
     outbox: Option<Res<BevyToGodot>>,
+    mut gpu_dispatch: ResMut<GpuDispatchCount>,
 ) {
     let mut max_slot = 0usize;
     let mut had_spawns = false;
@@ -238,12 +235,8 @@ pub fn spawn_npc_system(
     }
 
     // Update GPU dispatch count so process() includes these NPCs
-    if had_spawns {
-        if let Ok(mut dc) = GPU_DISPATCH_COUNT.lock() {
-            if max_slot > *dc {
-                *dc = max_slot;
-            }
-        }
+    if had_spawns && max_slot > gpu_dispatch.0 {
+        gpu_dispatch.0 = max_slot;
     }
 }
 

@@ -2,6 +2,7 @@
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use std::collections::{HashMap, VecDeque};
+use crate::constants::MAX_NPC_COUNT;
 
 /// Tracks total number of active NPCs.
 #[derive(Resource, Default)]
@@ -183,7 +184,6 @@ impl Default for CombatDebug {
 // UI CACHE RESOURCES
 // ============================================================================
 
-const MAX_NPC_COUNT: usize = 10_000;
 const NPC_LOG_CAPACITY: usize = 500;
 
 /// Per-NPC metadata for UI display (names, levels, traits).
@@ -288,4 +288,97 @@ pub struct FoodConsumed {
 pub struct FoodEvents {
     pub delivered: Vec<FoodDelivered>,
     pub consumed: Vec<FoodConsumed>,
+}
+
+// ============================================================================
+// PHASE 11.7: RESOURCES REPLACING STATICS
+// ============================================================================
+
+/// NPC slot allocator. Replaces NPC_SLOT_COUNTER + FREE_SLOTS statics.
+#[derive(Resource, Default)]
+pub struct SlotAllocator {
+    pub next: usize,
+    pub free: Vec<usize>,
+}
+
+impl SlotAllocator {
+    pub fn alloc(&mut self) -> Option<usize> {
+        self.free.pop().or_else(|| {
+            if self.next < MAX_NPC_COUNT {
+                let idx = self.next;
+                self.next += 1;
+                Some(idx)
+            } else {
+                None
+            }
+        })
+    }
+    pub fn free(&mut self, slot: usize) { self.free.push(slot); }
+    pub fn count(&self) -> usize { self.next }
+    pub fn reset(&mut self) { self.next = 0; self.free.clear(); }
+}
+
+/// Projectile slot allocator. Replaces FREE_PROJ_SLOTS static.
+#[derive(Resource)]
+pub struct ProjSlotAllocator {
+    pub next: usize,
+    pub free: Vec<usize>,
+    pub max: usize,
+}
+
+impl Default for ProjSlotAllocator {
+    fn default() -> Self { Self { next: 0, free: Vec::new(), max: 50_000 } }
+}
+
+impl ProjSlotAllocator {
+    pub fn alloc(&mut self) -> Option<usize> {
+        self.free.pop().or_else(|| {
+            if self.next < self.max { let i = self.next; self.next += 1; Some(i) } else { None }
+        })
+    }
+    pub fn free(&mut self, slot: usize) { self.free.push(slot); }
+    pub fn reset(&mut self) { self.next = 0; self.free.clear(); }
+}
+
+/// Reset flag. Replaces RESET_BEVY static.
+#[derive(Resource, Default)]
+pub struct ResetFlag(pub bool);
+
+/// GPU dispatch count. Replaces GPU_DISPATCH_COUNT static.
+#[derive(Resource, Default)]
+pub struct GpuDispatchCount(pub usize);
+
+/// GPU readback state. Replaces GPU_READ_STATE static.
+/// Populated by lib.rs after GPU readback, read by Bevy systems.
+#[derive(Resource)]
+pub struct GpuReadState {
+    pub positions: Vec<f32>,       // [x0, y0, x1, y1, ...]
+    pub combat_targets: Vec<i32>,  // target index per NPC (-1 = none)
+    pub health: Vec<f32>,
+    pub factions: Vec<i32>,
+    pub npc_count: usize,
+}
+
+impl Default for GpuReadState {
+    fn default() -> Self {
+        Self {
+            positions: Vec::new(),
+            combat_targets: Vec::new(),
+            health: Vec::new(),
+            factions: Vec::new(),
+            npc_count: 0,
+        }
+    }
+}
+
+/// Food storage per location. Replaces FOOD_STORAGE static.
+#[derive(Resource, Default)]
+pub struct FoodStorage {
+    pub food: Vec<i32>,  // One entry per clan/location
+}
+
+impl FoodStorage {
+    pub fn init(&mut self, count: usize) {
+        self.food = vec![0; count];
+    }
 }

@@ -45,31 +45,12 @@ pub struct DamageMsg {
 }
 
 // ============================================================================
-// BEVY MESSAGE QUEUES (GDScript -> Bevy ECS)
+// BEVY MESSAGE QUEUES (remaining statics - arrivals still needed by lib.rs)
+// Phase 11.7: Removed SPAWN_QUEUE, TARGET_QUEUE, DAMAGE_QUEUE → channels
 // ============================================================================
 
-pub static SPAWN_QUEUE: Mutex<Vec<SpawnNpcMsg>> = Mutex::new(Vec::new());
-pub static TARGET_QUEUE: Mutex<Vec<SetTargetMsg>> = Mutex::new(Vec::new());
 pub static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
-pub static DAMAGE_QUEUE: Mutex<Vec<DamageMsg>> = Mutex::new(Vec::new());
-
-/// Projectile fire request from attack_system (Bevy -> GPU projectile system).
-/// Drained in process() to create GPU projectiles.
-pub struct FireProjectileMsg {
-    pub from_x: f32,
-    pub from_y: f32,
-    pub to_x: f32,
-    pub to_y: f32,
-    pub damage: f32,
-    pub faction: i32,
-    pub shooter: usize,
-    pub speed: f32,
-    pub lifetime: f32,
-}
-
-pub static PROJECTILE_FIRE_QUEUE: Mutex<Vec<FireProjectileMsg>> = Mutex::new(Vec::new());
-
-pub static RESET_BEVY: Mutex<bool> = Mutex::new(false);
+// Phase 11.7: Removed PROJECTILE_FIRE_QUEUE, RESET_BEVY → channels
 
 // ============================================================================
 // SLOT ALLOCATION vs GPU DISPATCH (two separate counts)

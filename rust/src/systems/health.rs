@@ -17,6 +17,7 @@ pub fn damage_system(
     npc_map: Res<NpcEntityMap>,
     mut query: Query<(&mut Health, &NpcIndex)>,
     mut debug: ResMut<HealthDebug>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     let mut damage_count = 0;
     for event in events.read() {
@@ -25,10 +26,7 @@ pub fn damage_system(
         if let Some(&entity) = npc_map.0.get(&event.npc_index) {
             if let Ok((mut health, npc_idx)) = query.get_mut(entity) {
                 health.0 = (health.0 - event.amount).max(0.0);
-                // GPU-FIRST: Push to GPU_UPDATE_QUEUE
-                if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                    queue.push(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 });
-                }
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
             }
         }
     }
@@ -68,6 +66,8 @@ pub fn death_cleanup_system(
     mut kill_stats: ResMut<KillStats>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
     outbox: Option<Res<BevyToGodot>>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut slots: ResMut<SlotAllocator>,
 ) {
     let mut despawn_count = 0;
     for (entity, npc_idx, job, town_id, faction, working) in query.iter() {
@@ -96,15 +96,11 @@ pub fn death_cleanup_system(
         // Remove from entity map
         npc_map.0.remove(&idx);
 
-        // GPU-FIRST: Hide NPC visually
-        if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-            queue.push(GpuUpdate::HideNpc { idx });
-        }
+        // Hide NPC visually via message
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx }));
 
-        // SLOT REUSE: Return slot to free pool
-        if let Ok(mut free) = FREE_SLOTS.lock() {
-            free.push(idx);
-        }
+        // Return slot to free pool
+        slots.free(idx);
 
         // Send DespawnView to Godot via channel
         if let Some(ref out) = outbox {

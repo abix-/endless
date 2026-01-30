@@ -2,29 +2,16 @@
 
 use godot_bevy::prelude::bevy_ecs_prelude::{MessageWriter, MessageReader, Res, ResMut};
 use crate::channels::{GodotToBevy, GodotToBevyMsg};
-use crate::constants::MAX_NPC_COUNT;
 use crate::messages::*;
-use crate::resources;
+use crate::resources::{self, ResetFlag};
 
-/// Drain the spawn queue.
-pub fn drain_spawn_queue(mut messages: MessageWriter<SpawnNpcMsg>) {
-    if let Ok(mut queue) = SPAWN_QUEUE.lock() {
-        for msg in queue.drain(..) {
-            messages.write(msg);
-        }
-    }
-}
-
-/// Drain the target queue.
-pub fn drain_target_queue(mut messages: MessageWriter<SetTargetMsg>) {
-    if let Ok(mut queue) = TARGET_QUEUE.lock() {
-        for msg in queue.drain(..) {
-            messages.write(msg);
-        }
-    }
-}
+// Legacy drain functions removed in Phase 11.7:
+// - drain_spawn_queue → godot_to_bevy_read
+// - drain_target_queue → godot_to_bevy_read
+// - drain_damage_queue → godot_to_bevy_read
 
 /// Drain arrival queue and convert to Bevy messages.
+/// Still needed: lib.rs pushes arrivals from GPU readback.
 pub fn drain_arrival_queue(mut messages: MessageWriter<ArrivalMsg>) {
     if let Ok(mut queue) = ARRIVAL_QUEUE.lock() {
         for msg in queue.drain(..) {
@@ -42,17 +29,9 @@ pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>) {
     }
 }
 
-/// Drain the damage queue.
-pub fn drain_damage_queue(mut messages: MessageWriter<DamageMsg>) {
-    if let Ok(mut queue) = DAMAGE_QUEUE.lock() {
-        for msg in queue.drain(..) {
-            messages.write(msg);
-        }
-    }
-}
-
 /// Collect GPU update messages from all systems into the static queue.
 /// Runs at end of Behavior phase - single lock point for all GPU writes.
+/// Still needed: lib.rs reads GPU_UPDATE_QUEUE to update GPU buffers.
 pub fn collect_gpu_updates(mut messages: MessageReader<GpuUpdateMsg>) {
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for msg in messages.read() {
@@ -70,6 +49,7 @@ pub fn godot_to_bevy_read(
     mut damage_msgs: MessageWriter<DamageMsg>,
     mut game_time: ResMut<resources::GameTime>,
     mut selected: ResMut<resources::SelectedNpc>,
+    mut reset_flag: ResMut<ResetFlag>,
 ) {
     let inbox = match inbox {
         Some(r) => r,
@@ -78,25 +58,22 @@ pub fn godot_to_bevy_read(
     while let Ok(msg) = inbox.0.try_recv() {
         match msg {
             GodotToBevyMsg::SpawnNpc {
-                x, y, job, faction, town_idx,
+                slot_idx, x, y, job, faction, town_idx,
                 home_x, home_y, work_x, work_y,
                 starting_post, attack_type,
             } => {
-                // Allocate slot (still uses static for now)
-                let slot = allocate_slot();
-                if let Some(idx) = slot {
-                    spawn_msgs.write(SpawnNpcMsg {
-                        slot_idx: idx,
-                        x, y,
-                        job: job as i32,
-                        faction: faction as i32,
-                        town_idx,
-                        home_x, home_y,
-                        work_x, work_y,
-                        starting_post,
-                        attack_type: attack_type as i32,
-                    });
-                }
+                // Slot pre-allocated by lib.rs
+                spawn_msgs.write(SpawnNpcMsg {
+                    slot_idx,
+                    x, y,
+                    job: job as i32,
+                    faction: faction as i32,
+                    town_idx,
+                    home_x, home_y,
+                    work_x, work_y,
+                    starting_post,
+                    attack_type: attack_type as i32,
+                });
             }
             GodotToBevyMsg::SetTarget { slot, x, y } => {
                 target_msgs.write(SetTargetMsg { npc_index: slot, x, y });
@@ -111,9 +88,7 @@ pub fn godot_to_bevy_read(
                 // TODO: implement click-to-select in Bevy
             }
             GodotToBevyMsg::Reset => {
-                if let Ok(mut flag) = RESET_BEVY.lock() {
-                    *flag = true;
-                }
+                reset_flag.0 = true;
             }
             GodotToBevyMsg::SetPaused(paused) => {
                 game_time.paused = paused;
@@ -123,21 +98,4 @@ pub fn godot_to_bevy_read(
             }
         }
     }
-}
-
-/// Allocate an NPC slot: reuse a free slot or allocate new.
-fn allocate_slot() -> Option<usize> {
-    if let Ok(mut free) = FREE_SLOTS.lock() {
-        if let Some(recycled) = free.pop() {
-            return Some(recycled);
-        }
-    }
-    if let Ok(mut counter) = NPC_SLOT_COUNTER.lock() {
-        if *counter < MAX_NPC_COUNT {
-            let idx = *counter;
-            *counter += 1;
-            return Some(idx);
-        }
-    }
-    None
 }

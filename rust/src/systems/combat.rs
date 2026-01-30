@@ -3,9 +3,10 @@
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::PhysicsDelta;
 
+use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
-use crate::messages::{GPU_READ_STATE, GpuUpdate, GpuUpdateMsg, PROJECTILE_FIRE_QUEUE, FireProjectileMsg};
-use crate::resources::CombatDebug;
+use crate::messages::{GpuUpdate, GpuUpdateMsg};
+use crate::resources::{CombatDebug, GpuReadState};
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
@@ -41,14 +42,11 @@ pub fn attack_system(
     mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<CombatDebug>,
+    gpu_state: Res<GpuReadState>,
+    outbox: Option<Res<BevyToGodot>>,
 ) {
-    // GPU-FIRST: Read from single GpuReadState instead of scattered statics
-    let (positions, combat_targets, _npc_count) = {
-        match GPU_READ_STATE.lock() {
-            Ok(state) => (state.positions.clone(), state.combat_targets.clone(), state.npc_count),
-            Err(_) => return,
-        }
-    };
+    let positions = &gpu_state.positions;
+    let combat_targets = &gpu_state.combat_targets;
 
     let mut attackers = 0usize;
     let mut targets_found = 0usize;
@@ -115,9 +113,9 @@ pub fn attack_system(
             }
             if timer.0 <= 0.0 {
                 timer_ready_count += 1;
-                // Attack! Fire projectile (melee = fast projectile, ranged = slow projectile)
-                if let Ok(mut queue) = PROJECTILE_FIRE_QUEUE.lock() {
-                    queue.push(FireProjectileMsg {
+                // Attack! Fire projectile via outbox
+                if let Some(ref out) = outbox {
+                    let _ = out.0.send(BevyToGodotMsg::FireProjectile {
                         from_x: x,
                         from_y: y,
                         to_x: tx,

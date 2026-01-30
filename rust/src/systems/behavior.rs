@@ -4,9 +4,9 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::godot_prelude::*;
 
 use crate::components::*;
-use crate::messages::*;
+use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::*;
+use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage};
 use crate::systems::economy::*;
 use crate::world::WorldData;
 
@@ -180,12 +180,10 @@ pub fn raider_arrival_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     world_data: Res<WorldData>,
     mut food_events: ResMut<FoodEvents>,
+    gpu_state: Res<GpuReadState>,
+    mut food_storage: ResMut<FoodStorage>,
 ) {
-    // Get current positions and farm locations
-    let positions = match GPU_READ_STATE.lock() {
-        Ok(state) => state.positions.clone(),
-        Err(_) => return,
-    };
+    let positions = &gpu_state.positions;
     let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
     const FARM_ARRIVAL_RADIUS: f32 = 100.0;
 
@@ -245,13 +243,9 @@ pub fn raider_arrival_system(
                     }));
 
                     // Deliver food to raider town
-                    // TODO: use NPC's TownId component to determine which town
-                    if let Ok(mut food) = FOOD_STORAGE.lock() {
-                        if !food.food.is_empty() {
-                            // Raider towns are at the end of the food array
-                            let last_idx = food.food.len() - 1;
-                            food.food[last_idx] += 1;
-                        }
+                    if !food_storage.food.is_empty() {
+                        let last_idx = food_storage.food.len() - 1;
+                        food_storage.food[last_idx] += 1;
                     }
                     food_events.delivered.push(FoodDelivered { camp_idx: 0 });
                 }
@@ -306,11 +300,9 @@ pub fn leash_system(
     mut commands: Commands,
     query: Query<(Entity, &NpcIndex, &LeashRange, &Home, &CombatOrigin), With<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    gpu_state: Res<GpuReadState>,
 ) {
-    let positions = match GPU_READ_STATE.lock() {
-        Ok(state) => state.positions.clone(),
-        Err(_) => return,
-    };
+    let positions = &gpu_state.positions;
 
     for (entity, npc_idx, leash, home, origin) in query.iter() {
         let i = npc_idx.0;
@@ -436,6 +428,7 @@ pub fn npc_decision_system(
     _pop_stats: ResMut<PopulationStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     world_data: Res<WorldData>,
+    gpu_state: Res<GpuReadState>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -522,13 +515,9 @@ pub fn npc_decision_system(
                     Job::Raider => {
                         // Find nearest farm and raid it
                         let nearest_farm = {
-                            let pos = if let Ok(state) = GPU_READ_STATE.lock() {
-                                let i = npc_idx.0;
-                                if i * 2 + 1 < state.positions.len() {
-                                    Vector2::new(state.positions[i * 2], state.positions[i * 2 + 1])
-                                } else {
-                                    home.0
-                                }
+                            let i = npc_idx.0;
+                            let pos = if i * 2 + 1 < gpu_state.positions.len() {
+                                Vector2::new(gpu_state.positions[i * 2], gpu_state.positions[i * 2 + 1])
                             } else {
                                 home.0
                             };
@@ -559,20 +548,18 @@ pub fn npc_decision_system(
             }
             Action::Wander => {
                 // Random wander near current position
-                if let Ok(state) = GPU_READ_STATE.lock() {
-                    let i = npc_idx.0;
-                    if i * 2 + 1 < state.positions.len() {
-                        let x = state.positions[i * 2];
-                        let y = state.positions[i * 2 + 1];
-                        // Wander within 100px
-                        let offset_x = (pseudo_random(npc_idx.0, frame + 1) - 0.5) * 200.0;
-                        let offset_y = (pseudo_random(npc_idx.0, frame + 2) - 0.5) * 200.0;
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                            idx: npc_idx.0,
-                            x: x + offset_x,
-                            y: y + offset_y,
-                        }));
-                    }
+                let i = npc_idx.0;
+                if i * 2 + 1 < gpu_state.positions.len() {
+                    let x = gpu_state.positions[i * 2];
+                    let y = gpu_state.positions[i * 2 + 1];
+                    // Wander within 100px
+                    let offset_x = (pseudo_random(npc_idx.0, frame + 1) - 0.5) * 200.0;
+                    let offset_y = (pseudo_random(npc_idx.0, frame + 2) - 0.5) * 200.0;
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                        idx: npc_idx.0,
+                        x: x + offset_x,
+                        y: y + offset_y,
+                    }));
                 }
             }
             Action::Fight | Action::Flee => {

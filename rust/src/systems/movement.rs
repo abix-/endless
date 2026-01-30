@@ -3,22 +3,22 @@
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 
 use crate::components::*;
-use crate::messages::*;
+use crate::messages::{SetTargetMsg, GpuUpdate, GpuUpdateMsg};
+use crate::resources::GpuReadState;
 
 /// Process target messages: push to GPU update queue and add HasTarget component.
 pub fn apply_targets_system(
     mut commands: Commands,
     mut events: MessageReader<SetTargetMsg>,
     query: Query<(Entity, &NpcIndex), Without<HasTarget>>,
+    gpu_state: Res<GpuReadState>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
-    let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
+    let npc_count = gpu_state.npc_count;
 
     for event in events.read() {
         if event.npc_index < npc_count {
-            // GPU-FIRST: Push to GPU_UPDATE_QUEUE
-            if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetTarget { idx: event.npc_index, x: event.x, y: event.y });
-            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: event.npc_index, x: event.x, y: event.y }));
 
             // Add HasTarget component to entity (if not already present)
             for (entity, npc_idx) in query.iter() {
@@ -36,11 +36,9 @@ pub fn apply_targets_system(
 /// Only updates positions that actually changed (within epsilon).
 pub fn gpu_position_readback(
     mut query: Query<(&NpcIndex, &mut Position)>,
+    gpu_state: Res<GpuReadState>,
 ) {
-    let positions = match GPU_READ_STATE.lock() {
-        Ok(state) => state.positions.clone(),
-        Err(_) => return,
-    };
+    let positions = &gpu_state.positions;
 
     const EPSILON: f32 = 0.01;
 

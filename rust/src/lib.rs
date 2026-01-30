@@ -75,15 +75,12 @@ fn build_app(app: &mut bevy::prelude::App) {
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        // Flush commands after Spawn so Combat sees new entities
        .add_systems(Update, bevy::ecs::schedule::ApplyDeferred.after(Step::Spawn).before(Step::Combat))
-       // Drain: reset + drain queues (channels + legacy mutexes)
+       // Drain: reset + drain queues (channels + legacy mutexes still used by lib.rs)
        .add_systems(Update, (
            reset_bevy_system,
            gpu_position_readback, // Phase 11: GPU → Bevy position sync
-           godot_to_bevy_read,    // Phase 11: lock-free channel
-           drain_spawn_queue,     // Legacy: will be removed
-           drain_target_queue,
-           drain_arrival_queue,
-           drain_damage_queue,
+           godot_to_bevy_read,    // Phase 11: lock-free channel (spawn, target, damage)
+           drain_arrival_queue,   // Still needed: lib.rs pushes arrivals from GPU
            drain_game_config,
        ).in_set(Step::Drain))
        // Spawn: create entities
@@ -367,32 +364,37 @@ impl INode2D for EcsNpcManager {
             let mut rs = RenderingServer::singleton();
             rs.multimesh_set_buffer(self.multimesh_rid, &buffer);
 
-            // === DRAIN PROJECTILE FIRE QUEUE (Bevy attack_system -> GPU) ===
-            if let Ok(mut queue) = PROJECTILE_FIRE_QUEUE.lock() {
-                for msg in queue.drain(..) {
-                    // Allocate slot
-                    let idx = if let Some(recycled) = Self::allocate_proj_slot() {
-                        recycled
-                    } else if gpu.proj_count < MAX_PROJECTILES {
-                        let i = gpu.proj_count;
-                        gpu.proj_count += 1;
-                        i
-                    } else {
-                        continue; // At capacity, drop this projectile
-                    };
+            // === DRAIN BEVY OUTBOX FOR PROJECTILE FIRE (via channel) ===
+            if let Some(ref receiver) = self.bevy_to_godot {
+                while let Ok(outbox_msg) = receiver.0.try_recv() {
+                    if let channels::BevyToGodotMsg::FireProjectile {
+                        from_x, from_y, to_x, to_y, damage, faction, shooter, speed, lifetime
+                    } = outbox_msg {
+                        // Allocate slot
+                        let idx = if let Some(recycled) = Self::allocate_proj_slot() {
+                            recycled
+                        } else if gpu.proj_count < MAX_PROJECTILES {
+                            let i = gpu.proj_count;
+                            gpu.proj_count += 1;
+                            i
+                        } else {
+                            continue; // At capacity, drop this projectile
+                        };
 
-                    // Calculate velocity from direction + speed
-                    let dx = msg.to_x - msg.from_x;
-                    let dy = msg.to_y - msg.from_y;
-                    let dist = (dx * dx + dy * dy).sqrt();
-                    if dist < 0.001 { continue; }
-                    let vx = (dx / dist) * msg.speed;
-                    let vy = (dy / dist) * msg.speed;
+                        // Calculate velocity from direction + speed
+                        let dx = to_x - from_x;
+                        let dy = to_y - from_y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < 0.001 { continue; }
+                        let vx = (dx / dist) * speed;
+                        let vy = (dy / dist) * speed;
 
-                    gpu.upload_projectile(
-                        idx, msg.from_x, msg.from_y, vx, vy,
-                        msg.damage, msg.faction, msg.shooter as i32, msg.lifetime,
-                    );
+                        gpu.upload_projectile(
+                            idx, from_x, from_y, vx, vy,
+                            damage, faction, shooter as i32, lifetime,
+                        );
+                    }
+                    // Other outbox messages can be ignored or handled here
                 }
             }
 
@@ -402,13 +404,13 @@ impl INode2D for EcsNpcManager {
                 // Dispatch projectile compute shader
                 gpu.dispatch_projectiles(proj_count, npc_count, delta as f32);
 
-                // Read hit results and route to damage queue
+                // Read hit results and route via channel
                 let hits = gpu.read_projectile_hits();
                 for (proj_idx, npc_idx, damage) in hits {
-                    // Queue damage for Bevy to process
-                    if let Ok(mut queue) = DAMAGE_QUEUE.lock() {
-                        queue.push(DamageMsg {
-                            npc_index: npc_idx,
+                    // Send damage via channel
+                    if let Some(ref sender) = self.godot_to_bevy {
+                        let _ = sender.0.send(channels::GodotToBevyMsg::ApplyDamage {
+                            slot: npc_idx,
                             amount: damage,
                         });
                     }
@@ -564,14 +566,16 @@ impl EcsNpcManager {
         let starting_post: i32 = opts.get("starting_post").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(-1);
         let attack_type: i32 = opts.get("attack_type").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0);
 
-        let msg = SpawnNpcMsg {
-            slot_idx: idx,
-            x, y, job, faction,
-            town_idx, home_x, home_y, work_x, work_y, starting_post, attack_type,
-        };
-
-        if let Ok(mut queue) = SPAWN_QUEUE.lock() {
-            queue.push(msg);
+        // Send via channel instead of static queue
+        if let Some(ref sender) = self.godot_to_bevy {
+            let _ = sender.0.send(channels::GodotToBevyMsg::SpawnNpc {
+                slot_idx: idx,
+                x, y,
+                job: job as u8,
+                faction: faction as u8,
+                town_idx, home_x, home_y, work_x, work_y, starting_post,
+                attack_type: attack_type as u8,
+            });
         }
 
         idx as i32
@@ -703,8 +707,11 @@ impl EcsNpcManager {
 
     #[func]
     fn set_target(&mut self, npc_index: i32, x: f32, y: f32) {
-        if let Ok(mut queue) = TARGET_QUEUE.lock() {
-            queue.push(SetTargetMsg { npc_index: npc_index as usize, x, y });
+        // Send via channel instead of static queue
+        if let Some(ref sender) = self.godot_to_bevy {
+            let _ = sender.0.send(channels::GodotToBevyMsg::SetTarget {
+                slot: npc_index as usize, x, y,
+            });
         }
 
         if let Some(gpu) = self.gpu.as_mut() {
@@ -736,9 +743,10 @@ impl EcsNpcManager {
     /// Deal damage to an NPC.
     #[func]
     fn apply_damage(&mut self, npc_index: i32, amount: f32) {
-        if let Ok(mut queue) = DAMAGE_QUEUE.lock() {
-            queue.push(DamageMsg {
-                npc_index: npc_index as usize,
+        // Send via channel instead of static queue
+        if let Some(ref sender) = self.godot_to_bevy {
+            let _ = sender.0.send(channels::GodotToBevyMsg::ApplyDamage {
+                slot: npc_index as usize,
                 amount,
             });
         }
@@ -1008,12 +1016,8 @@ impl EcsNpcManager {
             state.npc_count = 0;
         }
 
-        // Clear Bevy message queues
-        if let Ok(mut queue) = SPAWN_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = TARGET_QUEUE.lock() { queue.clear(); }
+        // Clear remaining message queue (arrivals still use static)
         if let Ok(mut queue) = ARRIVAL_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = DAMAGE_QUEUE.lock() { queue.clear(); }
-        if let Ok(mut queue) = PROJECTILE_FIRE_QUEUE.lock() { queue.clear(); }
 
         // GPU-FIRST: Clear consolidated GPU update queue
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() { queue.clear(); }
@@ -1073,7 +1077,10 @@ impl EcsNpcManager {
             }
         }
 
-        if let Ok(mut flag) = RESET_BEVY.lock() { *flag = true; }
+        // Send reset via channel
+        if let Some(ref sender) = self.godot_to_bevy {
+            let _ = sender.0.send(channels::GodotToBevyMsg::Reset);
+        }
     }
 
     // ========================================================================
@@ -1849,18 +1856,26 @@ impl EcsNpcManager {
         };
 
         let msg = match cmd.to_string().as_str() {
-            "spawn" => channels::GodotToBevyMsg::SpawnNpc {
-                x: data.get("x").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
-                y: data.get("y").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
-                job: data.get("job").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
-                faction: data.get("faction").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
-                town_idx: data.get("town_idx").and_then(|v| v.try_to().ok()).unwrap_or(-1),
-                home_x: data.get("home_x").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
-                home_y: data.get("home_y").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
-                work_x: data.get("work_x").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
-                work_y: data.get("work_y").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
-                starting_post: data.get("starting_post").and_then(|v| v.try_to().ok()).unwrap_or(-1),
-                attack_type: data.get("attack_type").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
+            "spawn" => {
+                // Allocate slot for spawn
+                let slot_idx = match Self::allocate_slot() {
+                    Some(i) => i,
+                    None => return,
+                };
+                channels::GodotToBevyMsg::SpawnNpc {
+                    slot_idx,
+                    x: data.get("x").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+                    y: data.get("y").and_then(|v| v.try_to().ok()).unwrap_or(0.0),
+                    job: data.get("job").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
+                    faction: data.get("faction").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
+                    town_idx: data.get("town_idx").and_then(|v| v.try_to().ok()).unwrap_or(-1),
+                    home_x: data.get("home_x").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
+                    home_y: data.get("home_y").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
+                    work_x: data.get("work_x").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
+                    work_y: data.get("work_y").and_then(|v| v.try_to().ok()).unwrap_or(-1.0),
+                    starting_post: data.get("starting_post").and_then(|v| v.try_to().ok()).unwrap_or(-1),
+                    attack_type: data.get("attack_type").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as u8,
+                }
             },
             "target" => channels::GodotToBevyMsg::SetTarget {
                 slot: data.get("slot").and_then(|v| v.try_to::<i32>().ok()).unwrap_or(0) as usize,

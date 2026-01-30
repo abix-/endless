@@ -316,12 +316,15 @@ AFTER:  Bevy owns state → uploads to GPU → GPU computes → Bevy reads back 
 - [x] SyncTransform removed (not needed, GPU renders via MultiMesh)
 - [x] Result: Only changed health syncs, not all 10,000 NPCs
 
-*11.7: Delete All Statics*
-- [ ] Remove SPAWN_QUEUE, TARGET_QUEUE, ARRIVAL_QUEUE, DAMAGE_QUEUE
-- [ ] Remove GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT
-- [ ] Remove NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS (→ SlotAllocator Resource)
-- [ ] Remove PROJECTILE_FIRE_QUEUE, RESET_BEVY, FOOD_STORAGE, GAME_CONFIG_STAGING
-- [ ] Result: 0 static mutexes, clean architecture
+*11.7: Delete All Statics* (partial - 5 of 14 removed)
+- [x] Remove SPAWN_QUEUE, TARGET_QUEUE, DAMAGE_QUEUE → GodotToBevy channel
+- [x] Remove PROJECTILE_FIRE_QUEUE → BevyToGodot channel
+- [x] Remove RESET_BEVY → GodotToBevy channel
+- [ ] Remove ARRIVAL_QUEUE (lib.rs still uses for GPU→Bevy arrivals)
+- [ ] Remove GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT (lib.rs process())
+- [ ] Remove NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS (lib.rs slot allocation)
+- [ ] Remove FOOD_STORAGE, GAME_CONFIG_STAGING (lib.rs APIs)
+- [ ] Result: 9 statics remain (all used by lib.rs which can't access Bevy resources directly)
 
 ## Performance Targets
 

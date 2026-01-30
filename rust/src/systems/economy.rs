@@ -4,8 +4,6 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::PhysicsDelta;
 
 use crate::components::*;
-#[allow(unused_imports)]
-use crate::messages::{FOOD_STORAGE, SPAWN_QUEUE, SpawnNpcMsg, FREE_SLOTS, NPC_SLOT_COUNTER};
 use crate::resources::*;
 // WorldData, BedOccupancy, FarmOccupancy available via Resources when needed
 
@@ -59,6 +57,7 @@ pub fn economy_tick_system(
     _pop_stats: Res<PopulationStats>,
     config: Res<GameConfig>,
     _timers: ResMut<RespawnTimers>,
+    mut food_storage: ResMut<FoodStorage>,
 ) {
     // Respect pause
     if game_time.paused {
@@ -76,17 +75,6 @@ pub fn economy_tick_system(
     *prev_hour = current_hour;
 
     // --- HOURLY TASKS ---
-    produce_food(&working_farmers, &config);
-
-    // --- RESPAWN CHECK --- (disabled, keeping code for later)
-    // check_respawns(&_pop_stats, &config, &mut _timers);
-}
-
-/// Produce food based on working farmers.
-fn produce_food(
-    working_farmers: &Query<&TownId, (With<Farmer>, With<Working>)>,
-    config: &GameConfig,
-) {
     // Count working farmers per clan
     let mut farmers_per_clan: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
     for clan in working_farmers.iter() {
@@ -94,12 +82,10 @@ fn produce_food(
     }
 
     // Add food to each clan's storage
-    if let Ok(mut food) = FOOD_STORAGE.lock() {
-        for (clan_id, farmer_count) in farmers_per_clan {
-            let food_produced = farmer_count * config.food_per_work_hour;
-            if clan_id >= 0 && (clan_id as usize) < food.food.len() {
-                food.food[clan_id as usize] += food_produced;
-            }
+    for (clan_id, farmer_count) in farmers_per_clan {
+        let food_produced = farmer_count * config.food_per_work_hour;
+        if clan_id >= 0 && (clan_id as usize) < food_storage.food.len() {
+            food_storage.food[clan_id as usize] += food_produced;
         }
     }
 }

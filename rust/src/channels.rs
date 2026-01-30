@@ -16,8 +16,9 @@ use godot_bevy::prelude::bevy_ecs_prelude::*;
 /// Messages from Godot to Bevy
 #[derive(Debug, Clone)]
 pub enum GodotToBevyMsg {
-    /// Spawn a new NPC
+    /// Spawn a new NPC (slot pre-allocated by lib.rs)
     SpawnNpc {
+        slot_idx: usize,
         x: f32,
         y: f32,
         job: u8,
