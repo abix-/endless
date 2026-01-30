@@ -8,3 +8,4 @@ rust/target/
 *.uid
 *.import
 gdextension_interface.h
+*.tmp
