@@ -6,9 +6,7 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::components::*;
 use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, NpcStateCache};
-use crate::messages::{STATE_IDLE, STATE_RESTING, STATE_WORKING, STATE_PATROLLING, STATE_ON_DUTY,
-                      STATE_RAIDING, STATE_RETURNING, STATE_RECOVERING, STATE_GOING_TO_REST, STATE_GOING_TO_WORK};
+use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage};
 use crate::systems::economy::*;
 use crate::world::WorldData;
 
@@ -18,13 +16,11 @@ pub fn patrol_system(
     mut commands: Commands,
     mut query: Query<(Entity, &mut PatrolRoute, &mut OnDuty, &NpcIndex), Without<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut state_cache: ResMut<NpcStateCache>,
 ) {
     for (entity, mut patrol, mut on_duty, npc_idx) in query.iter_mut() {
         on_duty.ticks_waiting += 1;
 
         if on_duty.ticks_waiting >= GUARD_PATROL_WAIT {
-            // Time to move to next post
             if !patrol.posts.is_empty() {
                 patrol.current = (patrol.current + 1) % patrol.posts.len();
             }
@@ -39,10 +35,6 @@ pub fn patrol_system(
                     x: pos.x,
                     y: pos.y,
                 }));
-            }
-
-            if npc_idx.0 < state_cache.0.len() {
-                state_cache.0[npc_idx.0] = STATE_PATROLLING;
             }
         }
     }
@@ -70,7 +62,6 @@ pub fn arrival_system(
     mut food_events: ResMut<FoodEvents>,
     world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
-    mut state_cache: ResMut<NpcStateCache>,
 ) {
     let positions = &gpu_state.positions;
     let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
@@ -84,25 +75,20 @@ pub fn arrival_system(
             if npc_idx.0 != event.npc_index { continue; }
             let idx = npc_idx.0;
 
-            // Transition based on current state marker
             if patrolling.is_some() {
                 commands.entity(entity)
                     .remove::<Patrolling>()
                     .insert(OnDuty { ticks_waiting: 0 });
-                if idx < state_cache.0.len() { state_cache.0[idx] = STATE_ON_DUTY; }
             } else if going_rest.is_some() {
                 commands.entity(entity)
                     .remove::<GoingToRest>()
                     .insert(Resting);
-                if idx < state_cache.0.len() { state_cache.0[idx] = STATE_RESTING; }
             } else if going_work.is_some() {
                 commands.entity(entity)
                     .remove::<GoingToWork>()
                     .insert(Working);
                 pop_inc_working(&mut pop_stats, *job, town.0);
-                if idx < state_cache.0.len() { state_cache.0[idx] = STATE_WORKING; }
             } else if raiding.is_some() {
-                // Verify actually near a farm (not stale arrival)
                 if idx * 2 + 1 < positions.len() {
                     let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
                     let near_farm = farms.iter().any(|farm| {
@@ -124,7 +110,6 @@ pub fn arrival_system(
                             x: home.0.x,
                             y: home.0.y,
                         }));
-                        if idx < state_cache.0.len() { state_cache.0[idx] = STATE_RETURNING; }
                     }
                 }
             } else if returning.is_some() {
@@ -143,17 +128,14 @@ pub fn arrival_system(
                     }
                     food_events.delivered.push(FoodDelivered { camp_idx: 0 });
                 }
-                if idx < state_cache.0.len() { state_cache.0[idx] = STATE_IDLE; }
             }
 
-            // Wounded check (any NPC with the component)
             if let Some(w) = wounded {
                 let health_pct = health.0 / 100.0;
                 if health_pct < w.pct {
                     commands.entity(entity)
                         .insert(Recovering { threshold: 0.75 })
                         .insert(Resting);
-                    if idx < state_cache.0.len() { state_cache.0[idx] = STATE_RECOVERING; }
                 }
             }
 
@@ -171,7 +153,6 @@ pub fn flee_system(
     mut commands: Commands,
     query: Query<(Entity, &NpcIndex, &Health, &FleeThreshold, &Home, Option<&CarryingFood>), With<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut state_cache: ResMut<NpcStateCache>,
 ) {
     for (entity, npc_idx, health, flee, home, carrying) in query.iter() {
         let health_pct = health.0 / 100.0;
@@ -195,10 +176,6 @@ pub fn flee_system(
                 x: home.0.x,
                 y: home.0.y,
             }));
-
-            if npc_idx.0 < state_cache.0.len() {
-                state_cache.0[npc_idx.0] = STATE_RETURNING;
-            }
         }
     }
 }
@@ -209,7 +186,6 @@ pub fn leash_system(
     query: Query<(Entity, &NpcIndex, &LeashRange, &Home, &CombatOrigin), With<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     gpu_state: Res<GpuReadState>,
-    mut state_cache: ResMut<NpcStateCache>,
 ) {
     let positions = &gpu_state.positions;
 
@@ -237,10 +213,6 @@ pub fn leash_system(
                 x: home.0.x,
                 y: home.0.y,
             }));
-
-            if i < state_cache.0.len() {
-                state_cache.0[i] = STATE_RETURNING;
-            }
         }
     }
 }
@@ -248,18 +220,14 @@ pub fn leash_system(
 /// Recovery system: resting NPCs with Recovering resume activity when healed.
 pub fn recovery_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &Health, &Recovering), With<Resting>>,
-    mut state_cache: ResMut<NpcStateCache>,
+    query: Query<(Entity, &Health, &Recovering), With<Resting>>,
 ) {
-    for (entity, npc_idx, health, recovering) in query.iter() {
+    for (entity, health, recovering) in query.iter() {
         let health_pct = health.0 / 100.0;
         if health_pct >= recovering.threshold {
             commands.entity(entity)
                 .remove::<Recovering>()
                 .remove::<Resting>();
-            if npc_idx.0 < state_cache.0.len() {
-                state_cache.0[npc_idx.0] = STATE_IDLE;
-            }
         }
     }
 }
@@ -272,8 +240,8 @@ pub fn recovery_system(
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[allow(dead_code)]
 enum Action {
-    Fight,  // Reserved for combat decisions
-    Flee,   // Reserved for combat decisions
+    Fight,
+    Flee,
     Eat,
     Rest,
     Work,
@@ -322,7 +290,6 @@ pub fn decision_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
-    mut state_cache: ResMut<NpcStateCache>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -369,7 +336,6 @@ pub fn decision_system(
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                         idx, x: home.0.x, y: home.0.y,
                     }));
-                    if idx < state_cache.0.len() { state_cache.0[idx] = STATE_GOING_TO_REST; }
                 }
             }
             Action::Work => {
@@ -380,7 +346,6 @@ pub fn decision_system(
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                                 idx, x: wp.0.x, y: wp.0.y,
                             }));
-                            if idx < state_cache.0.len() { state_cache.0[idx] = STATE_GOING_TO_WORK; }
                         }
                     }
                     Job::Guard => {
@@ -391,7 +356,6 @@ pub fn decision_system(
                                     idx, x: pos.x, y: pos.y,
                                 }));
                             }
-                            if idx < state_cache.0.len() { state_cache.0[idx] = STATE_PATROLLING; }
                         }
                     }
                     Job::Raider => {
@@ -419,7 +383,6 @@ pub fn decision_system(
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                                 idx, x: farm_pos.x, y: farm_pos.y,
                             }));
-                            if idx < state_cache.0.len() { state_cache.0[idx] = STATE_RAIDING; }
                         }
                     }
                     Job::Fighter => {}

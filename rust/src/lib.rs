@@ -28,6 +28,27 @@ use gpu::GpuCompute;
 use messages::*;
 use resources::*;
 use systems::*;
+use components::*;
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+/// Derive NPC state from ECS components (no cache needed).
+fn derive_npc_state(world: &World, entity: Entity) -> i32 {
+    if world.get::<Dead>(entity).is_some() { return STATE_IDLE; }
+    if world.get::<InCombat>(entity).is_some() { return STATE_FIGHTING; }
+    if world.get::<Recovering>(entity).is_some() { return STATE_RECOVERING; }
+    if world.get::<Resting>(entity).is_some() { return STATE_RESTING; }
+    if world.get::<Working>(entity).is_some() { return STATE_WORKING; }
+    if world.get::<OnDuty>(entity).is_some() { return STATE_ON_DUTY; }
+    if world.get::<Patrolling>(entity).is_some() { return STATE_PATROLLING; }
+    if world.get::<GoingToRest>(entity).is_some() { return STATE_GOING_TO_REST; }
+    if world.get::<GoingToWork>(entity).is_some() { return STATE_GOING_TO_WORK; }
+    if world.get::<Raiding>(entity).is_some() { return STATE_RAIDING; }
+    if world.get::<Returning>(entity).is_some() { return STATE_RETURNING; }
+    STATE_IDLE
+}
 
 // ============================================================================
 // BEVY APP - Initializes ECS world and systems
@@ -66,7 +87,6 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<resources::KillStats>()
        .init_resource::<resources::SelectedNpc>()
        .init_resource::<resources::NpcMetaCache>()
-       .init_resource::<resources::NpcStateCache>()
        .init_resource::<resources::NpcEnergyCache>()
        .init_resource::<resources::NpcsByTownCache>()
        .init_resource::<resources::NpcLogCache>()
@@ -1069,9 +1089,6 @@ impl EcsNpcManager {
                         *m = resources::NpcMeta::default();
                     }
                 }
-                if let Some(mut states) = app.world_mut().get_resource_mut::<resources::NpcStateCache>() {
-                    states.0.fill(STATE_IDLE);
-                }
                 if let Some(mut energies) = app.world_mut().get_resource_mut::<resources::NpcEnergyCache>() {
                     energies.0.fill(100.0);
                 }
@@ -1590,8 +1607,10 @@ impl EcsNpcManager {
                         dict.set("job", meta.0[i].job);
                     }
                 }
-                if let Some(states) = app.world().get_resource::<resources::NpcStateCache>() {
-                    dict.set("state", states.0.get(i).copied().unwrap_or(0));
+                if let Some(npc_map) = app.world().get_resource::<NpcEntityMap>() {
+                    if let Some(&entity) = npc_map.0.get(&i) {
+                        dict.set("state", derive_npc_state(app.world(), entity));
+                    }
                 }
                 if let Some(energies) = app.world().get_resource::<resources::NpcEnergyCache>() {
                     dict.set("energy", energies.0.get(i).copied().unwrap_or(0.0));
@@ -1643,16 +1662,16 @@ impl EcsNpcManager {
         if let Some(bevy_app) = self.get_bevy_app() {
             let app_ref = bevy_app.bind();
             if let Some(app) = app_ref.get_app() {
-                if let (Some(by_town), Some(meta), Some(states)) = (
+                if let (Some(by_town), Some(meta), Some(npc_map)) = (
                     app.world().get_resource::<resources::NpcsByTownCache>(),
                     app.world().get_resource::<resources::NpcMetaCache>(),
-                    app.world().get_resource::<resources::NpcStateCache>(),
+                    app.world().get_resource::<NpcEntityMap>(),
                 ) {
-                    if let Ok(state) = GPU_READ_STATE.lock() {
+                    if let Ok(gpu_state) = GPU_READ_STATE.lock() {
                         if (town_idx as usize) < by_town.0.len() {
                             for &idx in &by_town.0[town_idx as usize] {
                                 // Skip dead NPCs
-                                if idx >= state.health.len() || state.health[idx] <= 0.0 {
+                                if idx >= gpu_state.health.len() || gpu_state.health[idx] <= 0.0 {
                                     continue;
                                 }
 
@@ -1662,14 +1681,18 @@ impl EcsNpcManager {
                                     continue;
                                 }
 
+                                let state = npc_map.0.get(&idx)
+                                    .map(|&e| derive_npc_state(app.world(), e))
+                                    .unwrap_or(STATE_IDLE);
+
                                 let mut npc_dict = VarDictionary::new();
                                 npc_dict.set("idx", idx as i32);
                                 npc_dict.set("name", GString::from(&meta.0[idx].name));
                                 npc_dict.set("job", job);
                                 npc_dict.set("level", meta.0[idx].level);
-                                npc_dict.set("hp", state.health[idx]);
+                                npc_dict.set("hp", gpu_state.health[idx]);
                                 npc_dict.set("max_hp", 100.0f32);
-                                npc_dict.set("state", states.0.get(idx).copied().unwrap_or(0));
+                                npc_dict.set("state", state);
                                 npc_dict.set("trait", meta.0[idx].trait_id);
 
                                 result.push(&npc_dict.to_variant());

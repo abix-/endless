@@ -6,11 +6,7 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
 use crate::constants::*;
-use crate::messages::{
-    SpawnNpcMsg, GpuUpdate, GpuUpdateMsg,
-    STATE_IDLE, STATE_ON_DUTY, STATE_GOING_TO_WORK,
-    GPU_DISPATCH_COUNT,
-};
+use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, GPU_DISPATCH_COUNT};
 use crate::resources::*;
 use crate::systems::economy::*;
 use crate::world::WorldData;
@@ -92,7 +88,6 @@ pub fn spawn_npc_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     world_data: Res<WorldData>,
     mut npc_meta: ResMut<NpcMetaCache>,
-    mut npc_states: ResMut<NpcStateCache>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
     outbox: Option<Res<BevyToGodot>>,
     mut gpu_dispatch: ResMut<GpuDispatchCount>,
@@ -203,17 +198,6 @@ pub fn spawn_npc_system(
                 town_id: msg.town_idx,
                 job: msg.job,
             };
-        }
-
-        // Set initial state for UI
-        let initial_state = match job {
-            Job::Guard => if msg.starting_post >= 0 { STATE_ON_DUTY } else { STATE_IDLE },
-            Job::Farmer => if msg.work_x >= 0.0 { STATE_GOING_TO_WORK } else { STATE_IDLE },
-            Job::Raider => STATE_IDLE,  // Will be set by decision_system
-            Job::Fighter => STATE_IDLE,
-        };
-        if idx < npc_states.0.len() {
-            npc_states.0[idx] = initial_state;
         }
 
         // Add to per-town NPC list

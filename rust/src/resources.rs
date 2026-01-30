@@ -216,16 +216,6 @@ impl Default for NpcMetaCache {
     }
 }
 
-/// Current state ID per NPC. Updated by behavior systems.
-#[derive(Resource)]
-pub struct NpcStateCache(pub Vec<i32>);
-
-impl Default for NpcStateCache {
-    fn default() -> Self {
-        Self(vec![0; MAX_NPC_COUNT])  // STATE_IDLE = 0
-    }
-}
-
 /// Energy per NPC. Synced from Bevy Energy component.
 #[derive(Resource)]
 pub struct NpcEnergyCache(pub Vec<f32>);
