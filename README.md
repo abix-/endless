@@ -62,10 +62,6 @@ Key values in `autoloads/config.gd`:
 | ENERGY_STARVING | 10 | Eat food threshold |
 | ENERGY_HUNGRY | 50 | Go home threshold |
 
-## Rust Migration Roadmap
-
-See [docs/roadmap.md](docs/roadmap.md) for migration chunks, performance targets, and lessons learned.
-
 ## Credits
 
 - Engine: [Godot 4.5](https://godotengine.org/)
