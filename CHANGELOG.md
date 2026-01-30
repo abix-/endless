@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-01-30
+- refactor: consolidate arrival handlers into single generic arrival_system
+- delete handle_arrival_system, raider_arrival_system, wounded_rest_system
+- arrival_system transitions based on state markers (component-driven, not job-driven)
+
 ## 2026-01-29
 - docs: reorganize roadmap from phases to capabilities
 - docs: move Data Ownership table to messages.md

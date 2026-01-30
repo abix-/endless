@@ -121,139 +121,109 @@ pub fn patrol_system(
     }
 }
 
-/// Handle arrivals: transition states based on what the NPC was doing.
-/// - Patrolling → OnDuty (arrived at patrol post)
-/// - GoingToRest → Resting (arrived at home)
-/// - GoingToWork → Working (arrived at work position)
-pub fn handle_arrival_system(
+/// Arrival system: transition states based on current marker.
+/// - Patrolling → OnDuty
+/// - GoingToRest → Resting
+/// - GoingToWork → Working
+/// - Raiding → CarryingFood + Returning
+/// - Returning → deliver food, clear state
+/// Also checks WoundedThreshold for recovery mode.
+pub fn arrival_system(
     mut commands: Commands,
     mut events: MessageReader<ArrivalMsg>,
-    patrolling_query: Query<(Entity, &NpcIndex), With<Patrolling>>,
-    going_to_rest_query: Query<(Entity, &NpcIndex), With<GoingToRest>>,
-    going_to_work_query: Query<(Entity, &NpcIndex, &Job, &TownId), With<GoingToWork>>,
+    query: Query<(
+        Entity, &NpcIndex, &Job, &TownId, &Home, &Health,
+        Option<&Patrolling>, Option<&GoingToRest>, Option<&GoingToWork>,
+        Option<&Raiding>, Option<&Returning>, Option<&CarryingFood>,
+        Option<&WoundedThreshold>,
+    ), Without<Recovering>>,
     mut pop_stats: ResMut<PopulationStats>,
-) {
-    for event in events.read() {
-        // Check if a patrolling NPC arrived at post
-        for (entity, npc_idx) in patrolling_query.iter() {
-            if npc_idx.0 == event.npc_index {
-                commands.entity(entity)
-                    .remove::<Patrolling>()
-                    .insert(OnDuty { ticks_waiting: 0 });
-                break;
-            }
-        }
-
-        // Check if an NPC going to rest arrived at home
-        for (entity, npc_idx) in going_to_rest_query.iter() {
-            if npc_idx.0 == event.npc_index {
-                commands.entity(entity)
-                    .remove::<GoingToRest>()
-                    .insert(Resting);
-                break;
-            }
-        }
-
-        // Check if an NPC going to work arrived
-        for (entity, npc_idx, job, clan) in going_to_work_query.iter() {
-            if npc_idx.0 == event.npc_index {
-                commands.entity(entity)
-                    .remove::<GoingToWork>()
-                    .insert(Working);
-                pop_inc_working(&mut pop_stats, *job, clan.0);
-                break;
-            }
-        }
-    }
-}
-
-// ============================================================================
-// STEALING SYSTEMS (generic — any NPC with Stealer component)
-// ============================================================================
-
-/// Handle arrivals for raiders (Raiding → pickup, Returning → deliver).
-pub fn raider_arrival_system(
-    mut commands: Commands,
-    mut events: MessageReader<ArrivalMsg>,
-    raiding_query: Query<(Entity, &NpcIndex, &Home, &Health, Option<&WoundedThreshold>), With<Raiding>>,
-    returning_query: Query<(Entity, &NpcIndex, Option<&CarryingFood>), With<Returning>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    world_data: Res<WorldData>,
-    mut food_events: ResMut<FoodEvents>,
-    gpu_state: Res<GpuReadState>,
     mut food_storage: ResMut<FoodStorage>,
+    mut food_events: ResMut<FoodEvents>,
+    world_data: Res<WorldData>,
+    gpu_state: Res<GpuReadState>,
 ) {
     let positions = &gpu_state.positions;
     let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
     const FARM_ARRIVAL_RADIUS: f32 = 100.0;
 
     for event in events.read() {
-        // Raiding NPC arrived at farm → pick up food
-        for (entity, npc_idx, home, _health, _wounded) in raiding_query.iter() {
-            if npc_idx.0 == event.npc_index {
-                // Verify raider is actually near a farm (not a stale arrival event)
-                let idx = npc_idx.0;
-                if idx * 2 + 1 >= positions.len() {
-                    break;
-                }
-                let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
-                let near_farm = farms.iter().any(|farm| {
-                    let dx = pos.x - farm.x;
-                    let dy = pos.y - farm.y;
-                    (dx * dx + dy * dy).sqrt() < FARM_ARRIVAL_RADIUS
-                });
-                if !near_farm {
-                    // Stale arrival event - ignore
-                    break;
-                }
+        for (entity, npc_idx, job, town, home, health,
+             patrolling, going_rest, going_work,
+             raiding, returning, carrying, wounded) in query.iter()
+        {
+            if npc_idx.0 != event.npc_index { continue; }
 
-                // Arrived at farm: pick up food, head home
+            // Transition based on current state marker
+            if patrolling.is_some() {
                 commands.entity(entity)
-                    .remove::<Raiding>()
-                    .insert(CarryingFood)
-                    .insert(Returning);
-
-                // Change color to yellow (carrying food)
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
-                    idx: npc_idx.0,
-                    r: 1.0, g: 0.9, b: 0.2, a: 1.0,
-                }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                    idx: npc_idx.0,
-                    x: home.0.x,
-                    y: home.0.y,
-                }));
-                break;
-            }
-        }
-
-        // Returning NPC arrived at camp → deliver food, re-enter decision
-        for (entity, npc_idx, carrying) in returning_query.iter() {
-            if npc_idx.0 == event.npc_index {
+                    .remove::<Patrolling>()
+                    .insert(OnDuty { ticks_waiting: 0 });
+            } else if going_rest.is_some() {
+                commands.entity(entity)
+                    .remove::<GoingToRest>()
+                    .insert(Resting);
+            } else if going_work.is_some() {
+                commands.entity(entity)
+                    .remove::<GoingToWork>()
+                    .insert(Working);
+                pop_inc_working(&mut pop_stats, *job, town.0);
+            } else if raiding.is_some() {
+                // Verify actually near a farm (not stale arrival)
+                let idx = npc_idx.0;
+                if idx * 2 + 1 < positions.len() {
+                    let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                    let near_farm = farms.iter().any(|farm| {
+                        let dx = pos.x - farm.x;
+                        let dy = pos.y - farm.y;
+                        (dx * dx + dy * dy).sqrt() < FARM_ARRIVAL_RADIUS
+                    });
+                    if near_farm {
+                        commands.entity(entity)
+                            .remove::<Raiding>()
+                            .insert(CarryingFood)
+                            .insert(Returning);
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
+                            idx: npc_idx.0,
+                            r: 1.0, g: 0.9, b: 0.2, a: 1.0,
+                        }));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                            idx: npc_idx.0,
+                            x: home.0.x,
+                            y: home.0.y,
+                        }));
+                    }
+                }
+            } else if returning.is_some() {
                 let mut cmds = commands.entity(entity);
                 cmds.remove::<Returning>();
 
                 if carrying.is_some() {
                     cmds.remove::<CarryingFood>();
-
-                    // Reset color to raider red
                     let (r, g, b, a) = Job::Raider.color();
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
                         idx: npc_idx.0, r, g, b, a,
                     }));
-
-                    // Deliver food to raider town
                     if !food_storage.food.is_empty() {
                         let last_idx = food_storage.food.len() - 1;
                         food_storage.food[last_idx] += 1;
                     }
                     food_events.delivered.push(FoodDelivered { camp_idx: 0 });
                 }
-
-                // Fall through to npc_decision_system next tick
-                // (entity has no active state markers)
-                break;
             }
+
+            // Wounded check (any NPC with the component)
+            if let Some(w) = wounded {
+                let health_pct = health.0 / 100.0;
+                if health_pct < w.pct {
+                    commands.entity(entity)
+                        .insert(Recovering { threshold: 0.75 })
+                        .insert(Resting);
+                }
+            }
+
+            break;
         }
     }
 }
@@ -330,27 +300,6 @@ pub fn leash_system(
                 x: home.0.x,
                 y: home.0.y,
             }));
-        }
-    }
-}
-
-/// Wounded NPCs arriving home enter recovery mode.
-pub fn wounded_rest_system(
-    mut commands: Commands,
-    mut events: MessageReader<ArrivalMsg>,
-    query: Query<(Entity, &NpcIndex, &Health, &WoundedThreshold), Without<Recovering>>,
-) {
-    for event in events.read() {
-        for (entity, npc_idx, health, wounded) in query.iter() {
-            if npc_idx.0 == event.npc_index {
-                let health_pct = health.0 / 100.0;
-                if health_pct < wounded.pct {
-                    commands.entity(entity)
-                        .insert(Recovering { threshold: 0.75 })
-                        .insert(Resting);
-                }
-                break;
-            }
         }
     }
 }

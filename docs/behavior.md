@@ -124,14 +124,16 @@ Same situation, different outcomes. That's emergent behavior.
 - Score actions: Eat, Rest, Work, Wander (with personality multipliers)
 - Select via weighted random
 - Execute: set state marker, push GPU target
-- Replaces: tired_system, resume_patrol_system, resume_work_system, raider_idle_system
 
-### handle_arrival_system
+### arrival_system (Generic)
 - Reads `ArrivalMsg` events (from GPU arrival detection)
-- Transitions based on current state:
-  - `Patrolling` → remove `Patrolling`, add `OnDuty { ticks: 0 }`, remove `HasTarget`
-  - `GoingToRest` → remove `GoingToRest`, add `Resting`, remove `HasTarget`
-  - `GoingToWork` → remove `GoingToWork`, add `Working`, remove `HasTarget`
+- Transitions based on current state marker (component-driven, not job-driven):
+  - `Patrolling` → `OnDuty { ticks: 0 }`
+  - `GoingToRest` → `Resting`
+  - `GoingToWork` → `Working`
+  - `Raiding` → `CarryingFood` + `Returning` (if near farm)
+  - `Returning` → deliver food if carrying, clear state
+- Also checks `WoundedThreshold` for recovery mode on arrival
 
 ### energy_system
 - All NPCs with Energy (excluding `Resting`): drain `ENERGY_DRAIN_RATE * delta`
@@ -145,11 +147,6 @@ Same situation, different outcomes. That's emergent behavior.
 - Set target to next post via `GpuUpdate::SetTarget`
 - Add `HasTarget`
 
-### raider_arrival_system
-- Reads `ArrivalMsg` for NPCs with `Raiding` or `Returning` markers
-- `Raiding` arrival: **verifies NPC is within 100px of a farm** before pickup (prevents stale arrival events from spawning or returning home from triggering false pickups). If near farm: add `CarryingFood`, remove `Raiding`, add `Returning`, set color yellow, target home
-- `Returning` arrival (at camp): if `CarryingFood` { remove, deliver food to `FOOD_STORAGE`, push `FoodDelivered`, reset color to red }. NPC has no active state → falls through to `npc_decision_system` next tick.
-
 ### flee_system
 - Query: `InCombat` + `FleeThreshold` + `Home`
 - If health < `FleeThreshold.pct`: remove `InCombat`, `CombatOrigin`, `Raiding`, drop `CarryingFood` if present, add `Returning`, target home
@@ -159,10 +156,6 @@ Same situation, different outcomes. That's emergent behavior.
 - Read position from `GPU_READ_STATE`
 - If distance from **combat origin** > `LeashRange.distance`: remove `InCombat`, `CombatOrigin`, `Raiding`, add `Returning`, target home
 - Note: Leash is based on distance from where combat started, not from home. This allows NPCs to travel far for objectives (raids) but prevents chasing enemies forever.
-
-### wounded_rest_system
-- On `ArrivalMsg` for NPCs with `WoundedThreshold`
-- If health < `WoundedThreshold.pct`: add `Recovering { threshold: 0.75 }` + `Resting`
 
 ### recovery_system
 - Query: `Recovering` + `Resting` + `Health`
@@ -199,9 +192,9 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 
 - **InCombat is sticky**: If a target dies out of detection range, the NPC may stay `InCombat` until attack_system clears it. No timeout.
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
-- **Linear arrival scan**: handle_arrival_system and raider_arrival_system iterate all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
+- **Linear arrival scan**: arrival_system iterates all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
-- **Single camp index hardcoded**: raider_arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
+- **Single camp index hardcoded**: arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
 - **No HP regen in Bevy**: recovery_system checks health threshold but there's no Bevy system that regenerates HP over time. Recovery currently depends on external healing.
 - **All raiders target same farm**: npc_decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
 - **Deterministic pseudo-random**: npc_decision_system uses slot index as random seed, so same NPC makes same choices each run.

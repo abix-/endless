@@ -104,16 +104,14 @@ fn build_app(app: &mut bevy::prelude::App) {
        ).chain().in_set(Step::Combat))
        // Behavior: energy, patrol, rest, work, stealing, combat escape, economy
        .add_systems(Update, (
-           handle_arrival_system,
-           raider_arrival_system,
+           arrival_system,
            energy_system,
            flee_system,
            leash_system,
-           wounded_rest_system,
            recovery_system,
            patrol_system,
            economy_tick_system,
-           npc_decision_system,  // Utility AI: replaces tired, resume_*, raider_idle
+           npc_decision_system,
        ).in_set(Step::Behavior))
        // Collect GPU updates at end of frame (single Mutex lock point)
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior))
