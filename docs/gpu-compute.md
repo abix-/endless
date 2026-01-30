@@ -125,6 +125,37 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 - **Two sequential dispatches**: NPC and projectile shaders run with a full sync between them. Could be pipelined.
 - **Hit buffer init**: Must be initialized to -1. GPU default of 0 would falsely indicate "hit NPC 0".
 
+## Key Optimizations
+
+- **O(1) entity lookup**: `NpcEntityMap` (HashMap<usize, Entity>) for instant damage routing
+- **Slot reuse**: `FREE_SLOTS` pool recycles dead NPC indices (infinite churn, no 10K cap)
+- **Grid sizing**: 100px cells ensure 3×3 neighborhood covers 300px detection range
+- **Single locks**: One Mutex per direction instead of 10+ scattered queues
+
+## Performance Lessons Learned
+
+**GPU sync() is the bottleneck, not compute:**
+- `RenderingDevice.sync()` blocks CPU waiting for GPU (~2.5ms per frame)
+- `buffer_get_data()` also stalls pipeline for GPU→CPU transfer
+- Godot's local RenderingDevice requires sync() between submits (can't pipeline)
+- `buffer_get_data_async()` doesn't work with local RD (Godot issue #105256)
+
+**GDScript O(n²) traps:**
+- Calling `get_npc_position()` in nested loops crosses GDScript→Rust boundary 124,750 times for 500 NPCs
+- Test assertions must run ONCE when triggered, not every frame after timer passes
+- Debug metrics (min separation) must be throttled to 1/sec, not every frame
+- `get_debug_stats()` does GPU reads - don't call every frame
+
+**MultiMesh culling:**
+- Godot auto-calculates AABB for canvas items — wrong for world-spanning MultiMesh
+- NPCs disappear at close zoom without `canvas_item_set_custom_rect` on the canvas item
+- Fix: set large custom rect (-100K to +100K) to disable culling
+
+**What worked:**
+- Build multimesh from cached positions on CPU (eliminates 480KB GPU readback)
+- Throttle expensive operations to once per second
+- Advance test_phase immediately to prevent repeated assertion runs
+
 ## Rating: 8/10
 
 Solid GPU compute achieving 10K NPCs @ 140fps. Spatial grid shared between both shaders is efficient. TCP-style backoff produces good crowd behavior. Main waste: the GPU writes a multimesh buffer that the CPU ignores and rebuilds. Fixing this (use GPU-written buffer directly) would eliminate a per-frame CPU rebuild. Blocking sync prevents CPU/GPU overlap.

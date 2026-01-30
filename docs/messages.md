@@ -9,6 +9,30 @@ Communication between Godot (GDScript), Bevy ECS, and GPU compute uses a hybrid 
 
 Channels defined in `rust/src/channels.rs`. Statics defined in `rust/src/messages.rs`.
 
+## Data Ownership
+
+| Data | Owner | Direction | Notes |
+|------|-------|-----------|-------|
+| **GPU-Owned (Numeric/Physics)** ||||
+| Positions | GPU | GPU → Bevy | Compute shader moves NPCs each frame |
+| Targets | GPU | Bevy → GPU | Bevy decides destination, GPU interpolates movement |
+| Factions | GPU | Write-once | Set at spawn (0=Villager, 1=Raider) |
+| Combat targets | GPU | GPU → Bevy | GPU finds nearest enemy within 300px |
+| Colors | GPU | Bevy → GPU | Set at spawn, updated by steal/flee systems |
+| Speeds | GPU | Write-once | Movement speed per NPC |
+| **Bevy-Owned (Logical State)** ||||
+| NpcIndex | Bevy | Internal | Links Bevy entity to GPU slot index |
+| Job | Bevy | Internal | Guard, Farmer, Raider, Fighter - determines behavior |
+| Energy | Bevy | Internal | Drives tired/rest decisions (drain/recover rates) |
+| Health | **Both** | Bevy → GPU | Bevy authoritative, synced to GPU for targeting |
+| State markers | Bevy | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, Returning, Recovering, etc. |
+| Config components | Bevy | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer |
+| AttackTimer | Bevy | Internal | Cooldown between attacks |
+| AttackStats | Bevy | Internal | melee(range=150, speed=500) or ranged(range=300, speed=200) |
+| PatrolRoute | Bevy | Internal | Guard post sequence for patrols |
+| Home | Bevy | Internal | Rest location (bed or camp) |
+| WorkPosition | Bevy | Internal | Farm location for farmers |
+
 ## GodotToBevy Channel (lib.rs → Bevy)
 
 Lock-free crossbeam channel replaces SPAWN_QUEUE, TARGET_QUEUE, DAMAGE_QUEUE, RESET_BEVY.

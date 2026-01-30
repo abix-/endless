@@ -1,6 +1,12 @@
 # Changelog
 
 ## 2026-01-29
+- docs: reorganize roadmap from phases to capabilities
+- docs: move Data Ownership table to messages.md
+- docs: move Key Optimizations and Performance Lessons to gpu-compute.md
+- docs: add Testing & Debug capability section
+
+## 2026-01-29 (earlier)
 - add Phase 11.7: replace 5 static queues with lock-free crossbeam channels
 - add GodotToBevy channel (spawn, target, damage, reset, pause, timescale)
 - add BevyToGodot channel (projectile fire, future sync messages)
