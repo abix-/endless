@@ -6,7 +6,9 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::components::*;
 use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage};
+use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, NpcStateCache};
+use crate::messages::{STATE_IDLE, STATE_RESTING, STATE_WORKING, STATE_PATROLLING, STATE_ON_DUTY,
+                      STATE_RAIDING, STATE_RETURNING, STATE_RECOVERING, STATE_GOING_TO_REST, STATE_GOING_TO_WORK};
 use crate::systems::economy::*;
 use crate::world::WorldData;
 
@@ -16,6 +18,7 @@ pub fn patrol_system(
     mut commands: Commands,
     mut query: Query<(Entity, &mut PatrolRoute, &mut OnDuty, &NpcIndex), Without<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut state_cache: ResMut<NpcStateCache>,
 ) {
     for (entity, mut patrol, mut on_duty, npc_idx) in query.iter_mut() {
         on_duty.ticks_waiting += 1;
@@ -36,6 +39,10 @@ pub fn patrol_system(
                     x: pos.x,
                     y: pos.y,
                 }));
+            }
+
+            if npc_idx.0 < state_cache.0.len() {
+                state_cache.0[npc_idx.0] = STATE_PATROLLING;
             }
         }
     }
@@ -63,6 +70,7 @@ pub fn arrival_system(
     mut food_events: ResMut<FoodEvents>,
     world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
+    mut state_cache: ResMut<NpcStateCache>,
 ) {
     let positions = &gpu_state.positions;
     let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
@@ -74,24 +82,27 @@ pub fn arrival_system(
              raiding, returning, carrying, wounded) in query.iter()
         {
             if npc_idx.0 != event.npc_index { continue; }
+            let idx = npc_idx.0;
 
             // Transition based on current state marker
             if patrolling.is_some() {
                 commands.entity(entity)
                     .remove::<Patrolling>()
                     .insert(OnDuty { ticks_waiting: 0 });
+                if idx < state_cache.0.len() { state_cache.0[idx] = STATE_ON_DUTY; }
             } else if going_rest.is_some() {
                 commands.entity(entity)
                     .remove::<GoingToRest>()
                     .insert(Resting);
+                if idx < state_cache.0.len() { state_cache.0[idx] = STATE_RESTING; }
             } else if going_work.is_some() {
                 commands.entity(entity)
                     .remove::<GoingToWork>()
                     .insert(Working);
                 pop_inc_working(&mut pop_stats, *job, town.0);
+                if idx < state_cache.0.len() { state_cache.0[idx] = STATE_WORKING; }
             } else if raiding.is_some() {
                 // Verify actually near a farm (not stale arrival)
-                let idx = npc_idx.0;
                 if idx * 2 + 1 < positions.len() {
                     let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
                     let near_farm = farms.iter().any(|farm| {
@@ -113,6 +124,7 @@ pub fn arrival_system(
                             x: home.0.x,
                             y: home.0.y,
                         }));
+                        if idx < state_cache.0.len() { state_cache.0[idx] = STATE_RETURNING; }
                     }
                 }
             } else if returning.is_some() {
@@ -131,6 +143,7 @@ pub fn arrival_system(
                     }
                     food_events.delivered.push(FoodDelivered { camp_idx: 0 });
                 }
+                if idx < state_cache.0.len() { state_cache.0[idx] = STATE_IDLE; }
             }
 
             // Wounded check (any NPC with the component)
@@ -140,6 +153,7 @@ pub fn arrival_system(
                     commands.entity(entity)
                         .insert(Recovering { threshold: 0.75 })
                         .insert(Resting);
+                    if idx < state_cache.0.len() { state_cache.0[idx] = STATE_RECOVERING; }
                 }
             }
 
@@ -157,6 +171,7 @@ pub fn flee_system(
     mut commands: Commands,
     query: Query<(Entity, &NpcIndex, &Health, &FleeThreshold, &Home, Option<&CarryingFood>), With<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut state_cache: ResMut<NpcStateCache>,
 ) {
     for (entity, npc_idx, health, flee, home, carrying) in query.iter() {
         let health_pct = health.0 / 100.0;
@@ -164,12 +179,11 @@ pub fn flee_system(
             let mut cmds = commands.entity(entity);
             cmds.remove::<InCombat>();
             cmds.remove::<CombatOrigin>();
-            cmds.remove::<Raiding>();  // Clear raiding state when fleeing
+            cmds.remove::<Raiding>();
             cmds.insert(Returning);
 
             if carrying.is_some() {
                 cmds.remove::<CarryingFood>();
-                // Reset color
                 let (r, g, b, a) = Job::Raider.color();
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
                     idx: npc_idx.0, r, g, b, a,
@@ -181,6 +195,10 @@ pub fn flee_system(
                 x: home.0.x,
                 y: home.0.y,
             }));
+
+            if npc_idx.0 < state_cache.0.len() {
+                state_cache.0[npc_idx.0] = STATE_RETURNING;
+            }
         }
     }
 }
@@ -191,6 +209,7 @@ pub fn leash_system(
     query: Query<(Entity, &NpcIndex, &LeashRange, &Home, &CombatOrigin), With<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     gpu_state: Res<GpuReadState>,
+    mut state_cache: ResMut<NpcStateCache>,
 ) {
     let positions = &gpu_state.positions;
 
@@ -202,7 +221,6 @@ pub fn leash_system(
 
         let x = positions[i * 2];
         let y = positions[i * 2 + 1];
-        // Check distance from combat origin, not home
         let dx = x - origin.x;
         let dy = y - origin.y;
         let dist = (dx * dx + dy * dy).sqrt();
@@ -211,15 +229,18 @@ pub fn leash_system(
             commands.entity(entity)
                 .remove::<InCombat>()
                 .remove::<CombatOrigin>()
-                .remove::<Raiding>()  // Clear raiding state when leashing
+                .remove::<Raiding>()
                 .insert(Returning);
 
-            // Return home after disengaging
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                 idx: npc_idx.0,
                 x: home.0.x,
                 y: home.0.y,
             }));
+
+            if i < state_cache.0.len() {
+                state_cache.0[i] = STATE_RETURNING;
+            }
         }
     }
 }
@@ -227,15 +248,18 @@ pub fn leash_system(
 /// Recovery system: resting NPCs with Recovering resume activity when healed.
 pub fn recovery_system(
     mut commands: Commands,
-    query: Query<(Entity, &Health, &Recovering), With<Resting>>,
+    query: Query<(Entity, &NpcIndex, &Health, &Recovering), With<Resting>>,
+    mut state_cache: ResMut<NpcStateCache>,
 ) {
-    for (entity, health, recovering) in query.iter() {
+    for (entity, npc_idx, health, recovering) in query.iter() {
         let health_pct = health.0 / 100.0;
         if health_pct >= recovering.threshold {
             commands.entity(entity)
                 .remove::<Recovering>()
                 .remove::<Resting>();
-            // Falls through to decision_system next tick
+            if npc_idx.0 < state_cache.0.len() {
+                state_cache.0[npc_idx.0] = STATE_IDLE;
+            }
         }
     }
 }
@@ -298,20 +322,18 @@ pub fn decision_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
+    mut state_cache: ResMut<NpcStateCache>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     for (entity, npc_idx, job, energy, _health, home, personality, work_pos, patrol, _stealer) in query.iter() {
         let en = energy.0;
+        let idx = npc_idx.0;
         let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
 
-        // Check if food is available at home (simplified: assume yes if home is valid)
         let food_available = home.is_valid();
-
-        // Score all possible actions
         let mut scores: Vec<(Action, f32)> = Vec::with_capacity(6);
 
-        // Eat: based on low energy, higher multiplier than rest
         if food_available {
             let eat_score = (100.0 - en) * SCORE_EAT_MULT * eat_m;
             if eat_score > 0.0 {
@@ -319,17 +341,15 @@ pub fn decision_system(
             }
         }
 
-        // Rest: based on low energy
         let rest_score = (100.0 - en) * SCORE_REST_MULT * rest_m;
         if rest_score > 0.0 && home.is_valid() {
             scores.push((Action::Rest, rest_score));
         }
 
-        // Work: job-specific
         let can_work = match job {
             Job::Farmer => work_pos.is_some(),
             Job::Guard => patrol.is_some(),
-            Job::Raider => true, // Raiders "work" by raiding
+            Job::Raider => true,
             Job::Fighter => false,
         };
         if can_work {
@@ -337,24 +357,19 @@ pub fn decision_system(
             scores.push((Action::Work, work_score));
         }
 
-        // Wander: always available baseline
         let wander_score = SCORE_WANDER_BASE * wander_m;
         scores.push((Action::Wander, wander_score));
 
-        // Choose action via weighted random
-        let action = weighted_random(&scores, npc_idx.0, frame);
+        let action = weighted_random(&scores, idx, frame);
 
-        // Execute chosen action
         match action {
             Action::Eat | Action::Rest => {
-                // Go home to eat or rest
                 if home.is_valid() {
                     commands.entity(entity).insert(GoingToRest);
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                        idx: npc_idx.0,
-                        x: home.0.x,
-                        y: home.0.y,
+                        idx, x: home.0.x, y: home.0.y,
                     }));
+                    if idx < state_cache.0.len() { state_cache.0[idx] = STATE_GOING_TO_REST; }
                 }
             }
             Action::Work => {
@@ -363,10 +378,9 @@ pub fn decision_system(
                         if let Some(wp) = work_pos {
                             commands.entity(entity).insert(GoingToWork);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                idx: npc_idx.0,
-                                x: wp.0.x,
-                                y: wp.0.y,
+                                idx, x: wp.0.x, y: wp.0.y,
                             }));
+                            if idx < state_cache.0.len() { state_cache.0[idx] = STATE_GOING_TO_WORK; }
                         }
                     }
                     Job::Guard => {
@@ -374,19 +388,16 @@ pub fn decision_system(
                             commands.entity(entity).insert(Patrolling);
                             if let Some(pos) = p.posts.get(p.current) {
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                    idx: npc_idx.0,
-                                    x: pos.x,
-                                    y: pos.y,
+                                    idx, x: pos.x, y: pos.y,
                                 }));
                             }
+                            if idx < state_cache.0.len() { state_cache.0[idx] = STATE_PATROLLING; }
                         }
                     }
                     Job::Raider => {
-                        // Find nearest farm and raid it
                         let nearest_farm = {
-                            let i = npc_idx.0;
-                            let pos = if i * 2 + 1 < gpu_state.positions.len() {
-                                Vector2::new(gpu_state.positions[i * 2], gpu_state.positions[i * 2 + 1])
+                            let pos = if idx * 2 + 1 < gpu_state.positions.len() {
+                                Vector2::new(gpu_state.positions[idx * 2], gpu_state.positions[idx * 2 + 1])
                             } else {
                                 home.0
                             };
@@ -406,34 +417,26 @@ pub fn decision_system(
                         if let Some(farm_pos) = nearest_farm {
                             commands.entity(entity).insert(Raiding);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                idx: npc_idx.0,
-                                x: farm_pos.x,
-                                y: farm_pos.y,
+                                idx, x: farm_pos.x, y: farm_pos.y,
                             }));
+                            if idx < state_cache.0.len() { state_cache.0[idx] = STATE_RAIDING; }
                         }
                     }
                     Job::Fighter => {}
                 }
             }
             Action::Wander => {
-                // Random wander near current position
-                let i = npc_idx.0;
-                if i * 2 + 1 < gpu_state.positions.len() {
-                    let x = gpu_state.positions[i * 2];
-                    let y = gpu_state.positions[i * 2 + 1];
-                    // Wander within 100px
-                    let offset_x = (pseudo_random(npc_idx.0, frame + 1) - 0.5) * 200.0;
-                    let offset_y = (pseudo_random(npc_idx.0, frame + 2) - 0.5) * 200.0;
+                if idx * 2 + 1 < gpu_state.positions.len() {
+                    let x = gpu_state.positions[idx * 2];
+                    let y = gpu_state.positions[idx * 2 + 1];
+                    let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
+                    let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                        idx: npc_idx.0,
-                        x: x + offset_x,
-                        y: y + offset_y,
+                        idx, x: x + offset_x, y: y + offset_y,
                     }));
                 }
             }
-            Action::Fight | Action::Flee => {
-                // These are handled by combat systems, not here
-            }
+            Action::Fight | Action::Flee => {}
         }
     }
 }
