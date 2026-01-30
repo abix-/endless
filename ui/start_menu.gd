@@ -185,4 +185,4 @@ func _on_start_pressed() -> void:
 	Config.max_farmers_per_town = Config.farmers_per_town
 	Config.max_guards_per_town = Config.guards_per_town
 
-	get_tree().change_scene_to_file("res://main.tscn")
+	get_tree().change_scene_to_file("res://scenes/main.tscn")

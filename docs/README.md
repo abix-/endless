@@ -70,7 +70,6 @@ Frame execution order ───────────────────�
 ## File Map
 
 ```
-main.gd                 # World generation, food tracking, game setup
 autoloads/
   config.gd             # All tunable constants
   user_settings.gd      # Persistent user preferences
@@ -112,6 +111,8 @@ shaders/
   loot_icon.gdshader    # Visual: raider carrying food (not yet used)
   sleep_icon.gdshader   # Visual: resting indicator (not yet used)
 scenes/
+  main.gd               # World generation, food tracking, game setup
+  main.tscn             # Main game scene
   ecs_test.gd           # Test harness (500-10000 NPCs configurable)
   ecs_test.tscn         # 11 behavior tests with visual markers and PASS/FAIL
   bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
