@@ -530,7 +530,7 @@ impl EcsNpcManager {
         // Load and apply sprite shader material
         // IMPORTANT: Store material in struct to keep it alive (RenderingServer expects references to be kept around)
         let mut loader = ResourceLoader::singleton();
-        if let Some(shader) = loader.load("res://systems/npc_sprite.gdshader") {
+        if let Some(shader) = loader.load("res://shaders/npc_sprite.gdshader") {
             if let Some(texture) = loader.load("res://assets/roguelikeChar_transparent.png") {
                 let mut material = ShaderMaterial::new_gd();
                 let shader_res: Gd<godot::classes::Shader> = shader.cast();
