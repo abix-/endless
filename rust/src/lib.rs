@@ -47,10 +47,6 @@ enum Step {
 fn build_app(app: &mut bevy::prelude::App) {
     use bevy::prelude::Update;
 
-    // Add godot-bevy log plugin for Tracy profiling support
-    #[cfg(feature = "trace_tracy")]
-    app.add_plugins(godot_bevy::plugins::GodotBevyLogPlugin::default());
-
     app.add_message::<SpawnNpcMsg>()
        .add_message::<SetTargetMsg>()
        .add_message::<ArrivalMsg>()

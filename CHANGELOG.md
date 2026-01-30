@@ -1,10 +1,5 @@
 # Changelog
 
-## 2026-01-30
-- add tracy profiler support: tracing + tracing-tracy dependencies with trace_tracy feature
-- add GodotBevyLogPlugin for TracyLayer integration when trace_tracy enabled
-- build with `cargo build --release --features trace_tracy` then connect Tracy v0.13.1
-
 ## 2026-01-29
 - docs: reorganize roadmap from phases to capabilities
 - docs: move Data Ownership table to messages.md
