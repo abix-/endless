@@ -65,7 +65,7 @@ Frame execution order ───────────────────�
 | [api.md](api.md) | Complete GDScript-to-Rust API (36 methods) | - |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 9/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
-| [roadmap.md](roadmap.md) | Migration chunks, performance targets, lessons learned | - |
+| [roadmap.md](roadmap.md) | Feature tracking, performance targets, game design reference | - |
 
 ## File Map
 

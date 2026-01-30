@@ -1,6 +1,6 @@
-# Rust Migration Roadmap
+# Roadmap
 
-Target: 20,000+ NPCs @ 60fps by combining Rust game logic + GPU compute + bulk rendering.
+Target: 20,000+ NPCs @ 60fps with Rust/Bevy ECS + GPU compute + bulk rendering.
 
 ## Current State
 
