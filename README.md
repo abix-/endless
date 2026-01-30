@@ -70,5 +70,5 @@ See [docs/roadmap.md](docs/roadmap.md) for migration chunks, performance targets
 
 - Engine: [Godot 4.5](https://godotengine.org/)
 - ECS: [Bevy](https://bevyengine.org/)
-- Integration: [godot-bevy](https://github.com/ArcticLampyrid/godot-bevy)
+- Integration: [godot-bevy](https://github.com/bytemeadow/godot-bevy)
 - Sprites: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
