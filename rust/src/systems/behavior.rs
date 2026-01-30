@@ -315,7 +315,7 @@ pub fn recovery_system(
             commands.entity(entity)
                 .remove::<Recovering>()
                 .remove::<Resting>();
-            // Falls through to npc_decision_system next tick
+            // Falls through to decision_system next tick
         }
     }
 }
@@ -365,7 +365,7 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 
 /// Unified decision system: score actions, weighted random, execute.
 /// Runs on NPCs without an active state.
-pub fn npc_decision_system(
+pub fn decision_system(
     mut commands: Commands,
     query: Query<
         (Entity, &NpcIndex, &Job, &Energy, &Health, &Home, &Personality,

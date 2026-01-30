@@ -209,7 +209,7 @@ pub fn spawn_npc_system(
         let initial_state = match job {
             Job::Guard => if msg.starting_post >= 0 { STATE_ON_DUTY } else { STATE_IDLE },
             Job::Farmer => if msg.work_x >= 0.0 { STATE_GOING_TO_WORK } else { STATE_IDLE },
-            Job::Raider => STATE_IDLE,  // Will be set by npc_decision_system
+            Job::Raider => STATE_IDLE,  // Will be set by decision_system
             Job::Fighter => STATE_IDLE,
         };
         if idx < npc_states.0.len() {

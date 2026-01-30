@@ -50,7 +50,7 @@ Same situation, different outcomes. That's emergent behavior.
     ┌──────────┐         ┌──────────┐          ┌──────────┐
     │Patrolling│         │GoingToWork│         │  (idle)  │ spawns stateless
     └────┬─────┘         └────┬─────┘          └────┬─────┘
-         │ arrival            │ arrival              │ npc_decision_system
+         │ arrival            │ arrival              │ decision_system
          ▼                    ▼                      ▼
     ┌──────────┐         ┌──────────┐          ┌──────────┐
     │  OnDuty  │         │ Working  │          │  Raiding  │ (walk to farm)
@@ -62,9 +62,9 @@ Same situation, different outcomes. That's emergent behavior.
     │ 60 ticks │         │          │          │(to camp) │
     └────┬─────┘         └────┬─────┘          └────┬─────┘
          └────────┬───────────┘                     │ arrival at camp
-                  │ npc_decision_system             ▼
+                  │ decision_system             ▼
                   ▼ (weighted random)          deliver food, re-enter
-             ┌──────────┐                     npc_decision_system
+             ┌──────────┐                     decision_system
              │GoingToRest│
              └────┬─────┘
                   │ arrival
@@ -72,7 +72,7 @@ Same situation, different outcomes. That's emergent behavior.
              ┌──────────┐
              │ Resting  │
              └────┬─────┘
-                  │ npc_decision_system
+                  │ decision_system
                   ▼ (weighted random)
              back to previous cycle
 
@@ -119,7 +119,7 @@ Same situation, different outcomes. That's emergent behavior.
 
 ## Systems
 
-### npc_decision_system (Utility AI)
+### decision_system (Utility AI)
 - Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, Resting, GoingToRest, Raiding, Returning, InCombat, Recovering, Dead)
 - Score actions: Eat, Rest, Work, Wander (with personality multipliers)
 - Select via weighted random
@@ -196,8 +196,8 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
 - **Single camp index hardcoded**: arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
 - **No HP regen in Bevy**: recovery_system checks health threshold but there's no Bevy system that regenerates HP over time. Recovery currently depends on external healing.
-- **All raiders target same farm**: npc_decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
-- **Deterministic pseudo-random**: npc_decision_system uses slot index as random seed, so same NPC makes same choices each run.
+- **All raiders target same farm**: decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
+- **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
 
 ## Rating: 8/10
 

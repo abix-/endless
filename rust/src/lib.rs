@@ -111,7 +111,7 @@ fn build_app(app: &mut bevy::prelude::App) {
            recovery_system,
            patrol_system,
            economy_tick_system,
-           npc_decision_system,
+           decision_system,
        ).in_set(Step::Behavior))
        // Collect GPU updates at end of frame (single Mutex lock point)
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior))
