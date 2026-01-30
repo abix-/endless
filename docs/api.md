@@ -65,8 +65,8 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 |--------|--------|---------|-------------|
 | `get_population_stats` | none | `Dictionary` | farmers_alive, guards_alive, raiders_alive, guard_kills, villager_kills |
 | `get_town_population` | `town_idx: i32` | `Dictionary` | farmer_count, guard_count, raider_count for one town |
-| `get_npc_info` | `idx: i32` | `Dictionary` | Full NPC details: name, job, level, xp, trait, town_id, hp, max_hp, energy, state, target_idx, x, y, faction |
-| `get_npcs_by_town` | `town_idx, filter: i32` | `Array` | Array of NPC dicts (idx, name, job, level, hp, max_hp, state, trait). Filter: -1=all, 0=farmer, 1=guard, 2=raider |
+| `get_npc_info` | `idx: i32` | `Dictionary` | Full NPC details: name, job (string), level, xp, trait (string), town_id, hp, max_hp, energy, state (string), target_idx, x, y, faction |
+| `get_npcs_by_town` | `town_idx, filter: i32` | `Array` | Array of NPC dicts (idx, name, job, level, hp, max_hp, state, trait). All strings. Filter: -1=all, 0=farmer, 1=guard, 2=raider |
 | `get_selected_npc` | none | `i32` | Currently selected NPC index (-1 = none) |
 | `set_selected_npc` | `idx: i32` | void | Set selected NPC for inspector |
 | `get_npc_name` | `idx: i32` | `String` | NPC name by index |

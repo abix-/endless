@@ -75,15 +75,15 @@ autoloads/
   config.gd             # All tunable constants
   user_settings.gd      # Persistent user preferences
 systems/
-  npc_manager.gd        # Core orchestration, 30+ parallel data arrays
-  npc_state.gd          # Activity-specific states, validation per job
-  npc_navigation.gd     # Predicted movement, LOD intervals, separation
-  npc_combat.gd         # Threat detection, targeting, damage, leashing
-  npc_needs.gd          # Energy, schedules, decision trees
+  npc_manager.gd        # [LEGACY] GDScript NPC manager (unused with ECS)
+  npc_navigation.gd     # [LEGACY] Predicted movement (unused with ECS)
+  npc_combat.gd         # [LEGACY] Threat detection (unused with ECS)
+  npc_needs.gd          # [LEGACY] Energy, schedules (unused with ECS)
   npc_grid.gd           # Spatial partitioning (64x64 cells)
-  npc_renderer.gd       # MultiMesh rendering, culling, indicators
+  npc_renderer.gd       # [LEGACY] MultiMesh rendering (unused with ECS)
   projectile_manager.gd # Projectile pooling, collision
   gpu_separation.gd     # Compute shader separation forces
+  guard_post_combat.gd  # [LEGACY] Guard post attacks (unused with ECS)
 entities/
   player.gd             # Camera controls
 world/

@@ -250,11 +250,11 @@ func _update_row(row: HBoxContainer, npc: Dictionary) -> void:
 	var idx: int = npc.idx
 
 	children[0].text = npc.name
-	children[1].text = NPCState.JOB_NAMES[npc.job] if npc.job < NPCState.JOB_NAMES.size() else "?"
+	children[1].text = npc.job if npc.job else "?"
 	children[2].text = str(npc.level)
 	children[3].text = "%d/%d" % [int(npc.hp), int(npc.max_hp)]
-	children[4].text = NPCState.STATE_NAMES.get(npc.state, "?")
-	children[5].text = NPCState.TRAIT_NAMES.get(npc.trait, "")
+	children[4].text = npc.state if npc.state else "?"
+	children[5].text = npc.trait if npc.trait else ""
 
 	# Reconnect buttons
 	var select_btn: Button = children[6]

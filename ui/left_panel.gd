@@ -275,16 +275,14 @@ func _update_inspector() -> void:
 	# Get NPC info from ECS
 	var info: Dictionary = npc_manager.get_npc_info(idx)
 
-	var job: int = info.get("job", 0)
+	var job: String = info.get("job", "?")
 	var level: int = info.get("level", 1)
 	var npc_name: String = info.get("name", "NPC")
-	var npc_trait: int = info.get("trait", 0)
+	var npc_trait: String = info.get("trait", "")
 
-	var job_name: String = NPCState.JOB_NAMES[job] if job < NPCState.JOB_NAMES.size() else "?"
-	var trait_name: String = NPCState.TRAIT_NAMES.get(npc_trait, "")
-	job_level.text = "%s - %s Lv.%d" % [npc_name, job_name, level]
-	if not trait_name.is_empty():
-		job_level.text += " (%s)" % trait_name
+	job_level.text = "%s - %s Lv.%d" % [npc_name, job, level]
+	if not npc_trait.is_empty():
+		job_level.text += " (%s)" % npc_trait
 
 	# Town
 	var npc_town_idx: int = info.get("town_id", -1)
@@ -313,17 +311,17 @@ func _update_inspector() -> void:
 	xp_label.text = "XP: %d" % xp
 
 	# State
-	var state: int = info.get("state", 0)
+	var state: String = info.get("state", "?")
 	state_label.visible = true
-	state_label.text = NPCState.STATE_NAMES.get(state, "?")
+	state_label.text = state
 
 	# Target
 	var target_npc: int = info.get("target_idx", -1)
 	target_label.visible = true
 	if target_npc >= 0 and target_npc < npc_manager.get_npc_count():
 		var target_info: Dictionary = npc_manager.get_npc_info(target_npc)
-		var t_job: int = target_info.get("job", 0)
-		target_label.text = "Target: %s #%d" % [NPCState.JOB_NAMES[t_job] if t_job < NPCState.JOB_NAMES.size() else "?", target_npc]
+		var t_job: String = target_info.get("job", "?")
+		target_label.text = "Target: %s #%d" % [t_job, target_npc]
 	else:
 		target_label.text = "Target: -"
 

@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-01-30
+- refactor: rust returns state/job/trait as strings instead of integers
+- add derive_npc_state() returns "Idle", "Fighting", "On Duty", etc.
+- add job_name() returns "Farmer", "Guard", "Raider", "Fighter"
+- add trait_name() returns "Brave", "Coward", "Efficient", etc.
+- update get_npc_info() and get_npcs_by_town(): state/job/trait now strings
+- update left_panel.gd, roster_panel.gd: use strings directly from rust
+- update combat_log.gd: remove NPCState dependency
+- delete systems/npc_state.gd: all NPC data now sourced from rust ECS
+
+## 2026-01-30 (earlier)
 - refactor: consolidate arrival handlers into single generic arrival_system
 - delete handle_arrival_system, raider_arrival_system, wounded_rest_system
 - arrival_system transitions based on state markers (component-driven, not job-driven)

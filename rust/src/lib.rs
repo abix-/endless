@@ -34,20 +34,48 @@ use components::*;
 // HELPERS
 // ============================================================================
 
-/// Derive NPC state from ECS components (no cache needed).
-fn derive_npc_state(world: &World, entity: Entity) -> i32 {
-    if world.get::<Dead>(entity).is_some() { return STATE_IDLE; }
-    if world.get::<InCombat>(entity).is_some() { return STATE_FIGHTING; }
-    if world.get::<Recovering>(entity).is_some() { return STATE_RECOVERING; }
-    if world.get::<Resting>(entity).is_some() { return STATE_RESTING; }
-    if world.get::<Working>(entity).is_some() { return STATE_WORKING; }
-    if world.get::<OnDuty>(entity).is_some() { return STATE_ON_DUTY; }
-    if world.get::<Patrolling>(entity).is_some() { return STATE_PATROLLING; }
-    if world.get::<GoingToRest>(entity).is_some() { return STATE_GOING_TO_REST; }
-    if world.get::<GoingToWork>(entity).is_some() { return STATE_GOING_TO_WORK; }
-    if world.get::<Raiding>(entity).is_some() { return STATE_RAIDING; }
-    if world.get::<Returning>(entity).is_some() { return STATE_RETURNING; }
-    STATE_IDLE
+/// Derive NPC state name from ECS components (no cache needed).
+fn derive_npc_state(world: &World, entity: Entity) -> &'static str {
+    if world.get::<Dead>(entity).is_some() { return "Dead"; }
+    if world.get::<InCombat>(entity).is_some() { return "Fighting"; }
+    if world.get::<Recovering>(entity).is_some() { return "Recovering"; }
+    if world.get::<Resting>(entity).is_some() { return "Resting"; }
+    if world.get::<Working>(entity).is_some() { return "Working"; }
+    if world.get::<OnDuty>(entity).is_some() { return "On Duty"; }
+    if world.get::<Patrolling>(entity).is_some() { return "Patrolling"; }
+    if world.get::<GoingToRest>(entity).is_some() { return "Going to Rest"; }
+    if world.get::<GoingToWork>(entity).is_some() { return "Going to Work"; }
+    if world.get::<Raiding>(entity).is_some() { return "Raiding"; }
+    if world.get::<Returning>(entity).is_some() { return "Returning"; }
+    "Idle"
+}
+
+/// Get job name from job ID.
+fn job_name(job: i32) -> &'static str {
+    match job {
+        0 => "Farmer",
+        1 => "Guard",
+        2 => "Raider",
+        3 => "Fighter",
+        _ => "Unknown",
+    }
+}
+
+/// Get trait name from trait ID.
+fn trait_name(trait_id: i32) -> &'static str {
+    match trait_id {
+        0 => "",
+        1 => "Brave",
+        2 => "Coward",
+        3 => "Efficient",
+        4 => "Hardy",
+        5 => "Lazy",
+        6 => "Strong",
+        7 => "Swift",
+        8 => "Sharpshot",
+        9 => "Berserker",
+        _ => "",
+    }
 }
 
 // ============================================================================
@@ -1602,14 +1630,14 @@ impl EcsNpcManager {
                         dict.set("name", GString::from(&meta.0[i].name));
                         dict.set("level", meta.0[i].level);
                         dict.set("xp", meta.0[i].xp);
-                        dict.set("trait", meta.0[i].trait_id);
+                        dict.set("trait", GString::from(trait_name(meta.0[i].trait_id)));
                         dict.set("town_id", meta.0[i].town_id);
-                        dict.set("job", meta.0[i].job);
+                        dict.set("job", GString::from(job_name(meta.0[i].job)));
                     }
                 }
                 if let Some(npc_map) = app.world().get_resource::<NpcEntityMap>() {
                     if let Some(&entity) = npc_map.0.get(&i) {
-                        dict.set("state", derive_npc_state(app.world(), entity));
+                        dict.set("state", GString::from(derive_npc_state(app.world(), entity)));
                     }
                 }
                 if let Some(energies) = app.world().get_resource::<resources::NpcEnergyCache>() {
@@ -1683,17 +1711,17 @@ impl EcsNpcManager {
 
                                 let state = npc_map.0.get(&idx)
                                     .map(|&e| derive_npc_state(app.world(), e))
-                                    .unwrap_or(STATE_IDLE);
+                                    .unwrap_or("Idle");
 
                                 let mut npc_dict = VarDictionary::new();
                                 npc_dict.set("idx", idx as i32);
                                 npc_dict.set("name", GString::from(&meta.0[idx].name));
-                                npc_dict.set("job", job);
+                                npc_dict.set("job", GString::from(job_name(job)));
                                 npc_dict.set("level", meta.0[idx].level);
                                 npc_dict.set("hp", gpu_state.health[idx]);
                                 npc_dict.set("max_hp", 100.0f32);
-                                npc_dict.set("state", state);
-                                npc_dict.set("trait", meta.0[idx].trait_id);
+                                npc_dict.set("state", GString::from(state));
+                                npc_dict.set("trait", GString::from(trait_name(meta.0[idx].trait_id)));
 
                                 result.push(&npc_dict.to_variant());
                             }
