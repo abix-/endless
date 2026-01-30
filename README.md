@@ -4,19 +4,6 @@ A game about fighting entropy. Raiders steal your food. Guards die in combat. Fa
 
 Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimizations for high-performance NPC management.
 
-**Inspirations:**
-- **Asimov's "The Last Question"** - entropy as the ultimate antagonist
-- **Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, conquer rival towns
-  - Farming: villagers work fields → grain → rations, weather affects yield, starvation causes unrest
-  - Balance farming vs other jobs (woodcutting, mining, blacksmithing, army)
-- **RimWorld** - colonist needs, AI storytelling, emergent chaos
-- **Factorio** - scale to thousands of entities, predicted rendering, dormant states, spatial partitioning
-  - The satisfaction of watching your creation work — farmers farming, guards patrolling, systems humming
-  - Content with where you are, but always knowing there's more to build
-- **Animal Crossing** - existence is the game, not winning
-  - NPCs have their own lives, schedules, personalities
-  - The world is worth inhabiting, not just optimizing
-
 ## The Struggle
 
 1. **Produce** - Farmers generate food. Without food, nothing else matters.
@@ -24,10 +11,6 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 3. **Upgrade** - Invest food to make guards stronger. Trade present resources for future survival.
 4. **Expand** - Claim neutral towns. More territory, more production, more to defend.
 5. **Endure** - Entropy never stops. Neither can you.
-
-## Architecture
-
-See [docs/](docs/README.md) for architecture documentation — system maps, file tree, data flow, GPU buffers, combat pipeline, behavior state machines, and known issues with ratings.
 
 ## Controls
 
@@ -44,6 +27,24 @@ See [docs/](docs/README.md) for architecture documentation — system maps, file
 | R | Roster panel (view all guards/farmers) |
 | P | Policies panel (faction settings) |
 | ESC | Settings menu |
+
+## Architecture
+
+See [docs/](docs/README.md) for architecture documentation — system maps, file tree, data flow, GPU buffers, combat pipeline, behavior state machines, and known issues with ratings.
+
+## Inspirations
+
+- **Asimov's "The Last Question"** - entropy as the ultimate antagonist
+- **Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, conquer rival towns
+  - Farming: villagers work fields → grain → rations, weather affects yield, starvation causes unrest
+  - Balance farming vs other jobs (woodcutting, mining, blacksmithing, army)
+- **RimWorld** - colonist needs, AI storytelling, emergent chaos
+- **Factorio** - scale to thousands of entities, predicted rendering, dormant states, spatial partitioning
+  - The satisfaction of watching your creation work — farmers farming, guards patrolling, systems humming
+  - Content with where you are, but always knowing there's more to build
+- **Animal Crossing** - existence is the game, not winning
+  - NPCs have their own lives, schedules, personalities
+  - The world is worth inhabiting, not just optimizing
 
 ## Credits
 
