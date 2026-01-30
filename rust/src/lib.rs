@@ -133,6 +133,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        .add_systems(Update, (
            reset_bevy_system,
            gpu_position_readback, // Phase 11: GPU → Bevy position sync
+           sync_gpu_state_to_bevy, // Sync GPU_READ_STATE static to Bevy resource
            godot_to_bevy_read,    // Phase 11: lock-free channel (spawn, target, damage)
            drain_arrival_queue,   // Still needed: lib.rs pushes arrivals from GPU
            drain_game_config,
