@@ -39,7 +39,7 @@ pub fn cooldown_system(
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
     mut commands: Commands,
-    mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>, Option<&Raiding>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
@@ -60,7 +60,7 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (entity, npc_idx, stats, mut timer, _faction, in_combat) in query.iter_mut() {
+    for (entity, npc_idx, stats, mut timer, _faction, in_combat, raiding) in query.iter_mut() {
         attackers += 1;
         let i = npc_idx.0;
 
@@ -70,11 +70,16 @@ pub fn attack_system(
             sample_target = target_idx;
         }
 
+        // No combat target - clear combat state, let decision_system handle next action
         if target_idx < 0 {
             if in_combat.is_some() {
-                commands.entity(entity)
-                    .remove::<InCombat>()
+                let mut cmds = commands.entity(entity);
+                cmds.remove::<InCombat>()
                     .remove::<CombatOrigin>();
+                // Also clear Raiding so decision_system can re-evaluate
+                if raiding.is_some() {
+                    cmds.remove::<Raiding>();
+                }
             }
             continue;
         }
