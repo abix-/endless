@@ -75,15 +75,12 @@ autoloads/
   config.gd             # All tunable constants
   user_settings.gd      # Persistent user preferences
 systems/
-  npc_manager.gd        # [LEGACY] GDScript NPC manager (unused with ECS)
-  npc_navigation.gd     # [LEGACY] Predicted movement (unused with ECS)
-  npc_combat.gd         # [LEGACY] Threat detection (unused with ECS)
-  npc_needs.gd          # [LEGACY] Energy, schedules (unused with ECS)
-  npc_grid.gd           # Spatial partitioning (64x64 cells)
-  npc_renderer.gd       # [LEGACY] MultiMesh rendering (unused with ECS)
-  projectile_manager.gd # Projectile pooling, collision
-  gpu_separation.gd     # Compute shader separation forces
-  guard_post_combat.gd  # [LEGACY] Guard post attacks (unused with ECS)
+  npc_combat.gd         # [LEGACY] Threat detection (unused with ECS, pending delete)
+  npc_needs.gd          # [LEGACY] Energy, schedules (unused with ECS, pending delete)
+  npc_grid.gd           # [LEGACY] Spatial partitioning (unused with ECS, pending delete)
+  npc_renderer.gd       # [LEGACY] MultiMesh rendering (unused with ECS, pending delete)
+  projectile_manager.gd # [LEGACY] Projectile pooling (unused with ECS, pending delete)
+  guard_post_combat.gd  # [LEGACY] Guard post attacks (unused with ECS, pending delete)
 entities/
   player.gd             # Camera controls
 world/
