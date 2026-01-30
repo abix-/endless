@@ -37,6 +37,9 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] spawn_guard(), spawn_guard_at_post(), spawn_farmer() convenience APIs
 - [x] Slot reuse for dead NPCs (FREE_SLOTS pool)
 - [ ] Zero-copy rendering (blocked by Godot bug #105100)
+- [ ] Loot icon overlay (raider carrying food indicator)
+- [ ] Halo icon overlay (healing zone indicator)
+- [ ] Sleep icon overlay (resting indicator)
 
 ### Movement & Physics ✓
 - [x] GPU compute shader for movement toward targets
@@ -66,6 +69,9 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] Leash system (disengage if too far from home)
 - [x] Flee system (exit combat below HP threshold)
 - [x] Wounded rest + recovery system
+- [ ] Target switching (prefer non-fleeing enemies over fleeing)
+- [ ] Trait combat modifiers (Strong +25%, Berserker +50% at low HP, Efficient -25% cooldown, Lazy +20% cooldown)
+- [ ] Trait flee modifiers (Brave never flees, Coward +20% threshold)
 
 ### Economy ✓
 - [x] Food production (farmers generate food per hour)
@@ -77,7 +83,9 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] PopulationStats resource (alive/working counts per job/clan)
 - [x] economy_tick_system (unified hourly economy)
 - [ ] Multi-camp food delivery (currently hardcoded to camp_food[0])
-- [ ] HP regen during recovery (recovery_system checks threshold but no regen)
+- [ ] HP regen system (3x sleeping, 10x fountain/camp with upgrade)
+- [ ] Food consumption (eating restores HP/energy, npc_ate_food event)
+- [ ] Food efficiency upgrade (chance of free meal)
 
 ### World Data ✓
 - [x] Towns, farms, beds, guard posts as Bevy resources
@@ -119,6 +127,14 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] apply_upgrade(town_idx, upgrade_type, level) API for stat multipliers
 - [ ] Guard upgrades: health, attack, range, size bonuses per town
 - [ ] Farmer upgrades: HP bonus per town
+- [ ] Healing rate upgrade (fountain/camp regen multiplier)
+
+### Town Policies
+- [ ] Work schedule policies (day only, night only, both shifts)
+- [ ] Off-duty policies (go to bed, stay at fountain, wander town)
+- [ ] Recovery threshold policies (prioritize_healing, custom recovery %)
+- [ ] Fountain healing zone (radius + upgrade bonus)
+- [ ] Camp healing zone for raiders
 
 ### Events to GDScript
 - [ ] DEATH_EVENT_QUEUE (npc_idx, job, faction, town_idx)

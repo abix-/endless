@@ -75,10 +75,6 @@ autoloads/
   config.gd             # All tunable constants
   user_settings.gd      # Persistent user preferences
 systems/
-  npc_combat.gd         # [LEGACY] Threat detection (unused with ECS, pending delete)
-  npc_needs.gd          # [LEGACY] Energy, schedules (unused with ECS, pending delete)
-  npc_grid.gd           # [LEGACY] Spatial partitioning (unused with ECS, pending delete)
-  npc_renderer.gd       # [LEGACY] MultiMesh rendering (unused with ECS, pending delete)
   projectile_manager.gd # [LEGACY] Projectile pooling (unused with ECS, pending delete)
   guard_post_combat.gd  # [LEGACY] Guard post attacks (unused with ECS, pending delete)
 entities/
