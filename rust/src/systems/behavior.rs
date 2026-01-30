@@ -65,7 +65,7 @@ pub fn arrival_system(
 ) {
     let positions = &gpu_state.positions;
     let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
-    const FARM_ARRIVAL_RADIUS: f32 = 100.0;
+    const FARM_ARRIVAL_RADIUS: f32 = 40.0;  // Grid spacing is 34px, keep tight to avoid false positives
 
     for event in events.read() {
         for (entity, npc_idx, job, town, home, health,
