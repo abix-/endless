@@ -10,8 +10,16 @@ crate-type = ["cdylib"]
 [dependencies]
 godot = "0.4"
 godot-bevy = { git = "https://github.com/bytemeadow/godot-bevy.git", branch = "main" }
-bevy = { version = "0.18", default-features = false, features = ["trace"] }
+bevy = { version = "0.18", default-features = false, features = ["bevy_asset", "bevy_log"] }
 crossbeam-channel = "0.5"
+tracing = "0.1"
+tracing-tracy = { version = "0.11.4", default-features = false, features = [
+  "enable",
+  "manual-lifetime",
+  "ondemand",
+  "broadcast",
+], optional = true }
+
 [features]
 default = []
-trace_tracy = ["godot-bevy/trace_tracy"]
+trace_tracy = ["dep:tracing-tracy", "godot-bevy/trace_tracy"]
