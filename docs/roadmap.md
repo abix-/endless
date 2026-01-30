@@ -60,6 +60,14 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] O(1) entity lookup via NpcEntityMap
 - [x] Projectile slot reuse (FREE_PROJ_SLOTS pool)
 - [x] MultiMesh projectile rendering with velocity-based rotation
+- [x] Damage flash effect
+- [x] Guards have no leash (fight anywhere)
+- [x] Alert nearby allies when combat starts
+- [ ] Player combat abilities
+- [ ] Army units (peasant levy, archers, knights)
+- [ ] Equipment crafting (weapons, armor)
+- [ ] Army recruitment and movement
+- [ ] Attack and capture enemy towns
 
 ### NPC Behaviors ✓
 - [x] Guards: patrol posts clockwise, rest when tired (energy < 50), resume when rested (energy > 80)
@@ -69,9 +77,14 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] Leash system (disengage if too far from home)
 - [x] Flee system (exit combat below HP threshold)
 - [x] Wounded rest + recovery system
+- [x] 15-minute decision cycles (event-driven override on state changes)
+- [x] Building arrival based on sprite size (not pixel coordinates)
+- [x] Drift detection (working NPCs pushed off position walk back)
 - [ ] Target switching (prefer non-fleeing enemies over fleeing)
 - [ ] Trait combat modifiers (Strong +25%, Berserker +50% at low HP, Efficient -25% cooldown, Lazy +20% cooldown)
 - [ ] Trait flee modifiers (Brave never flees, Coward +20% threshold)
+- [ ] Trait combinations (multiple traits per NPC)
+- [ ] AI lords that expand and compete
 
 ### Economy ✓
 - [x] Food production (farmers generate food per hour)
@@ -86,6 +99,25 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] HP regen system (3x sleeping, 10x fountain/camp with upgrade)
 - [ ] Food consumption (eating restores HP/energy, npc_ate_food event)
 - [ ] Food efficiency upgrade (chance of free meal)
+- [x] Population caps per town (upgradeable)
+- [ ] Starvation effects (HP drain, desertion)
+- [ ] Multiple resources (wood, iron, gold)
+- [ ] Production buildings (lumber mill, mine, blacksmith)
+
+### World Generation ✓
+- [x] Procedural town generation (1-7 towns, 1200px minimum spacing)
+- [x] Named towns from pool of 15 Florida cities
+- [x] Farms (2 per town, 200-300px from center)
+- [x] Homes/beds for farmers (ring 350-450px from center, 16 starting beds)
+- [x] Guard posts (4 per town at corners, clockwise patrol)
+- [x] Raider camps (positioned away from all towns)
+- [x] Visible world border with corner markers
+- [x] Building grid (6x6 start, expandable to 100x100)
+- [x] Destructible buildings (right-click slot → Destroy)
+- [x] Build new structures (right-click empty slots - farms, beds, guard posts)
+- [x] Double-click locked slots to unlock (1 food each)
+- [x] Town circle indicator expands with building range
+- [ ] Structure upgrades (increase output, capacity, defense)
 
 ### World Data ✓
 - [x] Towns, farms, beds, guard posts as Bevy resources
@@ -106,6 +138,8 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] NPCS_BY_TOWN static (per-town NPC lists)
 - [x] 10 query APIs: get_population_stats, get_town_population, get_npc_info, get_npcs_by_town, get/set_selected_npc, get_npc_name, get_npc_trait, set_npc_name, get_bed_stats
 - [x] left_panel.gd, roster_panel.gd, upgrade_menu.gd wired to ECS APIs
+- [ ] Villager role assignment UI
+- [ ] Train guards from population
 
 ### Building System
 - [ ] Runtime add/remove farm/bed/guard_post APIs
@@ -236,6 +270,40 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 | Combat + projectiles | 10,000+ | 140 | ✓ |
 | Full game integration | 10,000+ | 60+ | Partial |
 | Future (GPU grid build) | 20,000+ | 60+ | Planned |
+
+## Game Design Reference
+
+### Personality Traits
+40% of NPCs spawn with a trait. Effects:
+
+| Trait | Effect |
+|-------|--------|
+| Brave | Never flees |
+| Coward | Flees at +20% higher HP threshold |
+| Efficient | +25% farm yield, -25% attack cooldown |
+| Hardy | +25% max HP |
+| Lazy | -20% farm yield, +20% attack cooldown |
+| Strong | +25% damage |
+| Swift | +25% move speed |
+| Sharpshot | +25% attack range |
+| Berserker | +50% damage below 50% HP |
+
+### NPC States
+
+| State | Jobs | Description |
+|-------|------|-------------|
+| Idle | All | Between decisions |
+| Resting | All | At home/camp, recovering energy |
+| Off Duty | All | At home/camp, awake |
+| Fighting | Guard, Raider | In combat |
+| Fleeing | All | Running from combat |
+| Walking | Farmer, Guard | Moving to destination |
+| Working | Farmer | At farm, producing food |
+| On Duty | Guard | Stationed at post |
+| Patrolling | Guard | Moving between posts |
+| Raiding | Raider | Going to/at farm to steal |
+| Returning | Raider | Heading back to camp |
+| Wandering | Farmer, Guard | Off-duty wandering |
 
 ## References
 
