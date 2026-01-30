@@ -174,7 +174,7 @@ pub static GAME_CONFIG_STAGING: Mutex<Option<GameConfig>> = Mutex::new(None);
 // NPC STATE CONSTANTS (for UI display)
 // ============================================================================
 
-// State constants matching GDScript NPCState.State
+// State constants - GDScript must match these values
 pub const STATE_IDLE: i32 = 0;
 pub const STATE_WALKING: i32 = 1;
 pub const STATE_RESTING: i32 = 2;

@@ -4,18 +4,19 @@ extends RefCounted
 class_name NPCState
 
 enum State {
-	IDLE,        # Not doing anything
-	RESTING,     # At home/camp, recovering
-	FIGHTING,    # In combat
-	FLEEING,     # Running from combat
-	WALKING,     # Generic movement (farmer to/from places)
-	FARMING,     # Farmer at farm
-	OFF_DUTY,    # At home/camp, awake
-	ON_DUTY,     # Guard at post
-	PATROLLING,  # Guard moving between posts
-	RAIDING,     # Raider going to/at farm
-	RETURNING,   # Raider going home
-	WANDERING,   # Off-duty wandering around town
+	IDLE = 0,           # Not doing anything
+	WALKING = 1,        # Moving to destination
+	RESTING = 2,        # At home/camp, recovering energy
+	WORKING = 3,        # Farmer at farm (was FARMING)
+	PATROLLING = 4,     # Guard moving between posts
+	ON_DUTY = 5,        # Guard at post
+	FIGHTING = 6,       # In combat
+	RAIDING = 7,        # Raider going to farm
+	RETURNING = 8,      # Going home
+	RECOVERING = 9,     # Resting until healed
+	FLEEING = 10,       # Running from combat
+	GOING_TO_REST = 11, # Walking home to rest
+	GOING_TO_WORK = 12, # Walking to work position
 }
 
 enum Faction { VILLAGER, RAIDER }
@@ -84,24 +85,25 @@ const LAST_NAMES := [
 
 # Valid states per job type
 const VALID_STATES := {
-	Job.FARMER: [State.IDLE, State.RESTING, State.FLEEING, State.WALKING, State.FARMING, State.OFF_DUTY, State.WANDERING],
-	Job.GUARD: [State.IDLE, State.RESTING, State.FIGHTING, State.FLEEING, State.WALKING, State.OFF_DUTY, State.ON_DUTY, State.PATROLLING, State.WANDERING],
-	Job.RAIDER: [State.IDLE, State.RESTING, State.FIGHTING, State.FLEEING, State.RAIDING, State.RETURNING, State.OFF_DUTY],
+	Job.FARMER: [State.IDLE, State.WALKING, State.RESTING, State.WORKING, State.GOING_TO_REST, State.GOING_TO_WORK],
+	Job.GUARD: [State.IDLE, State.WALKING, State.RESTING, State.PATROLLING, State.ON_DUTY, State.FIGHTING, State.FLEEING, State.GOING_TO_REST, State.RECOVERING],
+	Job.RAIDER: [State.IDLE, State.WALKING, State.RESTING, State.FIGHTING, State.FLEEING, State.RAIDING, State.RETURNING, State.RECOVERING, State.GOING_TO_REST],
 }
 
 const STATE_NAMES := {
 	State.IDLE: "Idle",
-	State.RESTING: "Resting",
-	State.FIGHTING: "Fighting",
-	State.FLEEING: "Fleeing",
 	State.WALKING: "Walking",
-	State.FARMING: "Farming",
-	State.OFF_DUTY: "Off Duty",
-	State.ON_DUTY: "On Duty",
+	State.RESTING: "Resting",
+	State.WORKING: "Working",
 	State.PATROLLING: "Patrolling",
+	State.ON_DUTY: "On Duty",
+	State.FIGHTING: "Fighting",
 	State.RAIDING: "Raiding",
 	State.RETURNING: "Returning",
-	State.WANDERING: "Wandering",
+	State.RECOVERING: "Recovering",
+	State.FLEEING: "Fleeing",
+	State.GOING_TO_REST: "Going to Rest",
+	State.GOING_TO_WORK: "Going to Work",
 }
 
 const JOB_NAMES := ["Farmer", "Guard", "Raider"]
