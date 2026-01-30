@@ -112,6 +112,8 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] Wire up _on_build_requested(), _on_destroy_requested(), _get_clicked_farm()
 - [ ] Replace npc_manager array writes with EcsNpcManager API calls
 - [ ] NPCs claim and use new buildings
+- [ ] Guard post auto-attack (turret behavior, fires at enemies)
+- [ ] Guard post upgrades (attack_enabled, range_level, damage_level)
 
 ### XP & Leveling
 - [ ] Level, Xp components on NPCs
@@ -213,15 +215,15 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] get_raider_group_center() for coordinated movement
 - [ ] find_nearest_raider() for regrouping
 
-### GDScript Cleanup
+### GDScript Cleanup ✓
 - [x] Delete npc_state.gd (state/job/trait now strings from Rust)
-- [ ] Delete npc_manager.gd, npc_navigation.gd, npc_combat.gd
-- [ ] Delete npc_needs.gd, npc_grid.gd, npc_renderer.gd
-- [ ] Delete gpu_separation.gd, separation_compute.glsl (ECS has npc_compute.glsl)
-- [ ] Delete guard_post_combat.gd
-- [ ] Delete projectile_manager.gd, npc_manager.tscn, projectile_manager.tscn
+- [x] Delete npc_manager.gd, npc_manager.tscn, npc_navigation.gd
+- [x] Delete npc_combat.gd, npc_needs.gd, npc_grid.gd, npc_renderer.gd
+- [x] Delete gpu_separation.gd, separation_compute.glsl
+- [x] Delete guard_post_combat.gd, projectile_manager.gd
+- [x] Remove .uid files from git tracking
 - [ ] Remove unused preloads from main.gd
-- [ ] Update README
+- [ ] Delete projectile_manager.tscn
 
 ## Performance
 

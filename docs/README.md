@@ -75,8 +75,6 @@ autoloads/
   config.gd             # All tunable constants
   user_settings.gd      # Persistent user preferences
 systems/
-  projectile_manager.gd # [LEGACY] Projectile pooling (unused with ECS, pending delete)
-  guard_post_combat.gd  # [LEGACY] Guard post attacks (unused with ECS, pending delete)
 entities/
   player.gd             # Camera controls
 world/
