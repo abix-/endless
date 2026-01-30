@@ -19,8 +19,6 @@
 - update CLAUDE.md: remove obsolete gdscript sections
 - update docs/README.md: add guard_post_menu.gd, terrain_sprite.gdshader to file map
 - remove icon.svg, tmp files, add *.tmp to gitignore
-
-## 2026-01-30 (earlier)
 - refactor: rust returns state/job/trait as strings instead of integers
 - add derive_npc_state() returns "Idle", "Fighting", "On Duty", etc.
 - add job_name() returns "Farmer", "Guard", "Raider", "Fighter"
@@ -29,8 +27,6 @@
 - update left_panel.gd, roster_panel.gd: use strings directly from rust
 - update combat_log.gd: remove NPCState dependency
 - delete systems/npc_state.gd: all NPC data now sourced from rust ECS
-
-## 2026-01-30 (earlier)
 - refactor: consolidate arrival handlers into single generic arrival_system
 - delete handle_arrival_system, raider_arrival_system, wounded_rest_system
 - arrival_system transitions based on state markers (component-driven, not job-driven)
@@ -40,8 +36,6 @@
 - docs: move Data Ownership table to messages.md
 - docs: move Key Optimizations and Performance Lessons to gpu-compute.md
 - docs: add Testing & Debug capability section
-
-## 2026-01-29 (earlier)
 - add Phase 11.7: replace 5 static queues with lock-free crossbeam channels
 - add GodotToBevy channel (spawn, target, damage, reset, pause, timescale)
 - add BevyToGodot channel (projectile fire, future sync messages)
@@ -52,8 +46,6 @@
 - update lib.rs process(): drain BevyToGodot for FireProjectile messages
 - add ResetFlag resource (replaces RESET_BEVY static)
 - pattern: crossbeam channels for cross-thread, statics only at lib.rs boundary
-
-## 2026-01-29 (earlier)
 - add Phase 10.2: GPU update messages replace direct Mutex locks
 - add GpuUpdateMsg message type (wraps GpuUpdate enum)
 - add collect_gpu_updates system: drains messages, single Mutex lock at end of frame
@@ -87,8 +79,6 @@
 - add action score constants (SCORE_FIGHT_BASE, SCORE_WORK_BASE, SCORE_WANDER_BASE, etc.)
 - change start menu sliders: now per-town values instead of totals (2 farmers, 4 guards, 6 raiders default)
 - update config.gd defaults to match (BASE_FARMERS=2, BASE_GUARDS=4, BASE_RAIDERS=6)
-
-## 2026-01-28 (earlier)
 - add Phase 9.4: UI data queries (10 new APIs for population stats, NPC info, roster, selection)
 - add unified Town model: all settlements are "towns" with faction field (0=Villager, 1=Raider)
 - add NPC_META static: per-NPC name/level/xp/trait cached for UI queries
@@ -128,13 +118,11 @@
 - add Animal Crossing to inspirations: existence is the game, NPCs have their own lives
 - add Factorio philosophy: satisfaction of watching your creation work
 
-## 2026-01-27 (WIP)
+## 2026-01-27
 - wire EcsNpcManager into main.gd (Phase 1): replace npc_manager + projectile_manager with Rust ECS
 - comment out: food production, respawning, building, upgrades, active radius, NPC selection (future phases)
 - spawn_npc() calls for farmers, guards, raiders with Dictionary opts
 - fix multimesh culling: set custom visibility rect on canvas item (NPCs disappeared at close zoom)
-
-## 2026-01-27
 - fix test 11: add combat_target_2/3 to get_combat_debug() (was returning -99 default)
 - fix test 11: move ranged pair from 200px to 150px apart (200px spans 2 grid cells, outside 3x3 neighborhood)
 - test 11 unified attacks: all 7 phases passing (melee + ranged projectile pipeline)
