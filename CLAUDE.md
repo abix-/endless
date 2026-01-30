@@ -1,29 +1,5 @@
 # Endless - Project Conventions
 
-## Interaction Radii
-
-Never hardcode pixel distances for building interactions. Use `Location.get_interaction_radius()`:
-
-```gdscript
-const Location = preload("res://world/location.gd")
-
-var radius = Location.get_interaction_radius("field")       # farm (1.25x buffer)
-var radius = Location.get_interaction_radius("camp", 1.5)   # custom buffer
-```
-
-The radius is calculated from sprite definitions (cell size × scale × diagonal) with configurable buffer.
-
-Arrival radii (`_arrival_*`) are cached at load - edge-based, for entering sprite boundary.
-
-Per-NPC `arrival_radii[i]` is set when walking to a target.
-
-NPCs target building CENTERS (no offset). Arrival triggers when entering sprite boundary:
-```gdscript
-manager.targets[i] = manager.work_positions[i]  # building center
-manager.arrival_radii[i] = manager._arrival_farm  # edge radius (72px for 3x3 farm)
-```
-Separation forces spread NPCs naturally once inside the building.
-
 ## Sprite Definitions
 
 All building sprites are defined in `world/location.gd`:
@@ -33,17 +9,14 @@ All building sprites are defined in `world/location.gd`:
 
 When adding new buildings, add entries to both `SPRITES` and `LOCATION_SPRITES`.
 
-## NPC Data (DOD)
+## Location Types
 
-NPC data lives in parallel PackedArrays in `npc_manager.gd`. When adding new NPC properties:
-1. Add array declaration and resize in `_init_arrays()`
-2. Initialize value in `_spawn_npc_internal()`
-3. Reset on death if needed
-
-## State Machine
-
-States defined in `npc_state.gd`. State transitions go through `manager._state.set_state()`.
-Decision logic in `npc_needs.gd` via `decide_what_to_do()`.
+Valid types for `location_type` export:
+- `"field"` - farm (3x3)
+- `"camp"` - raider camp (2x2 tent)
+- `"home"` - bed (1x1)
+- `"guard_post"` - guard post (1x1)
+- `"fountain"` - town center marker (1x1)
 
 ## Settings
 
@@ -64,48 +37,18 @@ Example from `npc_sprite.gdshader`:
 
 HP bar modes: 0=off, 1=when damaged, 2=always (uniform int, set via ShaderMaterial)
 
-## MultiMesh Rendering
+## README vs Roadmap
 
-NPCs and overlays (loot icons) use separate MultiMesh instances in `npc_renderer.gd`.
-Each MultiMesh needs: mesh, transform_format, instance_count, optional use_colors/use_custom_data.
-Hide instances by setting transform position to (-9999, -9999).
+- **README.md** - Introduction to the game (description, gameplay, controls, credits)
+- **docs/roadmap.md** - Feature tracking with `[x]`/`[ ]` checkboxes, performance targets, game design reference
 
-## Location Types
+Don't add feature checkboxes to README. All development tracking goes in roadmap.
 
-Valid types for `location_type` export:
-- `"field"` - farm (3x3)
-- `"camp"` - raider camp (2x2 tent)
-- `"home"` - bed (1x1)
-- `"guard_post"` - guard post (1x1)
-- `"fountain"` - town center marker (1x1)
+## Rust/Bevy ECS
 
-## README Maintenance
+All NPC data and logic lives in Rust. Performance: 10,000 NPCs @ 140fps (release build).
 
-The README serves as both documentation and a development roadmap.
-
-**Structure:**
-- Short description with inspirations (LOTR2, RimWorld, Factorio)
-- Gameplay loop overview (6-step cycle)
-- Features section with categorized checkboxes
-- Link to docs/ for architecture (file tree lives in docs/README.md)
-- Controls and configuration tables
-
-**Feature checkboxes:**
-- `[x]` = implemented and working
-- `[ ]` = planned but not started
-- Update checkboxes as features are completed
-- Keep items concise (one line each)
-- Group by category: World, Economy, Combat, AI, Player Controls, etc.
-
-**When changing config values** (world size, NPC counts, etc.), update the Configuration table to match.
-
-**Don't over-document:** README shows what exists and what's planned. Implementation details go in CLAUDE.md or code comments.
-
-## Rust/Bevy ECS (godot-bevy)
-
-Performance target: 10,000 NPCs @ 140fps — **achieved** (release build).
-
-See [docs/](docs/README.md) for architecture, system maps, and known issues. See [docs/roadmap.md](docs/roadmap.md) for migration progress and performance lessons.
+See [docs/](docs/README.md) for architecture, system maps, and known issues.
 
 **Setup:**
 1. Install Rust from https://rustup.rs/
