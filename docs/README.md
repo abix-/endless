@@ -120,6 +120,10 @@ tools/
   sprite_browser.gd     # Dev tool for browsing sprite atlas
 ```
 
+## Configuration
+
+Game constants are in `autoloads/config.gd` (world size, NPC counts, energy thresholds). Most values are configurable via the start menu.
+
 ## Aggregate Known Issues
 
 Collected from all docs. Priority order:

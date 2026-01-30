@@ -45,23 +45,6 @@ See [docs/](docs/README.md) for architecture documentation — system maps, file
 | P | Policies panel (faction settings) |
 | ESC | Settings menu |
 
-## Configuration
-
-Key values in `autoloads/config.gd`:
-
-| Setting | Value | Notes |
-|---------|-------|-------|
-| FARMERS_PER_TOWN | 2 | Starting farmers per town (configurable via start menu) |
-| GUARDS_PER_TOWN | 4 | Starting guards per town (configurable via start menu) |
-| MAX_FARMERS_PER_TOWN | 2 | Population cap (upgradeable +2/level) |
-| MAX_GUARDS_PER_TOWN | 4 | Population cap (upgradeable +10/level) |
-| RAIDERS_PER_CAMP | 6 | Raiders per camp (configurable via start menu) |
-| GUARD_POSTS_PER_TOWN | 4 | Patrol points (clockwise corners) |
-| WORLD_SIZE | 8000x8000 | Play area |
-| MAX_NPC_COUNT | 3000 | Engine limit |
-| ENERGY_STARVING | 10 | Eat food threshold |
-| ENERGY_HUNGRY | 50 | Go home threshold |
-
 ## Credits
 
 - Engine: [Godot 4.5](https://godotengine.org/)
