@@ -68,5 +68,7 @@ See [docs/roadmap.md](docs/roadmap.md) for migration chunks, performance targets
 
 ## Credits
 
-- Sprite assets: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
-- Engine: Godot 4.5
+- Engine: [Godot 4.5](https://godotengine.org/)
+- ECS: [Bevy](https://bevyengine.org/)
+- Integration: [godot-bevy](https://github.com/ArcticLampyrid/godot-bevy)
+- Sprites: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
