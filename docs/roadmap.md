@@ -105,11 +105,20 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] Replace npc_manager array writes with EcsNpcManager API calls
 - [ ] NPCs claim and use new buildings
 
+### XP & Leveling
+- [ ] Level, Xp components on NPCs
+- [ ] grant_xp() API and system
+- [ ] Level-up system (sqrt scaling: level 9999 = 100x stats)
+- [ ] Stat scaling (damage, max_health based on level)
+- [ ] npc_leveled_up event to GDScript
+
 ### Config & Upgrades
 - [ ] CombatConfig Bevy resource (configurable melee/ranged stats)
 - [ ] set_combat_config() API to push Config.gd values at startup
 - [ ] spawn_npc_system reads config instead of hardcoded AttackStats
 - [ ] apply_upgrade(town_idx, upgrade_type, level) API for stat multipliers
+- [ ] Guard upgrades: health, attack, range, size bonuses per town
+- [ ] Farmer upgrades: HP bonus per town
 
 ### Events to GDScript
 - [ ] DEATH_EVENT_QUEUE (npc_idx, job, faction, town_idx)
@@ -178,9 +187,22 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] Register EcsNpcManager as Bevy entity
 - [ ] EcsNpcManagerMarker component for querying
 
+### Performance Optimizations
+- [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
+- [ ] awake/sleep_timers per NPC, ACTIVE_RADIUS check
+- [ ] Combat/raiding states force awake
+
+### Raider Coordination
+- [ ] count_nearby_raiders() for group behavior
+- [ ] get_raider_group_center() for coordinated movement
+- [ ] find_nearest_raider() for regrouping
+
 ### GDScript Cleanup
-- [ ] Delete npc_manager.gd, npc_state.gd, npc_navigation.gd, npc_combat.gd
+- [x] Delete npc_state.gd (state/job/trait now strings from Rust)
+- [ ] Delete npc_manager.gd, npc_navigation.gd, npc_combat.gd
 - [ ] Delete npc_needs.gd, npc_grid.gd, npc_renderer.gd
+- [ ] Delete gpu_separation.gd, separation_compute.glsl (ECS has npc_compute.glsl)
+- [ ] Delete guard_post_combat.gd
 - [ ] Delete projectile_manager.gd, npc_manager.tscn, projectile_manager.tscn
 - [ ] Remove unused preloads from main.gd
 - [ ] Update README
