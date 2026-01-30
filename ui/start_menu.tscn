@@ -38,6 +38,19 @@ horizontal_alignment = 1
 [node name="Sep" type="HSeparator" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 
+[node name="StressTestRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+
+[node name="CheckBox" type="CheckBox" parent="Panel/MarginContainer/VBox/StressTestRow"]
+layout_mode = 2
+text = "Stress Test Mode"
+
+[node name="TotalLabel" type="Label" parent="Panel/MarginContainer/VBox/StressTestRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+
 [node name="WorldSizeRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox"]
 layout_mode = 2
 

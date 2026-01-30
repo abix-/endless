@@ -2,6 +2,8 @@
 # Game start menu with world configuration
 extends CanvasLayer
 
+@onready var stress_test_check: CheckBox = $Panel/MarginContainer/VBox/StressTestRow/CheckBox
+@onready var total_label: Label = $Panel/MarginContainer/VBox/StressTestRow/TotalLabel
 @onready var world_size_slider: HSlider = $Panel/MarginContainer/VBox/WorldSizeRow/Slider
 @onready var world_size_value: Label = $Panel/MarginContainer/VBox/WorldSizeRow/Value
 @onready var towns_slider: HSlider = $Panel/MarginContainer/VBox/TownsRow/Slider
@@ -34,6 +36,10 @@ const GUARDS_DEFAULT := 4  # per villager town
 const RAIDERS_MIN := 0
 const RAIDERS_MAX := 50
 const RAIDERS_DEFAULT := 6  # per raider town
+
+# stress test mode unlocks higher limits
+const STRESS_TOWNS_MAX := 20
+const STRESS_NPC_MAX := 500
 
 
 func _ready() -> void:
@@ -68,11 +74,13 @@ func _ready() -> void:
 	raiders_slider.value_changed.connect(_on_raiders_changed)
 
 	start_button.pressed.connect(_on_start_pressed)
+	stress_test_check.toggled.connect(_on_stress_test_toggled)
 	_update_world_size_label()
 	_update_towns_label()
 	_update_farmers_label()
 	_update_guards_label()
 	_update_raiders_label()
+	_update_total_label()
 
 
 func _update_world_size_label() -> void:
@@ -102,6 +110,7 @@ func _on_world_size_changed(_value: float) -> void:
 
 func _on_towns_changed(_value: float) -> void:
 	_update_towns_label()
+	_update_total_label()
 
 
 func _update_towns_label() -> void:
@@ -111,14 +120,17 @@ func _update_towns_label() -> void:
 
 func _on_farmers_changed(_value: float) -> void:
 	_update_farmers_label()
+	_update_total_label()
 
 
 func _on_guards_changed(_value: float) -> void:
 	_update_guards_label()
+	_update_total_label()
 
 
 func _on_raiders_changed(_value: float) -> void:
 	_update_raiders_label()
+	_update_total_label()
 
 
 func _update_farmers_label() -> void:
@@ -131,6 +143,33 @@ func _update_guards_label() -> void:
 
 func _update_raiders_label() -> void:
 	raiders_value.text = "%d per camp" % int(raiders_slider.value)
+
+
+func _update_total_label() -> void:
+	var towns := int(towns_slider.value)
+	var villagers := towns * (int(farmers_slider.value) + int(guards_slider.value))
+	var raiders := towns * int(raiders_slider.value)  # 1 camp per town
+	var total := villagers + raiders
+	total_label.text = "~%d NPCs" % total
+
+
+func _on_stress_test_toggled(enabled: bool) -> void:
+	if enabled:
+		towns_slider.max_value = STRESS_TOWNS_MAX
+		farmers_slider.max_value = STRESS_NPC_MAX
+		guards_slider.max_value = STRESS_NPC_MAX
+		raiders_slider.max_value = STRESS_NPC_MAX
+	else:
+		towns_slider.max_value = TOWNS_MAX
+		farmers_slider.max_value = FARMERS_MAX
+		guards_slider.max_value = GUARDS_MAX
+		raiders_slider.max_value = RAIDERS_MAX
+		# clamp current values to new max
+		towns_slider.value = min(towns_slider.value, TOWNS_MAX)
+		farmers_slider.value = min(farmers_slider.value, FARMERS_MAX)
+		guards_slider.value = min(guards_slider.value, GUARDS_MAX)
+		raiders_slider.value = min(raiders_slider.value, RAIDERS_MAX)
+	_update_total_label()
 
 
 func _on_start_pressed() -> void:
