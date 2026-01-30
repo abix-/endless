@@ -78,6 +78,7 @@ entities/
 world/
   location.gd           # Sprite definitions, interaction radii
   terrain_renderer.gd   # Terrain tile rendering with sprite tiling
+  terrain_sprite.gdshader # Terrain tile shader
 ui/
   start_menu.gd         # Start menu (world size, towns, populations)
   left_panel.gd         # Stats, performance, NPC inspector (uses ECS query APIs)
@@ -88,6 +89,7 @@ ui/
   policies_panel.gd     # Faction policies (flee thresholds, off-duty behavior)
   roster_panel.gd       # NPC roster with sorting/filtering (uses ECS query APIs)
   farm_menu.gd          # Farm info popup (ECS-only, waiting for farm API)
+  guard_post_menu.gd    # Guard post upgrades
 rust/
   Cargo.toml            # Bevy 0.18 + godot-bevy 0.11 dependencies
   src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, rendering
