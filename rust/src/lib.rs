@@ -71,6 +71,12 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<resources::NpcsByTownCache>()
        .init_resource::<resources::NpcLogCache>()
        .init_resource::<resources::FoodEvents>()
+       .init_resource::<resources::ResetFlag>()
+       .init_resource::<resources::GpuReadState>()
+       .init_resource::<resources::GpuDispatchCount>()
+       .init_resource::<resources::SlotAllocator>()
+       .init_resource::<resources::ProjSlotAllocator>()
+       .init_resource::<resources::FoodStorage>()
        // Chain phases with explicit command flush between Spawn and Combat
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        // Flush commands after Spawn so Combat sees new entities

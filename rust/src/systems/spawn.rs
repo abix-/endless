@@ -9,6 +9,7 @@ use crate::constants::*;
 use crate::messages::{
     SpawnNpcMsg, GpuUpdate, GpuUpdateMsg,
     STATE_IDLE, STATE_ON_DUTY, STATE_GOING_TO_WORK,
+    GPU_DISPATCH_COUNT,
 };
 use crate::resources::*;
 use crate::systems::economy::*;
@@ -237,6 +238,12 @@ pub fn spawn_npc_system(
     // Update GPU dispatch count so process() includes these NPCs
     if had_spawns && max_slot > gpu_dispatch.0 {
         gpu_dispatch.0 = max_slot;
+        // Also update static for lib.rs process() to read
+        if let Ok(mut c) = GPU_DISPATCH_COUNT.lock() {
+            if max_slot > *c {
+                *c = max_slot;
+            }
+        }
     }
 }
 
