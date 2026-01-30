@@ -48,23 +48,24 @@ Same situation, different outcomes. That's emergent behavior.
 ```
     Guard:                Farmer:               Stealer (Raider):
     ┌──────────┐         ┌──────────┐          ┌──────────┐
-    │Patrolling│         │GoingToWork│         │  (idle)  │ spawns stateless
-    └────┬─────┘         └────┬─────┘          └────┬─────┘
-         │ arrival            │ arrival              │ decision_system
-         ▼                    ▼                      ▼
-    ┌──────────┐         ┌──────────┐          ┌──────────┐
-    │  OnDuty  │         │ Working  │          │  Raiding  │ (walk to farm)
-    │ 60 ticks │         │          │          └────┬─────┘
-    └────┬─────┘         └────┬─────┘               │ arrival at farm
-         ▼                    ▼                      ▼
-    ┌──────────┐         ┌──────────┐          ┌──────────┐
-    │  OnDuty  │         │ Working  │          │Returning │ (+CarryingFood)
-    │ 60 ticks │         │          │          │(to camp) │
-    └────┬─────┘         └────┬─────┘          └────┬─────┘
-         └────────┬───────────┘                     │ arrival at camp
-                  │ decision_system             ▼
-                  ▼ (weighted random)          deliver food, re-enter
-             ┌──────────┐                     decision_system
+    │  OnDuty  │ spawn   │GoingToWork│ spawn   │  (idle)  │ spawns stateless
+    │ 60 ticks │         └────┬─────┘          └────┬─────┘
+    └────┬─────┘              │ arrival              │ decision_system
+         │ patrol_system      ▼                      ▼
+         ▼                ┌──────────┐          ┌──────────┐
+    ┌──────────┐         │ Working  │          │  Raiding │ (walk to farm)
+    │Patrolling│         └────┬─────┘          └────┬─────┘
+    └────┬─────┘              │                     │ arrival at farm
+         │ arrival            │                     ▼
+         ▼                    │                ┌──────────┐
+    ┌──────────┐              │                │Returning │ (+CarryingFood)
+    │  OnDuty  │              │                │(to camp) │
+    │ 60 ticks │              │                └────┬─────┘
+    └────┬─────┘              │                     │ arrival at camp
+         └────────┬───────────┘                     ▼
+                  │ decision_system            deliver food, re-enter
+                  ▼ (weighted random)          decision_system
+             ┌──────────┐
              │GoingToRest│
              └────┬─────┘
                   │ arrival
