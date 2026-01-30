@@ -74,7 +74,6 @@ main.gd                 # World generation, food tracking, game setup
 autoloads/
   config.gd             # All tunable constants
   user_settings.gd      # Persistent user preferences
-systems/
 entities/
   player.gd             # Camera controls
 world/
@@ -95,24 +94,29 @@ rust/
   src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, rendering
   src/gpu.rs            # GPU compute shader dispatch and buffer management
   src/messages.rs       # Static queues and message types (GDScript → Bevy)
-  src/components.rs     # ECS components (NpcIndex, Job[Farmer/Guard/Raider/Fighter], Energy, Health, states, stealing, flee/leash)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states, flee/leash)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
-  src/resources.rs      # Bevy resources (NpcCount, NpcEntityMap, GameTime, GameConfig, PopulationStats, RespawnTimers)
+  src/resources.rs      # Bevy resources (NpcCount, NpcEntityMap, GameTime, GameConfig, PopulationStats)
   src/world.rs          # World data structs (Town, Farm, Bed, GuardPost)
   src/systems/
     spawn.rs            # Bevy spawn systems (drain queues → create entities)
     combat.rs           # Attack system (GPU targets → damage → chase)
     health.rs           # Damage, death, cleanup, slot recycling
     behavior.rs         # Energy, tired, rest, patrol, work, steal, flee, leash, recovery
-    economy.rs          # Food production, respawning, population tracking (uses PhysicsDelta)
+    economy.rs          # Food production, respawning, population tracking
 shaders/
   npc_compute.glsl      # GPU: movement + separation + combat targeting
   projectile_compute.glsl # GPU: projectile movement + collision
+  npc_sprite.gdshader   # Visual: NPC sprites with HP bar, flash, sprite atlas
+  halo.gdshader         # Visual: healing zone indicator (not yet used)
+  loot_icon.gdshader    # Visual: raider carrying food (not yet used)
+  sleep_icon.gdshader   # Visual: resting indicator (not yet used)
 scenes/
+  ecs_test.gd           # Test harness (500-10000 NPCs configurable)
   ecs_test.tscn         # 11 behavior tests with visual markers and PASS/FAIL
   bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
-scripts/
-  ecs_test.gd           # Test harness (500-10000 NPCs configurable)
+tools/
+  sprite_browser.gd     # Dev tool for browsing sprite atlas
 ```
 
 ## Aggregate Known Issues
