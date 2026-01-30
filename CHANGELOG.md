@@ -1,6 +1,18 @@
 # Changelog
 
 ## 2026-01-29
+- add Phase 11.7: replace 5 static queues with lock-free crossbeam channels
+- add GodotToBevy channel (spawn, target, damage, reset, pause, timescale)
+- add BevyToGodot channel (projectile fire, future sync messages)
+- add godot_to_bevy_read system: drains channel, dispatches to Bevy messages/resources
+- remove SPAWN_QUEUE, TARGET_QUEUE, DAMAGE_QUEUE, PROJECTILE_FIRE_QUEUE, RESET_BEVY statics
+- remove drain_spawn_queue, drain_target_queue, drain_damage_queue systems
+- update lib.rs spawn_npc, set_target, apply_damage: send via channel
+- update lib.rs process(): drain BevyToGodot for FireProjectile messages
+- add ResetFlag resource (replaces RESET_BEVY static)
+- pattern: crossbeam channels for cross-thread, statics only at lib.rs boundary
+
+## 2026-01-29 (earlier)
 - add Phase 10.2: GPU update messages replace direct Mutex locks
 - add GpuUpdateMsg message type (wraps GpuUpdate enum)
 - add collect_gpu_updates system: drains messages, single Mutex lock at end of frame

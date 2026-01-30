@@ -2,17 +2,47 @@
 
 ## Overview
 
-Static Mutex-protected queues bridge Godot's single-threaded GDScript calls, Bevy's ECS systems, and the GPU compute pipeline. All defined in `rust/src/messages.rs`.
+Communication between Godot (GDScript), Bevy ECS, and GPU compute uses a hybrid architecture:
+- **Lock-free channels** for cross-thread message passing (GodotToBevy, BevyToGodot)
+- **Static Mutex** for GPU boundary state and UI queries
+- **Bevy Messages** for high-frequency internal communication
 
-## GDScript to Bevy Queues
+Channels defined in `rust/src/channels.rs`. Statics defined in `rust/src/messages.rs`.
+
+## GodotToBevy Channel (lib.rs → Bevy)
+
+Lock-free crossbeam channel replaces SPAWN_QUEUE, TARGET_QUEUE, DAMAGE_QUEUE, RESET_BEVY.
+
+| Message | Fields | Producer | Consumer |
+|---------|--------|----------|----------|
+| SpawnNpc | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | spawn_npc() | godot_to_bevy_read → SpawnNpcMsg |
+| SetTarget | slot, x, y | set_target() | godot_to_bevy_read → SetTargetMsg |
+| ApplyDamage | slot, amount | apply_damage() | godot_to_bevy_read → DamageMsg |
+| SelectNpc | slot | set_selected_npc() | godot_to_bevy_read → SelectedNpc resource |
+| Reset | - | reset() | godot_to_bevy_read → ResetFlag resource |
+| SetPaused | bool | set_paused() | godot_to_bevy_read → GameTime.paused |
+| SetTimeScale | f32 | set_time_scale() | godot_to_bevy_read → GameTime.time_scale |
+| PlayerClick | x, y | (future) | godot_to_bevy_read → (unimplemented) |
+
+## BevyToGodot Channel (Bevy → lib.rs)
+
+Lock-free crossbeam channel replaces PROJECTILE_FIRE_QUEUE.
+
+| Message | Fields | Producer | Consumer |
+|---------|--------|----------|----------|
+| FireProjectile | from_x/y, to_x/y, speed, damage, faction, shooter, lifetime | attack_system | process() → upload_projectile() |
+| SpawnView | slot, job, x, y | (future) | (future Godot visual creation) |
+| DespawnView | slot | (future) | (future Godot visual removal) |
+| SyncTransform | slot, x, y | (unused - GPU renders directly) | - |
+| SyncHealth | slot, hp, max_hp | (future) | (future Godot health bars) |
+| SyncColor | slot, r, g, b, a | (future) | (future Godot color sync) |
+| SyncSprite | slot, col, row | (future) | (future Godot sprite sync) |
+
+## Remaining Static Queues
 
 | Queue | Message Type | Fields | Producer | Consumer |
 |-------|-------------|--------|----------|----------|
-| SPAWN_QUEUE | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | spawn_npc() | drain_spawn_queue → spawn_npc_system |
-| TARGET_QUEUE | SetTargetMsg | npc_index, x, y | set_target() | drain_target_queue → apply_targets_system |
 | ARRIVAL_QUEUE | ArrivalMsg | npc_index | process() arrival detection | drain_arrival_queue → handle_arrival_system |
-| DAMAGE_QUEUE | DamageMsg | npc_index, amount | projectile hits (GPU→CPU) | drain_damage_queue → damage_system |
-| PROJECTILE_FIRE_QUEUE | FireProjectileMsg | from_x/y, to_x/y, damage, faction, shooter, speed, lifetime | attack_system | process() → upload_projectile() |
 
 ## GPU Update Messages
 
@@ -124,25 +154,36 @@ Static registries for UI panels to query NPC data. GDScript can't access Bevy Wo
 
 **State constants:** STATE_IDLE=0, STATE_WALKING=1, STATE_RESTING=2, STATE_WORKING=3, STATE_PATROLLING=4, STATE_ON_DUTY=5, STATE_FIGHTING=6, STATE_RAIDING=7, STATE_RETURNING=8, STATE_RECOVERING=9, STATE_FLEEING=10, STATE_GOING_TO_REST=11, STATE_GOING_TO_WORK=12
 
-## Architecture: What Stays Static vs What Migrates
+## Architecture: Channels vs Statics
 
-Most cross-boundary state uses static Mutex. Bevy-internal communication uses Messages (high-frequency) or Observers (infrequent). See [roadmap.md](roadmap.md) Phase 10.
-
-| Category | Pattern | Statics | Count |
-|----------|---------|---------|-------|
-| GDScript↔Bevy boundary | Static Mutex (stays) | SPAWN/TARGET/DAMAGE/ARRIVAL_QUEUE, RESET_BEVY, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 8 |
+| Category | Pattern | Items | Count |
+|----------|---------|-------|-------|
+| GDScript→Bevy | **Channel** (migrated Phase 11.7) | SpawnNpc, SetTarget, ApplyDamage, Reset, SetPaused, SetTimeScale | 6 msgs |
+| Bevy→GDScript | **Channel** (migrated Phase 11.7) | FireProjectile (+ future Sync* msgs) | 1 msg |
+| lib.rs boundary | Static Mutex (stays) | ARRIVAL_QUEUE, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 4 |
 | Bevy↔GPU boundary | Static Mutex (stays) | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
 | UI query state | Static Mutex (stays) | NPC_META, NPC_STATES, NPC_ENERGY, KILL_STATS, SELECTED_NPC, NPCS_BY_TOWN | 6 |
-| Bevy-internal state | Migrate → `Res<T>` | WORLD_DATA, BED/FARM_OCCUPANCY, HEALTH/COMBAT_DEBUG, FOOD_STORAGE, food event queues | 8 |
+| Bevy-internal state | Bevy Resources | FOOD_STORAGE, GAME_CONFIG_STAGING (staging only) | 2 |
 
-**Migration completed (Phase 10.2):** Bevy systems emit `GpuUpdateMsg` via `MessageWriter` instead of locking `GPU_UPDATE_QUEUE` directly. `collect_gpu_updates` system runs at end of frame and does a single Mutex lock to batch all updates. This enables multi-threaded Bevy scheduling — systems that don't share MessageWriter can run in parallel.
+**Phase 11.7 completed:** Replaced 5 static queues with lock-free crossbeam channels:
+- SPAWN_QUEUE → GodotToBevyMsg::SpawnNpc
+- TARGET_QUEUE → GodotToBevyMsg::SetTarget
+- DAMAGE_QUEUE → GodotToBevyMsg::ApplyDamage
+- PROJECTILE_FIRE_QUEUE → BevyToGodotMsg::FireProjectile
+- RESET_BEVY → GodotToBevyMsg::Reset
+
+**Why channels?** godot-bevy docs recommend crossbeam for cross-thread communication. Channels are lock-free (no Mutex contention), fire-and-forget from lib.rs, and drained by Bevy systems that can run in parallel.
+
+**Why statics remain at lib.rs boundary?** lib.rs runs outside Bevy's scheduler. Accessing Bevy resources via `get_bevy_app()` would serialize all calls on the main thread ("systems with GodotAccess are forced onto the main thread and run sequentially"). The remaining statics are low-frequency or batch operations (slot allocation, GPU buffer sync, UI queries).
+
+**Phase 10.2 completed:** Bevy systems emit `GpuUpdateMsg` via `MessageWriter` instead of locking `GPU_UPDATE_QUEUE` directly. `collect_gpu_updates` system runs at end of frame and does a single Mutex lock to batch all updates.
 
 ## Known Issues / Limitations
 
-- **All queues are unbounded**: No backpressure. If spawn calls outpace Bevy drain (shouldn't happen at 60fps), queues grow without limit.
+- **Channels are unbounded**: No backpressure. If spawn calls outpace Bevy drain (shouldn't happen at 60fps), channels grow without limit.
 - **GPU_READ_STATE is one frame stale**: Bevy reads positions from previous frame's dispatch. Acceptable at 140fps.
-- **Bevy-internal statics**: 8 statics (WORLD_DATA, occupancy, debug, food) should be Bevy Resources. Functional but hides data dependencies from Bevy's scheduler. See Phase 10.3+ migration plan.
+- **9 statics at lib.rs boundary**: ARRIVAL_QUEUE, slot pools, GPU state. Acceptable — lib.rs can't efficiently access Bevy resources without serializing on main thread.
 
 ## Rating: 9/10
 
-Clean unified queue architecture. GPU updates now use idiomatic godot-bevy Message pattern — systems emit `GpuUpdateMsg` via `MessageWriter`, `collect_gpu_updates` does single Mutex lock at end of frame. Spawn path routes all GPU writes through messages. The static Mutex pattern is correct for cross-boundary state (17 statics). 8 Bevy-internal statics planned for migration to Resources.
+Hybrid channel + static architecture. High-frequency cross-thread messages (spawn, target, damage, projectile fire, reset) use lock-free crossbeam channels. GPU boundary and UI queries use statics (lib.rs runs outside Bevy scheduler). Bevy-internal communication uses Messages. The remaining 9 statics are at unavoidable boundaries.

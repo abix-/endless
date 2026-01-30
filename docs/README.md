@@ -37,7 +37,7 @@ GDScript (ecs_test.gd, game scenes)
     ▼
 EcsNpcManager (lib.rs) ── GDScript API ──▶ [api.md]
     │
-    ├─ Static Queues ──────────────────────▶ [messages.md]
+    ├─ Channels (GodotToBevy, BevyToGodot) ▶ [messages.md]
     │
     ├─ GPU Compute ────────────────────────▶ [gpu-compute.md]
     │   ├─ npc_compute.glsl
