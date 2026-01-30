@@ -651,7 +651,7 @@ func _draw_selected_npc_target() -> void:
 	draw_circle(target_pos, 8.0, marker_color)
 
 	# Draw distance text
-	var dist: float = npc_pos.distance_to(target_pos)
+	var _dist: float = npc_pos.distance_to(target_pos)
 	# Note: Drawing text in _draw requires a font - skip for now, just show visual
 
 
