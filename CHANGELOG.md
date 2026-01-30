@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-01-30
+- add raid continuation: raiders keep Raiding marker after combat, decision_system re-targets nearest farm
+- add find_nearest_location(pos, world, LocationKind) generic helper in world.rs
 - delete all legacy gdscript npc systems (rust ECS is now single source of truth)
   - npc_manager.gd, npc_manager.tscn, npc_navigation.gd
   - npc_combat.gd, npc_needs.gd, npc_grid.gd, npc_renderer.gd

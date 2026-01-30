@@ -121,7 +121,8 @@ Same situation, different outcomes. That's emergent behavior.
 ## Systems
 
 ### decision_system (Utility AI)
-- Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, Resting, GoingToRest, Raiding, Returning, InCombat, Recovering, Dead)
+- Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, Resting, GoingToRest, Returning, InCombat, Recovering, Dead), OR raiders with `Raiding` needing re-target
+- **Raid continuation**: If raider has `Raiding` marker (e.g., after combat ends), skip scoring and re-target nearest farm via `find_nearest_location`
 - Score actions: Eat, Rest, Work, Wander (with personality multipliers)
 - Select via weighted random
 - Execute: set state marker, push GPU target

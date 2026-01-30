@@ -60,7 +60,7 @@ Execution order is **chained** — each system completes before the next starts.
 - If target is valid (not -1) and target is alive:
   - **In range**: push `FireProjectileMsg` to `PROJECTILE_FIRE_QUEUE`, reset `AttackTimer`, mark `InCombat`, add `CombatOrigin` (stores current position)
   - **Out of range**: push `SetTarget` to chase, mark `InCombat`, add `CombatOrigin`
-- If no target: remove `InCombat` and `CombatOrigin`
+- If no target: remove `InCombat` and `CombatOrigin` (keeps `Raiding` so decision_system can re-target farm)
 
 ### 3. damage_system (health.rs)
 - Drains `DamageMsg` events from Bevy MessageReader

@@ -8,7 +8,7 @@ use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
 use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage};
 use crate::systems::economy::*;
-use crate::world::WorldData;
+use crate::world::{WorldData, LocationKind, find_nearest_location};
 
 /// Patrol system: count ticks at post and move to next (anyone with PatrolRoute + OnDuty).
 /// Skip NPCs in combat - they chase enemies instead.
@@ -276,14 +276,14 @@ fn weighted_random(scores: &[(Action, f32)], seed: usize, frame: usize) -> Actio
 static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Unified decision system: score actions, weighted random, execute.
-/// Runs on NPCs without an active state.
+/// Runs on NPCs without an active state, OR raiders continuing their mission after combat.
 pub fn decision_system(
     mut commands: Commands,
     query: Query<
         (Entity, &NpcIndex, &Job, &Energy, &Health, &Home, &Personality,
-         Option<&WorkPosition>, Option<&PatrolRoute>, Option<&Stealer>),
+         Option<&WorkPosition>, Option<&PatrolRoute>, Option<&Stealer>, Option<&Raiding>),
         (Without<Patrolling>, Without<OnDuty>, Without<Working>, Without<GoingToWork>,
-         Without<Resting>, Without<GoingToRest>, Without<Raiding>, Without<Returning>,
+         Without<Resting>, Without<GoingToRest>, Without<Returning>,
          Without<InCombat>, Without<Recovering>, Without<Dead>)
     >,
     _pop_stats: ResMut<PopulationStats>,
@@ -293,9 +293,25 @@ pub fn decision_system(
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    for (entity, npc_idx, job, energy, _health, home, personality, work_pos, patrol, _stealer) in query.iter() {
-        let en = energy.0;
+    for (entity, npc_idx, job, energy, _health, home, personality, work_pos, patrol, _stealer, raiding) in query.iter() {
         let idx = npc_idx.0;
+
+        // Raiders continuing mission after combat - re-target nearest farm
+        if raiding.is_some() {
+            let pos = if idx * 2 + 1 < gpu_state.positions.len() {
+                Vector2::new(gpu_state.positions[idx * 2], gpu_state.positions[idx * 2 + 1])
+            } else {
+                home.0
+            };
+            if let Some(farm_pos) = find_nearest_location(pos, &world_data, LocationKind::Farm) {
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                    idx, x: farm_pos.x, y: farm_pos.y,
+                }));
+            }
+            continue;
+        }
+
+        let en = energy.0;
         let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
 
         let food_available = home.is_valid();
@@ -359,26 +375,12 @@ pub fn decision_system(
                         }
                     }
                     Job::Raider => {
-                        let nearest_farm = {
-                            let pos = if idx * 2 + 1 < gpu_state.positions.len() {
-                                Vector2::new(gpu_state.positions[idx * 2], gpu_state.positions[idx * 2 + 1])
-                            } else {
-                                home.0
-                            };
-
-                            let mut best: Option<(f32, Vector2)> = None;
-                            for farm in &world_data.farms {
-                                let dx = farm.position.x - pos.x;
-                                let dy = farm.position.y - pos.y;
-                                let dist_sq = dx * dx + dy * dy;
-                                if best.is_none() || dist_sq < best.unwrap().0 {
-                                    best = Some((dist_sq, farm.position));
-                                }
-                            }
-                            best.map(|(_, p)| p)
+                        let pos = if idx * 2 + 1 < gpu_state.positions.len() {
+                            Vector2::new(gpu_state.positions[idx * 2], gpu_state.positions[idx * 2 + 1])
+                        } else {
+                            home.0
                         };
-
-                        if let Some(farm_pos) = nearest_farm {
+                        if let Some(farm_pos) = find_nearest_location(pos, &world_data, LocationKind::Farm) {
                             commands.entity(entity).insert(Raiding);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                                 idx, x: farm_pos.x, y: farm_pos.y,

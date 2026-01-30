@@ -51,6 +51,38 @@ pub struct WorldData {
     pub guard_posts: Vec<GuardPost>,
 }
 
+/// Location types for find_nearest_location.
+#[derive(Clone, Copy, Debug)]
+pub enum LocationKind {
+    Farm,
+    Bed,
+    GuardPost,
+    Town,
+}
+
+/// Find nearest location of a given kind.
+pub fn find_nearest_location(from: Vector2, world: &WorldData, kind: LocationKind) -> Option<Vector2> {
+    let mut best: Option<(f32, Vector2)> = None;
+
+    let positions: Box<dyn Iterator<Item = Vector2>> = match kind {
+        LocationKind::Farm => Box::new(world.farms.iter().map(|f| f.position)),
+        LocationKind::Bed => Box::new(world.beds.iter().map(|b| b.position)),
+        LocationKind::GuardPost => Box::new(world.guard_posts.iter().map(|g| g.position)),
+        LocationKind::Town => Box::new(world.towns.iter().map(|t| t.center)),
+    };
+
+    for pos in positions {
+        let dx = pos.x - from.x;
+        let dy = pos.y - from.y;
+        let dist_sq = dx * dx + dy * dy;
+        if best.is_none() || dist_sq < best.unwrap().0 {
+            best = Some((dist_sq, pos));
+        }
+    }
+
+    best.map(|(_, p)| p)
+}
+
 /// Tracks which NPCs occupy each bed (-1 = free).
 #[derive(Resource, Default)]
 pub struct BedOccupancy {

@@ -98,7 +98,7 @@ rust/
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states, flee/leash)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, NpcEntityMap, GameTime, GameConfig, PopulationStats)
-  src/world.rs          # World data structs (Town, Farm, Bed, GuardPost)
+  src/world.rs          # World data structs (Town, Farm, Bed, GuardPost), find_nearest_location helper
   src/systems/
     spawn.rs            # Bevy spawn systems (drain queues → create entities)
     combat.rs           # Attack system (GPU targets → damage → chase)
