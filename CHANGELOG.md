@@ -11,6 +11,14 @@
   - trait combat/flee modifiers, target switching
   - guard post auto-attack, town policies, icon overlays
   - food consumption, hp regen, healing upgrades
+- clean up readme: move all feature tracking to docs/roadmap.md
+  - readme now intro only (gameplay, controls, credits)
+  - reorder: The Struggle and Controls before Inspirations
+  - add proper credits for godot, bevy, godot-bevy
+- rename "Rust Migration Roadmap" to "Roadmap" (migration complete)
+- update CLAUDE.md: remove obsolete gdscript sections
+- update docs/README.md: add guard_post_menu.gd, terrain_sprite.gdshader to file map
+- remove icon.svg, tmp files, add *.tmp to gitignore
 
 ## 2026-01-30 (earlier)
 - refactor: rust returns state/job/trait as strings instead of integers
