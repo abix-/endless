@@ -107,6 +107,8 @@ Same situation, different outcomes. That's emergent behavior.
 | Returning | marker | NPC is walking back to home base |
 | CarryingFood | marker | NPC has stolen food |
 | Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
+| Healing | marker | NPC is inside healing aura (visual feedback) |
+| MaxHealth | `f32` | NPC's maximum health (for healing cap) |
 | Home | `{ x, y }` | NPC's home/bed position |
 | WorkPosition | `{ x, y }` | Farmer's field position |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
@@ -163,6 +165,13 @@ Same situation, different outcomes. That's emergent behavior.
 - Query: `Recovering` + `Resting` + `Health`
 - If health >= `Recovering.threshold`: remove both, NPC re-enters decision system next tick
 
+### healing_system
+- Query: NPCs with `Health`, `MaxHealth`, `Faction`, `TownId` (without `Dead`)
+- Reads NPC position from `GpuReadState`, town centers from `WorldData`
+- If NPC within `HEAL_RADIUS` (150px) of same-faction town center: heal `HEAL_RATE` (5 HP/sec)
+- Adds/removes `Healing` marker component for visual feedback
+- Sends `GpuUpdate::SetHealing` for shader halo effect
+
 ### economy_tick_system
 - Reads `Res<PhysicsDelta>` (godot-bevy's Godot-synced delta time)
 - Accumulates elapsed time, triggers on hour boundaries
@@ -197,7 +206,7 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Linear arrival scan**: arrival_system iterates all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
 - **Single camp index hardcoded**: arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
-- **No HP regen in Bevy**: recovery_system checks health threshold but there's no Bevy system that regenerates HP over time. Recovery currently depends on external healing.
+- **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
 - **All raiders target same farm**: decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
 

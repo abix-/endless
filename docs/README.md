@@ -136,3 +136,4 @@ Collected from all docs. Priority order:
 4. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
 5. **InCombat can stick** — no timeout if target dies out of detection range. ([behavior.md](behavior.md))
 6. **Two stat presets only** — AttackStats has melee and ranged constructors but no per-NPC variation beyond these. ([combat.md](combat.md))
+7. **Healing halo visual not working** — healing_system heals NPCs but shader halo effect isn't rendering correctly yet. ([behavior.md](behavior.md))

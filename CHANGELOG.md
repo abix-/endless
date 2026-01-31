@@ -1,6 +1,11 @@
 # Changelog
 
 ## 2026-01-30
+- add healing aura: NPCs heal 5 HP/sec when near own faction's town center (150px radius)
+  - add MaxHealth component for per-NPC health cap (supports future leveling)
+  - add Healing marker component for visual state tracking
+  - add healing_system in health.rs, GpuUpdate::SetHealing message
+  - shader halo effect not working yet (healing logic works)
 - add raid continuation: raiders keep Raiding marker after combat, decision_system re-targets nearest farm
 - add find_nearest_location(pos, world, LocationKind) generic helper in world.rs
 - delete all legacy gdscript npc systems (rust ECS is now single source of truth)

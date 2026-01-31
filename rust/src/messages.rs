@@ -107,6 +107,8 @@ pub enum GpuUpdate {
     SetColor { idx: usize, r: f32, g: f32, b: f32, a: f32 },
     /// Set sprite frame (column, row in sprite sheet)
     SetSpriteFrame { idx: usize, col: f32, row: f32 },
+    /// Set healing aura flag (visual only)
+    SetHealing { idx: usize, healing: bool },
 }
 
 pub static GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>> = Mutex::new(Vec::new());

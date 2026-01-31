@@ -155,6 +155,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        .add_systems(Update, (
            arrival_system,
            energy_system,
+           healing_system,
            flee_system,
            leash_system,
            recovery_system,
@@ -361,6 +362,11 @@ impl INode2D for EcsNpcManager {
                                 .flat_map(|f| f.to_le_bytes()).collect();
                             let frame_packed = PackedByteArray::from(frame_bytes.as_slice());
                             gpu.rd.buffer_update(gpu.sprite_frame_buffer, (idx * 8) as u32, 8, &frame_packed);
+                        }
+                    }
+                    GpuUpdate::SetHealing { idx, healing } => {
+                        if idx < MAX_NPC_COUNT {
+                            gpu.healing_flags[idx] = healing;
                         }
                     }
                 }

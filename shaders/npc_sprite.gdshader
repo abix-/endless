@@ -7,12 +7,12 @@ uniform float margin = 1.0;
 uniform int hp_bar_mode = 1;  // 0 = off, 1 = when damaged, 2 = always
 
 varying float health;
-varying float flash;
+varying float heal_flash;  // Encoded: 0-1 = flash only, 2-3 = healing + flash
 varying vec2 sprite_offset;
 
 void vertex() {
     health = INSTANCE_CUSTOM.r;
-    flash = INSTANCE_CUSTOM.g;
+    heal_flash = INSTANCE_CUSTOM.g;
     float frame_x = INSTANCE_CUSTOM.b * 255.0;
     float frame_y = INSTANCE_CUSTOM.a * 255.0;
 
@@ -22,6 +22,11 @@ void vertex() {
 }
 
 void fragment() {
+    // Decode healing and flash from combined value
+    // 0-1 = flash only, 2-3 = healing + flash (subtract 2 for flash intensity)
+    bool healing = heal_flash >= 2.0;
+    float flash = healing ? (heal_flash - 2.0) : heal_flash;
+
     // Calculate UV within sprite sheet (flip Y)
     vec2 sprite_uv_size = sprite_size / sheet_size;
     vec2 flipped_uv = vec2(UV.x, 1.0 - UV.y);
@@ -46,8 +51,27 @@ void fragment() {
 
         COLOR = bar_color;
     } else {
-        // Apply tint from instance color, then flash effect
+        // Apply tint from instance color
         vec4 tinted = tex_color * COLOR;
+
+        // Healing effect: green tint + pulsing glow
+        if (healing) {
+            // Pulsing effect using TIME
+            float pulse = 0.5 + 0.5 * sin(TIME * 3.0);
+
+            if (tex_color.a > 0.1) {
+                // On sprite: green tint that pulses
+                vec3 heal_color = vec3(0.4, 1.0, 0.5);
+                tinted.rgb = mix(tinted.rgb, heal_color, 0.2 + 0.1 * pulse);
+            } else {
+                // In transparent areas: soft glow
+                float dist_from_center = length(UV - vec2(0.5, 0.5)) * 2.0;
+                float halo = smoothstep(1.0, 0.3, dist_from_center) * (0.4 + 0.2 * pulse);
+                tinted = vec4(0.4, 1.0, 0.5, halo);
+            }
+        }
+
+        // Flash effect (white overlay, on top of everything)
         vec4 final_color = mix(tinted, vec4(1.0, 1.0, 1.0, tinted.a), flash);
         COLOR = final_color;
     }

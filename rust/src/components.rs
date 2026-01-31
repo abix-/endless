@@ -166,11 +166,21 @@ pub struct Dead;
 // HEALTH COMPONENT
 // ============================================================================
 
-/// NPC health (0-100). Dies when reaching 0.
+/// NPC current health. Dies when reaching 0.
 #[derive(Component)]
 pub struct Health(pub f32);
 
 impl Default for Health {
+    fn default() -> Self {
+        Self(100.0)
+    }
+}
+
+/// NPC maximum health. Used for healing cap and HP bar display.
+#[derive(Component)]
+pub struct MaxHealth(pub f32);
+
+impl Default for MaxHealth {
     fn default() -> Self {
         Self(100.0)
     }
@@ -283,6 +293,11 @@ pub struct Returning;
 pub struct Recovering {
     pub threshold: f32,
 }
+
+/// Marker: NPC is inside a healing aura (near own faction's town center).
+/// Used for visual feedback (halo effect).
+#[derive(Component)]
+pub struct Healing;
 
 // ============================================================================
 // BEHAVIOR CONFIG COMPONENTS (generic, attach to any NPC)

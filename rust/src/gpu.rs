@@ -126,6 +126,9 @@ pub struct GpuCompute {
     /// Sprite frames (column, row) per NPC - set at spawn
     pub sprite_frames: Vec<f32>,
 
+    /// Healing aura flags per NPC - true if in healing zone
+    pub healing_flags: Vec<bool>,
+
     // === Projectile CPU Caches ===
     pub proj_positions: Vec<f32>,
     pub proj_velocities: Vec<f32>,
@@ -286,6 +289,7 @@ impl GpuCompute {
             healths: vec![0.0; MAX_NPC_COUNT],
             combat_targets: vec![-1; MAX_NPC_COUNT],
             sprite_frames: vec![0.0; MAX_NPC_COUNT * 2],
+            healing_flags: vec![false; MAX_NPC_COUNT],
             proj_positions: vec![0.0; MAX_PROJECTILES * 2],
             proj_velocities: vec![0.0; MAX_PROJECTILES * 2],
             proj_damages: vec![0.0; MAX_PROJECTILES],
@@ -485,12 +489,14 @@ impl GpuCompute {
             floats[base + 9] = colors[i * 4 + 1];
             floats[base + 10] = colors[i * 4 + 2];
             floats[base + 11] = colors[i * 4 + 3];
-            // CustomData (4 floats): health_pct, flash, sprite_x/255, sprite_y/255
+            // CustomData (4 floats): health_pct, healing+flash, sprite_x/255, sprite_y/255
+            // Encoding: 0-1 = flash only, 2-3 = healing + flash (subtract 2 for flash intensity)
             let health_pct = (self.healths[i] / 100.0).clamp(0.0, 1.0);
             let sprite_col = self.sprite_frames[i * 2];
             let sprite_row = self.sprite_frames[i * 2 + 1];
+            let healing_offset = if self.healing_flags[i] { 2.0 } else { 0.0 };
             floats[base + 12] = health_pct;
-            floats[base + 13] = 0.0;  // flash (set by damage events if needed)
+            floats[base + 13] = healing_offset;  // TODO: add flash intensity when implemented
             floats[base + 14] = sprite_col / 255.0;
             floats[base + 15] = sprite_row / 255.0;
         }

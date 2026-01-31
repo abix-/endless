@@ -1,12 +1,19 @@
-//! Health systems - Damage, death detection, cleanup
+//! Health systems - Damage, death detection, cleanup, healing aura
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
+use godot_bevy::prelude::PhysicsDelta;
 
 use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
-use crate::messages::*;
-use crate::resources::*;
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState};
 use crate::systems::economy::*;
+use crate::world::WorldData;
+
+/// Heal rate in HP per second when inside healing aura.
+const HEAL_RATE: f32 = 5.0;
+/// Radius of healing aura around town center in pixels.
+const HEAL_RADIUS: f32 = 150.0;
 
 // Note: sync_health_system moved to sync.rs (unified sync_to_godot system)
 
@@ -109,4 +116,67 @@ pub fn death_cleanup_system(
     }
 
     debug.despawned_this_frame = despawn_count;
+}
+
+/// Heal NPCs inside their faction's town center healing aura.
+/// Adds/removes Healing marker for visual feedback.
+pub fn healing_system(
+    mut commands: Commands,
+    mut query: Query<(Entity, &NpcIndex, &mut Health, &MaxHealth, &Faction, &TownId, Option<&Healing>), Without<Dead>>,
+    gpu_state: Res<GpuReadState>,
+    world_data: Res<WorldData>,
+    delta: Res<PhysicsDelta>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+) {
+    let positions = &gpu_state.positions;
+    let dt = delta.delta_seconds;
+    let heal_amount = HEAL_RATE * dt;
+
+    for (entity, npc_idx, mut health, max_health, faction, _town_id, healing_marker) in query.iter_mut() {
+        let idx = npc_idx.0;
+        if idx * 2 + 1 >= positions.len() {
+            continue;
+        }
+
+        let x = positions[idx * 2];
+        let y = positions[idx * 2 + 1];
+
+        // Find if NPC is in any same-faction town's healing aura
+        let mut in_healing_zone = false;
+        for town in &world_data.towns {
+            // Check faction match
+            if town.faction != faction.to_i32() {
+                continue;
+            }
+
+            let dx = x - town.center.x;
+            let dy = y - town.center.y;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist <= HEAL_RADIUS {
+                in_healing_zone = true;
+                break;
+            }
+        }
+
+        if in_healing_zone {
+            // Heal up to max health
+            if health.0 < max_health.0 {
+                health.0 = (health.0 + heal_amount).min(max_health.0);
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
+            }
+
+            // Add marker if not present, send visual update
+            if healing_marker.is_none() {
+                commands.entity(entity).insert(Healing);
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealing { idx, healing: true }));
+            }
+        } else {
+            // Remove marker if present, send visual update
+            if healing_marker.is_some() {
+                commands.entity(entity).remove::<Healing>();
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealing { idx, healing: false }));
+            }
+        }
+    }
 }

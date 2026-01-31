@@ -138,6 +138,7 @@ pub fn spawn_npc_system(
             TownId(msg.town_idx),
             Speed::default(),
             Health::default(),
+            MaxHealth::default(),
             Faction::from_i32(msg.faction),
             Home(Vector2::new(msg.home_x, msg.home_y)),
             personality,
