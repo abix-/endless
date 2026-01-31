@@ -1948,18 +1948,25 @@ impl EcsNpcManager {
         result
     }
 
-    /// Get currently selected NPC index.
+    /// Get selected NPC data: { idx, position, target } in one FFI call.
     #[func]
-    fn get_selected_npc(&self) -> i32 {
+    fn get_selected_npc(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        let mut idx = -1i32;
         if let Some(bevy_app) = self.get_bevy_app() {
             let app_ref = bevy_app.bind();
             if let Some(app) = app_ref.get_app() {
                 if let Some(selected) = app.world().get_resource::<resources::SelectedNpc>() {
-                    return selected.0;
+                    idx = selected.0;
                 }
             }
         }
-        -1
+        dict.set("idx", idx);
+        if idx >= 0 {
+            dict.set("position", self.get_npc_position(idx));
+            dict.set("target", self.get_npc_target(idx));
+        }
+        dict
     }
 
     /// Set currently selected NPC index.

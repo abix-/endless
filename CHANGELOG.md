@@ -1,6 +1,10 @@
 # Changelog
 
 ## 2026-01-31
+- optimize FFI calls: get_selected_npc() returns {idx, position, target} in single call
+  - TargetOverlay uses cached values instead of re-fetching (eliminates 4 FFI calls/frame)
+  - reduces 7 FFI calls to 1 when NPC selected
+- change start menu defaults: 4 guards per town, 3 raiders per camp
 - fix raider food delivery at wrong location after combat
   - event-based Returning arrival now re-targets home instead of delivering
   - only proximity check (within 150px of home) delivers food
@@ -34,7 +38,6 @@
   - applies to all jobs (prevents wounded raiders from raiding)
 - fix recovery_system: Resting no longer required to exit Recovering
   - NPCs that lost Resting marker were stuck in Recovering forever
-- change start menu defaults: 500 guards and 500 raiders per town
 
 ## 2026-01-30
 - add FactionStats resource: per-faction alive/dead/kills tracking

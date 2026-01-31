@@ -67,7 +67,7 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | `get_town_population` | `town_idx: i32` | `Dictionary` | farmer_count, guard_count, raider_count for one town |
 | `get_npc_info` | `idx: i32` | `Dictionary` | Full NPC details: name, job (string), level, xp, trait (string), town_id, hp, max_hp, energy, state (string), target_idx, x, y, faction |
 | `get_npcs_by_town` | `town_idx, filter: i32` | `Array` | Array of NPC dicts (idx, name, job, level, hp, max_hp, state, trait). All strings. Filter: -1=all, 0=farmer, 1=guard, 2=raider |
-| `get_selected_npc` | none | `i32` | Currently selected NPC index (-1 = none) |
+| `get_selected_npc` | none | `Dictionary` | { idx: i32, position: Vector2, target: Vector2 } — single FFI call for selection data |
 | `set_selected_npc` | `idx: i32` | void | Set selected NPC for inspector |
 | `get_npc_name` | `idx: i32` | `String` | NPC name by index |
 | `get_npc_trait` | `idx: i32` | `i32` | NPC trait ID by index |

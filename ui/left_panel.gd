@@ -290,7 +290,7 @@ func _update_inspector() -> void:
 		return
 
 	# Get selected NPC or use last
-	var idx: int = npc_manager.get_selected_npc()
+	var idx: int = npc_manager.get_selected_npc().get("idx", -1)
 	if idx < 0:
 		idx = last_idx
 	if idx < 0 or idx >= npc_manager.get_npc_count() or npc_manager.get_npc_health(idx) <= 0.0:

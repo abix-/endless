@@ -32,11 +32,11 @@ const FARMERS_DEFAULT := 2  # per villager town
 
 const GUARDS_MIN := 0
 const GUARDS_MAX := 50
-const GUARDS_DEFAULT := 500  # stress test default
+const GUARDS_DEFAULT := 4
 
 const RAIDERS_MIN := 0
 const RAIDERS_MAX := 50
-const RAIDERS_DEFAULT := 500  # stress test default
+const RAIDERS_DEFAULT := 3
 
 # stress test mode unlocks higher limits
 const STRESS_TOWNS_MAX := 20

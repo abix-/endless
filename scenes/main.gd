@@ -2,32 +2,26 @@ extends Node2D
 
 # Lightweight overlay for target line visualization (avoids full main.gd redraw)
 class TargetOverlay extends Node2D:
-	var npc_manager: Node
+	# Cached from _process() - no FFI calls in _draw()
+	var cached_npc_pos: Vector2
+	var cached_target_pos: Vector2
+	var cached_selected: int = -1
 
 	func _draw() -> void:
-		if not npc_manager:
+		if cached_selected < 0:
 			return
-		var selected: int = npc_manager.get_selected_npc()
-		if selected < 0:
-			return
-		if npc_manager.get_npc_health(selected) <= 0.0:
-			return
-
-		var npc_pos: Vector2 = npc_manager.get_npc_position(selected)
-		var target_pos: Vector2 = npc_manager.get_npc_target(selected)
-
-		if target_pos == Vector2.ZERO or npc_pos == Vector2.ZERO:
+		if cached_target_pos == Vector2.ZERO or cached_npc_pos == Vector2.ZERO:
 			return
 
 		# Line from NPC to target
-		draw_line(npc_pos, target_pos, Color(0.0, 1.0, 1.0, 0.7), 2.0)
+		draw_line(cached_npc_pos, cached_target_pos, Color(0.0, 1.0, 1.0, 0.7), 2.0)
 
 		# Crosshair at target
 		var s := 12.0
 		var c := Color(1.0, 0.0, 1.0, 0.9)
-		draw_line(target_pos + Vector2(-s, 0), target_pos + Vector2(s, 0), c, 2.0)
-		draw_line(target_pos + Vector2(0, -s), target_pos + Vector2(0, s), c, 2.0)
-		draw_circle(target_pos, 8.0, c)
+		draw_line(cached_target_pos + Vector2(-s, 0), cached_target_pos + Vector2(s, 0), c, 2.0)
+		draw_line(cached_target_pos + Vector2(0, -s), cached_target_pos + Vector2(0, s), c, 2.0)
+		draw_circle(cached_target_pos, 8.0, c)
 
 #var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
 #var projectile_manager_scene: PackedScene = preload("res://systems/projectile_manager.tscn")
@@ -139,7 +133,6 @@ func _ready() -> void:
 
 	# Create target overlay (separate canvas for cheap redraws)
 	target_overlay = TargetOverlay.new()
-	target_overlay.npc_manager = npc_manager
 	add_child(target_overlay)
 
 
@@ -543,20 +536,27 @@ func _process(_delta: float) -> void:
 	if UserSettings.show_active_radius:
 		queue_redraw()
 
-	# Update target overlay only when selection/position changes (cheap redraw)
-	var selected: int = npc_manager.get_selected_npc()
+	# Single FFI call for selected NPC data
+	var data: Dictionary = npc_manager.get_selected_npc()
+	var selected: int = data.get("idx", -1)
+	var pos: Vector2 = data.get("position", Vector2.ZERO)
+	var target: Vector2 = data.get("target", Vector2.ZERO)
+
+	# Update target overlay only when selection/position changes
 	if selected != _last_selected_npc:
 		_last_selected_npc = selected
 		_last_target_pos = Vector2.ZERO
 		_last_npc_pos = Vector2.ZERO
+		target_overlay.cached_selected = selected
+		target_overlay.cached_npc_pos = pos
+		target_overlay.cached_target_pos = target
 		target_overlay.queue_redraw()
-	elif selected >= 0:
-		var target: Vector2 = npc_manager.get_npc_target(selected)
-		var pos: Vector2 = npc_manager.get_npc_position(selected)
-		if target != _last_target_pos or pos != _last_npc_pos:
-			_last_target_pos = target
-			_last_npc_pos = pos
-			target_overlay.queue_redraw()
+	elif selected >= 0 and (target != _last_target_pos or pos != _last_npc_pos):
+		_last_target_pos = target
+		_last_npc_pos = pos
+		target_overlay.cached_npc_pos = pos
+		target_overlay.cached_target_pos = target
+		target_overlay.queue_redraw()
 
 
 func _input(event: InputEvent) -> void:
