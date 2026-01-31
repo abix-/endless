@@ -782,8 +782,8 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		town.guard_posts.append(slot_pos)
 		npc_manager.add_location("guard_post", slot_pos.x, slot_pos.y, player_town_idx,
 			{"patrol_order": post_idx})
-			if npc_manager._guard_post_combat:
-				npc_manager._guard_post_combat.register_post(slot_pos, player_town_idx, slot_key)
+		if npc_manager._guard_post_combat:
+			npc_manager._guard_post_combat.register_post(slot_pos, player_town_idx, slot_key)
 		# Initialize guard post upgrades
 		guard_post_upgrades[player_town_idx][slot_key] = {
 			"attack_enabled": false,
