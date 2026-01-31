@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-01-30
+- fix: NPCs now wake from Resting when energy reaches 90% (was stuck forever)
 - add healing aura: NPCs heal 5 HP/sec when near own faction's town center (150px radius)
   - add MaxHealth component for per-NPC health cap (supports future leveling)
   - add Healing marker component for visual state tracking

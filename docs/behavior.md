@@ -184,8 +184,9 @@ Same situation, different outcomes. That's emergent behavior.
 |----------|-------|---------|
 | ENERGY_DRAIN_RATE | 0.02/tick | Drain while active |
 | ENERGY_RECOVER_RATE | 0.2/tick | Recovery while resting (10x drain) |
+| ENERGY_WAKE_THRESHOLD | 90.0 | Wake from Resting when energy reaches this |
 
-With utility AI, there are no fixed thresholds. Low energy increases Rest/Eat scores, but NPCs might still choose Work if their Focused trait outweighs tiredness.
+With utility AI, there are no fixed thresholds. Low energy increases Rest/Eat scores, but NPCs might still choose Work if their Focused trait outweighs tiredness. NPCs automatically wake from `Resting` at 90% energy.
 
 ## Patrol Cycle
 
