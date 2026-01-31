@@ -2,20 +2,20 @@
 
 ## Overview
 
-NPCs are created through a single unified `spawn_npc()` API. Slot allocation reuses dead NPC indices via FREE_SLOTS before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GPU_UPDATE_QUEUE` — no direct `buffer_update()` calls in the spawn path.
+NPCs are created through a single unified `spawn_npc()` API. Slot allocation uses Bevy's `SlotAllocator` resource, which reuses dead NPC indices before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GPU_UPDATE_QUEUE` — no direct `buffer_update()` calls in the spawn path.
 
 ## Data Flow
 
 ```
 GDScript: spawn_npc(x, y, job, faction, opts: Dictionary)
 │
-├─ allocate_slot()
-│   ├─ Try FREE_SLOTS.pop() (recycled from dead NPC)
-│   └─ Else NPC_SLOT_COUNTER++ (high-water mark)
+├─ allocate_slot() via Bevy SlotAllocator resource
+│   ├─ Try slots.free.pop() (recycled from dead NPC)
+│   └─ Else slots.next++ (high-water mark)
 │
 ├─ Build SpawnNpcMsg with slot_idx
 │
-└─ Push to SPAWN_QUEUE
+└─ Send via GodotToBevy channel
          │
          ▼ (next frame, Bevy Step::Drain)
    drain_spawn_queue → SpawnNpcMsg
@@ -38,23 +38,31 @@ GDScript: spawn_npc(x, y, job, faction, opts: Dictionary)
 
 ## Slot Allocation
 
+Slot allocation uses Bevy's `SlotAllocator` resource (defined in `resources.rs`):
+
 ```rust
-fn allocate_slot() -> Option<usize> {
-    // 1. Reuse dead NPC slot
-    if let Some(recycled) = FREE_SLOTS.pop() {
-        return Some(recycled);
+pub struct SlotAllocator {
+    pub next: usize,      // High-water mark
+    pub free: Vec<usize>, // Recycled slots from dead NPCs
+}
+
+impl SlotAllocator {
+    pub fn alloc(&mut self) -> Option<usize> {
+        self.free.pop().or_else(|| {
+            if self.next < MAX_NPC_COUNT {
+                let idx = self.next;
+                self.next += 1;
+                Some(idx)
+            } else {
+                None
+            }
+        })
     }
-    // 2. Allocate new slot from high-water mark
-    if NPC_SLOT_COUNTER < MAX_NPC_COUNT {
-        let idx = NPC_SLOT_COUNTER;
-        NPC_SLOT_COUNTER += 1;
-        return Some(idx);
-    }
-    None // At capacity
+    pub fn free(&mut self, slot: usize) { self.free.push(slot); }
 }
 ```
 
-`NPC_SLOT_COUNTER` is a high-water mark — it only grows (or resets to 0). Dead slots are recycled through `FREE_SLOTS` but don't decrement the counter. Slot index is carried in `SpawnNpcMsg.slot_idx` so Bevy creates the entity at the correct GPU buffer index. `GPU_DISPATCH_COUNT` (separate from `NPC_SLOT_COUNTER`) tracks how many NPCs have initialized GPU buffers — see [messages.md](messages.md).
+Both spawn (`allocate_slot()` in lib.rs) and death (`death_cleanup_system`) use this single resource, ensuring freed slots are properly recycled. The `next` counter is a high-water mark — it only grows (or resets to 0). `GPU_DISPATCH_COUNT` (separate static) tracks how many NPCs have initialized GPU buffers — see [messages.md](messages.md).
 
 ## GDScript Spawn API
 

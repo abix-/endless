@@ -604,21 +604,14 @@ impl EcsNpcManager {
     // SPAWN API
     // ========================================================================
 
-    /// Allocate an NPC slot: reuse a free slot or allocate new.
-    /// Returns None if at capacity.
-    fn allocate_slot() -> Option<usize> {
-        // Try to reuse a free slot first
-        if let Ok(mut free) = FREE_SLOTS.lock() {
-            if let Some(recycled) = free.pop() {
-                return Some(recycled);
-            }
-        }
-        // No free slots, allocate new from high-water mark
-        if let Ok(mut counter) = NPC_SLOT_COUNTER.lock() {
-            if *counter < MAX_NPC_COUNT {
-                let idx = *counter;
-                *counter += 1;
-                return Some(idx);
+    /// Allocate an NPC slot from Bevy's SlotAllocator resource.
+    /// Returns None if at capacity or if Bevy app unavailable.
+    fn allocate_slot(&mut self) -> Option<usize> {
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut slots) = app.world_mut().get_resource_mut::<resources::SlotAllocator>() {
+                    return slots.alloc();
+                }
             }
         }
         None
@@ -628,7 +621,7 @@ impl EcsNpcManager {
     /// No direct GPU writes — all go through GPU_UPDATE_QUEUE.
     #[func]
     fn spawn_npc(&mut self, x: f32, y: f32, job: i32, faction: i32, opts: VarDictionary) -> i32 {
-        let idx = match Self::allocate_slot() {
+        let idx = match self.allocate_slot() {
             Some(i) => i,
             None => return -1,
         };
@@ -834,7 +827,15 @@ impl EcsNpcManager {
 
     #[func]
     fn get_npc_count(&self) -> i32 {
-        NPC_SLOT_COUNTER.lock().map(|c| *c as i32).unwrap_or(0)
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(slots) = app.world().get_resource::<resources::SlotAllocator>() {
+                    return slots.count() as i32;
+                }
+            }
+        }
+        0
     }
 
     #[func]
@@ -1081,8 +1082,7 @@ impl EcsNpcManager {
 
     #[func]
     fn reset(&mut self) {
-        // Reset slot allocation and dispatch counts
-        if let Ok(mut c) = NPC_SLOT_COUNTER.lock() { *c = 0; }
+        // Reset GPU dispatch count (SlotAllocator reset happens below with Bevy resources)
         if let Ok(mut c) = GPU_DISPATCH_COUNT.lock() { *c = 0; }
 
         // Reset GPU read state
@@ -1100,8 +1100,7 @@ impl EcsNpcManager {
         // GPU-FIRST: Clear consolidated GPU update queue
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() { queue.clear(); }
 
-        // SLOT REUSE: Clear free slot pools
-        if let Ok(mut free) = FREE_SLOTS.lock() { free.clear(); }
+        // SLOT REUSE: Clear free projectile slot pool (NPC slots now in Bevy SlotAllocator)
         if let Ok(mut free) = FREE_PROJ_SLOTS.lock() { free.clear(); }
 
         // Reset projectile state
@@ -1148,6 +1147,10 @@ impl EcsNpcManager {
                 }
                 if let Some(mut by_town) = app.world_mut().get_resource_mut::<resources::NpcsByTownCache>() {
                     by_town.0.clear();
+                }
+                // Reset slot allocator
+                if let Some(mut slots) = app.world_mut().get_resource_mut::<resources::SlotAllocator>() {
+                    slots.reset();
                 }
             }
         }
@@ -1557,6 +1560,11 @@ impl EcsNpcManager {
         let mut guards_alive = 0i32;
         let mut raiders_alive = 0i32;
 
+        // Debug counters
+        let mut debug_towns = 0i32;
+        let mut debug_total_in_cache = 0i32;
+        let mut debug_health_len = 0i32;
+
         // Count alive NPCs from NpcMetaCache + GPU health
         if let Some(bevy_app) = self.get_bevy_app() {
             let app_ref = bevy_app.bind();
@@ -1565,7 +1573,13 @@ impl EcsNpcManager {
                     app.world().get_resource::<resources::NpcsByTownCache>(),
                     app.world().get_resource::<resources::NpcMetaCache>(),
                 ) {
+                    debug_towns = by_town.0.len() as i32;
+                    for town_npcs in by_town.0.iter() {
+                        debug_total_in_cache += town_npcs.len() as i32;
+                    }
+
                     if let Ok(state) = GPU_READ_STATE.lock() {
+                        debug_health_len = state.health.len() as i32;
                         for town_npcs in by_town.0.iter() {
                             for &idx in town_npcs {
                                 if idx < state.health.len() && state.health[idx] > 0.0 {
@@ -1590,6 +1604,10 @@ impl EcsNpcManager {
         dict.set("farmers_alive", farmers_alive);
         dict.set("guards_alive", guards_alive);
         dict.set("raiders_alive", raiders_alive);
+        // Debug info
+        dict.set("_debug_towns", debug_towns);
+        dict.set("_debug_cache_total", debug_total_in_cache);
+        dict.set("_debug_health_len", debug_health_len);
         dict
     }
 
@@ -1934,7 +1952,17 @@ impl EcsNpcManager {
     /// Send message to Bevy via channel.
     /// Commands: spawn, target, damage, select, reset, pause, time_scale
     #[func]
-    fn godot_to_bevy(&self, cmd: GString, data: VarDictionary) {
+    fn godot_to_bevy(&mut self, cmd: GString, data: VarDictionary) {
+        // For spawn, allocate slot first (needs &mut self)
+        let spawn_slot = if cmd.to_string() == "spawn" {
+            match self.allocate_slot() {
+                Some(i) => Some(i),
+                None => return,
+            }
+        } else {
+            None
+        };
+
         let sender = match &self.godot_to_bevy {
             Some(s) => s,
             None => return,
@@ -1942,11 +1970,7 @@ impl EcsNpcManager {
 
         let msg = match cmd.to_string().as_str() {
             "spawn" => {
-                // Allocate slot for spawn
-                let slot_idx = match Self::allocate_slot() {
-                    Some(i) => i,
-                    None => return,
-                };
+                let slot_idx = spawn_slot.unwrap();
                 channels::GodotToBevyMsg::SpawnNpc {
                     slot_idx,
                     x: data.get("x").and_then(|v| v.try_to().ok()).unwrap_or(0.0),

@@ -113,21 +113,21 @@ pub struct GpuUpdateMsg(pub GpuUpdate);
 
 | Pool | Type | Push | Pop |
 |------|------|------|-----|
-| FREE_SLOTS | Vec\<usize\> | death_cleanup_system (NPC dies) | allocate_slot() (NPC spawns) |
+| SlotAllocator (Bevy) | Resource | death_cleanup_system (NPC dies) | allocate_slot() (NPC spawns) |
 | FREE_PROJ_SLOTS | Vec\<usize\> | process() (projectile hits/expires) | fire_projectile() |
 
-Both are LIFO (stack) — most recently freed slot is reused first. No generational counters.
+NPC slots use Bevy's `SlotAllocator` resource for unified spawn/death handling. Projectile slots still use static. Both are LIFO (stack) — most recently freed slot is reused first. No generational counters.
 
 ## Slot Allocation vs GPU Dispatch
 
-Two separate counters decouple slot allocation from GPU dispatch, preventing uninitialized buffer data from being dispatched.
+Slot allocation and GPU dispatch are decoupled, preventing uninitialized buffer data from being dispatched.
 
 | Counter | Type | Writer | Reader |
 |---------|------|--------|--------|
-| NPC_SLOT_COUNTER | `Mutex<usize>` | allocate_slot() | allocate_slot() |
+| SlotAllocator.next | Bevy Resource | allocate_slot(), reset() | allocate_slot(), get_npc_count() |
 | GPU_DISPATCH_COUNT | `Mutex<usize>` | spawn_npc_system | process() for dispatch |
 
-`NPC_SLOT_COUNTER` is the high-water mark — incremented immediately when GDScript calls `spawn_npc()`. `GPU_DISPATCH_COUNT` is only updated after `spawn_npc_system` pushes GPU buffer data to `GPU_UPDATE_QUEUE`. This ensures `process()` never dispatches NPCs with uninitialized GPU buffers. See [frame-loop.md](frame-loop.md) for timing details.
+`SlotAllocator.next` is the high-water mark — incremented when `spawn_npc()` allocates a slot via Bevy resource. `GPU_DISPATCH_COUNT` is only updated after `spawn_npc_system` pushes GPU buffer data to `GPU_UPDATE_QUEUE`. This ensures `process()` never dispatches NPCs with uninitialized GPU buffers. See [frame-loop.md](frame-loop.md) for timing details.
 
 ## Control Flags
 
@@ -184,10 +184,10 @@ Static registries for UI panels to query NPC data. GDScript can't access Bevy Wo
 |----------|---------|-------|-------|
 | GDScript→Bevy | **Channel** (migrated Phase 11.7) | SpawnNpc, SetTarget, ApplyDamage, Reset, SetPaused, SetTimeScale | 6 msgs |
 | Bevy→GDScript | **Channel** (migrated Phase 11.7) | FireProjectile (+ future Sync* msgs) | 1 msg |
-| lib.rs boundary | Static Mutex (stays) | ARRIVAL_QUEUE, NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS | 4 |
+| lib.rs boundary | Static Mutex (stays) | ARRIVAL_QUEUE, FREE_PROJ_SLOTS | 2 |
 | Bevy↔GPU boundary | Static Mutex (stays) | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
 | UI query state | Static Mutex (stays) | NPC_META, NPC_STATES, NPC_ENERGY, KILL_STATS, SELECTED_NPC, NPCS_BY_TOWN | 6 |
-| Bevy-internal state | Bevy Resources | FOOD_STORAGE, GAME_CONFIG_STAGING (staging only) | 2 |
+| Bevy-internal state | Bevy Resources | FOOD_STORAGE, SlotAllocator, GAME_CONFIG_STAGING (staging only) | 3 |
 
 **Phase 11.7 completed:** Replaced 5 static queues with lock-free crossbeam channels:
 - SPAWN_QUEUE → GodotToBevyMsg::SpawnNpc
@@ -206,8 +206,8 @@ Static registries for UI panels to query NPC data. GDScript can't access Bevy Wo
 
 - **Channels are unbounded**: No backpressure. If spawn calls outpace Bevy drain (shouldn't happen at 60fps), channels grow without limit.
 - **GPU_READ_STATE is one frame stale**: Bevy reads positions from previous frame's dispatch. Acceptable at 140fps.
-- **9 statics at lib.rs boundary**: ARRIVAL_QUEUE, slot pools, GPU state. Acceptable — lib.rs can't efficiently access Bevy resources without serializing on main thread.
+- **7 statics at lib.rs boundary**: ARRIVAL_QUEUE, projectile slots, GPU state. NPC slot allocation moved to Bevy SlotAllocator resource.
 
 ## Rating: 9/10
 
-Hybrid channel + static architecture. High-frequency cross-thread messages (spawn, target, damage, projectile fire, reset) use lock-free crossbeam channels. GPU boundary and UI queries use statics (lib.rs runs outside Bevy scheduler). Bevy-internal communication uses Messages. The remaining 9 statics are at unavoidable boundaries.
+Hybrid channel + static architecture. High-frequency cross-thread messages (spawn, target, damage, projectile fire, reset) use lock-free crossbeam channels. GPU boundary and UI queries use statics (lib.rs runs outside Bevy scheduler). Bevy-internal communication uses Messages. NPC slot allocation uses Bevy SlotAllocator resource (unified spawn/death). The remaining 7 statics are at unavoidable boundaries.

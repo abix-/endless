@@ -1,6 +1,13 @@
 # Changelog
 
 ## 2026-01-30
+- refactor: unified slot allocator in Bevy (fixes zombie NPCs)
+  - spawn and death now both use SlotAllocator bevy resource
+  - removed static FREE_SLOTS and NPC_SLOT_COUNTER
+  - get_npc_count() now reads from SlotAllocator.count()
+  - fixes slot recycling mismatch that caused zombie NPCs
+- add debug info to get_population_stats() for diagnosing UI count issues
+  - returns _debug_towns, _debug_cache_total, _debug_health_len
 - fix: dead NPC slots now fully cleaned up (prevents zombie NPCs walking from -9999,-9999)
   - HideNpc now resets position, target, arrival, and health (was only position)
   - fixes slot recycling bug where new NPCs would walk from death position

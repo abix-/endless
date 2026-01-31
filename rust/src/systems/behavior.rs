@@ -122,11 +122,12 @@ pub fn arrival_system(
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
                         idx: npc_idx.0, r, g, b, a,
                     }));
-                    if !food_storage.food.is_empty() {
-                        let last_idx = food_storage.food.len() - 1;
-                        food_storage.food[last_idx] += 1;
+                    // Credit food to raider's own camp (town_id)
+                    let camp_idx = town.0 as usize;
+                    if camp_idx < food_storage.food.len() {
+                        food_storage.food[camp_idx] += 1;
                     }
-                    food_events.delivered.push(FoodDelivered { camp_idx: 0 });
+                    food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
                 }
             }
 
