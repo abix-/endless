@@ -45,8 +45,11 @@ func _input(event: InputEvent) -> void:
 
 
 func _process(_delta: float) -> void:
-	if panel.visible:
-		_refresh_buttons()
+	if not panel.visible:
+		return
+	if Engine.get_process_frames() % 30 != 0:
+		return
+	_refresh_buttons()
 
 
 func open(slot_key: String, town_idx: int, screen_pos: Vector2) -> void:

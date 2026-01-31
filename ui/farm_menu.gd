@@ -63,8 +63,11 @@ func _input(event: InputEvent) -> void:
 
 
 func _process(_delta: float) -> void:
-	if panel.visible:
-		_refresh()
+	if not panel.visible:
+		return
+	if Engine.get_process_frames() % 30 != 0:
+		return
+	_refresh()
 
 
 func open(town_idx: int, farm_idx: int, screen_pos: Vector2) -> void:

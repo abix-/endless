@@ -133,9 +133,9 @@ pub fn arrival_system(
     }
 
     for event in events.read() {
-        for (entity, npc_idx, job, town, home, health, faction,
+        for (entity, npc_idx, job, town, home, health, _faction,
              patrolling, going_rest, going_work,
-             raiding, returning, carrying, wounded, wandering) in query.iter()
+             raiding, returning, _carrying, wounded, wandering) in query.iter()
         {
             if npc_idx.0 != event.npc_index { continue; }
             let idx = npc_idx.0;
@@ -184,29 +184,13 @@ pub fn arrival_system(
                     }
                 }
             } else if returning.is_some() {
-                let mut cmds = commands.entity(entity);
-                cmds.remove::<Returning>();
-
-                if carrying.is_some() {
-                    cmds.remove::<CarryingFood>();
-                    cmds.remove::<CarriedItem>();
-                    let (r, g, b, a) = raider_faction_color(faction);
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
-                        idx: npc_idx.0, r, g, b, a,
-                    }));
-                    // Hide carried item
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem {
-                        idx: npc_idx.0,
-                        item_id: CarriedItem::NONE,
-                    }));
-                    // Credit food to raider's own camp (town_id)
-                    let camp_idx = town.0 as usize;
-                    if camp_idx < food_storage.food.len() {
-                        food_storage.food[camp_idx] += 1;
-                    }
-                    food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Delivered food".into());
-                }
+                // Arrival at wrong location (e.g., after combat chase) - re-target home.
+                // Actual delivery handled by proximity check (lines 111-127).
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                    idx: npc_idx.0,
+                    x: home.0.x,
+                    y: home.0.y,
+                }));
             } else if wandering.is_some() {
                 // Wandering complete - remove marker, NPC goes back to decision_system
                 commands.entity(entity).remove::<Wandering>();

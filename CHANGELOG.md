@@ -1,6 +1,19 @@
 # Changelog
 
 ## 2026-01-31
+- fix raider food delivery at wrong location after combat
+  - event-based Returning arrival now re-targets home instead of delivering
+  - only proximity check (within 150px of home) delivers food
+  - prevents raiders delivering food at guard's last position after combat chase
+- add debug stats caching: arrival/backoff stats computed during main sync
+  - get_debug_stats() no longer does extra GPU reads
+  - stats stored in PERF_STATS for cheap retrieval
+- add UI throttling optimizations
+  - left_panel, farm_menu, guard_post_menu: update every 30 frames (was 10 or every frame)
+  - _set_text() helper skips label updates when text unchanged (avoids layout recalc)
+  - Detail OFF mode skips all Rust calls (just shows FPS/zoom)
+- add physics optimization: disable Area2D monitoring on locations
+- add vsync=0 default in project.godot
 - add GPU-side spatial grid building: eliminates 3MB CPU→GPU upload per frame
   - mode 0: clear grid counts (one thread per cell)
   - mode 1: insert NPCs via atomicAdd (one thread per NPC)

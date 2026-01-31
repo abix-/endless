@@ -124,7 +124,8 @@ After each dispatch, the CPU reads back:
 |--------|------|---------|
 | position_buffer | Every frame | `gpu.positions[]` + `GPU_READ_STATE.positions` |
 | combat_target_buffer | Every frame | `gpu.combat_targets[]` + `GPU_READ_STATE.combat_targets` |
-| arrival_buffer | Every frame | Compared to `prev_arrivals[]`, deltas pushed to ARRIVAL_QUEUE |
+| arrival_buffer | Every frame | Compared to `prev_arrivals[]`, deltas pushed to ARRIVAL_QUEUE, stats cached in PERF_STATS |
+| backoff_buffer | Every frame | Stats (avg, max) cached in PERF_STATS during main sync |
 | health_buffer | Cached on CPU | `gpu.healths[]` + `GPU_READ_STATE.health` (written by CPU, not read back from GPU) |
 | proj_hit_buffer | Every frame (if proj_count > 0) | Parsed for hits, routed to DAMAGE_QUEUE |
 | proj_position_buffer | Every frame (if proj_count > 0) | `gpu.proj_positions[]` |
@@ -161,7 +162,7 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 - Calling `get_npc_position()` in nested loops crosses GDScript→Rust boundary 124,750 times for 500 NPCs
 - Test assertions must run ONCE when triggered, not every frame after timer passes
 - Debug metrics (min separation) must be throttled to 1/sec, not every frame
-- `get_debug_stats()` does GPU reads - don't call every frame
+- `get_debug_stats()` uses cached values from main sync - safe to call anytime
 
 **MultiMesh culling:**
 - Godot auto-calculates AABB for canvas items — wrong for world-spanning MultiMesh

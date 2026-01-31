@@ -1,5 +1,34 @@
 extends Node2D
 
+# Lightweight overlay for target line visualization (avoids full main.gd redraw)
+class TargetOverlay extends Node2D:
+	var npc_manager: Node
+
+	func _draw() -> void:
+		if not npc_manager:
+			return
+		var selected: int = npc_manager.get_selected_npc()
+		if selected < 0:
+			return
+		if npc_manager.get_npc_health(selected) <= 0.0:
+			return
+
+		var npc_pos: Vector2 = npc_manager.get_npc_position(selected)
+		var target_pos: Vector2 = npc_manager.get_npc_target(selected)
+
+		if target_pos == Vector2.ZERO or npc_pos == Vector2.ZERO:
+			return
+
+		# Line from NPC to target
+		draw_line(npc_pos, target_pos, Color(0.0, 1.0, 1.0, 0.7), 2.0)
+
+		# Crosshair at target
+		var s := 12.0
+		var c := Color(1.0, 0.0, 1.0, 0.9)
+		draw_line(target_pos + Vector2(-s, 0), target_pos + Vector2(s, 0), c, 2.0)
+		draw_line(target_pos + Vector2(0, -s), target_pos + Vector2(0, s), c, 2.0)
+		draw_circle(target_pos, 8.0, c)
+
 #var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
 #var projectile_manager_scene: PackedScene = preload("res://systems/projectile_manager.tscn")
 var player_scene: PackedScene = preload("res://entities/player.tscn")
@@ -25,6 +54,12 @@ var build_menu: Node
 var guard_post_menu: Node
 var farm_menu: Node
 var terrain_renderer: Node
+var target_overlay: Node2D  # Separate node for target line (cheap redraw)
+
+# Target visualization cache (only redraw on change)
+var _last_selected_npc := -1
+var _last_target_pos := Vector2.ZERO
+var _last_npc_pos := Vector2.ZERO
 
 # Currently selected terrain tile (for inspector)
 var selected_tile: Dictionary = {}
@@ -102,6 +137,11 @@ func _ready() -> void:
 	_setup_ui()
 	_spawn_npcs()
 
+	# Create target overlay (separate canvas for cheap redraws)
+	target_overlay = TargetOverlay.new()
+	target_overlay.npc_manager = npc_manager
+	add_child(target_overlay)
+
 
 func _draw() -> void:
 	# World border
@@ -140,8 +180,7 @@ func _draw() -> void:
 	# Draw buildable slot indicators for player's town
 	_draw_buildable_slots()
 
-	# Draw selected NPC's target visualization
-	_draw_selected_npc_target()
+	# Target visualization moved to TargetOverlay (separate cheap canvas)
 
 	# Debug: Active radius circle (entity sleeping zone) — needs ECS API
 	#if UserSettings.show_active_radius:
@@ -500,13 +539,24 @@ func _spawn_npcs() -> void:
 
 
 func _process(_delta: float) -> void:
-	# Redraw if showing active radius circle (follows camera)
+	# Redraw main canvas only if showing active radius (follows camera)
 	if UserSettings.show_active_radius:
 		queue_redraw()
 
-	# Redraw to update selected NPC target visualization
-	if npc_manager.get_selected_npc() >= 0:
-		queue_redraw()
+	# Update target overlay only when selection/position changes (cheap redraw)
+	var selected: int = npc_manager.get_selected_npc()
+	if selected != _last_selected_npc:
+		_last_selected_npc = selected
+		_last_target_pos = Vector2.ZERO
+		_last_npc_pos = Vector2.ZERO
+		target_overlay.queue_redraw()
+	elif selected >= 0:
+		var target: Vector2 = npc_manager.get_npc_target(selected)
+		var pos: Vector2 = npc_manager.get_npc_position(selected)
+		if target != _last_target_pos or pos != _last_npc_pos:
+			_last_target_pos = target
+			_last_npc_pos = pos
+			target_overlay.queue_redraw()
 
 
 func _input(event: InputEvent) -> void:
@@ -627,38 +677,6 @@ func _draw_buildable_slots() -> void:
 		# Bottom-right
 		draw_line(slot_pos + Vector2(half_slot, half_slot), slot_pos + Vector2(half_slot - corner_size, half_slot), locked_color, 1.0)
 		draw_line(slot_pos + Vector2(half_slot, half_slot), slot_pos + Vector2(half_slot, half_slot - corner_size), locked_color, 1.0)
-
-
-func _draw_selected_npc_target() -> void:
-	var selected: int = npc_manager.get_selected_npc()
-	if selected < 0:
-		return
-
-	# Skip if NPC is dead
-	if npc_manager.get_npc_health(selected) <= 0.0:
-		return
-
-	var npc_pos: Vector2 = npc_manager.get_npc_position(selected)
-	var target_pos: Vector2 = npc_manager.get_npc_target(selected)
-
-	# Skip if no valid target (position 0,0 usually means not set)
-	if target_pos == Vector2.ZERO or npc_pos == Vector2.ZERO:
-		return
-
-	# Draw line from NPC to target
-	var line_color := Color(0.0, 1.0, 1.0, 0.7)  # Cyan
-	draw_line(npc_pos, target_pos, line_color, 2.0)
-
-	# Draw target marker (crosshair)
-	var marker_size := 12.0
-	var marker_color := Color(1.0, 0.0, 1.0, 0.9)  # Magenta
-	draw_line(target_pos + Vector2(-marker_size, 0), target_pos + Vector2(marker_size, 0), marker_color, 2.0)
-	draw_line(target_pos + Vector2(0, -marker_size), target_pos + Vector2(0, marker_size), marker_color, 2.0)
-	draw_circle(target_pos, 8.0, marker_color)
-
-	# Draw distance text
-	var _dist: float = npc_pos.distance_to(target_pos)
-	# Note: Drawing text in _draw requires a font - skip for now, just show visual
 
 
 func _calculate_grid_positions(center: Vector2) -> Dictionary:

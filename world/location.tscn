@@ -6,6 +6,8 @@
 size = Vector2(32, 32)
 
 [node name="Location" type="Area2D"]
+monitoring = false
+monitorable = false
 script = ExtResource("1_vy4ij")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]

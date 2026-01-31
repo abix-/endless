@@ -23,6 +23,7 @@ BevyAppSingleton="*res://addons/godot-bevy/bevy_app_singleton.tscn"
 [display]
 
 window/size/mode=2
+window/vsync/vsync_mode=0
 config/features=PackedStringArray("4.5", "GL Compatibility")
 config/icon="res://icon.svg"
 

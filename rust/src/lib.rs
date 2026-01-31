@@ -474,9 +474,16 @@ impl INode2D for EcsNpcManager {
                 state.factions.extend_from_slice(&gpu.factions[..npc_count]);
             }
 
-            // Detect arrivals
+            // Detect arrivals + cache debug stats (avoids extra GPU reads later)
             let arrival_bytes = gpu.rd.buffer_get_data(gpu.arrival_buffer);
             let arrival_slice = arrival_bytes.as_slice();
+            let backoff_bytes = gpu.rd.buffer_get_data(gpu.backoff_buffer);
+            let backoff_slice = backoff_bytes.as_slice();
+
+            let mut arrived_count = 0i32;
+            let mut total_backoff = 0i32;
+            let mut max_backoff = 0i32;
+
             if let Ok(mut queue) = ARRIVAL_QUEUE.lock() {
                 for i in 0..npc_count {
                     if arrival_slice.len() >= (i + 1) * 4 {
@@ -487,12 +494,32 @@ impl INode2D for EcsNpcManager {
                             arrival_slice[i * 4 + 3],
                         ]) > 0;
 
+                        if arrived {
+                            arrived_count += 1;
+                        }
                         if arrived && !self.prev_arrivals[i] {
                             queue.push(ArrivalMsg { npc_index: i });
                         }
                         self.prev_arrivals[i] = arrived;
                     }
+                    if backoff_slice.len() >= (i + 1) * 4 {
+                        let val = i32::from_le_bytes([
+                            backoff_slice[i * 4],
+                            backoff_slice[i * 4 + 1],
+                            backoff_slice[i * 4 + 2],
+                            backoff_slice[i * 4 + 3],
+                        ]);
+                        total_backoff += val;
+                        if val > max_backoff { max_backoff = val; }
+                    }
                 }
+            }
+
+            // Cache debug stats
+            if let Ok(mut stats) = resources::PERF_STATS.lock() {
+                stats.arrived_count = arrived_count;
+                stats.avg_backoff = if npc_count > 0 { total_backoff / npc_count as i32 } else { 0 };
+                stats.max_backoff = max_backoff;
             }
 
             // Update NPC MultiMesh
@@ -969,61 +996,18 @@ impl EcsNpcManager {
     }
 
     #[func]
-    fn get_debug_stats(&mut self) -> VarDictionary {
+    fn get_debug_stats(&self) -> VarDictionary {
         let mut dict = VarDictionary::new();
-        if let Some(gpu) = &mut self.gpu {
-            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
+        let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
 
-            let arrival_bytes = gpu.rd.buffer_get_data(gpu.arrival_buffer);
-            let arrival_slice = arrival_bytes.as_slice();
-            let mut arrived_count = 0;
-            for i in 0..npc_count {
-                if arrival_slice.len() >= (i + 1) * 4 {
-                    let val = i32::from_le_bytes([
-                        arrival_slice[i * 4],
-                        arrival_slice[i * 4 + 1],
-                        arrival_slice[i * 4 + 2],
-                        arrival_slice[i * 4 + 3],
-                    ]);
-                    if val > 0 { arrived_count += 1; }
-                }
-            }
-
-            let backoff_bytes = gpu.rd.buffer_get_data(gpu.backoff_buffer);
-            let backoff_slice = backoff_bytes.as_slice();
-            let mut total_backoff = 0i32;
-            let mut max_backoff = 0i32;
-
-            for i in 0..npc_count {
-                if backoff_slice.len() >= (i + 1) * 4 {
-                    let val = i32::from_le_bytes([
-                        backoff_slice[i * 4],
-                        backoff_slice[i * 4 + 1],
-                        backoff_slice[i * 4 + 2],
-                        backoff_slice[i * 4 + 3],
-                    ]);
-                    total_backoff += val;
-                    if val > max_backoff { max_backoff = val; }
-                }
-            }
-
-            let mut cells_with_npcs = 0;
-            let mut max_per_cell = 0i32;
-            for count in gpu.grid.counts.iter() {
-                if *count > 0 {
-                    cells_with_npcs += 1;
-                    if *count > max_per_cell {
-                        max_per_cell = *count;
-                    }
-                }
-            }
-
+        // Use cached stats from process() - no GPU reads!
+        if let Ok(stats) = resources::PERF_STATS.lock() {
             dict.set("npc_count", npc_count as i32);
-            dict.set("arrived_count", arrived_count);
-            dict.set("avg_backoff", if npc_count > 0 { total_backoff / npc_count as i32 } else { 0 });
-            dict.set("max_backoff", max_backoff);
-            dict.set("cells_used", cells_with_npcs);
-            dict.set("max_per_cell", max_per_cell);
+            dict.set("arrived_count", stats.arrived_count);
+            dict.set("avg_backoff", stats.avg_backoff);
+            dict.set("max_backoff", stats.max_backoff);
+            dict.set("cells_used", 0);  // Grid now built on GPU, no CPU-side count
+            dict.set("max_per_cell", 0);
         }
         dict
     }

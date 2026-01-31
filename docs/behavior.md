@@ -137,12 +137,13 @@ Same situation, different outcomes. That's emergent behavior.
 ### arrival_system (Generic)
 - Reads `ArrivalMsg` events (from GPU arrival detection) for most states
 - **Proximity-based arrival** for Returning and GoingToRest: checks distance to home instead of waiting for exact GPU arrival. Uses DELIVERY_RADIUS (150px, same as healing aura). This fixes raiders and resting NPCs getting stuck when exact arrival doesn't trigger.
+- **Food delivery is proximity-only**: Only the proximity check (within 150px of home) delivers food. Event-based Returning arrival just re-targets home — this prevents delivering food at wrong location after combat chase.
 - Transitions based on current state marker (component-driven, not job-driven):
   - `Patrolling` → `OnDuty { ticks: 0 }`
   - `GoingToRest` → `Resting` (via proximity check)
   - `GoingToWork` → `Working`
   - `Raiding` → `CarryingFood` + `Returning` (if near farm)
-  - `Returning` → deliver food if carrying, clear state (via proximity check)
+  - `Returning` event arrival → re-target home (actual delivery via proximity check)
   - `Wandering` → clear state (back to decision_system)
 - Also checks `WoundedThreshold` for recovery mode on arrival
 - **State logging**: All transitions are logged to `NpcLogCache` (e.g., "→ OnDuty", "→ Resting", "Stole food → Returning")

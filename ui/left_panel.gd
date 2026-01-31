@@ -71,6 +71,12 @@ const SETTINGS_KEY := "left_panel_pos"
 const COLLAPSE_KEY := "left_panel_collapse"
 
 
+# Helper to avoid layout recalc when text unchanged
+func _set_text(label: Label, value: String) -> void:
+	if label.text != value:
+		label.text = value
+
+
 func _ready() -> void:
 	add_to_group("left_panel")
 	await get_tree().process_frame
@@ -155,7 +161,7 @@ func _process(_delta: float) -> void:
 		else:
 			_set_following(false)
 
-	if Engine.get_process_frames() % 10 != 0:
+	if Engine.get_process_frames() % 30 != 0:
 		return
 
 	_update_stats()
@@ -169,20 +175,20 @@ func _update_stats() -> void:
 
 	# Population stats from ECS
 	var pop: Dictionary = npc_manager.get_population_stats()
-	farmer_alive.text = str(pop.get("farmers_alive", 0))
-	farmer_kills.text = "-"  # Farmers don't kill
-	guard_alive.text = str(pop.get("guards_alive", 0))
-	guard_kills.text = str(pop.get("guard_kills", 0))
-	raider_alive.text = str(pop.get("raiders_alive", 0))
-	raider_kills.text = str(pop.get("villager_kills", 0))
+	_set_text(farmer_alive, str(pop.get("farmers_alive", 0)))
+	_set_text(farmer_kills, "-")  # Farmers don't kill
+	_set_text(guard_alive, str(pop.get("guards_alive", 0)))
+	_set_text(guard_kills, str(pop.get("guard_kills", 0)))
+	_set_text(raider_alive, str(pop.get("raiders_alive", 0)))
+	_set_text(raider_kills, str(pop.get("villager_kills", 0)))
 
 	# Per-faction stats (alive/dead/kills)
 	var faction_stats: Array = npc_manager.get_all_faction_stats()
 	if faction_stats.size() > 0:
 		# Faction 0 = villagers (farmers + guards)
 		var villager_stats: Dictionary = faction_stats[0] if faction_stats.size() > 0 else {}
-		farmer_dead.text = str(villager_stats.get("dead", 0))
-		guard_dead.text = "-"  # Can't separate farmer/guard deaths yet
+		_set_text(farmer_dead, str(villager_stats.get("dead", 0)))
+		_set_text(guard_dead, "-")  # Can't separate farmer/guard deaths yet
 
 		# Aggregate all raider factions (1..N)
 		var raider_dead_total := 0
@@ -191,30 +197,30 @@ func _update_stats() -> void:
 			var s: Dictionary = faction_stats[i]
 			raider_dead_total += s.get("dead", 0)
 			raider_kills_total += s.get("kills", 0)
-		raider_dead.text = str(raider_dead_total)
+		_set_text(raider_dead, str(raider_dead_total))
 		# Update raider kills with faction-tracked value
 		if raider_kills_total > 0:
-			raider_kills.text = str(raider_kills_total)
+			_set_text(raider_kills, str(raider_kills_total))
 	else:
-		farmer_dead.text = "-"
-		guard_dead.text = "-"
-		raider_dead.text = "-"
+		_set_text(farmer_dead, "-")
+		_set_text(guard_dead, "-")
+		_set_text(raider_dead, "-")
 
 	# Time (ECS GameTime resource)
 	var game_time: Dictionary = npc_manager.get_game_time()
 	var period := "Day" if game_time.get("is_daytime", true) else "Night"
-	time_label.text = "Day %d - %02d:%02d (%s)" % [
+	_set_text(time_label, "Day %d - %02d:%02d (%s)" % [
 		game_time.get("day", 1),
 		game_time.get("hour", 6),
 		game_time.get("minute", 0),
 		period
-	]
+	])
 
 	# Food - unified town model: raider towns start at index towns.size()
 	var town_total: int = npc_manager.get_town_food(0)
 	var raider_town_idx: int = main_node.towns.size() if main_node and "towns" in main_node else 1
 	var camp_total: int = npc_manager.get_town_food(raider_town_idx)
-	food_label.text = "Food: %d vs %d" % [town_total, camp_total]
+	_set_text(food_label, "Food: %d vs %d" % [town_total, camp_total])
 
 	# Bed stats from ECS
 	var player_town: int = 0
@@ -223,7 +229,7 @@ func _update_stats() -> void:
 	var beds: Dictionary = npc_manager.get_bed_stats(player_town)
 	var total_beds: int = beds.get("total_beds", 0)
 	var free_beds: int = beds.get("free_beds", 0)
-	bed_label.text = "Beds: %d used, %d free" % [total_beds - free_beds, free_beds]
+	_set_text(bed_label, "Beds: %d used, %d free" % [total_beds - free_beds, free_beds])
 
 
 func _update_perf() -> void:
@@ -232,7 +238,7 @@ func _update_perf() -> void:
 
 	var lines: PackedStringArray = []
 
-	# FPS and zoom (works)
+	# FPS and zoom (always shown - cheap)
 	var fps := int(Engine.get_frames_per_second())
 	var zoom_str := "?"
 	if player:
@@ -240,6 +246,11 @@ func _update_perf() -> void:
 		if camera:
 			zoom_str = "%.1fx" % camera.zoom.x
 	lines.append("FPS: %d | Zoom: %s" % [fps, zoom_str])
+
+	# Detail OFF = minimal display, skip all Rust calls
+	if not UserSettings.perf_metrics:
+		perf_label.text = "\n".join(lines)
+		return
 
 	# Population counts (alive NPCs)
 	var pop: Dictionary = npc_manager.get_population_stats()
@@ -251,25 +262,23 @@ func _update_perf() -> void:
 	lines.append("Arrived: %d | Cells: %d" % [stats.get("arrived_count", 0), stats.get("cells_used", 0)])
 	lines.append("Backoff: avg=%d max=%d" % [stats.get("avg_backoff", 0), stats.get("max_backoff", 0)])
 
-	# Combat debug (works)
-	if UserSettings.perf_metrics:
-		var combat: Dictionary = npc_manager.get_combat_debug()
-		lines.append("")
-		lines.append("Combat: %d attackers, %d targets" % [combat.get("attackers", 0), combat.get("targets_found", 0)])
-		lines.append("Attacks: %d | Chases: %d" % [combat.get("attacks", 0), combat.get("chases", 0)])
+	# Combat debug
+	var combat: Dictionary = npc_manager.get_combat_debug()
+	lines.append("")
+	lines.append("Combat: %d attackers, %d targets" % [combat.get("attackers", 0), combat.get("targets_found", 0)])
+	lines.append("Attacks: %d | Chases: %d" % [combat.get("attacks", 0), combat.get("chases", 0)])
 
 	# Rust ECS perf stats
-	if UserSettings.perf_metrics:
-		var perf: Dictionary = npc_manager.get_perf_stats()
-		var frame_ms: float = perf.get("frame_ms", 0.0)
-		var ecs_ms: float = perf.get("ecs_total_ms", 0.0)
-		var godot_ms: float = perf.get("godot_ms", 0.0)
-		lines.append("")
-		lines.append("Frame: %.1fms (ECS: %.1f + Godot: %.1f)" % [frame_ms, ecs_ms, godot_ms])
-		lines.append("  Bevy ECS: %.2f" % perf.get("bevy_ms", 0.0))
-		lines.append("  GPU:      %.2f (Q:%.1f D:%.1f R:%.1f)" % [perf.get("gpu_total_ms", 0.0), perf.get("queue_ms", 0.0), perf.get("dispatch_ms", 0.0), perf.get("readpos_ms", 0.0)])
-		lines.append("  Render:   %.2f (B:%.1f U:%.1f)" % [perf.get("build_ms", 0.0) + perf.get("upload_ms", 0.0), perf.get("build_ms", 0.0), perf.get("upload_ms", 0.0)])
-		lines.append("  Godot:    %.2f" % godot_ms)
+	var perf: Dictionary = npc_manager.get_perf_stats()
+	var frame_ms: float = perf.get("frame_ms", 0.0)
+	var ecs_ms: float = perf.get("ecs_total_ms", 0.0)
+	var godot_ms: float = perf.get("godot_ms", 0.0)
+	lines.append("")
+	lines.append("Frame: %.1fms (ECS: %.1f + Godot: %.1f)" % [frame_ms, ecs_ms, godot_ms])
+	lines.append("  Bevy ECS: %.2f" % perf.get("bevy_ms", 0.0))
+	lines.append("  GPU:      %.2f (Q:%.1f D:%.1f R:%.1f)" % [perf.get("gpu_total_ms", 0.0), perf.get("queue_ms", 0.0), perf.get("dispatch_ms", 0.0), perf.get("readpos_ms", 0.0)])
+	lines.append("  Render:   %.2f (B:%.1f U:%.1f)" % [perf.get("build_ms", 0.0) + perf.get("upload_ms", 0.0), perf.get("build_ms", 0.0), perf.get("upload_ms", 0.0)])
+	lines.append("  Godot:    %.2f" % godot_ms)
 
 	perf_label.text = "\n".join(lines)
 
