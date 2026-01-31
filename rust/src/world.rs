@@ -1,7 +1,70 @@
-//! World Data - Towns, farms, beds, guard posts
+//! World Data - Towns, farms, beds, guard posts, sprite definitions
 
 use godot_bevy::prelude::godot_prelude::*;
 use godot_bevy::prelude::bevy_ecs_prelude::*;
+
+// ============================================================================
+// SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
+// ============================================================================
+
+/// Sprite sheet constants
+pub const CELL: f32 = 17.0;  // 16px sprite + 1px margin
+pub const SPRITE_SIZE: f32 = 16.0;
+pub const SHEET_SIZE: (f32, f32) = (968.0, 526.0);
+
+/// Sprite definition: grid position, size in cells, optional scale
+#[derive(Clone, Copy, Debug)]
+pub struct SpriteDef {
+    pub pos: (i32, i32),   // Grid position in sprite sheet
+    pub size: (i32, i32),  // Size in grid cells (1x1, 2x2, etc.)
+    pub scale: f32,        // Extra scale multiplier
+}
+
+impl SpriteDef {
+    pub const fn new(pos: (i32, i32), size: (i32, i32)) -> Self {
+        Self { pos, size, scale: 1.0 }
+    }
+    pub const fn scaled(pos: (i32, i32), size: (i32, i32), scale: f32) -> Self {
+        Self { pos, size, scale }
+    }
+}
+
+// Sprite definitions - discovered via sprite_browser tool
+pub const SPRITE_FARM: SpriteDef = SpriteDef::new((2, 15), (2, 2));
+pub const SPRITE_TENT: SpriteDef = SpriteDef::scaled((48, 10), (2, 2), 3.0);
+pub const SPRITE_FOUNTAIN: SpriteDef = SpriteDef::scaled((50, 9), (1, 1), 2.0);
+pub const SPRITE_BED: SpriteDef = SpriteDef::new((15, 2), (1, 1));
+pub const SPRITE_GUARD_POST: SpriteDef = SpriteDef::scaled((20, 20), (1, 1), 2.0);
+
+/// Location type for sprite rendering
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LocationType {
+    Farm,
+    Camp,
+    Bed,
+    GuardPost,
+    Fountain,
+}
+
+impl LocationType {
+    pub fn sprite_def(&self) -> SpriteDef {
+        match self {
+            LocationType::Farm => SPRITE_FARM,
+            LocationType::Camp => SPRITE_TENT,
+            LocationType::Bed => SPRITE_BED,
+            LocationType::GuardPost => SPRITE_GUARD_POST,
+            LocationType::Fountain => SPRITE_FOUNTAIN,
+        }
+    }
+}
+
+/// A sprite instance for MultiMesh rendering
+#[derive(Clone, Debug)]
+pub struct SpriteInstance {
+    pub pos: Vector2,
+    pub uv: (i32, i32),  // Grid coords in sprite sheet
+    pub scale: f32,
+}
 
 // ============================================================================
 // WORLD DATA STRUCTS
@@ -38,6 +101,13 @@ pub struct GuardPost {
     pub patrol_order: u32,
 }
 
+/// A raider camp (separate from towns for sprite rendering).
+#[derive(Clone, Debug)]
+pub struct Camp {
+    pub position: Vector2,
+    pub town_idx: u32,  // Which town this camp raids
+}
+
 // ============================================================================
 // WORLD RESOURCES
 // ============================================================================
@@ -49,6 +119,67 @@ pub struct WorldData {
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub guard_posts: Vec<GuardPost>,
+    pub camps: Vec<Camp>,
+}
+
+impl WorldData {
+    /// Generate all sprite instances for location MultiMesh rendering.
+    /// Each multi-cell sprite (2x2 farm, 2x2 tent) generates multiple instances.
+    pub fn get_all_sprites(&self) -> Vec<SpriteInstance> {
+        let mut sprites = Vec::new();
+
+        // Farms (2x2)
+        for farm in &self.farms {
+            Self::add_sprite_instances(&mut sprites, farm.position, LocationType::Farm);
+        }
+
+        // Beds (1x1)
+        for bed in &self.beds {
+            Self::add_sprite_instances(&mut sprites, bed.position, LocationType::Bed);
+        }
+
+        // Guard posts (1x1)
+        for post in &self.guard_posts {
+            Self::add_sprite_instances(&mut sprites, post.position, LocationType::GuardPost);
+        }
+
+        // Fountains (town centers, 1x1)
+        for town in &self.towns {
+            Self::add_sprite_instances(&mut sprites, town.center, LocationType::Fountain);
+        }
+
+        // Camps (2x2 tent)
+        for camp in &self.camps {
+            Self::add_sprite_instances(&mut sprites, camp.position, LocationType::Camp);
+        }
+
+        sprites
+    }
+
+    /// Add sprite instances for a location (handles multi-cell sprites).
+    fn add_sprite_instances(sprites: &mut Vec<SpriteInstance>, center: Vector2, loc_type: LocationType) {
+        let def = loc_type.sprite_def();
+        let total_scale = def.scale;
+
+        // Build grid of sprites for multi-cell definitions
+        for row in 0..def.size.1 {
+            for col in 0..def.size.0 {
+                let uv = (def.pos.0 + col, def.pos.1 + row);
+                // Offset each cell: center the whole sprite, then position each cell
+                let cell_offset_x = (col as f32 - (def.size.0 - 1) as f32 / 2.0) * SPRITE_SIZE;
+                let cell_offset_y = (row as f32 - (def.size.1 - 1) as f32 / 2.0) * SPRITE_SIZE;
+                let world_pos = Vector2::new(
+                    center.x + cell_offset_x * total_scale,
+                    center.y + cell_offset_y * total_scale,
+                );
+                sprites.push(SpriteInstance {
+                    pos: world_pos,
+                    uv,
+                    scale: total_scale,
+                });
+            }
+        }
+    }
 }
 
 /// Location types for find_nearest_location.

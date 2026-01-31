@@ -536,25 +536,28 @@ func _setup_test_world_data() -> void:
 	# Initialize world with 2 towns (villager + raider)
 	ecs_manager.init_world(2)
 
-	# Add towns
-	ecs_manager.add_town("TestTown", CENTER.x, CENTER.y, 0)  # faction=Villager (idx 0)
-	ecs_manager.add_town("TestCamp", CENTER.x + 200, CENTER.y, 1)  # faction=Raider (idx 1)
+	# Add towns (unified API)
+	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "TestTown", "faction": 0})
+	ecs_manager.add_location("camp", CENTER.x + 200, CENTER.y, 1, {})
 
 	# Add 2 farms (west and east of center)
-	ecs_manager.add_farm(CENTER.x - 100, CENTER.y, 0)
-	ecs_manager.add_farm(CENTER.x + 100, CENTER.y, 0)
+	ecs_manager.add_location("farm", CENTER.x - 100, CENTER.y, 0, {})
+	ecs_manager.add_location("farm", CENTER.x + 100, CENTER.y, 0, {})
 
 	# Add 4 beds (corners)
-	ecs_manager.add_bed(CENTER.x - 50, CENTER.y - 50, 0)
-	ecs_manager.add_bed(CENTER.x + 50, CENTER.y - 50, 0)
-	ecs_manager.add_bed(CENTER.x - 50, CENTER.y + 50, 0)
-	ecs_manager.add_bed(CENTER.x + 50, CENTER.y + 50, 0)
+	ecs_manager.add_location("bed", CENTER.x - 50, CENTER.y - 50, 0, {})
+	ecs_manager.add_location("bed", CENTER.x + 50, CENTER.y - 50, 0, {})
+	ecs_manager.add_location("bed", CENTER.x - 50, CENTER.y + 50, 0, {})
+	ecs_manager.add_location("bed", CENTER.x + 50, CENTER.y + 50, 0, {})
 
 	# Add 4 guard posts (clockwise from top-left)
-	ecs_manager.add_guard_post(CENTER.x - 80, CENTER.y - 80, 0, 0)
-	ecs_manager.add_guard_post(CENTER.x + 80, CENTER.y - 80, 0, 1)
-	ecs_manager.add_guard_post(CENTER.x + 80, CENTER.y + 80, 0, 2)
-	ecs_manager.add_guard_post(CENTER.x - 80, CENTER.y + 80, 0, 3)
+	ecs_manager.add_location("guard_post", CENTER.x - 80, CENTER.y - 80, 0, {"patrol_order": 0})
+	ecs_manager.add_location("guard_post", CENTER.x + 80, CENTER.y - 80, 0, {"patrol_order": 1})
+	ecs_manager.add_location("guard_post", CENTER.x + 80, CENTER.y + 80, 0, {"patrol_order": 2})
+	ecs_manager.add_location("guard_post", CENTER.x - 80, CENTER.y + 80, 0, {"patrol_order": 3})
+
+	# Build location sprites
+	ecs_manager.build_locations()
 
 	queue_redraw()  # Draw visual markers
 
@@ -693,7 +696,7 @@ func _setup_test_guard_patrol() -> void:
 
 	# Initialize world with 1 town
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("GuardTown", CENTER.x, CENTER.y, 0)  # faction=Villager
+	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "GuardTown", "faction": 0})
 
 	# Add 4 guard posts (corners, clockwise)
 	var post_positions: Array[Vector2] = [
@@ -703,10 +706,11 @@ func _setup_test_guard_patrol() -> void:
 		Vector2(CENTER.x - 100, CENTER.y + 100),  # Bottom-left (3)
 	]
 	for i in 4:
-		ecs_manager.add_guard_post(post_positions[i].x, post_positions[i].y, 0, i)
+		ecs_manager.add_location("guard_post", post_positions[i].x, post_positions[i].y, 0, {"patrol_order": i})
 
 	# Add a bed for guards to rest at
-	ecs_manager.add_bed(CENTER.x, CENTER.y, 0)
+	ecs_manager.add_location("bed", CENTER.x, CENTER.y, 0, {})
+	ecs_manager.build_locations()
 
 	queue_redraw()
 
@@ -769,7 +773,7 @@ func _setup_test_farmer_work() -> void:
 
 	# Initialize world with 1 town
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("FarmTown", CENTER.x, CENTER.y, 0)  # faction=Villager
+	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "FarmTown", "faction": 0})
 
 	# Add 2 farms (left and right of center)
 	var farm_positions: Array[Vector2] = [
@@ -777,7 +781,7 @@ func _setup_test_farmer_work() -> void:
 		Vector2(CENTER.x + 100, CENTER.y),  # Farm 1: Right
 	]
 	for i in 2:
-		ecs_manager.add_farm(farm_positions[i].x, farm_positions[i].y, 0)
+		ecs_manager.add_location("farm", farm_positions[i].x, farm_positions[i].y, 0, {})
 
 	# Add 2 beds (above center)
 	var bed_positions: Array[Vector2] = [
@@ -785,7 +789,8 @@ func _setup_test_farmer_work() -> void:
 		Vector2(CENTER.x + 50, CENTER.y - 80),  # Bed 1
 	]
 	for i in 2:
-		ecs_manager.add_bed(bed_positions[i].x, bed_positions[i].y, 0)
+		ecs_manager.add_location("bed", bed_positions[i].x, bed_positions[i].y, 0, {})
+	ecs_manager.build_locations()
 
 	queue_redraw()
 
@@ -919,8 +924,9 @@ func _setup_test_combat() -> void:
 
 	# Initialize world with 1 town and camp
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("CombatTown", CENTER.x, CENTER.y, 0)  # faction=Villager
-	ecs_manager.add_bed(CENTER.x - 100, CENTER.y, 0)
+	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "CombatTown", "faction": 0})
+	ecs_manager.add_location("bed", CENTER.x - 100, CENTER.y, 0, {})
+	ecs_manager.build_locations()
 
 	# Spawn 2 fighters (job=3) with opposing factions, 50px apart. No behavior — just sit and fight.
 	ecs_manager.spawn_npc(CENTER.x - 25, CENTER.y, 3, 0, {"home_x": CENTER.x, "home_y": CENTER.y})
@@ -1048,7 +1054,8 @@ func _setup_test_projectiles() -> void:
 	_log("Unified attacks: melee + ranged via projectile pipeline")
 
 	ecs_manager.init_world(1)
-	ecs_manager.add_town("AttackTown", CENTER.x, CENTER.y, 0)  # faction=Villager
+	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "AttackTown", "faction": 0})
+	ecs_manager.build_locations()
 
 	# Spawn 2 melee fighters (opposing factions, 30px apart)
 	# Melee fighters: job=3, faction 0 vs 1

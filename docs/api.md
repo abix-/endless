@@ -81,10 +81,9 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | Method | Params | Returns | Description |
 |--------|--------|---------|-------------|
 | `init_world` | `town_count: i32` | void | Initialize world data structures |
-| `add_town` | `name: String, cx, cy, faction: i32` | void | Register town with center and faction (0=Villager, 1=Raider) |
-| `add_farm` | `x, y, town_idx: i32` | void | Register farm, init occupancy |
-| `add_bed` | `x, y, town_idx: i32` | void | Register bed, init occupancy |
-| `add_guard_post` | `x, y, town_idx, patrol_order: i32` | void | Register patrol post with order |
+| `add_location` | `type, x, y, town_idx, opts: Dictionary` | `i32` | Unified location API. Type: "farm", "bed", "guard_post", "camp", "fountain". Returns index or -1. |
+| `build_locations` | none | void | Build/rebuild location MultiMesh from WorldData. Call after batch additions. |
+| `add_town` | `name: String, cx, cy, faction: i32` | void | Register town (legacy, prefer add_location("fountain")) |
 | `get_town_center` | `town_idx: i32` | `Vector2` | Town center position (works for all towns) |
 | `get_patrol_post` | `town_idx, order: i32` | `Vector2` | Patrol post position by order |
 | `get_nearest_free_bed` | `town_idx: i32, x, y: f32` | `i32` | Nearest free bed index or -1 |
@@ -94,6 +93,11 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | `reserve_farm` | `farm_idx: i32` | `bool` | Claim farm if count < 1 |
 | `release_farm` | `farm_idx: i32` | void | Decrement occupancy |
 | `get_world_stats` | none | `Dictionary` | town/farm/bed/guard_post counts, free_beds, free_farms |
+
+`add_location` opts by type:
+- "fountain": `{name: String, faction: i32}` - Creates Town entry
+- "guard_post": `{patrol_order: i32}` - Patrol order for guards
+- "farm", "bed", "camp": `{}` - No extra options needed
 
 ## Food Storage API
 

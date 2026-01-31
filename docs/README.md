@@ -76,10 +76,8 @@ autoloads/
 entities/
   player.gd             # Camera controls
 world/
-  location.gd           # Sprite definitions, interaction radii, sprite data for batching
-  location_renderer.gd  # Batched location sprites via MultiMesh (1 draw call)
   terrain_renderer.gd   # Terrain tile rendering with sprite tiling
-  terrain_sprite.gdshader # Terrain tile shader (shared with location_renderer)
+  terrain_sprite.gdshader # Terrain tile shader (used by location MultiMesh in Rust)
 ui/
   start_menu.gd         # Start menu (world size, towns, populations)
   left_panel.gd         # Stats, performance, NPC inspector (uses ECS query APIs)
@@ -99,7 +97,7 @@ rust/
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states, flee/leash)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, NpcEntityMap, GameTime, GameConfig, PopulationStats, FactionStats)
-  src/world.rs          # World data structs (Town, Farm, Bed, GuardPost), find_nearest_location helper
+  src/world.rs          # World data structs, sprite definitions, location MultiMesh rendering
   src/systems/
     spawn.rs            # Bevy spawn systems (drain queues → create entities)
     combat.rs           # Attack system (GPU targets → damage → chase)

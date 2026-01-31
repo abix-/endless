@@ -235,6 +235,20 @@ pub struct EcsNpcManager {
     #[allow(dead_code)]
     item_mesh: Option<Gd<QuadMesh>>,
 
+    // === Location Rendering (static buildings) ===
+    /// MultiMesh for locations (farms, beds, posts, fountains, camps)
+    location_multimesh_rid: Rid,
+    /// Canvas item for location MultiMesh (behind NPCs)
+    location_canvas_item: Rid,
+    /// Keep location mesh alive
+    #[allow(dead_code)]
+    location_mesh: Option<Gd<QuadMesh>>,
+    /// Keep location material alive
+    #[allow(dead_code)]
+    location_material: Option<Gd<ShaderMaterial>>,
+    /// Sprite count for location MultiMesh
+    location_sprite_count: usize,
+
     // === Channels (Phase 11) ===
     /// Sender for Godot → Bevy messages
     godot_to_bevy: Option<channels::GodotToBevySender>,
@@ -262,6 +276,11 @@ impl INode2D for EcsNpcManager {
             proj_mesh: None,
             item_multimesh_rid: Rid::Invalid,
             item_mesh: None,
+            location_multimesh_rid: Rid::Invalid,
+            location_canvas_item: Rid::Invalid,
+            location_mesh: None,
+            location_material: None,
+            location_sprite_count: 0,
             godot_to_bevy: None,
             bevy_to_godot: None,
             last_process_time: None,
@@ -278,6 +297,7 @@ impl INode2D for EcsNpcManager {
         self.setup_multimesh(MAX_NPC_COUNT as i32);
         self.setup_proj_multimesh(MAX_PROJECTILES as i32);
         self.setup_item_multimesh(MAX_NPC_COUNT as i32);
+        self.setup_location_multimesh();
 
         // Create channels and register Bevy resources
         let channels = channels::create_channels();
@@ -748,6 +768,138 @@ impl EcsNpcManager {
         rs.canvas_item_add_multimesh(self.canvas_item, self.item_multimesh_rid);
 
         self.item_mesh = Some(mesh);
+    }
+
+    /// Max location sprites (farms, beds, posts, fountains, camps).
+    /// Each multi-cell sprite (2x2 farm) uses multiple slots.
+    const MAX_LOCATION_SPRITES: usize = 10_000;
+
+    fn setup_location_multimesh(&mut self) {
+        let mut rs = RenderingServer::singleton();
+
+        self.location_multimesh_rid = rs.multimesh_create();
+
+        let mut mesh = QuadMesh::new_gd();
+        mesh.set_size(Vector2::new(world::SPRITE_SIZE, world::SPRITE_SIZE));
+        let mesh_rid = mesh.get_rid();
+        rs.multimesh_set_mesh(self.location_multimesh_rid, mesh_rid);
+
+        // Allocate max capacity upfront (like NPC MultiMesh)
+        rs.multimesh_allocate_data_ex(
+            self.location_multimesh_rid,
+            Self::MAX_LOCATION_SPRITES as i32,
+            godot::classes::rendering_server::MultimeshTransformFormat::TRANSFORM_2D,
+        ).custom_data_format(true).done();
+
+        // Initialize all as hidden
+        let mut init_buffer = vec![0.0f32; Self::MAX_LOCATION_SPRITES * 12];
+        for i in 0..Self::MAX_LOCATION_SPRITES {
+            let base = i * 12;
+            init_buffer[base + 0] = 1.0;       // scale x
+            init_buffer[base + 3] = -99999.0;  // pos x (hidden)
+            init_buffer[base + 5] = 1.0;       // scale y
+            init_buffer[base + 7] = -99999.0;  // pos y (hidden)
+            init_buffer[base + 11] = 1.0;      // custom_data.a
+        }
+        let packed = PackedFloat32Array::from(init_buffer.as_slice());
+        rs.multimesh_set_buffer(self.location_multimesh_rid, &packed);
+
+        // Create canvas item for locations (behind NPCs)
+        self.location_canvas_item = rs.canvas_item_create();
+        let parent_canvas = self.base().get_canvas_item();
+        rs.canvas_item_set_parent(self.location_canvas_item, parent_canvas);
+        rs.canvas_item_set_z_index(self.location_canvas_item, -100);  // Behind NPCs
+
+        // Load terrain_sprite shader and roguelikeSheet texture
+        let mut loader = ResourceLoader::singleton();
+        if let Some(shader) = loader.load("res://world/terrain_sprite.gdshader") {
+            if let Some(texture) = loader.load("res://assets/roguelikeSheet_transparent.png") {
+                let mut material = ShaderMaterial::new_gd();
+                let shader_res: Gd<godot::classes::Shader> = shader.cast();
+                material.set_shader(&shader_res);
+                material.set_shader_parameter("spritesheet", &texture.to_variant());
+                rs.canvas_item_set_material(self.location_canvas_item, material.get_rid());
+                self.location_material = Some(material);
+            }
+        }
+
+        rs.canvas_item_add_multimesh(self.location_canvas_item, self.location_multimesh_rid);
+        // Disable visibility culling for world-spanning MultiMesh
+        rs.canvas_item_set_custom_rect_ex(self.location_canvas_item, true)
+            .rect(Rect2::new(Vector2::new(-100000.0, -100000.0), Vector2::new(200000.0, 200000.0)))
+            .done();
+
+        self.location_mesh = Some(mesh);
+    }
+
+    /// Build location MultiMesh buffer from WorldData.
+    /// Call once after all add_farm/add_bed/add_guard_post/add_town calls complete.
+    fn build_location_buffer(&mut self) {
+        // Get sprites from WorldData
+        let sprites: Vec<world::SpriteInstance> = if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(world_data) = app.world().get_resource::<world::WorldData>() {
+                    world_data.get_all_sprites()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        if sprites.is_empty() {
+            return;
+        }
+
+        let count = sprites.len().min(Self::MAX_LOCATION_SPRITES);
+        self.location_sprite_count = count;
+
+        // Build buffer: Transform2D (8) + CustomData (4) = 12 floats per instance
+        let mut buffer = vec![0.0f32; Self::MAX_LOCATION_SPRITES * 12];
+
+        for (i, sprite) in sprites.iter().take(count).enumerate() {
+            let base = i * 12;
+
+            // Transform2D
+            buffer[base + 0] = sprite.scale;  // scale x
+            buffer[base + 1] = 0.0;           // skew y
+            buffer[base + 2] = 0.0;           // unused
+            buffer[base + 3] = sprite.pos.x;  // pos x
+            buffer[base + 4] = 0.0;           // skew x
+            buffer[base + 5] = sprite.scale;  // scale y
+            buffer[base + 6] = 0.0;           // unused
+            buffer[base + 7] = sprite.pos.y;  // pos y
+
+            // CustomData: UV for terrain_sprite shader
+            let uv_x = (sprite.uv.0 as f32 * world::CELL) / world::SHEET_SIZE.0;
+            let uv_y = (sprite.uv.1 as f32 * world::CELL) / world::SHEET_SIZE.1;
+            let uv_width = world::SPRITE_SIZE / world::SHEET_SIZE.0;
+
+            buffer[base + 8] = uv_x;      // r = u
+            buffer[base + 9] = uv_y;      // g = v
+            buffer[base + 10] = uv_width; // b = width
+            buffer[base + 11] = 1.0;      // a = tile_count
+        }
+
+        // Hide remaining slots
+        for i in count..Self::MAX_LOCATION_SPRITES {
+            let base = i * 12;
+            buffer[base + 0] = 1.0;
+            buffer[base + 3] = -99999.0;
+            buffer[base + 5] = 1.0;
+            buffer[base + 7] = -99999.0;
+            buffer[base + 11] = 1.0;
+        }
+
+        let mut rs = RenderingServer::singleton();
+        let packed = PackedFloat32Array::from(buffer.as_slice());
+        rs.multimesh_set_buffer(self.location_multimesh_rid, &packed);
+
+        godot_print!("[EcsNpcManager] Built location MultiMesh: {} sprites", count);
     }
 
     // ========================================================================
@@ -1340,53 +1492,100 @@ impl EcsNpcManager {
         }
     }
 
+    /// Unified location API. Adds any location type and updates sprite rendering.
+    /// loc_type: "farm", "bed", "guard_post", "camp", "fountain"
+    /// opts: { "patrol_order": i32 (guard_post), "name": String (fountain), "faction": i32 (fountain) }
+    /// Returns: index of added location within its type, or -1 on error.
     #[func]
-    fn add_farm(&mut self, x: f32, y: f32, town_idx: i32) {
+    fn add_location(&mut self, loc_type: GString, x: f32, y: f32, town_idx: i32, opts: VarDictionary) -> i32 {
+        let type_str = loc_type.to_string();
+        let pos = Vector2::new(x, y);
+        let mut index: i32 = -1;
+
         if let Some(mut bevy_app) = self.get_bevy_app() {
             if let Some(app) = bevy_app.bind_mut().get_app_mut() {
-                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
-                    world.farms.push(world::Farm {
-                        position: Vector2::new(x, y),
-                        town_idx: town_idx as u32,
-                    });
-                }
-                if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
-                    farms.occupant_count.push(0);
+                match type_str.as_str() {
+                    "farm" => {
+                        if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                            index = world.farms.len() as i32;
+                            world.farms.push(world::Farm {
+                                position: pos,
+                                town_idx: town_idx as u32,
+                            });
+                        }
+                        if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                            farms.occupant_count.push(0);
+                        }
+                    }
+                    "bed" => {
+                        if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                            index = world.beds.len() as i32;
+                            world.beds.push(world::Bed {
+                                position: pos,
+                                town_idx: town_idx as u32,
+                            });
+                        }
+                        if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                            beds.occupant_npc.push(-1);
+                        }
+                    }
+                    "guard_post" => {
+                        let patrol_order = opts.get("patrol_order")
+                            .map(|v| v.to::<i32>())
+                            .unwrap_or(0);
+                        if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                            index = world.guard_posts.len() as i32;
+                            world.guard_posts.push(world::GuardPost {
+                                position: pos,
+                                town_idx: town_idx as u32,
+                                patrol_order: patrol_order as u32,
+                            });
+                        }
+                    }
+                    "camp" => {
+                        if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                            index = world.camps.len() as i32;
+                            world.camps.push(world::Camp {
+                                position: pos,
+                                town_idx: town_idx as u32,
+                            });
+                        }
+                    }
+                    "fountain" => {
+                        let name = opts.get("name")
+                            .map(|v| v.to::<GString>().to_string())
+                            .unwrap_or_else(|| format!("Town {}", town_idx));
+                        let faction = opts.get("faction")
+                            .map(|v| v.to::<i32>())
+                            .unwrap_or(0);
+                        if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                            index = world.towns.len() as i32;
+                            world.towns.push(world::Town {
+                                name,
+                                center: pos,
+                                faction,
+                            });
+                        }
+                    }
+                    _ => {
+                        godot_warn!("[EcsNpcManager] Unknown location type: {}", type_str);
+                    }
                 }
             }
         }
+
+        // Rebuild location sprites
+        if index >= 0 {
+            self.build_location_buffer();
+        }
+
+        index
     }
 
+    /// Rebuild location MultiMesh (call after batch additions for efficiency).
     #[func]
-    fn add_bed(&mut self, x: f32, y: f32, town_idx: i32) {
-        if let Some(mut bevy_app) = self.get_bevy_app() {
-            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
-                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
-                    world.beds.push(world::Bed {
-                        position: Vector2::new(x, y),
-                        town_idx: town_idx as u32,
-                    });
-                }
-                if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
-                    beds.occupant_npc.push(-1);
-                }
-            }
-        }
-    }
-
-    #[func]
-    fn add_guard_post(&mut self, x: f32, y: f32, town_idx: i32, patrol_order: i32) {
-        if let Some(mut bevy_app) = self.get_bevy_app() {
-            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
-                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
-                    world.guard_posts.push(world::GuardPost {
-                        position: Vector2::new(x, y),
-                        town_idx: town_idx as u32,
-                        patrol_order: patrol_order as u32,
-                    });
-                }
-            }
-        }
+    fn build_locations(&mut self) {
+        self.build_location_buffer();
     }
 
     // ========================================================================

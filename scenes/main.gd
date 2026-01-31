@@ -26,7 +26,6 @@ class TargetOverlay extends Node2D:
 #var npc_manager_scene: PackedScene = preload("res://systems/npc_manager.tscn")
 #var projectile_manager_scene: PackedScene = preload("res://systems/projectile_manager.tscn")
 var player_scene: PackedScene = preload("res://entities/player.tscn")
-var location_scene: PackedScene = preload("res://world/location.tscn")
 var terrain_scene: PackedScene = preload("res://world/terrain_renderer.tscn")
 var left_panel_scene: PackedScene = preload("res://ui/left_panel.tscn")
 var settings_menu_scene: PackedScene = preload("res://ui/settings_menu.tscn")
@@ -36,7 +35,6 @@ var roster_panel_scene: PackedScene = preload("res://ui/roster_panel.tscn")
 var build_menu_scene: PackedScene = preload("res://ui/build_menu.tscn")
 var policies_panel_scene: PackedScene = preload("res://ui/policies_panel.tscn")
 var guard_post_menu_scene: PackedScene = preload("res://ui/guard_post_menu.tscn")
-var location_renderer_scene: PackedScene = preload("res://world/location_renderer.tscn")
 
 var npc_manager  # EcsNpcManager (Rust)
 var _uses_ecs := false  # True for EcsNpcManager
@@ -49,7 +47,6 @@ var build_menu: Node
 var guard_post_menu: Node
 var farm_menu: Node
 var terrain_renderer: Node
-var location_renderer: Node  # Batched location sprites (single draw call)
 var target_overlay: Node2D  # Separate node for target line (cheap redraw)
 
 # Target visualization cache (only redraw on change)
@@ -131,8 +128,7 @@ func _ready() -> void:
 	NUM_TOWNS = Config.num_towns
 	_generate_world()
 	_setup_terrain()
-	_setup_locations()  # Batch location sprites into single draw call
-	_setup_managers()
+	_setup_managers()  # Also builds location sprites via ECS
 	_setup_player()
 	_setup_ui()
 	_spawn_npcs()
@@ -287,40 +283,26 @@ func _generate_world() -> void:
 		for key in base_keys:
 			slots[key] = []
 
+		# Calculate camp position (away from all towns)
+		var camp_pos := _find_camp_position(town_center, town_positions)
+
 		var town_data := {
 			"name": town_name,
 			"center": town_center,
 			"grid": grid,
 			"slots": slots,
-			"guard_posts": [],
-			"camp": null
+			"guard_posts": [],  # Array of Vector2 positions
+			"camp_pos": camp_pos
 		}
 
-		# Create fountain at center (0,0)
-		var fountain = location_scene.instantiate()
-		fountain.location_name = town_name
-		fountain.location_type = "fountain"
-		fountain.global_position = grid["0,0"]
-		add_child(fountain)
-		town_data.slots["0,0"].append({"type": "fountain", "node": fountain})
+		# Store fountain position
+		town_data.slots["0,0"].append({"type": "fountain", "pos": grid["0,0"]})
 
-		# Create farm at west slot (0,-1)
-		var farm_w = location_scene.instantiate()
-		farm_w.location_name = "%s Farm W" % town_name
-		farm_w.location_type = "field"
-		farm_w.global_position = grid["0,-1"]
-		add_child(farm_w)
-		town_data.slots["0,-1"].append({"type": "farm", "node": farm_w})
+		# Store farm positions
+		town_data.slots["0,-1"].append({"type": "farm", "pos": grid["0,-1"]})
+		town_data.slots["0,1"].append({"type": "farm", "pos": grid["0,1"]})
 
-		# Create farm at east slot (0,1)
-		var farm_e = location_scene.instantiate()
-		farm_e.location_name = "%s Farm E" % town_name
-		farm_e.location_type = "field"
-		farm_e.global_position = grid["0,1"]
-		add_child(farm_e)
-		town_data.slots["0,1"].append({"type": "farm", "node": farm_e})
-
-		# Create initial beds in 4 inner corner slots (4 beds each = 16 total)
+		# Store bed positions (4 beds per slot in 4 inner corner slots = 16 beds)
 		var bed_slots := ["-1,-1", "-1,2", "2,-1", "2,2"]
 		for slot_key in bed_slots:
 			for bed_idx in 4:
@@ -328,39 +310,20 @@ func _generate_world() -> void:
 					(bed_idx % 2 - 0.5) * 16,
 					(floorf(bed_idx / 2.0) - 0.5) * 16
 				)
-				var bed = location_scene.instantiate()
-				bed.location_name = "%s Bed" % town_name
-				bed.location_type = "home"
-				bed.global_position = grid[slot_key] + bed_offset
-				add_child(bed)
-				town_data.slots[slot_key].append({"type": "bed", "node": bed})
+				var bed_pos: Vector2 = grid[slot_key] + bed_offset
+				town_data.slots[slot_key].append({"type": "bed", "pos": bed_pos})
 
-		# Create guard posts at corners of initial grid
+		# Store guard post positions at corners
 		var corner_keys := _get_corner_keys(0)
 		for corner_key in corner_keys:
-			var post = location_scene.instantiate()
-			post.location_name = "%s Post" % town_name
-			post.location_type = "guard_post"
-			post.global_position = grid[corner_key]
-			add_child(post)
-			town_data.guard_posts.append(post)
-			town_data.slots[corner_key].append({"type": "guard_post", "node": post})
-			# Initialize guard post upgrades
+			var post_pos: Vector2 = grid[corner_key]
+			town_data.guard_posts.append(post_pos)
+			town_data.slots[corner_key].append({"type": "guard_post", "pos": post_pos})
 			guard_post_upgrades[i][corner_key] = {
 				"attack_enabled": false,
 				"range_level": 0,
 				"damage_level": 0
 			}
-
-		# Create raider camp (away from all towns, in direction with most room)
-		var camp_pos := _find_camp_position(town_center, town_positions)
-
-		var camp = location_scene.instantiate()
-		camp.location_name = "%s Raiders" % town_name
-		camp.location_type = "camp"
-		camp.global_position = camp_pos
-		add_child(camp)
-		town_data.camp = camp
 
 		towns.append(town_data)
 
@@ -377,26 +340,9 @@ func _setup_terrain() -> void:
 	var camp_centers: Array[Vector2] = []
 	for town in towns:
 		town_centers.append(town.center)
-		if town.camp:
-			camp_centers.append(town.camp.global_position)
+		camp_centers.append(town.camp_pos)
 
 	terrain_renderer.generate(town_centers, camp_centers)
-
-
-func _setup_locations() -> void:
-	# Batch all location sprites into a single MultiMesh (1 draw call)
-	location_renderer = location_renderer_scene.instantiate()
-	add_child(location_renderer)
-	move_child(location_renderer, 1)  # After terrain, before NPCs
-
-	# Collect sprite data from all Location nodes
-	var all_sprites: Array = []
-	for node in get_tree().get_nodes_in_group("location"):
-		if node.has_method("get_sprite_data"):
-			all_sprites.append_array(node.get_sprite_data())
-
-	location_renderer.build(all_sprites)
-	print("Batched %d location sprites into 1 draw call" % all_sprites.size())
 
 
 func _setup_managers() -> void:
@@ -414,32 +360,38 @@ func _setup_managers() -> void:
 	# Factions: 0=villagers, 1..N=raider camps (each camp is unique faction)
 	npc_manager.init_faction_stats(1 + NUM_TOWNS)
 
-	# Add villager towns (faction=0) with their buildings
+	# Add all locations using unified API (no sprites yet - batch at end)
 	for town_idx in towns.size():
 		var town: Dictionary = towns[town_idx]
-		npc_manager.add_town(town.name, town.center.x, town.center.y, 0)  # faction=Villager
 
-		# Add farms
-		var farms := _get_farms_from_town(town)
-		for farm in farms:
-			npc_manager.add_farm(farm.global_position.x, farm.global_position.y, town_idx)
+		# Villager town fountain (faction=0)
+		npc_manager.add_location("fountain", town.center.x, town.center.y, town_idx,
+			{"name": town.name, "faction": 0})
 
-		# Add beds
-		var beds := _get_beds_from_town(town)
-		for bed in beds:
-			npc_manager.add_bed(bed.global_position.x, bed.global_position.y, town_idx)
+		# Farms
+		for slot_items in town.slots.values():
+			for item in slot_items:
+				if item.type == "farm":
+					npc_manager.add_location("farm", item.pos.x, item.pos.y, town_idx, {})
 
-		# Add guard posts (patrol_order = index within town)
+		# Beds
+		for slot_items in town.slots.values():
+			for item in slot_items:
+				if item.type == "bed":
+					npc_manager.add_location("bed", item.pos.x, item.pos.y, town_idx, {})
+
+		# Guard posts (patrol_order = index within town)
 		for post_idx in town.guard_posts.size():
-			var post = town.guard_posts[post_idx]
-			npc_manager.add_guard_post(post.global_position.x, post.global_position.y, town_idx, post_idx)
+			var post_pos: Vector2 = town.guard_posts[post_idx]
+			npc_manager.add_location("guard_post", post_pos.x, post_pos.y, town_idx,
+				{"patrol_order": post_idx})
 
-	# Add raider towns (each camp gets unique faction so raiders fight each other)
-	for town_idx in towns.size():
-		var town: Dictionary = towns[town_idx]
-		if town.camp:
-			var camp_pos: Vector2 = town.camp.global_position
-			npc_manager.add_town("Raider Camp %d" % town_idx, camp_pos.x, camp_pos.y, town_idx + 1)
+		# Raider camp (unique faction per camp)
+		npc_manager.add_location("camp", town.camp_pos.x, town.camp_pos.y, town_idx, {})
+
+	# Build location sprites (single call after all locations registered)
+	npc_manager.build_locations()
+	print("Built location sprites via ECS")
 
 
 func _setup_player() -> void:
@@ -492,32 +444,32 @@ func _spawn_npcs() -> void:
 		var town: Dictionary = towns[town_idx]
 		var beds := _get_beds_from_town(town)
 		var farms := _get_farms_from_town(town)
-		var camp = town.camp
+		var camp_pos: Vector2 = town.camp_pos
 		var post_count: int = town.guard_posts.size()
 
 		# Spawn farmers
 		for i in Config.farmers_per_town:
-			var bed = beds[i % beds.size()]
-			var farm = farms[i % farms.size()]
+			var bed_pos: Vector2 = beds[i % beds.size()]
+			var farm_pos: Vector2 = farms[i % farms.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
-			var pos: Vector2 = bed.global_position + spawn_offset
+			var pos: Vector2 = bed_pos + spawn_offset
 			npc_manager.spawn_npc(pos.x, pos.y, 0, 0, {
-				"home_x": bed.global_position.x,
-				"home_y": bed.global_position.y,
-				"work_x": farm.global_position.x,
-				"work_y": farm.global_position.y,
+				"home_x": bed_pos.x,
+				"home_y": bed_pos.y,
+				"work_x": farm_pos.x,
+				"work_y": farm_pos.y,
 				"town_idx": town_idx
 			})
 			total_farmers += 1
 
 		# Spawn guards
 		for i in Config.guards_per_town:
-			var bed = beds[i % beds.size()]
+			var bed_pos: Vector2 = beds[i % beds.size()]
 			var spawn_offset := Vector2(randf_range(-15, 15), randf_range(-15, 15))
-			var pos: Vector2 = bed.global_position + spawn_offset
+			var pos: Vector2 = bed_pos + spawn_offset
 			npc_manager.spawn_npc(pos.x, pos.y, 1, 0, {
-				"home_x": bed.global_position.x,
-				"home_y": bed.global_position.y,
+				"home_x": bed_pos.x,
+				"home_y": bed_pos.y,
 				"town_idx": town_idx,
 				"starting_post": i % post_count
 			})
@@ -527,10 +479,10 @@ func _spawn_npcs() -> void:
 		var raider_town_idx: int = NUM_TOWNS + town_idx
 		for i in Config.raiders_per_camp:
 			var spawn_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
-			var pos: Vector2 = camp.global_position + spawn_offset
+			var pos: Vector2 = camp_pos + spawn_offset
 			npc_manager.spawn_npc(pos.x, pos.y, 2, town_idx + 1, {  # unique faction per camp
-				"home_x": camp.global_position.x,
-				"home_y": camp.global_position.y,
+				"home_x": camp_pos.x,
+				"home_y": camp_pos.y,
 				"town_idx": raider_town_idx
 			})
 			total_raiders += 1
@@ -724,21 +676,21 @@ func _calculate_grid_positions(center: Vector2) -> Dictionary:
 	return grid
 
 
-func _get_farms_from_town(town: Dictionary) -> Array:
-	var farms: Array = []
+func _get_farms_from_town(town: Dictionary) -> Array[Vector2]:
+	var farms: Array[Vector2] = []
 	for key in town.slots:
 		for building in town.slots[key]:
 			if building.type == "farm":
-				farms.append(building.node)
+				farms.append(building.pos)
 	return farms
 
 
-func _get_beds_from_town(town: Dictionary) -> Array:
-	var beds: Array = []
+func _get_beds_from_town(town: Dictionary) -> Array[Vector2]:
+	var beds: Array[Vector2] = []
 	for key in town.slots:
 		for building in town.slots[key]:
 			if building.type == "bed":
-				beds.append(building.node)
+				beds.append(building.pos)
 	return beds
 
 
@@ -784,7 +736,7 @@ func _get_clicked_guard_post(world_pos: Vector2) -> Dictionary:
 	for slot_key in town.slots:
 		for building in town.slots[slot_key]:
 			if building.type == "guard_post":
-				var pos: Vector2 = building.node.global_position
+				var pos: Vector2 = building.pos
 				if world_pos.distance_to(pos) < click_radius:
 					return {"slot_key": slot_key, "town_idx": player_town_idx}
 
@@ -805,18 +757,8 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 	var slot_pos: Vector2 = grid[slot_key]
 
 	if building_type == "farm":
-		var farm = location_scene.instantiate()
-		farm.location_name = "%s Farm" % town.name
-		farm.location_type = "field"
-		farm.global_position = slot_pos
-		add_child(farm)
-		town.slots[slot_key].append({"type": "farm", "node": farm})
-		# Add to npc_manager farm positions (GDScript manager only)
-		if not _uses_ecs:
-			npc_manager.farm_positions.append(slot_pos)
-			if player_town_idx < npc_manager.farms_by_town.size():
-				npc_manager.farms_by_town[player_town_idx].append(slot_pos)
-				npc_manager.farm_occupant_counts[player_town_idx].append(0)
+		town.slots[slot_key].append({"type": "farm", "pos": slot_pos})
+		npc_manager.add_location("farm", slot_pos.x, slot_pos.y, player_town_idx, {})
 
 	elif building_type == "bed":
 		var slot_contents: Array = town.slots[slot_key]
@@ -830,31 +772,16 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 			(bed_count % 2 - 0.5) * 16,
 			(floorf(bed_count / 2.0) - 0.5) * 16
 		)
-
-		var bed = location_scene.instantiate()
-		bed.location_name = "%s Bed" % town.name
-		bed.location_type = "home"
-		bed.global_position = slot_pos + bed_offset
-		add_child(bed)
-		town.slots[slot_key].append({"type": "bed", "node": bed})
-		# Add to bed tracking (GDScript manager only)
-		if not _uses_ecs and player_town_idx < npc_manager.beds_by_town.size():
-			npc_manager.beds_by_town[player_town_idx].append(bed.global_position)
-			npc_manager.bed_occupants[player_town_idx].append(-1)
+		var bed_pos: Vector2 = slot_pos + bed_offset
+		town.slots[slot_key].append({"type": "bed", "pos": bed_pos})
+		npc_manager.add_location("bed", bed_pos.x, bed_pos.y, player_town_idx, {})
 
 	elif building_type == "guard_post":
-		var post = location_scene.instantiate()
-		post.location_name = "%s Post" % town.name
-		post.location_type = "guard_post"
-		post.global_position = slot_pos
-		add_child(post)
-		town.slots[slot_key].append({"type": "guard_post", "node": post})
-		# Add to guard posts for this town
-		town.guard_posts.append(post)
-		# Update npc_manager's guard post list (GDScript manager only)
-		if not _uses_ecs:
-			if player_town_idx < npc_manager.guard_posts_by_town.size():
-				npc_manager.guard_posts_by_town[player_town_idx].append(slot_pos)
+		var post_idx: int = town.guard_posts.size()
+		town.slots[slot_key].append({"type": "guard_post", "pos": slot_pos})
+		town.guard_posts.append(slot_pos)
+		npc_manager.add_location("guard_post", slot_pos.x, slot_pos.y, player_town_idx,
+			{"patrol_order": post_idx})
 			if npc_manager._guard_post_combat:
 				npc_manager._guard_post_combat.register_post(slot_pos, player_town_idx, slot_key)
 		# Initialize guard post upgrades
@@ -876,62 +803,23 @@ func _on_destroy_requested(slot_key: String) -> void:
 
 	# Remove all buildings in this slot
 	for building in slot_contents:
-		var node = building.node
-		var btype = building.type
+		var btype: String = building.type
+		var pos: Vector2 = building.pos
 
-		# Remove from tracking arrays (GDScript manager only)
-		if btype == "farm":
-			if not _uses_ecs:
-				var pos: Vector2 = node.global_position
-				var farm_idx: int = npc_manager.farm_positions.find(pos)
-				if farm_idx >= 0:
-					npc_manager.farm_positions.remove_at(farm_idx)
-				if player_town_idx < npc_manager.farms_by_town.size():
-					var farms: Array = npc_manager.farms_by_town[player_town_idx]
-					for fi in farms.size():
-						if farms[fi] == pos:
-							for npc_i in npc_manager.count:
-								if npc_manager.current_farm_idx[npc_i] == fi and npc_manager.town_indices[npc_i] == player_town_idx:
-									npc_manager.current_farm_idx[npc_i] = -1
-								elif npc_manager.current_farm_idx[npc_i] > fi and npc_manager.town_indices[npc_i] == player_town_idx:
-									npc_manager.current_farm_idx[npc_i] -= 1
-							farms.remove_at(fi)
-							npc_manager.farm_occupant_counts[player_town_idx].remove_at(fi)
-							break
-		elif btype == "guard_post":
-			if not _uses_ecs:
-				var pos: Vector2 = node.global_position
-				if player_town_idx < npc_manager.guard_posts_by_town.size():
-					var posts: Array = npc_manager.guard_posts_by_town[player_town_idx]
-					for pi in posts.size():
-						if posts[pi] == pos:
-							posts.remove_at(pi)
-							break
-				if npc_manager._guard_post_combat:
-					npc_manager._guard_post_combat.unregister_post(player_town_idx, slot_key)
+		if btype == "guard_post":
+			# Remove from guard_posts array
 			for gi in town.guard_posts.size():
-				if town.guard_posts[gi] == node:
+				if town.guard_posts[gi] == pos:
 					town.guard_posts.remove_at(gi)
 					break
 			if guard_post_upgrades[player_town_idx].has(slot_key):
 				guard_post_upgrades[player_town_idx].erase(slot_key)
-		elif btype == "bed":
-			if not _uses_ecs:
-				var pos: Vector2 = node.global_position
-				if player_town_idx < npc_manager.beds_by_town.size():
-					var beds: Array = npc_manager.beds_by_town[player_town_idx]
-					for bi in beds.size():
-						if beds[bi] == pos:
-							var occupant: int = npc_manager.bed_occupants[player_town_idx][bi]
-							if occupant >= 0:
-								npc_manager.current_bed_idx[occupant] = -1
-							beds.remove_at(bi)
-							npc_manager.bed_occupants[player_town_idx].remove_at(bi)
-							break
 
-		node.queue_free()
+		# TODO: Add ECS API to remove locations (for now, sprites stay but data is removed)
 
 	slot_contents.clear()
+	# Rebuild location sprites to reflect removal
+	npc_manager.build_locations()
 	queue_redraw()
 
 
