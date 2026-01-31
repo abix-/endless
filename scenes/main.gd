@@ -632,6 +632,10 @@ func _draw_selected_npc_target() -> void:
 	if selected < 0:
 		return
 
+	# Skip if NPC is dead
+	if npc_manager.get_npc_health(selected) <= 0.0:
+		return
+
 	var npc_pos: Vector2 = npc_manager.get_npc_position(selected)
 	var target_pos: Vector2 = npc_manager.get_npc_target(selected)
 

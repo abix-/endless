@@ -1,6 +1,14 @@
 # Changelog
 
 ## 2026-01-30
+- fix: dead NPC slots now fully cleaned up (prevents zombie NPCs walking from -9999,-9999)
+  - HideNpc now resets position, target, arrival, and health (was only position)
+  - fixes slot recycling bug where new NPCs would walk from death position
+- fix: NPC click selection uses slot counter instead of dispatch count (timing issue)
+  - get_npc_at_position, get_npc_position, get_npc_health now use NPC_SLOT_COUNTER
+  - fixes NPCs becoming unclickable after some time
+- fix: skip drawing target line for dead selected NPCs (was drawing to -9999,-9999)
+- change: ARRIVAL_THRESHOLD increased from 8px to 40px (easier food drop-off)
 - fix: NPCs now wake from Resting when energy reaches 90% (was stuck forever)
 - add healing aura: NPCs heal 5 HP/sec when near own faction's town center (150px radius)
   - add MaxHealth component for per-NPC health cap (supports future leveling)

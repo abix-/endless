@@ -77,7 +77,11 @@ Execution order is **chained** — each system completes before the next starts.
 - For each dead entity:
   1. `commands.entity(entity).despawn()` — remove from Bevy ECS
   2. `npc_map.0.remove(&idx)` — remove from O(1) lookup
-  3. `GpuUpdate::HideNpc { idx }` — position to (-9999, -9999) on GPU
+  3. `GpuUpdate::HideNpc { idx }` — full slot cleanup on GPU:
+     - Position → (-9999, -9999)
+     - Target → (-9999, -9999) — prevents zombie movement
+     - Arrival → 1 — stops GPU from computing movement
+     - Health → 0 — ensures click detection skips slot
   4. `FREE_SLOTS.lock().push(idx)` — recycle slot for future spawns
 
 ## Slot Recycling
@@ -101,7 +105,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | GPU → CPU | Combat targets | `GPU_READ_STATE.combat_targets[]` read by attack_system |
 | GPU → CPU | Positions | `GPU_READ_STATE.positions[]` read by attack_system for range check |
 | CPU → GPU | Health sync | `GpuUpdate::SetHealth` after damage |
-| CPU → GPU | Hide dead | `GpuUpdate::HideNpc` sets position to (-9999, -9999) |
+| CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
 
 ## Debug API

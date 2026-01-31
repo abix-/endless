@@ -301,12 +301,29 @@ impl INode2D for EcsNpcManager {
                     }
                     GpuUpdate::HideNpc { idx } => {
                         if idx < MAX_NPC_COUNT {
+                            // Set position to offscreen
                             let hide_pos: Vec<u8> = [-9999.0f32, -9999.0f32].iter()
                                 .flat_map(|f| f.to_le_bytes()).collect();
                             let hide_packed = PackedByteArray::from(hide_pos.as_slice());
                             gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &hide_packed);
                             gpu.positions[idx * 2] = -9999.0;
                             gpu.positions[idx * 2 + 1] = -9999.0;
+
+                            // Also set target to offscreen so NPC doesn't try to move
+                            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &hide_packed);
+                            gpu.targets[idx * 2] = -9999.0;
+                            gpu.targets[idx * 2 + 1] = -9999.0;
+
+                            // Mark as arrived so GPU doesn't compute movement
+                            let one_bytes: Vec<u8> = 1i32.to_le_bytes().to_vec();
+                            let one_packed = PackedByteArray::from(one_bytes.as_slice());
+                            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &one_packed);
+
+                            // Set health to 0 so click detection skips this slot
+                            gpu.healths[idx] = 0.0;
+                            let zero_health: Vec<u8> = 0.0f32.to_le_bytes().to_vec();
+                            let zero_packed = PackedByteArray::from(zero_health.as_slice());
+                            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &zero_packed);
                         }
                     }
                     GpuUpdate::SetFaction { idx, faction } => {
@@ -891,8 +908,9 @@ impl EcsNpcManager {
     fn get_npc_position(&self, npc_index: i32) -> Vector2 {
         if let Some(gpu) = &self.gpu {
             let idx = npc_index as usize;
-            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
-            if idx < npc_count {
+            // Use slot counter (high-water mark) not dispatch count to avoid timing issues
+            let slot_count = NPC_SLOT_COUNTER.lock().map(|c| *c).unwrap_or(0);
+            if idx < slot_count {
                 let x = gpu.positions.get(idx * 2).copied().unwrap_or(0.0);
                 let y = gpu.positions.get(idx * 2 + 1).copied().unwrap_or(0.0);
                 return Vector2::new(x, y);
@@ -918,8 +936,9 @@ impl EcsNpcManager {
     fn get_npc_health(&self, npc_index: i32) -> f32 {
         if let Some(gpu) = &self.gpu {
             let idx = npc_index as usize;
-            let npc_count = GPU_READ_STATE.lock().map(|s| s.npc_count).unwrap_or(0);
-            if idx < npc_count {
+            // Use slot counter (high-water mark) not dispatch count to avoid timing issues
+            let slot_count = NPC_SLOT_COUNTER.lock().map(|c| *c).unwrap_or(0);
+            if idx < slot_count {
                 return gpu.healths.get(idx).copied().unwrap_or(0.0);
             }
         }
@@ -1819,15 +1838,19 @@ impl EcsNpcManager {
         let mut best_idx: i32 = -1;
         let mut best_dist = radius;
 
-        if let Ok(state) = GPU_READ_STATE.lock() {
-            for i in 0..state.npc_count {
-                // Skip dead NPCs
-                if i >= state.health.len() || state.health[i] <= 0.0 {
+        // Use slot counter (high-water mark) not dispatch count to avoid timing issues
+        let slot_count = NPC_SLOT_COUNTER.lock().map(|c| *c).unwrap_or(0);
+
+        if let Some(gpu) = &self.gpu {
+            for i in 0..slot_count {
+                // Skip dead NPCs (health <= 0)
+                let health = gpu.healths.get(i).copied().unwrap_or(0.0);
+                if health <= 0.0 {
                     continue;
                 }
 
-                let px = state.positions.get(i * 2).copied().unwrap_or(0.0);
-                let py = state.positions.get(i * 2 + 1).copied().unwrap_or(0.0);
+                let px = gpu.positions.get(i * 2).copied().unwrap_or(0.0);
+                let py = gpu.positions.get(i * 2 + 1).copied().unwrap_or(0.0);
                 let dx = px - x;
                 let dy = py - y;
                 let dist = (dx * dx + dy * dy).sqrt();

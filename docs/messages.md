@@ -92,7 +92,7 @@ pub struct GpuUpdateMsg(pub GpuUpdate);
 | SetSpeed | idx, speed | spawn_npc_system | speed_buffer |
 | SetColor | idx, r, g, b, a | spawn_npc_system, raider_arrival_system, flee_system | color_buffer |
 | ApplyDamage | idx, amount | (unused — damage goes through Bevy) | health_buffer |
-| HideNpc | idx | death_cleanup_system | position_buffer → (-9999, -9999) |
+| HideNpc | idx | death_cleanup_system | position, target, arrival, health (full slot cleanup) |
 | SetSpriteFrame | idx, col, row | spawn_npc_system | sprite_frame_buffer |
 
 **Static Queue (Bevy↔GPU boundary):** `GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>>` — written by `collect_gpu_updates`, drained by `process()`.
