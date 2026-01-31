@@ -36,6 +36,7 @@ var roster_panel_scene: PackedScene = preload("res://ui/roster_panel.tscn")
 var build_menu_scene: PackedScene = preload("res://ui/build_menu.tscn")
 var policies_panel_scene: PackedScene = preload("res://ui/policies_panel.tscn")
 var guard_post_menu_scene: PackedScene = preload("res://ui/guard_post_menu.tscn")
+var location_renderer_scene: PackedScene = preload("res://world/location_renderer.tscn")
 
 var npc_manager  # EcsNpcManager (Rust)
 var _uses_ecs := false  # True for EcsNpcManager
@@ -48,12 +49,16 @@ var build_menu: Node
 var guard_post_menu: Node
 var farm_menu: Node
 var terrain_renderer: Node
+var location_renderer: Node  # Batched location sprites (single draw call)
 var target_overlay: Node2D  # Separate node for target line (cheap redraw)
 
 # Target visualization cache (only redraw on change)
 var _last_selected_npc := -1
 var _last_target_pos := Vector2.ZERO
 var _last_npc_pos := Vector2.ZERO
+
+# GDScript timing (microseconds, updated each frame)
+var gd_timings := {"process": 0, "draw": 0, "slots": 0}
 
 # Currently selected terrain tile (for inspector)
 var selected_tile: Dictionary = {}
@@ -126,6 +131,7 @@ func _ready() -> void:
 	NUM_TOWNS = Config.num_towns
 	_generate_world()
 	_setup_terrain()
+	_setup_locations()  # Batch location sprites into single draw call
 	_setup_managers()
 	_setup_player()
 	_setup_ui()
@@ -137,6 +143,8 @@ func _ready() -> void:
 
 
 func _draw() -> void:
+	var t0 := Time.get_ticks_usec()
+
 	# World border
 	var border_color := Color(0.4, 0.4, 0.4, 0.8)
 	var border_width := 4.0
@@ -171,7 +179,10 @@ func _draw() -> void:
 		draw_arc(town_center, max_dist, 0, TAU, 64, gold, 3.0)
 
 	# Draw buildable slot indicators for player's town
+	var t1 := Time.get_ticks_usec()
 	_draw_buildable_slots()
+	gd_timings.slots = Time.get_ticks_usec() - t1
+	gd_timings.draw = Time.get_ticks_usec() - t0
 
 	# Target visualization moved to TargetOverlay (separate cheap canvas)
 
@@ -372,6 +383,22 @@ func _setup_terrain() -> void:
 	terrain_renderer.generate(town_centers, camp_centers)
 
 
+func _setup_locations() -> void:
+	# Batch all location sprites into a single MultiMesh (1 draw call)
+	location_renderer = location_renderer_scene.instantiate()
+	add_child(location_renderer)
+	move_child(location_renderer, 1)  # After terrain, before NPCs
+
+	# Collect sprite data from all Location nodes
+	var all_sprites: Array = []
+	for node in get_tree().get_nodes_in_group("location"):
+		if node.has_method("get_sprite_data"):
+			all_sprites.append_array(node.get_sprite_data())
+
+	location_renderer.build(all_sprites)
+	print("Batched %d location sprites into 1 draw call" % all_sprites.size())
+
+
 func _setup_managers() -> void:
 	# EcsNpcManager (Rust) replaces GDScript npc_manager + projectile_manager
 	npc_manager = ClassDB.instantiate("EcsNpcManager")
@@ -532,6 +559,10 @@ func _spawn_npcs() -> void:
 
 
 func _process(_delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	gd_timings.draw = 0
+	gd_timings.slots = 0
+
 	# Redraw main canvas only if showing active radius (follows camera)
 	if UserSettings.show_active_radius:
 		queue_redraw()
@@ -557,6 +588,8 @@ func _process(_delta: float) -> void:
 		target_overlay.cached_npc_pos = pos
 		target_overlay.cached_target_pos = target
 		target_overlay.queue_redraw()
+
+	gd_timings.process = Time.get_ticks_usec() - t0
 
 
 func _input(event: InputEvent) -> void:

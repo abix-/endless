@@ -47,9 +47,6 @@ const LOCATION_SPRITES := {
 	"guard_post": "guard_post",
 }
 
-var texture: Texture2D
-
-
 # Calculate visual radius for a sprite (center to corner, scaled)
 static func get_sprite_radius(sprite_name: String) -> float:
 	if sprite_name not in SPRITES:
@@ -81,73 +78,54 @@ static func get_arrival_radius(loc_type: String) -> float:
 
 
 func _ready() -> void:
-	texture = preload("res://assets/roguelikeSheet_transparent.png")
-
-	# Remove the default Sprite2D
-	if has_node("Sprite2D"):
-		$Sprite2D.queue_free()
-
-	_build_location()
+	add_to_group("location")
 	_setup_label()
 
 
-func _build_location() -> void:
+# Get sprite instances for batching into MultiMesh
+# Returns Array of {pos: Vector2, uv: Vector2i, scale: float}
+func get_sprite_data() -> Array:
+	var sprites: Array = []
+	var pieces: Array
 	match location_type:
 		"camp":
-			_build_from_pieces(CAMP_PIECES)
+			pieces = CAMP_PIECES
 		"home":
-			_build_from_pieces(HOME_PIECES)
+			pieces = HOME_PIECES
 		"field":
-			_add_named_sprite("farm", Vector2.ZERO)
+			pieces = [{"sprite": "farm", "offset": Vector2.ZERO}]
 		"guard_post":
-			_build_from_pieces(GUARD_POST_PIECES)
+			pieces = GUARD_POST_PIECES
 		"fountain":
-			_build_from_pieces(FOUNTAIN_PIECES)
+			pieces = FOUNTAIN_PIECES
 		_:
-			_build_from_pieces(HOME_PIECES)
+			pieces = HOME_PIECES
 
-
-func _build_from_pieces(pieces: Array) -> void:
-	var z := 0
 	for piece in pieces:
-		z = _add_named_sprite(piece.sprite, piece.offset, z)
+		var sprite_name: String = piece.sprite
+		if sprite_name not in SPRITES:
+			continue
 
+		var def: Dictionary = SPRITES[sprite_name]
+		var sheet_pos: Vector2i = def.pos
+		var size: Vector2i = def.size
+		var extra_scale: float = def.get("scale", 1.0)
+		var total_scale: float = SCALE * extra_scale
+		var offset: Vector2 = piece.offset
 
-func _add_named_sprite(sprite_name: String, offset: Vector2, z_start: int = 0) -> int:
-	if sprite_name not in SPRITES:
-		return z_start
+		# Build grid of sprites for multi-cell definitions
+		for row in size.y:
+			for col in size.x:
+				var uv_coords := Vector2i(sheet_pos.x + col, sheet_pos.y + row)
+				# Offset each cell: center the whole sprite, then position each cell
+				var cell_offset := Vector2(
+					(col - (size.x - 1) / 2.0) * 16,
+					(row - (size.y - 1) / 2.0) * 16
+				)
+				var world_pos: Vector2 = global_position + (offset + cell_offset) * total_scale
+				sprites.append({"pos": world_pos, "uv": uv_coords, "scale": total_scale})
 
-	var def: Dictionary = SPRITES[sprite_name]
-	var pos: Vector2i = def.pos
-	var size: Vector2i = def.size
-	var extra_scale: float = def.get("scale", 1.0)
-
-	# Build grid of sprites for multi-cell definitions
-	var z := z_start
-	for row in size.y:
-		for col in size.x:
-			var coords := Vector2i(pos.x + col, pos.y + row)
-			# Offset each cell: center the whole sprite, then position each cell
-			var cell_offset := Vector2(
-				(col - (size.x - 1) / 2.0) * 16,
-				(row - (size.y - 1) / 2.0) * 16
-			)
-			_add_sprite_at(coords, offset + cell_offset, z, extra_scale)
-			z += 1
-	return z
-
-
-func _add_sprite_at(coords: Vector2i, offset: Vector2, z: int, extra_scale: float = 1.0) -> void:
-	var sprite := Sprite2D.new()
-	sprite.texture = texture
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	sprite.region_enabled = true
-	sprite.region_rect = Rect2(coords.x * CELL, coords.y * CELL, 16, 16)
-	var total_scale: float = SCALE * extra_scale
-	sprite.scale = Vector2(total_scale, total_scale)
-	sprite.position = offset * total_scale
-	sprite.z_index = -100 + z  # Behind NPCs
-	add_child(sprite)
+	return sprites
 
 
 func _setup_label() -> void:

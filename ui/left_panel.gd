@@ -77,12 +77,18 @@ func _set_text(label: Label, value: String) -> void:
 		label.text = value
 
 
+var viewport_rid: RID
+
 func _ready() -> void:
 	add_to_group("left_panel")
 	await get_tree().process_frame
 	npc_manager = get_tree().get_first_node_in_group("npc_manager")
 	player = get_tree().get_first_node_in_group("player")
 	main_node = get_parent()
+
+	# Enable render time measurement
+	viewport_rid = get_viewport().get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(viewport_rid, true)
 
 	# Connect headers
 	stats_header.pressed.connect(_toggle_section.bind("stats"))
@@ -278,7 +284,12 @@ func _update_perf() -> void:
 	lines.append("  Bevy ECS: %.2f" % perf.get("bevy_ms", 0.0))
 	lines.append("  GPU:      %.2f (Q:%.1f D:%.1f R:%.1f)" % [perf.get("gpu_total_ms", 0.0), perf.get("queue_ms", 0.0), perf.get("dispatch_ms", 0.0), perf.get("readpos_ms", 0.0)])
 	lines.append("  Render:   %.2f (B:%.1f U:%.1f)" % [perf.get("build_ms", 0.0) + perf.get("upload_ms", 0.0), perf.get("build_ms", 0.0), perf.get("upload_ms", 0.0)])
-	lines.append("  Godot:    %.2f" % godot_ms)
+	var cpu_render := RenderingServer.viewport_get_measured_render_time_cpu(viewport_rid)
+	var gpu_render := RenderingServer.viewport_get_measured_render_time_gpu(viewport_rid)
+	var draw_calls := Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+	var objects := Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)
+	lines.append("  Godot:    %.2f (render cpu:%.1f gpu:%.1f)" % [godot_ms, cpu_render, gpu_render])
+	lines.append("  Draw:     %d calls, %d objects" % [draw_calls, objects])
 
 	perf_label.text = "\n".join(lines)
 

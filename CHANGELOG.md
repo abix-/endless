@@ -1,6 +1,14 @@
 # Changelog
 
 ## 2026-01-31
+- add location sprite batching: 330 sprites → 1 MultiMesh draw call
+  - new location_renderer.gd batches all farm/bed/post/camp/fountain sprites
+  - location.gd exports sprite data via get_sprite_data() for batching
+  - removed individual Sprite2D children from Location nodes
+  - draw calls stable at ~112 regardless of NPC count (was ~113 per location)
+- add render time profiling: RenderingServer.viewport_get_measured_render_time_cpu/gpu
+  - shows actual Godot rendering overhead in perf stats
+  - cleaned up misleading Performance.TIME_PROCESS display
 - optimize FFI calls: get_selected_npc() returns {idx, position, target} in single call
   - TargetOverlay uses cached values instead of re-fetching (eliminates 4 FFI calls/frame)
   - reduces 7 FFI calls to 1 when NPC selected

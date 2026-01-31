@@ -76,9 +76,10 @@ autoloads/
 entities/
   player.gd             # Camera controls
 world/
-  location.gd           # Sprite definitions, interaction radii
+  location.gd           # Sprite definitions, interaction radii, sprite data for batching
+  location_renderer.gd  # Batched location sprites via MultiMesh (1 draw call)
   terrain_renderer.gd   # Terrain tile rendering with sprite tiling
-  terrain_sprite.gdshader # Terrain tile shader
+  terrain_sprite.gdshader # Terrain tile shader (shared with location_renderer)
 ui/
   start_menu.gd         # Start menu (world size, towns, populations)
   left_panel.gd         # Stats, performance, NPC inspector (uses ECS query APIs)
