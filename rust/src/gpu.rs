@@ -428,38 +428,59 @@ impl GpuCompute {
         self.rd.buffer_update(self.grid_data_buffer, 0, data_packed.len() as u32, &data_packed);
     }
 
-    /// Dispatch the compute shader
+    /// Dispatch the compute shader (3 passes: clear grid, insert NPCs, main logic)
     pub fn dispatch(&mut self, npc_count: usize, delta: f32) {
         if npc_count == 0 {
             return;
         }
 
-        self.build_and_upload_grid(npc_count);
-
-        let mut push_data = vec![0u8; PUSH_CONSTANTS_SIZE];
-        push_data[0..4].copy_from_slice(&(npc_count as u32).to_le_bytes());
-        push_data[4..8].copy_from_slice(&SEPARATION_RADIUS.to_le_bytes());
-        push_data[8..12].copy_from_slice(&SEPARATION_STRENGTH.to_le_bytes());
-        push_data[12..16].copy_from_slice(&delta.to_le_bytes());
-        push_data[16..20].copy_from_slice(&(GRID_WIDTH as u32).to_le_bytes());
-        push_data[20..24].copy_from_slice(&(GRID_HEIGHT as u32).to_le_bytes());
-        push_data[24..28].copy_from_slice(&CELL_SIZE.to_le_bytes());
-        push_data[28..32].copy_from_slice(&(MAX_PER_CELL as u32).to_le_bytes());
-        push_data[32..36].copy_from_slice(&ARRIVAL_THRESHOLD.to_le_bytes());
-        push_data[36..40].copy_from_slice(&0.0f32.to_le_bytes());
-        push_data[40..44].copy_from_slice(&0.0f32.to_le_bytes());
-        push_data[44..48].copy_from_slice(&0.0f32.to_le_bytes());
-        let push_constants = PackedByteArray::from(push_data.as_slice());
+        // Helper to build push constants with mode
+        fn build_push_constants(count: u32, mode: u32, delta: f32) -> PackedByteArray {
+            let mut push_data = vec![0u8; PUSH_CONSTANTS_SIZE];
+            push_data[0..4].copy_from_slice(&count.to_le_bytes());
+            push_data[4..8].copy_from_slice(&SEPARATION_RADIUS.to_le_bytes());
+            push_data[8..12].copy_from_slice(&SEPARATION_STRENGTH.to_le_bytes());
+            push_data[12..16].copy_from_slice(&delta.to_le_bytes());
+            push_data[16..20].copy_from_slice(&(GRID_WIDTH as u32).to_le_bytes());
+            push_data[20..24].copy_from_slice(&(GRID_HEIGHT as u32).to_le_bytes());
+            push_data[24..28].copy_from_slice(&CELL_SIZE.to_le_bytes());
+            push_data[28..32].copy_from_slice(&(MAX_PER_CELL as u32).to_le_bytes());
+            push_data[32..36].copy_from_slice(&ARRIVAL_THRESHOLD.to_le_bytes());
+            push_data[36..40].copy_from_slice(&mode.to_le_bytes());  // mode instead of padding
+            push_data[40..44].copy_from_slice(&0.0f32.to_le_bytes());
+            push_data[44..48].copy_from_slice(&0.0f32.to_le_bytes());
+            PackedByteArray::from(push_data.as_slice())
+        }
 
         let compute_list = self.rd.compute_list_begin();
         self.rd.compute_list_bind_compute_pipeline(compute_list, self.pipeline);
         self.rd.compute_list_bind_uniform_set(compute_list, self.uniform_set, 0);
-        self.rd.compute_list_set_push_constant(compute_list, &push_constants, PUSH_CONSTANTS_SIZE as u32);
 
-        let workgroups = ((npc_count + 63) / 64) as u32;
-        self.rd.compute_list_dispatch(compute_list, workgroups, 1, 1);
+        // === PASS 1: Clear grid (mode 0) ===
+        let grid_cells = GRID_CELLS as u32;
+        let clear_push = build_push_constants(grid_cells, 0, delta);
+        self.rd.compute_list_set_push_constant(compute_list, &clear_push, PUSH_CONSTANTS_SIZE as u32);
+        let clear_workgroups = (grid_cells + 63) / 64;
+        self.rd.compute_list_dispatch(compute_list, clear_workgroups, 1, 1);
+
+        // Barrier between passes
+        self.rd.compute_list_add_barrier(compute_list);
+
+        // === PASS 2: Insert NPCs into grid (mode 1) ===
+        let insert_push = build_push_constants(npc_count as u32, 1, delta);
+        self.rd.compute_list_set_push_constant(compute_list, &insert_push, PUSH_CONSTANTS_SIZE as u32);
+        let npc_workgroups = ((npc_count + 63) / 64) as u32;
+        self.rd.compute_list_dispatch(compute_list, npc_workgroups, 1, 1);
+
+        // Barrier between passes
+        self.rd.compute_list_add_barrier(compute_list);
+
+        // === PASS 3: Main NPC logic (mode 2) ===
+        let main_push = build_push_constants(npc_count as u32, 2, delta);
+        self.rd.compute_list_set_push_constant(compute_list, &main_push, PUSH_CONSTANTS_SIZE as u32);
+        self.rd.compute_list_dispatch(compute_list, npc_workgroups, 1, 1);
+
         self.rd.compute_list_end();
-
         self.rd.submit();
         self.rd.sync();
     }

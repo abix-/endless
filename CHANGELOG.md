@@ -1,6 +1,12 @@
 # Changelog
 
 ## 2026-01-31
+- add GPU-side spatial grid building: eliminates 3MB CPU→GPU upload per frame
+  - mode 0: clear grid counts (one thread per cell)
+  - mode 1: insert NPCs via atomicAdd (one thread per NPC)
+  - mode 2: main NPC logic (existing code)
+  - 3 dispatches with barriers, single compute list
+  - ~30% faster at 9K NPCs (58→75 FPS)
 - add NPC decision logging: 100-entry circular buffer per NPC with timestamps
   - decisions logged as "Action (e:XX h:XX)" showing energy and health
   - state transitions logged ("→ OnDuty", "→ Resting", "Stole food → Returning")

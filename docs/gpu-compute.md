@@ -9,9 +9,11 @@ Two compute shaders run on the GPU each frame: `npc_compute.glsl` handles NPC mo
 ```
 CPU (process())                          GPU
 │                                        │
-├─ Build spatial grid (CPU)              │
-├─ Upload grid buffers ──────────────────┤
-├─ Dispatch npc_compute.glsl ───────────▶├─ Read positions, targets, speeds
+├─ Dispatch npc_compute.glsl (mode 0) ──▶├─ Clear grid counts to 0
+│                          (barrier)     │
+├─ Dispatch npc_compute.glsl (mode 1) ──▶├─ Insert NPCs into grid (atomics)
+│                          (barrier)     │
+├─ Dispatch npc_compute.glsl (mode 2) ──▶├─ Read positions, targets, speeds
 │                                        ├─ Separation physics (3x3 grid)
 │                                        ├─ Movement toward target
 │                                        ├─ Blocking detection + backoff
@@ -26,7 +28,23 @@ CPU (process())                          GPU
 
 ## NPC Compute Shader (npc_compute.glsl)
 
-Workgroup: 64 threads. Dispatched as `ceil(npc_count / 64)` workgroups.
+Workgroup: 64 threads. Dispatched 3 times per frame with different modes:
+
+### Mode 0: Clear Grid
+Dispatched as `ceil(grid_cells / 64)` workgroups. Clears `grid_counts[i] = 0` for all cells.
+
+### Mode 1: Insert NPCs
+Dispatched as `ceil(npc_count / 64)` workgroups. Each NPC atomically inserts itself:
+```glsl
+int slot = atomicAdd(grid_counts[cell_idx], 1);
+if (slot < MAX_PER_CELL) {
+    grid_data[cell_idx * MAX_PER_CELL + slot] = npc_idx;
+}
+```
+Skips hidden NPCs (position < -9000).
+
+### Mode 2: Main Logic
+Dispatched as `ceil(npc_count / 64)` workgroups.
 
 | Step | What it does |
 |------|-------------|
@@ -60,8 +78,8 @@ Workgroup: 64 threads. Dispatched as `ceil(proj_count / 64)` workgroups.
 | 1 | target_buffer | vec2 | 8B | R | Movement target |
 | 2 | color_buffer | vec4 | 16B | R | RGBA color |
 | 3 | speed_buffer | float | 4B | R | Movement speed |
-| 4 | grid_counts_buffer | int[] | - | R | NPCs per grid cell |
-| 5 | grid_data_buffer | int[] | - | R | NPC indices per cell |
+| 4 | grid_counts_buffer | int[] | - | RW | NPCs per grid cell (cleared/written by modes 0/1) |
+| 5 | grid_data_buffer | int[] | - | RW | NPC indices per cell (written by mode 1) |
 | 6 | multimesh_buffer | float[16] | 64B | W | Direct render output (Transform2D + Color + CustomData) |
 | 7 | arrival_buffer | int | 4B | RW | Settled/arrived flag |
 | 8 | backoff_buffer | int | 4B | RW | Collision backoff counter |
@@ -96,7 +114,7 @@ Workgroup: 64 threads. Dispatched as `ceil(proj_count / 64)` workgroups.
 - **Total cells**: 6,400
 - **Memory**: grid_counts = 25.6KB, grid_data = 1.6MB
 
-Built on CPU each frame from cached positions, uploaded to GPU before dispatch. NPCs are binned by `floor(pos / cell_size)`. The 3x3 neighborhood search covers a 300px radius (3 * 100px), which matches the combat detection range.
+Built on GPU each frame via atomic operations (mode 0 clears, mode 1 inserts). No CPU-side grid building or upload. NPCs are binned by `floor(pos / cell_size)`. The 3x3 neighborhood search covers a 300px radius (3 * 100px), which matches the combat detection range.
 
 ## CPU Cache Sync
 
@@ -116,7 +134,6 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 
 ## Known Issues / Limitations
 
-- **Grid rebuilt every frame on CPU**: The spatial grid is built in Rust and uploaded. A GPU-side grid build would eliminate this transfer but adds complexity.
 - **Health is CPU-authoritative**: The GPU reads health for targeting but never modifies it. If GPU-side damage were ever needed, this would require a readback.
 - **Fixed grid dimensions**: 80x80 grid is hardcoded. Larger worlds need a bigger grid or dynamic sizing.
 - **Max 64 NPCs per cell**: Exceeding this silently drops NPCs from neighbor queries. At 10K NPCs in 6,400 cells, average is ~1.5 per cell, so this is safe with margin.
@@ -156,6 +173,6 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 - Throttle expensive operations to once per second
 - Advance test_phase immediately to prevent repeated assertion runs
 
-## Rating: 8/10
+## Rating: 9/10
 
-Solid GPU compute achieving 10K NPCs @ 140fps. Spatial grid shared between both shaders is efficient. TCP-style backoff produces good crowd behavior. Main waste: the GPU writes a multimesh buffer that the CPU ignores and rebuilds. Fixing this (use GPU-written buffer directly) would eliminate a per-frame CPU rebuild. Blocking sync prevents CPU/GPU overlap.
+Solid GPU compute achieving 10K NPCs @ 75fps. Spatial grid built entirely on GPU via atomic operations — no CPU-side grid building or 3MB upload. TCP-style backoff produces good crowd behavior. Main waste: the GPU writes a multimesh buffer that the CPU ignores and rebuilds. Fixing this (use GPU-written buffer directly) would eliminate a per-frame CPU rebuild. Blocking sync prevents CPU/GPU overlap.

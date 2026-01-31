@@ -48,15 +48,15 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer SpeedBuffer {
     float speeds[];
 };
 
-// Binding 4: Grid counts (read-only - how many NPCs in each cell)
-// Rebuilt on CPU each frame and uploaded before dispatch.
-layout(set = 0, binding = 4, std430) restrict readonly buffer GridCounts {
+// Binding 4: Grid counts (read/write - how many NPCs in each cell)
+// Built on GPU via atomic operations (mode 0=clear, mode 1=insert)
+layout(set = 0, binding = 4, std430) buffer GridCounts {
     int grid_counts[];
 };
 
-// Binding 5: Grid data (read-only - which NPCs are in each cell)
+// Binding 5: Grid data (read/write - which NPCs are in each cell)
 // Layout: flat array, cell_idx * max_per_cell + n gives NPC index
-layout(set = 0, binding = 5, std430) restrict readonly buffer GridData {
+layout(set = 0, binding = 5, std430) buffer GridData {
     int grid_data[];
 };
 
@@ -114,7 +114,7 @@ layout(set = 0, binding = 12, std430) restrict readonly buffer SpriteFrameBuffer
 // =============================================================================
 
 layout(push_constant) uniform PushConstants {
-    uint npc_count;          // 0-4: Number of active NPCs
+    uint count;              // 0-4: grid_cells (mode 0) or npc_count (mode 1,2)
     float separation_radius; // 4-8: Minimum distance between NPCs (20px)
     float separation_strength; // 8-12: How hard NPCs push apart (100.0)
     float delta;             // 12-16: Frame delta time in seconds
@@ -123,9 +123,9 @@ layout(push_constant) uniform PushConstants {
     float cell_size;         // 24-28: Size of each grid cell (64px)
     uint max_per_cell;       // 28-32: Max NPCs per cell (48)
     float arrival_threshold; // 32-36: Distance to count as "arrived" (8px)
-    float _pad1;             // 36-40: Padding for 48-byte alignment
-    float _pad2;             // 40-44: (GPU requires specific alignment)
-    float _pad3;             // 44-48:
+    uint mode;               // 36-40: 0=clear grid, 1=insert NPCs, 2=main logic
+    float _pad1;             // 40-44: Padding for 48-byte alignment
+    float _pad2;             // 44-48:
 } params;
 
 // =============================================================================
@@ -133,9 +133,47 @@ layout(push_constant) uniform PushConstants {
 // =============================================================================
 
 void main() {
-    // Each invocation handles one NPC
     uint i = gl_GlobalInvocationID.x;
-    if (i >= params.npc_count) return;  // Guard against out-of-bounds
+
+    // =========================================================================
+    // MODE 0: CLEAR GRID - One thread per cell, reset counts to 0
+    // =========================================================================
+    if (params.mode == 0) {
+        if (i >= params.count) return;
+        grid_counts[i] = 0;
+        return;
+    }
+
+    // =========================================================================
+    // MODE 1: INSERT NPCs - One thread per NPC, atomically insert into grid
+    // =========================================================================
+    if (params.mode == 1) {
+        if (i >= params.count) return;
+
+        vec2 pos = positions[i];
+
+        // Skip dead/hidden NPCs (position at -9999)
+        if (pos.x < -9000.0) return;
+
+        // Calculate cell
+        int cx = clamp(int(pos.x / params.cell_size), 0, int(params.grid_width) - 1);
+        int cy = clamp(int(pos.y / params.cell_size), 0, int(params.grid_height) - 1);
+        int cell_idx = cy * int(params.grid_width) + cx;
+
+        // Atomically grab a slot in this cell
+        int slot = atomicAdd(grid_counts[cell_idx], 1);
+
+        // Write NPC index if slot available
+        if (slot < int(params.max_per_cell)) {
+            grid_data[cell_idx * int(params.max_per_cell) + slot] = int(i);
+        }
+        return;
+    }
+
+    // =========================================================================
+    // MODE 2: MAIN NPC LOGIC (existing code)
+    // =========================================================================
+    if (i >= params.count) return;  // Guard against out-of-bounds
 
     // =========================================================================
     // STEP 1: READ CURRENT STATE

@@ -57,7 +57,7 @@ Frame execution order ───────────────────�
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, communication bridges, timing | 9/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders, 20 GPU buffers, spatial grid, CPU sync | 8/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders, 20 GPU buffers, spatial grid, CPU sync | 9/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 8/10 |
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
@@ -132,8 +132,7 @@ Collected from all docs. Priority order:
 
 1. **No generational indices** — GPU slot indices are raw `usize`. Currently safe (chained execution), risk grows with async patterns. ([combat.md](combat.md))
 2. **npc_count/proj_count never shrink** — high-water marks. Grid and buffers sized to peak, not active count. ([spawn.md](spawn.md), [projectiles.md](projectiles.md))
-3. **Spatial grid built on CPU** — uploaded every frame. GPU-side grid build would eliminate transfer. ([gpu-compute.md](gpu-compute.md))
-4. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
-5. **InCombat can stick** — no timeout if target dies out of detection range. ([behavior.md](behavior.md))
-6. **Two stat presets only** — AttackStats has melee and ranged constructors but no per-NPC variation beyond these. ([combat.md](combat.md))
-7. **Healing halo visual not working** — healing_system heals NPCs but shader halo effect isn't rendering correctly yet. ([behavior.md](behavior.md))
+3. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
+4. **InCombat can stick** — no timeout if target dies out of detection range. ([behavior.md](behavior.md))
+5. **Two stat presets only** — AttackStats has melee and ranged constructors but no per-NPC variation beyond these. ([combat.md](combat.md))
+6. **Healing halo visual not working** — healing_system heals NPCs but shader halo effect isn't rendering correctly yet. ([behavior.md](behavior.md))
