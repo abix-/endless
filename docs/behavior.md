@@ -107,6 +107,7 @@ Same situation, different outcomes. That's emergent behavior.
 | Returning | marker | NPC is walking back to home base |
 | CarryingFood | marker | NPC has stolen food |
 | Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
+| Wandering | marker | NPC is walking to a random nearby position |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
 | Home | `{ x, y }` | NPC's home/bed position |
@@ -123,7 +124,7 @@ Same situation, different outcomes. That's emergent behavior.
 ## Systems
 
 ### decision_system (Utility AI)
-- Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, Resting, GoingToRest, Returning, InCombat, Recovering, Dead), OR raiders with `Raiding` needing re-target
+- Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, Resting, GoingToRest, Returning, Wandering, InCombat, Recovering, Dead), OR raiders with `Raiding` needing re-target
 - **Raid continuation**: If raider has `Raiding` marker (e.g., after combat ends), skip scoring and re-target nearest farm via `find_nearest_location`
 - Score actions: Eat, Rest, Work, Wander (with personality multipliers)
 - Select via weighted random
@@ -137,6 +138,7 @@ Same situation, different outcomes. That's emergent behavior.
   - `GoingToWork` → `Working`
   - `Raiding` → `CarryingFood` + `Returning` (if near farm)
   - `Returning` → deliver food if carrying, clear state
+  - `Wandering` → clear state (back to decision_system)
 - Also checks `WoundedThreshold` for recovery mode on arrival
 
 ### energy_system

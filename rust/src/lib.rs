@@ -47,6 +47,7 @@ fn derive_npc_state(world: &World, entity: Entity) -> &'static str {
     if world.get::<GoingToWork>(entity).is_some() { return "Going to Work"; }
     if world.get::<Raiding>(entity).is_some() { return "Raiding"; }
     if world.get::<Returning>(entity).is_some() { return "Returning"; }
+    if world.get::<Wandering>(entity).is_some() { return "Wandering"; }
     "Idle"
 }
 

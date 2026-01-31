@@ -288,6 +288,10 @@ pub struct Raiding;
 #[derive(Component)]
 pub struct Returning;
 
+/// State: NPC is wandering to a random nearby position.
+#[derive(Component)]
+pub struct Wandering;
+
 /// State: NPC is resting until HP reaches threshold before resuming activity.
 #[derive(Component)]
 pub struct Recovering {

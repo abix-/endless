@@ -54,7 +54,7 @@ pub fn arrival_system(
         Entity, &NpcIndex, &Job, &TownId, &Home, &Health,
         Option<&Patrolling>, Option<&GoingToRest>, Option<&GoingToWork>,
         Option<&Raiding>, Option<&Returning>, Option<&CarryingFood>,
-        Option<&WoundedThreshold>,
+        Option<&WoundedThreshold>, Option<&Wandering>,
     ), Without<Recovering>>,
     mut pop_stats: ResMut<PopulationStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
@@ -70,7 +70,7 @@ pub fn arrival_system(
     for event in events.read() {
         for (entity, npc_idx, job, town, home, health,
              patrolling, going_rest, going_work,
-             raiding, returning, carrying, wounded) in query.iter()
+             raiding, returning, carrying, wounded, wandering) in query.iter()
         {
             if npc_idx.0 != event.npc_index { continue; }
             let idx = npc_idx.0;
@@ -129,6 +129,9 @@ pub fn arrival_system(
                     }
                     food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
                 }
+            } else if wandering.is_some() {
+                // Wandering complete - remove marker, NPC goes back to decision_system
+                commands.entity(entity).remove::<Wandering>();
             }
 
             if let Some(w) = wounded {
@@ -284,7 +287,7 @@ pub fn decision_system(
         (Entity, &NpcIndex, &Job, &Energy, &Health, &Home, &Personality,
          Option<&WorkPosition>, Option<&PatrolRoute>, Option<&Stealer>, Option<&Raiding>),
         (Without<Patrolling>, Without<OnDuty>, Without<Working>, Without<GoingToWork>,
-         Without<Resting>, Without<GoingToRest>, Without<Returning>,
+         Without<Resting>, Without<GoingToRest>, Without<Returning>, Without<Wandering>,
          Without<InCombat>, Without<Recovering>, Without<Dead>)
     >,
     _pop_stats: ResMut<PopulationStats>,
@@ -397,6 +400,7 @@ pub fn decision_system(
                     let y = gpu_state.positions[idx * 2 + 1];
                     let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
                     let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
+                    commands.entity(entity).insert(Wandering);
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                         idx, x: x + offset_x, y: y + offset_y,
                     }));

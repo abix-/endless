@@ -1,6 +1,11 @@
 # Changelog
 
 ## 2026-01-30
+- add Wandering state marker (fixes NPCs showing "Idle" while walking to wander target)
+  - add Wandering component to components.rs
+  - decision_system now inserts Wandering marker when choosing Action::Wander
+  - arrival_system clears Wandering on arrival (back to decision_system)
+  - derive_npc_state() returns "Wandering" for wandering NPCs
 - refactor: unified slot allocator in Bevy (fixes zombie NPCs)
   - spawn and death now both use SlotAllocator bevy resource
   - removed static FREE_SLOTS and NPC_SLOT_COUNTER
