@@ -372,3 +372,47 @@ impl FoodStorage {
         self.food = vec![0; count];
     }
 }
+
+/// Per-faction statistics.
+#[derive(Clone, Default)]
+pub struct FactionStat {
+    pub alive: i32,
+    pub dead: i32,
+    pub kills: i32,
+}
+
+/// Stats for all factions. Index 0 = player/villagers, 1+ = raider camps.
+#[derive(Resource, Default)]
+pub struct FactionStats {
+    pub stats: Vec<FactionStat>,
+}
+
+impl FactionStats {
+    pub fn init(&mut self, count: usize) {
+        self.stats = vec![FactionStat::default(); count];
+    }
+
+    pub fn inc_alive(&mut self, faction: i32) {
+        if let Some(s) = self.stats.get_mut(faction as usize) {
+            s.alive += 1;
+        }
+    }
+
+    pub fn dec_alive(&mut self, faction: i32) {
+        if let Some(s) = self.stats.get_mut(faction as usize) {
+            s.alive = (s.alive - 1).max(0);
+        }
+    }
+
+    pub fn inc_dead(&mut self, faction: i32) {
+        if let Some(s) = self.stats.get_mut(faction as usize) {
+            s.dead += 1;
+        }
+    }
+
+    pub fn inc_kills(&mut self, faction: i32) {
+        if let Some(s) = self.stats.get_mut(faction as usize) {
+            s.kills += 1;
+        }
+    }
+}

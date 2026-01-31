@@ -190,24 +190,19 @@ impl Default for MaxHealth {
 // COMBAT COMPONENTS
 // ============================================================================
 
-/// Faction determines hostility. NPCs attack different factions.
-/// GPU uses this for targeting queries.
+/// Faction ID determines hostility. NPCs attack different factions.
+/// GPU uses this for targeting queries (simple != comparison).
+/// Convention: 0 = player, 1+ = AI/raider factions (each unique)
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Faction {
-    Villager = 0,  // Guards and Farmers
-    Raider = 1,    // Raiders
-}
+pub struct Faction(pub i32);
 
 impl Faction {
     pub fn to_i32(self) -> i32 {
-        self as i32
+        self.0
     }
 
     pub fn from_i32(v: i32) -> Self {
-        match v {
-            1 => Faction::Raider,
-            _ => Faction::Villager,
-        }
+        Self(v)
     }
 }
 
@@ -276,7 +271,17 @@ pub struct CombatOrigin {
 #[derive(Component)]
 pub struct Stealer;
 
-/// Marker: NPC is currently carrying stolen food.
+/// Item being carried by NPC (0 = none, 1 = food, 2+ = other items).
+/// Rendered as icon above NPC's head.
+#[derive(Component, Clone, Copy)]
+pub struct CarriedItem(pub u8);
+
+impl CarriedItem {
+    pub const NONE: u8 = 0;
+    pub const FOOD: u8 = 1;
+}
+
+/// Marker for backwards compat - will be removed
 #[derive(Component)]
 pub struct CarryingFood;
 

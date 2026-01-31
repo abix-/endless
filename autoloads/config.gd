@@ -42,7 +42,7 @@ const LOD_FAR_SQ := 1440000.0    # 1200px
 # World bounds (set at game start, before world generation)
 var world_width := 8000
 var world_height := 8000
-var num_towns := 1
+var num_towns := 10
 const WORLD_MARGIN := 400  # Keep towns away from edges
 const TILE_SIZE := 32
 
@@ -51,10 +51,10 @@ const BASE_FARMERS_PER_TOWN := 2
 const BASE_GUARDS_PER_TOWN := 4
 const BASE_RAIDERS_PER_CAMP := 6
 var farmers_per_town := 2
-var guards_per_town := 4
-var raiders_per_camp := 6
+var guards_per_town := 50
+var raiders_per_camp := 35
 var max_farmers_per_town := 2
-var max_guards_per_town := 4
+var max_guards_per_town := 50
 const TOWN_GRID_SPACING := 34  # 32px buildings + 1px border on each side
 const FARMS_PER_TOWN := 2
 const GUARD_POSTS_PER_TOWN := 6

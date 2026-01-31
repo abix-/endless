@@ -352,6 +352,8 @@ func _setup_managers() -> void:
 	var total_towns: int = NUM_TOWNS * 2
 	npc_manager.init_world(total_towns)
 	npc_manager.init_food_storage(total_towns)
+	# Factions: 0=villagers, 1..N=raider camps (each camp is unique faction)
+	npc_manager.init_faction_stats(1 + NUM_TOWNS)
 
 	# Add villager towns (faction=0) with their buildings
 	for town_idx in towns.size():
@@ -373,12 +375,12 @@ func _setup_managers() -> void:
 			var post = town.guard_posts[post_idx]
 			npc_manager.add_guard_post(post.global_position.x, post.global_position.y, town_idx, post_idx)
 
-	# Add raider towns (faction=1) - what were previously "camps"
+	# Add raider towns (each camp gets unique faction so raiders fight each other)
 	for town_idx in towns.size():
 		var town: Dictionary = towns[town_idx]
 		if town.camp:
 			var camp_pos: Vector2 = town.camp.global_position
-			npc_manager.add_town("Raider Camp %d" % town_idx, camp_pos.x, camp_pos.y, 1)  # faction=Raider
+			npc_manager.add_town("Raider Camp %d" % town_idx, camp_pos.x, camp_pos.y, town_idx + 1)
 
 
 func _setup_player() -> void:
@@ -467,7 +469,7 @@ func _spawn_npcs() -> void:
 		for i in Config.raiders_per_camp:
 			var spawn_offset := Vector2(randf_range(-80, 80), randf_range(-80, 80))
 			var pos: Vector2 = camp.global_position + spawn_offset
-			npc_manager.spawn_npc(pos.x, pos.y, 2, 1, {
+			npc_manager.spawn_npc(pos.x, pos.y, 2, town_idx + 1, {  # unique faction per camp
 				"home_x": camp.global_position.x,
 				"home_y": camp.global_position.y,
 				"town_idx": raider_town_idx

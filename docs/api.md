@@ -103,6 +103,16 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | `get_town_food` | `town_idx: i32` | `i32` | Get food count for any town (villager or raider) |
 | `get_food_events` | none | `Dictionary` | Deliveries and consumed counts since last call (clears queues) |
 
+## Faction Stats API
+
+| Method | Params | Returns | Description |
+|--------|--------|---------|-------------|
+| `init_faction_stats` | `total_factions: i32` | void | Initialize per-faction stats (1 + num_raider_camps) |
+| `get_faction_stats` | `faction_id: i32` | `Dictionary` | Stats for one faction: alive, dead, kills |
+| `get_all_faction_stats` | none | `Array` | Array of faction stat dicts. Index = faction_id. |
+
+Faction IDs: 0 = villagers (all towns share), 1+ = raider camps (each unique). `inc_alive()` called at spawn, `dec_alive()`/`inc_dead()` called at death.
+
 ## Time API
 
 | Method | Params | Returns | Description |

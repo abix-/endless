@@ -7,7 +7,8 @@ uniform float margin = 1.0;
 uniform int hp_bar_mode = 1;  // 0 = off, 1 = when damaged, 2 = always
 
 varying float health;
-varying float heal_flash;  // Encoded: 0-1 = flash only, 2-3 = healing + flash
+varying float heal_flash;  // Encoded: 0-1 = flash, 2-3 = healing+flash, 10+ = carrying (+10 offset)
+varying float carrying;    // 1.0 if carrying food
 varying vec2 sprite_offset;
 
 void vertex() {

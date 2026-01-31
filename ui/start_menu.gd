@@ -23,7 +23,7 @@ const WORLD_SIZE_DEFAULT := 8000
 
 const TOWNS_MIN := 1
 const TOWNS_MAX := 7
-const TOWNS_DEFAULT := 1
+const TOWNS_DEFAULT := 10  # stress test default
 
 const FARMERS_MIN := 0
 const FARMERS_MAX := 50
@@ -31,11 +31,11 @@ const FARMERS_DEFAULT := 2  # per villager town
 
 const GUARDS_MIN := 0
 const GUARDS_MAX := 50
-const GUARDS_DEFAULT := 4  # per villager town
+const GUARDS_DEFAULT := 50  # stress test default
 
 const RAIDERS_MIN := 0
 const RAIDERS_MAX := 50
-const RAIDERS_DEFAULT := 6  # per raider town
+const RAIDERS_DEFAULT := 35  # stress test default
 
 # stress test mode unlocks higher limits
 const STRESS_TOWNS_MAX := 20
@@ -43,6 +43,11 @@ const STRESS_NPC_MAX := 500
 
 
 func _ready() -> void:
+	# Enable stress test mode first (unlocks higher slider limits)
+	stress_test_check.button_pressed = true
+	stress_test_check.toggled.connect(_on_stress_test_toggled)
+	_on_stress_test_toggled(true)
+
 	world_size_slider.min_value = WORLD_SIZE_MIN
 	world_size_slider.max_value = WORLD_SIZE_MAX
 	world_size_slider.step = WORLD_SIZE_STEP
@@ -50,7 +55,6 @@ func _ready() -> void:
 	world_size_slider.value_changed.connect(_on_world_size_changed)
 
 	towns_slider.min_value = TOWNS_MIN
-	towns_slider.max_value = TOWNS_MAX
 	towns_slider.step = 1
 	towns_slider.value = TOWNS_DEFAULT
 	towns_slider.value_changed.connect(_on_towns_changed)
@@ -62,19 +66,16 @@ func _ready() -> void:
 	farmers_slider.value_changed.connect(_on_farmers_changed)
 
 	guards_slider.min_value = GUARDS_MIN
-	guards_slider.max_value = GUARDS_MAX
 	guards_slider.step = 1
 	guards_slider.value = GUARDS_DEFAULT
 	guards_slider.value_changed.connect(_on_guards_changed)
 
 	raiders_slider.min_value = RAIDERS_MIN
-	raiders_slider.max_value = RAIDERS_MAX
 	raiders_slider.step = 1
 	raiders_slider.value = RAIDERS_DEFAULT
 	raiders_slider.value_changed.connect(_on_raiders_changed)
 
 	start_button.pressed.connect(_on_start_pressed)
-	stress_test_check.toggled.connect(_on_stress_test_toggled)
 	_update_world_size_label()
 	_update_towns_label()
 	_update_farmers_label()

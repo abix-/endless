@@ -126,6 +126,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<resources::SlotAllocator>()
        .init_resource::<resources::ProjSlotAllocator>()
        .init_resource::<resources::FoodStorage>()
+       .init_resource::<resources::FactionStats>()
        // Chain phases with explicit command flush between Spawn and Combat
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        // Flush commands after Spawn so Combat sees new entities
@@ -209,6 +210,13 @@ pub struct EcsNpcManager {
     #[allow(dead_code)]
     proj_mesh: Option<Gd<QuadMesh>>,
 
+    // === Carried Item Rendering ===
+    /// MultiMesh for carried items (above NPC heads)
+    item_multimesh_rid: Rid,
+    /// Keep item mesh alive
+    #[allow(dead_code)]
+    item_mesh: Option<Gd<QuadMesh>>,
+
     // === Channels (Phase 11) ===
     /// Sender for Godot → Bevy messages
     godot_to_bevy: Option<channels::GodotToBevySender>,
@@ -230,6 +238,8 @@ impl INode2D for EcsNpcManager {
             proj_multimesh_rid: Rid::Invalid,
             proj_canvas_item: Rid::Invalid,
             proj_mesh: None,
+            item_multimesh_rid: Rid::Invalid,
+            item_mesh: None,
             godot_to_bevy: None,
             bevy_to_godot: None,
         }
@@ -243,6 +253,7 @@ impl INode2D for EcsNpcManager {
         }
         self.setup_multimesh(MAX_NPC_COUNT as i32);
         self.setup_proj_multimesh(MAX_PROJECTILES as i32);
+        self.setup_item_multimesh(MAX_NPC_COUNT as i32);
 
         // Create channels and register Bevy resources
         let channels = channels::create_channels();
@@ -387,6 +398,11 @@ impl INode2D for EcsNpcManager {
                             gpu.healing_flags[idx] = healing;
                         }
                     }
+                    GpuUpdate::SetCarriedItem { idx, item_id } => {
+                        if idx < MAX_NPC_COUNT {
+                            gpu.carried_items[idx] = item_id;
+                        }
+                    }
                 }
             }
         }
@@ -436,10 +452,14 @@ impl INode2D for EcsNpcManager {
                 }
             }
 
-            // Update MultiMesh
+            // Update NPC MultiMesh
             let buffer = gpu.build_multimesh_from_cache(&gpu.colors, npc_count, MAX_NPC_COUNT);
             let mut rs = RenderingServer::singleton();
             rs.multimesh_set_buffer(self.multimesh_rid, &buffer);
+
+            // Update carried item MultiMesh
+            let item_buffer = gpu.build_item_multimesh(npc_count, MAX_NPC_COUNT);
+            rs.multimesh_set_buffer(self.item_multimesh_rid, &item_buffer);
 
             // === DRAIN BEVY OUTBOX FOR PROJECTILE FIRE (via channel) ===
             if let Some(ref receiver) = self.bevy_to_godot {
@@ -599,6 +619,44 @@ impl EcsNpcManager {
         rs.canvas_item_add_multimesh(self.proj_canvas_item, self.proj_multimesh_rid);
 
         self.proj_mesh = Some(mesh);
+    }
+
+    fn setup_item_multimesh(&mut self, max_count: i32) {
+        let mut rs = RenderingServer::singleton();
+
+        self.item_multimesh_rid = rs.multimesh_create();
+
+        // Small quad for carried item icon (8x8, rendered above NPC head)
+        let mut mesh = QuadMesh::new_gd();
+        mesh.set_size(Vector2::new(8.0, 8.0));
+        let mesh_rid = mesh.get_rid();
+        rs.multimesh_set_mesh(self.item_multimesh_rid, mesh_rid);
+
+        // Color only (no custom_data needed - just tint by item type)
+        rs.multimesh_allocate_data_ex(
+            self.item_multimesh_rid,
+            max_count,
+            godot::classes::rendering_server::MultimeshTransformFormat::TRANSFORM_2D,
+        ).color_format(true).done();
+
+        // Initialize all items as hidden (position -9999)
+        let count = max_count as usize;
+        let mut init_buffer = vec![0.0f32; count * 12]; // Transform2D(8) + Color(4)
+        for i in 0..count {
+            let base = i * 12;
+            init_buffer[base + 0] = 1.0;      // scale x
+            init_buffer[base + 3] = -9999.0;  // pos x (hidden)
+            init_buffer[base + 5] = 1.0;      // scale y
+            init_buffer[base + 7] = -9999.0;  // pos y (hidden)
+            init_buffer[base + 11] = 1.0;     // color alpha
+        }
+        let packed = PackedFloat32Array::from(init_buffer.as_slice());
+        rs.multimesh_set_buffer(self.item_multimesh_rid, &packed);
+
+        // Add to same canvas (renders after NPCs = on top)
+        rs.canvas_item_add_multimesh(self.canvas_item, self.item_multimesh_rid);
+
+        self.item_mesh = Some(mesh);
     }
 
     // ========================================================================
@@ -1463,6 +1521,68 @@ impl EcsNpcManager {
         dict.set("deliveries", deliveries);
         dict.set("consumed", consumed);
         dict
+    }
+
+    // ========================================================================
+    // FACTION STATS API
+    // ========================================================================
+
+    /// Initialize faction stats for all factions (villager + raiders).
+    /// Call after init_food_storage with total_faction_count = num_towns + num_camps.
+    #[func]
+    fn init_faction_stats(&mut self, total_faction_count: i32) {
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut stats) = app.world_mut().get_resource_mut::<resources::FactionStats>() {
+                    stats.init(total_faction_count as usize);
+                }
+            }
+        }
+    }
+
+    /// Get stats for a specific faction. Returns dict with alive, dead, kills.
+    #[func]
+    fn get_faction_stats(&self, faction_id: i32) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        dict.set("alive", 0i32);
+        dict.set("dead", 0i32);
+        dict.set("kills", 0i32);
+
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(stats) = app.world().get_resource::<resources::FactionStats>() {
+                    if let Some(s) = stats.stats.get(faction_id as usize) {
+                        dict.set("alive", s.alive);
+                        dict.set("dead", s.dead);
+                        dict.set("kills", s.kills);
+                    }
+                }
+            }
+        }
+        dict
+    }
+
+    /// Get all faction stats as array of dicts. Index = faction_id.
+    #[func]
+    fn get_all_faction_stats(&self) -> VarArray {
+        let mut arr = VarArray::new();
+
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(stats) = app.world().get_resource::<resources::FactionStats>() {
+                    for s in &stats.stats {
+                        let mut dict = VarDictionary::new();
+                        dict.set("alive", s.alive);
+                        dict.set("dead", s.dead);
+                        dict.set("kills", s.kills);
+                        arr.push(&dict.to_variant());
+                    }
+                }
+            }
+        }
+        arr
     }
 
     #[func]

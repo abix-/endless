@@ -129,6 +129,9 @@ pub struct GpuCompute {
     /// Healing aura flags per NPC - true if in healing zone
     pub healing_flags: Vec<bool>,
 
+    /// Carried item per NPC (0 = none, 1 = food, etc.)
+    pub carried_items: Vec<u8>,
+
     // === Projectile CPU Caches ===
     pub proj_positions: Vec<f32>,
     pub proj_velocities: Vec<f32>,
@@ -290,6 +293,7 @@ impl GpuCompute {
             combat_targets: vec![-1; MAX_NPC_COUNT],
             sprite_frames: vec![0.0; MAX_NPC_COUNT * 2],
             healing_flags: vec![false; MAX_NPC_COUNT],
+            carried_items: vec![0; MAX_NPC_COUNT],
             proj_positions: vec![0.0; MAX_PROJECTILES * 2],
             proj_velocities: vec![0.0; MAX_PROJECTILES * 2],
             proj_damages: vec![0.0; MAX_PROJECTILES],
@@ -781,6 +785,63 @@ impl GpuCompute {
             result.push((lifetime, active, px, py, hit_npc, hit_proc));
         }
         result
+    }
+
+    /// Build carried item MultiMesh buffer.
+    /// Items render above NPC heads at same X, Y-12 offset.
+    /// Item colors: 1=food(yellow), 2=wood(brown), 3=stone(gray), 4=weapon(red)
+    pub fn build_item_multimesh(&self, npc_count: usize, max_count: usize) -> PackedFloat32Array {
+        const FLOATS_PER_ITEM: usize = 12; // Transform2D(8) + Color(4)
+        const Y_OFFSET: f32 = -12.0; // Above NPC head
+
+        // Item colors by ID (index = item_id - 1)
+        const ITEM_COLORS: [(f32, f32, f32); 4] = [
+            (1.0, 0.9, 0.3),  // 1: Food (yellow/gold)
+            (0.6, 0.4, 0.2),  // 2: Wood (brown)
+            (0.5, 0.5, 0.6),  // 3: Stone (gray)
+            (0.8, 0.3, 0.3),  // 4: Weapon (red)
+        ];
+
+        let float_count = max_count * FLOATS_PER_ITEM;
+        let mut floats = vec![0.0f32; float_count];
+
+        // Initialize all as hidden
+        for i in 0..max_count {
+            let base = i * FLOATS_PER_ITEM;
+            floats[base + 0] = 1.0;      // scale x
+            floats[base + 5] = 1.0;      // scale y
+            floats[base + 3] = -9999.0;  // pos x (hidden)
+            floats[base + 7] = -9999.0;  // pos y (hidden)
+            floats[base + 11] = 1.0;     // alpha
+        }
+
+        // Set items for NPCs that are carrying something
+        for i in 0..npc_count {
+            let item_id = self.carried_items[i];
+            if item_id == 0 {
+                continue; // Not carrying anything
+            }
+
+            let base = i * FLOATS_PER_ITEM;
+            let x = self.positions[i * 2];
+            let y = self.positions[i * 2 + 1] + Y_OFFSET;
+
+            // Transform2D (identity scale, positioned above NPC)
+            floats[base + 0] = 1.0;  // scale x
+            floats[base + 3] = x;    // pos x
+            floats[base + 5] = 1.0;  // scale y
+            floats[base + 7] = y;    // pos y (above head)
+
+            // Color by item type
+            let color_idx = ((item_id - 1) as usize).min(ITEM_COLORS.len() - 1);
+            let (r, g, b) = ITEM_COLORS[color_idx];
+            floats[base + 8] = r;
+            floats[base + 9] = g;
+            floats[base + 10] = b;
+            floats[base + 11] = 1.0;
+        }
+
+        PackedFloat32Array::from(floats.as_slice())
     }
 
     /// Build projectile MultiMesh buffer

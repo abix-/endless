@@ -1,6 +1,26 @@
 # Changelog
 
 ## 2026-01-30
+- add FactionStats resource: per-faction alive/dead/kills tracking
+  - init_faction_stats(), get_faction_stats(), get_all_faction_stats() API
+  - inc_alive() on spawn, dec_alive()/inc_dead() on death
+  - left_panel.gd shows aggregated raider dead counts
+- add multi-faction support: Faction changed from enum to struct(i32)
+  - faction 0 = villagers (all towns share)
+  - faction 1+ = each raider camp is unique faction
+  - raiders fight each other (GPU targeting uses != comparison)
+- add raider faction colors: 10-color palette cycles per faction
+- add CarriedItem component for visual item display above NPC heads
+  - separate MultiMesh layer for carried items (O(1) draw calls)
+  - SetCarriedItem GPU update message
+- fix proximity-based arrival for Returning and GoingToRest
+  - uses DELIVERY_RADIUS (150px, same as healing aura)
+  - fixes raiders/resting NPCs getting stuck waiting for exact arrival
+- fix raiders deliver to their own camp (not hardcoded camp 0)
+- change game defaults to stress test mode: 10 towns, 50 guards, 35 raiders
+- change start menu: stress test mode enabled by default
+
+## 2026-01-30
 - add Wandering state marker (fixes NPCs showing "Idle" while walking to wander target)
   - add Wandering component to components.rs
   - decision_system now inserts Wandering marker when choosing Action::Wander

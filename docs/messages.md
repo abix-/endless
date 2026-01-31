@@ -94,6 +94,8 @@ pub struct GpuUpdateMsg(pub GpuUpdate);
 | ApplyDamage | idx, amount | (unused — damage goes through Bevy) | health_buffer |
 | HideNpc | idx | death_cleanup_system | position, target, arrival, health (full slot cleanup) |
 | SetSpriteFrame | idx, col, row | spawn_npc_system | sprite_frame_buffer |
+| SetHealing | idx, healing: bool | healing_system | (visual flag) |
+| SetCarriedItem | idx, item_id: u8 | arrival_system | carried_items buffer |
 
 **Static Queue (Bevy↔GPU boundary):** `GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>>` — written by `collect_gpu_updates`, drained by `process()`.
 

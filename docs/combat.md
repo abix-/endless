@@ -41,7 +41,7 @@ GPU combat_target_buffer
 |-----------|------|---------|
 | Health | `f32` | Current HP (default 100.0) |
 | Dead | marker | Inserted when health <= 0 |
-| Faction | enum | Villager(0) or Raider(1) |
+| Faction | `struct(i32)` | Faction ID (0=Villager, 1+=Raider camps). NPCs attack different factions. |
 | AttackStats | struct | `range, damage, cooldown, projectile_speed, projectile_lifetime` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
 | InCombat | marker | Prevents behavior systems from overriding chase target |
@@ -82,7 +82,8 @@ Execution order is **chained** — each system completes before the next starts.
      - Target → (-9999, -9999) — prevents zombie movement
      - Arrival → 1 — stops GPU from computing movement
      - Health → 0 — ensures click detection skips slot
-  4. `FREE_SLOTS.lock().push(idx)` — recycle slot for future spawns
+  4. `slots.free(idx)` — recycle slot for future spawns
+  5. Update `FactionStats`: `dec_alive()`, `inc_dead()` for dead NPC's faction
 
 ## Slot Recycling
 

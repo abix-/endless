@@ -79,7 +79,7 @@ spawn_npc(x, y, job, faction, opts: Dictionary) -> int
 |-------|--------|-------|
 | x, y | float | Spawn position |
 | job | 0=Farmer, 1=Guard, 2=Raider, 3=Fighter | Determines component template |
-| faction | 0=Villager, 1=Raider | GPU targeting |
+| faction | 0=Villager, 1+=Raider camps | Each raider camp can be unique faction. GPU targeting uses != comparison. |
 
 **Optional params (Dictionary):**
 
@@ -115,7 +115,9 @@ Job-specific templates:
 | Raider | `Energy`, `AttackStats`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
 | Fighter | `AttackStats` (melee or ranged via attack_type), `AttackTimer(0)` |
 
-GPU writes (via GPU_UPDATE_QUEUE, all jobs): `SetPosition`, `SetTarget` (= spawn position, or work position for farmers), `SetColor` (job-based), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`
+GPU writes (via GPU_UPDATE_QUEUE, all jobs): `SetPosition`, `SetTarget` (= spawn position, or work position for farmers), `SetColor` (job-based; raiders get unique colors per faction from 10-color palette), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`
+
+**FactionStats tracking:** `faction_stats.inc_alive(faction)` is called for each spawn.
 
 ### reset_bevy_system
 Checks `RESET_BEVY` flag. If set, despawns all entities with `NpcIndex`, clears `NpcEntityMap`, resets `NpcCount`.

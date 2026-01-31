@@ -6,7 +6,7 @@ use godot_bevy::prelude::PhysicsDelta;
 use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState};
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats};
 use crate::systems::economy::*;
 use crate::world::WorldData;
 
@@ -69,6 +69,7 @@ pub fn death_cleanup_system(
     query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, Option<&Working>), With<Dead>>,
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
+    mut faction_stats: ResMut<FactionStats>,
     mut debug: ResMut<HealthDebug>,
     mut kill_stats: ResMut<KillStats>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
@@ -86,11 +87,16 @@ pub fn death_cleanup_system(
             pop_dec_working(&mut pop_stats, *job, town_id.0);
         }
 
-        // Track kill statistics for UI
-        match faction {
-            Faction::Villager => kill_stats.villager_kills += 1,
-            Faction::Raider => kill_stats.guard_kills += 1,
+        // Track kill statistics for UI (faction 0 = player/villager, 1+ = raiders)
+        if faction.0 == 0 {
+            kill_stats.villager_kills += 1;
+        } else {
+            kill_stats.guard_kills += 1;
         }
+
+        // Track per-faction stats (alive/dead)
+        faction_stats.dec_alive(faction.0);
+        faction_stats.inc_dead(faction.0);
 
         // Remove from per-town NPC list
         if town_id.0 >= 0 {

@@ -106,6 +106,7 @@ Same situation, different outcomes. That's emergent behavior.
 | Raiding | marker | NPC is walking to a farm to steal |
 | Returning | marker | NPC is walking back to home base |
 | CarryingFood | marker | NPC has stolen food |
+| CarriedItem | `u8` | Item NPC is carrying (0=none, 1=food). Rendered as separate MultiMesh layer above head. |
 | Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
 | Wandering | marker | NPC is walking to a random nearby position |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
@@ -131,13 +132,14 @@ Same situation, different outcomes. That's emergent behavior.
 - Execute: set state marker, push GPU target
 
 ### arrival_system (Generic)
-- Reads `ArrivalMsg` events (from GPU arrival detection)
+- Reads `ArrivalMsg` events (from GPU arrival detection) for most states
+- **Proximity-based arrival** for Returning and GoingToRest: checks distance to home instead of waiting for exact GPU arrival. Uses DELIVERY_RADIUS (150px, same as healing aura). This fixes raiders and resting NPCs getting stuck when exact arrival doesn't trigger.
 - Transitions based on current state marker (component-driven, not job-driven):
   - `Patrolling` → `OnDuty { ticks: 0 }`
-  - `GoingToRest` → `Resting`
+  - `GoingToRest` → `Resting` (via proximity check)
   - `GoingToWork` → `Working`
   - `Raiding` → `CarryingFood` + `Returning` (if near farm)
-  - `Returning` → deliver food if carrying, clear state
+  - `Returning` → deliver food if carrying, clear state (via proximity check)
   - `Wandering` → clear state (back to decision_system)
 - Also checks `WoundedThreshold` for recovery mode on arrival
 
@@ -208,7 +210,7 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Linear arrival scan**: arrival_system iterates all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
-- **Single camp index hardcoded**: arrival_system uses `camp_food[0]` — multi-camp food delivery needs camp_idx from a component.
+- **~~Single camp index hardcoded~~**: Fixed. Raiders now deliver to their own faction's town using TownId component.
 - **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
 - **All raiders target same farm**: decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.

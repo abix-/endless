@@ -169,14 +169,35 @@ func _update_stats() -> void:
 	# Population stats from ECS
 	var pop: Dictionary = npc_manager.get_population_stats()
 	farmer_alive.text = str(pop.get("farmers_alive", 0))
-	farmer_dead.text = "-"  # Dead tracking not yet in ECS
 	farmer_kills.text = "-"  # Farmers don't kill
 	guard_alive.text = str(pop.get("guards_alive", 0))
-	guard_dead.text = "-"  # Dead tracking not yet in ECS
 	guard_kills.text = str(pop.get("guard_kills", 0))
 	raider_alive.text = str(pop.get("raiders_alive", 0))
-	raider_dead.text = "-"  # Dead tracking not yet in ECS
 	raider_kills.text = str(pop.get("villager_kills", 0))
+
+	# Per-faction stats (alive/dead/kills)
+	var faction_stats: Array = npc_manager.get_all_faction_stats()
+	if faction_stats.size() > 0:
+		# Faction 0 = villagers (farmers + guards)
+		var villager_stats: Dictionary = faction_stats[0] if faction_stats.size() > 0 else {}
+		farmer_dead.text = str(villager_stats.get("dead", 0))
+		guard_dead.text = "-"  # Can't separate farmer/guard deaths yet
+
+		# Aggregate all raider factions (1..N)
+		var raider_dead_total := 0
+		var raider_kills_total := 0
+		for i in range(1, faction_stats.size()):
+			var s: Dictionary = faction_stats[i]
+			raider_dead_total += s.get("dead", 0)
+			raider_kills_total += s.get("kills", 0)
+		raider_dead.text = str(raider_dead_total)
+		# Update raider kills with faction-tracked value
+		if raider_kills_total > 0:
+			raider_kills.text = str(raider_kills_total)
+	else:
+		farmer_dead.text = "-"
+		guard_dead.text = "-"
+		raider_dead.text = "-"
 
 	# Time (ECS GameTime resource)
 	var game_time: Dictionary = npc_manager.get_game_time()

@@ -10,6 +10,26 @@ use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState,
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location};
 
+// Distinct colors for raider factions (must match spawn.rs)
+const RAIDER_COLORS: [(f32, f32, f32); 10] = [
+    (0.9, 0.2, 0.2),   // Red
+    (0.9, 0.5, 0.1),   // Orange
+    (0.8, 0.2, 0.6),   // Magenta
+    (0.6, 0.2, 0.8),   // Purple
+    (0.9, 0.8, 0.1),   // Yellow
+    (0.7, 0.3, 0.2),   // Brown
+    (0.9, 0.3, 0.5),   // Pink
+    (0.5, 0.1, 0.1),   // Dark red
+    (0.8, 0.6, 0.2),   // Gold
+    (0.6, 0.1, 0.4),   // Dark magenta
+];
+
+fn raider_faction_color(faction: &Faction) -> (f32, f32, f32, f32) {
+    let idx = ((faction.0 - 1).max(0) as usize) % RAIDER_COLORS.len();
+    let (r, g, b) = RAIDER_COLORS[idx];
+    (r, g, b, 1.0)
+}
+
 /// Patrol system: count ticks at post and move to next (anyone with PatrolRoute + OnDuty).
 /// Skip NPCs in combat - they chase enemies instead.
 pub fn patrol_system(
@@ -51,7 +71,7 @@ pub fn arrival_system(
     mut commands: Commands,
     mut events: MessageReader<ArrivalMsg>,
     query: Query<(
-        Entity, &NpcIndex, &Job, &TownId, &Home, &Health,
+        Entity, &NpcIndex, &Job, &TownId, &Home, &Health, &Faction,
         Option<&Patrolling>, Option<&GoingToRest>, Option<&GoingToWork>,
         Option<&Raiding>, Option<&Returning>, Option<&CarryingFood>,
         Option<&WoundedThreshold>, Option<&Wandering>,
@@ -66,9 +86,52 @@ pub fn arrival_system(
     let positions = &gpu_state.positions;
     let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
     const FARM_ARRIVAL_RADIUS: f32 = 40.0;  // Grid spacing is 34px, keep tight to avoid false positives
+    const DELIVERY_RADIUS: f32 = 150.0;     // Same as healing radius - deliver when near camp
+
+    // Proximity-based arrival for Returning and GoingToRest (don't wait for exact arrival)
+    for (entity, npc_idx, _job, town, home, _health, faction,
+         _patrolling, going_rest, _going_work,
+         _raiding, returning, carrying, _wounded, _wandering) in query.iter()
+    {
+        let is_returning = returning.is_some();
+        let is_going_rest = going_rest.is_some();
+        if !is_returning && !is_going_rest { continue; }
+
+        let idx = npc_idx.0;
+        if idx * 2 + 1 >= positions.len() { continue; }
+
+        let x = positions[idx * 2];
+        let y = positions[idx * 2 + 1];
+        let dx = x - home.0.x;
+        let dy = y - home.0.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        if dist <= DELIVERY_RADIUS {
+            let mut cmds = commands.entity(entity);
+
+            if is_returning {
+                cmds.remove::<Returning>();
+                if carrying.is_some() {
+                    cmds.remove::<CarryingFood>();
+                    cmds.remove::<CarriedItem>();
+                    let (r, g, b, a) = raider_faction_color(faction);
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem { idx, item_id: CarriedItem::NONE }));
+                    let camp_idx = town.0 as usize;
+                    if camp_idx < food_storage.food.len() {
+                        food_storage.food[camp_idx] += 1;
+                    }
+                    food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
+                }
+            } else if is_going_rest {
+                cmds.remove::<GoingToRest>();
+                cmds.insert(Resting);
+            }
+        }
+    }
 
     for event in events.read() {
-        for (entity, npc_idx, job, town, home, health,
+        for (entity, npc_idx, job, town, home, health, faction,
              patrolling, going_rest, going_work,
              raiding, returning, carrying, wounded, wandering) in query.iter()
         {
@@ -100,10 +163,12 @@ pub fn arrival_system(
                         commands.entity(entity)
                             .remove::<Raiding>()
                             .insert(CarryingFood)
+                            .insert(CarriedItem(CarriedItem::FOOD))
                             .insert(Returning);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
+                        // Show carried item above head
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem {
                             idx: npc_idx.0,
-                            r: 1.0, g: 0.9, b: 0.2, a: 1.0,
+                            item_id: CarriedItem::FOOD,
                         }));
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                             idx: npc_idx.0,
@@ -118,9 +183,15 @@ pub fn arrival_system(
 
                 if carrying.is_some() {
                     cmds.remove::<CarryingFood>();
-                    let (r, g, b, a) = Job::Raider.color();
+                    cmds.remove::<CarriedItem>();
+                    let (r, g, b, a) = raider_faction_color(faction);
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
                         idx: npc_idx.0, r, g, b, a,
+                    }));
+                    // Hide carried item
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem {
+                        idx: npc_idx.0,
+                        item_id: CarriedItem::NONE,
                     }));
                     // Credit food to raider's own camp (town_id)
                     let camp_idx = town.0 as usize;
@@ -155,10 +226,10 @@ pub fn arrival_system(
 /// Flee combat when HP drops below FleeThreshold.
 pub fn flee_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &Health, &FleeThreshold, &Home, Option<&CarryingFood>), With<InCombat>>,
+    query: Query<(Entity, &NpcIndex, &Health, &FleeThreshold, &Home, &Faction, Option<&CarryingFood>), With<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
-    for (entity, npc_idx, health, flee, home, carrying) in query.iter() {
+    for (entity, npc_idx, health, flee, home, faction, carrying) in query.iter() {
         let health_pct = health.0 / 100.0;
         if health_pct < flee.pct {
             let mut cmds = commands.entity(entity);
@@ -169,9 +240,15 @@ pub fn flee_system(
 
             if carrying.is_some() {
                 cmds.remove::<CarryingFood>();
-                let (r, g, b, a) = Job::Raider.color();
+                cmds.remove::<CarriedItem>();
+                let (r, g, b, a) = raider_faction_color(faction);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor {
                     idx: npc_idx.0, r, g, b, a,
+                }));
+                // Hide carried item (dropped when fleeing)
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem {
+                    idx: npc_idx.0,
+                    item_id: CarriedItem::NONE,
                 }));
             }
 
