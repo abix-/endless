@@ -785,8 +785,8 @@ impl EcsNpcManager {
 
         if let Some(gpu) = self.gpu.as_mut() {
             let idx = npc_index as usize;
-            let slot_count = NPC_SLOT_COUNTER.lock().map(|c| *c).unwrap_or(0);
-            if idx < slot_count {
+            // Check against GPU array bounds (pre-allocated to MAX_NPC_COUNT)
+            if idx < MAX_NPC_COUNT {
                 let target_bytes: Vec<u8> = [x, y].iter()
                     .flat_map(|f| f.to_le_bytes()).collect();
                 let target_packed = PackedByteArray::from(target_bytes.as_slice());
@@ -909,11 +909,10 @@ impl EcsNpcManager {
     fn get_npc_position(&self, npc_index: i32) -> Vector2 {
         if let Some(gpu) = &self.gpu {
             let idx = npc_index as usize;
-            // Use slot counter (high-water mark) not dispatch count to avoid timing issues
-            let slot_count = NPC_SLOT_COUNTER.lock().map(|c| *c).unwrap_or(0);
-            if idx < slot_count {
-                let x = gpu.positions.get(idx * 2).copied().unwrap_or(0.0);
-                let y = gpu.positions.get(idx * 2 + 1).copied().unwrap_or(0.0);
+            // Check against GPU array bounds (pre-allocated to MAX_NPC_COUNT)
+            if idx * 2 + 1 < gpu.positions.len() {
+                let x = gpu.positions[idx * 2];
+                let y = gpu.positions[idx * 2 + 1];
                 return Vector2::new(x, y);
             }
         }
@@ -937,10 +936,9 @@ impl EcsNpcManager {
     fn get_npc_health(&self, npc_index: i32) -> f32 {
         if let Some(gpu) = &self.gpu {
             let idx = npc_index as usize;
-            // Use slot counter (high-water mark) not dispatch count to avoid timing issues
-            let slot_count = NPC_SLOT_COUNTER.lock().map(|c| *c).unwrap_or(0);
-            if idx < slot_count {
-                return gpu.healths.get(idx).copied().unwrap_or(0.0);
+            // Check against GPU array bounds (pre-allocated to MAX_NPC_COUNT)
+            if idx < gpu.healths.len() {
+                return gpu.healths[idx];
             }
         }
         0.0
@@ -1560,12 +1558,7 @@ impl EcsNpcManager {
         let mut guards_alive = 0i32;
         let mut raiders_alive = 0i32;
 
-        // Debug counters
-        let mut debug_towns = 0i32;
-        let mut debug_total_in_cache = 0i32;
-        let mut debug_health_len = 0i32;
-
-        // Count alive NPCs from NpcMetaCache + GPU health
+        // Count alive NPCs from NpcsByTownCache + GPU health
         if let Some(bevy_app) = self.get_bevy_app() {
             let app_ref = bevy_app.bind();
             if let Some(app) = app_ref.get_app() {
@@ -1573,13 +1566,7 @@ impl EcsNpcManager {
                     app.world().get_resource::<resources::NpcsByTownCache>(),
                     app.world().get_resource::<resources::NpcMetaCache>(),
                 ) {
-                    debug_towns = by_town.0.len() as i32;
-                    for town_npcs in by_town.0.iter() {
-                        debug_total_in_cache += town_npcs.len() as i32;
-                    }
-
                     if let Ok(state) = GPU_READ_STATE.lock() {
-                        debug_health_len = state.health.len() as i32;
                         for town_npcs in by_town.0.iter() {
                             for &idx in town_npcs {
                                 if idx < state.health.len() && state.health[idx] > 0.0 {
@@ -1604,10 +1591,6 @@ impl EcsNpcManager {
         dict.set("farmers_alive", farmers_alive);
         dict.set("guards_alive", guards_alive);
         dict.set("raiders_alive", raiders_alive);
-        // Debug info
-        dict.set("_debug_towns", debug_towns);
-        dict.set("_debug_cache_total", debug_total_in_cache);
-        dict.set("_debug_health_len", debug_health_len);
         dict
     }
 
@@ -1856,8 +1839,15 @@ impl EcsNpcManager {
         let mut best_idx: i32 = -1;
         let mut best_dist = radius;
 
-        // Use slot counter (high-water mark) not dispatch count to avoid timing issues
-        let slot_count = NPC_SLOT_COUNTER.lock().map(|c| *c).unwrap_or(0);
+        // Use Bevy SlotAllocator count (high-water mark) for click detection
+        let slot_count = if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                app.world().get_resource::<resources::SlotAllocator>()
+                    .map(|s| s.count())
+                    .unwrap_or(0)
+            } else { 0 }
+        } else { 0 };
 
         if let Some(gpu) = &self.gpu {
             for i in 0..slot_count {

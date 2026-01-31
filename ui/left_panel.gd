@@ -219,9 +219,13 @@ func _update_perf() -> void:
 			zoom_str = "%.1fx" % camera.zoom.x
 	lines.append("FPS: %d | Zoom: %s" % [fps, zoom_str])
 
-	# ECS debug stats (works)
+	# Population counts (alive NPCs)
+	var pop: Dictionary = npc_manager.get_population_stats()
+	var alive: int = pop.get("farmers_alive", 0) + pop.get("guards_alive", 0) + pop.get("raiders_alive", 0)
+	lines.append("Alive: %d (F:%d G:%d R:%d)" % [alive, pop.get("farmers_alive", 0), pop.get("guards_alive", 0), pop.get("raiders_alive", 0)])
+
+	# ECS debug stats
 	var stats: Dictionary = npc_manager.get_debug_stats()
-	lines.append("NPCs: %d" % stats.get("npc_count", 0))
 	lines.append("Arrived: %d | Cells: %d" % [stats.get("arrived_count", 0), stats.get("cells_used", 0)])
 	lines.append("Backoff: avg=%d max=%d" % [stats.get("avg_backoff", 0), stats.get("max_backoff", 0)])
 
