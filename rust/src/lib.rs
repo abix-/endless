@@ -240,6 +240,10 @@ pub struct EcsNpcManager {
     godot_to_bevy: Option<channels::GodotToBevySender>,
     /// Receiver for Bevy → Godot messages
     bevy_to_godot: Option<channels::BevyToGodotReceiver>,
+
+    // === Timing ===
+    /// Last process() call timestamp for frame timing
+    last_process_time: Option<std::time::Instant>,
 }
 
 #[godot_api]
@@ -260,6 +264,7 @@ impl INode2D for EcsNpcManager {
             item_mesh: None,
             godot_to_bevy: None,
             bevy_to_godot: None,
+            last_process_time: None,
         }
     }
 
@@ -290,6 +295,16 @@ impl INode2D for EcsNpcManager {
 
     fn process(&mut self, delta: f64) {
         let frame_start = std::time::Instant::now();
+
+        // Calculate full frame time (includes Godot rendering from previous frame)
+        if let Some(last) = self.last_process_time {
+            let frame_ms = last.elapsed().as_secs_f32() * 1000.0;
+            if let Ok(mut stats) = resources::PERF_STATS.lock() {
+                stats.frame_ms = frame_ms;
+            }
+        }
+        self.last_process_time = Some(frame_start);
+
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,
             None => return,
@@ -1026,7 +1041,10 @@ impl EcsNpcManager {
             dict.set("bevy_ms", stats.bevy_ms);
             let gpu_total = stats.queue_ms + stats.dispatch_ms + stats.readpos_ms + stats.combat_ms + stats.build_ms + stats.upload_ms;
             dict.set("gpu_total_ms", gpu_total);
-            dict.set("total_ms", gpu_total + stats.bevy_ms);
+            let ecs_total = gpu_total + stats.bevy_ms;
+            dict.set("ecs_total_ms", ecs_total);
+            dict.set("frame_ms", stats.frame_ms);
+            dict.set("godot_ms", stats.frame_ms - ecs_total);
         }
         dict
     }

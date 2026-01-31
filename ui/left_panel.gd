@@ -261,15 +261,15 @@ func _update_perf() -> void:
 	# Rust ECS perf stats
 	if UserSettings.perf_metrics:
 		var perf: Dictionary = npc_manager.get_perf_stats()
+		var frame_ms: float = perf.get("frame_ms", 0.0)
+		var ecs_ms: float = perf.get("ecs_total_ms", 0.0)
+		var godot_ms: float = perf.get("godot_ms", 0.0)
 		lines.append("")
-		lines.append("Total: %.1fms (Bevy: %.1f + GPU: %.1f)" % [perf.get("total_ms", 0.0), perf.get("bevy_ms", 0.0), perf.get("gpu_total_ms", 0.0)])
+		lines.append("Frame: %.1fms (ECS: %.1f + Godot: %.1f)" % [frame_ms, ecs_ms, godot_ms])
 		lines.append("  Bevy ECS: %.2f" % perf.get("bevy_ms", 0.0))
-		lines.append("  Queue:    %.2f" % perf.get("queue_ms", 0.0))
-		lines.append("  Dispatch: %.2f" % perf.get("dispatch_ms", 0.0))
-		lines.append("  ReadPos:  %.2f" % perf.get("readpos_ms", 0.0))
-		lines.append("  Combat:   %.2f" % perf.get("combat_ms", 0.0))
-		lines.append("  Build:    %.2f" % perf.get("build_ms", 0.0))
-		lines.append("  Upload:   %.2f" % perf.get("upload_ms", 0.0))
+		lines.append("  GPU:      %.2f (Q:%.1f D:%.1f R:%.1f)" % [perf.get("gpu_total_ms", 0.0), perf.get("queue_ms", 0.0), perf.get("dispatch_ms", 0.0), perf.get("readpos_ms", 0.0)])
+		lines.append("  Render:   %.2f (B:%.1f U:%.1f)" % [perf.get("build_ms", 0.0) + perf.get("upload_ms", 0.0), perf.get("build_ms", 0.0), perf.get("upload_ms", 0.0)])
+		lines.append("  Godot:    %.2f" % godot_ms)
 
 	perf_label.text = "\n".join(lines)
 
