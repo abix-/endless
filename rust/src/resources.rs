@@ -2,7 +2,31 @@
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Mutex;
 use crate::constants::MAX_NPC_COUNT;
+
+/// Performance timing stats (updated each frame in process())
+#[derive(Default)]
+pub struct PerfStats {
+    pub queue_ms: f32,
+    pub dispatch_ms: f32,
+    pub readpos_ms: f32,
+    pub combat_ms: f32,
+    pub build_ms: f32,
+    pub upload_ms: f32,
+    pub bevy_ms: f32,
+}
+
+pub static PERF_STATS: Mutex<PerfStats> = Mutex::new(PerfStats {
+    queue_ms: 0.0, dispatch_ms: 0.0, readpos_ms: 0.0,
+    combat_ms: 0.0, build_ms: 0.0, upload_ms: 0.0, bevy_ms: 0.0,
+});
+
+/// Bevy frame timing resource
+#[derive(Resource, Default)]
+pub struct BevyFrameTimer {
+    pub start: Option<std::time::Instant>,
+}
 
 /// Tracks total number of active NPCs.
 #[derive(Resource, Default)]
@@ -184,7 +208,7 @@ impl Default for CombatDebug {
 // UI CACHE RESOURCES
 // ============================================================================
 
-const NPC_LOG_CAPACITY: usize = 500;
+const NPC_LOG_CAPACITY: usize = 100;
 
 /// Per-NPC metadata for UI display (names, levels, traits).
 #[derive(Clone, Default)]

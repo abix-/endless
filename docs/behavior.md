@@ -27,8 +27,10 @@ Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
 |--------|-----------|-----------|
 | Eat | `(100 - energy) * 1.5` | food available |
 | Rest | `100 - energy` | home valid |
-| Work | `40.0` | has job |
+| Work | `40.0 * hp_mult` | has job, HP > 50% |
 | Wander | `10.0` | always |
+
+**HP-based work score**: `hp_mult = 0` if HP < 50%, otherwise `(hp_pct - 0.5) * 2`. This prevents wounded NPCs (especially raiders) from working/raiding when they should rest.
 
 Scores are multiplied by personality multipliers, then weighted random selects an action:
 
@@ -127,9 +129,10 @@ Same situation, different outcomes. That's emergent behavior.
 ### decision_system (Utility AI)
 - Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, Resting, GoingToRest, Returning, Wandering, InCombat, Recovering, Dead), OR raiders with `Raiding` needing re-target
 - **Raid continuation**: If raider has `Raiding` marker (e.g., after combat ends), skip scoring and re-target nearest farm via `find_nearest_location`
-- Score actions: Eat, Rest, Work, Wander (with personality multipliers)
+- Score actions: Eat, Rest, Work, Wander (with personality multipliers and HP modifier)
 - Select via weighted random
 - Execute: set state marker, push GPU target
+- **Decision logging**: Each decision is logged to `NpcLogCache` with timestamp and format `"{action} (e:{energy} h:{health})"`
 
 ### arrival_system (Generic)
 - Reads `ArrivalMsg` events (from GPU arrival detection) for most states
@@ -142,6 +145,7 @@ Same situation, different outcomes. That's emergent behavior.
   - `Returning` → deliver food if carrying, clear state (via proximity check)
   - `Wandering` → clear state (back to decision_system)
 - Also checks `WoundedThreshold` for recovery mode on arrival
+- **State logging**: All transitions are logged to `NpcLogCache` (e.g., "→ OnDuty", "→ Resting", "Stole food → Returning")
 
 ### energy_system
 - All NPCs with Energy (excluding `Resting`): drain `ENERGY_DRAIN_RATE * delta`
@@ -166,8 +170,9 @@ Same situation, different outcomes. That's emergent behavior.
 - Note: Leash is based on distance from where combat started, not from home. This allows NPCs to travel far for objectives (raids) but prevents chasing enemies forever.
 
 ### recovery_system
-- Query: `Recovering` + `Resting` + `Health`
-- If health >= `Recovering.threshold`: remove both, NPC re-enters decision system next tick
+- Query: `Recovering` + `Health` (Resting is optional)
+- If health >= `Recovering.threshold`: remove `Recovering` and `Resting` (if present)
+- Fixes: NPCs that lost `Resting` but kept `Recovering` were stuck forever
 
 ### healing_system
 - Query: NPCs with `Health`, `MaxHealth`, `Faction`, `TownId` (without `Dead`)

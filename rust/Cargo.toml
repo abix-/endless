@@ -12,3 +12,4 @@ godot = "0.4"
 godot-bevy = { git = "https://github.com/bytemeadow/godot-bevy.git", branch = "main" }
 bevy = { version = "0.18", default-features = false, features = ["bevy_asset", "bevy_log"] }
 crossbeam-channel = "0.5"
+compile-time = "0.2"

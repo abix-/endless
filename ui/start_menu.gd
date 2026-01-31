@@ -15,6 +15,7 @@ extends CanvasLayer
 @onready var raiders_slider: HSlider = $Panel/MarginContainer/VBox/RaidersRow/Slider
 @onready var raiders_value: Label = $Panel/MarginContainer/VBox/RaidersRow/Value
 @onready var start_button: Button = $Panel/MarginContainer/VBox/StartButton
+@onready var build_label: Label = $Panel/MarginContainer/VBox/BuildLabel
 
 const WORLD_SIZE_MIN := 500
 const WORLD_SIZE_MAX := 32000
@@ -31,11 +32,11 @@ const FARMERS_DEFAULT := 2  # per villager town
 
 const GUARDS_MIN := 0
 const GUARDS_MAX := 50
-const GUARDS_DEFAULT := 50  # stress test default
+const GUARDS_DEFAULT := 500  # stress test default
 
 const RAIDERS_MIN := 0
 const RAIDERS_MAX := 50
-const RAIDERS_DEFAULT := 35  # stress test default
+const RAIDERS_DEFAULT := 500  # stress test default
 
 # stress test mode unlocks higher limits
 const STRESS_TOWNS_MAX := 20
@@ -43,6 +44,12 @@ const STRESS_NPC_MAX := 500
 
 
 func _ready() -> void:
+	# Show DLL build time
+	if ClassDB.class_exists("EcsNpcManager"):
+		build_label.text = "DLL: " + ClassDB.instantiate("EcsNpcManager").get_build_time()
+	else:
+		build_label.text = "DLL: not loaded"
+
 	# Enable stress test mode first (unlocks higher slider limits)
 	stress_test_check.button_pressed = true
 	stress_test_check.toggled.connect(_on_stress_test_toggled)

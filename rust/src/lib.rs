@@ -92,6 +92,19 @@ enum Step {
     Behavior, // Energy, patrol, rest, work
 }
 
+fn bevy_timer_start(mut timer: ResMut<resources::BevyFrameTimer>) {
+    timer.start = Some(std::time::Instant::now());
+}
+
+fn bevy_timer_end(timer: Res<resources::BevyFrameTimer>) {
+    if let Some(start) = timer.start {
+        let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+        if let Ok(mut stats) = resources::PERF_STATS.lock() {
+            stats.bevy_ms = elapsed;
+        }
+    }
+}
+
 /// Build the Bevy application. Called once at startup by godot-bevy.
 #[bevy_app]
 fn build_app(app: &mut bevy::prelude::App) {
@@ -127,8 +140,11 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<resources::ProjSlotAllocator>()
        .init_resource::<resources::FoodStorage>()
        .init_resource::<resources::FactionStats>()
+       .init_resource::<resources::BevyFrameTimer>()
        // Chain phases with explicit command flush between Spawn and Combat
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
+       // Timing: start timer before everything
+       .add_systems(Update, bevy_timer_start.before(Step::Drain))
        // Flush commands after Spawn so Combat sees new entities
        .add_systems(Update, bevy::ecs::schedule::ApplyDeferred.after(Step::Spawn).before(Step::Combat))
        // Drain: reset + drain queues (channels + legacy mutexes still used by lib.rs)
@@ -168,7 +184,9 @@ fn build_app(app: &mut bevy::prelude::App) {
        // Collect GPU updates at end of frame (single Mutex lock point)
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior))
        // Phase 11: Write changed state to BevyToGodot outbox
-       .add_systems(Update, bevy_to_godot_write.after(Step::Behavior));
+       .add_systems(Update, bevy_to_godot_write.after(Step::Behavior))
+       // Timing: record Bevy frame time
+       .add_systems(Update, bevy_timer_end.after(bevy_to_godot_write));
 }
 
 // ============================================================================
@@ -246,6 +264,7 @@ impl INode2D for EcsNpcManager {
     }
 
     fn ready(&mut self) {
+        godot_print!("[EcsNpcManager] DLL built: {} {}", compile_time::date_str!(), compile_time::time_str!());
         self.gpu = GpuCompute::new();
         if self.gpu.is_none() {
             godot_error!("[EcsNpcManager] Failed to initialize GPU compute");
@@ -270,6 +289,7 @@ impl INode2D for EcsNpcManager {
     }
 
     fn process(&mut self, delta: f64) {
+        let frame_start = std::time::Instant::now();
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,
             None => return,
@@ -407,12 +427,20 @@ impl INode2D for EcsNpcManager {
             }
         }
 
+        let t_queue = frame_start.elapsed();
         if npc_count > 0 {
+            let t0 = std::time::Instant::now();
             gpu.dispatch(npc_count, delta as f32);
+            let t_dispatch = t0.elapsed();
+
+            let t1 = std::time::Instant::now();
             gpu.read_positions_from_gpu(npc_count);
+            let t_readpos = t1.elapsed();
 
             // Read combat targets from GPU
+            let t2 = std::time::Instant::now();
             gpu.read_combat_targets(npc_count);
+            let t_combat = t2.elapsed();
 
             // GPU-FIRST: Single state update for all GPU reads
             if let Ok(mut state) = GPU_READ_STATE.lock() {
@@ -453,13 +481,28 @@ impl INode2D for EcsNpcManager {
             }
 
             // Update NPC MultiMesh
+            let t3 = std::time::Instant::now();
             let buffer = gpu.build_multimesh_from_cache(&gpu.colors, npc_count, MAX_NPC_COUNT);
+            let t_build = t3.elapsed();
+
+            let t4 = std::time::Instant::now();
             let mut rs = RenderingServer::singleton();
             rs.multimesh_set_buffer(self.multimesh_rid, &buffer);
+            let t_upload = t4.elapsed();
 
             // Update carried item MultiMesh
             let item_buffer = gpu.build_item_multimesh(npc_count, MAX_NPC_COUNT);
             rs.multimesh_set_buffer(self.item_multimesh_rid, &item_buffer);
+
+            // Update perf stats
+            if let Ok(mut stats) = resources::PERF_STATS.lock() {
+                stats.queue_ms = t_queue.as_secs_f32() * 1000.0;
+                stats.dispatch_ms = t_dispatch.as_secs_f32() * 1000.0;
+                stats.readpos_ms = t_readpos.as_secs_f32() * 1000.0;
+                stats.combat_ms = t_combat.as_secs_f32() * 1000.0;
+                stats.build_ms = t_build.as_secs_f32() * 1000.0;
+                stats.upload_ms = t_upload.as_secs_f32() * 1000.0;
+            }
 
             // === DRAIN BEVY OUTBOX FOR PROJECTILE FIRE (via channel) ===
             if let Some(ref receiver) = self.bevy_to_godot {
@@ -539,6 +582,12 @@ impl INode2D for EcsNpcManager {
 
 #[godot_api]
 impl EcsNpcManager {
+    /// Get DLL build timestamp for version checking.
+    #[func]
+    fn get_build_time(&self) -> GString {
+        GString::from(format!("{} {}", compile_time::date_str!(), compile_time::time_str!()).as_str())
+    }
+
     fn setup_multimesh(&mut self, max_count: i32) {
         let mut rs = RenderingServer::singleton();
 
@@ -960,6 +1009,24 @@ impl EcsNpcManager {
             dict.set("max_backoff", max_backoff);
             dict.set("cells_used", cells_with_npcs);
             dict.set("max_per_cell", max_per_cell);
+        }
+        dict
+    }
+
+    #[func]
+    fn get_perf_stats(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        if let Ok(stats) = resources::PERF_STATS.lock() {
+            dict.set("queue_ms", stats.queue_ms);
+            dict.set("dispatch_ms", stats.dispatch_ms);
+            dict.set("readpos_ms", stats.readpos_ms);
+            dict.set("combat_ms", stats.combat_ms);
+            dict.set("build_ms", stats.build_ms);
+            dict.set("upload_ms", stats.upload_ms);
+            dict.set("bevy_ms", stats.bevy_ms);
+            let gpu_total = stats.queue_ms + stats.dispatch_ms + stats.readpos_ms + stats.combat_ms + stats.build_ms + stats.upload_ms;
+            dict.set("gpu_total_ms", gpu_total);
+            dict.set("total_ms", gpu_total + stats.bevy_ms);
         }
         dict
     }
@@ -1806,24 +1873,21 @@ impl EcsNpcManager {
         let i = idx as usize;
         let limit = limit.max(1) as usize;
 
-        if let Some(bevy_app) = self.get_bevy_app() {
-            let app_ref = bevy_app.bind();
-            if let Some(app) = app_ref.get_app() {
-                if let Some(logs) = app.world().get_resource::<resources::NpcLogCache>() {
-                    if let Some(log) = logs.0.get(i) {
-                        // Get last `limit` entries (most recent first)
-                        let entries: Vec<_> = log.iter().collect();
-                        let start = entries.len().saturating_sub(limit);
-                        for entry in entries[start..].iter().rev() {
-                            let mut entry_dict = VarDictionary::new();
-                            entry_dict.set("day", entry.day);
-                            entry_dict.set("hour", entry.hour);
-                            entry_dict.set("minute", entry.minute);
-                            entry_dict.set("message", GString::from(&entry.message));
-                            result.push(&entry_dict.to_variant());
-                        }
-                    }
-                }
+        let Some(bevy_app) = self.get_bevy_app() else { return result; };
+        let app_ref = bevy_app.bind();
+        let Some(app) = app_ref.get_app() else { return result; };
+        let Some(logs) = app.world().get_resource::<resources::NpcLogCache>() else { return result; };
+
+        if let Some(log) = logs.0.get(i) {
+            let entries: Vec<_> = log.iter().collect();
+            let start = entries.len().saturating_sub(limit);
+            for entry in entries[start..].iter().rev() {
+                let mut entry_dict = VarDictionary::new();
+                entry_dict.set("day", entry.day);
+                entry_dict.set("hour", entry.hour);
+                entry_dict.set("minute", entry.minute);
+                entry_dict.set("message", GString::from(&entry.message));
+                result.push(&entry_dict.to_variant());
             }
         }
 

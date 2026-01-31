@@ -6,7 +6,7 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::components::*;
 use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage};
+use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location};
 
@@ -82,6 +82,8 @@ pub fn arrival_system(
     mut food_events: ResMut<FoodEvents>,
     world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
+    game_time: Res<GameTime>,
+    mut npc_logs: ResMut<NpcLogCache>,
 ) {
     let positions = &gpu_state.positions;
     let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
@@ -142,14 +144,17 @@ pub fn arrival_system(
                 commands.entity(entity)
                     .remove::<Patrolling>()
                     .insert(OnDuty { ticks_waiting: 0 });
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ OnDuty".into());
             } else if going_rest.is_some() {
                 commands.entity(entity)
                     .remove::<GoingToRest>()
                     .insert(Resting);
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
             } else if going_work.is_some() {
                 commands.entity(entity)
                     .remove::<GoingToWork>()
                     .insert(Working);
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working".into());
                 pop_inc_working(&mut pop_stats, *job, town.0);
             } else if raiding.is_some() {
                 if idx * 2 + 1 < positions.len() {
@@ -165,6 +170,7 @@ pub fn arrival_system(
                             .insert(CarryingFood)
                             .insert(CarriedItem(CarriedItem::FOOD))
                             .insert(Returning);
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning".into());
                         // Show carried item above head
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem {
                             idx: npc_idx.0,
@@ -199,10 +205,12 @@ pub fn arrival_system(
                         food_storage.food[camp_idx] += 1;
                     }
                     food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Delivered food".into());
                 }
             } else if wandering.is_some() {
                 // Wandering complete - remove marker, NPC goes back to decision_system
                 commands.entity(entity).remove::<Wandering>();
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Idle".into());
             }
 
             if let Some(w) = wounded {
@@ -223,15 +231,97 @@ pub fn arrival_system(
 // FLEE / LEASH / RECOVERY SYSTEMS (generic)
 // ============================================================================
 
-/// Flee combat when HP drops below FleeThreshold.
+/// Count nearby enemies and allies for threat assessment.
+/// Returns (enemy_count, ally_count) within radius.
+fn count_nearby_factions(
+    positions: &[f32],
+    factions: &[i32],
+    health: &[f32],
+    my_idx: usize,
+    my_faction: i32,
+    radius: f32,
+) -> (u32, u32) {
+    let radius_sq = radius * radius;
+    let my_x = positions.get(my_idx * 2).copied().unwrap_or(0.0);
+    let my_y = positions.get(my_idx * 2 + 1).copied().unwrap_or(0.0);
+
+    let mut enemies = 0u32;
+    let mut allies = 0u32;
+
+    let npc_count = factions.len().min(positions.len() / 2).min(health.len());
+    for i in 0..npc_count {
+        if i == my_idx { continue; }
+
+        // Skip dead NPCs
+        let hp = health.get(i).copied().unwrap_or(0.0);
+        if hp <= 0.0 { continue; }
+
+        let x = positions[i * 2];
+        let y = positions[i * 2 + 1];
+        let dx = x - my_x;
+        let dy = y - my_y;
+        let dist_sq = dx * dx + dy * dy;
+
+        if dist_sq <= radius_sq {
+            let their_faction = factions.get(i).copied().unwrap_or(-1);
+            if their_faction == my_faction {
+                allies += 1;
+            } else if their_faction >= 0 {
+                enemies += 1;
+            }
+        }
+    }
+
+    (enemies, allies)
+}
+
+/// Frame counter for staggered threat checks (avoid O(n²) every frame).
+static FLEE_FRAME: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Flee combat when HP drops below dynamic threshold.
+/// Threshold adjusts based on local enemy/ally ratio:
+/// - Outnumbered 2:1 = flee at 100% HP (immediate)
+/// - Even odds = flee at base threshold
+/// - Winning 2:1 = flee at half base threshold
+///
+/// Performance: Threat check only runs every 30 frames (~0.5s) per NPC,
+/// staggered by NPC index to spread load across frames.
 pub fn flee_system(
     mut commands: Commands,
     query: Query<(Entity, &NpcIndex, &Health, &FleeThreshold, &Home, &Faction, Option<&CarryingFood>), With<InCombat>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    gpu_state: Res<GpuReadState>,
 ) {
+    let positions = &gpu_state.positions;
+    let factions = &gpu_state.factions;
+    let health_buf = &gpu_state.health;
+    const THREAT_RADIUS: f32 = 200.0;
+    const CHECK_INTERVAL: u32 = 30; // Only check threat every 30 frames per NPC
+
+    let frame = FLEE_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
     for (entity, npc_idx, health, flee, home, faction, carrying) in query.iter() {
+        let idx = npc_idx.0;
+
+        // Stagger threat checks: each NPC checks on different frames
+        let should_check_threat = (frame + idx as u32) % CHECK_INTERVAL == 0;
+
+        let effective_threshold = if should_check_threat {
+            // Count nearby enemies and allies (expensive, only do periodically)
+            let (enemies, allies) = count_nearby_factions(
+                positions, factions, health_buf, idx, faction.0, THREAT_RADIUS
+            );
+
+            // Calculate dynamic threshold: base * (enemies / max(allies, 1))
+            let ratio = (enemies as f32 + 1.0) / (allies as f32 + 1.0);
+            (flee.pct * ratio).min(1.0)
+        } else {
+            // Use base threshold on non-check frames
+            flee.pct
+        };
+
         let health_pct = health.0 / 100.0;
-        if health_pct < flee.pct {
+        if health_pct < effective_threshold {
             let mut cmds = commands.entity(entity);
             cmds.remove::<InCombat>();
             cmds.remove::<CombatOrigin>();
@@ -298,17 +388,19 @@ pub fn leash_system(
     }
 }
 
-/// Recovery system: resting NPCs with Recovering resume activity when healed.
+/// Recovery system: NPCs with Recovering resume activity when healed.
 pub fn recovery_system(
     mut commands: Commands,
-    query: Query<(Entity, &Health, &Recovering), With<Resting>>,
+    query: Query<(Entity, &Health, &Recovering, Option<&Resting>)>,
 ) {
-    for (entity, health, recovering) in query.iter() {
+    for (entity, health, recovering, resting) in query.iter() {
         let health_pct = health.0 / 100.0;
         if health_pct >= recovering.threshold {
-            commands.entity(entity)
-                .remove::<Recovering>()
-                .remove::<Resting>();
+            let mut cmds = commands.entity(entity);
+            cmds.remove::<Recovering>();
+            if resting.is_some() {
+                cmds.remove::<Resting>();
+            }
         }
     }
 }
@@ -371,6 +463,8 @@ pub fn decision_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
+    game_time: Res<GameTime>,
+    mut npc_logs: ResMut<NpcLogCache>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -417,14 +511,23 @@ pub fn decision_system(
             Job::Fighter => false,
         };
         if can_work {
-            let work_score = SCORE_WORK_BASE * work_m;
-            scores.push((Action::Work, work_score));
+            // Reduce work score when HP is low (below 50% = no work, 50-100% = scaled)
+            let hp_pct = _health.0 / 100.0;
+            let hp_mult = if hp_pct < 0.5 { 0.0 } else { (hp_pct - 0.5) * 2.0 };
+            let work_score = SCORE_WORK_BASE * work_m * hp_mult;
+            if work_score > 0.0 {
+                scores.push((Action::Work, work_score));
+            }
         }
 
         let wander_score = SCORE_WANDER_BASE * wander_m;
         scores.push((Action::Wander, wander_score));
 
         let action = weighted_random(&scores, idx, frame);
+
+        // Log decision
+        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+            format!("{:?} (e:{:.0} h:{:.0})", action, energy.0, _health.0));
 
         match action {
             Action::Eat | Action::Rest => {

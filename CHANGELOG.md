@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-01-31
+- add NPC decision logging: 100-entry circular buffer per NPC with timestamps
+  - decisions logged as "Action (e:XX h:XX)" showing energy and health
+  - state transitions logged ("→ OnDuty", "→ Resting", "Stole food → Returning")
+- add scrollable log display in left panel inspector
+- add DLL build time on start menu for version verification
+- add performance profiling: get_perf_stats() API with timing breakdown
+  - queue_ms, dispatch_ms, readpos_ms, combat_ms, build_ms, upload_ms
+  - bevy_ms for Bevy ECS systems timing
+  - displayed in left panel with other stats
+- fix HP-based work score: NPCs below 50% HP won't work/raid
+  - score scales from 0 at 50% to full at 100% HP
+  - applies to all jobs (prevents wounded raiders from raiding)
+- fix recovery_system: Resting no longer required to exit Recovering
+  - NPCs that lost Resting marker were stuck in Recovering forever
+- change start menu defaults: 500 guards and 500 raiders per town
+
 ## 2026-01-30
 - add FactionStats resource: per-faction alive/dead/kills tracking
   - init_faction_stats(), get_faction_stats(), get_all_faction_stats() API

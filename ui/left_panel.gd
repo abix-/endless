@@ -41,7 +41,8 @@ extends CanvasLayer
 @onready var state_label: Label = $Panel/MarginContainer/VBox/InspectorContent/State
 @onready var target_label: Label = $Panel/MarginContainer/VBox/InspectorContent/Target
 @onready var stats_label: Label = $Panel/MarginContainer/VBox/InspectorContent/Stats
-@onready var extra_label: Label = $Panel/MarginContainer/VBox/InspectorContent/Extra
+@onready var log_scroll: ScrollContainer = $Panel/MarginContainer/VBox/InspectorContent/LogScroll
+@onready var log_label: Label = $Panel/MarginContainer/VBox/InspectorContent/LogScroll/LogLabel
 @onready var follow_btn: Button = $Panel/MarginContainer/VBox/InspectorContent/ButtonRow/FollowBtn
 @onready var copy_btn: Button = $Panel/MarginContainer/VBox/InspectorContent/ButtonRow/CopyBtn
 
@@ -257,16 +258,18 @@ func _update_perf() -> void:
 		lines.append("Combat: %d attackers, %d targets" % [combat.get("attackers", 0), combat.get("targets_found", 0)])
 		lines.append("Attacks: %d | Chases: %d" % [combat.get("attacks", 0), combat.get("chases", 0)])
 
-	# === ECS API NEEDED: get_perf_stats() -> Dictionary ===
-	# For detailed breakdown like old GDScript manager had:
-	# Old code:
-	#   lines.append("Loop: %.1fms" % m.last_loop_time)
-	#   lines.append("  Sleep:   %.1f" % m.profile_sleep)
-	#   lines.append("  Grid:    %.1f" % m.profile_grid)
-	#   lines.append("  Scan:    %.1f" % m.profile_scan)
-	#   lines.append("  Combat:  %.1f" % m.profile_combat)
-	#   lines.append("  Nav:     %.1f" % m.profile_nav)
-	#   lines.append("  Render:  %.1f" % m.profile_render)
+	# Rust ECS perf stats
+	if UserSettings.perf_metrics:
+		var perf: Dictionary = npc_manager.get_perf_stats()
+		lines.append("")
+		lines.append("Total: %.1fms (Bevy: %.1f + GPU: %.1f)" % [perf.get("total_ms", 0.0), perf.get("bevy_ms", 0.0), perf.get("gpu_total_ms", 0.0)])
+		lines.append("  Bevy ECS: %.2f" % perf.get("bevy_ms", 0.0))
+		lines.append("  Queue:    %.2f" % perf.get("queue_ms", 0.0))
+		lines.append("  Dispatch: %.2f" % perf.get("dispatch_ms", 0.0))
+		lines.append("  ReadPos:  %.2f" % perf.get("readpos_ms", 0.0))
+		lines.append("  Combat:   %.2f" % perf.get("combat_ms", 0.0))
+		lines.append("  Build:    %.2f" % perf.get("build_ms", 0.0))
+		lines.append("  Upload:   %.2f" % perf.get("upload_ms", 0.0))
 
 	perf_label.text = "\n".join(lines)
 
@@ -290,7 +293,7 @@ func _update_inspector() -> void:
 		state_label.visible = false
 		target_label.visible = false
 		stats_label.visible = false
-		extra_label.visible = false
+		log_scroll.visible = false
 		copy_btn.visible = false
 		rename_btn.visible = false
 		return
@@ -356,8 +359,16 @@ func _update_inspector() -> void:
 	stats_label.visible = true
 	stats_label.text = "Pos: %d, %d" % [int(pos_x), int(pos_y)]
 
-	# Extra label (placeholder for now)
-	extra_label.visible = false
+	# Decision log (scrollable, all entries)
+	var logs: Array = npc_manager.get_npc_log(idx, 100)
+	if logs.size() > 0:
+		var log_lines: PackedStringArray = []
+		for entry in logs:
+			log_lines.append("%02d:%02d %s" % [entry.get("hour", 0), entry.get("minute", 0), entry.get("message", "")])
+		log_label.text = "\n".join(log_lines)
+		log_scroll.visible = true
+	else:
+		log_scroll.visible = false
 
 	# Show buttons
 	copy_btn.visible = true

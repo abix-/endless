@@ -129,6 +129,17 @@ Time API accesses Bevy's `GameTime` resource directly through the BevyApp autolo
 |--------|--------|---------|-------------|
 | `get_npc_log` | `idx, limit: i32` | `Array` | Last N log entries (dicts with day, hour, minute, message), most recent first |
 
+Logs include decision_system choices (`"Work (e:85 h:100)"`) and state transitions (`"→ OnDuty"`, `"Stole food → Returning"`). Max 100 entries per NPC (circular buffer).
+
+## Performance API
+
+| Method | Params | Returns | Description |
+|--------|--------|---------|-------------|
+| `get_perf_stats` | none | `Dictionary` | Frame timing breakdown: queue_ms, dispatch_ms, readpos_ms, combat_ms, build_ms, upload_ms, bevy_ms, gpu_total_ms, total_ms |
+| `get_build_time` | none | `String` | DLL compile timestamp (e.g., "2026-01-31 12:34:56") for version verification |
+
+Performance stats are updated every frame. `bevy_ms` is the Bevy ECS systems time, `gpu_total_ms` is the GPU process loop time.
+
 ## Reset API
 
 | Method | Params | Returns | Description |
