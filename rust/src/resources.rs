@@ -16,6 +16,7 @@ pub struct PerfStats {
     pub upload_ms: f32,
     pub bevy_ms: f32,
     pub frame_ms: f32,  // Full frame time (process to process)
+    pub prev_ecs_total_ms: f32,  // Previous frame's ECS time (for godot_ms calc)
     // Debug stats (cached to avoid extra GPU reads)
     pub arrived_count: i32,
     pub avg_backoff: i32,
@@ -25,6 +26,7 @@ pub struct PerfStats {
 pub static PERF_STATS: Mutex<PerfStats> = Mutex::new(PerfStats {
     queue_ms: 0.0, dispatch_ms: 0.0, readpos_ms: 0.0,
     combat_ms: 0.0, build_ms: 0.0, upload_ms: 0.0, bevy_ms: 0.0, frame_ms: 0.0,
+    prev_ecs_total_ms: 0.0,
     arrived_count: 0, avg_backoff: 0, max_backoff: 0,
 });
 

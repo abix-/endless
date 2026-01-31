@@ -74,6 +74,7 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | `set_npc_name` | `idx, name: String` | void | Rename NPC |
 | `get_bed_stats` | `town_idx: i32` | `Dictionary` | total_beds, free_beds for a town |
 | `get_npc_at_position` | `x, y, radius: f32` | `i32` | Nearest alive NPC within radius, or -1 (for click selection) |
+| `get_location_at_position` | `x, y, radius: f32` | `Dictionary` | Nearest location within radius: type, index, x, y, town_idx (for click selection) |
 
 ## World Data API
 

@@ -1,6 +1,13 @@
 # Changelog
 
 ## 2026-01-31
+- reduce location node overhead: 1117 → 657 nodes (~460 removed)
+  - location.tscn: removed CollisionShape2D, changed Area2D → Node2D
+  - location.gd: queue_free() labels for farms/beds/posts instead of hiding
+  - add get_location_at_position() API for click selection without Area2D collision
+- fix godot_ms timing: use previous frame's ECS time for accurate measurement
+  - frame_ms spans process-to-process, was wrongly subtracting current frame's ECS
+  - add prev_ecs_total_ms field to PerfStats for correct calculation
 - add location sprite batching: 330 sprites → 1 MultiMesh draw call
   - new location_renderer.gd batches all farm/bed/post/camp/fountain sprites
   - location.gd exports sprite data via get_sprite_data() for batching

@@ -288,8 +288,9 @@ func _update_perf() -> void:
 	var gpu_render := RenderingServer.viewport_get_measured_render_time_gpu(viewport_rid)
 	var draw_calls := Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
 	var objects := Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)
+	var nodes := Performance.get_monitor(Performance.OBJECT_NODE_COUNT)
 	lines.append("  Godot:    %.2f (render cpu:%.1f gpu:%.1f)" % [godot_ms, cpu_render, gpu_render])
-	lines.append("  Draw:     %d calls, %d objects" % [draw_calls, objects])
+	lines.append("  Draw:     %d calls, %d obj, %d nodes" % [draw_calls, objects, nodes])
 
 	perf_label.text = "\n".join(lines)
 

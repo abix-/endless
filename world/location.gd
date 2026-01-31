@@ -1,6 +1,6 @@
 # location.gd
 # Composes locations from multiple sprite pieces
-extends Area2D
+extends Node2D
 
 @export var location_name := "Unnamed"
 @export var location_type := "generic"
@@ -130,7 +130,9 @@ func get_sprite_data() -> Array:
 
 func _setup_label() -> void:
 	if "Farm" in location_name or "Bed" in location_name or "Post" in location_name:
-		label.visible = false
+		# Remove unused labels entirely (saves nodes)
+		label.queue_free()
+		label = null
 	else:
 		label.text = location_name
 		label.position = Vector2(-40, -50)

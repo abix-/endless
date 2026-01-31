@@ -1015,7 +1015,7 @@ impl EcsNpcManager {
     #[func]
     fn get_perf_stats(&self) -> VarDictionary {
         let mut dict = VarDictionary::new();
-        if let Ok(stats) = resources::PERF_STATS.lock() {
+        if let Ok(mut stats) = resources::PERF_STATS.lock() {
             dict.set("queue_ms", stats.queue_ms);
             dict.set("dispatch_ms", stats.dispatch_ms);
             dict.set("readpos_ms", stats.readpos_ms);
@@ -1028,7 +1028,12 @@ impl EcsNpcManager {
             let ecs_total = gpu_total + stats.bevy_ms;
             dict.set("ecs_total_ms", ecs_total);
             dict.set("frame_ms", stats.frame_ms);
-            dict.set("godot_ms", stats.frame_ms - ecs_total);
+            // Use PREVIOUS frame's ECS time: frame_ms spans last process() to this process(),
+            // so it includes last frame's ECS + Godot time. Subtracting this frame's ECS is wrong.
+            let godot_ms = (stats.frame_ms - stats.prev_ecs_total_ms).max(0.0);
+            dict.set("godot_ms", godot_ms);
+            // Save current ECS total for next frame's godot_ms calculation
+            stats.prev_ecs_total_ms = ecs_total;
         }
         dict
     }
@@ -2065,6 +2070,86 @@ impl EcsNpcManager {
         }
 
         best_idx
+    }
+
+    /// Find nearest location at a position within radius (for click selection).
+    /// Returns: { type: "farm"|"bed"|"guard_post"|"fountain"|"", index: i32, x: f32, y: f32, town_idx: i32 }
+    #[func]
+    fn get_location_at_position(&self, x: f32, y: f32, radius: f32) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        dict.set("type", "");
+        dict.set("index", -1);
+        dict.set("x", 0.0f32);
+        dict.set("y", 0.0f32);
+        dict.set("town_idx", -1);
+
+        let mut best_dist = radius;
+
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(world) = app.world().get_resource::<world::WorldData>() {
+                    // Check farms
+                    for (i, farm) in world.farms.iter().enumerate() {
+                        let dx = farm.position.x - x;
+                        let dy = farm.position.y - y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < best_dist {
+                            best_dist = dist;
+                            dict.set("type", "farm");
+                            dict.set("index", i as i32);
+                            dict.set("x", farm.position.x);
+                            dict.set("y", farm.position.y);
+                            dict.set("town_idx", farm.town_idx as i32);
+                        }
+                    }
+                    // Check beds
+                    for (i, bed) in world.beds.iter().enumerate() {
+                        let dx = bed.position.x - x;
+                        let dy = bed.position.y - y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < best_dist {
+                            best_dist = dist;
+                            dict.set("type", "bed");
+                            dict.set("index", i as i32);
+                            dict.set("x", bed.position.x);
+                            dict.set("y", bed.position.y);
+                            dict.set("town_idx", bed.town_idx as i32);
+                        }
+                    }
+                    // Check guard posts
+                    for (i, post) in world.guard_posts.iter().enumerate() {
+                        let dx = post.position.x - x;
+                        let dy = post.position.y - y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < best_dist {
+                            best_dist = dist;
+                            dict.set("type", "guard_post");
+                            dict.set("index", i as i32);
+                            dict.set("x", post.position.x);
+                            dict.set("y", post.position.y);
+                            dict.set("town_idx", post.town_idx as i32);
+                        }
+                    }
+                    // Check town centers (fountains)
+                    for (i, town) in world.towns.iter().enumerate() {
+                        let dx = town.center.x - x;
+                        let dy = town.center.y - y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < best_dist {
+                            best_dist = dist;
+                            dict.set("type", "fountain");
+                            dict.set("index", i as i32);
+                            dict.set("x", town.center.x);
+                            dict.set("y", town.center.y);
+                            dict.set("town_idx", i as i32);
+                        }
+                    }
+                }
+            }
+        }
+
+        dict
     }
 
     /// Get bed statistics for a town.
