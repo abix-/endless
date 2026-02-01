@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-02-01
+- optimize GPU buffer updates: batch uploads reduce ~670 → ~8 buffer_update() calls/frame
+  - add DirtyRange tracking for each buffer type
+  - drain loop updates CPU caches, then batch uploads dirty ranges
+  - add upload_*_range() methods to GpuCompute for each buffer
+  - add CPU caches for arrivals, backoffs, speeds
+- remove dead code: sprite_frame_buffer never read by shader
+  - remove binding 12 from shader and Rust uniform set
+  - keep CPU cache for multimesh builder
+- remove GPU multimesh writes (already done earlier, was dead code)
+- fix color.a state hack: use arrival flag instead of overloaded alpha
+  - shader now checks `settled == 0` instead of `color.a > 0.0`
+  - color buffer is now purely visual (faction tinting)
+
 ## 2026-01-31
 - move locations to ECS: eliminate all Location nodes (~260 nodes → 0)
   - add unified add_location(type, x, y, town_idx, opts) API

@@ -24,7 +24,7 @@ use godot_bevy::prelude::*;
 use godot::classes::{RenderingServer, QuadMesh, INode2D, ShaderMaterial, ResourceLoader};
 
 use constants::*;
-use gpu::GpuCompute;
+use gpu::{GpuCompute, DirtyRange};
 use messages::*;
 use resources::*;
 use systems::*;
@@ -333,97 +333,77 @@ impl INode2D for EcsNpcManager {
         // Get dispatch count: only includes NPCs with initialized GPU buffers
         let npc_count = GPU_DISPATCH_COUNT.lock().map(|c| *c).unwrap_or(0);
 
-        // Drain GPU update queue. Guard uses MAX_NPC_COUNT (buffer size) not
-        // npc_count, so spawn data for newly-allocated slots can be written
-        // before GPU_DISPATCH_COUNT catches up next frame.
+        // Drain GPU update queue with BATCHED uploads.
+        // Instead of individual buffer_update() calls per message, we:
+        // 1. Update CPU caches and track dirty ranges
+        // 2. Batch upload each dirty buffer once at the end
+        let mut target_dirty = DirtyRange::new();
+        let mut arrival_dirty = DirtyRange::new();
+        let mut backoff_dirty = DirtyRange::new();
+        let mut health_dirty = DirtyRange::new();
+        let mut position_dirty = DirtyRange::new();
+        let mut color_dirty = DirtyRange::new();
+        let mut faction_dirty = DirtyRange::new();
+        let mut speed_dirty = DirtyRange::new();
+
         if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
             for update in queue.drain(..) {
                 match update {
                     GpuUpdate::SetTarget { idx, x, y } => {
                         if idx < MAX_NPC_COUNT {
-                            // Update CPU cache
                             gpu.targets[idx * 2] = x;
                             gpu.targets[idx * 2 + 1] = y;
-
-                            let target_bytes: Vec<u8> = [x, y].iter()
-                                .flat_map(|f| f.to_le_bytes()).collect();
-                            let target_packed = PackedByteArray::from(target_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &target_packed);
-
-                            let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
-                            let zero_packed = PackedByteArray::from(zero_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &zero_packed);
-                            gpu.rd.buffer_update(gpu.backoff_buffer, (idx * 4) as u32, 4, &zero_packed);
+                            gpu.arrivals[idx] = 0;
+                            gpu.backoffs[idx] = 0;
+                            target_dirty.mark(idx);
+                            arrival_dirty.mark(idx);
+                            backoff_dirty.mark(idx);
                             self.prev_arrivals[idx] = false;
                         }
                     }
                     GpuUpdate::ApplyDamage { idx, amount } => {
                         if idx < MAX_NPC_COUNT {
-                            let new_health = (gpu.healths[idx] - amount).max(0.0);
-                            gpu.healths[idx] = new_health;
-                            let health_bytes: Vec<u8> = new_health.to_le_bytes().to_vec();
-                            let health_packed = PackedByteArray::from(health_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+                            gpu.healths[idx] = (gpu.healths[idx] - amount).max(0.0);
+                            health_dirty.mark(idx);
                         }
                     }
                     GpuUpdate::HideNpc { idx } => {
                         if idx < MAX_NPC_COUNT {
-                            // Set position to offscreen
-                            let hide_pos: Vec<u8> = [-9999.0f32, -9999.0f32].iter()
-                                .flat_map(|f| f.to_le_bytes()).collect();
-                            let hide_packed = PackedByteArray::from(hide_pos.as_slice());
-                            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &hide_packed);
                             gpu.positions[idx * 2] = -9999.0;
                             gpu.positions[idx * 2 + 1] = -9999.0;
-
-                            // Also set target to offscreen so NPC doesn't try to move
-                            gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &hide_packed);
                             gpu.targets[idx * 2] = -9999.0;
                             gpu.targets[idx * 2 + 1] = -9999.0;
-
-                            // Mark as arrived so GPU doesn't compute movement
-                            let one_bytes: Vec<u8> = 1i32.to_le_bytes().to_vec();
-                            let one_packed = PackedByteArray::from(one_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.arrival_buffer, (idx * 4) as u32, 4, &one_packed);
-
-                            // Set health to 0 so click detection skips this slot
+                            gpu.arrivals[idx] = 1;
                             gpu.healths[idx] = 0.0;
-                            let zero_health: Vec<u8> = 0.0f32.to_le_bytes().to_vec();
-                            let zero_packed = PackedByteArray::from(zero_health.as_slice());
-                            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &zero_packed);
+                            position_dirty.mark(idx);
+                            target_dirty.mark(idx);
+                            arrival_dirty.mark(idx);
+                            health_dirty.mark(idx);
                         }
                     }
                     GpuUpdate::SetFaction { idx, faction } => {
                         if idx < MAX_NPC_COUNT {
                             gpu.factions[idx] = faction;
-                            let faction_bytes: Vec<u8> = faction.to_le_bytes().to_vec();
-                            let faction_packed = PackedByteArray::from(faction_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.faction_buffer, (idx * 4) as u32, 4, &faction_packed);
+                            faction_dirty.mark(idx);
                         }
                     }
                     GpuUpdate::SetHealth { idx, health } => {
                         if idx < MAX_NPC_COUNT {
                             gpu.healths[idx] = health;
-                            let health_bytes: Vec<u8> = health.to_le_bytes().to_vec();
-                            let health_packed = PackedByteArray::from(health_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.health_buffer, (idx * 4) as u32, 4, &health_packed);
+                            health_dirty.mark(idx);
                         }
                     }
                     GpuUpdate::SetPosition { idx, x, y } => {
                         if idx < MAX_NPC_COUNT {
                             gpu.positions[idx * 2] = x;
                             gpu.positions[idx * 2 + 1] = y;
-                            let pos_bytes: Vec<u8> = [x, y].iter()
-                                .flat_map(|f| f.to_le_bytes()).collect();
-                            let pos_packed = PackedByteArray::from(pos_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.position_buffer, (idx * 8) as u32, 8, &pos_packed);
+                            position_dirty.mark(idx);
                         }
                     }
                     GpuUpdate::SetSpeed { idx, speed } => {
                         if idx < MAX_NPC_COUNT {
-                            let speed_bytes: Vec<u8> = speed.to_le_bytes().to_vec();
-                            let speed_packed = PackedByteArray::from(speed_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.speed_buffer, (idx * 4) as u32, 4, &speed_packed);
+                            gpu.speeds[idx] = speed;
+                            speed_dirty.mark(idx);
                         }
                     }
                     GpuUpdate::SetColor { idx, r, g, b, a } => {
@@ -432,20 +412,14 @@ impl INode2D for EcsNpcManager {
                             gpu.colors[idx * 4 + 1] = g;
                             gpu.colors[idx * 4 + 2] = b;
                             gpu.colors[idx * 4 + 3] = a;
-                            let color_bytes: Vec<u8> = [r, g, b, a].iter()
-                                .flat_map(|f| f.to_le_bytes()).collect();
-                            let color_packed = PackedByteArray::from(color_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.color_buffer, (idx * 16) as u32, 16, &color_packed);
+                            color_dirty.mark(idx);
                         }
                     }
                     GpuUpdate::SetSpriteFrame { idx, col, row } => {
                         if idx < MAX_NPC_COUNT {
+                            // CPU cache only - used by build_multimesh_from_cache()
                             gpu.sprite_frames[idx * 2] = col;
                             gpu.sprite_frames[idx * 2 + 1] = row;
-                            let frame_bytes: Vec<u8> = [col, row].iter()
-                                .flat_map(|f| f.to_le_bytes()).collect();
-                            let frame_packed = PackedByteArray::from(frame_bytes.as_slice());
-                            gpu.rd.buffer_update(gpu.sprite_frame_buffer, (idx * 8) as u32, 8, &frame_packed);
                         }
                     }
                     GpuUpdate::SetHealing { idx, healing } => {
@@ -461,6 +435,16 @@ impl INode2D for EcsNpcManager {
                 }
             }
         }
+
+        // Batch upload dirty ranges (one buffer_update per buffer type)
+        gpu.upload_targets_range(&target_dirty);
+        gpu.upload_arrivals_range(&arrival_dirty);
+        gpu.upload_backoffs_range(&backoff_dirty);
+        gpu.upload_healths_range(&health_dirty);
+        gpu.upload_positions_range(&position_dirty);
+        gpu.upload_colors_range(&color_dirty);
+        gpu.upload_factions_range(&faction_dirty);
+        gpu.upload_speeds_range(&speed_dirty);
 
         let t_queue = frame_start.elapsed();
         if npc_count > 0 {
@@ -1085,19 +1069,21 @@ impl EcsNpcManager {
             });
         }
 
+        // Direct GPU update for immediate responsiveness (GDScript API calls are rare)
         if let Some(gpu) = self.gpu.as_mut() {
             let idx = npc_index as usize;
-            // Check against GPU array bounds (pre-allocated to MAX_NPC_COUNT)
             if idx < MAX_NPC_COUNT {
+                // Update CPU caches
+                gpu.targets[idx * 2] = x;
+                gpu.targets[idx * 2 + 1] = y;
+                gpu.arrivals[idx] = 0;
+                gpu.backoffs[idx] = 0;
+
+                // Immediate GPU upload (not batched - for responsiveness)
                 let target_bytes: Vec<u8> = [x, y].iter()
                     .flat_map(|f| f.to_le_bytes()).collect();
                 let target_packed = PackedByteArray::from(target_bytes.as_slice());
-                gpu.rd.buffer_update(
-                    gpu.target_buffer,
-                    (idx * 8) as u32,
-                    target_packed.len() as u32,
-                    &target_packed
-                );
+                gpu.rd.buffer_update(gpu.target_buffer, (idx * 8) as u32, 8, &target_packed);
 
                 let zero_bytes: Vec<u8> = 0i32.to_le_bytes().to_vec();
                 let zero_packed = PackedByteArray::from(zero_bytes.as_slice());

@@ -9,6 +9,50 @@ use godot::classes::ResourceLoader;
 use crate::constants::*;
 
 // ============================================================================
+// DIRTY RANGE TRACKING
+// ============================================================================
+
+/// Tracks dirty index range for batched buffer uploads.
+/// Instead of uploading each change individually, we track min/max dirty indices
+/// and upload the entire dirty range in one call.
+#[derive(Default)]
+pub struct DirtyRange {
+    pub min: usize,
+    pub max: usize,
+    pub dirty: bool,
+}
+
+impl DirtyRange {
+    pub fn new() -> Self {
+        Self { min: usize::MAX, max: 0, dirty: false }
+    }
+
+    /// Mark an index as dirty, expanding the range.
+    pub fn mark(&mut self, idx: usize) {
+        self.min = self.min.min(idx);
+        self.max = self.max.max(idx);
+        self.dirty = true;
+    }
+
+    /// Reset for next frame.
+    pub fn reset(&mut self) {
+        self.min = usize::MAX;
+        self.max = 0;
+        self.dirty = false;
+    }
+
+    /// Get byte range for buffer upload (start_byte, len_bytes).
+    pub fn byte_range(&self, bytes_per_entry: usize) -> (u32, u32) {
+        if !self.dirty {
+            return (0, 0);
+        }
+        let start = self.min * bytes_per_entry;
+        let len = (self.max - self.min + 1) * bytes_per_entry;
+        (start as u32, len as u32)
+    }
+}
+
+// ============================================================================
 // SPATIAL GRID
 // ============================================================================
 
@@ -80,9 +124,6 @@ pub struct GpuCompute {
     pub health_buffer: Rid,
     pub combat_target_buffer: Rid,
 
-    // === Sprite Buffer ===
-    pub sprite_frame_buffer: Rid,
-
     // === Projectile Buffers ===
     pub proj_position_buffer: Rid,
     pub proj_velocity_buffer: Rid,
@@ -114,11 +155,20 @@ pub struct GpuCompute {
     /// Cached colors
     pub colors: Vec<f32>,
 
+    /// Cached speeds
+    pub speeds: Vec<f32>,
+
     /// Cached factions (0=Villager, 1=Raider)
     pub factions: Vec<i32>,
 
     /// Cached healths
     pub healths: Vec<f32>,
+
+    /// Cached arrivals (0 = moving, 1 = arrived)
+    pub arrivals: Vec<i32>,
+
+    /// Cached backoffs (collision avoidance counter)
+    pub backoffs: Vec<i32>,
 
     /// Combat targets read from GPU (-1 = no target)
     pub combat_targets: Vec<i32>,
@@ -180,9 +230,6 @@ impl GpuCompute {
         let health_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
         let combat_target_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 4) as u32);
 
-        // Sprite buffer (vec2 per NPC = 8 bytes)
-        let sprite_frame_buffer = rd.storage_buffer_create((MAX_NPC_COUNT * 8) as u32);
-
         // Projectile buffers
         let proj_position_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 8) as u32);
         let proj_velocity_buffer = rd.storage_buffer_create((MAX_PROJECTILES * 8) as u32);
@@ -211,7 +258,6 @@ impl GpuCompute {
             position_buffer, target_buffer, color_buffer, speed_buffer,
             grid_counts_buffer, grid_data_buffer, multimesh_buffer, arrival_buffer,
             backoff_buffer, faction_buffer, health_buffer, combat_target_buffer,
-            sprite_frame_buffer,
         )?;
 
         // Load projectile shader
@@ -271,7 +317,6 @@ impl GpuCompute {
             faction_buffer,
             health_buffer,
             combat_target_buffer,
-            sprite_frame_buffer,
             proj_position_buffer,
             proj_velocity_buffer,
             proj_damage_buffer,
@@ -288,8 +333,11 @@ impl GpuCompute {
             positions: vec![0.0; MAX_NPC_COUNT * 2],
             targets: vec![0.0; MAX_NPC_COUNT * 2],
             colors: vec![0.0; MAX_NPC_COUNT * 4],
+            speeds: vec![100.0; MAX_NPC_COUNT],  // Default speed
             factions: vec![0; MAX_NPC_COUNT],
             healths: vec![0.0; MAX_NPC_COUNT],
+            arrivals: vec![1; MAX_NPC_COUNT],  // Start as "arrived" (not moving)
+            backoffs: vec![0; MAX_NPC_COUNT],
             combat_targets: vec![-1; MAX_NPC_COUNT],
             sprite_frames: vec![0.0; MAX_NPC_COUNT * 2],
             healing_flags: vec![false; MAX_NPC_COUNT],
@@ -318,7 +366,6 @@ impl GpuCompute {
         faction_buffer: Rid,
         health_buffer: Rid,
         combat_target_buffer: Rid,
-        sprite_frame_buffer: Rid,
     ) -> Option<Rid> {
         let mut uniforms = Array::new();
 
@@ -335,7 +382,7 @@ impl GpuCompute {
             (9, faction_buffer),
             (10, health_buffer),
             (11, combat_target_buffer),
-            (12, sprite_frame_buffer),
+            // Binding 12 removed (sprite_frame_buffer was dead code)
         ];
 
         for (binding, buffer) in buffers {
@@ -562,6 +609,88 @@ impl GpuCompute {
             .collect();
         let packed = PackedByteArray::from(bytes.as_slice());
         self.rd.buffer_update(self.health_buffer, 0, packed.len() as u32, &packed);
+    }
+
+    // =========================================================================
+    // BATCH UPLOAD METHODS (for dirty range optimization)
+    // =========================================================================
+
+    /// Upload dirty range of targets buffer (vec2 = 8 bytes per entry)
+    pub fn upload_targets_range(&mut self, range: &DirtyRange) {
+        if !range.dirty { return; }
+        let start_idx = range.min * 2;  // vec2 = 2 floats
+        let end_idx = (range.max + 1) * 2;
+        let bytes: Vec<u8> = self.targets[start_idx..end_idx].iter()
+            .flat_map(|f| f.to_le_bytes()).collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.target_buffer, (range.min * 8) as u32, packed.len() as u32, &packed);
+    }
+
+    /// Upload dirty range of arrivals buffer (i32 = 4 bytes per entry)
+    pub fn upload_arrivals_range(&mut self, range: &DirtyRange) {
+        if !range.dirty { return; }
+        let bytes: Vec<u8> = self.arrivals[range.min..=range.max].iter()
+            .flat_map(|i| i.to_le_bytes()).collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.arrival_buffer, (range.min * 4) as u32, packed.len() as u32, &packed);
+    }
+
+    /// Upload dirty range of backoffs buffer (i32 = 4 bytes per entry)
+    pub fn upload_backoffs_range(&mut self, range: &DirtyRange) {
+        if !range.dirty { return; }
+        let bytes: Vec<u8> = self.backoffs[range.min..=range.max].iter()
+            .flat_map(|i| i.to_le_bytes()).collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.backoff_buffer, (range.min * 4) as u32, packed.len() as u32, &packed);
+    }
+
+    /// Upload dirty range of healths buffer (f32 = 4 bytes per entry)
+    pub fn upload_healths_range(&mut self, range: &DirtyRange) {
+        if !range.dirty { return; }
+        let bytes: Vec<u8> = self.healths[range.min..=range.max].iter()
+            .flat_map(|f| f.to_le_bytes()).collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.health_buffer, (range.min * 4) as u32, packed.len() as u32, &packed);
+    }
+
+    /// Upload dirty range of positions buffer (vec2 = 8 bytes per entry)
+    pub fn upload_positions_range(&mut self, range: &DirtyRange) {
+        if !range.dirty { return; }
+        let start_idx = range.min * 2;
+        let end_idx = (range.max + 1) * 2;
+        let bytes: Vec<u8> = self.positions[start_idx..end_idx].iter()
+            .flat_map(|f| f.to_le_bytes()).collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.position_buffer, (range.min * 8) as u32, packed.len() as u32, &packed);
+    }
+
+    /// Upload dirty range of colors buffer (vec4 = 16 bytes per entry)
+    pub fn upload_colors_range(&mut self, range: &DirtyRange) {
+        if !range.dirty { return; }
+        let start_idx = range.min * 4;
+        let end_idx = (range.max + 1) * 4;
+        let bytes: Vec<u8> = self.colors[start_idx..end_idx].iter()
+            .flat_map(|f| f.to_le_bytes()).collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.color_buffer, (range.min * 16) as u32, packed.len() as u32, &packed);
+    }
+
+    /// Upload dirty range of factions buffer (i32 = 4 bytes per entry)
+    pub fn upload_factions_range(&mut self, range: &DirtyRange) {
+        if !range.dirty { return; }
+        let bytes: Vec<u8> = self.factions[range.min..=range.max].iter()
+            .flat_map(|i| i.to_le_bytes()).collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.faction_buffer, (range.min * 4) as u32, packed.len() as u32, &packed);
+    }
+
+    /// Upload dirty range of speeds buffer (f32 = 4 bytes per entry)
+    pub fn upload_speeds_range(&mut self, range: &DirtyRange) {
+        if !range.dirty { return; }
+        let bytes: Vec<u8> = self.speeds[range.min..=range.max].iter()
+            .flat_map(|f| f.to_le_bytes()).collect();
+        let packed = PackedByteArray::from(bytes.as_slice());
+        self.rd.buffer_update(self.speed_buffer, (range.min * 4) as u32, packed.len() as u32, &packed);
     }
 
     /// Read combat targets from GPU

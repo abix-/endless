@@ -60,13 +60,7 @@ layout(set = 0, binding = 5, std430) buffer GridData {
     int grid_data[];
 };
 
-// Binding 6: MultiMesh output (write-only - direct to Godot renderer)
-// Layout: 12 floats per NPC (Transform2D + Color)
-// Transform2D: [a.x, b.x, 0, origin.x, a.y, b.y, 0, origin.y]
-// Color: [r, g, b, a]
-layout(set = 0, binding = 6, std430) restrict writeonly buffer MultiMeshBuffer {
-    float multimesh_data[];
-};
+// Binding 6: Reserved (was MultiMesh output, now built on CPU)
 
 // Binding 7: Arrival flags (read/write - 1 = arrived or gave up)
 // Once set to 1, NPC stops pursuing target until new target is set.
@@ -103,11 +97,7 @@ layout(set = 0, binding = 11, std430) restrict writeonly buffer CombatTargetBuff
     int combat_targets[];
 };
 
-// Binding 12: Sprite frame buffer (read-only - set at spawn)
-// Layout: [frame_x, frame_y] per NPC - column/row in sprite sheet
-layout(set = 0, binding = 12, std430) restrict readonly buffer SpriteFrameBuffer {
-    vec2 sprite_frames[];
-};
+// Binding 12: Reserved (sprite frames handled by CPU multimesh builder)
 
 // =============================================================================
 // PUSH CONSTANTS - Small, fast-changing parameters passed each frame
@@ -189,8 +179,9 @@ void main() {
     vec2 to_target = target - pos;
     float dist_to_target = length(to_target);
 
-    // Only pursue target if: has valid target (alpha > 0) AND hasn't settled
-    bool wants_target = color.a > 0.0 && settled == 0;
+    // Only pursue target if: hasn't arrived yet (arrival==0 means "moving")
+    // Note: arrivals[i] is reset to 0 when a new target is set, set to 1 when arrived
+    bool wants_target = settled == 0;
 
     // =========================================================================
     // STEP 2: CALCULATE AVOIDANCE FORCE (push away from neighbors)
@@ -472,35 +463,8 @@ void main() {
     // STEP 6: WRITE OUTPUT
     // =========================================================================
 
-    // Update our state buffers
+    // Update state buffers (CPU reads these back)
     positions[i] = pos;
     arrivals[i] = settled;
     backoff[i] = my_backoff;
-
-    // Write directly to MultiMesh buffer for rendering (zero-copy!)
-    // Layout: 16 floats per instance
-    // Transform2D: [a.x, b.x, 0, origin.x, a.y, b.y, 0, origin.y]
-    // Color: [r, g, b, a]
-    // CustomData: [health_pct, flash, sprite_x/255, sprite_y/255]
-    uint base = i * 16;
-    multimesh_data[base + 0] = 1.0;      // scale x (identity transform)
-    multimesh_data[base + 1] = 0.0;      // shear
-    multimesh_data[base + 2] = 0.0;      // unused
-    multimesh_data[base + 3] = pos.x;    // position x
-    multimesh_data[base + 4] = 0.0;      // shear
-    multimesh_data[base + 5] = 1.0;      // scale y
-    multimesh_data[base + 6] = 0.0;      // unused
-    multimesh_data[base + 7] = pos.y;    // position y
-    // Color from buffer (faction tinting)
-    multimesh_data[base + 8] = color.r;
-    multimesh_data[base + 9] = color.g;
-    multimesh_data[base + 10] = color.b;
-    multimesh_data[base + 11] = color.a;
-    // Custom data for sprite shader
-    float health_pct = clamp(healths[i] / 100.0, 0.0, 1.0);
-    vec2 sprite = sprite_frames[i];
-    multimesh_data[base + 12] = health_pct;          // INSTANCE_CUSTOM.r = health percent
-    multimesh_data[base + 13] = 0.0;                 // INSTANCE_CUSTOM.g = flash (CPU sets this)
-    multimesh_data[base + 14] = sprite.x / 255.0;   // INSTANCE_CUSTOM.b = sprite column
-    multimesh_data[base + 15] = sprite.y / 255.0;   // INSTANCE_CUSTOM.a = sprite row
 }
