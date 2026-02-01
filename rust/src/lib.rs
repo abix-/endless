@@ -1754,19 +1754,27 @@ impl EcsNpcManager {
 
     /// Initialize food storage for all towns (villager and raider).
     #[func]
-    fn init_food_storage(&self, total_town_count: i32) {
-        if let Ok(mut food) = FOOD_STORAGE.lock() {
-            food.food = vec![0; total_town_count as usize];
+    fn init_food_storage(&mut self, total_town_count: i32) {
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut food) = app.world_mut().get_resource_mut::<resources::FoodStorage>() {
+                    food.init(total_town_count as usize);
+                }
+            }
         }
     }
 
-    /// Add food to a town (called when farmer produces food).
+    /// Add food to a town (called from GDScript when needed).
     #[func]
-    fn add_town_food(&self, town_idx: i32, amount: i32) {
-        if let Ok(mut food) = FOOD_STORAGE.lock() {
-            let idx = town_idx as usize;
-            if idx < food.food.len() {
-                food.food[idx] += amount;
+    fn add_town_food(&mut self, town_idx: i32, amount: i32) {
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                if let Some(mut food) = app.world_mut().get_resource_mut::<resources::FoodStorage>() {
+                    let idx = town_idx as usize;
+                    if idx < food.food.len() {
+                        food.food[idx] += amount;
+                    }
+                }
             }
         }
     }
@@ -1774,10 +1782,15 @@ impl EcsNpcManager {
     /// Get food count for a town (works for both villager and raider towns).
     #[func]
     fn get_town_food(&self, town_idx: i32) -> i32 {
-        if let Ok(food) = FOOD_STORAGE.lock() {
-            let idx = town_idx as usize;
-            if idx < food.food.len() {
-                return food.food[idx];
+        if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                if let Some(food) = app.world().get_resource::<resources::FoodStorage>() {
+                    let idx = town_idx as usize;
+                    if idx < food.food.len() {
+                        return food.food[idx];
+                    }
+                }
             }
         }
         0

@@ -136,31 +136,9 @@ pub static GPU_READ_STATE: Mutex<GpuReadState> = Mutex::new(GpuReadState {
 });
 
 // ============================================================================
-// FOOD STORAGE (Bevy-owned, polled by GDScript)
-// ============================================================================
-
-/// Per-town food counts. All settlements are "towns" (villager or raider).
-/// Owned by Bevy so eat-decisions stay in Rust without crossing the GDScript boundary.
-pub struct FoodStorage {
-    pub food: Vec<i32>,  // One entry per town (villager towns first, then raider towns)
-}
-
-impl Default for FoodStorage {
-    fn default() -> Self {
-        Self {
-            food: Vec::new(),
-        }
-    }
-}
-
-pub static FOOD_STORAGE: Mutex<FoodStorage> = Mutex::new(FoodStorage {
-    food: Vec::new(),
-});
-
-
-// ============================================================================
 // GAME CONFIG (write-once from GDScript, drained into Res<GameConfig>)
 // ============================================================================
+// Note: FoodStorage moved to resources.rs as a Bevy Resource
 
 use crate::resources::GameConfig;
 
