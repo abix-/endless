@@ -955,8 +955,9 @@ impl GpuCompute {
             (0.8, 0.3, 0.3),  // 4: Weapon (red)
         ];
 
-        // Reserve slots for both NPCs and farms
-        let total_slots = max_count + farm_data.len();
+        // Buffer must match MultiMesh allocation: MAX_NPC_COUNT + MAX_FARMS
+        // Using farm_data.len() would cause size mismatch when actual farms < MAX_FARMS
+        let total_slots = max_count + MAX_FARMS;
         let float_count = total_slots * FLOATS_PER_ITEM;
         let mut floats = vec![0.0f32; float_count];
 
@@ -998,6 +999,9 @@ impl GpuCompute {
 
         // Render food icons on ready farms (after NPC slots)
         for (i, (farm_x, farm_y, is_ready)) in farm_data.iter().enumerate() {
+            if i >= MAX_FARMS {
+                break; // Don't exceed allocated farm slots
+            }
             if !is_ready {
                 continue; // Farm not ready, no food icon
             }
