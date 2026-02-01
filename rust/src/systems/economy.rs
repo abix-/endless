@@ -43,6 +43,12 @@ pub fn pop_dec_working(stats: &mut PopulationStats, job: Job, clan: i32) {
     }
 }
 
+/// Increment dead count for a (job, clan) pair.
+pub fn pop_inc_dead(stats: &mut PopulationStats, job: Job, clan: i32) {
+    let key = (job as i32, clan);
+    stats.0.entry(key).or_default().dead += 1;
+}
+
 // ============================================================================
 // ECONOMY TICK SYSTEM - All hourly logic in one place
 // ============================================================================

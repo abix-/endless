@@ -83,6 +83,7 @@ pub fn death_cleanup_system(
         commands.entity(entity).despawn();
         despawn_count += 1;
         pop_dec_alive(&mut pop_stats, *job, town_id.0);
+        pop_inc_dead(&mut pop_stats, *job, town_id.0);
         if working.is_some() {
             pop_dec_working(&mut pop_stats, *job, town_id.0);
         }

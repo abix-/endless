@@ -1946,6 +1946,23 @@ impl EcsNpcManager {
                     dict.set("guard_kills", kills.guard_kills);
                     dict.set("villager_kills", kills.villager_kills);
                 }
+                // Get dead counts from PopulationStats (tracks by job)
+                if let Some(pop) = app.world().get_resource::<resources::PopulationStats>() {
+                    let mut farmers_dead = 0i32;
+                    let mut guards_dead = 0i32;
+                    let mut raiders_dead = 0i32;
+                    for ((job, _clan), stats) in pop.0.iter() {
+                        match job {
+                            0 => farmers_dead += stats.dead,
+                            1 => guards_dead += stats.dead,
+                            2 => raiders_dead += stats.dead,
+                            _ => {}
+                        }
+                    }
+                    dict.set("farmers_dead", farmers_dead);
+                    dict.set("guards_dead", guards_dead);
+                    dict.set("raiders_dead", raiders_dead);
+                }
             }
         }
 

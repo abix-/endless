@@ -54,6 +54,7 @@ pub struct NpcEntityMap(pub HashMap<usize, Entity>);
 pub struct PopStats {
     pub alive: i32,
     pub working: i32,
+    pub dead: i32,
 }
 
 /// Aggregated population stats, updated incrementally at spawn/death/state transitions.

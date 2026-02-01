@@ -1,6 +1,11 @@
 # Changelog
 
 ## 2026-02-01
+- track deaths by job: show farmer/guard/raider deaths separately in UI
+  - add dead field to PopStats (tracks by job + town)
+  - add pop_inc_dead() helper, call in death_cleanup_system
+  - expose farmers_dead, guards_dead, raiders_dead in get_population_stats()
+  - left_panel.gd now shows guard deaths instead of "-"
 - fix raider healing: unify settlements as towns with faction
   - add "town_center" location type replacing "fountain" and "camp"
   - Town struct now has sprite_type field (0=fountain, 1=tent)

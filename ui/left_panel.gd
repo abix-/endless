@@ -188,29 +188,10 @@ func _update_stats() -> void:
 	_set_text(raider_alive, str(pop.get("raiders_alive", 0)))
 	_set_text(raider_kills, str(pop.get("villager_kills", 0)))
 
-	# Per-faction stats (alive/dead/kills)
-	var faction_stats: Array = npc_manager.get_all_faction_stats()
-	if faction_stats.size() > 0:
-		# Faction 0 = villagers (farmers + guards)
-		var villager_stats: Dictionary = faction_stats[0] if faction_stats.size() > 0 else {}
-		_set_text(farmer_dead, str(villager_stats.get("dead", 0)))
-		_set_text(guard_dead, "-")  # Can't separate farmer/guard deaths yet
-
-		# Aggregate all raider factions (1..N)
-		var raider_dead_total := 0
-		var raider_kills_total := 0
-		for i in range(1, faction_stats.size()):
-			var s: Dictionary = faction_stats[i]
-			raider_dead_total += s.get("dead", 0)
-			raider_kills_total += s.get("kills", 0)
-		_set_text(raider_dead, str(raider_dead_total))
-		# Update raider kills with faction-tracked value
-		if raider_kills_total > 0:
-			_set_text(raider_kills, str(raider_kills_total))
-	else:
-		_set_text(farmer_dead, "-")
-		_set_text(guard_dead, "-")
-		_set_text(raider_dead, "-")
+	# Dead counts (from PopulationStats, tracked by job)
+	_set_text(farmer_dead, str(pop.get("farmers_dead", 0)))
+	_set_text(guard_dead, str(pop.get("guards_dead", 0)))
+	_set_text(raider_dead, str(pop.get("raiders_dead", 0)))
 
 	# Time (ECS GameTime resource)
 	var game_time: Dictionary = npc_manager.get_game_time()
