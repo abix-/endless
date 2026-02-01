@@ -323,7 +323,7 @@ pub struct FoodEvents {
 // PHASE 11.7: RESOURCES REPLACING STATICS
 // ============================================================================
 
-/// NPC slot allocator. Replaces NPC_SLOT_COUNTER + FREE_SLOTS statics.
+/// NPC slot allocator. Manages slot indices with free list for reuse.
 #[derive(Resource, Default)]
 pub struct SlotAllocator {
     pub next: usize,

@@ -116,9 +116,9 @@ pub struct GpuUpdateMsg(pub GpuUpdate);
 | Pool | Type | Push | Pop |
 |------|------|------|-----|
 | SlotAllocator (Bevy) | Resource | death_cleanup_system (NPC dies) | allocate_slot() (NPC spawns) |
-| FREE_PROJ_SLOTS | Vec\<usize\> | process() (projectile hits/expires) | fire_projectile() |
+| FREE_PROJ_SLOTS | Static Vec | process() (projectile hits/expires) | fire_projectile() |
 
-NPC slots use Bevy's `SlotAllocator` resource for unified spawn/death handling. Projectile slots still use static. Both are LIFO (stack) — most recently freed slot is reused first. No generational counters.
+NPC slots use Bevy's `SlotAllocator` resource (with internal free list). Projectile slots use static `FREE_PROJ_SLOTS`. Both are LIFO (stack) — most recently freed slot is reused first. No generational counters.
 
 ## Slot Allocation vs GPU Dispatch
 
@@ -126,10 +126,10 @@ Slot allocation and GPU dispatch are decoupled, preventing uninitialized buffer 
 
 | Counter | Type | Writer | Reader |
 |---------|------|--------|--------|
-| SlotAllocator.next | Bevy Resource | allocate_slot(), reset() | allocate_slot(), get_npc_count() |
-| GPU_DISPATCH_COUNT | `Mutex<usize>` | spawn_npc_system | process() for dispatch |
+| SlotAllocator | Bevy Resource | allocate_slot(), death_cleanup_system (free), reset() | allocate_slot(), get_npc_count() |
+| GPU_DISPATCH_COUNT | Static Mutex | spawn_npc_system | process() for dispatch |
 
-`SlotAllocator.next` is the high-water mark — incremented when `spawn_npc()` allocates a slot via Bevy resource. `GPU_DISPATCH_COUNT` is only updated after `spawn_npc_system` pushes GPU buffer data to `GPU_UPDATE_QUEUE`. This ensures `process()` never dispatches NPCs with uninitialized GPU buffers. See [frame-loop.md](frame-loop.md) for timing details.
+`SlotAllocator` manages the slot pool with an internal free list for recycling dead NPC indices. `GPU_DISPATCH_COUNT` is only updated after `spawn_npc_system` pushes GPU buffer data to `GPU_UPDATE_QUEUE`. This ensures `process()` never dispatches NPCs with uninitialized GPU buffers. See [frame-loop.md](frame-loop.md) for timing details.
 
 ## Control Flags
 
@@ -163,53 +163,51 @@ COMBAT_DEBUG (defined in `systems/combat.rs`) tracks 18 fields: `attackers_queri
 
 ## UI Query State
 
-Static registries for UI panels to query NPC data. GDScript can't access Bevy World directly, so these caches bridge the boundary.
+Bevy Resources for UI panels to query NPC data. GDScript calls `get_bevy_app()` to access these via the `#[func]` API methods.
 
-| Static | Type | Writer | Reader |
-|--------|------|--------|--------|
-| NPC_META | `Vec<NpcMeta>` | spawn_npc_system (init), set_npc_name() | get_npc_info(), get_npcs_by_town(), get_npc_name() |
-| NPC_STATES | `Vec<i32>` | spawn_npc_system, behavior systems | get_npc_info(), get_npcs_by_town() |
-| NPC_ENERGY | `Vec<f32>` | energy_system | get_npc_info() |
-| KILL_STATS | `KillStats` | death_cleanup_system | get_population_stats() |
-| SELECTED_NPC | `i32` | set_selected_npc() | get_selected_npc() |
-| NPCS_BY_TOWN | `Vec<Vec<usize>>` | spawn_npc_system (add), death_cleanup_system (remove) | get_npcs_by_town(), get_population_stats(), get_town_population() |
+| Resource | Type | Writer | Reader |
+|----------|------|--------|--------|
+| NpcMetaCache | `Vec<NpcMeta>` | spawn_npc_system (init), set_npc_name() | get_npc_info(), get_npcs_by_town(), get_npc_name() |
+| NpcEnergyCache | `Vec<f32>` | energy_system | get_npc_info() |
+| NpcLogCache | `Vec<VecDeque<NpcLogEntry>>` | behavior systems | get_npc_log() |
+| KillStats | `{ guard_kills, villager_kills }` | death_cleanup_system | get_population_stats() |
+| SelectedNpc | `i32` | set_selected_npc() channel msg | get_selected_npc() |
+| NpcsByTownCache | `Vec<Vec<usize>>` | spawn_npc_system (add), death_cleanup_system (remove) | get_npcs_by_town(), get_town_population() |
+| PopulationStats | `HashMap<(job, town), PopStats>` | spawn/death/state systems | get_population_stats() |
 
 **NpcMeta struct:** name (String), level (i32), xp (i32), trait_id (i32), town_id (i32), job (i32)
 
-**KillStats struct:** guard_kills (i32), villager_kills (i32)
+**PopStats struct:** alive (i32), working (i32), dead (i32)
+
+**NPC state is derived**, not cached — `derive_npc_state()` checks ECS components (Dead, InCombat, Resting, etc.) at query time.
 
 **State constants:** STATE_IDLE=0, STATE_WALKING=1, STATE_RESTING=2, STATE_WORKING=3, STATE_PATROLLING=4, STATE_ON_DUTY=5, STATE_FIGHTING=6, STATE_RAIDING=7, STATE_RETURNING=8, STATE_RECOVERING=9, STATE_FLEEING=10, STATE_GOING_TO_REST=11, STATE_GOING_TO_WORK=12
 
-## Architecture: Channels vs Statics
+## Architecture: Channels vs Statics vs Resources
 
 | Category | Pattern | Items | Count |
 |----------|---------|-------|-------|
-| GDScript→Bevy | **Channel** (migrated Phase 11.7) | SpawnNpc, SetTarget, ApplyDamage, Reset, SetPaused, SetTimeScale | 6 msgs |
-| Bevy→GDScript | **Channel** (migrated Phase 11.7) | FireProjectile (+ future Sync* msgs) | 1 msg |
-| lib.rs boundary | Static Mutex (stays) | ARRIVAL_QUEUE, FREE_PROJ_SLOTS | 2 |
-| Bevy↔GPU boundary | Static Mutex (stays) | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
-| UI query state | Static Mutex (stays) | NPC_META, NPC_STATES, NPC_ENERGY, KILL_STATS, SELECTED_NPC, NPCS_BY_TOWN | 6 |
-| Bevy-internal state | Bevy Resources | FOOD_STORAGE, SlotAllocator, GAME_CONFIG_STAGING (staging only) | 3 |
-
-**Phase 11.7 completed:** Replaced 5 static queues with lock-free crossbeam channels:
-- SPAWN_QUEUE → GodotToBevyMsg::SpawnNpc
-- TARGET_QUEUE → GodotToBevyMsg::SetTarget
-- DAMAGE_QUEUE → GodotToBevyMsg::ApplyDamage
-- PROJECTILE_FIRE_QUEUE → BevyToGodotMsg::FireProjectile
-- RESET_BEVY → GodotToBevyMsg::Reset
+| GDScript→Bevy | **Channel** | SpawnNpc, SetTarget, ApplyDamage, Reset, SetPaused, SetTimeScale, SelectNpc, PlayerClick | 8 msgs |
+| Bevy→GDScript | **Channel** | FireProjectile (+ future Sync* msgs) | 1 msg |
+| lib.rs boundary | Static Mutex | ARRIVAL_QUEUE, FREE_PROJ_SLOTS | 2 |
+| Bevy↔GPU boundary | Static Mutex | GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT | 3 |
+| Config staging | Static Mutex | GAME_CONFIG_STAGING, FOOD_STORAGE | 2 |
+| UI query state | **Bevy Resource** | NpcMetaCache, NpcEnergyCache, NpcLogCache, NpcsByTownCache, PopulationStats, KillStats, SelectedNpc | 7 |
+| Slot management | **Bevy Resource** | SlotAllocator, ProjSlotAllocator | 2 |
+| Performance | Static Mutex | PERF_STATS | 1 |
 
 **Why channels?** godot-bevy docs recommend crossbeam for cross-thread communication. Channels are lock-free (no Mutex contention), fire-and-forget from lib.rs, and drained by Bevy systems that can run in parallel.
 
-**Why statics remain at lib.rs boundary?** lib.rs runs outside Bevy's scheduler. Accessing Bevy resources via `get_bevy_app()` would serialize all calls on the main thread ("systems with GodotAccess are forced onto the main thread and run sequentially"). The remaining statics are low-frequency or batch operations (slot allocation, GPU buffer sync, UI queries).
+**Why statics at lib.rs boundary?** lib.rs runs outside Bevy's scheduler. The remaining statics are batch operations (GPU buffer sync, arrivals) or staging areas (config, food storage).
 
-**Phase 10.2 completed:** Bevy systems emit `GpuUpdateMsg` via `MessageWriter` instead of locking `GPU_UPDATE_QUEUE` directly. `collect_gpu_updates` system runs at end of frame and does a single Mutex lock to batch all updates.
+**Why Bevy Resources for UI state?** UI queries go through `get_bevy_app()` which already accesses the Bevy world. Keeping caches as Resources allows Bevy systems to update them directly without crossing the static boundary.
 
 ## Known Issues / Limitations
 
 - **Channels are unbounded**: No backpressure. If spawn calls outpace Bevy drain (shouldn't happen at 60fps), channels grow without limit.
 - **GPU_READ_STATE is one frame stale**: Bevy reads positions from previous frame's dispatch. Acceptable at 140fps.
-- **7 statics at lib.rs boundary**: ARRIVAL_QUEUE, projectile slots, GPU state. NPC slot allocation moved to Bevy SlotAllocator resource.
+- **Health dual ownership**: CPU-authoritative but synced to GPU for shader display. Could diverge if sync fails.
 
 ## Rating: 7/10
 
-Hybrid channel + static architecture works but has gaps. Channels are unbounded with no backpressure — if spawn calls outpace drain, memory grows without limit. GPU_READ_STATE is one frame stale. Health has confusing dual ownership (CPU-authoritative but synced to GPU). 7 statics remain at lib.rs boundary. Lock-free channels are good; the boundary complexity is the cost of Godot/Bevy integration.
+Hybrid channel + static + Bevy Resource architecture works well. Channels handle high-frequency cross-thread communication. UI query state moved to Bevy Resources for cleaner access. Statics remain only for GPU boundary and staging. Lock-free channels are good; the boundary complexity is the cost of Godot/Bevy integration.

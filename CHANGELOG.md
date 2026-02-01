@@ -17,6 +17,11 @@
   - add bevy_app_cache field to EcsNpcManager
   - add get_bevy_app_cached() for hot paths (process())
   - eliminates 60 scene tree traversals per second
+- remove dead code: FREE_SLOTS and NPC_SLOT_COUNTER statics
+  - SlotAllocator Bevy resource replaced these
+- update messages.md: fix outdated UI query state section
+  - doc claimed static Mutexes but code uses Bevy Resources
+  - correct architecture table counts
 - track deaths by job: show farmer/guard/raider deaths separately in UI
   - add dead field to PopStats (tracks by job + town)
   - add pop_inc_dead() helper, call in death_cleanup_system

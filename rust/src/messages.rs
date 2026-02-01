@@ -50,30 +50,23 @@ pub struct DamageMsg {
 // ============================================================================
 
 pub static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
-// Phase 11.7: Removed PROJECTILE_FIRE_QUEUE, RESET_BEVY → channels
 
 // ============================================================================
-// SLOT ALLOCATION vs GPU DISPATCH (two separate counts)
+// GPU DISPATCH COUNT
 // ============================================================================
-
-/// High-water mark for slot allocation. Only grows (or resets to 0).
-/// Used by allocate_slot() to assign indices. NOT used for GPU dispatch.
-pub static NPC_SLOT_COUNTER: Mutex<usize> = Mutex::new(0);
 
 /// Number of NPCs with initialized GPU buffers. Set by spawn_npc_system
 /// after pushing GPU_UPDATE_QUEUE. Read by process() for dispatch count.
+/// NPC slot allocation itself is handled by Bevy's SlotAllocator resource.
 pub static GPU_DISPATCH_COUNT: Mutex<usize> = Mutex::new(0);
 
 // ============================================================================
-// SLOT REUSE: Free slot pools for recycling dead indices
+// PROJECTILE SLOT REUSE
 // ============================================================================
-
-/// Free NPC slot indices available for reuse.
-/// When an NPC dies, its index is pushed here. Spawn pops from here first.
-pub static FREE_SLOTS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
 /// Free projectile slot indices available for reuse.
 /// When a projectile expires or hits, its index is pushed here.
+/// Note: NPC slots use Bevy's SlotAllocator resource instead of a static.
 pub static FREE_PROJ_SLOTS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
 // ============================================================================
