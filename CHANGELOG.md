@@ -1,6 +1,19 @@
 # Changelog
 
 ## 2026-02-01
+- add farm growth system: farms have growing → ready cycle
+  - FarmStates resource tracks Growing/Ready state and progress per farm
+  - farm_growth_system advances progress based on game time
+  - hybrid growth: passive 0.08/hour (~12h), tended 0.25/hour (~4h with farmer)
+  - farmers harvest ready farms on arrival (adds food, resets growth)
+  - raiders can only steal from ready farms (otherwise seek another)
+  - ready farms show yellow food icon via build_item_multimesh()
+- add find_location_within_radius() to world.rs
+  - returns (index, position) for locations within radius
+  - find_nearest_location() now wraps it for backward compatibility
+  - used by arrival_system for clean farm harvest/steal logic
+- add MAX_FARMS constant (500), item MultiMesh allocates extra slots
+- known issue: farm_data fetch every frame causes stutter (needs caching)
 - track deaths by job: show farmer/guard/raider deaths separately in UI
   - add dead field to PopStats (tracks by job + town)
   - add pop_inc_dead() helper, call in death_cleanup_system

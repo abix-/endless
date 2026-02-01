@@ -939,8 +939,11 @@ impl GpuCompute {
 
     /// Build carried item MultiMesh buffer.
     /// Items render above NPC heads at same X, Y-12 offset.
+    /// Also renders food icons on ready farms.
     /// Item colors: 1=food(yellow), 2=wood(brown), 3=stone(gray), 4=weapon(red)
-    pub fn build_item_multimesh(&self, npc_count: usize, max_count: usize) -> PackedFloat32Array {
+    ///
+    /// farm_data: Vec of (x, y, is_ready) for each farm
+    pub fn build_item_multimesh(&self, npc_count: usize, max_count: usize, farm_data: &[(f32, f32, bool)]) -> PackedFloat32Array {
         const FLOATS_PER_ITEM: usize = 12; // Transform2D(8) + Color(4)
         const Y_OFFSET: f32 = -12.0; // Above NPC head
 
@@ -952,11 +955,13 @@ impl GpuCompute {
             (0.8, 0.3, 0.3),  // 4: Weapon (red)
         ];
 
-        let float_count = max_count * FLOATS_PER_ITEM;
+        // Reserve slots for both NPCs and farms
+        let total_slots = max_count + farm_data.len();
+        let float_count = total_slots * FLOATS_PER_ITEM;
         let mut floats = vec![0.0f32; float_count];
 
         // Initialize all as hidden
-        for i in 0..max_count {
+        for i in 0..total_slots {
             let base = i * FLOATS_PER_ITEM;
             floats[base + 0] = 1.0;      // scale x
             floats[base + 5] = 1.0;      // scale y
@@ -985,6 +990,29 @@ impl GpuCompute {
             // Color by item type
             let color_idx = ((item_id - 1) as usize).min(ITEM_COLORS.len() - 1);
             let (r, g, b) = ITEM_COLORS[color_idx];
+            floats[base + 8] = r;
+            floats[base + 9] = g;
+            floats[base + 10] = b;
+            floats[base + 11] = 1.0;
+        }
+
+        // Render food icons on ready farms (after NPC slots)
+        for (i, (farm_x, farm_y, is_ready)) in farm_data.iter().enumerate() {
+            if !is_ready {
+                continue; // Farm not ready, no food icon
+            }
+
+            let slot = max_count + i;
+            let base = slot * FLOATS_PER_ITEM;
+
+            // Transform2D - food icon at farm position (slightly above center)
+            floats[base + 0] = 1.0;       // scale x
+            floats[base + 3] = *farm_x;   // pos x
+            floats[base + 5] = 1.0;       // scale y
+            floats[base + 7] = *farm_y - 8.0;  // pos y (slightly above farm center)
+
+            // Food color (same yellow/gold as carried food)
+            let (r, g, b) = ITEM_COLORS[0];
             floats[base + 8] = r;
             floats[base + 9] = g;
             floats[base + 10] = b;

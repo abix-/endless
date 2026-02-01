@@ -81,6 +81,23 @@ pub const SCORE_REST_MULT: f32 = 1.0;
 pub const SCORE_FLEE_MULT: f32 = 1.0;
 
 // ============================================================================
+// FARM GROWTH CONSTANTS
+// ============================================================================
+
+/// Growth progress per game hour when no farmer is tending.
+pub const FARM_BASE_GROWTH_RATE: f32 = 0.08;
+
+/// Growth progress per game hour when a farmer is working.
+pub const FARM_TENDED_GROWTH_RATE: f32 = 0.25;
+
+// Full growth = 1.0 progress
+// Passive only: ~12 hours to grow
+// With farmer: ~4 hours to grow
+
+/// Maximum farms for item MultiMesh slot allocation.
+pub const MAX_FARMS: usize = 500;
+
+// ============================================================================
 // PROJECTILE CONSTANTS
 // ============================================================================
 

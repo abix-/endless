@@ -412,6 +412,28 @@ impl FoodStorage {
     }
 }
 
+/// Farm growth state.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum FarmGrowthState {
+    #[default]
+    Growing,  // Crops growing, progress accumulating
+    Ready,    // Ready to harvest, shows food icon
+}
+
+/// Per-farm growth tracking.
+#[derive(Resource, Default)]
+pub struct FarmStates {
+    pub states: Vec<FarmGrowthState>,  // Per-farm state
+    pub progress: Vec<f32>,            // Growth progress 0.0-1.0
+}
+
+impl FarmStates {
+    pub fn push_farm(&mut self) {
+        self.states.push(FarmGrowthState::Growing);
+        self.progress.push(0.0);
+    }
+}
+
 /// Per-faction statistics.
 #[derive(Clone, Default)]
 pub struct FactionStat {

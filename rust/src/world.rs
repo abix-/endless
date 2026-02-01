@@ -183,27 +183,38 @@ pub enum LocationKind {
     Town,
 }
 
-/// Find nearest location of a given kind.
+/// Find nearest location of a given kind (no radius limit, position only).
 pub fn find_nearest_location(from: Vector2, world: &WorldData, kind: LocationKind) -> Option<Vector2> {
-    let mut best: Option<(f32, Vector2)> = None;
+    find_location_within_radius(from, world, kind, f32::MAX).map(|(_, pos)| pos)
+}
 
-    let positions: Box<dyn Iterator<Item = Vector2>> = match kind {
-        LocationKind::Farm => Box::new(world.farms.iter().map(|f| f.position)),
-        LocationKind::Bed => Box::new(world.beds.iter().map(|b| b.position)),
-        LocationKind::GuardPost => Box::new(world.guard_posts.iter().map(|g| g.position)),
-        LocationKind::Town => Box::new(world.towns.iter().map(|t| t.center)),
+/// Find nearest location of a given kind within radius. Returns (index, position).
+/// Core function used by both internal Rust code and FFI functions.
+pub fn find_location_within_radius(
+    from: Vector2,
+    world: &WorldData,
+    kind: LocationKind,
+    radius: f32,
+) -> Option<(usize, Vector2)> {
+    let mut best: Option<(f32, usize, Vector2)> = None;
+
+    let positions: Vec<Vector2> = match kind {
+        LocationKind::Farm => world.farms.iter().map(|f| f.position).collect(),
+        LocationKind::Bed => world.beds.iter().map(|b| b.position).collect(),
+        LocationKind::GuardPost => world.guard_posts.iter().map(|g| g.position).collect(),
+        LocationKind::Town => world.towns.iter().map(|t| t.center).collect(),
     };
 
-    for pos in positions {
+    for (idx, pos) in positions.iter().enumerate() {
         let dx = pos.x - from.x;
         let dy = pos.y - from.y;
-        let dist_sq = dx * dx + dy * dy;
-        if best.is_none() || dist_sq < best.unwrap().0 {
-            best = Some((dist_sq, pos));
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist <= radius && (best.is_none() || dist < best.unwrap().0) {
+            best = Some((dist, idx, *pos));
         }
     }
 
-    best.map(|(_, p)| p)
+    best.map(|(_, idx, pos)| (idx, pos))
 }
 
 /// Tracks which NPCs occupy each bed (-1 = free).

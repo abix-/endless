@@ -61,7 +61,7 @@ Frame execution order ───────────────────�
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 7/10 |
 | [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 7/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
-| [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover | 5/10 |
+| [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover, farm growth | 6/10 |
 | [api.md](api.md) | Complete GDScript-to-Rust API (36 methods) | - |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
@@ -135,3 +135,4 @@ Collected from all docs. Priority order:
 4. **InCombat can stick** — no timeout if target dies out of detection range. ([behavior.md](behavior.md))
 5. **Two stat presets only** — AttackStats has melee and ranged constructors but no per-NPC variation beyond these. ([combat.md](combat.md))
 6. **Healing halo visual not working** — healing_system heals NPCs but shader halo effect isn't rendering correctly yet. ([behavior.md](behavior.md))
+7. **Farm data fetch stutter** — farm_data gathered every frame via scene tree traversal. Needs caching. ([behavior.md](behavior.md))

@@ -141,8 +141,8 @@ Same situation, different outcomes. That's emergent behavior.
 - Transitions based on current state marker (component-driven, not job-driven):
   - `Patrolling` → `OnDuty { ticks: 0 }`
   - `GoingToRest` → `Resting` (via proximity check)
-  - `GoingToWork` → `Working`
-  - `Raiding` → `CarryingFood` + `Returning` (if near farm)
+  - `GoingToWork` → `Working` + **harvest if farm ready** (see Farm Growth below)
+  - `Raiding` → `CarryingFood` + `Returning` **only if farm is Ready** (see Farm Growth below)
   - `Returning` event arrival → re-target home (actual delivery via proximity check)
   - `Wandering` → clear state (back to decision_system)
 - Also checks `WoundedThreshold` for recovery mode on arrival
@@ -190,6 +190,49 @@ Same situation, different outcomes. That's emergent behavior.
 - **Food production**: counts `Working` farmers per `TownId`, adds food to `FOOD_STORAGE`
 - **Respawn check**: (disabled) code exists to compare `PopulationStats` vs `GameConfig` caps and spawn replacements
 
+### farm_growth_system
+- Runs every frame, advances farm growth based on elapsed game time
+- **FarmStates resource**: tracks `Growing` vs `Ready` state and progress (0.0-1.0) per farm
+- **Hybrid growth model**:
+  - Passive: `FARM_BASE_GROWTH_RATE` (0.08/hour) — ~12 game hours to full growth
+  - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
+- Farm transitions to `Ready` when progress >= 1.0
+- Ready farms show yellow food icon (same color as carried food)
+
+## Farm Growth
+
+Farms have a growth cycle instead of infinite food:
+
+```
+     farm_growth_system advances progress
+              │
+              ▼
+┌──────────┐      progress >= 1.0      ┌─────────┐
+│ Growing  │ ────────────────────────▶ │  Ready  │ (shows food icon)
+│progress++│                           │progress=1│
+└──────────┘                           └────┬────┘
+      ▲                                     │
+      │            farmer/raider arrival    │
+      └─────────────────────────────────────┘
+              reset to Growing, progress=0
+
+```
+
+**Farmer harvest** (arrival_system, GoingToWork → Working):
+- Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS (40px)
+- If farm is Ready: add food to town storage, reset farm to Growing
+- Logs "Harvested → Working" vs "→ Working (tending)"
+
+**Raider steal** (arrival_system, Raiding):
+- Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS
+- Only steals if farm is Ready — reset farm to Growing, set CarryingFood + Returning
+- If farm not ready: re-target another farm via `find_nearest_location()`
+- Logs "Stole food → Returning" vs "Farm not ready, seeking another"
+
+**Visual feedback** (gpu.rs, build_item_multimesh):
+- Item MultiMesh renders food icons on ready farms (same yellow/gold as carried food)
+- Farm slots allocated after NPC slots (MAX_NPC_COUNT + MAX_FARMS)
+
 ## Energy Model
 
 | Constant | Value | Purpose |
@@ -222,7 +265,8 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
 - **All raiders target same farm**: decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
+- **Farm data fetch performance**: farm_data for item rendering is gathered every frame via get_bevy_app() scene tree traversal. Causes noticeable stutter. Should be cached or gathered less frequently.
 
-## Rating: 5/10
+## Rating: 6/10
 
-Utility AI concept is sound but implementation has significant gaps. No pathfinding — NPCs walk through obstacles. Linear O(events × entities) arrival scan is quadratic. InCombat sticks forever if target dies out of range (no timeout). All raiders converge on same farm (nearest-only targeting). Deterministic pseudo-random uses slot index as seed (same NPC = same choices every run). Healing halo visual broken. Energy drains during transit (can arrive at 0). The state machine works but emergent behavior is poor.
+Utility AI concept is sound. Farm growth system adds meaningful gameplay loop — farms grow, farmers harvest, raiders must wait for ready farms. Reusable `find_location_within_radius()` API returns (index, position) for clean farm/bed/post lookups. Still has gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken, farm_data fetch causes frame stutter. But core economy loop now works.

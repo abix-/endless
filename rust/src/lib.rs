@@ -124,6 +124,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<world::WorldData>()
        .init_resource::<world::BedOccupancy>()
        .init_resource::<world::FarmOccupancy>()
+       .init_resource::<resources::FarmStates>()
        .init_resource::<resources::HealthDebug>()
        .init_resource::<resources::CombatDebug>()
        .init_resource::<resources::KillStats>()
@@ -179,6 +180,7 @@ fn build_app(app: &mut bevy::prelude::App) {
            recovery_system,
            patrol_system,
            economy_tick_system,
+           farm_growth_system,
            decision_system,
        ).in_set(Step::Behavior))
        // Collect GPU updates at end of frame (single Mutex lock point)
@@ -296,7 +298,7 @@ impl INode2D for EcsNpcManager {
         }
         self.setup_multimesh(MAX_NPC_COUNT as i32);
         self.setup_proj_multimesh(MAX_PROJECTILES as i32);
-        self.setup_item_multimesh(MAX_NPC_COUNT as i32);
+        self.setup_item_multimesh((MAX_NPC_COUNT + MAX_FARMS) as i32);
         self.setup_location_multimesh();
 
         // Create channels and register Bevy resources
@@ -324,6 +326,28 @@ impl INode2D for EcsNpcManager {
             }
         }
         self.last_process_time = Some(frame_start);
+
+        // Get farm data for item rendering BEFORE borrowing gpu mutably
+        let farm_data: Vec<(f32, f32, bool)> = if let Some(bevy_app) = self.get_bevy_app() {
+            let app_ref = bevy_app.bind();
+            if let Some(app) = app_ref.get_app() {
+                let world_data = app.world().get_resource::<world::WorldData>();
+                let farm_states = app.world().get_resource::<resources::FarmStates>();
+                if let (Some(wd), Some(fs)) = (world_data, farm_states) {
+                    wd.farms.iter().enumerate().map(|(i, farm)| {
+                        let is_ready = i < fs.states.len()
+                            && fs.states[i] == resources::FarmGrowthState::Ready;
+                        (farm.position.x, farm.position.y, is_ready)
+                    }).collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
 
         let gpu = match self.gpu.as_mut() {
             Some(g) => g,
@@ -536,8 +560,8 @@ impl INode2D for EcsNpcManager {
             rs.multimesh_set_buffer(self.multimesh_rid, &buffer);
             let t_upload = t4.elapsed();
 
-            // Update carried item MultiMesh
-            let item_buffer = gpu.build_item_multimesh(npc_count, MAX_NPC_COUNT);
+            // Update carried item MultiMesh (includes farm food icons)
+            let item_buffer = gpu.build_item_multimesh(npc_count, MAX_NPC_COUNT, &farm_data);
             rs.multimesh_set_buffer(self.item_multimesh_rid, &item_buffer);
 
             // Update perf stats
@@ -1406,6 +1430,10 @@ impl EcsNpcManager {
                 if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
                     farms.occupant_count.clear();
                 }
+                if let Some(mut farm_states) = app.world_mut().get_resource_mut::<resources::FarmStates>() {
+                    farm_states.states.clear();
+                    farm_states.progress.clear();
+                }
                 if let Some(mut kills) = app.world_mut().get_resource_mut::<resources::KillStats>() {
                     *kills = resources::KillStats::default();
                 }
@@ -1491,6 +1519,10 @@ impl EcsNpcManager {
                         }
                         if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
                             farms.occupant_count.push(0);
+                        }
+                        // Initialize farm growth state (starts as Growing)
+                        if let Some(mut farm_states) = app.world_mut().get_resource_mut::<resources::FarmStates>() {
+                            farm_states.push_farm();
                         }
                     }
                     "bed" => {

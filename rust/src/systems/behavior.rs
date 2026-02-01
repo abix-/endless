@@ -6,9 +6,9 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::components::*;
 use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache};
+use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState};
 use crate::systems::economy::*;
-use crate::world::{WorldData, LocationKind, find_nearest_location};
+use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius};
 
 // Distinct colors for raider factions (must match spawn.rs)
 const RAIDER_COLORS: [(f32, f32, f32); 10] = [
@@ -84,9 +84,9 @@ pub fn arrival_system(
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
+    mut farm_states: ResMut<FarmStates>,
 ) {
     let positions = &gpu_state.positions;
-    let farms: Vec<Vector2> = world_data.farms.iter().map(|f| f.position).collect();
     const FARM_ARRIVAL_RADIUS: f32 = 40.0;  // Grid spacing is 34px, keep tight to avoid false positives
     const DELIVERY_RADIUS: f32 = 150.0;     // Same as healing radius - deliver when near camp
 
@@ -154,17 +154,60 @@ pub fn arrival_system(
                 commands.entity(entity)
                     .remove::<GoingToWork>()
                     .insert(Working);
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working".into());
                 pop_inc_working(&mut pop_stats, *job, town.0);
+
+                // Farmers harvest ready farms when arriving at work
+                if *job == Job::Farmer {
+                    let pos = if idx * 2 + 1 < positions.len() {
+                        Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                    } else {
+                        continue;
+                    };
+
+                    // Find nearest farm within arrival radius
+                    let mut harvested = false;
+                    if let Some((farm_idx, _)) = find_location_within_radius(pos, &world_data, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
+                        // Check if farm is ready to harvest
+                        if farm_idx < farm_states.states.len()
+                            && farm_states.states[farm_idx] == FarmGrowthState::Ready
+                        {
+                            // Harvest: add food to town storage, reset farm
+                            let town_idx = town.0 as usize;
+                            if town_idx < food_storage.food.len() {
+                                food_storage.food[town_idx] += 1;
+                                food_events.consumed.push(FoodConsumed {
+                                    location_idx: farm_idx as u32,
+                                    is_camp: false,
+                                });
+                            }
+                            farm_states.states[farm_idx] = FarmGrowthState::Growing;
+                            farm_states.progress[farm_idx] = 0.0;
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working".into());
+                            harvested = true;
+                        }
+                    }
+                    if !harvested {
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
+                    }
+                } else {
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working".into());
+                }
             } else if raiding.is_some() {
                 if idx * 2 + 1 < positions.len() {
                     let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
-                    let near_farm = farms.iter().any(|farm| {
-                        let dx = pos.x - farm.x;
-                        let dy = pos.y - farm.y;
-                        (dx * dx + dy * dy).sqrt() < FARM_ARRIVAL_RADIUS
-                    });
-                    if near_farm {
+
+                    // Find nearest farm within arrival radius and check if Ready
+                    let ready_farm = find_location_within_radius(pos, &world_data, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
+                        .filter(|(farm_idx, _)| {
+                            *farm_idx < farm_states.states.len()
+                                && farm_states.states[*farm_idx] == FarmGrowthState::Ready
+                        });
+
+                    if let Some((farm_idx, _)) = ready_farm {
+                        // Farm is ready - steal food and reset farm to Growing
+                        farm_states.states[farm_idx] = FarmGrowthState::Growing;
+                        farm_states.progress[farm_idx] = 0.0;
+
                         commands.entity(entity)
                             .remove::<Raiding>()
                             .insert(CarryingFood)
@@ -181,6 +224,16 @@ pub fn arrival_system(
                             x: home.0.x,
                             y: home.0.y,
                         }));
+                    } else {
+                        // No ready farm nearby - find another farm to raid
+                        if let Some(farm_pos) = find_nearest_location(pos, &world_data, LocationKind::Farm) {
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx: npc_idx.0,
+                                x: farm_pos.x,
+                                y: farm_pos.y,
+                            }));
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another".into());
+                        }
                     }
                 }
             } else if returning.is_some() {
