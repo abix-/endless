@@ -60,3 +60,9 @@ See [docs/](docs/README.md) for architecture, system maps, and known issues.
 - `rust/src/gpu.rs` - GPU compute buffer management
 - `rust/src/systems/` - Bevy systems (spawn, combat, health, behavior)
 - `bevy_npc.gdextension` - library paths for Godot
+
+## Lessons Learned
+
+When a mistake is made during development, document it here so we don't repeat it:
+
+- *(add entries as mistakes are discovered)*
