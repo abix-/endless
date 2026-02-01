@@ -274,6 +274,14 @@ func _update_perf() -> void:
 	lines.append("Combat: %d attackers, %d targets" % [combat.get("attackers", 0), combat.get("targets_found", 0)])
 	lines.append("Attacks: %d | Chases: %d" % [combat.get("attacks", 0), combat.get("chases", 0)])
 
+	# Healing debug
+	var health: Dictionary = npc_manager.get_health_debug()
+	lines.append("Healing: %d in zone, %d healed (towns:%d)" % [
+		health.get("healing_in_zone_count", 0),
+		health.get("healing_healed_count", 0),
+		health.get("healing_towns_count", 0)
+	])
+
 	# Rust ECS perf stats
 	var perf: Dictionary = npc_manager.get_perf_stats()
 	var frame_ms: float = perf.get("frame_ms", 0.0)

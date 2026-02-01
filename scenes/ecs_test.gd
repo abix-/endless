@@ -181,6 +181,12 @@ func _copy_debug_info() -> void:
 		info += "bevy_entity_count: %d\n" % hd.get("bevy_entity_count", -1)
 		info += "damage_processed: %d\n" % hd.get("damage_processed", -1)
 		info += "deaths_this_frame: %d\n" % hd.get("deaths_this_frame", -1)
+		info += "\n--- Healing Debug ---\n"
+		info += "healing_npcs_checked: %d\n" % hd.get("healing_npcs_checked", -1)
+		info += "healing_positions_len: %d\n" % hd.get("healing_positions_len", -1)
+		info += "healing_towns_count: %d\n" % hd.get("healing_towns_count", -1)
+		info += "healing_in_zone_count: %d\n" % hd.get("healing_in_zone_count", -1)
+		info += "healing_healed_count: %d\n" % hd.get("healing_healed_count", -1)
 
 	DisplayServer.clipboard_set(info)
 	_log("Copied to clipboard")
@@ -537,8 +543,8 @@ func _setup_test_world_data() -> void:
 	ecs_manager.init_world(2)
 
 	# Add towns (unified API)
-	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "TestTown", "faction": 0})
-	ecs_manager.add_location("camp", CENTER.x + 200, CENTER.y, 1, {})
+	ecs_manager.add_location("town_center", CENTER.x, CENTER.y, 0, {"name": "TestTown", "faction": 0})
+	ecs_manager.add_location("town_center", CENTER.x + 200, CENTER.y, 1, {"name": "RaiderCamp", "faction": 1})
 
 	# Add 2 farms (west and east of center)
 	ecs_manager.add_location("farm", CENTER.x - 100, CENTER.y, 0, {})
@@ -696,7 +702,7 @@ func _setup_test_guard_patrol() -> void:
 
 	# Initialize world with 1 town
 	ecs_manager.init_world(1)
-	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "GuardTown", "faction": 0})
+	ecs_manager.add_location("town_center", CENTER.x, CENTER.y, 0, {"name": "GuardTown", "faction": 0})
 
 	# Add 4 guard posts (corners, clockwise)
 	var post_positions: Array[Vector2] = [
@@ -773,7 +779,7 @@ func _setup_test_farmer_work() -> void:
 
 	# Initialize world with 1 town
 	ecs_manager.init_world(1)
-	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "FarmTown", "faction": 0})
+	ecs_manager.add_location("town_center", CENTER.x, CENTER.y, 0, {"name": "FarmTown", "faction": 0})
 
 	# Add 2 farms (left and right of center)
 	var farm_positions: Array[Vector2] = [
@@ -924,7 +930,7 @@ func _setup_test_combat() -> void:
 
 	# Initialize world with 1 town and camp
 	ecs_manager.init_world(1)
-	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "CombatTown", "faction": 0})
+	ecs_manager.add_location("town_center", CENTER.x, CENTER.y, 0, {"name": "CombatTown", "faction": 0})
 	ecs_manager.add_location("bed", CENTER.x - 100, CENTER.y, 0, {})
 	ecs_manager.build_locations()
 
@@ -1054,7 +1060,7 @@ func _setup_test_projectiles() -> void:
 	_log("Unified attacks: melee + ranged via projectile pipeline")
 
 	ecs_manager.init_world(1)
-	ecs_manager.add_location("fountain", CENTER.x, CENTER.y, 0, {"name": "AttackTown", "faction": 0})
+	ecs_manager.add_location("town_center", CENTER.x, CENTER.y, 0, {"name": "AttackTown", "faction": 0})
 	ecs_manager.build_locations()
 
 	# Spawn 2 melee fighters (opposing factions, 30px apart)

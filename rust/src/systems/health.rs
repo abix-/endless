@@ -133,13 +133,21 @@ pub fn healing_system(
     world_data: Res<WorldData>,
     delta: Res<PhysicsDelta>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut debug: ResMut<HealthDebug>,
 ) {
     let positions = &gpu_state.positions;
     let dt = delta.delta_seconds;
     let heal_amount = HEAL_RATE * dt;
 
+    // Debug tracking
+    let mut npcs_checked = 0usize;
+    let mut in_zone_count = 0usize;
+    let mut healed_count = 0usize;
+
     for (entity, npc_idx, mut health, max_health, faction, _town_id, healing_marker) in query.iter_mut() {
         let idx = npc_idx.0;
+        npcs_checked += 1;
+
         if idx * 2 + 1 >= positions.len() {
             continue;
         }
@@ -166,10 +174,13 @@ pub fn healing_system(
         }
 
         if in_healing_zone {
+            in_zone_count += 1;
+
             // Heal up to max health
             if health.0 < max_health.0 {
                 health.0 = (health.0 + heal_amount).min(max_health.0);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
+                healed_count += 1;
             }
 
             // Add marker if not present, send visual update
@@ -185,4 +196,11 @@ pub fn healing_system(
             }
         }
     }
+
+    // Update debug stats
+    debug.healing_npcs_checked = npcs_checked;
+    debug.healing_positions_len = positions.len();
+    debug.healing_towns_count = world_data.towns.len();
+    debug.healing_in_zone_count = in_zone_count;
+    debug.healing_healed_count = healed_count;
 }

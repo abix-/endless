@@ -56,7 +56,7 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | `get_build_info` | none | `String` | Build timestamp and commit hash |
 | `get_debug_stats` | none | `Dictionary` | npc_count, arrived_count, avg/max_backoff, cells_used, max_per_cell |
 | `get_combat_debug` | none | `Dictionary` | attackers, targets_found, attacks, chases, sample positions/distances |
-| `get_health_debug` | none | `Dictionary` | damage_processed, deaths, despawned, entity_count, health_samples |
+| `get_health_debug` | none | `Dictionary` | damage_processed, deaths, despawned, entity_count, health_samples, healing_npcs_checked, healing_positions_len, healing_towns_count, healing_in_zone_count, healing_healed_count |
 | `get_guard_debug` | none | `Dictionary` | arrived_flags, prev_arrivals_true, arrival_queue_len |
 
 ## UI Query API
@@ -81,9 +81,8 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | Method | Params | Returns | Description |
 |--------|--------|---------|-------------|
 | `init_world` | `town_count: i32` | void | Initialize world data structures |
-| `add_location` | `type, x, y, town_idx, opts: Dictionary` | `i32` | Unified location API. Type: "farm", "bed", "guard_post", "camp", "fountain". Returns index or -1. |
+| `add_location` | `type, x, y, town_idx, opts: Dictionary` | `i32` | Unified location API. Type: "farm", "bed", "guard_post", "town_center". Returns index or -1. |
 | `build_locations` | none | void | Build/rebuild location MultiMesh from WorldData. Call after batch additions. |
-| `add_town` | `name: String, cx, cy, faction: i32` | void | Register town (legacy, prefer add_location("fountain")) |
 | `get_town_center` | `town_idx: i32` | `Vector2` | Town center position (works for all towns) |
 | `get_patrol_post` | `town_idx, order: i32` | `Vector2` | Patrol post position by order |
 | `get_nearest_free_bed` | `town_idx: i32, x, y: f32` | `i32` | Nearest free bed index or -1 |
@@ -95,9 +94,9 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | `get_world_stats` | none | `Dictionary` | town/farm/bed/guard_post counts, free_beds, free_farms |
 
 `add_location` opts by type:
-- "fountain": `{name: String, faction: i32}` - Creates Town entry
+- "town_center": `{name: String, faction: i32, sprite_type: i32}` - Creates Town entry. sprite_type: 0=fountain (default for faction 0), 1=tent (default for faction > 0)
 - "guard_post": `{patrol_order: i32}` - Patrol order for guards
-- "farm", "bed", "camp": `{}` - No extra options needed
+- "farm", "bed": `{}` - No extra options needed
 
 ## Food Storage API
 

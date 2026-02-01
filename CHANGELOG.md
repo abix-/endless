@@ -1,6 +1,13 @@
 # Changelog
 
 ## 2026-02-01
+- fix raider healing: unify settlements as towns with faction
+  - add "town_center" location type replacing "fountain" and "camp"
+  - Town struct now has sprite_type field (0=fountain, 1=tent)
+  - remove Camp struct and add_town() - all settlements are towns
+  - raiders now heal at their camps (same-faction town center)
+  - add healing debug stats: healing_in_zone_count, healing_healed_count, healing_towns_count
+- fix location MultiMesh rebuild spam: remove per-add rebuild, use build_locations() once
 - optimize GPU buffer updates: batch uploads reduce ~670 → ~8 buffer_update() calls/frame
   - add DirtyRange tracking for each buffer type
   - drain loop updates CPU caches, then batch uploads dirty ranges

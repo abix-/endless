@@ -178,9 +178,11 @@ Same situation, different outcomes. That's emergent behavior.
 ### healing_system
 - Query: NPCs with `Health`, `MaxHealth`, `Faction`, `TownId` (without `Dead`)
 - Reads NPC position from `GpuReadState`, town centers from `WorldData`
+- All settlements (villager and raider) are Town entries with faction (unified town model)
 - If NPC within `HEAL_RADIUS` (150px) of same-faction town center: heal `HEAL_RATE` (5 HP/sec)
 - Adds/removes `Healing` marker component for visual feedback
 - Sends `GpuUpdate::SetHealing` for shader halo effect
+- Debug: `get_health_debug()` returns healing_in_zone_count and healing_healed_count
 
 ### economy_tick_system
 - Reads `Res<PhysicsDelta>` (godot-bevy's Godot-synced delta time)

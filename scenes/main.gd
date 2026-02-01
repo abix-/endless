@@ -364,8 +364,8 @@ func _setup_managers() -> void:
 	for town_idx in towns.size():
 		var town: Dictionary = towns[town_idx]
 
-		# Villager town fountain (faction=0)
-		npc_manager.add_location("fountain", town.center.x, town.center.y, town_idx,
+		# Villager town center (faction=0, sprite_type=0 for fountain)
+		npc_manager.add_location("town_center", town.center.x, town.center.y, town_idx,
 			{"name": town.name, "faction": 0})
 
 		# Farms
@@ -386,8 +386,9 @@ func _setup_managers() -> void:
 			npc_manager.add_location("guard_post", post_pos.x, post_pos.y, town_idx,
 				{"patrol_order": post_idx})
 
-		# Raider camp (unique faction per camp)
-		npc_manager.add_location("camp", town.camp_pos.x, town.camp_pos.y, town_idx, {})
+		# Raider town center (unique faction per camp, sprite_type=1 for tent)
+		npc_manager.add_location("town_center", town.camp_pos.x, town.camp_pos.y, town_idx,
+			{"name": "Raider Camp", "faction": town_idx + 1})
 
 	# Build location sprites (single call after all locations registered)
 	npc_manager.build_locations()

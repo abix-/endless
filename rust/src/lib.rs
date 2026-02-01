@@ -1339,6 +1339,13 @@ impl EcsNpcManager {
                         .map(|(idx, hp)| format!("{}:{:.0}", idx, hp))
                         .collect();
                     dict.set("health_samples", GString::from(&samples.join(" ")));
+
+                    // Healing debug
+                    dict.set("healing_npcs_checked", debug.healing_npcs_checked as i32);
+                    dict.set("healing_positions_len", debug.healing_positions_len as i32);
+                    dict.set("healing_towns_count", debug.healing_towns_count as i32);
+                    dict.set("healing_in_zone_count", debug.healing_in_zone_count as i32);
+                    dict.set("healing_healed_count", debug.healing_healed_count as i32);
                 }
             }
         }
@@ -1461,25 +1468,8 @@ impl EcsNpcManager {
         }
     }
 
-    /// Add a town (villager or raider settlement).
-    /// faction: 0=Villager, 1=Raider
-    #[func]
-    fn add_town(&mut self, name: GString, center_x: f32, center_y: f32, faction: i32) {
-        if let Some(mut bevy_app) = self.get_bevy_app() {
-            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
-                if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
-                    world.towns.push(world::Town {
-                        name: name.to_string(),
-                        center: Vector2::new(center_x, center_y),
-                        faction,
-                    });
-                }
-            }
-        }
-    }
-
     /// Unified location API. Adds any location type and updates sprite rendering.
-    /// loc_type: "farm", "bed", "guard_post", "camp", "fountain"
+    /// loc_type: "farm", "bed", "guard_post", "town_center"
     /// opts: { "patrol_order": i32 (guard_post), "name": String (fountain), "faction": i32 (fountain) }
     /// Returns: index of added location within its type, or -1 on error.
     #[func]
@@ -1528,28 +1518,24 @@ impl EcsNpcManager {
                             });
                         }
                     }
-                    "camp" => {
-                        if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
-                            index = world.camps.len() as i32;
-                            world.camps.push(world::Camp {
-                                position: pos,
-                                town_idx: town_idx as u32,
-                            });
-                        }
-                    }
-                    "fountain" => {
+                    "town_center" => {
                         let name = opts.get("name")
                             .map(|v| v.to::<GString>().to_string())
                             .unwrap_or_else(|| format!("Town {}", town_idx));
                         let faction = opts.get("faction")
                             .map(|v| v.to::<i32>())
                             .unwrap_or(0);
+                        // Default sprite: fountain for villagers (faction 0), tent for raiders
+                        let sprite_type = opts.get("sprite_type")
+                            .map(|v| v.to::<i32>())
+                            .unwrap_or(if faction == 0 { 0 } else { 1 });
                         if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
                             index = world.towns.len() as i32;
                             world.towns.push(world::Town {
                                 name,
                                 center: pos,
                                 faction,
+                                sprite_type,
                             });
                         }
                     }
@@ -1560,15 +1546,10 @@ impl EcsNpcManager {
             }
         }
 
-        // Rebuild location sprites
-        if index >= 0 {
-            self.build_location_buffer();
-        }
-
         index
     }
 
-    /// Rebuild location MultiMesh (call after batch additions for efficiency).
+    /// Rebuild location MultiMesh. Call once after all add_location() calls complete.
     #[func]
     fn build_locations(&mut self) {
         self.build_location_buffer();

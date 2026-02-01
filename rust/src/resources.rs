@@ -160,6 +160,12 @@ pub struct HealthDebug {
     pub despawned_this_frame: usize,
     pub bevy_entity_count: usize,
     pub health_samples: Vec<(usize, f32)>,
+    // Healing debug
+    pub healing_npcs_checked: usize,
+    pub healing_positions_len: usize,
+    pub healing_towns_count: usize,
+    pub healing_in_zone_count: usize,
+    pub healing_healed_count: usize,
 }
 
 /// Combat system debug info - updated by cooldown/attack systems, read by GDScript.

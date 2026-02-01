@@ -75,7 +75,8 @@ pub struct SpriteInstance {
 pub struct Town {
     pub name: String,
     pub center: Vector2,
-    pub faction: i32,  // 0=Villager, 1=Raider
+    pub faction: i32,       // 0=Villager, 1+=Raider factions
+    pub sprite_type: i32,   // 0=fountain, 1=tent
 }
 
 /// A farm building that farmers work at.
@@ -101,13 +102,6 @@ pub struct GuardPost {
     pub patrol_order: u32,
 }
 
-/// A raider camp (separate from towns for sprite rendering).
-#[derive(Clone, Debug)]
-pub struct Camp {
-    pub position: Vector2,
-    pub town_idx: u32,  // Which town this camp raids
-}
-
 // ============================================================================
 // WORLD RESOURCES
 // ============================================================================
@@ -119,7 +113,6 @@ pub struct WorldData {
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub guard_posts: Vec<GuardPost>,
-    pub camps: Vec<Camp>,
 }
 
 impl WorldData {
@@ -143,14 +136,13 @@ impl WorldData {
             Self::add_sprite_instances(&mut sprites, post.position, LocationType::GuardPost);
         }
 
-        // Fountains (town centers, 1x1)
+        // Town centers (sprite based on sprite_type: 0=fountain, 1=tent)
         for town in &self.towns {
-            Self::add_sprite_instances(&mut sprites, town.center, LocationType::Fountain);
-        }
-
-        // Camps (2x2 tent)
-        for camp in &self.camps {
-            Self::add_sprite_instances(&mut sprites, camp.position, LocationType::Camp);
+            let loc_type = match town.sprite_type {
+                1 => LocationType::Camp,  // tent
+                _ => LocationType::Fountain,
+            };
+            Self::add_sprite_instances(&mut sprites, town.center, loc_type);
         }
 
         sprites
