@@ -265,8 +265,8 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
 - **All raiders target same farm**: decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
-- **Farm data fetch performance**: farm_data for item rendering is gathered every frame via get_bevy_app() scene tree traversal. Causes noticeable stutter. Should be cached or gathered less frequently.
+- **~~Farm data fetch performance~~**: Fixed. BevyApp reference is now cached in ready(), eliminating scene tree traversal every frame.
 
 ## Rating: 6/10
 
-Utility AI concept is sound. Farm growth system adds meaningful gameplay loop — farms grow, farmers harvest, raiders must wait for ready farms. Reusable `find_location_within_radius()` API returns (index, position) for clean farm/bed/post lookups. Still has gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken, farm_data fetch causes frame stutter. But core economy loop now works.
+Utility AI concept is sound. Farm growth system adds meaningful gameplay loop — farms grow, farmers harvest, raiders must wait for ready farms. Reusable `find_location_within_radius()` API returns (index, position) for clean farm/bed/post lookups. Still has gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken. But core economy loop now works.

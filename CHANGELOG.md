@@ -13,7 +13,10 @@
   - find_nearest_location() now wraps it for backward compatibility
   - used by arrival_system for clean farm harvest/steal logic
 - add MAX_FARMS constant (500), item MultiMesh allocates extra slots
-- known issue: farm_data fetch every frame causes stutter (needs caching)
+- fix farm data stutter: cache BevyApp reference in ready()
+  - add bevy_app_cache field to EcsNpcManager
+  - add get_bevy_app_cached() for hot paths (process())
+  - eliminates 60 scene tree traversals per second
 - track deaths by job: show farmer/guard/raider deaths separately in UI
   - add dead field to PopStats (tracks by job + town)
   - add pop_inc_dead() helper, call in death_cleanup_system

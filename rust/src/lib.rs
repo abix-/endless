@@ -260,6 +260,10 @@ pub struct EcsNpcManager {
     // === Timing ===
     /// Last process() call timestamp for frame timing
     last_process_time: Option<std::time::Instant>,
+
+    // === BevyApp Cache ===
+    /// Cached reference to BevyApp to avoid scene tree traversal every frame
+    bevy_app_cache: Option<Gd<godot_bevy::app::BevyApp>>,
 }
 
 #[godot_api]
@@ -286,6 +290,7 @@ impl INode2D for EcsNpcManager {
             godot_to_bevy: None,
             bevy_to_godot: None,
             last_process_time: None,
+            bevy_app_cache: None,
         }
     }
 
@@ -313,6 +318,9 @@ impl INode2D for EcsNpcManager {
                 app.world_mut().insert_resource(channels.bevy_to_godot_sender);
             }
         }
+
+        // Cache BevyApp reference to avoid scene tree traversal every frame
+        self.bevy_app_cache = self.get_bevy_app();
     }
 
     fn process(&mut self, delta: f64) {
@@ -328,7 +336,8 @@ impl INode2D for EcsNpcManager {
         self.last_process_time = Some(frame_start);
 
         // Get farm data for item rendering BEFORE borrowing gpu mutably
-        let farm_data: Vec<(f32, f32, bool)> = if let Some(bevy_app) = self.get_bevy_app() {
+        // Use cached BevyApp reference to avoid scene tree traversal every frame
+        let farm_data: Vec<(f32, f32, bool)> = if let Some(bevy_app) = self.get_bevy_app_cached() {
             let app_ref = bevy_app.bind();
             if let Some(app) = app_ref.get_app() {
                 let world_data = app.world().get_resource::<world::WorldData>();
@@ -1886,13 +1895,18 @@ impl EcsNpcManager {
     // TIME API
     // ========================================================================
 
-    /// Get the BevyApp autoload node.
+    /// Get the BevyApp autoload node (does scene tree traversal).
     fn get_bevy_app(&self) -> Option<Gd<godot_bevy::app::BevyApp>> {
         let tree = self.base().get_tree()?;
         let root = tree.get_root()?;
         // Window inherits from Node, use upcast to access try_get_node_as
         let root_node: Gd<godot::classes::Node> = root.upcast();
         root_node.try_get_node_as::<godot_bevy::app::BevyApp>("BevyAppSingleton")
+    }
+
+    /// Get cached BevyApp reference (no tree traversal, use in hot paths like process()).
+    fn get_bevy_app_cached(&self) -> Option<Gd<godot_bevy::app::BevyApp>> {
+        self.bevy_app_cache.clone()
     }
 
     /// Get current game time.
