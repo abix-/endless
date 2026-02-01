@@ -110,6 +110,6 @@ Slots are `usize` indices. `proj_count` only grows (represents high-water mark).
 - **Fixed hit radius**: 10px hardcoded in shader, not configurable per projectile type.
 - **Faction color is cached CPU-side**: `proj_factions` vec mirrors GPU faction buffer. Could be eliminated if color were computed in shader.
 
-## Rating: 8/10
+## Rating: 7/10
 
-Clean GPU-accelerated system with proper slot reuse. Dynamic MultiMesh sizing (the fix from this session) eliminated the 50K-instance performance regression. Zero cost when idle. Main improvements: shrinking proj_count on compaction, and configurable hit radius.
+GPU-accelerated with proper slot reuse and dynamic MultiMesh sizing. Zero cost when idle. However: proj_count never shrinks (high-water mark wastes MultiMesh capacity), hit damage is one frame delayed, 10px hit radius is hardcoded in shader, no projectile-projectile collision. Works but has accumulating waste and inflexibility.

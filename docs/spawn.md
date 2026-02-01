@@ -128,6 +128,6 @@ Checks `RESET_BEVY` flag. If set, despawns all entities with `NpcIndex`, clears 
 - **No spawn validation**: spawn_npc doesn't verify the town_idx is valid or that guard posts exist. Bad input silently creates a guard with no patrol route.
 - **One-frame GPU delay**: GPU writes go through GPU_UPDATE_QUEUE, drained in `process()`. NPC won't render until the frame after Bevy processes the spawn. At 140fps this is invisible.
 
-## Rating: 8/10
+## Rating: 7/10
 
-Single spawn path with job-as-template pattern. Slot index carried in message — fixes the previous dual-counter bug. All GPU writes routed through unified queue. GpuData resource eliminated.
+Single spawn path with job-as-template pattern. Slot index carried in message. However: npc_count never decreases (high-water mark means 1000 spawns + 999 deaths = buffers sized for 1000), no spawn validation (bad town_idx or missing patrol posts silently create broken NPCs), one-frame GPU delay before render. Clean API but no defensive validation.

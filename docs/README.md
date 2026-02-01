@@ -56,14 +56,14 @@ Frame execution order ───────────────────�
 
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
-| [frame-loop.md](frame-loop.md) | Per-frame execution order, communication bridges, timing | 9/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders, 20 GPU buffers, spatial grid, CPU sync | 9/10 |
-| [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 8/10 |
-| [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 8/10 |
-| [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
-| [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover | 8/10 |
+| [frame-loop.md](frame-loop.md) | Per-frame execution order, communication bridges, timing | 7/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders, 11 GPU buffers, spatial grid, CPU sync | 6/10 |
+| [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 7/10 |
+| [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 7/10 |
+| [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
+| [behavior.md](behavior.md) | State machine, energy, patrol, rest/work, steal/flee/recover | 5/10 |
 | [api.md](api.md) | Complete GDScript-to-Rust API (36 methods) | - |
-| [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 9/10 |
+| [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, performance targets, game design reference | - |
 

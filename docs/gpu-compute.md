@@ -174,6 +174,6 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 - Throttle expensive operations to once per second
 - Advance test_phase immediately to prevent repeated assertion runs
 
-## Rating: 9/10
+## Rating: 6/10
 
-Solid GPU compute achieving 10K NPCs @ 75fps. Spatial grid built entirely on GPU via atomic operations — no CPU-side grid building or 3MB upload. TCP-style backoff produces good crowd behavior. Batched buffer uploads reduce ~670 individual `buffer_update()` calls to ~8 per frame. Blocking sync prevents CPU/GPU overlap (Godot limitation).
+GPU compute works but hits fundamental Godot limitations. Blocking `rd.sync()` stalls CPU waiting for GPU (~2.5ms) with no workaround — `buffer_get_data_async()` doesn't work with local RenderingDevice (Godot issue #105256). Two sequential dispatches with full sync between them. Batched buffer uploads helped (0.1ms queue time) but the 9.5ms Godot overhead is outside ECS control. Spatial grid and TCP-style backoff are solid. The architecture is sound but performance ceiling is Godot-imposed.

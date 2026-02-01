@@ -91,6 +91,6 @@ BevyApp (autoload) processes before scene nodes. godot-bevy ticks Bevy's `app.up
 - **One-frame latency**: Bevy systems read GPU_READ_STATE from the *previous* frame's dispatch. Combat targeting uses positions that are one frame old.
 - **No generational indices on GPU side**: NPC slot indices are raw `usize`. Currently safe because chained Combat systems prevent stale references within a frame. See [combat.md](combat.md) for analysis.
 
-## Rating: 9/10
+## Rating: 7/10
 
-The frame loop is well-structured with clear separation between GPU compute, Bevy logic, and rendering. The one-frame latency is standard for CPU/GPU architectures. GPU update communication now uses godot-bevy Message pattern — systems emit messages, collector batches to single Mutex lock. This enables multi-threaded Bevy scheduling.
+Clear separation between GPU compute, Bevy logic, and rendering. Message pattern enables parallel system execution. However, one-frame latency affects multiple boundaries (spawn, combat targeting, damage). Systems read stale GPU_READ_STATE from previous frame. The structure is clean but timing guarantees are weak — combat uses positions that are one frame old.

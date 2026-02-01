@@ -221,6 +221,6 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **All raiders target same farm**: decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
 
-## Rating: 8/10
+## Rating: 5/10
 
-Utility AI with weighted random decisions replaces deterministic priority cascades. Personality traits (Brave, Tough, Swift, Focused) affect both stats and decision weights. Same situation can produce different outcomes based on trait magnitudes and random roll. Combat escape (flee + leash) and recovery remain deterministic for reliability. Main gaps: deterministic pseudo-random (not true random), linear arrival scans, single-camp hardcoding.
+Utility AI concept is sound but implementation has significant gaps. No pathfinding — NPCs walk through obstacles. Linear O(events × entities) arrival scan is quadratic. InCombat sticks forever if target dies out of range (no timeout). All raiders converge on same farm (nearest-only targeting). Deterministic pseudo-random uses slot index as seed (same NPC = same choices every run). Healing halo visual broken. Energy drains during transit (can arrive at 0). The state machine works but emergent behavior is poor.

@@ -210,6 +210,6 @@ Static registries for UI panels to query NPC data. GDScript can't access Bevy Wo
 - **GPU_READ_STATE is one frame stale**: Bevy reads positions from previous frame's dispatch. Acceptable at 140fps.
 - **7 statics at lib.rs boundary**: ARRIVAL_QUEUE, projectile slots, GPU state. NPC slot allocation moved to Bevy SlotAllocator resource.
 
-## Rating: 9/10
+## Rating: 7/10
 
-Hybrid channel + static architecture. High-frequency cross-thread messages (spawn, target, damage, projectile fire, reset) use lock-free crossbeam channels. GPU boundary and UI queries use statics (lib.rs runs outside Bevy scheduler). Bevy-internal communication uses Messages. NPC slot allocation uses Bevy SlotAllocator resource (unified spawn/death). The remaining 7 statics are at unavoidable boundaries.
+Hybrid channel + static architecture works but has gaps. Channels are unbounded with no backpressure — if spawn calls outpace drain, memory grows without limit. GPU_READ_STATE is one frame stale. Health has confusing dual ownership (CPU-authoritative but synced to GPU). 7 statics remain at lib.rs boundary. Lock-free channels are good; the boundary complexity is the cost of Godot/Bevy integration.

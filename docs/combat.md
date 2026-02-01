@@ -127,6 +127,6 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **Clone per frame**: attack_system clones positions and combat_targets vecs from GPU_READ_STATE (~80KB at 10K NPCs). Negligible but not zero-copy.
 - **Debug mutex overhead**: COMBAT_DEBUG and HEALTH_DEBUG lock every frame even in release builds.
 
-## Rating: 8/10
+## Rating: 7/10
 
-Solid pipeline with correct execution ordering. The chained guarantee is the key safety property. O(1) entity lookup via NpcEntityMap is good. Main gap is no generational indices — fine today, risk grows with complexity.
+Pipeline works with correct execution ordering. Chained guarantee is the key safety property. However: clones 80KB per frame (positions + combat_targets vecs), debug mutex locks in release builds, only 2 stat presets (melee/ranged), no generational indices (risk grows with complexity). O(1) entity lookup is good but the rigid design limits extensibility.
