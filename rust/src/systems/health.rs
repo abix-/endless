@@ -8,7 +8,7 @@ use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats};
 use crate::systems::economy::*;
-use crate::world::WorldData;
+use crate::world::{WorldData, FarmOccupancy};
 
 /// Heal rate in HP per second when inside healing aura.
 const HEAL_RATE: f32 = 5.0;
@@ -66,7 +66,7 @@ pub fn death_system(
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, Option<&Working>), With<Dead>>,
+    query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, Option<&Working>, Option<&AssignedFarm>), With<Dead>>,
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
     mut faction_stats: ResMut<FactionStats>,
@@ -76,9 +76,10 @@ pub fn death_cleanup_system(
     outbox: Option<Res<BevyToGodot>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut slots: ResMut<SlotAllocator>,
+    mut farm_occupancy: ResMut<FarmOccupancy>,
 ) {
     let mut despawn_count = 0;
-    for (entity, npc_idx, job, town_id, faction, working) in query.iter() {
+    for (entity, npc_idx, job, town_id, faction, working, assigned_farm) in query.iter() {
         let idx = npc_idx.0;
         commands.entity(entity).despawn();
         despawn_count += 1;
@@ -86,6 +87,13 @@ pub fn death_cleanup_system(
         pop_inc_dead(&mut pop_stats, *job, town_id.0);
         if working.is_some() {
             pop_dec_working(&mut pop_stats, *job, town_id.0);
+        }
+
+        // Release assigned farm if any
+        if let Some(assigned) = assigned_farm {
+            if assigned.0 < farm_occupancy.occupant_count.len() {
+                farm_occupancy.occupant_count[assigned.0] = (farm_occupancy.occupant_count[assigned.0] - 1).max(0);
+            }
         }
 
         // Track kill statistics for UI (faction 0 = player/villager, 1+ = raiders)

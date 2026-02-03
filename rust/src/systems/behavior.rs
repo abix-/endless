@@ -8,7 +8,7 @@ use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
 use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState};
 use crate::systems::economy::*;
-use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius};
+use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy};
 
 // Distinct colors for raider factions (must match spawn.rs)
 const RAIDER_COLORS: [(f32, f32, f32); 10] = [
@@ -76,6 +76,8 @@ pub fn arrival_system(
         Option<&Raiding>, Option<&Returning>, Option<&CarryingFood>,
         Option<&WoundedThreshold>, Option<&Wandering>,
     ), Without<Recovering>>,
+    // Query for Working farmers with AssignedFarm (for drift check)
+    working_farmers: Query<(&NpcIndex, &AssignedFarm), With<Working>>,
     mut pop_stats: ResMut<PopulationStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut food_storage: ResMut<FoodStorage>,
@@ -85,10 +87,39 @@ pub fn arrival_system(
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
     mut farm_states: ResMut<FarmStates>,
+    mut farm_occupancy: ResMut<FarmOccupancy>,
+    mut frame_counter: Local<u32>,
 ) {
     let positions = &gpu_state.positions;
     const FARM_ARRIVAL_RADIUS: f32 = 40.0;  // Grid spacing is 34px, keep tight to avoid false positives
     const DELIVERY_RADIUS: f32 = 150.0;     // Same as healing radius - deliver when near camp
+    const MAX_DRIFT: f32 = 50.0;            // Re-target farmer if drifted this far from farm
+
+    // Increment frame counter for throttled drift check
+    *frame_counter = frame_counter.wrapping_add(1);
+    let frame_slot = *frame_counter % 30;
+
+    // Working farmer drift check (throttled: each farmer checked once per 30 frames)
+    for (npc_idx, assigned) in working_farmers.iter() {
+        // Stagger checks: only check if npc_idx % 30 == current frame slot
+        if (npc_idx.0 as u32) % 30 != frame_slot { continue; }
+
+        // Get farm position
+        if assigned.0 >= world_data.farms.len() { continue; }
+        let farm_pos = world_data.farms[assigned.0].position;
+
+        // Get farmer's current position
+        let idx = npc_idx.0;
+        if idx * 2 + 1 >= positions.len() { continue; }
+        let current = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
+
+        // If drifted too far, re-target to farm
+        if current.distance_to(farm_pos) > MAX_DRIFT {
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                idx, x: farm_pos.x, y: farm_pos.y
+            }));
+        }
+    }
 
     // Proximity-based arrival for Returning and GoingToRest (don't wait for exact arrival)
     for (entity, npc_idx, _job, town, home, _health, faction,
@@ -151,22 +182,31 @@ pub fn arrival_system(
                     .insert(Resting);
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
             } else if going_work.is_some() {
-                commands.entity(entity)
-                    .remove::<GoingToWork>()
-                    .insert(Working);
-                pop_inc_working(&mut pop_stats, *job, town.0);
+                // Get farmer's current position for farm finding
+                let pos = if idx * 2 + 1 < positions.len() {
+                    Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                } else {
+                    continue;
+                };
 
-                // Farmers harvest ready farms when arriving at work
+                // Farmers: find farm, reserve it, set AssignedFarm
                 if *job == Job::Farmer {
-                    let pos = if idx * 2 + 1 < positions.len() {
-                        Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
-                    } else {
-                        continue;
-                    };
+                    if let Some((farm_idx, farm_pos)) = find_location_within_radius(pos, &world_data, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
+                        // Reserve farm (increment occupancy)
+                        if farm_idx < farm_occupancy.occupant_count.len() {
+                            farm_occupancy.occupant_count[farm_idx] += 1;
+                        }
 
-                    // Find nearest farm within arrival radius
-                    let mut harvested = false;
-                    if let Some((farm_idx, _)) = find_location_within_radius(pos, &world_data, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
+                        // Transition to Working with AssignedFarm
+                        commands.entity(entity)
+                            .remove::<GoingToWork>()
+                            .insert(Working)
+                            .insert(AssignedFarm(farm_idx));
+                        pop_inc_working(&mut pop_stats, *job, town.0);
+
+                        // Set target to FARM position (not farmer position) so they return if pushed
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
+
                         // Check if farm is ready to harvest
                         if farm_idx < farm_states.states.len()
                             && farm_states.states[farm_idx] == FarmGrowthState::Ready
@@ -183,13 +223,25 @@ pub fn arrival_system(
                             farm_states.states[farm_idx] = FarmGrowthState::Growing;
                             farm_states.progress[farm_idx] = 0.0;
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working".into());
-                            harvested = true;
+                        } else {
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
                         }
-                    }
-                    if !harvested {
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
+                    } else {
+                        // No farm found within radius - just go to Working without farm assignment
+                        commands.entity(entity)
+                            .remove::<GoingToWork>()
+                            .insert(Working);
+                        pop_inc_working(&mut pop_stats, *job, town.0);
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (no farm)".into());
                     }
                 } else {
+                    // Non-farmers just transition to Working at current position
+                    commands.entity(entity)
+                        .remove::<GoingToWork>()
+                        .insert(Working);
+                    pop_inc_working(&mut pop_stats, *job, town.0);
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working".into());
                 }
             } else if raiding.is_some() {

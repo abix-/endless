@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-02-02
+- add AssignedFarm component for farm occupancy tracking
+  - farmers get AssignedFarm(farm_idx) when entering Working state
+  - reserves farm (FarmOccupancy.occupant_count++)
+  - target set to farm position so farmers return if pushed away
+- add working farmer drift check (throttled every 30 frames)
+  - re-targets farmers who drifted >50px from assigned farm
+- energy_system removes Working when energy < 30%
+  - releases farm, removes AssignedFarm
+  - farmer then enters decision_system and can choose to rest
+- death_cleanup_system releases farm if dead NPC had AssignedFarm
+- fix food storage: read from Bevy resource instead of dead static
+- fix item MultiMesh buffer size mismatch (was using farm_data.len() instead of MAX_FARMS)
+
 ## 2026-02-01
 - add farm growth system: farms have growing → ready cycle
   - FarmStates resource tracks Growing/Ready state and progress per farm

@@ -154,6 +154,11 @@ pub struct GoingToRest;
 #[derive(Component)]
 pub struct Working;
 
+/// Farmer's assigned farm index for occupancy tracking.
+/// Added when entering Working at a farm, removed when leaving.
+#[derive(Component)]
+pub struct AssignedFarm(pub usize);
+
 /// NPC is walking to work position.
 #[derive(Component)]
 pub struct GoingToWork;

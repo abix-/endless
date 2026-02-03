@@ -104,6 +104,7 @@ Same situation, different outcomes. That's emergent behavior.
 | Patrolling | marker | Guard is walking to next patrol post |
 | OnDuty | `{ ticks: u32 }` | Guard is stationed at a post |
 | Working | marker | Farmer is at work position |
+| AssignedFarm | `usize` | Farm index farmer is working at (for occupancy tracking) |
 | GoingToWork | marker | Farmer is walking to work |
 | Raiding | marker | NPC is walking to a farm to steal |
 | Returning | marker | NPC is walking back to home base |
@@ -138,10 +139,11 @@ Same situation, different outcomes. That's emergent behavior.
 - Reads `ArrivalMsg` events (from GPU arrival detection) for most states
 - **Proximity-based arrival** for Returning and GoingToRest: checks distance to home instead of waiting for exact GPU arrival. Uses DELIVERY_RADIUS (150px, same as healing aura). This fixes raiders and resting NPCs getting stuck when exact arrival doesn't trigger.
 - **Food delivery is proximity-only**: Only the proximity check (within 150px of home) delivers food. Event-based Returning arrival just re-targets home — this prevents delivering food at wrong location after combat chase.
+- **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >50px from their assigned farm
 - Transitions based on current state marker (component-driven, not job-driven):
   - `Patrolling` → `OnDuty { ticks: 0 }`
   - `GoingToRest` → `Resting` (via proximity check)
-  - `GoingToWork` → `Working` + **harvest if farm ready** (see Farm Growth below)
+  - `GoingToWork` → `Working` + `AssignedFarm` + reserve farm + **harvest if farm ready** (see Farm Growth below)
   - `Raiding` → `CarryingFood` + `Returning` **only if farm is Ready** (see Farm Growth below)
   - `Returning` event arrival → re-target home (actual delivery via proximity check)
   - `Wandering` → clear state (back to decision_system)
@@ -151,6 +153,7 @@ Same situation, different outcomes. That's emergent behavior.
 ### energy_system
 - All NPCs with Energy (excluding `Resting`): drain `ENERGY_DRAIN_RATE * delta`
 - NPCs with `Resting`: recover `ENERGY_RECOVER_RATE * delta`
+- **Working NPCs with energy < 30%**: remove `Working`, release assigned farm, remove `AssignedFarm`
 - Clamp to 0.0-100.0
 
 ### patrol_system
