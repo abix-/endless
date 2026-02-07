@@ -34,6 +34,8 @@ Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
 
 **HP-based work score**: `hp_mult = 0` if HP < 50%, otherwise `(hp_pct - 0.5) * 2`. This prevents wounded NPCs (especially raiders) from working/raiding when they should rest.
 
+**Note**: The code defines `Action::Fight` and `Action::Flee` in the enum, but these are not scored in decision_system. Fight/flee behavior is handled by combat systems (attack_system, flee_system) instead.
+
 Scores are multiplied by personality multipliers, then weighted random selects an action:
 
 ```
@@ -170,8 +172,14 @@ Same situation, different outcomes. That's emergent behavior.
 - Add `HasTarget`
 
 ### flee_system
-- Query: `InCombat` + `FleeThreshold` + `Home`
-- If health < `FleeThreshold.pct`: remove `InCombat`, `CombatOrigin`, `Raiding`, drop `CarryingFood` if present, add `Returning`, target home
+- Query: `InCombat` + `FleeThreshold` + `Home` + `Faction`
+- **Dynamic threat assessment** (throttled every 30 frames per NPC):
+  - Counts enemies vs allies within 200px radius
+  - Adjusts effective flee threshold: `base_threshold * (enemies + 1) / (allies + 1)`
+  - Outnumbered 2:1 → flee at 100% HP (immediate retreat)
+  - Even odds → flee at base threshold
+  - Winning 2:1 → flee at ~50% of base threshold (fight longer)
+- If health < effective threshold: remove `InCombat`, `CombatOrigin`, `Raiding`, drop `CarryingFood` if present, add `Returning`, target home
 
 ### leash_system
 - Query: `InCombat` + `LeashRange` + `Home` + `CombatOrigin`
