@@ -1459,10 +1459,10 @@ impl EcsNpcManager {
                     world.guard_posts.clear();
                 }
                 if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
-                    beds.occupant_npc.clear();
+                    beds.occupants.clear();
                 }
                 if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
-                    farms.occupant_count.clear();
+                    farms.occupants.clear();
                 }
                 if let Some(mut farm_states) = app.world_mut().get_resource_mut::<resources::FarmStates>() {
                     farm_states.states.clear();
@@ -1514,10 +1514,10 @@ impl EcsNpcManager {
                     world.guard_posts = Vec::new();
                 }
                 if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
-                    beds.occupant_npc = Vec::new();
+                    beds.occupants.clear();
                 }
                 if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
-                    farms.occupant_count = Vec::new();
+                    farms.occupants.clear();
                 }
                 // Initialize per-town NPC lists for UI queries
                 if let Some(mut by_town) = app.world_mut().get_resource_mut::<resources::NpcsByTownCache>() {
@@ -1551,8 +1551,10 @@ impl EcsNpcManager {
                                 town_idx: town_idx as u32,
                             });
                         }
+                        // Initialize occupancy for this farm position
                         if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
-                            farms.occupant_count.push(0);
+                            let key = world::pos_to_key(pos);
+                            farms.occupants.insert(key, 0);
                         }
                         // Initialize farm growth state (starts as Growing)
                         if let Some(mut farm_states) = app.world_mut().get_resource_mut::<resources::FarmStates>() {
@@ -1567,8 +1569,10 @@ impl EcsNpcManager {
                                 town_idx: town_idx as u32,
                             });
                         }
+                        // Initialize occupancy for this bed position
                         if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
-                            beds.occupant_npc.push(-1);
+                            let key = world::pos_to_key(pos);
+                            beds.occupants.insert(key, -1);
                         }
                     }
                     "guard_post" => {
@@ -1582,6 +1586,44 @@ impl EcsNpcManager {
                                 town_idx: town_idx as u32,
                                 patrol_order: patrol_order as u32,
                             });
+                        }
+                        // Rebuild patrol routes for all guards in this town (clockwise order)
+                        let new_posts: Vec<Vector2> = {
+                            let world = app.world().get_resource::<world::WorldData>();
+                            world.map(|w| {
+                                // Get town center for angle calculation
+                                let center = w.towns.get(town_idx as usize)
+                                    .map(|t| t.center)
+                                    .unwrap_or(Vector2::ZERO);
+
+                                let mut posts: Vec<_> = w.guard_posts.iter()
+                                    .filter(|p| p.town_idx == town_idx as u32)
+                                    .map(|p| {
+                                        let dx = p.position.x - center.x;
+                                        let dy = p.position.y - center.y;
+                                        // atan2 gives angle, negate for clockwise
+                                        let angle = -dy.atan2(dx);
+                                        (angle, p.position)
+                                    })
+                                    .collect();
+                                // Sort by angle for clockwise order
+                                posts.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                                posts.into_iter().map(|(_, pos)| pos).collect()
+                            }).unwrap_or_default()
+                        };
+                        let mut to_update = Vec::new();
+                        {
+                            let mut query = app.world_mut().query::<(Entity, &TownId, &PatrolRoute)>();
+                            for (entity, tid, _) in query.iter(app.world()) {
+                                if tid.0 == town_idx {
+                                    to_update.push(entity);
+                                }
+                            }
+                        }
+                        for entity in to_update {
+                            if let Some(mut patrol) = app.world_mut().get_mut::<PatrolRoute>(entity) {
+                                patrol.posts = new_posts.clone();
+                            }
                         }
                     }
                     "town_center" => {
@@ -1619,6 +1661,162 @@ impl EcsNpcManager {
     #[func]
     fn build_locations(&mut self) {
         self.build_location_buffer();
+    }
+
+    /// Remove a location by type and position. Returns true if found and removed.
+    /// Evicts any NPCs assigned to the location.
+    #[func]
+    fn remove_location(&mut self, loc_type: GString, x: f64, y: f64) -> bool {
+        let target_pos = Vector2::new(x as f32, y as f32);
+        let target_key = world::pos_to_key(target_pos);
+        let type_str = loc_type.to_string();
+        let mut found = false;
+        let mut town_idx_for_patrol: Option<u32> = None;
+
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                match type_str.as_str() {
+                    "farm" => {
+                        // Find and remove farm
+                        let farm_idx = {
+                            let world = app.world().get_resource::<world::WorldData>();
+                            world.and_then(|w| w.farms.iter().position(|f| world::pos_to_key(f.position) == target_key))
+                        };
+                        if let Some(idx) = farm_idx {
+                            // Remove from WorldData
+                            if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                                world.farms.remove(idx);
+                            }
+                            // Remove from occupancy
+                            if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                                farms.occupants.remove(&target_key);
+                            }
+                            // Remove from FarmStates (keep indices aligned)
+                            if let Some(mut farm_states) = app.world_mut().get_resource_mut::<resources::FarmStates>() {
+                                if idx < farm_states.states.len() {
+                                    farm_states.states.remove(idx);
+                                    farm_states.progress.remove(idx);
+                                }
+                            }
+                            found = true;
+                        }
+                        // Evict NPCs working at this farm
+                        if found {
+                            let mut to_evict = Vec::new();
+                            {
+                                let mut query = app.world_mut().query::<(Entity, &AssignedFarm)>();
+                                for (entity, assigned) in query.iter(app.world()) {
+                                    if world::pos_to_key(assigned.0) == target_key {
+                                        to_evict.push(entity);
+                                    }
+                                }
+                            }
+                            for entity in to_evict {
+                                app.world_mut().entity_mut(entity).remove::<Working>();
+                                app.world_mut().entity_mut(entity).remove::<AssignedFarm>();
+                            }
+                        }
+                    }
+                    "bed" => {
+                        // Find and remove bed
+                        let bed_idx = {
+                            let world = app.world().get_resource::<world::WorldData>();
+                            world.and_then(|w| w.beds.iter().position(|b| world::pos_to_key(b.position) == target_key))
+                        };
+                        if let Some(idx) = bed_idx {
+                            if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                                world.beds.remove(idx);
+                            }
+                            if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                                beds.occupants.remove(&target_key);
+                            }
+                            found = true;
+                        }
+                        // Evict NPCs using this bed
+                        if found {
+                            let mut to_evict = Vec::new();
+                            {
+                                let mut query = app.world_mut().query::<(Entity, &Home)>();
+                                for (entity, home) in query.iter(app.world()) {
+                                    if world::pos_to_key(home.0) == target_key {
+                                        to_evict.push(entity);
+                                    }
+                                }
+                            }
+                            for entity in to_evict {
+                                app.world_mut().entity_mut(entity).insert(Home(Vector2::new(-1.0, -1.0)));
+                                app.world_mut().entity_mut(entity).remove::<Resting>();
+                            }
+                        }
+                    }
+                    "guard_post" => {
+                        // Find and remove guard post
+                        let post_info = {
+                            let world = app.world().get_resource::<world::WorldData>();
+                            world.and_then(|w| {
+                                w.guard_posts.iter()
+                                    .position(|p| world::pos_to_key(p.position) == target_key)
+                                    .map(|idx| (idx, w.guard_posts[idx].town_idx))
+                            })
+                        };
+                        if let Some((idx, town_idx)) = post_info {
+                            if let Some(mut world) = app.world_mut().get_resource_mut::<world::WorldData>() {
+                                world.guard_posts.remove(idx);
+                            }
+                            town_idx_for_patrol = Some(town_idx);
+                            found = true;
+                        }
+                    }
+                    _ => {}
+                }
+
+                // Rebuild patrol routes if guard post was removed (clockwise order)
+                if let Some(town_idx) = town_idx_for_patrol {
+                    // Get remaining posts for this town sorted clockwise
+                    let new_posts: Vec<Vector2> = {
+                        let world = app.world().get_resource::<world::WorldData>();
+                        world.map(|w| {
+                            // Get town center for angle calculation
+                            let center = w.towns.get(town_idx as usize)
+                                .map(|t| t.center)
+                                .unwrap_or(Vector2::ZERO);
+
+                            let mut posts: Vec<_> = w.guard_posts.iter()
+                                .filter(|p| p.town_idx == town_idx)
+                                .map(|p| {
+                                    let dx = p.position.x - center.x;
+                                    let dy = p.position.y - center.y;
+                                    let angle = -dy.atan2(dx);
+                                    (angle, p.position)
+                                })
+                                .collect();
+                            posts.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                            posts.into_iter().map(|(_, pos)| pos).collect()
+                        }).unwrap_or_default()
+                    };
+
+                    // Update all guards in this town with new patrol routes
+                    let mut to_update = Vec::new();
+                    {
+                        let mut query = app.world_mut().query::<(Entity, &TownId, &PatrolRoute)>();
+                        for (entity, tid, _) in query.iter(app.world()) {
+                            if tid.0 == town_idx as i32 {
+                                to_update.push(entity);
+                            }
+                        }
+                    }
+                    for entity in to_update {
+                        if let Some(mut patrol) = app.world_mut().get_mut::<PatrolRoute>(entity) {
+                            patrol.posts = new_posts.clone();
+                            if patrol.current >= patrol.posts.len() && !patrol.posts.is_empty() {
+                                patrol.current = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        found
     }
 
     // ========================================================================
@@ -1671,8 +1869,10 @@ impl EcsNpcManager {
                 if let (Some(world), Some(beds)) = (world, beds) {
                     for (i, bed) in world.beds.iter().enumerate() {
                         if bed.town_idx != town_idx as u32 { continue; }
-                        if i >= beds.occupant_npc.len() { continue; }
-                        if beds.occupant_npc[i] >= 0 { continue; }
+                        // Check occupancy by position
+                        let key = world::pos_to_key(bed.position);
+                        let occupant = beds.occupants.get(&key).copied().unwrap_or(-1);
+                        if occupant >= 0 { continue; }
                         let dist = pos.distance_to(bed.position);
                         if dist < best_dist {
                             best_dist = dist;
@@ -1699,8 +1899,10 @@ impl EcsNpcManager {
                 if let (Some(world), Some(farms)) = (world, farms) {
                     for (i, farm) in world.farms.iter().enumerate() {
                         if farm.town_idx != town_idx as u32 { continue; }
-                        if i >= farms.occupant_count.len() { continue; }
-                        if farms.occupant_count[i] >= 1 { continue; }
+                        // Check occupancy by position
+                        let key = world::pos_to_key(farm.position);
+                        let count = farms.occupants.get(&key).copied().unwrap_or(0);
+                        if count >= 1 { continue; }
                         let dist = pos.distance_to(farm.position);
                         if dist < best_dist {
                             best_dist = dist;
@@ -1717,11 +1919,19 @@ impl EcsNpcManager {
     fn reserve_bed(&mut self, bed_idx: i32, npc_idx: i32) -> bool {
         if let Some(mut bevy_app) = self.get_bevy_app() {
             if let Some(app) = bevy_app.bind_mut().get_app_mut() {
-                if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
-                    let idx = bed_idx as usize;
-                    if idx < beds.occupant_npc.len() && beds.occupant_npc[idx] < 0 {
-                        beds.occupant_npc[idx] = npc_idx;
-                        return true;
+                // Get bed position from WorldData
+                let bed_pos = {
+                    let world = app.world().get_resource::<world::WorldData>();
+                    world.and_then(|w| w.beds.get(bed_idx as usize).map(|b| b.position))
+                };
+                if let Some(pos) = bed_pos {
+                    let key = world::pos_to_key(pos);
+                    if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                        let occupant = beds.occupants.get(&key).copied().unwrap_or(-1);
+                        if occupant < 0 {
+                            beds.occupants.insert(key, npc_idx);
+                            return true;
+                        }
                     }
                 }
             }
@@ -1733,10 +1943,15 @@ impl EcsNpcManager {
     fn release_bed(&mut self, bed_idx: i32) {
         if let Some(mut bevy_app) = self.get_bevy_app() {
             if let Some(app) = bevy_app.bind_mut().get_app_mut() {
-                if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
-                    let idx = bed_idx as usize;
-                    if idx < beds.occupant_npc.len() {
-                        beds.occupant_npc[idx] = -1;
+                // Get bed position from WorldData
+                let bed_pos = {
+                    let world = app.world().get_resource::<world::WorldData>();
+                    world.and_then(|w| w.beds.get(bed_idx as usize).map(|b| b.position))
+                };
+                if let Some(pos) = bed_pos {
+                    let key = world::pos_to_key(pos);
+                    if let Some(mut beds) = app.world_mut().get_resource_mut::<world::BedOccupancy>() {
+                        beds.occupants.insert(key, -1);
                     }
                 }
             }
@@ -1747,11 +1962,19 @@ impl EcsNpcManager {
     fn reserve_farm(&mut self, farm_idx: i32) -> bool {
         if let Some(mut bevy_app) = self.get_bevy_app() {
             if let Some(app) = bevy_app.bind_mut().get_app_mut() {
-                if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
-                    let idx = farm_idx as usize;
-                    if idx < farms.occupant_count.len() && farms.occupant_count[idx] < 1 {
-                        farms.occupant_count[idx] += 1;
-                        return true;
+                // Get farm position from WorldData
+                let farm_pos = {
+                    let world = app.world().get_resource::<world::WorldData>();
+                    world.and_then(|w| w.farms.get(farm_idx as usize).map(|f| f.position))
+                };
+                if let Some(pos) = farm_pos {
+                    let key = world::pos_to_key(pos);
+                    if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                        let count = farms.occupants.get(&key).copied().unwrap_or(0);
+                        if count < 1 {
+                            *farms.occupants.entry(key).or_insert(0) += 1;
+                            return true;
+                        }
                     }
                 }
             }
@@ -1763,10 +1986,19 @@ impl EcsNpcManager {
     fn release_farm(&mut self, farm_idx: i32) {
         if let Some(mut bevy_app) = self.get_bevy_app() {
             if let Some(app) = bevy_app.bind_mut().get_app_mut() {
-                if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
-                    let idx = farm_idx as usize;
-                    if idx < farms.occupant_count.len() && farms.occupant_count[idx] > 0 {
-                        farms.occupant_count[idx] -= 1;
+                // Get farm position from WorldData
+                let farm_pos = {
+                    let world = app.world().get_resource::<world::WorldData>();
+                    world.and_then(|w| w.farms.get(farm_idx as usize).map(|f| f.position))
+                };
+                if let Some(pos) = farm_pos {
+                    let key = world::pos_to_key(pos);
+                    if let Some(mut farms) = app.world_mut().get_resource_mut::<world::FarmOccupancy>() {
+                        if let Some(count) = farms.occupants.get_mut(&key) {
+                            if *count > 0 {
+                                *count -= 1;
+                            }
+                        }
                     }
                 }
             }
@@ -1917,11 +2149,11 @@ impl EcsNpcManager {
                     dict.set("guard_post_count", world.guard_posts.len() as i32);
                 }
                 if let Some(beds) = app.world().get_resource::<world::BedOccupancy>() {
-                    let free_beds = beds.occupant_npc.iter().filter(|&&x| x < 0).count();
+                    let free_beds = beds.occupants.values().filter(|&&x| x < 0).count();
                     dict.set("free_beds", free_beds as i32);
                 }
                 if let Some(farms) = app.world().get_resource::<world::FarmOccupancy>() {
-                    let free_farms = farms.occupant_count.iter().filter(|&&x| x < 1).count();
+                    let free_farms = farms.occupants.values().filter(|&&x| x < 1).count();
                     dict.set("free_farms", free_farms as i32);
                 }
             }
@@ -2441,10 +2673,12 @@ impl EcsNpcManager {
                     app.world().get_resource::<world::WorldData>(),
                     app.world().get_resource::<world::BedOccupancy>(),
                 ) {
-                    for (i, bed) in world.beds.iter().enumerate() {
+                    for bed in world.beds.iter() {
                         if bed.town_idx == town_idx as u32 {
                             total += 1;
-                            if i < beds.occupant_npc.len() && beds.occupant_npc[i] < 0 {
+                            let key = world::pos_to_key(bed.position);
+                            let occupant = beds.occupants.get(&key).copied().unwrap_or(-1);
+                            if occupant < 0 {
                                 free += 1;
                             }
                         }

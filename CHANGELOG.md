@@ -1,6 +1,14 @@
 # Changelog
 
 ## 2026-02-07
+- add building removal system: runtime add/remove of farms, beds, guard posts
+  - add remove_location(type, x, y) API with NPC eviction
+  - change AssignedFarm from usize index to Vector2 position (survives deletion)
+  - change FarmOccupancy/BedOccupancy from Vec to HashMap<(i32,i32), i32>
+  - add pos_to_key() helper for position → grid key conversion
+  - guard patrol routes rebuild on add/remove (clockwise around town center)
+  - evicted NPCs become idle (Working/Resting cleared, re-enter decision_system)
+- fix build_menu: use npc_manager.get_town_food() instead of dead town_food array
 - refactor behavior.rs: central brain architecture with SystemParam bundles
   - add FarmParams, EconomyParams, CombatParams, NpcStateParams bundles
   - consolidate 19 parameters into 4 logical groups (stays under Bevy's 16-param limit)

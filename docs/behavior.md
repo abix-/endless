@@ -128,7 +128,7 @@ Same situation, different outcomes. That's emergent behavior.
 | Patrolling | marker | Guard is walking to next patrol post |
 | OnDuty | `{ ticks: u32 }` | Guard is stationed at a post |
 | Working | marker | Farmer is at work position |
-| AssignedFarm | `usize` | Farm index farmer is working at (for occupancy tracking) |
+| AssignedFarm | `Vector2` | Farm position farmer is working at (for occupancy tracking) |
 | GoingToWork | marker | Farmer is walking to work |
 | Raiding | marker | NPC is walking to a farm to steal |
 | Returning | marker | NPC is walking back to home base |
@@ -292,7 +292,7 @@ Guards have a `PatrolRoute` with ordered posts (built from WorldData at spawn). 
 4. Arrive → `OnDuty` again
 5. After last post, wrap to post 0
 
-Each town has 4 guard posts at corners. Guards cycle clockwise.
+Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes are rebuilt when guard posts are added or removed via `add_location()`/`remove_location()`.
 
 ## Known Issues / Limitations
 

@@ -6,7 +6,7 @@ use godot_bevy::prelude::PhysicsDelta;
 use crate::components::*;
 use crate::resources::*;
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE};
-use crate::world::{WorldData, FarmOccupancy};
+use crate::world::{WorldData, FarmOccupancy, pos_to_key};
 
 // ============================================================================
 // POPULATION TRACKING HELPERS
@@ -96,8 +96,8 @@ pub fn farm_growth_system(
         }
 
         // Determine growth rate based on whether a farmer is working this farm
-        let is_tended = farm_idx < farm_occupancy.occupant_count.len()
-            && farm_occupancy.occupant_count[farm_idx] > 0;
+        let farm_key = pos_to_key(farm.position);
+        let is_tended = farm_occupancy.occupants.get(&farm_key).copied().unwrap_or(0) > 0;
 
         let growth_rate = if is_tended {
             FARM_TENDED_GROWTH_RATE

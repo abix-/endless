@@ -2,6 +2,7 @@
 
 use godot_bevy::prelude::godot_prelude::*;
 use godot_bevy::prelude::bevy_ecs_prelude::*;
+use std::collections::HashMap;
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -217,14 +218,26 @@ pub fn find_location_within_radius(
     best.map(|(_, idx, pos)| (idx, pos))
 }
 
-/// Tracks which NPCs occupy each bed (-1 = free).
-#[derive(Resource, Default)]
-pub struct BedOccupancy {
-    pub occupant_npc: Vec<i32>,
+/// Convert Vector2 to integer key for HashMap lookup.
+/// Uses rounded coordinates so slight position differences still match.
+pub fn pos_to_key(pos: Vector2) -> (i32, i32) {
+    (pos.x.round() as i32, pos.y.round() as i32)
 }
 
-/// Tracks how many NPCs are working at each farm.
+/// Tracks which NPCs occupy each bed. Key = bed position, Value = NPC index (-1 = free).
+#[derive(Resource, Default)]
+pub struct BedOccupancy {
+    pub occupants: HashMap<(i32, i32), i32>,
+}
+
+/// Tracks how many NPCs are working at each farm. Key = farm position, Value = count.
 #[derive(Resource, Default)]
 pub struct FarmOccupancy {
-    pub occupant_count: Vec<i32>,
+    pub occupants: HashMap<(i32, i32), i32>,
+}
+
+/// Find farm index by position (for FarmStates lookup which is still Vec-indexed).
+pub fn find_farm_index_by_pos(farms: &[Farm], pos: Vector2) -> Option<usize> {
+    let key = pos_to_key(pos);
+    farms.iter().position(|f| pos_to_key(f.position) == key)
 }

@@ -8,7 +8,7 @@ use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats};
 use crate::systems::economy::*;
-use crate::world::{WorldData, FarmOccupancy};
+use crate::world::{WorldData, FarmOccupancy, pos_to_key};
 
 /// Heal rate in HP per second when inside healing aura.
 const HEAL_RATE: f32 = 5.0;
@@ -91,8 +91,9 @@ pub fn death_cleanup_system(
 
         // Release assigned farm if any
         if let Some(assigned) = assigned_farm {
-            if assigned.0 < farm_occupancy.occupant_count.len() {
-                farm_occupancy.occupant_count[assigned.0] = (farm_occupancy.occupant_count[assigned.0] - 1).max(0);
+            let farm_key = pos_to_key(assigned.0);
+            if let Some(count) = farm_occupancy.occupants.get_mut(&farm_key) {
+                *count = count.saturating_sub(1);
             }
         }
 

@@ -89,7 +89,8 @@ func _refresh_buttons() -> void:
 	if not main_node or current_town_idx < 0:
 		return
 
-	var food: int = main_node.town_food[current_town_idx]
+	# Read food from ECS (not deprecated town_food array)
+	var food: int = main_node.npc_manager.get_town_food(current_town_idx)
 
 	# Handle locked slots - show only unlock button
 	if current_is_locked:
@@ -170,9 +171,10 @@ func _try_build(building_type: String, cost: int) -> bool:
 	if not main_node or current_town_idx < 0:
 		return false
 
-	if main_node.town_food[current_town_idx] < cost:
+	# Check and spend food via ECS
+	if main_node.npc_manager.get_town_food(current_town_idx) < cost:
 		return false
 
-	main_node.town_food[current_town_idx] -= cost
+	main_node.npc_manager.add_town_food(current_town_idx, -cost)
 	build_requested.emit(current_slot_key, building_type)
 	return true

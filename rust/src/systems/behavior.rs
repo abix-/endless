@@ -23,7 +23,7 @@ use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
 use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState};
 use crate::systems::economy::*;
-use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy};
+use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy, find_farm_index_by_pos, pos_to_key};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -173,10 +173,7 @@ pub fn arrival_system(
     for (npc_idx, assigned, town) in working_farmers.iter() {
         if (npc_idx.0 as u32) % 30 != frame_slot { continue; }
 
-        let farm_idx = assigned.0;
-        if farm_idx >= world_data.farms.len() { continue; }
-        let farm_pos = world_data.farms[farm_idx].position;
-
+        let farm_pos = assigned.0;  // AssignedFarm now stores position
         let idx = npc_idx.0;
         if idx * 2 + 1 >= positions.len() { continue; }
         let current = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
@@ -189,20 +186,22 @@ pub fn arrival_system(
         }
 
         // Harvest check: if farm became Ready while working, harvest it
-        if farm_idx < farm_states.states.len()
-            && farm_states.states[farm_idx] == FarmGrowthState::Ready
-        {
-            let town_idx = town.0 as usize;
-            if town_idx < food_storage.food.len() {
-                food_storage.food[town_idx] += 1;
-                food_events.consumed.push(FoodConsumed {
-                    location_idx: farm_idx as u32,
-                    is_camp: false,
-                });
+        if let Some(farm_idx) = find_farm_index_by_pos(&world_data.farms, farm_pos) {
+            if farm_idx < farm_states.states.len()
+                && farm_states.states[farm_idx] == FarmGrowthState::Ready
+            {
+                let town_idx = town.0 as usize;
+                if town_idx < food_storage.food.len() {
+                    food_storage.food[town_idx] += 1;
+                    food_events.consumed.push(FoodConsumed {
+                        location_idx: farm_idx as u32,
+                        is_camp: false,
+                    });
+                }
+                farm_states.states[farm_idx] = FarmGrowthState::Growing;
+                farm_states.progress[farm_idx] = 0.0;
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)".into());
             }
-            farm_states.states[farm_idx] = FarmGrowthState::Growing;
-            farm_states.progress[farm_idx] = 0.0;
-            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)".into());
         }
     }
 }
@@ -380,15 +379,14 @@ pub fn decision_system(
                         });
 
                     if let Some((farm_idx, farm_pos)) = find_location_within_radius(search_pos, &farms.world, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
-                        // Reserve farm
-                        if farm_idx < farms.occupancy.occupant_count.len() {
-                            farms.occupancy.occupant_count[farm_idx] += 1;
-                        }
+                        // Reserve farm using position key
+                        let farm_key = pos_to_key(farm_pos);
+                        *farms.occupancy.occupants.entry(farm_key).or_insert(0) += 1;
 
                         commands.entity(entity)
                             .remove::<GoingToWork>()
                             .insert(Working)
-                            .insert(AssignedFarm(farm_idx));
+                            .insert(AssignedFarm(farm_pos));  // Store position, not index
                         pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
 
@@ -561,9 +559,10 @@ pub fn decision_system(
             if energy.0 < ENERGY_TIRED_THRESHOLD {
                 commands.entity(entity).remove::<Working>();
                 if let Ok(assigned) = npc_states.assigned.get(entity) {
-                    if assigned.0 < farms.occupancy.occupant_count.len() {
-                        farms.occupancy.occupant_count[assigned.0] =
-                            farms.occupancy.occupant_count[assigned.0].saturating_sub(1);
+                    // Release farm using position key
+                    let farm_key = pos_to_key(assigned.0);
+                    if let Some(count) = farms.occupancy.occupants.get_mut(&farm_key) {
+                        *count = count.saturating_sub(1);
                     }
                     commands.entity(entity).remove::<AssignedFarm>();
                 }

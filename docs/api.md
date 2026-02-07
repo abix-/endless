@@ -81,7 +81,8 @@ Projectiles are created internally by Bevy's `attack_system` via `PROJECTILE_FIR
 | Method | Params | Returns | Description |
 |--------|--------|---------|-------------|
 | `init_world` | `town_count: i32` | void | Initialize world data structures |
-| `add_location` | `type, x, y, town_idx, opts: Dictionary` | `i32` | Unified location API. Type: "farm", "bed", "guard_post", "town_center". Returns index or -1. |
+| `add_location` | `type, x, y, town_idx, opts: Dictionary` | `i32` | Unified location API. Type: "farm", "bed", "guard_post", "town_center". Returns index or -1. Rebuilds guard patrol routes (clockwise). |
+| `remove_location` | `type, x, y: f32` | `bool` | Remove building at position. Evicts assigned NPCs (clears Working/Resting). Rebuilds patrol routes. Returns true if found. |
 | `build_locations` | none | void | Build/rebuild location MultiMesh from WorldData. Call after batch additions. |
 | `get_town_center` | `town_idx: i32` | `Vector2` | Town center position (works for all towns) |
 | `get_patrol_post` | `town_idx, order: i32` | `Vector2` | Patrol post position by order |

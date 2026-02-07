@@ -420,9 +420,9 @@ func _setup_ui() -> void:
 	add_child(roster_panel)
 
 	build_menu = build_menu_scene.instantiate()
-	#build_menu.build_requested.connect(_on_build_requested)  # Phase 5
-	#build_menu.destroy_requested.connect(_on_destroy_requested)  # Phase 5
-	#build_menu.unlock_requested.connect(_on_unlock_requested)  # Phase 5
+	build_menu.build_requested.connect(_on_build_requested)
+	build_menu.destroy_requested.connect(_on_destroy_requested)
+	build_menu.unlock_requested.connect(_on_unlock_requested)
 	add_child(build_menu)
 
 	var policies_panel = policies_panel_scene.instantiate()
@@ -783,15 +783,14 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 		town.guard_posts.append(slot_pos)
 		npc_manager.add_location("guard_post", slot_pos.x, slot_pos.y, player_town_idx,
 			{"patrol_order": post_idx})
-		if npc_manager._guard_post_combat:
-			npc_manager._guard_post_combat.register_post(slot_pos, player_town_idx, slot_key)
-		# Initialize guard post upgrades
+		# Initialize guard post upgrades (turret combat is future feature)
 		guard_post_upgrades[player_town_idx][slot_key] = {
 			"attack_enabled": false,
 			"range_level": 0,
 			"damage_level": 0
 		}
 
+	npc_manager.build_locations()  # Rebuild location sprites
 	queue_redraw()  # Update slot indicators
 
 
@@ -807,16 +806,17 @@ func _on_destroy_requested(slot_key: String) -> void:
 		var btype: String = building.type
 		var pos: Vector2 = building.pos
 
+		# Remove from ECS
+		npc_manager.remove_location(btype, pos.x, pos.y)
+
 		if btype == "guard_post":
-			# Remove from guard_posts array
+			# Remove from guard_posts array (GDScript tracking)
 			for gi in town.guard_posts.size():
 				if town.guard_posts[gi] == pos:
 					town.guard_posts.remove_at(gi)
 					break
 			if guard_post_upgrades[player_town_idx].has(slot_key):
 				guard_post_upgrades[player_town_idx].erase(slot_key)
-
-		# TODO: Add ECS API to remove locations (for now, sprites stay but data is removed)
 
 	slot_contents.clear()
 	# Rebuild location sprites to reflect removal
