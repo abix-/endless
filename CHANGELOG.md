@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-02-07
+- implement eat action: consume food from town storage, restore 30 energy instantly
+  - no travel required, NPCs eat at current location
+  - only scored when town actually has food (prevents stuck eat loops)
+- fix rest loop: move wake-up from energy_system to decision_system
+  - avoids Bevy command sync race where Resting removal wasn't visible to decision_system
+  - farmers now properly wake at 90% energy and pick Work instead of Rest
+- fix farmer arrival: use WorkPosition instead of current position for farm lookup
+  - prevents "Working (no farm)" when separation forces push farmer away
+- tighten farmer placement: ARRIVAL_THRESHOLD 40→20px, MAX_DRIFT 50→20px
+  - farmers stay visually on the farm sprite
+- fix build.rs: always rerun so DLL timestamp updates every build
+- add ENERGY_FROM_EATING (30.0) and ENERGY_TIRED_THRESHOLD (30.0) constants
+
 ## 2026-02-02
 - add AssignedFarm component for farm occupancy tracking
   - farmers get AssignedFarm(farm_idx) when entering Working state

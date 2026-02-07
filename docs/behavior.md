@@ -25,10 +25,12 @@ Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
 
 | Action | Base Score | Condition |
 |--------|-----------|-----------|
-| Eat | `(100 - energy) * 1.5` | food available |
+| Eat | `(100 - energy) * 1.5` | town has food in storage |
 | Rest | `100 - energy` | home valid |
 | Work | `40.0 * hp_mult` | has job, HP > 50% |
 | Wander | `10.0` | always |
+
+**Eat action**: Instantly consumes 1 food from town storage and restores `ENERGY_FROM_EATING` (30) energy. No travel required — NPCs eat at current location.
 
 **HP-based work score**: `hp_mult = 0` if HP < 50%, otherwise `(hp_pct - 0.5) * 2`. This prevents wounded NPCs (especially raiders) from working/raiding when they should rest.
 
@@ -128,18 +130,21 @@ Same situation, different outcomes. That's emergent behavior.
 ## Systems
 
 ### decision_system (Utility AI)
-- Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, Resting, GoingToRest, Returning, Wandering, InCombat, Recovering, Dead), OR raiders with `Raiding` needing re-target
+- Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, GoingToRest, Returning, Wandering, InCombat, Recovering, Dead), including NPCs with `Resting` for wake-up check
+- **Wake-up handling**: If NPC has `Resting` and energy >= `ENERGY_WAKE_THRESHOLD` (90%), remove `Resting` and proceed to decision. This is done here (not in energy_system) to avoid Bevy command sync race conditions.
 - **Raid continuation**: If raider has `Raiding` marker (e.g., after combat ends), skip scoring and re-target nearest farm via `find_nearest_location`
+- **Food availability check**: Eat is only scored if `food_storage.food[town_idx] > 0` — prevents stuck loops when no food
 - Score actions: Eat, Rest, Work, Wander (with personality multipliers and HP modifier)
 - Select via weighted random
-- Execute: set state marker, push GPU target
+- Execute: set state marker, push GPU target (Eat is instant: consume food, add energy, no state change)
 - **Decision logging**: Each decision is logged to `NpcLogCache` with timestamp and format `"{action} (e:{energy} h:{health})"`
 
 ### arrival_system (Generic)
 - Reads `ArrivalMsg` events (from GPU arrival detection) for most states
 - **Proximity-based arrival** for Returning and GoingToRest: checks distance to home instead of waiting for exact GPU arrival. Uses DELIVERY_RADIUS (150px, same as healing aura). This fixes raiders and resting NPCs getting stuck when exact arrival doesn't trigger.
 - **Food delivery is proximity-only**: Only the proximity check (within 150px of home) delivers food. Event-based Returning arrival just re-targets home — this prevents delivering food at wrong location after combat chase.
-- **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >50px from their assigned farm
+- **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm
+- **Farm lookup uses WorkPosition**: When farmer arrives at work, finds farm near their `WorkPosition` (not current position) to avoid "no farm" errors when pushed by separation forces
 - Transitions based on current state marker (component-driven, not job-driven):
   - `Patrolling` → `OnDuty { ticks: 0 }`
   - `GoingToRest` → `Resting` (via proximity check)
@@ -151,10 +156,11 @@ Same situation, different outcomes. That's emergent behavior.
 - **State logging**: All transitions are logged to `NpcLogCache` (e.g., "→ OnDuty", "→ Resting", "Stole food → Returning")
 
 ### energy_system
-- All NPCs with Energy (excluding `Resting`): drain `ENERGY_DRAIN_RATE * delta`
-- NPCs with `Resting`: recover `ENERGY_RECOVER_RATE * delta`
-- **Working NPCs with energy < 30%**: remove `Working`, release assigned farm, remove `AssignedFarm`
+- All NPCs with Energy (excluding `Resting`): drain `ENERGY_DRAIN_RATE` per tick
+- NPCs with `Resting`: recover `ENERGY_RECOVER_RATE` per tick
+- **Working NPCs with energy < ENERGY_TIRED_THRESHOLD (30%)**: remove `Working`, release assigned farm, remove `AssignedFarm`
 - Clamp to 0.0-100.0
+- **Note**: Wake-up from resting is handled in decision_system, not here, to avoid Bevy command sync race
 
 ### patrol_system
 - Query: `OnDuty` guards
@@ -222,7 +228,7 @@ Farms have a growth cycle instead of infinite food:
 ```
 
 **Farmer harvest** (arrival_system, GoingToWork → Working):
-- Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS (40px)
+- Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS (20px) of **WorkPosition** (not current position)
 - If farm is Ready: add food to town storage, reset farm to Growing
 - Logs "Harvested → Working" vs "→ Working (tending)"
 
@@ -243,8 +249,10 @@ Farms have a growth cycle instead of infinite food:
 | ENERGY_DRAIN_RATE | 0.02/tick | Drain while active |
 | ENERGY_RECOVER_RATE | 0.2/tick | Recovery while resting (10x drain) |
 | ENERGY_WAKE_THRESHOLD | 90.0 | Wake from Resting when energy reaches this |
+| ENERGY_TIRED_THRESHOLD | 30.0 | Stop working and seek rest below this |
+| ENERGY_FROM_EATING | 30.0 | Energy restored per food consumed |
 
-With utility AI, there are no fixed thresholds. Low energy increases Rest/Eat scores, but NPCs might still choose Work if their Focused trait outweighs tiredness. NPCs automatically wake from `Resting` at 90% energy.
+With utility AI, there are no fixed thresholds for decisions. Low energy increases Rest/Eat scores, but NPCs might still choose Work if their Focused trait outweighs tiredness. NPCs automatically wake from `Resting` at 90% energy (handled in decision_system for proper command sync).
 
 ## Patrol Cycle
 
@@ -270,6 +278,6 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
 - **~~Farm data fetch performance~~**: Fixed. BevyApp reference is now cached in ready(), eliminating scene tree traversal every frame.
 
-## Rating: 6/10
+## Rating: 7/10
 
-Utility AI concept is sound. Farm growth system adds meaningful gameplay loop — farms grow, farmers harvest, raiders must wait for ready farms. Reusable `find_location_within_radius()` API returns (index, position) for clean farm/bed/post lookups. Still has gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken. But core economy loop now works.
+Utility AI concept is sound. Farm growth system adds meaningful gameplay loop — farms grow, farmers harvest, raiders must wait for ready farms. Eat action now properly consumes food and restores energy instantly. Wake-up logic moved to decision_system to avoid Bevy command sync race (commands from one system aren't visible to later systems in same frame). Farm lookup uses WorkPosition for robustness. Still has gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken. But core economy loop now works end-to-end.
