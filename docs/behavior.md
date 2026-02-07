@@ -4,9 +4,9 @@
 
 Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, rest transitions, patrol cycling for guards, work transitions for farmers, and stealing/fleeing for raiders. All run in `Step::Behavior` after combat is resolved.
 
-**Unified Decision System**: All NPC decisions are handled by ONE system (`decision_system`) using a priority cascade. This replaced 5 separate systems (flee, leash, patrol, recovery, old decision) to avoid scattered decision-making and Bevy command sync race conditions.
+**Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade:
 
-Priority cascade (first match wins):
+Priority order (first match wins):
 1. InCombat + should_flee? → Flee
 2. InCombat + should_leash? → Leash
 3. InCombat → Skip (attack_system handles)
@@ -299,6 +299,6 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 
 ## Rating: 8/10
 
-**Unified decision system** consolidates all NPC decisions into one place with clear priority cascade. Previously scattered across 5 systems (flee, leash, patrol, recovery, decision), now all handled in `decision_system`. This eliminates confusion about where decisions happen and avoids Bevy command sync race conditions.
+Single `decision_system` handles all NPC decisions with clear priority cascade. Utility AI for idle decisions creates lifelike behavior. Farm growth system adds meaningful gameplay loop.
 
-Utility AI for idle decisions is sound. Farm growth system adds meaningful gameplay loop. Still has gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken. But architecture is now clean and maintainable.
+Gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken.
