@@ -1,6 +1,12 @@
 # Changelog
 
 ## 2026-02-07
+- fix fountain offset: position at grid slot (0,0) instead of geometric center
+  - gold ring also centered on fountain position
+- simplify bed system: 1 bed per slot instead of 4 in 2x2 arrangement
+  - remove bed offset calculations, place at slot center
+  - build menu closes after placing bed (consistent with other buildings)
+- fix FIXED_SLOTS: only fountain (0,0) is fixed, other slots checked by contents
 - add building removal system: runtime add/remove of farms, beds, guard posts
   - add remove_location(type, x, y) API with NPC eviction
   - change AssignedFarm from usize index to Vector2 position (survives deletion)

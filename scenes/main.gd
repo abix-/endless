@@ -79,8 +79,8 @@ const BASE_GRID_MAX := 3
 const MAX_GRID_MIN := -49
 const MAX_GRID_MAX := 50
 
-# Fixed slots: center area (0,0), (0,1), farms at (0,-1), (1,-1)
-const FIXED_SLOTS := ["0,0", "0,1", "0,-1", "1,-1"]
+# Fixed slot: fountain at center (0,0) - other occupied slots handled by contents check
+const FIXED_SLOTS := ["0,0"]
 
 
 # Get grid bounds for base level (6x6)
@@ -161,18 +161,18 @@ func _draw() -> void:
 	# Player town indicator - gold ring expands with building range
 	if towns.size() > player_town_idx:
 		var town: Dictionary = towns[player_town_idx]
-		var town_center: Vector2 = town.center
 		var grid: Dictionary = town.grid
+		var fountain_pos: Vector2 = grid["0,0"]  # Center on fountain, not geometric center
 		var gold := Color(1.0, 0.85, 0.3, 0.8)
-		# Calculate radius based on farthest unlocked slot
+		# Calculate radius based on farthest unlocked slot from fountain
 		var max_dist := 60.0  # Minimum radius
 		for slot_key in town.slots.keys():
 			if slot_key in grid:
 				var slot_pos: Vector2 = grid[slot_key]
-				var dist: float = town_center.distance_to(slot_pos) + Config.TOWN_GRID_SPACING
+				var dist: float = fountain_pos.distance_to(slot_pos) + Config.TOWN_GRID_SPACING
 				if dist > max_dist:
 					max_dist = dist
-		draw_arc(town_center, max_dist, 0, TAU, 64, gold, 3.0)
+		draw_arc(fountain_pos, max_dist, 0, TAU, 64, gold, 3.0)
 
 	# Draw buildable slot indicators for player's town
 	var t1 := Time.get_ticks_usec()
@@ -302,16 +302,11 @@ func _generate_world() -> void:
 		town_data.slots["0,-1"].append({"type": "farm", "pos": grid["0,-1"]})
 		town_data.slots["0,1"].append({"type": "farm", "pos": grid["0,1"]})
 
-		# Store bed positions (4 beds per slot in 4 inner corner slots = 16 beds)
+		# Store bed positions (1 bed per slot in 4 inner corner slots = 4 beds)
 		var bed_slots := ["-1,-1", "-1,2", "2,-1", "2,2"]
 		for slot_key in bed_slots:
-			for bed_idx in 4:
-				var bed_offset := Vector2(
-					(bed_idx % 2 - 0.5) * 16,
-					(floorf(bed_idx / 2.0) - 0.5) * 16
-				)
-				var bed_pos: Vector2 = grid[slot_key] + bed_offset
-				town_data.slots[slot_key].append({"type": "bed", "pos": bed_pos})
+			var bed_pos: Vector2 = grid[slot_key]
+			town_data.slots[slot_key].append({"type": "bed", "pos": bed_pos})
 
 		# Store guard post positions at corners
 		var corner_keys := _get_corner_keys(0)
@@ -363,9 +358,11 @@ func _setup_managers() -> void:
 	# Add all locations using unified API (no sprites yet - batch at end)
 	for town_idx in towns.size():
 		var town: Dictionary = towns[town_idx]
+		var grid: Dictionary = town.grid
 
-		# Villager town center (faction=0, sprite_type=0 for fountain)
-		npc_manager.add_location("town_center", town.center.x, town.center.y, town_idx,
+		# Villager town center at grid slot (0,0) - not geometric center
+		var fountain_pos: Vector2 = grid["0,0"]
+		npc_manager.add_location("town_center", fountain_pos.x, fountain_pos.y, town_idx,
 			{"name": town.name, "faction": 0})
 
 		# Farms
@@ -621,17 +618,8 @@ func _draw_buildable_slots() -> void:
 		var slot_pos: Vector2 = grid[slot_key]
 		var slot_contents: Array = town.slots[slot_key]
 
-		# Count what's in the slot
-		var bed_count := 0
-		var has_building := false
-		for building in slot_contents:
-			if building.type == "bed":
-				bed_count += 1
-			elif building.type in ["farm", "guard_post"]:
-				has_building = true
-
-		# Skip full slots
-		if has_building or bed_count >= 4:
+		# Skip slots that have a building (1 building per slot)
+		if slot_contents.size() > 0:
 			continue
 
 		# Draw + icon for buildable slots
@@ -768,14 +756,9 @@ func _on_build_requested(slot_key: String, building_type: String) -> void:
 			if b.type == "bed":
 				bed_count += 1
 
-		# Calculate bed offset within slot (2x2 grid, 16px beds)
-		var bed_offset := Vector2(
-			(bed_count % 2 - 0.5) * 16,
-			(floorf(bed_count / 2.0) - 0.5) * 16
-		)
-		var bed_pos: Vector2 = slot_pos + bed_offset
-		town.slots[slot_key].append({"type": "bed", "pos": bed_pos})
-		npc_manager.add_location("bed", bed_pos.x, bed_pos.y, player_town_idx, {})
+		# Place single bed at slot center
+		town.slots[slot_key].append({"type": "bed", "pos": slot_pos})
+		npc_manager.add_location("bed", slot_pos.x, slot_pos.y, player_town_idx, {})
 
 	elif building_type == "guard_post":
 		var post_idx: int = town.guard_posts.size()

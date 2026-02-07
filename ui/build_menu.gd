@@ -18,7 +18,7 @@ signal unlock_requested(slot_key: String)
 const FARM_COST := 1  # TODO: restore to 50
 const BED_COST := 1  # TODO: restore to 10
 const GUARD_POST_COST := 1  # TODO: restore to 25
-const MAX_BEDS_PER_SLOT := 4
+const MAX_BEDS_PER_SLOT := 1
 
 var main_node: Node
 var current_slot_key: String = ""
@@ -112,27 +112,16 @@ func _refresh_buttons() -> void:
 	var town: Dictionary = main_node.towns[current_town_idx]
 	var slot_contents: Array = town.slots[current_slot_key]
 
-	# Count buildings in slot
-	var bed_count := 0
-	var has_farm := false
-	var has_guard_post := false
-	for building in slot_contents:
-		if building.type == "bed":
-			bed_count += 1
-		elif building.type == "farm":
-			has_farm = true
-		elif building.type == "guard_post":
-			has_guard_post = true
-
-	var slot_has_building := has_farm or has_guard_post or bed_count > 0
+	# Check if slot has any building (1 building per slot max)
+	var slot_has_building := slot_contents.size() > 0
 
 	# Farm button - only if slot is empty
 	farm_btn.text = "Farm (%d food)" % FARM_COST
 	farm_btn.disabled = slot_has_building or food < FARM_COST
 
-	# Bed button - only if no other building type and under 4 beds
-	bed_btn.text = "Bed (%d food) [%d/4]" % [BED_COST, bed_count]
-	bed_btn.disabled = has_farm or has_guard_post or bed_count >= MAX_BEDS_PER_SLOT or food < BED_COST
+	# Bed button - only if slot is empty (1 bed per slot)
+	bed_btn.text = "Bed (%d food)" % BED_COST
+	bed_btn.disabled = slot_has_building or food < BED_COST
 
 	# Guard post button - only if slot is empty
 	guard_post_btn.text = "Guard Post (%d food)" % GUARD_POST_COST
@@ -149,7 +138,7 @@ func _on_farm_pressed() -> void:
 
 func _on_bed_pressed() -> void:
 	if _try_build("bed", BED_COST):
-		_refresh_buttons()  # Stay open to build more beds
+		close()
 
 
 func _on_guard_post_pressed() -> void:
