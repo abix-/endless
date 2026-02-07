@@ -163,6 +163,11 @@ pub struct AssignedFarm(pub usize);
 #[derive(Component)]
 pub struct GoingToWork;
 
+/// NPC has arrived at destination and needs transition handling.
+/// Set by arrival_system when ArrivalMsg received; cleared by decision_system.
+#[derive(Component)]
+pub struct AtDestination;
+
 /// NPC is dead and pending removal.
 #[derive(Component)]
 pub struct Dead;

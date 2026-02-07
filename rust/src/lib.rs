@@ -176,7 +176,7 @@ fn build_app(app: &mut bevy::prelude::App) {
            energy_system,
            healing_system,
            on_duty_tick_system,
-           economy_tick_system,
+           game_time_system,
            farm_growth_system,
            decision_system,
        ).in_set(Step::Behavior))

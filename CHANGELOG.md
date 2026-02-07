@@ -1,6 +1,12 @@
 # Changelog
 
 ## 2026-02-07
+- refactor behavior.rs: central brain architecture with SystemParam bundles
+  - add FarmParams, EconomyParams, CombatParams, NpcStateParams bundles
+  - consolidate 19 parameters into 4 logical groups (stays under Bevy's 16-param limit)
+  - add Priority 0 arrival handling in decision_system (AtDestination marker)
+  - remove redundant Priority 8 (Raiding re-target every frame) - now handled in Priority 0
+  - arrival_system now minimal: marks AtDestination + proximity delivery only
 - fix working farmer harvest: farmers now harvest when assigned farm becomes Ready
   - previously only harvested on arrival, not while already working
   - harvest check added to drift check loop (throttled every 30 frames)

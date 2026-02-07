@@ -1,21 +1,20 @@
 //! Behavior systems - Unified decision-making and state transitions
 //!
 //! Key systems:
-//! - `arrival_system`: Handles state transitions when NPCs arrive at destinations
+//! - `arrival_system`: Minimal - marks NPCs as AtDestination, handles proximity delivery
 //! - `on_duty_tick_system`: Increments guard wait counters
-//! - `decision_system`: Central priority-based decision making for all NPCs
+//! - `decision_system`: Central priority-based decision making for ALL NPCs
 //!
-//! The decision system uses a priority cascade (first match wins):
-//! 1. InCombat + should_flee? → Flee
-//! 2. InCombat + should_leash? → Leash
-//! 3. InCombat → Skip (attack_system handles)
-//! 4. Recovering + healed? → Resume
-//! 5. Working + tired? → Stop work
-//! 6. OnDuty + time_to_patrol? → Patrol
-//! 7. Resting + rested? → Wake up
-//! 8. Raiding (post-combat) → Re-target farm
-//! 9. Idle → Score Eat/Rest/Work/Wander
+//! The decision system is the NPC's "brain" - all decisions flow through it:
+//! Priority 0: AtDestination? → Handle arrival transition
+//! Priority 1-3: Combat (flee/leash/skip)
+//! Priority 4: Recovering + healed? → Resume
+//! Priority 5: Working + tired? → Stop work
+//! Priority 6: OnDuty + time_to_patrol? → Patrol
+//! Priority 7: Resting + rested? → Wake up
+//! Priority 8: Idle → Score Eat/Rest/Work/Wander
 
+use bevy::ecs::system::SystemParam;
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::godot_prelude::*;
 
@@ -25,6 +24,49 @@ use crate::constants::*;
 use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy};
+
+// ============================================================================
+// SYSTEM PARAM BUNDLES - Logical groupings for scalability
+// ============================================================================
+
+/// Farm-related resources
+#[derive(SystemParam)]
+pub struct FarmParams<'w> {
+    pub states: ResMut<'w, FarmStates>,
+    pub occupancy: ResMut<'w, FarmOccupancy>,
+    pub world: Res<'w, WorldData>,
+}
+
+/// Economy resources (food, population tracking)
+#[derive(SystemParam)]
+pub struct EconomyParams<'w> {
+    pub food_storage: ResMut<'w, FoodStorage>,
+    pub food_events: ResMut<'w, FoodEvents>,
+    pub pop_stats: ResMut<'w, PopulationStats>,
+}
+
+/// Combat-related queries
+#[derive(SystemParam)]
+pub struct CombatParams<'w, 's> {
+    pub flee_data: Query<'w, 's, (&'static FleeThreshold, Option<&'static CarryingFood>)>,
+    pub leash_data: Query<'w, 's, (&'static LeashRange, &'static CombatOrigin)>,
+}
+
+/// NPC state queries (split from main query due to Bevy tuple limit)
+#[derive(SystemParam)]
+pub struct NpcStateParams<'w, 's> {
+    pub transit: Query<'w, 's, (
+        Option<&'static Patrolling>,
+        Option<&'static GoingToWork>,
+        Option<&'static GoingToRest>,
+        Option<&'static Wandering>,
+        Option<&'static AtDestination>,
+        Option<&'static WoundedThreshold>,
+    )>,
+    pub work: Query<'w, 's, &'static WorkPosition>,
+    pub assigned: Query<'w, 's, &'static AssignedFarm>,
+    pub patrols: Query<'w, 's, &'static mut PatrolRoute>,
+}
 
 // Distinct colors for raider factions (must match spawn.rs)
 const RAIDER_COLORS: [(f32, f32, f32); 10] = [
@@ -46,27 +88,23 @@ fn raider_faction_color(faction: &Faction) -> (f32, f32, f32, f32) {
     (r, g, b, 1.0)
 }
 
-/// Arrival system: transition states based on current marker.
-/// - Patrolling → OnDuty
-/// - GoingToRest → Resting
-/// - GoingToWork → Working
-/// - Raiding → CarryingFood + Returning
-/// - Returning → deliver food, clear state
-/// Also checks WoundedThreshold for recovery mode.
+/// Arrival system: Minimal event handler + proximity checks.
+///
+/// Responsibilities:
+/// 1. Read ArrivalMsg events → add AtDestination marker (decision_system handles transition)
+/// 2. Proximity-based delivery for Returning raiders (no ArrivalMsg for this)
+/// 3. Working farmer drift check + harvest (continuous, not event-based)
+///
+/// All actual state transitions are handled by decision_system.
 pub fn arrival_system(
     mut commands: Commands,
     mut events: MessageReader<ArrivalMsg>,
-    query: Query<(
-        Entity, &NpcIndex, &Job, &TownId, &Home, &Health, &Faction,
-        Option<&Patrolling>, Option<&GoingToRest>, Option<&GoingToWork>,
-        Option<&Raiding>, Option<&Returning>, Option<&CarryingFood>,
-        Option<&WoundedThreshold>, Option<&Wandering>,
-    ), Without<Recovering>>,
-    // Separate query for WorkPosition (Bevy limits tuples to 15 elements)
-    work_positions: Query<&WorkPosition>,
+    // Query for NPCs that can receive arrival events
+    arrival_query: Query<(Entity, &NpcIndex), Without<AtDestination>>,
+    // Query for Returning NPCs (proximity-based delivery)
+    returning_query: Query<(Entity, &NpcIndex, &TownId, &Home, &Faction, Option<&CarryingFood>), With<Returning>>,
     // Query for Working farmers with AssignedFarm (for drift check + harvest)
     working_farmers: Query<(&NpcIndex, &AssignedFarm, &TownId), With<Working>>,
-    mut pop_stats: ResMut<PopulationStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut food_storage: ResMut<FoodStorage>,
     mut food_events: ResMut<FoodEvents>,
@@ -75,28 +113,70 @@ pub fn arrival_system(
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
     mut farm_states: ResMut<FarmStates>,
-    mut farm_occupancy: ResMut<FarmOccupancy>,
     mut frame_counter: Local<u32>,
 ) {
     let positions = &gpu_state.positions;
-    const FARM_ARRIVAL_RADIUS: f32 = 20.0;  // Tight: farmer must be near farm center
     const DELIVERY_RADIUS: f32 = 150.0;     // Same as healing radius - deliver when near camp
-    const MAX_DRIFT: f32 = 20.0;            // Keep farmers visually on the farm (3x3 = ~51px, so 20px from center)
+    const MAX_DRIFT: f32 = 20.0;            // Keep farmers visually on the farm
 
-    // Increment frame counter for throttled drift check
+    // ========================================================================
+    // 1. Read ArrivalMsg events → add AtDestination marker
+    // ========================================================================
+    for event in events.read() {
+        for (entity, npc_idx) in arrival_query.iter() {
+            if npc_idx.0 == event.npc_index {
+                commands.entity(entity).insert(AtDestination);
+                break;
+            }
+        }
+    }
+
+    // ========================================================================
+    // 2. Proximity-based delivery for Returning (no ArrivalMsg for this)
+    // ========================================================================
+    for (entity, npc_idx, town, home, faction, carrying) in returning_query.iter() {
+        let idx = npc_idx.0;
+        if idx * 2 + 1 >= positions.len() { continue; }
+
+        let x = positions[idx * 2];
+        let y = positions[idx * 2 + 1];
+        let dx = x - home.0.x;
+        let dy = y - home.0.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        if dist <= DELIVERY_RADIUS {
+            let mut cmds = commands.entity(entity);
+            cmds.remove::<Returning>();
+
+            if carrying.is_some() {
+                cmds.remove::<CarryingFood>();
+                cmds.remove::<CarriedItem>();
+                let (r, g, b, a) = raider_faction_color(faction);
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem { idx, item_id: CarriedItem::NONE }));
+                let camp_idx = town.0 as usize;
+                if camp_idx < food_storage.food.len() {
+                    food_storage.food[camp_idx] += 1;
+                }
+                food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Delivered food".into());
+            }
+        }
+    }
+
+    // ========================================================================
+    // 3. Working farmer drift check + harvest (throttled: each farmer once per 30 frames)
+    // ========================================================================
     *frame_counter = frame_counter.wrapping_add(1);
     let frame_slot = *frame_counter % 30;
 
-    // Working farmer drift check + harvest check (throttled: each farmer checked once per 30 frames)
     for (npc_idx, assigned, town) in working_farmers.iter() {
-        // Stagger checks: only check if npc_idx % 30 == current frame slot
         if (npc_idx.0 as u32) % 30 != frame_slot { continue; }
 
         let farm_idx = assigned.0;
         if farm_idx >= world_data.farms.len() { continue; }
         let farm_pos = world_data.farms[farm_idx].position;
 
-        // Get farmer's current position
         let idx = npc_idx.0;
         if idx * 2 + 1 >= positions.len() { continue; }
         let current = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
@@ -123,209 +203,6 @@ pub fn arrival_system(
             farm_states.states[farm_idx] = FarmGrowthState::Growing;
             farm_states.progress[farm_idx] = 0.0;
             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)".into());
-        }
-    }
-
-    // Proximity-based arrival for Returning and GoingToRest (don't wait for exact arrival)
-    for (entity, npc_idx, _job, town, home, _health, faction,
-         _patrolling, going_rest, _going_work,
-         _raiding, returning, carrying, _wounded, _wandering) in query.iter()
-    {
-        let is_returning = returning.is_some();
-        let is_going_rest = going_rest.is_some();
-        if !is_returning && !is_going_rest { continue; }
-
-        let idx = npc_idx.0;
-        if idx * 2 + 1 >= positions.len() { continue; }
-
-        let x = positions[idx * 2];
-        let y = positions[idx * 2 + 1];
-        let dx = x - home.0.x;
-        let dy = y - home.0.y;
-        let dist = (dx * dx + dy * dy).sqrt();
-
-        if dist <= DELIVERY_RADIUS {
-            let mut cmds = commands.entity(entity);
-
-            if is_returning {
-                cmds.remove::<Returning>();
-                if carrying.is_some() {
-                    cmds.remove::<CarryingFood>();
-                    cmds.remove::<CarriedItem>();
-                    let (r, g, b, a) = raider_faction_color(faction);
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem { idx, item_id: CarriedItem::NONE }));
-                    let camp_idx = town.0 as usize;
-                    if camp_idx < food_storage.food.len() {
-                        food_storage.food[camp_idx] += 1;
-                    }
-                    food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
-                }
-            } else if is_going_rest {
-                cmds.remove::<GoingToRest>();
-                cmds.insert(Resting);
-            }
-        }
-    }
-
-    for event in events.read() {
-        for (entity, npc_idx, job, town, home, health, _faction,
-             patrolling, going_rest, going_work,
-             raiding, returning, _carrying, wounded, wandering) in query.iter()
-        {
-            if npc_idx.0 != event.npc_index { continue; }
-            let idx = npc_idx.0;
-
-            if patrolling.is_some() {
-                commands.entity(entity)
-                    .remove::<Patrolling>()
-                    .insert(OnDuty { ticks_waiting: 0 });
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ OnDuty".into());
-            } else if going_rest.is_some() {
-                commands.entity(entity)
-                    .remove::<GoingToRest>()
-                    .insert(Resting);
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
-            } else if going_work.is_some() {
-                // Farmers: find farm at WorkPosition (not current pos - they may have been pushed)
-                if *job == Job::Farmer {
-                    // Use WorkPosition to find target farm (that's where we sent them)
-                    let search_pos = work_positions.get(entity)
-                        .map(|wp| wp.0)
-                        .unwrap_or_else(|_| {
-                            // Fallback to current position if no WorkPosition
-                            if idx * 2 + 1 < positions.len() {
-                                Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
-                            } else {
-                                Vector2::new(0.0, 0.0)
-                            }
-                        });
-                    if let Some((farm_idx, farm_pos)) = find_location_within_radius(search_pos, &world_data, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
-                        // Reserve farm (increment occupancy)
-                        if farm_idx < farm_occupancy.occupant_count.len() {
-                            farm_occupancy.occupant_count[farm_idx] += 1;
-                        }
-
-                        // Transition to Working with AssignedFarm
-                        commands.entity(entity)
-                            .remove::<GoingToWork>()
-                            .insert(Working)
-                            .insert(AssignedFarm(farm_idx));
-                        pop_inc_working(&mut pop_stats, *job, town.0);
-
-                        // Set target to FARM position (not farmer position) so they return if pushed
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
-
-                        // Check if farm is ready to harvest
-                        if farm_idx < farm_states.states.len()
-                            && farm_states.states[farm_idx] == FarmGrowthState::Ready
-                        {
-                            // Harvest: add food to town storage, reset farm
-                            let town_idx = town.0 as usize;
-                            if town_idx < food_storage.food.len() {
-                                food_storage.food[town_idx] += 1;
-                                food_events.consumed.push(FoodConsumed {
-                                    location_idx: farm_idx as u32,
-                                    is_camp: false,
-                                });
-                            }
-                            farm_states.states[farm_idx] = FarmGrowthState::Growing;
-                            farm_states.progress[farm_idx] = 0.0;
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working".into());
-                        } else {
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
-                        }
-                    } else {
-                        // No farm found at WorkPosition - this shouldn't happen, but handle gracefully
-                        commands.entity(entity)
-                            .remove::<GoingToWork>()
-                            .insert(Working);
-                        pop_inc_working(&mut pop_stats, *job, town.0);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: search_pos.x, y: search_pos.y }));
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (no farm)".into());
-                    }
-                } else {
-                    // Non-farmers just transition to Working at current position
-                    let current_pos = if idx * 2 + 1 < positions.len() {
-                        Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
-                    } else {
-                        Vector2::new(0.0, 0.0)
-                    };
-                    commands.entity(entity)
-                        .remove::<GoingToWork>()
-                        .insert(Working);
-                    pop_inc_working(&mut pop_stats, *job, town.0);
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: current_pos.x, y: current_pos.y }));
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working".into());
-                }
-            } else if raiding.is_some() {
-                if idx * 2 + 1 < positions.len() {
-                    let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
-
-                    // Find nearest farm within arrival radius and check if Ready
-                    let ready_farm = find_location_within_radius(pos, &world_data, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
-                        .filter(|(farm_idx, _)| {
-                            *farm_idx < farm_states.states.len()
-                                && farm_states.states[*farm_idx] == FarmGrowthState::Ready
-                        });
-
-                    if let Some((farm_idx, _)) = ready_farm {
-                        // Farm is ready - steal food and reset farm to Growing
-                        farm_states.states[farm_idx] = FarmGrowthState::Growing;
-                        farm_states.progress[farm_idx] = 0.0;
-
-                        commands.entity(entity)
-                            .remove::<Raiding>()
-                            .insert(CarryingFood)
-                            .insert(CarriedItem(CarriedItem::FOOD))
-                            .insert(Returning);
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning".into());
-                        // Show carried item above head
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem {
-                            idx: npc_idx.0,
-                            item_id: CarriedItem::FOOD,
-                        }));
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                            idx: npc_idx.0,
-                            x: home.0.x,
-                            y: home.0.y,
-                        }));
-                    } else {
-                        // No ready farm nearby - find another farm to raid
-                        if let Some(farm_pos) = find_nearest_location(pos, &world_data, LocationKind::Farm) {
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                idx: npc_idx.0,
-                                x: farm_pos.x,
-                                y: farm_pos.y,
-                            }));
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another".into());
-                        }
-                    }
-                }
-            } else if returning.is_some() {
-                // Arrival at wrong location (e.g., after combat chase) - re-target home.
-                // Actual delivery handled by proximity check (lines 111-127).
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                    idx: npc_idx.0,
-                    x: home.0.x,
-                    y: home.0.y,
-                }));
-            } else if wandering.is_some() {
-                // Wandering complete - remove marker, NPC goes back to decision_system
-                commands.entity(entity).remove::<Wandering>();
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Idle".into());
-            }
-
-            if let Some(w) = wounded {
-                let health_pct = health.0 / 100.0;
-                if health_pct < w.pct {
-                    commands.entity(entity)
-                        .insert(Recovering { threshold: 0.75 })
-                        .insert(Resting);
-                }
-            }
-
-            break;
         }
     }
 }
@@ -422,40 +299,34 @@ fn weighted_random(scores: &[(Action, f32)], seed: usize, frame: usize) -> Actio
 static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Unified decision system: ALL NPC decisions in one place with priority cascade.
+/// This is the NPC's "brain" - all decisions and state transitions flow through here.
+///
+/// Uses SystemParam bundles for scalability - add new features to bundles, not here.
 ///
 /// Priority order (first match wins):
-/// 1. InCombat + should_flee? → Flee
-/// 2. InCombat + should_leash? → Leash
-/// 3. InCombat → Skip (attack_system handles)
+/// 0. AtDestination → Handle arrival transition (Patrolling→OnDuty, GoingToWork→Working, etc.)
+/// 1-3. Combat (flee/leash/skip)
 /// 4. Recovering + healed? → Resume
 /// 5. Working + tired? → Stop work
 /// 6. OnDuty + time_to_patrol? → Patrol
 /// 7. Resting + rested? → Wake up
-/// 8. Raiding (post-combat) → Re-target farm
-/// 9. Idle → Score Eat/Rest/Work/Wander
+/// 8. Idle → Score Eat/Rest/Work/Wander (utility AI)
 pub fn decision_system(
     mut commands: Commands,
-    // Main query: NPCs not in transit states
+    // Main query: core NPC data (15 elements - at Bevy tuple limit)
     mut query: Query<
         (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
          Option<&InCombat>, Option<&Recovering>, Option<&Working>, Option<&OnDuty>,
          Option<&Resting>, Option<&Raiding>),
-        (Without<Patrolling>, Without<GoingToWork>, Without<GoingToRest>,
-         Without<Returning>, Without<Wandering>, Without<Dead>)
+        Without<Dead>
     >,
-    // Combat data for flee/leash
-    flee_data: Query<(&FleeThreshold, Option<&CarryingFood>)>,
-    leash_data: Query<(&LeashRange, &CombatOrigin)>,
-    // Patrol data (mutable for advancing)
-    mut patrols: Query<&mut PatrolRoute>,
-    // Work data
-    work_positions: Query<&WorkPosition>,
-    assigned_farms: Query<&AssignedFarm>,
-    // Resources
+    // Bundled params (scalable - add to bundles, not here)
+    mut npc_states: NpcStateParams,
+    combat: CombatParams,
+    mut farms: FarmParams,
+    mut economy: EconomyParams,
+    // Core resources
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut farm_occupancy: ResMut<FarmOccupancy>,
-    world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
@@ -467,18 +338,164 @@ pub fn decision_system(
 
     const THREAT_RADIUS: f32 = 200.0;
     const CHECK_INTERVAL: usize = 30;
+    const FARM_ARRIVAL_RADIUS: f32 = 20.0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
          in_combat, recovering, working, on_duty, resting, raiding) in query.iter_mut()
     {
         let idx = npc_idx.0;
 
+        // Get transit states from bundled query
+        let (patrolling, going_work, going_rest, wandering, at_destination, wounded) =
+            npc_states.transit.get(entity).unwrap_or((None, None, None, None, None, None));
+
+        // ====================================================================
+        // Priority 0: AtDestination → Handle arrival transition
+        // ====================================================================
+        if at_destination.is_some() {
+            commands.entity(entity).remove::<AtDestination>();
+
+            // Handle each transit state's arrival
+            if patrolling.is_some() {
+                commands.entity(entity)
+                    .remove::<Patrolling>()
+                    .insert(OnDuty { ticks_waiting: 0 });
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ OnDuty".into());
+            } else if going_rest.is_some() {
+                commands.entity(entity)
+                    .remove::<GoingToRest>()
+                    .insert(Resting);
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
+            } else if going_work.is_some() {
+                // Farmers: find farm at WorkPosition and start working
+                if *job == Job::Farmer {
+                    let search_pos = npc_states.work.get(entity)
+                        .map(|wp| wp.0)
+                        .unwrap_or_else(|_| {
+                            if idx * 2 + 1 < positions.len() {
+                                Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                            } else {
+                                Vector2::new(0.0, 0.0)
+                            }
+                        });
+
+                    if let Some((farm_idx, farm_pos)) = find_location_within_radius(search_pos, &farms.world, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
+                        // Reserve farm
+                        if farm_idx < farms.occupancy.occupant_count.len() {
+                            farms.occupancy.occupant_count[farm_idx] += 1;
+                        }
+
+                        commands.entity(entity)
+                            .remove::<GoingToWork>()
+                            .insert(Working)
+                            .insert(AssignedFarm(farm_idx));
+                        pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
+
+                        // Check if farm is ready to harvest
+                        if farm_idx < farms.states.states.len()
+                            && farms.states.states[farm_idx] == FarmGrowthState::Ready
+                        {
+                            let town_idx = town_id.0 as usize;
+                            if town_idx < economy.food_storage.food.len() {
+                                economy.food_storage.food[town_idx] += 1;
+                                economy.food_events.consumed.push(FoodConsumed {
+                                    location_idx: farm_idx as u32,
+                                    is_camp: false,
+                                });
+                            }
+                            farms.states.states[farm_idx] = FarmGrowthState::Growing;
+                            farms.states.progress[farm_idx] = 0.0;
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working".into());
+                        } else {
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
+                        }
+                    } else {
+                        // No farm found - just work at current position
+                        commands.entity(entity)
+                            .remove::<GoingToWork>()
+                            .insert(Working);
+                        pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: search_pos.x, y: search_pos.y }));
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (no farm)".into());
+                    }
+                } else {
+                    // Non-farmers just transition to Working
+                    let current_pos = if idx * 2 + 1 < positions.len() {
+                        Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                    } else {
+                        Vector2::new(0.0, 0.0)
+                    };
+                    commands.entity(entity)
+                        .remove::<GoingToWork>()
+                        .insert(Working);
+                    pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: current_pos.x, y: current_pos.y }));
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working".into());
+                }
+            } else if raiding.is_some() {
+                // Raider arrived at farm - check if ready to steal
+                if idx * 2 + 1 < positions.len() {
+                    let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
+
+                    let ready_farm = find_location_within_radius(pos, &farms.world, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
+                        .filter(|(farm_idx, _)| {
+                            *farm_idx < farms.states.states.len()
+                                && farms.states.states[*farm_idx] == FarmGrowthState::Ready
+                        });
+
+                    if let Some((farm_idx, _)) = ready_farm {
+                        // Steal food and head home
+                        farms.states.states[farm_idx] = FarmGrowthState::Growing;
+                        farms.states.progress[farm_idx] = 0.0;
+
+                        commands.entity(entity)
+                            .remove::<Raiding>()
+                            .insert(CarryingFood)
+                            .insert(CarriedItem(CarriedItem::FOOD))
+                            .insert(Returning);
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem { idx, item_id: CarriedItem::FOOD }));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning".into());
+                    } else {
+                        // Farm not ready - find another
+                        if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another".into());
+                        }
+                    }
+                }
+            } else if wandering.is_some() {
+                commands.entity(entity).remove::<Wandering>();
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Idle".into());
+            }
+
+            // Check wounded threshold on arrival
+            if let Some(w) = wounded {
+                let health_pct = health.0 / 100.0;
+                if health_pct < w.pct {
+                    commands.entity(entity)
+                        .insert(Recovering { threshold: 0.75 })
+                        .insert(Resting);
+                }
+            }
+
+            continue;
+        }
+
+        // ====================================================================
+        // Skip NPCs in transit states (they're walking to their destination)
+        // ====================================================================
+        if patrolling.is_some() || going_work.is_some() || going_rest.is_some() || wandering.is_some() {
+            continue;
+        }
+
         // ====================================================================
         // Priority 1-3: Combat decisions (flee/leash/skip)
         // ====================================================================
         if in_combat.is_some() {
             // Priority 1: Should flee?
-            if let Ok((flee_threshold, carrying)) = flee_data.get(entity) {
+            if let Ok((flee_threshold, carrying)) = combat.flee_data.get(entity) {
                 let should_check_threat = (frame + idx) % CHECK_INTERVAL == 0;
                 let effective_threshold = if should_check_threat {
                     let (enemies, allies) = count_nearby_factions(
@@ -506,7 +523,7 @@ pub fn decision_system(
             }
 
             // Priority 2: Should leash?
-            if let Ok((leash, origin)) = leash_data.get(entity) {
+            if let Ok((leash, origin)) = combat.leash_data.get(entity) {
                 if idx * 2 + 1 < positions.len() {
                     let dx = positions[idx * 2] - origin.x;
                     let dy = positions[idx * 2 + 1] - origin.y;
@@ -543,10 +560,10 @@ pub fn decision_system(
         if working.is_some() {
             if energy.0 < ENERGY_TIRED_THRESHOLD {
                 commands.entity(entity).remove::<Working>();
-                if let Ok(assigned) = assigned_farms.get(entity) {
-                    if assigned.0 < farm_occupancy.occupant_count.len() {
-                        farm_occupancy.occupant_count[assigned.0] =
-                            farm_occupancy.occupant_count[assigned.0].saturating_sub(1);
+                if let Ok(assigned) = npc_states.assigned.get(entity) {
+                    if assigned.0 < farms.occupancy.occupant_count.len() {
+                        farms.occupancy.occupant_count[assigned.0] =
+                            farms.occupancy.occupant_count[assigned.0].saturating_sub(1);
                     }
                     commands.entity(entity).remove::<AssignedFarm>();
                 }
@@ -562,7 +579,7 @@ pub fn decision_system(
             // Note: We need mutable access to increment ticks, but we have immutable here.
             // The tick increment happens via the mutable query below.
             if duty.ticks_waiting >= GUARD_PATROL_WAIT {
-                if let Ok(mut patrol) = patrols.get_mut(entity) {
+                if let Ok(mut patrol) = npc_states.patrols.get_mut(entity) {
                     if !patrol.posts.is_empty() {
                         patrol.current = (patrol.current + 1) % patrol.posts.len();
                     }
@@ -590,28 +607,13 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Priority 8: Raiding (post-combat) → Re-target farm
-        // ====================================================================
-        if raiding.is_some() {
-            let pos = if idx * 2 + 1 < positions.len() {
-                Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
-            } else {
-                home.0
-            };
-            if let Some(farm_pos) = find_nearest_location(pos, &world_data, LocationKind::Farm) {
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
-            }
-            continue;
-        }
-
-        // ====================================================================
-        // Priority 9: Idle → Score Eat/Rest/Work/Wander
+        // Priority 8: Idle → Score Eat/Rest/Work/Wander
         // ====================================================================
         let en = energy.0;
         let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
 
         let town_idx = town_id.0 as usize;
-        let food_available = town_idx < food_storage.food.len() && food_storage.food[town_idx] > 0;
+        let food_available = town_idx < economy.food_storage.food.len() && economy.food_storage.food[town_idx] > 0;
         let mut scores: Vec<(Action, f32)> = Vec::with_capacity(4);
 
         if food_available {
@@ -623,8 +625,8 @@ pub fn decision_system(
         if rest_score > 0.0 && home.is_valid() { scores.push((Action::Rest, rest_score)); }
 
         let can_work = match job {
-            Job::Farmer => work_positions.get(entity).is_ok(),
-            Job::Guard => patrols.get(entity).is_ok(),
+            Job::Farmer => npc_states.work.get(entity).is_ok(),
+            Job::Guard => npc_states.patrols.get(entity).is_ok(),
             Job::Raider => true,
             Job::Fighter => false,
         };
@@ -643,9 +645,9 @@ pub fn decision_system(
 
         match action {
             Action::Eat => {
-                if town_idx < food_storage.food.len() && food_storage.food[town_idx] > 0 {
+                if town_idx < economy.food_storage.food.len() && economy.food_storage.food[town_idx] > 0 {
                     let old_energy = energy.0;
-                    food_storage.food[town_idx] -= 1;
+                    economy.food_storage.food[town_idx] -= 1;
                     energy.0 = (energy.0 + ENERGY_FROM_EATING).min(100.0);
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                         format!("Ate (e:{:.0}→{:.0})", old_energy, energy.0));
@@ -660,13 +662,13 @@ pub fn decision_system(
             Action::Work => {
                 match job {
                     Job::Farmer => {
-                        if let Ok(wp) = work_positions.get(entity) {
+                        if let Ok(wp) = npc_states.work.get(entity) {
                             commands.entity(entity).insert(GoingToWork);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: wp.0.x, y: wp.0.y }));
                         }
                     }
                     Job::Guard => {
-                        if let Ok(patrol) = patrols.get(entity) {
+                        if let Ok(patrol) = npc_states.patrols.get(entity) {
                             commands.entity(entity).insert(Patrolling);
                             if let Some(pos) = patrol.posts.get(patrol.current) {
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
@@ -679,7 +681,7 @@ pub fn decision_system(
                         } else {
                             home.0
                         };
-                        if let Some(farm_pos) = find_nearest_location(pos, &world_data, LocationKind::Farm) {
+                        if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
                             commands.entity(entity).insert(Raiding);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
                         }

@@ -1,4 +1,4 @@
-//! Economy systems - Population tracking, food production, respawning
+//! Economy systems - Game time, population tracking, farm growth
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
 use godot_bevy::prelude::PhysicsDelta;
@@ -7,10 +7,6 @@ use crate::components::*;
 use crate::resources::*;
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE};
 use crate::world::{WorldData, FarmOccupancy};
-
-// Respawn system constants (disabled but kept for later)
-#[allow(dead_code)]
-const MAX_NPC_COUNT: usize = 10_000;
 
 // ============================================================================
 // POPULATION TRACKING HELPERS
@@ -51,40 +47,19 @@ pub fn pop_inc_dead(stats: &mut PopulationStats, job: Job, clan: i32) {
 }
 
 // ============================================================================
-// ECONOMY TICK SYSTEM - All hourly logic in one place
+// GAME TIME SYSTEM
 // ============================================================================
 
-/// Unified economy system: tracks time, produces food, respawns NPCs.
-/// Uses PhysicsDelta (synced with Godot's physics frame by godot-bevy).
-pub fn economy_tick_system(
+/// Advances game time based on delta and time_scale.
+/// Other systems read GameTime for time-based calculations.
+pub fn game_time_system(
     delta: Res<PhysicsDelta>,
     mut game_time: ResMut<GameTime>,
-    mut prev_hour: Local<i32>,
-    working_farmers: Query<&TownId, (With<Farmer>, With<Working>)>,
-    _pop_stats: Res<PopulationStats>,
-    config: Res<GameConfig>,
-    _timers: ResMut<RespawnTimers>,
-    food_storage: ResMut<FoodStorage>,
 ) {
-    // Respect pause
     if game_time.paused {
         return;
     }
-
-    // Accumulate time (scaled)
     game_time.total_seconds += delta.delta_seconds * game_time.time_scale;
-
-    // Check for hour boundary (kept for future hourly tasks like respawning)
-    let current_hour = game_time.hour();
-    if current_hour == *prev_hour {
-        return;
-    }
-    *prev_hour = current_hour;
-
-    // --- HOURLY TASKS ---
-    // Food production removed: now handled by farm harvest system in behavior.rs
-    // (farmers harvest Ready farms on arrival or while tending)
-    let _ = (working_farmers, config, food_storage);  // suppress unused warnings
 }
 
 // ============================================================================

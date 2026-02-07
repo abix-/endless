@@ -4,9 +4,15 @@
 
 Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, rest transitions, patrol cycling for guards, work transitions for farmers, and stealing/fleeing for raiders. All run in `Step::Behavior` after combat is resolved.
 
-**Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade:
+**Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. The system uses **SystemParam bundles** to organize related parameters and stay within Bevy's 16-parameter limit:
+
+- `FarmParams`: farm states, occupancy tracking, world data
+- `EconomyParams`: food storage, food events, population stats
+- `CombatParams`: flee data, leash data queries
+- `NpcStateParams`: transit state queries, work positions, assigned farms, patrol routes
 
 Priority order (first match wins):
+0. AtDestination → Handle arrival transitions
 1. InCombat + should_flee? → Flee
 2. InCombat + should_leash? → Leash
 3. InCombat → Skip (attack_system handles)
@@ -14,8 +20,7 @@ Priority order (first match wins):
 5. Working + tired? → Stop work
 6. OnDuty + time_to_patrol? → Patrol
 7. Resting + rested? → Wake up
-8. Raiding (post-combat) → Re-target farm
-9. Idle → Score Eat/Rest/Work/Wander
+8. Idle → Score Eat/Rest/Work/Wander
 
 All checks are **component-driven, not job-driven**. Flee logic operates on any NPC with `FleeThreshold` + `InCombat`, regardless of whether it's a guard or raider.
 
@@ -136,6 +141,7 @@ Same situation, different outcomes. That's emergent behavior.
 | Home | `{ x, y }` | NPC's home/bed position |
 | WorkPosition | `{ x, y }` | Farmer's field position |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
+| AtDestination | marker | NPC arrived at destination, needs transition handling |
 | HasTarget | marker | NPC has an active movement target |
 | InCombat | marker | Blocks behavior transitions |
 | CombatOrigin | `{ x, y }` | Position where combat started; leash measures from here |
@@ -148,7 +154,18 @@ Same situation, different outcomes. That's emergent behavior.
 
 ### decision_system (Unified Priority Cascade)
 - Query: NPCs not in transit states (no Patrolling, GoingToWork, GoingToRest, Returning, Wandering, Dead)
+- Uses **SystemParam bundles** to organize 19+ parameters into 4 logical groups (see Overview)
 - Checks states via `Option<&Component>` and handles in priority order:
+
+**Priority 0: Arrival transitions**
+- If `AtDestination`: handle state-specific transitions
+  - `Patrolling` → `OnDuty { ticks: 0 }`
+  - `GoingToRest` → `Resting`
+  - `GoingToWork` → `Working` + `AssignedFarm` + harvest if farm ready
+  - `Raiding` → steal if farm ready, else re-target another farm; `CarryingFood` + `Returning`
+  - `Wandering` → clear state
+  - Check `WoundedThreshold` for recovery mode
+- Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
 - If `InCombat` + has `FleeThreshold`: dynamic threat assessment (enemies vs allies within 200px, throttled every 30 frames), flee if HP < effective threshold
@@ -167,10 +184,7 @@ Same situation, different outcomes. That's emergent behavior.
 **Priority 7: Wake up**
 - If `Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): remove `Resting`, proceed to idle scoring
 
-**Priority 8: Raid continuation**
-- If `Raiding` (post-combat): re-target nearest farm
-
-**Priority 9: Idle scoring (Utility AI)**
+**Priority 8: Idle scoring (Utility AI)**
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
@@ -181,21 +195,11 @@ Same situation, different outcomes. That's emergent behavior.
 - Increments `ticks_waiting` each frame
 - Separated from decision_system to allow mutable `OnDuty` access while main query has immutable view
 
-### arrival_system (Generic)
-- Reads `ArrivalMsg` events (from GPU arrival detection) for most states
-- **Proximity-based arrival** for Returning and GoingToRest: checks distance to home instead of waiting for exact GPU arrival. Uses DELIVERY_RADIUS (150px, same as healing aura). This fixes raiders and resting NPCs getting stuck when exact arrival doesn't trigger.
-- **Food delivery is proximity-only**: Only the proximity check (within 150px of home) delivers food. Event-based Returning arrival just re-targets home — this prevents delivering food at wrong location after combat chase.
+### arrival_system (Minimal)
+- Reads `ArrivalMsg` events (from GPU arrival detection) and marks NPCs with `AtDestination`
+- **Proximity-based delivery** for Returning raiders: checks distance to home, delivers food within DELIVERY_RADIUS (150px)
 - **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm
-- **Farm lookup uses WorkPosition**: When farmer arrives at work, finds farm near their `WorkPosition` (not current position) to avoid "no farm" errors when pushed by separation forces
-- Transitions based on current state marker (component-driven, not job-driven):
-  - `Patrolling` → `OnDuty { ticks: 0 }`
-  - `GoingToRest` → `Resting` (via proximity check)
-  - `GoingToWork` → `Working` + `AssignedFarm` + reserve farm + **harvest if farm ready** (see Farm Growth below)
-  - `Raiding` → `CarryingFood` + `Returning` **only if farm is Ready** (see Farm Growth below)
-  - `Returning` event arrival → re-target home (actual delivery via proximity check)
-  - `Wandering` → clear state (back to decision_system)
-- Also checks `WoundedThreshold` for recovery mode on arrival
-- **State logging**: All transitions are logged to `NpcLogCache` (e.g., "→ OnDuty", "→ Resting", "Stole food → Returning")
+- All state transitions moved to decision_system Priority 0 (central brain model)
 
 ### energy_system
 - NPCs with `Resting`: recover `ENERGY_RECOVER_RATE` per tick
@@ -303,6 +307,6 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 
 ## Rating: 8/10
 
-Single `decision_system` handles all NPC decisions with clear priority cascade. Utility AI for idle decisions creates lifelike behavior. Farm growth system adds meaningful gameplay loop.
+Central brain architecture: `decision_system` handles all NPC decisions with clear priority cascade. SystemParam bundles organize parameters into logical groups, allowing the system to scale as more features are added. Utility AI for idle decisions creates lifelike behavior. Farm growth system adds meaningful gameplay loop.
 
 Gaps: no pathfinding, all raiders converge on same farm, healing halo visual broken.
