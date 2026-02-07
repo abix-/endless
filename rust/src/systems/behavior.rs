@@ -76,6 +76,8 @@ pub fn arrival_system(
         Option<&Raiding>, Option<&Returning>, Option<&CarryingFood>,
         Option<&WoundedThreshold>, Option<&Wandering>,
     ), Without<Recovering>>,
+    // Separate query for WorkPosition (Bevy limits tuples to 15 elements)
+    work_positions: Query<&WorkPosition>,
     // Query for Working farmers with AssignedFarm (for drift check)
     working_farmers: Query<(&NpcIndex, &AssignedFarm), With<Working>>,
     mut pop_stats: ResMut<PopulationStats>,
@@ -182,16 +184,20 @@ pub fn arrival_system(
                     .insert(Resting);
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
             } else if going_work.is_some() {
-                // Get farmer's current position for farm finding
-                let pos = if idx * 2 + 1 < positions.len() {
-                    Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
-                } else {
-                    continue;
-                };
-
-                // Farmers: find farm, reserve it, set AssignedFarm
+                // Farmers: find farm at WorkPosition (not current pos - they may have been pushed)
                 if *job == Job::Farmer {
-                    if let Some((farm_idx, farm_pos)) = find_location_within_radius(pos, &world_data, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
+                    // Use WorkPosition to find target farm (that's where we sent them)
+                    let search_pos = work_positions.get(entity)
+                        .map(|wp| wp.0)
+                        .unwrap_or_else(|_| {
+                            // Fallback to current position if no WorkPosition
+                            if idx * 2 + 1 < positions.len() {
+                                Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                            } else {
+                                Vector2::new(0.0, 0.0)
+                            }
+                        });
+                    if let Some((farm_idx, farm_pos)) = find_location_within_radius(search_pos, &world_data, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
                         // Reserve farm (increment occupancy)
                         if farm_idx < farm_occupancy.occupant_count.len() {
                             farm_occupancy.occupant_count[farm_idx] += 1;
@@ -227,21 +233,26 @@ pub fn arrival_system(
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
                         }
                     } else {
-                        // No farm found within radius - just go to Working without farm assignment
+                        // No farm found at WorkPosition - this shouldn't happen, but handle gracefully
                         commands.entity(entity)
                             .remove::<GoingToWork>()
                             .insert(Working);
                         pop_inc_working(&mut pop_stats, *job, town.0);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: search_pos.x, y: search_pos.y }));
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (no farm)".into());
                     }
                 } else {
                     // Non-farmers just transition to Working at current position
+                    let current_pos = if idx * 2 + 1 < positions.len() {
+                        Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                    } else {
+                        Vector2::new(0.0, 0.0)
+                    };
                     commands.entity(entity)
                         .remove::<GoingToWork>()
                         .insert(Working);
                     pop_inc_working(&mut pop_stats, *job, town.0);
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: current_pos.x, y: current_pos.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working".into());
                 }
             } else if raiding.is_some() {
