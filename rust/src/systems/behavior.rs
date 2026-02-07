@@ -590,7 +590,9 @@ pub fn decision_system(
         let en = energy.0;
         let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
 
-        let food_available = home.is_valid();
+        // Check if town actually has food in storage
+        let town_idx = town_id.0 as usize;
+        let food_available = town_idx < food_storage.food.len() && food_storage.food[town_idx] > 0;
         let mut scores: Vec<(Action, f32)> = Vec::with_capacity(6);
 
         if food_available {
