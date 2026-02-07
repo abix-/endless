@@ -541,8 +541,8 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 /// Runs on NPCs without an active state, OR raiders continuing their mission after combat.
 pub fn decision_system(
     mut commands: Commands,
-    query: Query<
-        (Entity, &NpcIndex, &Job, &Energy, &Health, &Home, &Personality,
+    mut query: Query<
+        (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId,
          Option<&WorkPosition>, Option<&PatrolRoute>, Option<&Stealer>, Option<&Raiding>),
         (Without<Patrolling>, Without<OnDuty>, Without<Working>, Without<GoingToWork>,
          Without<Resting>, Without<GoingToRest>, Without<Returning>, Without<Wandering>,
@@ -550,6 +550,7 @@ pub fn decision_system(
     >,
     _pop_stats: ResMut<PopulationStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut food_storage: ResMut<FoodStorage>,
     world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
@@ -557,7 +558,7 @@ pub fn decision_system(
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    for (entity, npc_idx, job, energy, _health, home, personality, work_pos, patrol, _stealer, raiding) in query.iter() {
+    for (entity, npc_idx, job, mut energy, _health, home, personality, town_id, work_pos, patrol, _stealer, raiding) in query.iter_mut() {
         let idx = npc_idx.0;
 
         // Raiders continuing mission after combat - re-target nearest farm
@@ -619,7 +620,18 @@ pub fn decision_system(
             format!("{:?} (e:{:.0} h:{:.0})", action, energy.0, _health.0));
 
         match action {
-            Action::Eat | Action::Rest => {
+            Action::Eat => {
+                let town_idx = town_id.0 as usize;
+                if town_idx < food_storage.food.len() && food_storage.food[town_idx] > 0 {
+                    let old_energy = energy.0;
+                    food_storage.food[town_idx] -= 1;
+                    energy.0 = (energy.0 + ENERGY_FROM_EATING).min(100.0);
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                        format!("Ate (e:{:.0}→{:.0})", old_energy, energy.0));
+                }
+                // If no food available, NPC stays idle and picks another action next frame
+            }
+            Action::Rest => {
                 if home.is_valid() {
                     commands.entity(entity).insert(GoingToRest);
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {

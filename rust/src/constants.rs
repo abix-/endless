@@ -80,6 +80,9 @@ pub const SCORE_REST_MULT: f32 = 1.0;
 /// Multiplier for flee score (hp-based).
 pub const SCORE_FLEE_MULT: f32 = 1.0;
 
+/// Energy restored when eating one food.
+pub const ENERGY_FROM_EATING: f32 = 30.0;
+
 // ============================================================================
 // FARM GROWTH CONSTANTS
 // ============================================================================
