@@ -287,7 +287,6 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 
 ## Known Issues / Limitations
 
-- **InCombat is sticky**: If a target dies out of detection range, the NPC may stay `InCombat` until attack_system clears it. No timeout.
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Linear arrival scan**: arrival_system iterates all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
@@ -301,4 +300,4 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 
 Single `decision_system` handles all NPC decisions with clear priority cascade. Utility AI for idle decisions creates lifelike behavior. Farm growth system adds meaningful gameplay loop.
 
-Gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken.
+Gaps: no pathfinding, all raiders converge on same farm, healing halo visual broken.
