@@ -21,7 +21,9 @@ All checks are **component-driven, not job-driven**. Flee logic operates on any 
 
 ## Utility AI (Weighted Random Decisions)
 
-NPCs use utility AI for idle decisions. Instead of priority cascades (if tired→rest, else work), actions are scored and selected via weighted random.
+**Idle NPCs** use utility AI for decisions. Instead of rigid rules (if tired→rest, else work), actions are scored and selected via weighted random. This creates lifelike, emergent behavior — a tired farmer with Focused trait might still choose Work over Rest sometimes.
+
+The priority cascade (flee > leash > recovery > tired > patrol > wake > raid) handles **state checks** — deterministic "what state am I in" logic. Utility AI only kicks in at the end for NPCs with no active state.
 
 ### Personality Component
 
