@@ -554,9 +554,10 @@ pub fn decision_system(
     mut commands: Commands,
     mut query: Query<
         (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId,
-         Option<&WorkPosition>, Option<&PatrolRoute>, Option<&Stealer>, Option<&Raiding>),
+         Option<&WorkPosition>, Option<&PatrolRoute>, Option<&Stealer>, Option<&Raiding>,
+         Option<&Resting>),
         (Without<Patrolling>, Without<OnDuty>, Without<Working>, Without<GoingToWork>,
-         Without<Resting>, Without<GoingToRest>, Without<Returning>, Without<Wandering>,
+         Without<GoingToRest>, Without<Returning>, Without<Wandering>,
          Without<InCombat>, Without<Recovering>, Without<Dead>)
     >,
     _pop_stats: ResMut<PopulationStats>,
@@ -569,8 +570,20 @@ pub fn decision_system(
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    for (entity, npc_idx, job, mut energy, _health, home, personality, town_id, work_pos, patrol, _stealer, raiding) in query.iter_mut() {
+    for (entity, npc_idx, job, mut energy, _health, home, personality, town_id, work_pos, patrol, _stealer, raiding, resting) in query.iter_mut() {
         let idx = npc_idx.0;
+
+        // Handle wake-up from resting (moved here from energy_system to avoid command sync race)
+        if resting.is_some() {
+            if energy.0 >= ENERGY_WAKE_THRESHOLD {
+                // Wake up and make a decision
+                commands.entity(entity).remove::<Resting>();
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Woke up".into());
+            } else {
+                // Still resting, skip decision
+                continue;
+            }
+        }
 
         // Raiders continuing mission after combat - re-target nearest farm
         if raiding.is_some() {

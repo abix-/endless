@@ -58,6 +58,12 @@ pub const ENERGY_DRAIN_RATE: f32 = 0.02;
 /// Energy recovery per tick while resting.
 pub const ENERGY_RECOVER_RATE: f32 = 0.2;
 
+/// Energy threshold to wake up from resting.
+pub const ENERGY_WAKE_THRESHOLD: f32 = 90.0;
+
+/// Energy threshold to stop working and seek rest.
+pub const ENERGY_TIRED_THRESHOLD: f32 = 30.0;
+
 // ============================================================================
 // UTILITY AI ACTION SCORES
 // ============================================================================
