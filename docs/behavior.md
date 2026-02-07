@@ -215,7 +215,7 @@ Same situation, different outcomes. That's emergent behavior.
 ### economy_tick_system
 - Reads `Res<PhysicsDelta>` (godot-bevy's Godot-synced delta time)
 - Accumulates elapsed time, triggers on hour boundaries
-- **Food production**: counts `Working` farmers per `TownId`, adds food to `FOOD_STORAGE`
+- **Food production**: removed (now handled by farm harvest in arrival_system)
 - **Respawn check**: (disabled) code exists to compare `PopulationStats` vs `GameConfig` caps and spawn replacements
 
 ### farm_growth_system
@@ -266,10 +266,12 @@ Farms have a growth cycle instead of infinite food:
 
 ## Energy Model
 
+Energy uses game time (respects time_scale and pause):
+
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| ENERGY_DRAIN_RATE | 0.02/tick | Drain while active |
-| ENERGY_RECOVER_RATE | 0.2/tick | Recovery while resting (10x drain) |
+| ENERGY_RECOVER_PER_HOUR | 100/6 (~16.7) | Recovery while resting (6 hours to full) |
+| ENERGY_DRAIN_PER_HOUR | 100/24 (~4.2) | Drain while active (24 hours to empty) |
 | ENERGY_WAKE_THRESHOLD | 90.0 | Wake from Resting when energy reaches this |
 | ENERGY_TIRED_THRESHOLD | 30.0 | Stop working and seek rest below this |
 | ENERGY_FROM_EATING | 30.0 | Energy restored per food consumed |

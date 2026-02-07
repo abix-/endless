@@ -869,12 +869,12 @@ func _unlock_slot(town_idx: int, slot_key: String) -> bool:
 	if not slot_key in adjacent:
 		return false
 
-	# Check food cost
-	if town_food[town_idx] < Config.SLOT_UNLOCK_COST:
+	# Check food cost (read from ECS)
+	if npc_manager.get_town_food(town_idx) < Config.SLOT_UNLOCK_COST:
 		return false
 
-	# Unlock the slot
-	town_food[town_idx] -= Config.SLOT_UNLOCK_COST
+	# Spend food (update ECS)
+	npc_manager.add_town_food(town_idx, -Config.SLOT_UNLOCK_COST)
 	town.slots[slot_key] = []
 	queue_redraw()
 	return true

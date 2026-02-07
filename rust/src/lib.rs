@@ -2101,9 +2101,9 @@ impl EcsNpcManager {
         let mut dict = VarDictionary::new();
         let i = idx as usize;
 
+        // GPU data: positions, targets, factions (these come from GPU compute)
         if let Ok(state) = GPU_READ_STATE.lock() {
             if i < state.npc_count {
-                dict.set("hp", state.health.get(i).copied().unwrap_or(0.0));
                 dict.set("x", state.positions.get(i * 2).copied().unwrap_or(0.0));
                 dict.set("y", state.positions.get(i * 2 + 1).copied().unwrap_or(0.0));
                 dict.set("faction", state.factions.get(i).copied().unwrap_or(0));
@@ -2111,9 +2111,11 @@ impl EcsNpcManager {
             }
         }
 
+        // Bevy data: components and resources
         if let Some(bevy_app) = self.get_bevy_app() {
             let app_ref = bevy_app.bind();
             if let Some(app) = app_ref.get_app() {
+                // Meta cache (name, level, trait, etc.)
                 if let Some(meta) = app.world().get_resource::<resources::NpcMetaCache>() {
                     if i < meta.0.len() {
                         dict.set("name", GString::from(&meta.0[i].name));
@@ -2124,13 +2126,19 @@ impl EcsNpcManager {
                         dict.set("job", GString::from(job_name(meta.0[i].job)));
                     }
                 }
+                // Entity components (HP, Energy, State)
                 if let Some(npc_map) = app.world().get_resource::<NpcEntityMap>() {
                     if let Some(&entity) = npc_map.0.get(&i) {
                         dict.set("state", GString::from(derive_npc_state(app.world(), entity)));
+                        // Read HP directly from component
+                        if let Some(health) = app.world().get::<components::Health>(entity) {
+                            dict.set("hp", health.0);
+                        }
+                        // Read Energy directly from component
+                        if let Some(energy) = app.world().get::<components::Energy>(entity) {
+                            dict.set("energy", energy.0);
+                        }
                     }
-                }
-                if let Some(energies) = app.world().get_resource::<resources::NpcEnergyCache>() {
-                    dict.set("energy", energies.0.get(i).copied().unwrap_or(0.0));
                 }
             }
         }

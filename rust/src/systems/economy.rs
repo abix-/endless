@@ -64,7 +64,7 @@ pub fn economy_tick_system(
     _pop_stats: Res<PopulationStats>,
     config: Res<GameConfig>,
     _timers: ResMut<RespawnTimers>,
-    mut food_storage: ResMut<FoodStorage>,
+    food_storage: ResMut<FoodStorage>,
 ) {
     // Respect pause
     if game_time.paused {
@@ -74,7 +74,7 @@ pub fn economy_tick_system(
     // Accumulate time (scaled)
     game_time.total_seconds += delta.delta_seconds * game_time.time_scale;
 
-    // Check for hour boundary
+    // Check for hour boundary (kept for future hourly tasks like respawning)
     let current_hour = game_time.hour();
     if current_hour == *prev_hour {
         return;
@@ -82,19 +82,9 @@ pub fn economy_tick_system(
     *prev_hour = current_hour;
 
     // --- HOURLY TASKS ---
-    // Count working farmers per clan
-    let mut farmers_per_clan: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
-    for clan in working_farmers.iter() {
-        *farmers_per_clan.entry(clan.0).or_insert(0) += 1;
-    }
-
-    // Add food to each clan's storage
-    for (clan_id, farmer_count) in farmers_per_clan {
-        let food_produced = farmer_count * config.food_per_work_hour;
-        if clan_id >= 0 && (clan_id as usize) < food_storage.food.len() {
-            food_storage.food[clan_id as usize] += food_produced;
-        }
-    }
+    // Food production removed: now handled by farm harvest system in behavior.rs
+    // (farmers harvest Ready farms on arrival or while tending)
+    let _ = (working_farmers, config, food_storage);  // suppress unused warnings
 }
 
 // ============================================================================

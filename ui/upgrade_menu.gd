@@ -93,12 +93,12 @@ func _process(_delta: float) -> void:
 
 
 func _refresh() -> void:
-	if town_idx < 0 or not main:
+	if town_idx < 0 or not main or not npc_manager:
 		return
-	if not "town_food" in main or not "town_upgrades" in main:
+	if not "town_upgrades" in main:
 		return
 
-	var food: int = main.town_food[town_idx]
+	var food: int = npc_manager.get_town_food(town_idx)
 	var upgrades: Dictionary = main.town_upgrades[town_idx]
 
 	food_label.text = str(food)
@@ -237,10 +237,10 @@ func _try_purchase(upgrade_key: String) -> bool:
 		return false
 
 	var cost: int = Config.get_upgrade_cost(level)
-	if main.town_food[town_idx] < cost:
+	if npc_manager.get_town_food(town_idx) < cost:
 		return false
 
-	main.town_food[town_idx] -= cost
+	npc_manager.add_town_food(town_idx, -cost)
 	upgrades[upgrade_key] = level + 1
 	upgrade_purchased.emit(upgrade_key, level + 1)
 	return true

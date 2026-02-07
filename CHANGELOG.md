@@ -1,6 +1,20 @@
 # Changelog
 
 ## 2026-02-07
+- fix working farmer harvest: farmers now harvest when assigned farm becomes Ready
+  - previously only harvested on arrival, not while already working
+  - harvest check added to drift check loop (throttled every 30 frames)
+- energy system now uses game time instead of frame-based rates
+  - 6 game hours to recover from 0→100 while resting
+  - 24 game hours to drain from 100→0 while active
+  - respects time_scale and pause
+- remove passive food production from economy_tick_system
+  - food now only comes from harvesting Ready farms
+- fix food storage: upgrade_menu and main.gd now use ECS API
+  - npc_manager.get_town_food() and add_town_food() instead of main.town_food[]
+- fix NPC inspector: HP and Energy now read from Bevy components
+  - both use consistent pattern via entity lookup
+  - removed redundant NpcEnergyCache sync
 - add farm progress bar: visual indicator showing crop growth
   - item_icon.gdshader samples food sprite (24,9) from roguelikeSheet
   - progress bar at top (like NPC HP bar): green growing, gold ready

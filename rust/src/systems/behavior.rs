@@ -64,8 +64,8 @@ pub fn arrival_system(
     ), Without<Recovering>>,
     // Separate query for WorkPosition (Bevy limits tuples to 15 elements)
     work_positions: Query<&WorkPosition>,
-    // Query for Working farmers with AssignedFarm (for drift check)
-    working_farmers: Query<(&NpcIndex, &AssignedFarm), With<Working>>,
+    // Query for Working farmers with AssignedFarm (for drift check + harvest)
+    working_farmers: Query<(&NpcIndex, &AssignedFarm, &TownId), With<Working>>,
     mut pop_stats: ResMut<PopulationStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut food_storage: ResMut<FoodStorage>,
@@ -87,14 +87,14 @@ pub fn arrival_system(
     *frame_counter = frame_counter.wrapping_add(1);
     let frame_slot = *frame_counter % 30;
 
-    // Working farmer drift check (throttled: each farmer checked once per 30 frames)
-    for (npc_idx, assigned) in working_farmers.iter() {
+    // Working farmer drift check + harvest check (throttled: each farmer checked once per 30 frames)
+    for (npc_idx, assigned, town) in working_farmers.iter() {
         // Stagger checks: only check if npc_idx % 30 == current frame slot
         if (npc_idx.0 as u32) % 30 != frame_slot { continue; }
 
-        // Get farm position
-        if assigned.0 >= world_data.farms.len() { continue; }
-        let farm_pos = world_data.farms[assigned.0].position;
+        let farm_idx = assigned.0;
+        if farm_idx >= world_data.farms.len() { continue; }
+        let farm_pos = world_data.farms[farm_idx].position;
 
         // Get farmer's current position
         let idx = npc_idx.0;
@@ -106,6 +106,23 @@ pub fn arrival_system(
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                 idx, x: farm_pos.x, y: farm_pos.y
             }));
+        }
+
+        // Harvest check: if farm became Ready while working, harvest it
+        if farm_idx < farm_states.states.len()
+            && farm_states.states[farm_idx] == FarmGrowthState::Ready
+        {
+            let town_idx = town.0 as usize;
+            if town_idx < food_storage.food.len() {
+                food_storage.food[town_idx] += 1;
+                food_events.consumed.push(FoodConsumed {
+                    location_idx: farm_idx as u32,
+                    is_camp: false,
+                });
+            }
+            farm_states.states[farm_idx] = FarmGrowthState::Growing;
+            farm_states.progress[farm_idx] = 0.0;
+            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)".into());
         }
     }
 
