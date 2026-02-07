@@ -93,9 +93,9 @@ pub fn arrival_system(
     mut frame_counter: Local<u32>,
 ) {
     let positions = &gpu_state.positions;
-    const FARM_ARRIVAL_RADIUS: f32 = 40.0;  // Grid spacing is 34px, keep tight to avoid false positives
+    const FARM_ARRIVAL_RADIUS: f32 = 20.0;  // Tight: farmer must be near farm center
     const DELIVERY_RADIUS: f32 = 150.0;     // Same as healing radius - deliver when near camp
-    const MAX_DRIFT: f32 = 50.0;            // Re-target farmer if drifted this far from farm
+    const MAX_DRIFT: f32 = 20.0;            // Keep farmers visually on the farm (3x3 = ~51px, so 20px from center)
 
     // Increment frame counter for throttled drift check
     *frame_counter = frame_counter.wrapping_add(1);

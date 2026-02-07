@@ -24,7 +24,7 @@ pub const SEPARATION_RADIUS: f32 = 20.0;
 pub const SEPARATION_STRENGTH: f32 = 50.0;
 
 /// Distance from target at which an NPC is considered "arrived".
-pub const ARRIVAL_THRESHOLD: f32 = 40.0;
+pub const ARRIVAL_THRESHOLD: f32 = 20.0;
 
 /// Floats per NPC instance in the MultiMesh buffer.
 /// Transform2D (8) + Color (4) + CustomData (4) = 16
