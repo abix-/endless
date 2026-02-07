@@ -65,4 +65,4 @@ See [docs/](docs/README.md) for architecture, system maps, and known issues.
 
 When a mistake is made during development, document it here so we don't repeat it:
 
-- *(add entries as mistakes are discovered)*
+- **PowerShell error suppression**: Don't use `2>$null` - it causes parse errors. Use `-ErrorAction SilentlyContinue` instead. Example: `Get-Process *godot* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue`
