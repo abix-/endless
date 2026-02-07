@@ -228,11 +228,16 @@ pub struct EcsNpcManager {
     proj_mesh: Option<Gd<QuadMesh>>,
 
     // === Carried Item Rendering ===
-    /// MultiMesh for carried items (above NPC heads)
+    /// MultiMesh for carried items (above NPC heads) and farm progress icons
     item_multimesh_rid: Rid,
+    /// Canvas item for item MultiMesh (above NPCs)
+    item_canvas_item: Rid,
     /// Keep item mesh alive
     #[allow(dead_code)]
     item_mesh: Option<Gd<QuadMesh>>,
+    /// Keep item material alive
+    #[allow(dead_code)]
+    item_material: Option<Gd<ShaderMaterial>>,
 
     // === Location Rendering (static buildings) ===
     /// MultiMesh for locations (farms, beds, posts, fountains, camps)
@@ -278,7 +283,9 @@ impl INode2D for EcsNpcManager {
             proj_canvas_item: Rid::Invalid,
             proj_mesh: None,
             item_multimesh_rid: Rid::Invalid,
+            item_canvas_item: Rid::Invalid,
             item_mesh: None,
+            item_material: None,
             location_multimesh_rid: Rid::Invalid,
             location_canvas_item: Rid::Invalid,
             location_mesh: None,
@@ -334,16 +341,16 @@ impl INode2D for EcsNpcManager {
 
         // Get farm data for item rendering BEFORE borrowing gpu mutably
         // Use cached BevyApp reference to avoid scene tree traversal every frame
-        let farm_data: Vec<(f32, f32, bool)> = if let Some(bevy_app) = self.get_bevy_app_cached() {
+        // Tuple: (x, y, progress) where progress 0.0-1.0, 1.0 = ready
+        let farm_data: Vec<(f32, f32, f32)> = if let Some(bevy_app) = self.get_bevy_app_cached() {
             let app_ref = bevy_app.bind();
             if let Some(app) = app_ref.get_app() {
                 let world_data = app.world().get_resource::<world::WorldData>();
                 let farm_states = app.world().get_resource::<resources::FarmStates>();
                 if let (Some(wd), Some(fs)) = (world_data, farm_states) {
                     wd.farms.iter().enumerate().map(|(i, farm)| {
-                        let is_ready = i < fs.states.len()
-                            && fs.states[i] == resources::FarmGrowthState::Ready;
-                        (farm.position.x, farm.position.y, is_ready)
+                        let progress = if i < fs.progress.len() { fs.progress[i] } else { 0.0 };
+                        (farm.position.x, farm.position.y, progress)
                     }).collect()
                 } else {
                     Vec::new()
@@ -757,29 +764,50 @@ impl EcsNpcManager {
         let mesh_rid = mesh.get_rid();
         rs.multimesh_set_mesh(self.item_multimesh_rid, mesh_rid);
 
-        // Color only (no custom_data needed - just tint by item type)
+        // Color + custom_data for progress bar (INSTANCE_CUSTOM.r = progress)
         rs.multimesh_allocate_data_ex(
             self.item_multimesh_rid,
             max_count,
             godot::classes::rendering_server::MultimeshTransformFormat::TRANSFORM_2D,
-        ).color_format(true).done();
+        ).color_format(true).custom_data_format(true).done();
 
         // Initialize all items as hidden (position -9999)
         let count = max_count as usize;
-        let mut init_buffer = vec![0.0f32; count * 12]; // Transform2D(8) + Color(4)
+        let mut init_buffer = vec![0.0f32; count * 16]; // Transform2D(8) + Color(4) + CustomData(4)
         for i in 0..count {
-            let base = i * 12;
+            let base = i * 16;
             init_buffer[base + 0] = 1.0;      // scale x
             init_buffer[base + 3] = -9999.0;  // pos x (hidden)
             init_buffer[base + 5] = 1.0;      // scale y
             init_buffer[base + 7] = -9999.0;  // pos y (hidden)
             init_buffer[base + 11] = 1.0;     // color alpha
+            // CustomData[0-3] = 0.0 (progress = 0)
         }
         let packed = PackedFloat32Array::from(init_buffer.as_slice());
         rs.multimesh_set_buffer(self.item_multimesh_rid, &packed);
 
-        // Add to same canvas (renders after NPCs = on top)
-        rs.canvas_item_add_multimesh(self.canvas_item, self.item_multimesh_rid);
+        // Create canvas item for items (above NPCs)
+        self.item_canvas_item = rs.canvas_item_create();
+        let parent_canvas = self.base().get_canvas_item();
+        rs.canvas_item_set_parent(self.item_canvas_item, parent_canvas);
+        rs.canvas_item_set_z_index(self.item_canvas_item, 10);  // Above NPCs (z=0)
+
+        // Load and apply item icon shader with sprite sheet
+        let mut loader = ResourceLoader::singleton();
+        if let Some(shader) = loader.load("res://shaders/item_icon.gdshader") {
+            if let Some(texture) = loader.load("res://assets/roguelikeSheet_transparent.png") {
+                let mut material = ShaderMaterial::new_gd();
+                let shader_res: Gd<godot::classes::Shader> = shader.cast();
+                material.set_shader(&shader_res);
+                material.set_shader_parameter("sprite_sheet", &texture.to_variant());
+                rs.canvas_item_set_material(self.item_canvas_item, material.get_rid());
+                self.item_material = Some(material);
+            }
+        }
+
+        rs.canvas_item_add_multimesh(self.item_canvas_item, self.item_multimesh_rid);
+        // Disable visibility culling for world-spanning MultiMesh
+        rs.canvas_item_set_custom_rect_ex(self.item_canvas_item, true).rect(Rect2::new(Vector2::new(-100000.0, -100000.0), Vector2::new(200000.0, 200000.0))).done();
 
         self.item_mesh = Some(mesh);
     }

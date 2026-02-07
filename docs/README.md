@@ -110,6 +110,7 @@ shaders/
   npc_compute.glsl      # GPU: movement + separation + combat targeting
   projectile_compute.glsl # GPU: projectile movement + collision
   npc_sprite.gdshader   # Visual: NPC sprites with HP bar, flash, sprite atlas
+  item_icon.gdshader    # Visual: farm progress bar + food sprite (24,9 from roguelikeSheet)
   halo.gdshader         # Visual: healing zone indicator (not yet used)
   loot_icon.gdshader    # Visual: raider carrying food (not yet used)
   sleep_icon.gdshader   # Visual: resting indicator (not yet used)

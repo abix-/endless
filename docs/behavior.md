@@ -257,8 +257,11 @@ Farms have a growth cycle instead of infinite food:
 - If farm not ready: re-target another farm via `find_nearest_location()`
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another"
 
-**Visual feedback** (gpu.rs, build_item_multimesh):
-- Item MultiMesh renders food icons on ready farms (same yellow/gold as carried food)
+**Visual feedback** (gpu.rs, build_item_multimesh + item_icon.gdshader):
+- Item MultiMesh renders food sprite (24,9) from roguelikeSheet on all farms
+- Progress bar at top (like NPC HP bar): green while growing, gold when ready
+- Separate `item_canvas_item` with `item_icon.gdshader` (z=10, above NPCs)
+- 16-float buffer per item: Transform2D(8) + Color(4) + CustomData(4) for progress
 - Farm slots allocated after NPC slots (MAX_NPC_COUNT + MAX_FARMS)
 
 ## Energy Model

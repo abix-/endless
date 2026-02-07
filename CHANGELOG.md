@@ -1,6 +1,12 @@
 # Changelog
 
 ## 2026-02-07
+- add farm progress bar: visual indicator showing crop growth
+  - item_icon.gdshader samples food sprite (24,9) from roguelikeSheet
+  - progress bar at top (like NPC HP bar): green growing, gold ready
+  - separate item_canvas_item with z=10 (above NPCs)
+  - 16-float buffer: Transform2D + Color + CustomData for progress
+- add Godot path and version to CLAUDE.md lessons learned
 - unify decision system: consolidate 5 systems into one priority cascade
   - flee_system, leash_system, patrol_system, recovery_system → decision_system
   - priority order: flee > leash > combat > recovery > tired > patrol > wake > raid > idle

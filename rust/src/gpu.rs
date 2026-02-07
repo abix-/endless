@@ -942,9 +942,10 @@ impl GpuCompute {
     /// Also renders food icons on ready farms.
     /// Item colors: 1=food(yellow), 2=wood(brown), 3=stone(gray), 4=weapon(red)
     ///
-    /// farm_data: Vec of (x, y, is_ready) for each farm
-    pub fn build_item_multimesh(&self, npc_count: usize, max_count: usize, farm_data: &[(f32, f32, bool)]) -> PackedFloat32Array {
-        const FLOATS_PER_ITEM: usize = 12; // Transform2D(8) + Color(4)
+    /// Build item MultiMesh buffer with carried items (NPCs) and farm progress icons.
+    /// farm_data: Vec of (x, y, progress) for each farm, progress 0.0-1.0
+    pub fn build_item_multimesh(&self, npc_count: usize, max_count: usize, farm_data: &[(f32, f32, f32)]) -> PackedFloat32Array {
+        const FLOATS_PER_ITEM: usize = 16; // Transform2D(8) + Color(4) + CustomData(4)
         const Y_OFFSET: f32 = -12.0; // Above NPC head
 
         // Item colors by ID (index = item_id - 1)
@@ -956,7 +957,6 @@ impl GpuCompute {
         ];
 
         // Buffer must match MultiMesh allocation: MAX_NPC_COUNT + MAX_FARMS
-        // Using farm_data.len() would cause size mismatch when actual farms < MAX_FARMS
         let total_slots = max_count + MAX_FARMS;
         let float_count = total_slots * FLOATS_PER_ITEM;
         let mut floats = vec![0.0f32; float_count];
@@ -969,6 +969,7 @@ impl GpuCompute {
             floats[base + 3] = -9999.0;  // pos x (hidden)
             floats[base + 7] = -9999.0;  // pos y (hidden)
             floats[base + 11] = 1.0;     // alpha
+            floats[base + 12] = 1.0;     // custom_data.r = progress (1.0 = carried item, always full)
         }
 
         // Set items for NPCs that are carrying something
@@ -995,21 +996,21 @@ impl GpuCompute {
             floats[base + 9] = g;
             floats[base + 10] = b;
             floats[base + 11] = 1.0;
+
+            // CustomData: carried items always show full progress bar (1.0)
+            floats[base + 12] = 1.0;
         }
 
-        // Render food icons on ready farms (after NPC slots)
-        for (i, (farm_x, farm_y, is_ready)) in farm_data.iter().enumerate() {
+        // Render progress icons on farms (after NPC slots)
+        for (i, (farm_x, farm_y, progress)) in farm_data.iter().enumerate() {
             if i >= MAX_FARMS {
                 break; // Don't exceed allocated farm slots
-            }
-            if !is_ready {
-                continue; // Farm not ready, no food icon
             }
 
             let slot = max_count + i;
             let base = slot * FLOATS_PER_ITEM;
 
-            // Transform2D - food icon at farm position (slightly above center)
+            // Transform2D - progress icon at farm position (slightly above center)
             floats[base + 0] = 1.0;       // scale x
             floats[base + 3] = *farm_x;   // pos x
             floats[base + 5] = 1.0;       // scale y
@@ -1021,6 +1022,9 @@ impl GpuCompute {
             floats[base + 9] = g;
             floats[base + 10] = b;
             floats[base + 11] = 1.0;
+
+            // CustomData.r = progress (shader reads INSTANCE_CUSTOM.r)
+            floats[base + 12] = *progress;
         }
 
         PackedFloat32Array::from(floats.as_slice())
