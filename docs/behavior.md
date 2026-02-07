@@ -72,7 +72,7 @@ Same situation, different outcomes. That's emergent behavior.
     │  OnDuty  │ spawn   │GoingToWork│ spawn   │  (idle)  │ spawns stateless
     │ 60 ticks │         └────┬─────┘          └────┬─────┘
     └────┬─────┘              │ arrival              │ decision_system
-         │ patrol_system      ▼                      ▼
+         │ decision_system    ▼                      ▼
          ▼                ┌──────────┐          ┌──────────┐
     ┌──────────┐         │ Working  │          │  Raiding │ (walk to farm)
     │Patrolling│         └────┬─────┘          └────┬─────┘
