@@ -8,6 +8,7 @@ These docs are the **source of truth** for system architecture. When building ne
 2. **During coding**: Follow the patterns documented here (job-as-template spawn, chained combat, GPU buffer layout). If you need to deviate, update the doc first.
 3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation. Adjust ratings if improvements were made.
 4. **Code comments** stay educational (explain what code does for someone learning Rust/GLSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
+5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has feature checkboxes. Don't mix them.
 
 ## Test-Driven Development
 
@@ -76,6 +77,7 @@ autoloads/
 entities/
   player.gd             # Camera controls
 world/
+  location.gd           # Building sprites (SPRITES dict, LOCATION_SPRITES, *_PIECES arrays)
   terrain_renderer.gd   # Terrain tile rendering with sprite tiling
   terrain_sprite.gdshader # Terrain tile shader (used by location MultiMesh in Rust)
 ui/
@@ -102,7 +104,7 @@ rust/
     spawn.rs            # Bevy spawn systems (drain queues → create entities)
     combat.rs           # Attack system (GPU targets → damage → chase)
     health.rs           # Damage, death, cleanup, slot recycling
-    behavior.rs         # Energy, tired, rest, patrol, work, steal, flee, leash, recovery
+    behavior.rs         # Unified decision system (priority cascade), energy, arrivals
     economy.rs          # Food production, respawning, population tracking
 shaders/
   npc_compute.glsl      # GPU: movement + separation + combat targeting
@@ -124,6 +126,30 @@ tools/
 ## Configuration
 
 Game constants are in `autoloads/config.gd` (world size, NPC counts, energy thresholds). Most values are configurable via the start menu.
+
+## GDScript Patterns
+
+**User Settings** (`autoloads/user_settings.gd`):
+1. Add variable with default
+2. Add setter that emits `settings_changed`
+3. Add to `_save()` and `_load()`
+4. Connect via `UserSettings.settings_changed.connect()`
+
+**Shader Per-Instance Data** (INSTANCE_CUSTOM in `.gdshader`):
+```
+r = health percent
+g = flash intensity
+b = sprite frame X / 255
+a = sprite frame Y / 255
+```
+HP bar modes: 0=off, 1=when damaged, 2=always (uniform int)
+
+**Location Types** (valid `location_type` exports):
+- `"field"` - farm (3x3)
+- `"camp"` - raider camp (2x2)
+- `"home"` - bed (1x1)
+- `"guard_post"` - guard post (1x1)
+- `"fountain"` - town center (1x1)
 
 ## Aggregate Known Issues
 

@@ -4,7 +4,20 @@
 
 Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, rest transitions, patrol cycling for guards, work transitions for farmers, and stealing/fleeing for raiders. All run in `Step::Behavior` after combat is resolved.
 
-All systems are **component-driven, not job-driven**. A system like `flee_system` operates on any NPC with `FleeThreshold` + `InCombat`, regardless of whether it's a guard or raider.
+**Unified Decision System**: All NPC decisions are handled by ONE system (`decision_system`) using a priority cascade. This replaced 5 separate systems (flee, leash, patrol, recovery, old decision) to avoid scattered decision-making and Bevy command sync race conditions.
+
+Priority cascade (first match wins):
+1. InCombat + should_flee? → Flee
+2. InCombat + should_leash? → Leash
+3. InCombat → Skip (attack_system handles)
+4. Recovering + healed? → Resume
+5. Working + tired? → Stop work
+6. OnDuty + time_to_patrol? → Patrol
+7. Resting + rested? → Wake up
+8. Raiding (post-combat) → Re-target farm
+9. Idle → Score Eat/Rest/Work/Wander
+
+All checks are **component-driven, not job-driven**. Flee logic operates on any NPC with `FleeThreshold` + `InCombat`, regardless of whether it's a guard or raider.
 
 ## Utility AI (Weighted Random Decisions)
 
@@ -131,15 +144,40 @@ Same situation, different outcomes. That's emergent behavior.
 
 ## Systems
 
-### decision_system (Utility AI)
-- Query: NPCs without active state (no Patrolling, OnDuty, Working, GoingToWork, GoingToRest, Returning, Wandering, InCombat, Recovering, Dead), including NPCs with `Resting` for wake-up check
-- **Wake-up handling**: If NPC has `Resting` and energy >= `ENERGY_WAKE_THRESHOLD` (90%), remove `Resting` and proceed to decision. This is done here (not in energy_system) to avoid Bevy command sync race conditions.
-- **Raid continuation**: If raider has `Raiding` marker (e.g., after combat ends), skip scoring and re-target nearest farm via `find_nearest_location`
-- **Food availability check**: Eat is only scored if `food_storage.food[town_idx] > 0` — prevents stuck loops when no food
-- Score actions: Eat, Rest, Work, Wander (with personality multipliers and HP modifier)
-- Select via weighted random
-- Execute: set state marker, push GPU target (Eat is instant: consume food, add energy, no state change)
-- **Decision logging**: Each decision is logged to `NpcLogCache` with timestamp and format `"{action} (e:{energy} h:{health})"`
+### decision_system (Unified Priority Cascade)
+- Query: NPCs not in transit states (no Patrolling, GoingToWork, GoingToRest, Returning, Wandering, Dead)
+- Checks states via `Option<&Component>` and handles in priority order:
+
+**Priority 1-3: Combat decisions**
+- If `InCombat` + has `FleeThreshold`: dynamic threat assessment (enemies vs allies within 200px, throttled every 30 frames), flee if HP < effective threshold
+- If `InCombat` + has `LeashRange`: check distance from `CombatOrigin`, disengage if > leash distance
+- If `InCombat`: skip (attack_system handles targeting)
+
+**Priority 4: Recovery**
+- If `Recovering` + HP >= threshold: remove `Recovering` and `Resting`
+
+**Priority 5: Tired workers**
+- If `Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): remove `Working`, release `AssignedFarm`
+
+**Priority 6: Patrol**
+- If `OnDuty` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, transition to `Patrolling`
+
+**Priority 7: Wake up**
+- If `Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): remove `Resting`, proceed to idle scoring
+
+**Priority 8: Raid continuation**
+- If `Raiding` (post-combat): re-target nearest farm
+
+**Priority 9: Idle scoring (Utility AI)**
+- Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
+- Select via weighted random, execute action
+- **Food check**: Eat only scored if town has food in storage
+- **Decision logging**: Each decision logged to `NpcLogCache`
+
+### on_duty_tick_system
+- Query: NPCs with `OnDuty` (excluding `InCombat`)
+- Increments `ticks_waiting` each frame
+- Separated from decision_system to allow mutable `OnDuty` access while main query has immutable view
 
 ### arrival_system (Generic)
 - Reads `ArrivalMsg` events (from GPU arrival detection) for most states
@@ -158,39 +196,10 @@ Same situation, different outcomes. That's emergent behavior.
 - **State logging**: All transitions are logged to `NpcLogCache` (e.g., "→ OnDuty", "→ Resting", "Stole food → Returning")
 
 ### energy_system
-- All NPCs with Energy (excluding `Resting`): drain `ENERGY_DRAIN_RATE` per tick
 - NPCs with `Resting`: recover `ENERGY_RECOVER_RATE` per tick
-- **Working NPCs with energy < ENERGY_TIRED_THRESHOLD (30%)**: remove `Working`, release assigned farm, remove `AssignedFarm`
+- NPCs without `Resting`: drain `ENERGY_DRAIN_RATE` per tick
 - Clamp to 0.0-100.0
-- **Note**: Wake-up from resting is handled in decision_system, not here, to avoid Bevy command sync race
-
-### patrol_system
-- Query: `OnDuty` guards
-- Increment `ticks` each frame
-- After 60 ticks: advance `PatrolRoute.current` (wrapping), remove `OnDuty`, add `Patrolling`
-- Set target to next post via `GpuUpdate::SetTarget`
-- Add `HasTarget`
-
-### flee_system
-- Query: `InCombat` + `FleeThreshold` + `Home` + `Faction`
-- **Dynamic threat assessment** (throttled every 30 frames per NPC):
-  - Counts enemies vs allies within 200px radius
-  - Adjusts effective flee threshold: `base_threshold * (enemies + 1) / (allies + 1)`
-  - Outnumbered 2:1 → flee at 100% HP (immediate retreat)
-  - Even odds → flee at base threshold
-  - Winning 2:1 → flee at ~50% of base threshold (fight longer)
-- If health < effective threshold: remove `InCombat`, `CombatOrigin`, `Raiding`, drop `CarryingFood` if present, add `Returning`, target home
-
-### leash_system
-- Query: `InCombat` + `LeashRange` + `Home` + `CombatOrigin`
-- Read position from `GPU_READ_STATE`
-- If distance from **combat origin** > `LeashRange.distance`: remove `InCombat`, `CombatOrigin`, `Raiding`, add `Returning`, target home
-- Note: Leash is based on distance from where combat started, not from home. This allows NPCs to travel far for objectives (raids) but prevents chasing enemies forever.
-
-### recovery_system
-- Query: `Recovering` + `Health` (Resting is optional)
-- If health >= `Recovering.threshold`: remove `Recovering` and `Resting` (if present)
-- Fixes: NPCs that lost `Resting` but kept `Recovering` were stuck forever
+- **Note**: All state transitions (wake-up, stop working) are handled in decision_system to keep decisions centralized and avoid Bevy command sync races
 
 ### healing_system
 - Query: NPCs with `Health`, `MaxHealth`, `Faction`, `TownId` (without `Dead`)
@@ -286,6 +295,8 @@ Each town has 4 guard posts at corners. Guards cycle clockwise.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
 - **~~Farm data fetch performance~~**: Fixed. BevyApp reference is now cached in ready(), eliminating scene tree traversal every frame.
 
-## Rating: 7/10
+## Rating: 8/10
 
-Utility AI concept is sound. Farm growth system adds meaningful gameplay loop — farms grow, farmers harvest, raiders must wait for ready farms. Eat action now properly consumes food and restores energy instantly. Wake-up logic moved to decision_system to avoid Bevy command sync race (commands from one system aren't visible to later systems in same frame). Farm lookup uses WorkPosition for robustness. Still has gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken. But core economy loop now works end-to-end.
+**Unified decision system** consolidates all NPC decisions into one place with clear priority cascade. Previously scattered across 5 systems (flee, leash, patrol, recovery, decision), now all handled in `decision_system`. This eliminates confusion about where decisions happen and avoids Bevy command sync race conditions.
+
+Utility AI for idle decisions is sound. Farm growth system adds meaningful gameplay loop. Still has gaps: no pathfinding, InCombat sticks forever, all raiders converge on same farm, healing halo visual broken. But architecture is now clean and maintainable.

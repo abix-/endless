@@ -170,15 +170,12 @@ fn build_app(app: &mut bevy::prelude::App) {
            death_system,
            death_cleanup_system,
        ).chain().in_set(Step::Combat))
-       // Behavior: energy, patrol, rest, work, stealing, combat escape, economy
+       // Behavior: energy, economy, unified decisions
        .add_systems(Update, (
            arrival_system,
            energy_system,
            healing_system,
-           flee_system,
-           leash_system,
-           recovery_system,
-           patrol_system,
+           on_duty_tick_system,
            economy_tick_system,
            farm_growth_system,
            decision_system,

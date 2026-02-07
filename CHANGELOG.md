@@ -1,6 +1,12 @@
 # Changelog
 
 ## 2026-02-07
+- unify decision system: consolidate 5 systems into one priority cascade
+  - flee_system, leash_system, patrol_system, recovery_system → decision_system
+  - priority order: flee > leash > combat > recovery > tired > patrol > wake > raid > idle
+  - add on_duty_tick_system for guard tick counting
+  - simplify energy_system to drain/recovery only (no state transitions)
+  - eliminates scattered decision-making and command sync race conditions
 - implement eat action: consume food from town storage, restore 30 energy instantly
   - no travel required, NPCs eat at current location
   - only scored when town actually has food (prevents stuck eat loops)
@@ -13,6 +19,7 @@
   - farmers stay visually on the farm sprite
 - fix build.rs: always rerun so DLL timestamp updates every build
 - add ENERGY_FROM_EATING (30.0) and ENERGY_TIRED_THRESHOLD (30.0) constants
+- slim down CLAUDE.md: move reference material to docs/README.md
 
 ## 2026-02-02
 - add AssignedFarm component for farm occupancy tracking
