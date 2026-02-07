@@ -33,7 +33,5 @@ fn main() {
     println!("cargo:rustc-env=BUILD_TIMESTAMP={}", timestamp);
     println!("cargo:rustc-env=BUILD_COMMIT={}", commit);
 
-    // Rebuild if git HEAD changes or source changes
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=src/");
+    // No rerun-if-changed = rerun on any package file change (always fresh timestamp)
 }
