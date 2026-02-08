@@ -39,7 +39,7 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-use crate::gpu::{NpcBufferWrites, NpcSpriteTexture};
+use crate::gpu::{NpcBufferWrites, NpcGpuData, NpcSpriteTexture};
 
 // =============================================================================
 // MARKER COMPONENT
@@ -260,12 +260,13 @@ fn prepare_npc_buffers(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     buffer_writes: Option<Res<NpcBufferWrites>>,
+    gpu_data: Option<Res<NpcGpuData>>,
     existing_buffers: Option<ResMut<NpcRenderBuffers>>,
 ) {
     let Some(writes) = buffer_writes else { return };
 
-    // Calculate instance count from positions (2 floats per NPC)
-    let instance_count = (writes.positions.len() / 2).min(16384) as u32;
+    // Use actual NPC count, not buffer length (buffer is pre-allocated for MAX_NPCS)
+    let instance_count = gpu_data.map(|d| d.npc_count).unwrap_or(0);
 
     // Build instance data from buffer writes
     let mut instances = RawBufferVec::new(BufferUsages::VERTEX);

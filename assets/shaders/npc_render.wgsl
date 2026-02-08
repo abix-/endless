@@ -49,7 +49,7 @@ fn vertex(in: VertexInput) -> VertexOutput {
     out.clip_position = vec4<f32>(ndc.x, ndc.y, 0.0, 1.0);
 
     // Calculate UV for sprite atlas
-    let cell_uv = vec2<f32>(in.quad_uv.x, 1.0 - in.quad_uv.y);
+    let cell_uv = in.quad_uv;
     let pixel_x = in.sprite_cell.x * CELL_SIZE + cell_uv.x * SPRITE_TEX_SIZE;
     let pixel_y = in.sprite_cell.y * CELL_SIZE + cell_uv.y * SPRITE_TEX_SIZE;
     out.uv = vec2<f32>(pixel_x / TEXTURE_WIDTH, pixel_y / TEXTURE_HEIGHT);
@@ -61,13 +61,9 @@ fn vertex(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // DEBUG: Output solid color to verify geometry works
-    return vec4<f32>(in.color.rgb, 1.0);
-
-    // Sample sprite texture
-    // let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
-    // if tex_color.a < 0.1 {
-    //     discard;
-    // }
-    // return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+    let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
+    if tex_color.a < 0.1 {
+        discard;
+    }
+    return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
 }

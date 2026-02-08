@@ -9,6 +9,9 @@
   - update npc_render.wgsl: texture bindings moved to @group(0)
   - disable old render graph Node pipeline in gpu/mod.rs (replaced by RenderCommand pattern)
   - 5 test NPCs visible as green squares via instanced draw call
+  - enable sprite texture sampling in fragment shader (was solid color debug)
+  - fix UV flip: remove incorrect 1.0-v inversion (wgpu uses top-left origin)
+  - fix instance count: use NpcGpuData.npc_count instead of buffer length (was rendering all MAX_NPCS slots)
 
 - **pure bevy migration phase 2-3**: wire ECS systems, add GPU compute and sprite rendering
   - wire build_app() into main.rs, verify systems tick with debug logging

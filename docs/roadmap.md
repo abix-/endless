@@ -56,7 +56,7 @@ New approach (RenderCommand pattern):
 - [x] Update shader for instance vertex buffer input (@location 2-4)
 - [x] Fix Bevy 0.18 API differences (RenderSystems, lifetimes, etc.)
 - [x] Test: NPCs visible via Transparent2d phase
-- [ ] Enable sprite texture sampling (currently solid color debug)
+- [x] Enable sprite texture sampling (currently solid color debug)
 
 **Phase 3: Sprite Rendering ✓**
 - [x] 2D camera setup
