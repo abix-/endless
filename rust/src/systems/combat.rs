@@ -2,8 +2,9 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{CombatDebug, GpuReadState};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, PROJ_HIT_STATE};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator};
+use crate::gpu::ProjBufferWrites;
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
@@ -39,8 +40,10 @@ pub fn attack_system(
     mut commands: Commands,
     mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
+    mut proj_alloc: ResMut<ProjSlotAllocator>,
 ) {
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
@@ -57,7 +60,7 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (entity, npc_idx, stats, mut timer, _faction, in_combat) in query.iter_mut() {
+    for (entity, npc_idx, stats, mut timer, faction, in_combat) in query.iter_mut() {
         attackers += 1;
         let i = npc_idx.0;
 
@@ -111,7 +114,33 @@ pub fn attack_system(
             }
             if timer.0 <= 0.0 {
                 timer_ready_count += 1;
-                // TODO: Fire projectile via Bevy rendering (Phase 3)
+
+                // Fire projectile toward target (avoid NaN when overlapping)
+                if dist > 1.0 {
+                    if let Some(proj_slot) = proj_alloc.alloc() {
+                        let dir_x = dx / dist;
+                        let dir_y = dy / dist;
+                        if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                            queue.push(ProjGpuUpdate::Spawn {
+                                idx: proj_slot,
+                                x, y,
+                                vx: dir_x * stats.projectile_speed,
+                                vy: dir_y * stats.projectile_speed,
+                                damage: stats.damage,
+                                faction: faction.0,
+                                shooter: i as i32,
+                                lifetime: stats.projectile_lifetime,
+                            });
+                        }
+                    }
+                } else {
+                    // Point blank — apply damage directly (no projectile needed)
+                    damage_events.write(DamageMsg {
+                        npc_index: target_idx as usize,
+                        amount: stats.damage,
+                    });
+                }
+
                 attacks += 1;
                 timer.0 = stats.cooldown;
             }
@@ -145,4 +174,42 @@ pub fn attack_system(
         positions.get(2).copied().unwrap_or(-999.0),
         positions.get(3).copied().unwrap_or(-999.0),
     );
+}
+
+/// Process GPU projectile hits: convert to DamageMsg events and recycle slots.
+/// Runs before attack_system so freed slots can be reused for new projectiles.
+pub fn process_proj_hits(
+    mut damage_events: MessageWriter<DamageMsg>,
+    mut proj_alloc: ResMut<ProjSlotAllocator>,
+    proj_writes: Res<ProjBufferWrites>,
+) {
+    if let Ok(mut hits) = PROJ_HIT_STATE.lock() {
+        for (slot, hit) in hits.iter().enumerate() {
+            let npc_idx = hit[0];
+            let processed = hit[1];
+
+            // hit[0] >= 0 means a collision was detected, hit[1] == 0 means not yet processed
+            if npc_idx >= 0 && processed == 0 {
+                let damage = if slot < proj_writes.damages.len() {
+                    proj_writes.damages[slot]
+                } else {
+                    0.0
+                };
+
+                if damage > 0.0 {
+                    damage_events.write(DamageMsg {
+                        npc_index: npc_idx as usize,
+                        amount: damage,
+                    });
+                }
+
+                // Recycle projectile slot and tell GPU to deactivate
+                proj_alloc.free(slot);
+                if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                    queue.push(ProjGpuUpdate::Deactivate { idx: slot });
+                }
+            }
+        }
+        hits.clear();
+    }
 }

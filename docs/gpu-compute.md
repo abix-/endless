@@ -21,14 +21,16 @@ Main World (ECS)                       Render World (GPU)
 │                                      │   └─ Upload only dirty fields (per-field flags)
 │                                      │
 │                                      ├─ prepare_npc_bind_groups (PrepareBindGroups)
-│                                      │   └─ Bind buffers + uniform params for compute
+│                                      │   └─ 3 bind groups (one per mode, different uniform)
 │                                      │
-│                                      ├─ NpcComputeNode (render graph)
-│                                      │   ├─ Dispatch compute shader
-│                                      │   └─ copy_buffer_to_buffer(positions → staging)
+│                                      ├─ NpcComputeNode (render graph, 3 passes)
+│                                      │   ├─ Mode 0: clear grid (atomicStore 0)
+│                                      │   ├─ Mode 1: build grid (atomicAdd NPC indices)
+│                                      │   ├─ Mode 2: movement + combat targeting
+│                                      │   └─ copy positions + combat_targets → staging
 │                                      │
 │                                      └─ readback_npc_positions (Cleanup)
-│                                          └─ map staging → GPU_READ_STATE
+│                                          └─ map staging (positions + combat_targets) → GPU_READ_STATE
 │
 ├─ sync_gpu_state_to_bevy (Step::Drain)
 │     GPU_READ_STATE → GpuReadState resource
@@ -61,19 +63,20 @@ Note: `sprite_indices` and `colors` are in NpcBufferWrites but are not uploaded 
 
 ## NPC Compute Shader (npc_compute.wgsl)
 
-Workgroup size: 64 threads. Dispatched as `ceil(npc_count / 64)` workgroups. Single dispatch per frame.
+Workgroup size: 64 threads. 3 dispatches per frame with different `mode` uniform values. Each mode dispatches `ceil(count / 64)` workgroups (mode 0 uses `ceil(grid_cells / 64)`).
 
-The shader reads position, goal, speed, and arrival state per NPC. Movement is straight-line toward the goal at the NPC's speed, scaled by delta time. NPCs with `arrivals[i] == 1` are settled and don't move. Hidden NPCs (position.x < -9000) are skipped.
+### Mode 0: Clear Grid
+One thread per grid cell. Atomically clears `grid_counts[cell]` to 0. Early exit if `i >= grid_cells`.
 
-```
-per NPC thread:
-  1. Read pos, goal, speed, settled
-  2. Skip if hidden (pos.x < -9000)
-  3. If not settled and far from goal: move toward goal
-  4. If not settled and close to goal: mark settled
-  5. Write pos, arrivals
-  6. Write combat_targets = -1 (placeholder)
-```
+### Mode 1: Build Grid
+One thread per NPC. Computes cell from `floor(pos / cell_size)`, atomically increments `grid_counts[cell]`, writes NPC index into `grid_data[cell * max_per_cell + slot]`. Skips hidden NPCs (pos.x < -9000).
+
+### Mode 2: Movement + Combat Targeting
+One thread per NPC. Two phases per thread:
+
+**Movement**: Straight-line toward goal at NPC speed × delta. NPCs with `arrivals[i] == 1` are settled and skip movement. When close enough (< `arrival_threshold`), marks `settled = 1`.
+
+**Combat targeting**: Searches grid cells within `combat_range / cell_size + 1` radius around NPC's cell. For each NPC in neighboring cells, checks: different faction, alive (health > 0), not self. Tracks nearest enemy by squared distance. Writes best target index to `combat_targets[i]` (-1 if none found).
 
 ## GPU Buffers
 
@@ -86,9 +89,9 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 0 | positions | vec2\<f32\> | 8B | NpcBufferWrites.positions | Current XY, read/written by shader |
 | 1 | goals | vec2\<f32\> | 8B | NpcBufferWrites.targets | Movement target |
 | 2 | speeds | f32 | 4B | NpcBufferWrites.speeds | Movement speed |
-| 3 | grid_counts | i32[] | — | Not uploaded | NPCs per grid cell (allocated, unused) |
-| 4 | grid_data | i32[] | — | Not uploaded | NPC indices per cell (allocated, unused) |
-| 5 | arrivals | i32 | 4B | Not uploaded | Settled flag (0=moving, 1=arrived) |
+| 3 | grid_counts | atomic\<i32\>[] | — | Not uploaded | NPCs per grid cell (atomically written by mode 0+1) |
+| 4 | grid_data | i32[] | — | Not uploaded | NPC indices per cell (written by mode 1) |
+| 5 | arrivals | i32 | 4B | NpcBufferWrites.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
 | 6 | backoff | i32 | 4B | Not uploaded | Collision backoff counter (allocated, unused) |
 | 7 | factions | i32 | 4B | NpcBufferWrites.factions | 0=Villager, 1+=Raider camps |
 | 8 | healths | f32 | 4B | NpcBufferWrites.healths | Current HP |
@@ -119,11 +122,12 @@ Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; spri
 | cell_size | 64.0 | Pixels per grid cell (unused by current shader) |
 | max_per_cell | 48 | Max NPCs per cell (unused by current shader) |
 | arrival_threshold | 8.0 | Distance to mark as arrived |
-| mode | 0 | Dispatch mode (unused — single dispatch only) |
+| mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=movement+targeting) |
+| combat_range | 300.0 | Maximum distance for combat targeting |
 
 ## Spatial Grid
 
-Buffers are allocated but not used by the current shader. Intended layout:
+Built on GPU each frame via 3-mode dispatch with atomic operations:
 
 - **Cell size**: 64px
 - **Grid dimensions**: 128x128 (covers 8192x8192 world)
@@ -131,7 +135,7 @@ Buffers are allocated but not used by the current shader. Intended layout:
 - **Total cells**: 16,384
 - **Memory**: grid_counts = 64KB, grid_data = 3MB
 
-When ported, the grid will be built on GPU each frame via atomic operations (clear pass → insert pass → main logic pass). NPCs are binned by `floor(pos / cell_size)`. The 3x3 neighborhood search will cover separation physics and combat targeting.
+NPCs are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode 1 inserts NPCs via `atomicAdd`, mode 2 searches `combat_range / cell_size + 1` radius neighborhood for combat targeting.
 
 ## NPC Rendering
 
@@ -151,13 +155,12 @@ const MAX_PER_CELL: u32 = 48;
 
 ## Known Issues
 
-- **Compute shader simplified**: Only basic goal movement. Separation physics, grid-based neighbor search, and combat targeting are not ported from the old GLSL shader.
-- **Single dispatch**: Should be 3 dispatches per frame (clear grid → insert NPCs → main logic) with uniform buffer mode updates between them. Currently dispatches once.
+- **No separation physics**: NPCs converge to same position when chasing the same target. Spatial grid is ready for separation forces but not yet implemented.
 - **Hardcoded camera**: `npc_render.wgsl` has constant `CAMERA_POS` and `VIEWPORT`. Camera movement/zoom won't affect NPC rendering.
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
 - **sprite_indices/colors not uploaded to compute**: These fields exist in NpcBufferWrites for the render pipeline only. The compute shader has no access to them.
 - **Synchronous readback blocks render thread**: `device.poll(Wait)` blocks until staging buffer mapping completes. For 128KB this is sub-millisecond, but could be upgraded to async double-buffered readback if needed.
 
-## Rating: 6/10
+## Rating: 8/10
 
-Pipeline compiles and dispatches each frame. NPC movement works on GPU with full readback to ECS — positions flow GPU→staging→CPU→ECS and rendering shows GPU-computed positions. Per-field dirty flags prevent stale data from overwriting GPU output. Remaining: multi-mode dispatch for spatial grid, separation physics, combat targeting.
+3-mode compute dispatch with spatial grid, combat targeting, and full GPU→ECS readback (positions + combat_targets). Per-field dirty flags prevent stale data from overwriting GPU output. Arrival flag reset on SetTarget ensures NPCs resume movement. Remaining: separation physics to prevent NPC overlap.

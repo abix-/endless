@@ -105,32 +105,52 @@ fn startup_system() {
     info!("Endless ECS initialized - systems registered");
 }
 
-/// Test: Spawn a few NPCs at startup to verify ECS→GPU data flow.
-fn test_spawn_npcs(
+/// Test: Spawn two factions of fighters facing each other to verify full combat pipeline.
+fn test_spawn_combat(
     mut slot_alloc: ResMut<SlotAllocator>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
+    mut flags: ResMut<DebugFlags>,
 ) {
-    // Spawn 5 test farmers at different positions
+    // Spawn 5 faction-0 fighters on the left
     for i in 0..5 {
         let slot = slot_alloc.alloc().expect("slot allocation failed");
-        let x = 200.0 + (i as f32 * 100.0);
-        let y = 300.0;
         spawn_events.write(SpawnNpcMsg {
             slot_idx: slot,
-            x,
-            y,
-            job: 0, // Farmer
+            x: 300.0,
+            y: 300.0 + (i as f32 * 40.0),
+            job: 3, // Fighter
             faction: 0,
             town_idx: 0,
-            home_x: x,
-            home_y: y + 50.0,
-            work_x: x,
-            work_y: y - 50.0,
+            home_x: 300.0,
+            home_y: 300.0,
+            work_x: -1.0,
+            work_y: -1.0,
             starting_post: -1,
-            attack_type: 0,
+            attack_type: 0, // melee
         });
     }
-    info!("Test: Spawned 5 NPCs for GPU data flow test");
+
+    // Spawn 5 faction-1 fighters on the right (200px apart — within 300px targeting range)
+    for i in 0..5 {
+        let slot = slot_alloc.alloc().expect("slot allocation failed");
+        spawn_events.write(SpawnNpcMsg {
+            slot_idx: slot,
+            x: 500.0,
+            y: 300.0 + (i as f32 * 40.0),
+            job: 3, // Fighter
+            faction: 1,
+            town_idx: -1,
+            home_x: 500.0,
+            home_y: 300.0,
+            work_x: -1.0,
+            work_y: -1.0,
+            starting_post: -1,
+            attack_type: 0, // melee
+        });
+    }
+
+    flags.combat = true;
+    info!("Combat test: 5v5 fighters, 200px apart (melee range=150, targeting range=300)");
 }
 
 /// Toggle debug flags with F1-F4 keys.
@@ -161,6 +181,8 @@ fn debug_tick_system(
     time: Res<Time>,
     npc_count: Res<NpcCount>,
     gpu_state: Res<GpuReadState>,
+    combat_debug: Res<CombatDebug>,
+    health_debug: Res<HealthDebug>,
     flags: Res<DebugFlags>,
     mut last_log: Local<f32>,
 ) {
@@ -173,8 +195,17 @@ fn debug_tick_system(
             for i in 0..n {
                 let x = gpu_state.positions.get(i * 2).copied().unwrap_or(0.0);
                 let y = gpu_state.positions.get(i * 2 + 1).copied().unwrap_or(0.0);
-                info!("  NPC[{}] pos=({:.1},{:.1})", i, x, y);
+                let ct = gpu_state.combat_targets.get(i).copied().unwrap_or(-99);
+                info!("  NPC[{}] pos=({:.1},{:.1}) target={}", i, x, y, ct);
             }
+        }
+
+        if flags.combat {
+            info!("  Combat: targets={} attacks={} chases={} in_range={}",
+                combat_debug.targets_found, combat_debug.attacks_made,
+                combat_debug.chases_started, combat_debug.in_range_count);
+            info!("  Health: damage={} deaths={}",
+                health_debug.damage_processed, health_debug.deaths_this_frame);
         }
 
         *last_log = 0.0;
@@ -235,7 +266,7 @@ pub fn build_app(app: &mut App) {
        .add_plugins(render::RenderPlugin)
        .add_plugins(npc_render::NpcRenderPlugin)
        // Startup
-       .add_systems(Startup, (startup_system, test_spawn_npcs))
+       .add_systems(Startup, (startup_system, test_spawn_combat))
        // System sets
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        .add_systems(Update, bevy_timer_start.before(Step::Drain))
@@ -256,6 +287,7 @@ pub fn build_app(app: &mut App) {
        ).in_set(Step::Spawn))
        // Combat
        .add_systems(Update, (
+           process_proj_hits,  // First: recycle slots so attack_system can reuse them
            cooldown_system,
            attack_system,
            damage_system,

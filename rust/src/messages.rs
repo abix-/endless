@@ -129,6 +129,10 @@ pub enum ProjGpuUpdate {
 
 pub static PROJ_GPU_UPDATE_QUEUE: Mutex<Vec<ProjGpuUpdate>> = Mutex::new(Vec::new());
 
+/// GPU→CPU readback of projectile hit results. Each entry is [npc_idx, processed].
+/// Written by render world (readback_proj_hits), read by main world (process_proj_hits).
+pub static PROJ_HIT_STATE: Mutex<Vec<[i32; 2]>> = Mutex::new(Vec::new());
+
 // ============================================================================
 // GPU-FIRST: Single Read State (GPU -> Bevy)
 // Static for cross-thread access. Struct defined in resources.rs.

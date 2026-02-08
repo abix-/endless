@@ -1,0 +1,196 @@
+# Rendering System
+
+## Overview
+
+NPCs are rendered via a custom GPU instanced pipeline using Bevy's RenderCommand pattern in the Transparent2d phase. All NPCs draw in a single instanced call — one static quad shared by all instances, with per-NPC position, sprite, and color data. World sprites (buildings, terrain) use Bevy's built-in sprite system.
+
+Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
+
+## Why Custom Pipeline?
+
+Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that's 16K entities in the render world — the scheduling/extraction overhead dominates. The custom pipeline uses:
+
+- **1 entity** (NpcBatch) instead of 16,384 entities
+- **32 bytes/NPC** (position + sprite + color) instead of ~80 bytes/entity
+- **GPU compute data stays on GPU** — no CPU round-trip for positions
+- **Single draw call** — `draw_indexed(0..6, 0, 0..instance_count)`
+
+## Data Flow
+
+```
+Main World                        Render World
+───────────                       ────────────
+NpcBufferWrites ──ExtractResource──▶ NpcBufferWrites
+NpcGpuData      ──ExtractResource──▶ NpcGpuData
+NpcBatch entity ──extract_npc_batch──▶ NpcBatch entity
+                                      │
+                                      ▼
+                               prepare_npc_buffers
+                               (build NpcInstanceData[])
+                                      │
+                                      ▼
+                            prepare_npc_texture_bind_group
+                                      │
+                                      ▼
+                                  queue_npcs
+                               (add to Transparent2d)
+                                      │
+                                      ▼
+                              SetItemPipeline
+                              SetNpcTextureBindGroup<0>
+                              DrawNpcs
+```
+
+## Instance Data
+
+Each NPC is 32 bytes of per-instance data:
+
+```rust
+pub struct NpcInstanceData {
+    pub position: [f32; 2],  // world XY (8 bytes)
+    pub sprite: [f32; 2],    // atlas cell col, row (8 bytes)
+    pub color: [f32; 4],     // RGBA tint (16 bytes)
+}
+```
+
+Built each frame by `prepare_npc_buffers` from `NpcBufferWrites`:
+- **Positions**: from GPU readback if available, else from CPU-side NpcBufferWrites
+- **Sprites**: from `sprite_indices` (4 floats per NPC, uses first 2: col, row)
+- **Colors**: from `colors` (4 floats per NPC: RGBA)
+- **Hidden NPCs** (position.x < -9000) are skipped
+
+## The Quad
+
+GPUs draw triangles. A sprite is a textured quad — two triangles forming a rectangle:
+
+```
+  3 ──── 2          Triangle 1: 0→1→2
+  │    ╱ │          Triangle 2: 0→2→3
+  │  ╱   │
+  │╱     │          6 indices: [0, 1, 2, 0, 2, 3]
+  0 ──── 1          4 vertices, shared by ALL NPCs
+```
+
+```rust
+static QUAD_VERTICES: [QuadVertex; 4] = [
+    QuadVertex { position: [-0.5, -0.5], uv: [0.0, 1.0] }, // bottom-left
+    QuadVertex { position: [ 0.5, -0.5], uv: [1.0, 1.0] }, // bottom-right
+    QuadVertex { position: [ 0.5,  0.5], uv: [1.0, 0.0] }, // top-right
+    QuadVertex { position: [-0.5,  0.5], uv: [0.0, 0.0] }, // top-left
+];
+```
+
+The vertex shader scales the unit quad by `SPRITE_SIZE` (32 world units) and offsets by instance position.
+
+## Vertex Buffers
+
+Two vertex buffer slots with different step modes:
+
+| Slot | Step Mode | Data | Stride | Attributes |
+|------|-----------|------|--------|------------|
+| 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) position, @location(1) uv |
+| 1 | Instance | Per-NPC data (N instances) | 32B | @location(2) position, @location(3) sprite, @location(4) color |
+
+`VertexStepMode::Vertex` advances per-vertex (4 times per quad). `VertexStepMode::Instance` advances per-instance (once per NPC).
+
+## Sprite Atlas
+
+All NPC sprites come from `roguelikeChar_transparent.png` (918×203 pixels, 54 cols × 12 rows, 16px sprites with 1px margin).
+
+The shader converts (col, row) to UV coordinates:
+
+```wgsl
+const CELL_SIZE: f32 = 17.0;      // 16px sprite + 1px margin
+const SPRITE_TEX_SIZE: f32 = 16.0;
+const TEXTURE_WIDTH: f32 = 918.0;
+const TEXTURE_HEIGHT: f32 = 203.0;
+
+// In vertex shader:
+let pixel_x = sprite_cell.x * CELL_SIZE + quad_uv.x * SPRITE_TEX_SIZE;
+let pixel_y = sprite_cell.y * CELL_SIZE + quad_uv.y * SPRITE_TEX_SIZE;
+out.uv = vec2<f32>(pixel_x / TEXTURE_WIDTH, pixel_y / TEXTURE_HEIGHT);
+```
+
+Each quad corner's UV (`quad_uv` from 0,0 to 1,1) maps to a 16×16 pixel region within the sprite's cell. The alpha channel handles non-rectangular shapes — the fragment shader discards pixels with `alpha < 0.1`.
+
+Job sprite assignments (from constants.rs):
+- Farmer: (1, 6)
+- Guard: (0, 11)
+- Raider: (0, 6)
+- Fighter: (7, 0)
+
+## Fragment Shader
+
+```wgsl
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
+    if tex_color.a < 0.1 {
+        discard;  // transparent pixels → not drawn
+    }
+    return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+}
+```
+
+Texture color is multiplied by the instance's tint color. This is how faction colors work — raiders get per-faction RGB tints (10-color palette), while villagers get job-based colors.
+
+## Render World Phases
+
+The render pipeline runs in Bevy's render world after extract:
+
+| Phase | System | Purpose |
+|-------|--------|---------|
+| Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
+| PrepareResources | `prepare_npc_buffers` | Build instance buffer from NpcBufferWrites |
+| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture |
+| Queue | `queue_npcs` | Add NpcBatch to Transparent2d phase |
+| Render | `DrawNpcCommands` | SetItemPipeline → SetNpcTextureBindGroup → DrawNpcs |
+
+## RenderCommand Pattern
+
+Bevy's RenderCommand trait defines the GPU commands for drawing. The NPC pipeline chains three commands:
+
+```rust
+type DrawNpcCommands = (
+    SetItemPipeline,           // Bind the NPC render pipeline
+    SetNpcTextureBindGroup<0>, // Bind sprite texture at group 0
+    DrawNpcs,                  // Set vertex/index buffers, draw_indexed
+);
+```
+
+`DrawNpcs::render()` sets both vertex buffer slots and issues the instanced draw call. If `instance_count == 0` or the instance buffer is empty, it returns `Skip`.
+
+## Camera
+
+`render.rs` sets up a 2D orthographic camera at (400, 300) via Bevy's `Camera2d`. The render shader uses hardcoded constants to match:
+
+```wgsl
+const CAMERA_POS: vec2<f32> = vec2<f32>(400.0, 300.0);
+const VIEWPORT: vec2<f32> = vec2<f32>(1280.0, 720.0);
+```
+
+This is a known issue — the shader should read Bevy's view uniforms instead of hardcoded values.
+
+## Texture Loading
+
+`render.rs` loads both sprite sheets at startup and shares the character texture with the instanced pipeline:
+
+| Sheet | File | Size | Grid | Used By |
+|-------|------|------|------|---------|
+| Characters | `roguelikeChar_transparent.png` | 918×203 | 54×12 (16px + 1px margin) | NPC instanced rendering |
+| World | `roguelikeSheet_transparent.png` | 968×526 | 57×31 (16px + 1px margin) | Building/terrain sprites |
+
+The character texture handle is shared via `NpcSpriteTexture` resource (extracted to render world for bind group creation).
+
+## Known Issues
+
+- **Hardcoded camera**: `npc_render.wgsl` uses constant `CAMERA_POS` and `VIEWPORT` instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering.
+- **No projectile rendering**: Projectile compute runs on GPU but no instanced draw pipeline exists for projectiles.
+- **No building rendering**: World sprite sheet is loaded but not used for instanced building rendering.
+- **No carried item overlay**: CarriedItem component exists but no visual rendering.
+- **No health bar rendering**: NPC health data is on GPU but no overlay draws HP bars.
+- **Sprite texture in debug mode**: Fragment shader samples textures and applies color tint, but some visual artifacts may exist from atlas margin bleed.
+
+## Rating: 6/10
+
+Custom instanced pipeline works and is the right architectural choice for this scale. Single draw call for all NPCs. Per-instance data is compact (32 bytes). Fragment shader handles transparency and faction color tinting. However: hardcoded camera constants prevent any camera control, no projectile/building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).

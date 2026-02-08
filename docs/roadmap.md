@@ -2,6 +2,22 @@
 
 Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced rendering.
 
+## How to Maintain This Roadmap
+
+This file has two views of the same work:
+
+- **Phases** = what order we build things. Each phase has a "done when" sentence and checkboxes grouped by problem. Phases are gameplay-driven milestones (core loop works → you can see it → someone can play it → it's a full game).
+- **Capabilities** = what features exist and what's planned. Feature inventory with `[x]`/`[ ]` checkboxes. This is the backlog.
+
+Rules:
+1. **Phases are the priority.** When deciding what to work on, read the phases top-down. The first unchecked phase is the current sprint.
+2. **Don't duplicate work items** between phases and capabilities. Phases reference capability sections when detail exists there (e.g., "per roadmap spec" pointing to Multi-Layer Equipment Rendering).
+3. **Completed checkboxes are accomplishments.** Never delete them. Mark with `[x]` and add ✓ to the phase header when all items are done.
+4. **"Done when" sentences don't change** unless the game design changes. They define the goal, not the implementation.
+5. **Current State reflects phase priority.** Keep the Next → Then → Later structure in sync with the phases.
+6. **New features** go in the Capabilities section first. They get pulled into a phase when it's time to build them.
+7. **Godot lineage breadcrumbs** (like "Port config.gd → Bevy Resource") are intentional — they show where the design originated.
+
 ## Phases
 
 **Phase 1: Standalone Bevy App ✓**
@@ -48,27 +64,95 @@ New approach (RenderCommand pattern):
 - [ ] Full instancing for 10K NPCs (moved to Phase 2.5)
 - [ ] Test: NPCs visible @ 140fps
 
-**Phase 4: World Generation**
-- [ ] Procedural town/farm/bed/guard_post placement
-- [ ] Test: World generates correctly
+**Phase 4: Core Loop**
 
-**Phase 5: Start Menu + Config**
+*Done when: 5 farmers grow food, 5 raiders form a group and steal it, 2 guards intercept with combat, someone dies, slot recycles, replacement spawns. Validated by Test 12.*
+
+GPU→CPU readback:
+- [x] Populate GpuReadState with positions from staging buffer every frame
+- [x] Measure readback latency (expect <1ms for 80KB at 10K NPCs)
+- [x] Systems that read NPC positions (arrival, targeting, healing) use readback data
+
+Spatial grid on GPU:
+- [x] npc_compute.wgsl: 3-mode dispatch (clear grid, build grid, movement+targeting)
+- [x] atomicAdd for thread-safe grid cell insertion
+- [x] Combat targeting via grid neighbor search (300px range, ~6 cell radius)
+- [x] Multi-dispatch NpcComputeNode with 3 bind groups
+- [x] Combat targets readback (dual buffer map with positions)
+
+Combat end-to-end:
+- [x] attack_system: read target positions from GpuReadState, fire projectiles
+- [x] Projectile firing via PROJ_GPU_UPDATE_QUEUE (slot allocation, velocity calculation)
+- [x] Point-blank damage path for overlapping NPCs (avoids NaN velocity)
+- [x] Projectile hit detection → readback → damage_system → health update
+- [x] death_system → death_cleanup_system (release farm, remove from raid queue, update stats)
+- [ ] Respawn via raider_respawn_system consumes camp food, allocates recycled slot
+
+Vertical slice test (Test 12):
+- [ ] Phase 1: Spawn 5 farmers (faction 0), 5 raiders (faction 1), 2 guards (faction 0)
+- [ ] Phase 2: GPU readback returns valid positions (not all zeros)
+- [ ] Phase 3: Farmers arrive at farms, begin working
+- [ ] Phase 4: Raiders form group (RaidQueue hits 5), dispatched to farm
+- [ ] Phase 5: Guards acquire targets via GPU spatial grid targeting
+- [ ] Phase 6: Projectiles fire, damage applied (health decreases)
+- [ ] Phase 7: At least one death occurs, slot added to SlotAllocator free list
+- [ ] Phase 8: Replacement raider spawns from camp food budget
+- [ ] Test: PASS/FAIL with phase results showing timestamp + values at each gate
+
+**Phase 5: Visual Feedback**
+
+*Done when: you can watch the core loop happen on screen and understand what's going on without reading logs.*
+
+Camera + viewport:
+- [ ] Replace hardcoded CAMERA_POS/VIEWPORT in npc_render.wgsl with Bevy view uniforms
+- [ ] Camera pan (WASD or drag) and zoom (scroll wheel)
+- [ ] Click-to-select NPC wired to camera transform
+
+Equipment rendering (multi-layer instanced):
+- [ ] Implement multi-layer equipment rendering per roadmap spec (see capability section below)
+- [ ] Guards spawn with weapon + helmet layers, raiders with weapon layer
+
+Projectile rendering:
+- [ ] Projectile instanced pipeline (same RenderCommand pattern as NPC renderer)
+- [ ] Separate NpcInstanceData buffer for active projectiles
+
+Visual state indicators:
+- [ ] Farm growth state visible (Growing → Ready sprite change)
+- [ ] Health bars or floating damage numbers
+- [ ] Carried item icon (food sprite on returning raiders)
+
+**Phase 6: Playable Game**
+
+*Done when: someone who isn't you can open it, understand what's happening, and make decisions that affect the outcome.*
+
+World setup:
+- [ ] Procedural town/farm/bed/guard_post placement
 - [ ] Port config.gd → Bevy Resource
 - [ ] Port user_settings.gd → serde JSON
-- [ ] bevy_egui start menu
-- [ ] Test: Menu → game start
 
-**Phase 6: Core UI Panels**
+UI:
+- [ ] bevy_egui start menu (new game, settings)
 - [ ] left_panel.rs (stats, perf, inspector)
-- [ ] upgrade_menu.rs
-- [ ] policies_panel.rs
-- [ ] Test: UI shows live ECS data
-
-**Phase 7: Remaining UI + Polish**
 - [ ] roster_panel.rs, build_menu.rs, combat_log.rs
-- [ ] Camera controls, click selection
+- [ ] upgrade_menu.rs, policies_panel.rs
+
+Input:
+- [ ] Click-to-build and click-to-destroy buildings
+- [ ] Villager role assignment
+- [ ] Time controls (pause, speed)
+
+**Phase 7: Content + Polish**
+
+*Done when: there's enough systems depth that emergent gameplay happens — raids succeed or fail based on guard upgrades, economy collapses if farms aren't defended, raiders starve if they can't steal.*
+
+- [ ] Config & upgrades: config-driven stats, apply_upgrade() API
+- [ ] XP & leveling system
+- [ ] Town policies (work schedules, off-duty behavior, recovery thresholds)
+- [ ] Multiple resources (wood, iron, gold) + production buildings
+- [ ] Army units, equipment crafting, recruitment
+- [ ] AI lords that expand and compete
 - [ ] Audio (bevy_audio)
-- [ ] Test: Full game playable
+- [ ] Entity sleeping (Factorio-style, NPCs outside camera radius sleep)
 
 ## Current State
 
@@ -82,14 +166,20 @@ New approach (RenderCommand pattern):
 - [x] Testing harness (11 test scenarios)
 - [x] Architecture cleanup (channels, Bevy resources, GPU messages)
 
-**Remaining:**
-- [ ] GPU→CPU readback (positions, combat targets)
-- [ ] Combat end-to-end (targeting → damage → death)
-- [ ] Spatial grid build on GPU
-- [ ] Building system: runtime add/remove buildings
-- [ ] Config & upgrades: config-driven stats, upgrade API
-- [ ] Camera controls, input handling
-- [ ] UI panels (bevy_egui)
+**Next: Phase 4 (Core Loop)**
+- [ ] GPU→CPU readback — blocks combat targeting and arrival detection
+- [ ] Combat end-to-end — attack_system → projectiles → damage → death
+- [ ] Vertical slice test (Test 12) — validates full spawn→fight→die→respawn loop
+
+**Then: Phase 5 (Visual Feedback)**
+- [ ] Camera controls (remove hardcoded constants, add pan/zoom)
+- [ ] Multi-layer equipment rendering (armor, helmet, weapon, carried item)
+- [ ] Projectile instanced rendering
+- [ ] Farm/health/item visual indicators
+
+**Later: Phase 6-7 (Playable Game → Content)**
+- [ ] World generation, start menu, UI panels, input handling
+- [ ] Config & upgrades, XP, town policies, multiple resources
 
 ## Architecture
 
@@ -104,9 +194,8 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] Unified spawn API with job-as-template pattern (phase 8.5)
 - [x] spawn_guard(), spawn_guard_at_post(), spawn_farmer() convenience APIs
 - [x] Slot reuse for dead NPCs (SlotAllocator)
-- [ ] Loot icon overlay (raider carrying food indicator)
-- [ ] Halo icon overlay (healing zone indicator)
-- [ ] Sleep icon overlay (resting indicator)
+- [ ] Multi-layer equipment rendering (armor, helmet, weapon, carried item overlays)
+- [ ] Health bar overlay
 
 ### Movement & Physics ✓
 - [x] GPU compute shader for movement toward targets
@@ -205,6 +294,77 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] PopulationStats, KillStats, SelectedNpc resources
 - [ ] Villager role assignment UI
 - [ ] Train guards from population
+
+### Multi-Layer Equipment Rendering
+
+NPCs need visible equipment: armor, helmet, weapon, and carried items (food icon when raiding). Each layer is a separate sprite from the same atlas, drawn on top of the body sprite. Uses the same approach as Godot's stacked MultiMesh — one instanced draw call per layer, with Transparent2d sort keys controlling z-order.
+
+**Architecture: Multiple draw calls, one per layer (Factorio-style)**
+
+Current renderer does 1 batch entity → 1 instance buffer → 1 draw call for all 10K NPCs. Extend to N layers where each layer is an independent instanced draw call with its own instance buffer. Only NPCs that have equipment in that slot appear in that layer's buffer (a layer with 200 carried-item sprites = 200 instances, not 10K).
+
+Same pipeline, same shader (`npc_render.wgsl`), same texture atlas, same `NpcInstanceData` struct (32 bytes: position + sprite + color). No shader changes needed.
+
+**Data model:**
+
+```
+NpcBufferWrites (main world, extracted to render world):
+  positions: Vec<f32>          ← existing (shared by all layers)
+  sprite_indices: Vec<f32>     ← existing (body layer)
+  colors: Vec<f32>             ← existing (body layer)
+  armor_sprites: Vec<f32>      ← NEW (4 floats/NPC: col, row, 0, 0. Use -1 sentinel for "no armor")
+  helmet_sprites: Vec<f32>     ← NEW (same layout)
+  weapon_sprites: Vec<f32>     ← NEW (same layout)
+  item_sprites: Vec<f32>       ← NEW (same layout, set when CarryingFood)
+```
+
+**Render world changes (`npc_render.rs`):**
+
+```
+NpcRenderBuffers:
+  vertex_buffer: Buffer              ← existing (shared static quad)
+  index_buffer: Buffer               ← existing (shared [0,1,2,0,2,3])
+  layers: Vec<LayerBuffer>           ← NEW (replaces single instance_buffer)
+
+LayerBuffer:
+  instance_buffer: RawBufferVec<NpcInstanceData>
+  instance_count: u32
+```
+
+**Implementation steps:**
+
+- [ ] Add equipment sprite fields to `NpcBufferWrites` (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`)
+- [ ] Add ECS components: `EquippedArmor(col, row)`, `EquippedHelmet(col, row)`, `EquippedWeapon(col, row)` — sprite atlas coordinates
+- [ ] Add equipment to spawn: guards get weapon+helmet, farmers get nothing, raiders get weapon
+- [ ] Update `collect_gpu_updates` to write equipment sprites to `NpcBufferWrites` when equipment changes
+- [ ] Refactor `NpcRenderBuffers`: replace single `instance_buffer`/`instance_count` with `Vec<LayerBuffer>`
+- [ ] Refactor `prepare_npc_buffers`: build one `LayerBuffer` per layer, skipping NPCs with -1 sentinel in that slot
+- [ ] Refactor `queue_npcs`: add one `Transparent2d` phase item per non-empty layer with incrementing sort keys (body=0.0, armor=0.001, helmet=0.002, weapon=0.003, item=0.004)
+- [ ] Refactor `DrawNpcs`: read layer index from batch entity to select correct `LayerBuffer`. Add `LayerIndex(usize)` component to batch entities, or spawn separate `NpcBatch` entities per layer
+- [ ] Set `CarryingFood` → write food sprite to `item_sprites`, clear on delivery
+- [ ] Set `Healing` → write halo sprite to `item_sprites` (or dedicated healing layer)
+- [ ] Set `Resting` → write sleep icon to `item_sprites`
+- [ ] Test: spawn 100 NPCs with mixed equipment, verify layers render in correct order
+- [ ] Test: 10K NPCs × 5 layers, verify fps stays above 60
+
+**Performance budget:**
+
+| Layer | Instances (typical) | Buffer size | Draw call |
+|-------|-------------------|-------------|-----------|
+| Body | 10,000 | 320 KB | 1 |
+| Armor | ~4,000 | 128 KB | 1 |
+| Helmet | ~3,000 | 96 KB | 1 |
+| Weapon | ~8,000 | 256 KB | 1 |
+| CarriedItem | ~500 | 16 KB | 1 |
+| **Total** | **~25,500** | **~816 KB** | **5** |
+
+5 instanced draw calls is trivial GPU overhead. Factorio benchmarks 25K sprites/frame as normal load. Buffer upload is <1MB/frame. Bottleneck is fill rate (overdraw from transparent layers), not draw calls.
+
+**References:**
+- [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) — sprite batching, per-layer draw queues
+- [NSprites (Unity DOTS)](https://github.com/Antoshidza/NSprites) — one draw call per material, component-to-GPU sync
+- Current implementation: `npc_render.rs` (RenderCommand pattern), `npc_render.wgsl` (unchanged)
+- Architecture doc: [rendering.md](rendering.md)
 
 ### Building System
 - [ ] Runtime add/remove farm/bed/guard_post

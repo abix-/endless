@@ -25,7 +25,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, GPU_READ_STATE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
+use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, GPU_READ_STATE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, PROJ_HIT_STATE};
 
 // =============================================================================
 // CONSTANTS
@@ -76,7 +76,7 @@ pub struct NpcComputeParams {
     pub max_per_cell: u32,
     pub arrival_threshold: f32,
     pub mode: u32,
-    pub _pad1: f32,
+    pub combat_range: f32,
     pub _pad2: f32,
 }
 
@@ -93,7 +93,7 @@ impl Default for NpcComputeParams {
             max_per_cell: MAX_PER_CELL,
             arrival_threshold: 8.0,
             mode: 0,
-            _pad1: 0.0,
+            combat_range: 300.0,
             _pad2: 0.0,
         }
     }
@@ -113,6 +113,8 @@ pub struct NpcBufferWrites {
     pub factions: Vec<i32>,
     /// Health buffer: one f32 per NPC
     pub healths: Vec<f32>,
+    /// Arrival flags: one i32 per NPC (0 = moving, 1 = settled)
+    pub arrivals: Vec<i32>,
     /// Sprite indices: [col, row, 0, 0] per NPC (vec4 for alignment)
     pub sprite_indices: Vec<f32>,
     /// Colors: [r, g, b, a] per NPC
@@ -125,6 +127,7 @@ pub struct NpcBufferWrites {
     pub speeds_dirty: bool,
     pub factions_dirty: bool,
     pub healths_dirty: bool,
+    pub arrivals_dirty: bool,
 }
 
 impl Default for NpcBufferWrites {
@@ -137,6 +140,7 @@ impl Default for NpcBufferWrites {
             speeds: vec![100.0; max],
             factions: vec![0; max],
             healths: vec![100.0; max],
+            arrivals: vec![0; max],  // 0 = wants to move
             sprite_indices: vec![0.0; max * 4], // vec4 per NPC
             colors: vec![1.0; max * 4],          // RGBA, default white
             dirty: false,
@@ -145,6 +149,7 @@ impl Default for NpcBufferWrites {
             speeds_dirty: false,
             factions_dirty: false,
             healths_dirty: false,
+            arrivals_dirty: false,
         }
     }
 }
@@ -169,6 +174,11 @@ impl NpcBufferWrites {
                     self.targets[i + 1] = *y;
                     self.dirty = true;
                     self.targets_dirty = true;
+                }
+                // Reset arrival flag so GPU resumes movement toward new target
+                if *idx < self.arrivals.len() {
+                    self.arrivals[*idx] = 0;
+                    self.arrivals_dirty = true;
                 }
             }
             GpuUpdate::SetSpeed { idx, speed } => {
@@ -245,6 +255,7 @@ pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>) {
     buffer_writes.speeds_dirty = false;
     buffer_writes.factions_dirty = false;
     buffer_writes.healths_dirty = false;
+    buffer_writes.arrivals_dirty = false;
 
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for update in queue.drain(..) {
@@ -325,7 +336,7 @@ impl Default for ProjBufferWrites {
             lifetimes: vec![0.0; max],
             active: vec![0; max],
             hits: vec![-1; max * 2],   // -1 = no hit
-            dirty: false,
+            dirty: true,  // Force first-frame upload so GPU gets -1 hit initialization
         }
     }
 }
@@ -353,6 +364,12 @@ impl ProjBufferWrites {
             ProjGpuUpdate::Deactivate { idx } => {
                 if *idx < self.active.len() {
                     self.active[*idx] = 0;
+                    // Reset hit record so GPU doesn't re-trigger
+                    let i2 = *idx * 2;
+                    if i2 + 1 < self.hits.len() {
+                        self.hits[i2] = -1;
+                        self.hits[i2 + 1] = 0;
+                    }
                     self.dirty = true;
                 }
             }
@@ -423,7 +440,7 @@ impl Plugin for GpuComputePlugin {
                 (
                     (write_npc_buffers, write_proj_buffers).in_set(RenderSystems::PrepareResources),
                     (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
-                    readback_npc_positions.in_set(RenderSystems::Cleanup),
+                    (readback_npc_positions, readback_proj_hits).in_set(RenderSystems::Cleanup),
                 ),
             );
 
@@ -477,13 +494,16 @@ pub struct NpcGpuBuffers {
     pub combat_targets: Buffer,
     /// Staging buffer for CPU readback of positions (MAP_READ | COPY_DST)
     pub position_staging: Buffer,
+    /// Staging buffer for CPU readback of combat targets (MAP_READ | COPY_DST)
+    pub combat_target_staging: Buffer,
 }
 
-/// Bind groups for compute passes.
+/// Bind groups for compute passes (one per mode, different uniform buffer).
 #[derive(Resource)]
 struct NpcBindGroups {
-    /// Bind group for all three modes
-    bind_group: BindGroup,
+    mode0: BindGroup,  // Clear grid
+    mode1: BindGroup,  // Build grid
+    mode2: BindGroup,  // Movement + targeting
 }
 
 /// Pipeline resources for compute.
@@ -511,6 +531,8 @@ pub struct ProjGpuBuffers {
     pub lifetimes: Buffer,
     pub active: Buffer,
     pub hits: Buffer,
+    /// Staging buffer for CPU readback of hit results (MAP_READ | COPY_DST)
+    pub hit_staging: Buffer,
 }
 
 /// Bind groups for projectile compute pass.
@@ -607,6 +629,12 @@ fn init_npc_compute_pipeline(
             usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
+        combat_target_staging: render_device.create_buffer(&BufferDescriptor {
+            label: Some("npc_combat_target_staging"),
+            size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
     };
 
     commands.insert_resource(buffers);
@@ -679,29 +707,70 @@ fn prepare_npc_bind_groups(
     let Some(buffers) = buffers else { return };
     let Some(params) = params else { return };
 
-    // Write params to uniform buffer
-    let mut uniform_buffer = UniformBuffer::from(params.clone());
-    uniform_buffer.write_buffer(&render_device, &render_queue);
+    // Create 3 uniform buffers (one per mode) for multi-dispatch
+    let layout = &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
+    let storage_bindings = (
+        buffers.positions.as_entire_buffer_binding(),
+        buffers.targets.as_entire_buffer_binding(),
+        buffers.speeds.as_entire_buffer_binding(),
+        buffers.grid_counts.as_entire_buffer_binding(),
+        buffers.grid_data.as_entire_buffer_binding(),
+        buffers.arrivals.as_entire_buffer_binding(),
+        buffers.backoff.as_entire_buffer_binding(),
+        buffers.factions.as_entire_buffer_binding(),
+        buffers.healths.as_entire_buffer_binding(),
+        buffers.combat_targets.as_entire_buffer_binding(),
+    );
 
-    let bind_group = render_device.create_bind_group(
-        Some("npc_compute_bind_group"),
-        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+    let mut p0 = params.clone(); p0.mode = 0;
+    let mut p1 = params.clone(); p1.mode = 1;
+    let mut p2 = params.clone(); p2.mode = 2;
+
+    let mut ub0 = UniformBuffer::from(p0);
+    let mut ub1 = UniformBuffer::from(p1);
+    let mut ub2 = UniformBuffer::from(p2);
+    ub0.write_buffer(&render_device, &render_queue);
+    ub1.write_buffer(&render_device, &render_queue);
+    ub2.write_buffer(&render_device, &render_queue);
+
+    let mode0 = render_device.create_bind_group(
+        Some("npc_compute_bg_mode0"),
+        layout,
         &BindGroupEntries::sequential((
-            buffers.positions.as_entire_buffer_binding(),
-            buffers.targets.as_entire_buffer_binding(),
-            buffers.speeds.as_entire_buffer_binding(),
-            buffers.grid_counts.as_entire_buffer_binding(),
-            buffers.grid_data.as_entire_buffer_binding(),
-            buffers.arrivals.as_entire_buffer_binding(),
-            buffers.backoff.as_entire_buffer_binding(),
-            buffers.factions.as_entire_buffer_binding(),
-            buffers.healths.as_entire_buffer_binding(),
-            buffers.combat_targets.as_entire_buffer_binding(),
-            &uniform_buffer,
+            storage_bindings.0.clone(), storage_bindings.1.clone(),
+            storage_bindings.2.clone(), storage_bindings.3.clone(),
+            storage_bindings.4.clone(), storage_bindings.5.clone(),
+            storage_bindings.6.clone(), storage_bindings.7.clone(),
+            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            &ub0,
+        )),
+    );
+    let mode1 = render_device.create_bind_group(
+        Some("npc_compute_bg_mode1"),
+        layout,
+        &BindGroupEntries::sequential((
+            storage_bindings.0.clone(), storage_bindings.1.clone(),
+            storage_bindings.2.clone(), storage_bindings.3.clone(),
+            storage_bindings.4.clone(), storage_bindings.5.clone(),
+            storage_bindings.6.clone(), storage_bindings.7.clone(),
+            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            &ub1,
+        )),
+    );
+    let mode2 = render_device.create_bind_group(
+        Some("npc_compute_bg_mode2"),
+        layout,
+        &BindGroupEntries::sequential((
+            storage_bindings.0.clone(), storage_bindings.1.clone(),
+            storage_bindings.2.clone(), storage_bindings.3.clone(),
+            storage_bindings.4.clone(), storage_bindings.5.clone(),
+            storage_bindings.6.clone(), storage_bindings.7.clone(),
+            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            &ub2,
         )),
     );
 
-    commands.insert_resource(NpcBindGroups { bind_group });
+    commands.insert_resource(NpcBindGroups { mode0, mode1, mode2 });
 }
 
 
@@ -781,6 +850,14 @@ fn write_npc_buffers(
         );
     }
 
+    if writes.arrivals_dirty {
+        render_queue.write_buffer(
+            &buffers.arrivals,
+            0,
+            bytemuck::cast_slice(&writes.arrivals),
+        );
+    }
+
 }
 
 /// Read back NPC positions from GPU staging buffer to CPU.
@@ -798,30 +875,79 @@ fn readback_npc_positions(
         return;
     }
 
-    let copy_size = npc_count * std::mem::size_of::<[f32; 2]>();
-    let buffer_slice = buffers.position_staging.slice(..copy_size as u64);
+    // Map both staging buffers (positions + combat targets)
+    let pos_size = npc_count * std::mem::size_of::<[f32; 2]>();
+    let ct_size = npc_count * std::mem::size_of::<i32>();
 
-    // Request async map (callback fires when GPU copy completes)
-    let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-        let _ = tx.send(result);
-    });
+    let pos_slice = buffers.position_staging.slice(..pos_size as u64);
+    let ct_slice = buffers.combat_target_staging.slice(..ct_size as u64);
 
-    // Synchronous wait — 128KB maps in microseconds
+    let (tx1, rx1) = std::sync::mpsc::sync_channel(1);
+    let (tx2, rx2) = std::sync::mpsc::sync_channel(1);
+
+    pos_slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx1.send(r); });
+    ct_slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx2.send(r); });
+
+    // Single poll flushes both maps
     let _ = render_device.poll(wgpu::PollType::wait_indefinitely());
 
-    if let Ok(Ok(())) = rx.recv() {
-        let data = buffer_slice.get_mapped_range();
-        let positions: &[f32] = bytemuck::cast_slice(&data);
+    let pos_ok = rx1.recv().map_or(false, |r| r.is_ok());
+    let ct_ok = rx2.recv().map_or(false, |r| r.is_ok());
+
+    if pos_ok && ct_ok {
+        let pos_data = pos_slice.get_mapped_range();
+        let ct_data = ct_slice.get_mapped_range();
+        let positions: &[f32] = bytemuck::cast_slice(&pos_data);
+        let combat_targets: &[i32] = bytemuck::cast_slice(&ct_data);
 
         if let Ok(mut state) = GPU_READ_STATE.lock() {
             state.positions.clear();
             state.positions.extend_from_slice(&positions[..npc_count * 2]);
+            state.combat_targets.clear();
+            state.combat_targets.extend_from_slice(&combat_targets[..npc_count]);
             state.npc_count = npc_count;
         }
 
-        drop(data);
-        buffers.position_staging.unmap();
+        drop(pos_data);
+        drop(ct_data);
+    }
+
+    // Always unmap what was successfully mapped
+    if pos_ok { buffers.position_staging.unmap(); }
+    if ct_ok { buffers.combat_target_staging.unmap(); }
+}
+
+/// Read back projectile hit results from GPU → PROJ_HIT_STATE static.
+fn readback_proj_hits(
+    proj_buffers: Option<Res<ProjGpuBuffers>>,
+    proj_data: Option<Res<ProjGpuData>>,
+    render_device: Res<RenderDevice>,
+) {
+    let Some(buffers) = proj_buffers else { return };
+    let Some(data) = proj_data else { return };
+
+    let proj_count = data.proj_count as usize;
+    if proj_count == 0 { return; }
+
+    let copy_size = proj_count * std::mem::size_of::<[i32; 2]>();
+    let slice = buffers.hit_staging.slice(..copy_size as u64);
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+
+    let _ = render_device.poll(wgpu::PollType::wait_indefinitely());
+
+    if let Ok(Ok(())) = rx.recv() {
+        let mapped = slice.get_mapped_range();
+        let hits: &[[i32; 2]] = bytemuck::cast_slice(&mapped);
+
+        if let Ok(mut state) = PROJ_HIT_STATE.lock() {
+            state.clear();
+            state.extend_from_slice(&hits[..proj_count]);
+        }
+
+        drop(mapped);
+        buffers.hit_staging.unmap();
     }
 }
 
@@ -901,32 +1027,50 @@ impl render_graph::Node for NpcComputeNode {
             return Ok(());
         };
 
-        let _grid_cells = GRID_WIDTH * GRID_HEIGHT;
+        let grid_cells = GRID_WIDTH * GRID_HEIGHT;
+        let grid_wg = (grid_cells + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+        let npc_wg = (npc_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
 
-        // Scope compute pass so it drops before we use the encoder for copy
+        // Pass 0: Clear spatial grid
         {
             let mut pass = render_context
                 .command_encoder()
                 .begin_compute_pass(&ComputePassDescriptor::default());
-
-            pass.set_bind_group(0, &bind_groups.bind_group, &[]);
+            pass.set_bind_group(0, &bind_groups.mode0, &[]);
             pass.set_pipeline(compute_pipeline);
-            pass.dispatch_workgroups(
-                (npc_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
-                1,
-                1,
-            );
+            pass.dispatch_workgroups(grid_wg, 1, 1);
         }
 
-        // Copy positions → staging buffer for CPU readback
+        // Pass 1: Build spatial grid (insert NPCs into cells)
+        {
+            let mut pass = render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor::default());
+            pass.set_bind_group(0, &bind_groups.mode1, &[]);
+            pass.set_pipeline(compute_pipeline);
+            pass.dispatch_workgroups(npc_wg, 1, 1);
+        }
+
+        // Pass 2: Movement + combat targeting
+        {
+            let mut pass = render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor::default());
+            pass.set_bind_group(0, &bind_groups.mode2, &[]);
+            pass.set_pipeline(compute_pipeline);
+            pass.dispatch_workgroups(npc_wg, 1, 1);
+        }
+
+        // Copy positions + combat_targets → staging buffers for CPU readback
         let buffers = world.resource::<NpcGpuBuffers>();
-        let copy_size = (npc_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
+        let pos_copy_size = (npc_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
+        let ct_copy_size = (npc_count as u64) * std::mem::size_of::<i32>() as u64;
+
         render_context.command_encoder().copy_buffer_to_buffer(
-            &buffers.positions,
-            0,
-            &buffers.position_staging,
-            0,
-            copy_size,
+            &buffers.positions, 0, &buffers.position_staging, 0, pos_copy_size,
+        );
+        render_context.command_encoder().copy_buffer_to_buffer(
+            &buffers.combat_targets, 0, &buffers.combat_target_staging, 0, ct_copy_size,
         );
 
         Ok(())
@@ -1011,6 +1155,12 @@ fn init_proj_compute_pipeline(
             label: Some("proj_hits"),
             size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        }),
+        hit_staging: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_hit_staging"),
+            size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
     };
@@ -1200,16 +1350,26 @@ impl render_graph::Node for ProjectileComputeNode {
             return Ok(());
         };
 
-        let mut pass = render_context
-            .command_encoder()
-            .begin_compute_pass(&ComputePassDescriptor::default());
+        // Scope compute pass so it drops before we use the encoder for copy
+        {
+            let mut pass = render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor::default());
 
-        pass.set_bind_group(0, &bind_groups.bind_group, &[]);
-        pass.set_pipeline(compute_pipeline);
-        pass.dispatch_workgroups(
-            (proj_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
-            1,
-            1,
+            pass.set_bind_group(0, &bind_groups.bind_group, &[]);
+            pass.set_pipeline(compute_pipeline);
+            pass.dispatch_workgroups(
+                (proj_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
+                1,
+                1,
+            );
+        }
+
+        // Copy hits → staging buffer for CPU readback
+        let proj_buffers = world.resource::<ProjGpuBuffers>();
+        let hit_copy_size = (proj_count as u64) * std::mem::size_of::<[i32; 2]>() as u64;
+        render_context.command_encoder().copy_buffer_to_buffer(
+            &proj_buffers.hits, 0, &proj_buffers.hit_staging, 0, hit_copy_size,
         );
 
         Ok(())

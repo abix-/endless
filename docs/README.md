@@ -8,7 +8,7 @@ These docs are the **source of truth** for system architecture. When building ne
 2. **During coding**: Follow the patterns documented here (job-as-template spawn, chained combat, GPU buffer layout). If you need to deviate, update the doc first.
 3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation.
 4. **Code comments** stay educational (explain what code does for someone learning Rust/WGSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
-5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has feature checkboxes. Don't mix them.
+5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has phases (priority order) and capabilities (feature inventory) — read its maintenance guide before editing.
 
 ## Test-Driven Development
 
@@ -44,12 +44,12 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Bevy render graph integration
     │   └─ WGSL shader (shaders/npc_compute.wgsl)
     │
-    ├─ NPC Instanced Rendering (npc_render.rs)
+    ├─ NPC Instanced Rendering (npc_render.rs) ─▶ [rendering.md]
     │   ├─ RenderCommand + Transparent2d phase
     │   ├─ Two vertex buffers (quad + per-instance)
     │   └─ WGSL shader (shaders/npc_render.wgsl)
     │
-    ├─ Sprite Rendering (render.rs)
+    ├─ Sprite Rendering (render.rs) ───────────▶ [rendering.md]
     │   ├─ 2D camera, texture atlases
     │   └─ Character + world sprite sheets
     │
@@ -57,7 +57,7 @@ Bevy ECS (lib.rs build_app)
         ├─ Spawn systems ──────────────────▶ [spawn.md]
         ├─ Combat pipeline ────────────────▶ [combat.md]
         ├─ Behavior systems ───────────────▶ [behavior.md]
-        └─ Economy systems ────────────────▶ [behavior.md]
+        └─ Economy systems ────────────────▶ [economy.md]
 
 Frame execution order ─────────────────────▶ [frame-loop.md]
 ```
@@ -67,17 +67,19 @@ Frame execution order ───────────────────�
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders, GPU→ECS readback (wgpu/WGSL via Bevy render graph) | 6/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, combat targeting, GPU→ECS readback | 8/10 |
+| [rendering.md](rendering.md) | GPU instanced NPC rendering, sprite atlas, RenderCommand pipeline | 6/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 4/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
-| [behavior.md](behavior.md) | State machine, energy, patrol, rest/work/eat, steal/flee/recover, farm growth | 7/10 |
+| [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, raider respawning | 7/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, slot allocation | 4/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 
-**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. GPU compute is 6/10 — movement works with full readback pipeline (GPU→staging→CPU→ECS→render), but separation physics, grid, and combat targeting not yet ported. Combat is 4/10 — pipeline structure exists but is non-functional (no damage dealt). Projectiles are 4/10 — GPU dispatch works but no hit readback or rendering. Spawn, behavior, messages, and resources are solid at 7-8/10.
+**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. Rendering is 6/10 — custom instanced pipeline works but camera is hardcoded. GPU compute is 8/10 — 3-mode spatial grid, combat targeting, full readback; separation physics remaining. Combat is 4/10 — pipeline exists but attack_system wired to GPU targeting. Projectiles are 4/10 — compute + hit readback working but no rendering. Behavior is 8/10 — central brain with utility AI. Spawn, economy, messages, and resources are solid at 7/10.
 
 ## File Map
 
@@ -106,8 +108,9 @@ rust/
     sync.rs             # GPU state sync
 
 shaders/
-  npc_compute.wgsl      # WGSL compute shader (NPC movement physics)
+  npc_compute.wgsl      # WGSL compute shader (movement + spatial grid + combat targeting)
   npc_render.wgsl       # WGSL render shader (instanced quad + sprite atlas)
+  projectile_compute.wgsl # WGSL compute shader (projectile movement + collision)
 
 assets/
   roguelikeChar_transparent.png   # Character sprites (54x12 grid, 16px + 1px margin)
@@ -118,9 +121,8 @@ assets/
 
 Collected from all docs. Priority order:
 
-1. **No GPU→CPU readback** — GPU compute updates positions but results aren't read back to ECS. Combat targeting and arrival detection use stale CPU-side data. ([gpu-compute.md](gpu-compute.md), [frame-loop.md](frame-loop.md))
-2. **Compute shader incomplete** — `npc_compute.wgsl` has basic goal movement only. Separation physics, grid neighbor search, and combat targeting not yet ported. ([gpu-compute.md](gpu-compute.md))
-3. **Hardcoded camera in render shader** — `npc_render.wgsl` uses constant camera position and viewport instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering. ([gpu-compute.md](gpu-compute.md))
-4. **No generational indices** — GPU slot indices are raw `usize`. Safe with chained execution, risk grows with async patterns. ([combat.md](combat.md))
-5. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
-6. **npc_count never shrinks** — high-water mark. Grid and buffers sized to peak, not active count. ([spawn.md](spawn.md))
+1. **No separation physics** — NPCs converge to same position when chasing same target. Spatial grid is ready for separation forces. ([gpu-compute.md](gpu-compute.md))
+2. **Hardcoded camera in render shader** — `npc_render.wgsl` uses constant camera position and viewport instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering. ([rendering.md](rendering.md))
+3. **No generational indices** — GPU slot indices are raw `usize`. Safe with chained execution, risk grows with async patterns. ([combat.md](combat.md))
+4. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
+5. **npc_count never shrinks** — high-water mark. Grid and buffers sized to peak, not active count. ([spawn.md](spawn.md))

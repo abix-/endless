@@ -2,7 +2,7 @@
 
 ## Overview
 
-Behavior systems manage NPC lifecycle outside of combat: energy drain/recovery, rest transitions, patrol cycling for guards, work transitions for farmers, and stealing/fleeing for raiders. All run in `Step::Behavior` after combat is resolved.
+NPC decision-making and state transitions. All run in `Step::Behavior` after combat is resolved. For economy systems (farm growth, starvation, camp foraging, raider respawning, game time), see [economy.md](economy.md).
 
 **Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. The system uses **SystemParam bundles** to organize related parameters and stay within Bevy's 16-parameter limit:
 
@@ -219,138 +219,9 @@ Same situation, different outcomes. That's emergent behavior.
 - Sends `GpuUpdate::SetHealing` for shader halo effect
 - Debug: `get_health_debug()` returns healing_in_zone_count and healing_healed_count
 
-### game_time_system
-- Advances `GameTime.total_seconds` based on delta and time_scale
-- Sets `hour_ticked = true` when the hour changes (single source of truth for hourly events)
-- Other systems check `game_time.hour_ticked` instead of tracking their own timers
+*Economy systems (game_time, farm_growth, camp_forage, raider_respawn, starvation) documented in [economy.md](economy.md).*
 
-### camp_forage_system
-- Runs when `game_time.hour_ticked` is true
-- Each raider camp (faction > 0) gains `CAMP_FORAGE_RATE` (1) food per hour
-- Passive income ensures raiders can survive even if they never steal
-
-### raider_respawn_system
-- Runs when `game_time.hour_ticked` is true
-- Camps with food >= `RAIDER_SPAWN_COST` (5) and population < `CAMP_MAX_POP` (10) spawn a new raider
-- Spawns at camp center via `SpawnNpcMsg`
-
-### starvation_system
-- Runs when `game_time.hour_ticked` is true
-- NPCs with `LastAteHour` older than `STARVATION_HOURS` (24) get `Starving` marker
-- Starving NPCs: speed set to 75% via GPU update
-- When NPCs eat (decision_system Eat action): `LastAteHour` updated, `Starving` removed, speed restored
-
-### farm_growth_system
-- Runs every frame, advances farm growth based on elapsed game time
-- **FarmStates resource**: tracks `Growing` vs `Ready` state and progress (0.0-1.0) per farm
-- **Hybrid growth model**:
-  - Passive: `FARM_BASE_GROWTH_RATE` (0.08/hour) — ~12 game hours to full growth
-  - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
-- Farm transitions to `Ready` when progress >= 1.0
-- Ready farms show yellow food icon (same color as carried food)
-
-## Farm Growth
-
-Farms have a growth cycle instead of infinite food:
-
-```
-     farm_growth_system advances progress
-              │
-              ▼
-┌──────────┐      progress >= 1.0      ┌─────────┐
-│ Growing  │ ────────────────────────▶ │  Ready  │ (shows food icon)
-│progress++│                           │progress=1│
-└──────────┘                           └────┬────┘
-      ▲                                     │
-      │            farmer/raider arrival    │
-      └─────────────────────────────────────┘
-              reset to Growing, progress=0
-
-```
-
-**Farmer harvest** (arrival_system, GoingToWork → Working):
-- Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS (20px) of **WorkPosition** (not current position)
-- If farm is Ready: add food to town storage, reset farm to Growing
-- Logs "Harvested → Working" vs "→ Working (tending)"
-
-**Raider steal** (arrival_system, Raiding):
-- Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS
-- Only steals if farm is Ready — reset farm to Growing, set CarryingFood + Returning
-- If farm not ready: re-target another farm via `find_nearest_location()`
-- Logs "Stole food → Returning" vs "Farm not ready, seeking another"
-
-**Visual feedback**: Not yet implemented. `FarmStates` tracks growth progress (0.0-1.0) and Ready/Growing state per farm, but no rendering pipeline reads this data yet.
-
-## Starvation System
-
-NPCs must eat periodically or suffer starvation debuffs:
-
-```
-LastAteHour tracks when NPC last ate
-        │
-        ▼  starvation_system (hourly)
-hours_since_ate >= 24?
-        │
-    YES ▼
-┌────────────┐
-│  Starving  │  - HP capped at 50%
-│   marker   │  - Speed reduced to 75%
-└────┬───────┘
-     │ NPC eats (decision_system)
-     ▼
-LastAteHour = current_hour
-Starving marker removed
-Speed restored to 100%
-```
-
-**Constants:**
-- `STARVATION_HOURS`: 24 (1 game day without eating)
-- `STARVING_HP_CAP`: 0.5 (50% of MaxHealth)
-- `STARVING_SPEED_MULT`: 0.75 (75% of normal speed)
-
-Starvation applies to **both villagers and raiders**. If raiders can't steal food and their camp runs out, they'll starve and become easier to kill.
-
-## Group Raid System
-
-Raiders coordinate into groups before raiding (like Factorio biters):
-
-```
-decision_system: Raider picks Work
-        │
-        ▼
-Add (entity, idx) to RaidQueue.waiting[faction]
-(only if not already in queue)
-        │
-        ▼
-queue.len() >= 5?
-        │
-   NO ──┼──▶ Wander near camp (stays in queue)
-        │
-   YES ──▶ Dispatch ALL waiting raiders:
-           - Remove Wandering marker
-           - Insert Raiding marker
-           - Set target to nearest farm
-           - Clear queue
-```
-
-**RaidQueue resource:**
-```rust
-pub struct RaidQueue {
-    pub waiting: HashMap<i32, Vec<(Entity, usize)>>,
-}
-```
-
-**Key behaviors:**
-- Raiders join queue when picking Work action
-- Queue checked inline (no separate system)
-- All 5+ raiders dispatched to same farm target
-- Dead raiders removed from queue in death_cleanup_system
-- Transit skip includes Raiding and Returning (no mid-journey decisions)
-
-**Constants:**
-- `RAID_GROUP_SIZE`: 5 (minimum raiders to form a group)
-
-Solo raiders **wait at camp** instead of raiding alone. They wander near home until a group forms.
+*Farm growth, starvation, and group raid systems documented in [economy.md](economy.md).*
 
 ## Energy Model
 
@@ -383,13 +254,11 @@ Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes ar
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Linear arrival scan**: arrival_system iterates all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
-- **~~Single camp index hardcoded~~**: Fixed. Raiders now deliver to their own faction's town using TownId component.
 - **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
-- **Starvation speed bug**: `starvation_system` uses `BASE_SPEED=60.0` but spawn sets speed to 100.0. When starvation clears, NPCs get 60 speed instead of their original 100.
 
 ## Rating: 8/10
 
-Central brain architecture: `decision_system` handles all NPC decisions with clear priority cascade. SystemParam bundles organize parameters into logical groups, allowing the system to scale as more features are added. Utility AI for idle decisions creates lifelike behavior. Farm growth system adds meaningful gameplay loop.
+Central brain architecture: `decision_system` handles all NPC decisions with clear priority cascade. SystemParam bundles organize parameters into logical groups, allowing the system to scale as more features are added. Utility AI for idle decisions creates lifelike behavior.
 
-Gaps: no pathfinding, healing halo visual broken, starvation speed bug, no farm/carried item rendering.
+Gaps: no pathfinding, healing halo visual broken, deterministic pseudo-random.

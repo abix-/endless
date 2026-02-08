@@ -1,6 +1,21 @@
 # Changelog
 
 ## 2026-02-08
+- **wire combat projectiles end-to-end**
+  - npc_compute.wgsl: 3-mode spatial grid (mode 0 clear, mode 1 build with atomicAdd, mode 2 movement + combat targeting)
+  - multi-dispatch NpcComputeNode: 3 bind groups with different mode uniform, 3 dispatches per frame
+  - combat targeting via grid neighbor search: finds nearest enemy within combat_range (300px), ~6 cell search radius
+  - combat_target_staging buffer: dual readback (positions + combat_targets) in single device.poll()
+  - attack_system: reads GPU combat_targets, fires projectiles via PROJ_GPU_UPDATE_QUEUE or applies point-blank damage
+  - projectile hit readback: hit_staging buffer, readback_proj_hits system, PROJ_HIT_STATE static
+  - process_proj_hits: converts hits to DamageMsg, recycles projectile slots
+  - arrival flag reset: SetTarget resets arrivals[idx]=0 so GPU resumes movement toward chase targets
+  - ProjBufferWrites default dirty=true for first-frame -1 hit initialization
+  - Deactivate also resets hits buffer to -1 to prevent re-triggers
+  - test_spawn_combat: 5v5 faction fighters for combat pipeline verification
+  - debug_tick_system: F2 combat logging shows targets/attacks/chases/deaths per second
+  - verified: NPCs find targets (9/10), chase out-of-range enemies, point-blank damage reduces NPC count
+
 - **gpu→ecs position readback + debug flags**
   - add staging buffer (MAP_READ | COPY_DST) to NpcGpuBuffers for position readback
   - copy positions to staging after compute dispatch in NpcComputeNode
