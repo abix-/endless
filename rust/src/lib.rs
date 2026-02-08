@@ -29,6 +29,7 @@ use resources::{
     NpcMetaCache, NpcEnergyCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, GpuDispatchCount, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
+    DebugFlags,
 };
 // Systems are re-exported via glob from systems/mod.rs
 use systems::*;
@@ -132,15 +133,50 @@ fn test_spawn_npcs(
     info!("Test: Spawned 5 NPCs for GPU data flow test");
 }
 
-/// Debug: log NPC count every second
+/// Toggle debug flags with F1-F4 keys.
+fn debug_toggle_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut flags: ResMut<DebugFlags>,
+) {
+    if keys.just_pressed(KeyCode::F1) {
+        flags.readback = !flags.readback;
+        info!("Debug readback: {}", if flags.readback { "ON" } else { "OFF" });
+    }
+    if keys.just_pressed(KeyCode::F2) {
+        flags.combat = !flags.combat;
+        info!("Debug combat: {}", if flags.combat { "ON" } else { "OFF" });
+    }
+    if keys.just_pressed(KeyCode::F3) {
+        flags.spawns = !flags.spawns;
+        info!("Debug spawns: {}", if flags.spawns { "ON" } else { "OFF" });
+    }
+    if keys.just_pressed(KeyCode::F4) {
+        flags.behavior = !flags.behavior;
+        info!("Debug behavior: {}", if flags.behavior { "ON" } else { "OFF" });
+    }
+}
+
+/// Debug: log NPC count every second, plus optional detailed logs.
 fn debug_tick_system(
     time: Res<Time>,
     npc_count: Res<NpcCount>,
+    gpu_state: Res<GpuReadState>,
+    flags: Res<DebugFlags>,
     mut last_log: Local<f32>,
 ) {
     *last_log += time.delta_secs();
     if *last_log >= 1.0 {
         info!("Tick: {} NPCs active", npc_count.0);
+
+        if flags.readback {
+            let n = gpu_state.npc_count.min(5);
+            for i in 0..n {
+                let x = gpu_state.positions.get(i * 2).copied().unwrap_or(0.0);
+                let y = gpu_state.positions.get(i * 2 + 1).copied().unwrap_or(0.0);
+                info!("  NPC[{}] pos=({:.1},{:.1})", i, x, y);
+            }
+        }
+
         *last_log = 0.0;
     }
 }
@@ -183,6 +219,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<NpcsByTownCache>()
        .init_resource::<NpcLogCache>()
        .init_resource::<FoodEvents>()
+       .init_resource::<DebugFlags>()
        .init_resource::<ResetFlag>()
        .init_resource::<GpuReadState>()
        .init_resource::<GpuDispatchCount>()
@@ -208,7 +245,10 @@ pub fn build_app(app: &mut App) {
            reset_bevy_system,
            drain_arrival_queue,
            drain_game_config,
+           sync_gpu_state_to_bevy,
        ).in_set(Step::Drain))
+       // GPU→ECS position readback (after drain populates GpuReadState, before spawn reads positions)
+       .add_systems(Update, gpu_position_readback.after(Step::Drain).before(Step::Spawn))
        // Spawn
        .add_systems(Update, (
            spawn_npc_system,
@@ -237,6 +277,6 @@ pub fn build_app(app: &mut App) {
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior))
        .add_systems(Update, bevy_timer_end.after(collect_gpu_updates))
-       // Debug (remove when GPU compute working)
-       .add_systems(Update, debug_tick_system);
+       // Debug (F1=readback, F2=combat, F3=spawns, F4=behavior)
+       .add_systems(Update, (debug_toggle_system, debug_tick_system));
 }

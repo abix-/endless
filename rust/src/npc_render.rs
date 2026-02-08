@@ -268,11 +268,25 @@ fn prepare_npc_buffers(
     // Use actual NPC count, not buffer length (buffer is pre-allocated for MAX_NPCS)
     let instance_count = gpu_data.map(|d| d.npc_count).unwrap_or(0);
 
+    // Use GPU readback positions if available (compute shader moves NPCs),
+    // fall back to NpcBufferWrites for first frame before readback starts
+    let readback_positions = crate::messages::GPU_READ_STATE
+        .lock()
+        .ok()
+        .filter(|s| s.positions.len() >= (instance_count as usize) * 2)
+        .map(|s| s.positions.clone());
+
     // Build instance data from buffer writes
     let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
     for i in 0..instance_count as usize {
-        let px = writes.positions.get(i * 2).copied().unwrap_or(0.0);
-        let py = writes.positions.get(i * 2 + 1).copied().unwrap_or(0.0);
+        let (px, py) = if let Some(ref pos) = readback_positions {
+            (pos[i * 2], pos[i * 2 + 1])
+        } else {
+            (
+                writes.positions.get(i * 2).copied().unwrap_or(0.0),
+                writes.positions.get(i * 2 + 1).copied().unwrap_or(0.0),
+            )
+        };
 
         // Skip hidden NPCs
         if px < -9000.0 {

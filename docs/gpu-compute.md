@@ -15,39 +15,49 @@ Main World (ECS)                       Render World (GPU)
 ├─ NpcSpriteTexture ─────────────────▶
 │                                      │
 │                                      ├─ init_npc_compute_pipeline (RenderStartup)
-│                                      │   └─ Create GPU buffers, queue compute pipeline
+│                                      │   └─ Create GPU buffers + staging buffer
 │                                      │
 │                                      ├─ write_npc_buffers (PrepareResources)
-│                                      │   └─ Upload positions/targets/speeds/factions/healths
+│                                      │   └─ Upload only dirty fields (per-field flags)
 │                                      │
 │                                      ├─ prepare_npc_bind_groups (PrepareBindGroups)
 │                                      │   └─ Bind buffers + uniform params for compute
 │                                      │
-│                                      └─ NpcComputeNode (render graph)
-│                                          └─ Dispatch compute shader
+│                                      ├─ NpcComputeNode (render graph)
+│                                      │   ├─ Dispatch compute shader
+│                                      │   └─ copy_buffer_to_buffer(positions → staging)
+│                                      │
+│                                      └─ readback_npc_positions (Cleanup)
+│                                          └─ map staging → GPU_READ_STATE
+│
+├─ sync_gpu_state_to_bevy (Step::Drain)
+│     GPU_READ_STATE → GpuReadState resource
+│
+└─ gpu_position_readback (after Drain)
+      GpuReadState → ECS Position components
 ```
 
 ## Data Flow
 
 ```
-Bevy systems emit GpuUpdateMsg (SetPosition, SetTarget, etc.)
-    │
-    ▼
-collect_gpu_updates → GPU_UPDATE_QUEUE
-    │
-    ▼
-populate_buffer_writes → NpcBufferWrites (flat f32/i32 arrays)
-    │
-    ▼ ExtractResource clone
-    │
-    ├──▶ write_npc_buffers → GPU storage buffers (compute shader input)
-    │         uploads: positions, targets, speeds, factions, healths
-    │
-    └──▶ prepare_npc_buffers (npc_render.rs) → instance vertex buffer (render input)
-              reads: positions, sprite_indices, colors from NpcBufferWrites directly
+ECS → GPU (upload):
+  GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
+    → populate_buffer_writes → NpcBufferWrites (per-field dirty flags)
+    → ExtractResource clone
+    → write_npc_buffers (only uploads dirty fields)
+
+GPU → ECS (readback):
+  NpcComputeNode: dispatch compute + copy positions → staging buffer
+    → readback_npc_positions: map staging, write to GPU_READ_STATE
+    → sync_gpu_state_to_bevy: GPU_READ_STATE → GpuReadState resource
+    → gpu_position_readback: GpuReadState → ECS Position components
+
+GPU → Render:
+  prepare_npc_buffers: reads GPU_READ_STATE for positions (falls back to
+    NpcBufferWrites on first frame), reads sprite_indices/colors from NpcBufferWrites
 ```
 
-Note: `sprite_indices` and `colors` are in NpcBufferWrites but are not uploaded to GPU storage buffers. They're only consumed by the render pipeline's instance buffer, not the compute shader.
+Note: `sprite_indices` and `colors` are in NpcBufferWrites but are not uploaded to GPU storage buffers. They're only consumed by the render pipeline's instance buffer, not the compute shader. Positions for rendering come from GPU readback, not NpcBufferWrites.
 
 ## NPC Compute Shader (npc_compute.wgsl)
 
@@ -69,7 +79,7 @@ per NPC thread:
 
 ### Compute Buffers (gpu.rs NpcGpuBuffers)
 
-Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`.
+Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`. A staging buffer (`position_staging`) is created with `MAP_READ | COPY_DST` for GPU→CPU readback.
 
 | Binding | Name | Type | Per-NPC Size | Uploaded From | Purpose |
 |---------|------|------|-------------|---------------|---------|
@@ -87,11 +97,11 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 
 ### Render Instance Data (npc_render.rs)
 
-Built per frame in `prepare_npc_buffers` from NpcBufferWrites (not from GPU storage buffers).
+Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; sprites/colors from NpcBufferWrites.
 
 | Field | Type | Size | Source |
 |-------|------|------|--------|
-| position | [f32; 2] | 8B | NpcBufferWrites.positions |
+| position | [f32; 2] | 8B | GPU_READ_STATE (readback), fallback NpcBufferWrites |
 | sprite | [f32; 2] | 8B | NpcBufferWrites.sprite_indices |
 | color | [f32; 4] | 16B | NpcBufferWrites.colors |
 | **Total** | | **32B/NPC** | |
@@ -142,13 +152,12 @@ const MAX_PER_CELL: u32 = 48;
 ## Known Issues
 
 - **Compute shader simplified**: Only basic goal movement. Separation physics, grid-based neighbor search, and combat targeting are not ported from the old GLSL shader.
-- **No GPU→CPU readback**: Compute updates `positions` and `arrivals` on GPU, but results aren't read back to ECS. `GpuReadState` resource exists but isn't populated.
 - **Single dispatch**: Should be 3 dispatches per frame (clear grid → insert NPCs → main logic) with uniform buffer mode updates between them. Currently dispatches once.
-- **Render reads CPU data, not GPU output**: `npc_render.rs` builds instance data from `NpcBufferWrites` (CPU-side), not from the GPU positions buffer. GPU compute updates positions but rendering doesn't see those updates — it shows the position from before compute ran.
 - **Hardcoded camera**: `npc_render.wgsl` has constant `CAMERA_POS` and `VIEWPORT`. Camera movement/zoom won't affect NPC rendering.
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
 - **sprite_indices/colors not uploaded to compute**: These fields exist in NpcBufferWrites for the render pipeline only. The compute shader has no access to them.
+- **Synchronous readback blocks render thread**: `device.poll(Wait)` blocks until staging buffer mapping completes. For 128KB this is sub-millisecond, but could be upgraded to async double-buffered readback if needed.
 
-## Rating: 5/10
+## Rating: 6/10
 
-Pipeline compiles and dispatches each frame. Basic NPC movement works on GPU. Buffers are allocated for the full system (grid, separation, combat) but most are unused. The critical missing pieces are: multi-mode dispatch for spatial grid, separation physics, combat targeting, GPU→CPU readback, and render pipeline reading GPU output instead of CPU copies.
+Pipeline compiles and dispatches each frame. NPC movement works on GPU with full readback to ECS — positions flow GPU→staging→CPU→ECS and rendering shows GPU-computed positions. Per-field dirty flags prevent stale data from overwriting GPU output. Remaining: multi-mode dispatch for spatial grid, separation physics, combat targeting.

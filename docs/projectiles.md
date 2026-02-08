@@ -2,114 +2,140 @@
 
 ## Overview
 
-GPU-accelerated projectiles with compute shader movement and spatial grid collision detection. Supports up to 50,000 simultaneous projectiles with slot reuse via a free list. MultiMesh rendering is dynamically sized to active count — zero cost when idle.
+GPU-accelerated projectiles with WGSL compute shader for movement and spatial grid collision detection. Supports up to 50,000 simultaneous projectiles with slot reuse via `ProjSlotAllocator`. Runs as a render graph node after NPC compute, sharing the NPC spatial grid for collision queries.
 
 ## Data Flow
 
 ```
-attack_system → PROJECTILE_FIRE_QUEUE → process() drains queue:
-├─ Allocate slot (FREE_PROJ_SLOTS or proj_count++)
-├─ Calculate velocity from speed + direction
-├─ upload_projectile(idx, pos, vel, damage, faction, shooter, lifetime)
-└─ Supports melee (speed=500, lifetime=0.5s) and ranged (speed=200, lifetime=3.0s)
-
-process() each frame (if proj_count > 0):
-├─ Dispatch projectile_compute.glsl
-│   ├─ Decrement lifetime → deactivate expired
-│   ├─ Move by velocity
-│   └─ Collision via spatial grid → write hit buffer
-├─ Read hit buffer
-│   ├─ Push DamageMsg to DAMAGE_QUEUE (Bevy processes next frame)
-│   └─ Push proj_idx to FREE_PROJ_SLOTS
-├─ Read positions + active flags
-├─ Resize MultiMesh to proj_count (if changed)
-└─ Build + upload MultiMesh buffer
+attack_system fires projectile
+    → ProjGpuUpdate::Spawn pushed to PROJ_GPU_UPDATE_QUEUE
+    → populate_proj_buffer_writes drains to ProjBufferWrites
+    → ExtractResource clones to render world
+    → write_proj_buffers uploads to GPU
+    → ProjectileComputeNode dispatches projectile_compute.wgsl
+        ├─ Decrement lifetime → deactivate expired
+        ├─ Move by velocity × delta
+        └─ Collision via NPC spatial grid → write hit buffer
 ```
+
+## Render Graph Order
+
+```
+NpcComputeNode → ProjectileComputeNode → CameraDriverLabel → Transparent2d
+```
+
+Projectile compute runs after NPC compute because it reads the NPC spatial grid (built by NPC compute modes 0+1, not yet ported) and NPC positions/factions/healths.
 
 ## Fire Path
 
-All projectiles originate from Bevy's `attack_system` via `PROJECTILE_FIRE_QUEUE`. No GDScript fire API.
+Projectiles originate from Bevy's `attack_system`. The flow:
 
-`process()` drains `PROJECTILE_FIRE_QUEUE` each frame:
+1. `attack_system` pushes `ProjGpuUpdate::Spawn` to `PROJ_GPU_UPDATE_QUEUE`
+2. `populate_proj_buffer_writes` (PostUpdate) drains queue into `ProjBufferWrites` flat arrays
+3. `ExtractResource` clones to render world
+4. `write_proj_buffers` uploads all buffers to GPU
+5. `ProjectileComputeNode` dispatches shader
 
-1. Try `FREE_PROJ_SLOTS.pop()` for a recycled slot
-2. If none, use `gpu.proj_count` and increment
-3. If at `MAX_PROJECTILES` (50,000), skip
-4. Calculate velocity: `normalize(to - from) * msg.speed`
-5. `upload_projectile()` writes GPU buffers with per-projectile `lifetime`
-6. Melee: speed=500, lifetime=0.5s. Ranged: speed=200, lifetime=3.0s
+Spawn data includes: position, velocity, damage, faction, shooter index, lifetime.
+
+- **Melee**: speed=500, lifetime=0.5s (from `AttackStats::melee()`)
+- **Ranged**: speed=200, lifetime=3.0s (from `AttackStats::ranged()`)
 
 ## GPU Dispatch
 
-`projectile_compute.glsl` — 64 threads per workgroup, `ceil(proj_count / 64)` dispatches.
+`projectile_compute.wgsl` — 64 threads per workgroup, `ceil(proj_count / 64)` dispatches.
 
 For each active projectile:
-1. **Lifetime**: `lifetime -= delta`. If <= 0, set active = 0, position = (-9999, -9999), return.
+1. **Lifetime**: `lifetime -= delta`. If <= 0, deactivate and hide at (-9999, -9999).
 2. **Movement**: `pos += velocity * delta`
-3. **Collision**: Compute grid cell, scan 3x3 neighborhood:
-   - Skip if already hit (`hit.x >= 0`)
+3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood:
    - Skip same faction (no friendly fire)
    - Skip dead NPCs (`health <= 0`)
-   - If distance < 10px: write `hit = ivec2(npc_idx, 0)`, deactivate, hide at (-9999, -9999)
+   - If distance² < hit_radius²: write `hit = ivec2(npc_idx, 0)`, deactivate, hide.
 
 ## Hit Processing
 
-After dispatch, CPU reads `proj_hit_buffer` back:
+Not yet implemented in Bevy. The shader writes hits to `proj_hits` buffer, but no GPU→CPU readback reads them back. When implemented:
 
-```rust
+```
 for each projectile with hit.x >= 0 and hit.y == 0 (unprocessed):
-    push DamageMsg { npc_index: hit.x, amount: damage }  → DAMAGE_QUEUE
-    push proj_idx → FREE_PROJ_SLOTS
+    push DamageMsg { npc_index: hit.x, amount: damage }
+    recycle slot via ProjSlotAllocator
     mark hit.y = 1 (processed)
 ```
 
-Damage is processed by Bevy's `damage_system` in the **next frame's** Combat phase.
+## GPU Buffers
 
-## Rendering
+### Projectile Buffers (ProjGpuBuffers)
 
-- MultiMesh starts at **0 instances** (allocated empty at init)
-- Each frame, if `proj_count != current_instance_count`, reallocate via `multimesh_allocate_data_ex()`
-- `build_proj_multimesh(proj_count)` builds a `PackedFloat32Array`:
-  - 12 floats per instance (PROJ_FLOATS_PER_INSTANCE)
-  - Transform2D with velocity-based rotation: `angle = atan2(vy, vx)`
-  - Inactive projectiles get position (-9999, -9999)
-  - Active projectiles get rotated transform at current position
-  - Color channel encodes faction (blue=guard, red=raider) via `proj_factions` cache
-- Uploaded via `multimesh_set_buffer()`
+| Binding | Name | Type | Per-Proj Size | R/W | Purpose |
+|---------|------|------|--------------|-----|---------|
+| 0 | proj_positions | vec2\<f32\> | 8B | RW | Current XY |
+| 1 | proj_velocities | vec2\<f32\> | 8B | RW | Direction × speed |
+| 2 | proj_damages | f32 | 4B | RW | Damage on hit |
+| 3 | proj_factions | i32 | 4B | RW | Shooter's faction |
+| 4 | proj_shooters | i32 | 4B | RW | Shooter NPC index |
+| 5 | proj_lifetimes | f32 | 4B | RW | Seconds remaining |
+| 6 | proj_active | i32 | 4B | RW | 1=active, 0=inactive |
+| 7 | proj_hits | vec2\<i32\> | 8B | RW | (npc_idx, processed). Init -1. |
+
+### Shared NPC Buffers (read-only)
+
+| Binding | Name | Source |
+|---------|------|--------|
+| 8 | npc_positions | NpcGpuBuffers.positions |
+| 9 | npc_factions | NpcGpuBuffers.factions |
+| 10 | npc_healths | NpcGpuBuffers.healths |
+| 11 | grid_counts | NpcGpuBuffers.grid_counts |
+| 12 | grid_data | NpcGpuBuffers.grid_data |
+
+### Uniform Params
+
+| Binding | Field | Default | Purpose |
+|---------|-------|---------|---------|
+| 13 | proj_count | 0 | Active projectile count (from ProjSlotAllocator.next) |
+| | npc_count | 0 | NPC count for bounds checking |
+| | delta | 0.016 | Frame delta time |
+| | hit_radius | 10.0 | Collision detection radius (px) |
+| | grid_width | 128 | Spatial grid columns |
+| | grid_height | 128 | Spatial grid rows |
+| | cell_size | 64.0 | Pixels per grid cell |
+| | max_per_cell | 48 | Max NPCs per grid cell |
 
 ## Slot Lifecycle
 
 ```
-PROJECTILE_FIRE_QUEUE ── allocate slot ──▶ ACTIVE on GPU
-                         ▲                   │
-                         │            hit or expire
-                         │                   │
-                         │                   ▼
-              FREE_PROJ_SLOTS ◀──── return slot
+PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
+                         ▲                            │
+                         │                    hit or expire
+                         │                            │
+                         │                            ▼
+              ProjSlotAllocator ◀──── return slot (not yet implemented)
 ```
 
-Slots are `usize` indices. `proj_count` only grows (represents high-water mark). Free slots are reused first. No generational indices — the GPU hit buffer uses `(npc_idx, processed_flag)` and hits are processed same-frame.
+`ProjSlotAllocator` (Bevy Resource) manages slot indices with an internal free list, same pattern as NPC `SlotAllocator`. `proj_count` is the high-water mark from `ProjSlotAllocator.next`.
 
 ## Constants
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| MAX_PROJECTILES | 50,000 | Pool capacity (~3.2 MB VRAM) |
-| PROJECTILE_HIT_RADIUS | 10.0 | Collision detection radius (px) |
+| MAX_PROJECTILES | 50,000 | Pool capacity |
+| HIT_RADIUS | 10.0 | Collision detection radius (px) |
+| WORKGROUP_SIZE | 64 | GPU threads per workgroup |
 | Melee speed | 500.0 | AttackStats::melee() projectile speed |
 | Ranged speed | 200.0 | AttackStats::ranged() projectile speed |
 | Melee lifetime | 0.5s | AttackStats::melee() projectile lifetime |
 | Ranged lifetime | 3.0s | AttackStats::ranged() projectile lifetime |
-| PROJ_FLOATS_PER_INSTANCE | 12 | Transform2D (8) + color (4) |
 
-## Known Issues / Limitations
+## Known Issues
 
-- **proj_count never shrinks**: High-water mark means the MultiMesh stays at peak size even after all projectiles expire. Would need a compaction pass to reclaim.
-- **Hit damage is one frame delayed**: Hits are read back and pushed to DAMAGE_QUEUE, which Bevy processes next frame. Not noticeable at 140fps but technically imprecise.
+- **No GPU→CPU hit readback**: Shader writes hits but CPU never reads them back. Projectile damage doesn't reach Bevy's combat pipeline.
+- **No projectile rendering**: No instanced draw pipeline for projectiles (unlike NPCs which have `npc_render.rs`). Projectiles compute but are invisible.
+- **Grid not yet built on GPU**: Projectile shader reads NPC spatial grid, but NPC compute doesn't build the grid yet (modes 0/1 not ported). Collision detection is non-functional.
+- **proj_count never shrinks**: High-water mark. Slot recycling exists in `ProjSlotAllocator` but freed slots don't reduce dispatch count.
 - **No projectile-projectile collision**: Projectiles pass through each other.
-- **Fixed hit radius**: 10px hardcoded in shader, not configurable per projectile type.
-- **Faction color is cached CPU-side**: `proj_factions` vec mirrors GPU faction buffer. Could be eliminated if color were computed in shader.
+- **Hit buffer must init to -1**: GPU default of 0 would falsely indicate "hit NPC 0".
 
-## Rating: 7/10
+## Rating: 4/10
 
-GPU-accelerated with proper slot reuse and dynamic MultiMesh sizing. Zero cost when idle. However: proj_count never shrinks (high-water mark wastes MultiMesh capacity), hit damage is one frame delayed, 10px hit radius is hardcoded in shader, no projectile-projectile collision. Works but has accumulating waste and inflexibility.
+Pipeline compiles and dispatches. WGSL shader is fully ported with movement, lifetime, and grid-based collision logic. Buffers are allocated and uploaded. However: no hit readback (damage doesn't work), no rendering (invisible projectiles), and collision depends on the NPC spatial grid which isn't built yet. The plumbing is complete but the system is non-functional end-to-end.

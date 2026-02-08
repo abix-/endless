@@ -67,15 +67,17 @@ Frame execution order ───────────────────�
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders (wgpu/WGSL via Bevy render graph) | 5/10 |
-| [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 7/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders, GPU→ECS readback (wgpu/WGSL via Bevy render graph) | 6/10 |
+| [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 4/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work/eat, steal/flee/recover, farm growth | 7/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
+| [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
+| [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, slot allocation | 4/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 
-**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. GPU compute is 5/10 — pipeline works but only basic movement is ported (no separation, no grid, no combat targeting, no readback). Combat, spawn, behavior, and messages are solid at 7/10.
+**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. GPU compute is 6/10 — movement works with full readback pipeline (GPU→staging→CPU→ECS→render), but separation physics, grid, and combat targeting not yet ported. Combat is 4/10 — pipeline structure exists but is non-functional (no damage dealt). Projectiles are 4/10 — GPU dispatch works but no hit readback or rendering. Spawn, behavior, messages, and resources are solid at 7-8/10.
 
 ## File Map
 

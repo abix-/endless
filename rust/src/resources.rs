@@ -157,6 +157,30 @@ pub struct SelectedNpc(pub i32);
 // DEBUG RESOURCES
 // ============================================================================
 
+/// Toggleable debug log flags. Press F1-F4 in-game to toggle.
+#[derive(Resource)]
+pub struct DebugFlags {
+    /// Log GPU readback positions each tick
+    pub readback: bool,
+    /// Log combat stats each tick
+    pub combat: bool,
+    /// Log spawn/death events
+    pub spawns: bool,
+    /// Log behavior state changes
+    pub behavior: bool,
+}
+
+impl Default for DebugFlags {
+    fn default() -> Self {
+        Self {
+            readback: false,
+            combat: false,
+            spawns: false,
+            behavior: false,
+        }
+    }
+}
+
 /// Health system debug info - updated by damage/death systems, read by GDScript.
 #[derive(Resource, Default)]
 pub struct HealthDebug {

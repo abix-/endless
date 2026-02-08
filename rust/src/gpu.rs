@@ -25,7 +25,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
+use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, GPU_READ_STATE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
 
 // =============================================================================
 // CONSTANTS
@@ -119,6 +119,12 @@ pub struct NpcBufferWrites {
     pub colors: Vec<f32>,
     /// Whether any data changed this frame (skip upload if false)
     pub dirty: bool,
+    /// Per-field dirty flags to avoid overwriting GPU-computed positions
+    pub positions_dirty: bool,
+    pub targets_dirty: bool,
+    pub speeds_dirty: bool,
+    pub factions_dirty: bool,
+    pub healths_dirty: bool,
 }
 
 impl Default for NpcBufferWrites {
@@ -134,6 +140,11 @@ impl Default for NpcBufferWrites {
             sprite_indices: vec![0.0; max * 4], // vec4 per NPC
             colors: vec![1.0; max * 4],          // RGBA, default white
             dirty: false,
+            positions_dirty: false,
+            targets_dirty: false,
+            speeds_dirty: false,
+            factions_dirty: false,
+            healths_dirty: false,
         }
     }
 }
@@ -148,6 +159,7 @@ impl NpcBufferWrites {
                     self.positions[i] = *x;
                     self.positions[i + 1] = *y;
                     self.dirty = true;
+                    self.positions_dirty = true;
                 }
             }
             GpuUpdate::SetTarget { idx, x, y } => {
@@ -156,30 +168,35 @@ impl NpcBufferWrites {
                     self.targets[i] = *x;
                     self.targets[i + 1] = *y;
                     self.dirty = true;
+                    self.targets_dirty = true;
                 }
             }
             GpuUpdate::SetSpeed { idx, speed } => {
                 if *idx < self.speeds.len() {
                     self.speeds[*idx] = *speed;
                     self.dirty = true;
+                    self.speeds_dirty = true;
                 }
             }
             GpuUpdate::SetFaction { idx, faction } => {
                 if *idx < self.factions.len() {
                     self.factions[*idx] = *faction;
                     self.dirty = true;
+                    self.factions_dirty = true;
                 }
             }
             GpuUpdate::SetHealth { idx, health } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = *health;
                     self.dirty = true;
+                    self.healths_dirty = true;
                 }
             }
             GpuUpdate::ApplyDamage { idx, amount } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = (self.healths[*idx] - amount).max(0.0);
                     self.dirty = true;
+                    self.healths_dirty = true;
                 }
             }
             GpuUpdate::HideNpc { idx } => {
@@ -189,6 +206,7 @@ impl NpcBufferWrites {
                     self.positions[i] = -9999.0;
                     self.positions[i + 1] = -9999.0;
                     self.dirty = true;
+                    self.positions_dirty = true;
                 }
             }
             GpuUpdate::SetColor { idx, r, g, b, a } => {
@@ -220,8 +238,13 @@ impl NpcBufferWrites {
 /// Drain GPU_UPDATE_QUEUE and apply updates to NpcBufferWrites.
 /// Runs in main world each frame before extraction.
 pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>) {
-    // Reset dirty flag - will be set if any updates applied
+    // Reset dirty flags - will be set if any updates applied
     buffer_writes.dirty = false;
+    buffer_writes.positions_dirty = false;
+    buffer_writes.targets_dirty = false;
+    buffer_writes.speeds_dirty = false;
+    buffer_writes.factions_dirty = false;
+    buffer_writes.healths_dirty = false;
 
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for update in queue.drain(..) {
@@ -400,6 +423,7 @@ impl Plugin for GpuComputePlugin {
                 (
                     (write_npc_buffers, write_proj_buffers).in_set(RenderSystems::PrepareResources),
                     (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
+                    readback_npc_positions.in_set(RenderSystems::Cleanup),
                 ),
             );
 
@@ -451,6 +475,8 @@ pub struct NpcGpuBuffers {
     pub factions: Buffer,
     pub healths: Buffer,
     pub combat_targets: Buffer,
+    /// Staging buffer for CPU readback of positions (MAP_READ | COPY_DST)
+    pub position_staging: Buffer,
 }
 
 /// Bind groups for compute passes.
@@ -573,6 +599,12 @@ fn init_npc_compute_pipeline(
             label: Some("combat_targets"),
             size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        }),
+        position_staging: render_device.create_buffer(&BufferDescriptor {
+            label: Some("npc_position_staging"),
+            size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 2]>()) as u64,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
     };
@@ -708,41 +740,89 @@ fn write_npc_buffers(
         }
     }
 
-    // Write position buffer (Vec<f32> → &[u8])
-    render_queue.write_buffer(
-        &buffers.positions,
-        0,
-        bytemuck::cast_slice(&writes.positions),
-    );
+    // Only upload fields that actually changed — avoids overwriting GPU-computed positions
+    if writes.positions_dirty {
+        render_queue.write_buffer(
+            &buffers.positions,
+            0,
+            bytemuck::cast_slice(&writes.positions),
+        );
+    }
 
-    // Write target buffer
-    render_queue.write_buffer(
-        &buffers.targets,
-        0,
-        bytemuck::cast_slice(&writes.targets),
-    );
+    if writes.targets_dirty {
+        render_queue.write_buffer(
+            &buffers.targets,
+            0,
+            bytemuck::cast_slice(&writes.targets),
+        );
+    }
 
-    // Write speed buffer
-    render_queue.write_buffer(
-        &buffers.speeds,
-        0,
-        bytemuck::cast_slice(&writes.speeds),
-    );
+    if writes.speeds_dirty {
+        render_queue.write_buffer(
+            &buffers.speeds,
+            0,
+            bytemuck::cast_slice(&writes.speeds),
+        );
+    }
 
-    // Write faction buffer (i32 → &[u8])
-    render_queue.write_buffer(
-        &buffers.factions,
-        0,
-        bytemuck::cast_slice(&writes.factions),
-    );
+    if writes.factions_dirty {
+        render_queue.write_buffer(
+            &buffers.factions,
+            0,
+            bytemuck::cast_slice(&writes.factions),
+        );
+    }
 
-    // Write health buffer
-    render_queue.write_buffer(
-        &buffers.healths,
-        0,
-        bytemuck::cast_slice(&writes.healths),
-    );
+    if writes.healths_dirty {
+        render_queue.write_buffer(
+            &buffers.healths,
+            0,
+            bytemuck::cast_slice(&writes.healths),
+        );
+    }
 
+}
+
+/// Read back NPC positions from GPU staging buffer to CPU.
+/// Runs in render world after command submission (Cleanup phase).
+fn readback_npc_positions(
+    buffers: Option<Res<NpcGpuBuffers>>,
+    gpu_data: Option<Res<NpcGpuData>>,
+    render_device: Res<RenderDevice>,
+) {
+    let Some(buffers) = buffers else { return };
+    let Some(gpu_data) = gpu_data else { return };
+
+    let npc_count = gpu_data.npc_count as usize;
+    if npc_count == 0 {
+        return;
+    }
+
+    let copy_size = npc_count * std::mem::size_of::<[f32; 2]>();
+    let buffer_slice = buffers.position_staging.slice(..copy_size as u64);
+
+    // Request async map (callback fires when GPU copy completes)
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+        let _ = tx.send(result);
+    });
+
+    // Synchronous wait — 128KB maps in microseconds
+    let _ = render_device.poll(wgpu::PollType::wait_indefinitely());
+
+    if let Ok(Ok(())) = rx.recv() {
+        let data = buffer_slice.get_mapped_range();
+        let positions: &[f32] = bytemuck::cast_slice(&data);
+
+        if let Ok(mut state) = GPU_READ_STATE.lock() {
+            state.positions.clear();
+            state.positions.extend_from_slice(&positions[..npc_count * 2]);
+            state.npc_count = npc_count;
+        }
+
+        drop(data);
+        buffers.position_staging.unmap();
+    }
 }
 
 // =============================================================================
@@ -823,19 +903,30 @@ impl render_graph::Node for NpcComputeNode {
 
         let _grid_cells = GRID_WIDTH * GRID_HEIGHT;
 
-        // TODO: For now, just dispatch mode 2 (main logic)
-        // Full implementation needs separate dispatches for mode 0, 1, 2
-        // with uniform buffer updates between them
-        let mut pass = render_context
-            .command_encoder()
-            .begin_compute_pass(&ComputePassDescriptor::default());
+        // Scope compute pass so it drops before we use the encoder for copy
+        {
+            let mut pass = render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor::default());
 
-        pass.set_bind_group(0, &bind_groups.bind_group, &[]);
-        pass.set_pipeline(compute_pipeline);
-        pass.dispatch_workgroups(
-            (npc_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
-            1,
-            1,
+            pass.set_bind_group(0, &bind_groups.bind_group, &[]);
+            pass.set_pipeline(compute_pipeline);
+            pass.dispatch_workgroups(
+                (npc_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
+                1,
+                1,
+            );
+        }
+
+        // Copy positions → staging buffer for CPU readback
+        let buffers = world.resource::<NpcGpuBuffers>();
+        let copy_size = (npc_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
+        render_context.command_encoder().copy_buffer_to_buffer(
+            &buffers.positions,
+            0,
+            &buffers.position_staging,
+            0,
+            copy_size,
         );
 
         Ok(())

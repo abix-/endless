@@ -1,6 +1,17 @@
 # Changelog
 
 ## 2026-02-08
+- **gpu→ecs position readback + debug flags**
+  - add staging buffer (MAP_READ | COPY_DST) to NpcGpuBuffers for position readback
+  - copy positions to staging after compute dispatch in NpcComputeNode
+  - add readback_npc_positions system (Cleanup phase): map staging, write to GPU_READ_STATE
+  - register existing sync_gpu_state_to_bevy (Step::Drain) and gpu_position_readback (after Drain)
+  - add per-field dirty flags to NpcBufferWrites: prevents write_npc_buffers from overwriting GPU-computed positions
+  - npc_render.rs reads GPU_READ_STATE for positions (falls back to NpcBufferWrites on first frame)
+  - add DebugFlags resource with F1-F4 keyboard toggles (readback, combat, spawns, behavior)
+  - add wgpu 27 dependency for MapMode and PollType
+  - verified: NPCs move from spawn y=300 to work y=257 via GPU compute
+
 - **port projectile_compute.glsl to wgsl + wire into bevy render graph**
   - create shaders/projectile_compute.wgsl: lifetime, movement, spatial grid collision detection
   - add ProjGpuUpdate enum and PROJ_GPU_UPDATE_QUEUE to messages.rs

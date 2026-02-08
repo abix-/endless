@@ -5,18 +5,19 @@ Foundational knowledge for understanding the Endless codebase.
 ## Data-Oriented Design (DOD)
 
 **Traditional OOP:** Each NPC is an object with properties.
-```gdscript
-class NPC:
-    var position: Vector2
-    var velocity: Vector2
-    var health: float
+```rust
+struct Npc {
+    position: Vec2,
+    velocity: Vec2,
+    health: f32,
+}
 ```
 
 **DOD:** Properties are parallel arrays. NPC #5's data is at index 5 in every array.
-```gdscript
-var positions: PackedVector2Array   # positions[5] = NPC #5's position
-var velocities: PackedVector2Array  # velocities[5] = NPC #5's velocity
-var healths: PackedFloat32Array     # healths[5] = NPC #5's health
+```rust
+positions: Vec<f32>,   // [x0, y0, x1, y1, ...] positions[5*2] = NPC #5's x
+targets: Vec<f32>,     // [x0, y0, x1, y1, ...]
+healths: Vec<f32>,     // healths[5] = NPC #5's health
 ```
 
 **Why DOD?**
@@ -25,7 +26,7 @@ var healths: PackedFloat32Array     # healths[5] = NPC #5's health
 - GPU-friendly: upload entire array in one call
 - No object overhead: no vtables, no GC pressure
 
-Used in: `npc_manager.gd` (30+ parallel arrays), Rust POC
+Used in: `NpcBufferWrites` (flat arrays for GPU upload), GPU storage buffers
 
 ---
 
@@ -47,21 +48,22 @@ Divides the world into cells. Each cell tracks which NPCs are inside it.
 
 **With grid:** Only check NPCs in same cell + adjacent cells. O(n × k) where k ≈ 10-50.
 
-```gdscript
-# Get cell from position
-var cell_x = int(position.x / CELL_SIZE)
-var cell_y = int(position.y / CELL_SIZE)
+```wgsl
+// Get cell from position
+let cell_x = u32(pos.x / params.cell_size);
+let cell_y = u32(pos.y / params.cell_size);
 
-# Check 3x3 neighborhood (9 cells max)
-for dy in range(-1, 2):
-    for dx in range(-1, 2):
-        for npc_idx in grid[cell_x + dx][cell_y + dy]:
-            # Only check these NPCs, not all 10,000
+// Check 3x3 neighborhood (9 cells max)
+for (var dy: i32 = -1; dy <= 1; dy++) {
+    for (var dx: i32 = -1; dx <= 1; dx++) {
+        // Only check NPCs in this cell, not all 16,384
+    }
+}
 ```
 
-Cell size should be ≥ largest interaction radius. Endless uses 64px cells.
+Cell size should be >= largest interaction radius. Endless uses 64px cells, 128x128 grid.
 
-Used in: `npc_grid.gd`, `separation_compute.glsl`, Rust `SpatialGrid`
+Used in: `npc_compute.wgsl` (buffers allocated, grid logic not yet ported)
 
 ---
 
@@ -79,40 +81,40 @@ NPCs push each other apart to avoid overlapping. Each NPC feels a force away fro
 ```
 
 **Algorithm:**
-1. Find neighbors within `SEPARATION_RADIUS`
+1. Find neighbors within `separation_radius` (via spatial grid)
 2. For each neighbor, calculate direction away from them
 3. Scale by overlap amount (closer = stronger push)
 4. Sum all forces, apply to velocity
 
-```glsl
-vec2 diff = my_pos - neighbor_pos;
-float dist = length(diff);
-float overlap = SEPARATION_RADIUS - dist;
+```wgsl
+let diff = my_pos - neighbor_pos;
+let dist = length(diff);
+let overlap = params.separation_radius - dist;
 separation_force += normalize(diff) * overlap;
 ```
 
 This is one of the three classic "boid" behaviors (separation, alignment, cohesion). Endless only uses separation.
 
-Used in: `npc_navigation.gd`, `separation_compute.glsl`, `gpu_separation.gd`
+Used in: Not yet ported to `npc_compute.wgsl`. Parameters allocated: `separation_radius=20`, `separation_strength=100`.
 
 ---
 
 ## Compute Shaders
 
-Run code on the GPU in parallel. Instead of one CPU core processing 10,000 NPCs sequentially, 1,000+ GPU cores process them simultaneously.
+Run code on the GPU in parallel. Instead of one CPU core processing 16,384 NPCs sequentially, 1,000+ GPU cores process them simultaneously.
 
 **CPU (sequential):**
 ```
-for i in 10000:
-    process(npc[i])  # one at a time
+for i in 0..16384:
+    process(npc[i])  // one at a time
 ```
 
 **GPU (parallel):**
-```glsl
-// This runs 10,000 times simultaneously
-void main() {
-    uint i = gl_GlobalInvocationID.x;  // each invocation gets unique ID
-    process(npc[i]);
+```wgsl
+@compute @workgroup_size(64, 1, 1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let i = global_id.x;  // each invocation gets unique ID
+    process(npc[i]);       // 16,384 run simultaneously
 }
 ```
 
@@ -126,34 +128,36 @@ void main() {
 - Branching (if/else) hurts performance
 - Best for embarrassingly parallel work (same operation on many items)
 
-Used in: `gpu_separation.gd`, `separation_compute.glsl`, Rust `GpuCompute`
+Used in: `npc_compute.wgsl` via `NpcComputeNode` in Bevy render graph
 
 ---
 
-## MultiMesh Rendering
+## GPU Instanced Rendering
 
-Draw thousands of identical meshes in one draw call.
+Draw thousands of sprites in one draw call. Each NPC is a textured quad with per-instance data.
 
-**Without MultiMesh:** 10,000 NPCs = 10,000 draw calls. GPU stalls on each call.
+**Without instancing:** 16,384 NPCs = 16,384 draw calls. GPU stalls on each call.
 
-**With MultiMesh:** 10,000 NPCs = 1 draw call. GPU renders all instances together.
+**With instancing:** 16,384 NPCs = 1 draw call. GPU renders all instances in parallel.
 
-```gdscript
-# One-time setup
-multimesh.instance_count = 10000
-multimesh.mesh = quad_mesh
+```rust
+// One static quad (4 vertices, shared by all NPCs)
+static QUAD_VERTICES: [QuadVertex; 4] = [ /* corners */ ];
 
-# Per-frame: upload all transforms at once
-var buffer: PackedFloat32Array  # 12 floats per instance
-for i in npc_count:
-    buffer[i * 12 + 3] = positions[i].x   # origin.x
-    buffer[i * 12 + 7] = positions[i].y   # origin.y
-RenderingServer.multimesh_set_buffer(multimesh_rid, buffer)
+// Per-instance data (unique per NPC, 32 bytes each)
+pub struct NpcInstanceData {
+    pub position: [f32; 2],  // world position
+    pub sprite: [f32; 2],    // atlas cell (col, row)
+    pub color: [f32; 4],     // tint color
+}
+
+// One draw call for all NPCs
+pass.draw_indexed(0..6, 0, 0..instance_count);
 ```
 
-The `set_buffer()` call uploads all transforms in one GPU transfer. Per-instance calls (`set_instance_transform()`) are 50x slower.
+The GPU uses `VertexStepMode::Instance` to advance instance data once per quad, not once per vertex.
 
-Used in: `npc_renderer.gd`, Rust `NpcBenchmark`
+Used in: `npc_render.rs` (RenderCommand + Transparent2d), `npc_render.wgsl`
 
 ---
 
@@ -161,27 +165,24 @@ Used in: `npc_renderer.gd`, Rust `NpcBenchmark`
 
 Don't update everything every frame. Spread work across frames.
 
-**Without stagger:** Update 10,000 NPCs every frame. CPU spike.
+**Without stagger:** Update 16,384 NPCs every frame. CPU spike.
 
-**With stagger:** Update 1,250 NPCs per frame (1/8 each frame). Smooth load.
+**With stagger:** Update 2,048 NPCs per frame (1/8 each frame). Smooth load.
 
-```gdscript
-var scan_offset = 0
-const SCAN_FRACTION = 8
+```rust
+let start = scan_offset * npc_count / SCAN_FRACTION;
+let end = (scan_offset + 1) * npc_count / SCAN_FRACTION;
 
-func _process(delta):
-    var start = scan_offset * npc_count / SCAN_FRACTION
-    var end = (scan_offset + 1) * npc_count / SCAN_FRACTION
+for i in start..end {
+    update_combat(i);  // only update this slice
+}
 
-    for i in range(start, end):
-        update_combat(i)  # only update this slice
-
-    scan_offset = (scan_offset + 1) % SCAN_FRACTION
+scan_offset = (scan_offset + 1) % SCAN_FRACTION;
 ```
 
 Trade-off: reactions are delayed by up to `SCAN_FRACTION` frames. Tune per-system.
 
-Used in: `npc_combat.gd` (1/8), `npc_navigation.gd` (1/4 for separation)
+Not currently used — GPU compute handles all NPCs every frame.
 
 ---
 
@@ -197,31 +198,19 @@ Update frequency based on importance/activity.
 
 Distance also affects LOD — off-screen NPCs update less often.
 
-```gdscript
-var interval = BASE_INTERVAL
-if states[i] == State.FIGHTING:
-    interval = 2
-elif states[i] == State.IDLE:
-    interval = 30
-
-if frame_count % interval == (i % interval):  # spread across frames
-    update_logic(i)
-```
-
-Used in: `npc_navigation.gd`
+Not currently used — GPU compute processes all NPCs uniformly.
 
 ---
 
 ## ECS (Entity Component System)
 
-Bevy's architecture (used in Rust POC). Alternative to DOD arrays.
+Bevy's architecture. Used throughout the codebase.
 
 - **Entity:** Just an ID (integer)
-- **Component:** Data attached to entity (Position, Velocity, Health)
+- **Component:** Data attached to entity (Position, Health, Job)
 - **System:** Function that processes entities with specific components
 
 ```rust
-// Components
 #[derive(Component)]
 struct Position(Vec2);
 
@@ -238,7 +227,7 @@ fn movement_system(mut query: Query<(&mut Position, &Velocity)>) {
 
 ECS gives you DOD benefits with nicer ergonomics. Bevy schedules systems in parallel automatically.
 
-Used in: Rust POC (though current impl uses simple arrays, not full Bevy ECS)
+Used in: All game logic (spawn, combat, behavior, economy systems)
 
 ---
 
@@ -255,29 +244,16 @@ GPU → CPU: Read positions back (SLOW, ~5-10ms)
 
 The GPU→CPU transfer stalls the pipeline — CPU waits for GPU to finish, then copies data over PCIe.
 
-**Solution: Cache on CPU**
+**Solution: Keep data on GPU**
 
-Instead of reading positions back from GPU, maintain a CPU-side copy:
-
-```rust
-// BAD: Read 480KB back from GPU every frame
-let positions = gpu.read_buffer(position_buffer);
-build_multimesh(positions);
-
-// GOOD: Cache positions on CPU, only upload to GPU
-cpu_positions[i] += velocity * delta;  // Update CPU copy
-gpu.write_buffer(position_buffer, &cpu_positions);  // Upload
-build_multimesh(&cpu_positions);  // Use CPU copy for MultiMesh
-```
-
-This eliminated a 480KB/frame readback in Endless, saving ~5ms/frame.
+The render pipeline reads directly from GPU buffers (or from the same CPU-side arrays that were uploaded), avoiding readback. CPU-side systems that need position data use the pre-upload `NpcBufferWrites` arrays.
 
 **When you must read back:**
 - Keep buffers small (read only what's needed)
 - Read asynchronously if possible (don't block on result)
 - Batch reads (one large read beats many small ones)
 
-Used in: Rust `NpcBenchmark` (positions cached in `CpuPositions` resource)
+Used in: Current design avoids readback entirely. `GpuReadState` exists for future readback but is unpopulated.
 
 ---
 
@@ -287,50 +263,28 @@ Debug metrics can cost more than the actual simulation. Disable or throttle them
 
 **The trap:** You add O(n²) validation to verify NPCs are properly separated:
 
-```gdscript
-func _get_min_separation() -> float:
-    var min_dist = INF
-    for i in npc_count:
-        for j in range(i + 1, npc_count):
-            var d = positions[i].distance_to(positions[j])
-            min_dist = min(min_dist, d)
-    return min_dist
+```rust
+fn get_min_separation(positions: &[f32], count: usize) -> f32 {
+    let mut min_dist = f32::MAX;
+    for i in 0..count {
+        for j in (i+1)..count {
+            let dx = positions[i*2] - positions[j*2];
+            let dy = positions[i*2+1] - positions[j*2+1];
+            min_dist = min_dist.min((dx*dx + dy*dy).sqrt());
+        }
+    }
+    min_dist
+}
 ```
 
 With 5,000 NPCs, that's 12.5 million distance checks per frame. Your 140fps simulation drops to 15fps — but the simulation itself is fine, only the *measurement* is slow.
 
 **Solutions:**
-
 1. **Disable by default:** Make expensive metrics opt-in
-   ```gdscript
-   var metrics_enabled := false  # Off by default
-
-   if metrics_enabled:
-       min_separation = _get_min_separation()  # O(n²)
-   ```
-
 2. **Throttle:** Run expensive checks once per second, not every frame
-   ```gdscript
-   var metric_timer := 0.0
-
-   func _process(delta):
-       metric_timer += delta
-       if metric_timer >= 1.0:
-           metric_timer = 0.0
-           _update_expensive_metrics()  # Only once/second
-   ```
-
 3. **Sample:** Check 100 random pairs instead of all pairs
-   ```gdscript
-   for _i in 100:
-       var a = randi() % npc_count
-       var b = randi() % npc_count
-       min_dist = min(min_dist, positions[a].distance_to(positions[b]))
-   ```
 
 **Rule of thumb:** If your metric is O(n²) or worse, it needs a toggle.
-
-Used in: `ecs_test.gd` (metrics checkbox), debug stats throttling
 
 ---
 
@@ -342,8 +296,8 @@ Moving NPCs should push through settled ones, not get blocked.
 
 **Solution:** Asymmetric push strengths based on movement state:
 
-```glsl
-float push_strength = 1.0;
+```wgsl
+var push_strength = 1.0;
 if (i_am_moving && neighbor_is_settled) {
     push_strength = 0.2;  // Settled NPCs barely block me
 } else if (i_am_settled && neighbor_is_moving) {
@@ -361,7 +315,7 @@ avoidance += diff * overlap * push_strength;
 
 This lets NPCs flow through crowds to reach their targets, then settle into formation.
 
-Used in: `npc_compute.glsl` (separation shader)
+Not yet ported to `npc_compute.wgsl`.
 
 ---
 
@@ -375,16 +329,16 @@ Named after TCP congestion avoidance — when packets collide, back off and try 
 
 **Solution:** Detect approaching collision and add perpendicular dodge:
 
-```glsl
-vec2 to_neighbor = neighbor_pos - my_pos;
-float approach_speed = dot(my_velocity, normalize(to_neighbor));
+```wgsl
+let to_neighbor = neighbor_pos - my_pos;
+let approach_speed = dot(my_velocity, normalize(to_neighbor));
 
-if (approach_speed > 0) {  // We're closing in
+if (approach_speed > 0.0) {  // We're closing in
     // Dodge perpendicular to approach direction
-    vec2 perp = vec2(-to_neighbor.y, to_neighbor.x);
+    let perp = vec2(-to_neighbor.y, to_neighbor.x);
 
     // Consistent side: lower index dodges right
-    float side = (my_index < neighbor_index) ? 1.0 : -1.0;
+    let side = select(-1.0, 1.0, my_index < neighbor_index);
 
     dodge += normalize(perp) * side * approach_speed;
 }
@@ -395,7 +349,7 @@ if (approach_speed > 0) {  // We're closing in
 - Consistent side selection prevents both NPCs dodging the same way
 - Dodge strength scales with approach speed (faster approach = harder dodge)
 
-Used in: `npc_compute.glsl` (TCP-style collision avoidance)
+Not yet ported to `npc_compute.wgsl`.
 
 ---
 
@@ -406,17 +360,11 @@ Bevy ECS represents states as marker components, not enums.
 **Traditional state machine:**
 ```rust
 enum GuardState { Patrolling, OnDuty, Resting, GoingToRest }
-
-struct Guard {
-    state: GuardState,
-    // ... other fields
-}
 ```
 
 **ECS state machine:** States are separate components. An entity has exactly one state component at a time.
 
 ```rust
-// Marker components (no data, just tags)
 #[derive(Component)]
 struct Patrolling;
 
@@ -452,16 +400,7 @@ fn transition_to_rest(
 }
 ```
 
-**Systems per state:**
-```rust
-// Only runs for guards in Patrolling state
-fn patrol_system(guards: Query<&mut Guard, With<Patrolling>>) { ... }
-
-// Only runs for guards in OnDuty state
-fn on_duty_system(guards: Query<(&mut Guard, &mut OnDuty)>) { ... }
-```
-
-Used in: Rust guard behavior (Patrolling → OnDuty → GoingToRest → Resting → Patrolling)
+Used in: All NPC behavior (Patrolling, OnDuty, Working, Resting, GoingToRest, GoingToWork, Raiding, Returning, Recovering, Wandering)
 
 ---
 
@@ -474,33 +413,12 @@ Static world layout (buildings, locations) stored as ECS Resources, not entities
 - **Resource:** Singleton, shared state, lives forever. World layout, config, occupancy tracking.
 
 ```rust
-// Resource: one instance, globally accessible
 #[derive(Resource, Default)]
 pub struct WorldData {
     pub towns: Vec<Town>,
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub guard_posts: Vec<GuardPost>,
-}
-
-// Individual building data (not an entity, just a struct)
-pub struct GuardPost {
-    pub position: Vector2,
-    pub town_idx: u32,
-    pub patrol_order: u32,  // 0-3 for clockwise perimeter
-}
-```
-
-**Accessing in systems:**
-```rust
-fn patrol_system(
-    world: Res<WorldData>,  // Read-only access to world
-    guards: Query<(&Guard, &mut Target)>,
-) {
-    for (guard, mut target) in guards.iter_mut() {
-        let post = &world.guard_posts[guard.current_post as usize];
-        target.0 = post.position;
-    }
 }
 ```
 
@@ -513,164 +431,28 @@ pub struct BedOccupancy {
 }
 ```
 
-**GDScript → Rust:** World data initialized once from GDScript via static Mutex:
-
-```rust
-static WORLD_DATA: LazyLock<Mutex<WorldData>> = LazyLock::new(|| ...);
-
-// Called from GDScript at scene load
-fn set_world_data(towns: Array, farms: Array, ...) {
-    let mut world = WORLD_DATA.lock().unwrap();
-    world.towns = parse_towns(towns);
-    // ...
-}
-```
-
-Used in: Rust `WorldData`, `BedOccupancy`, `FarmOccupancy` resources
+Used in: `WorldData`, `BedOccupancy`, `FarmOccupancy` resources
 
 ---
 
-## godot-bevy Frame Execution Model
+## Bevy Pipelined Rendering
 
-godot-bevy bridges Godot's frame lifecycle with Bevy's ECS schedules. Understanding the execution order is critical — especially when Godot nodes and Bevy systems communicate through shared state.
-
-### Two Types of Frames
-
-**Visual frames** (`_process`) run at display refresh rate (60-144 Hz) and execute the complete Bevy `app.update()` cycle:
+Bevy runs the main world and render world in parallel, synchronized once per frame at the extract barrier.
 
 ```
-Visual Frame Start
-    ├── First
-    ├── PreUpdate (reads Godot → ECS transforms)
-    ├── Update (game logic — our systems run here)
-    ├── FixedUpdate (0, 1, or multiple times)
-    ├── PostUpdate
-    └── Last (writes ECS → Godot transforms)
-Visual Frame End
+Frame N:   Main World computes game logic
+           ────── extract barrier ──────
+           Render World processes frame N
+Frame N+1: Main World computes next frame  ← runs in parallel with render
+           ────── extract barrier ──────
+           Render World processes frame N+1
 ```
 
-**Physics frames** (`_physics_process`) run at Godot's fixed tick rate (default 60 Hz) and only execute the `PhysicsUpdate` schedule. Physics frames run independently and can execute before, between, or after visual frames.
+**Extract:** Resources are cloned from main world to render world via `ExtractResourcePlugin`. This is the sync point — both worlds pause briefly, data is copied, then they resume in parallel.
 
-### Execution Order Within a Visual Frame
+**Consequence:** One-frame render latency. The GPU renders positions from the previous main world frame. At 140fps this is ~7ms of latency — invisible.
 
-BevyApp is registered as a Godot **autoload singleton** by the godot-bevy plugin. In Godot, autoloads process before all scene tree nodes. This means:
-
-```
-Frame N:
-  1. BevyApp._process()           ← autoload, runs FIRST
-     └─ app.update() ticks all Bevy schedules
-  2. SceneRoot._process()         ← scene nodes run after
-     ├─ YourScript._process()
-     └─ EcsNpcManager._process()  ← child node, runs last
-```
-
-This ordering has a critical consequence: **GDScript code in `_process()` that pushes to Mutex queues won't be seen by Bevy until the next frame**, because Bevy already ticked for this frame.
-
-### Endless-Specific: Spawn Timing
-
-This caused a real bug. The spawn flow crosses the Bevy/Godot boundary:
-
-```
-Frame N:
-  BevyApp._process()        → Bevy ticks (SPAWN_QUEUE empty)
-  EcsTest._process()        → calls spawn_npc() × 10
-    → NPC_SLOT_COUNTER = 10, SPAWN_QUEUE filled
-  EcsNpcManager._process()  → must NOT dispatch these yet (no GPU data)
-
-Frame N+1:
-  BevyApp._process()        → Bevy drains SPAWN_QUEUE
-    → spawn_npc_system pushes GPU_UPDATE_QUEUE
-    → GPU_DISPATCH_COUNT = 10
-  EcsNpcManager._process()  → drains GPU_UPDATE_QUEUE, dispatch(10) ✓
-```
-
-The fix: two separate counters. `NPC_SLOT_COUNTER` (incremented immediately for slot allocation) and `GPU_DISPATCH_COUNT` (only updated after Bevy writes GPU buffer data). `process()` reads `GPU_DISPATCH_COUNT` for dispatch, ensuring it never dispatches NPCs with uninitialized buffers. See [frame-loop.md](frame-loop.md) and [messages.md](messages.md).
-
-### Delta Time
-
-Different schedules use different delta time sources:
-
-| Schedule | Delta Source | Use Case |
-|----------|-------------|----------|
-| Update | `Res<Time>` → `time.delta_seconds()` | Visual frame systems |
-| PhysicsUpdate | `Res<PhysicsDelta>` → `physics_delta.delta_seconds` | Godot physics sync |
-| FixedUpdate | Fixed rate (64 Hz default) | Consistent simulation |
-
-### Common Pitfalls
-
-- Don't modify the same data in both `Update` and `PhysicsUpdate` — they run at different rates and can conflict
-- Don't expect cross-schedule visibility within the same frame — changes in `PhysicsUpdate` won't be visible in `Update` until next frame
-- Autoloads process before scene nodes — Bevy systems run before your `_process()` code
-- Queue-based communication has one-frame latency — data pushed in `_process()` is consumed by Bevy next frame
-
----
-
-## Thread Safety & GodotAccess
-
-Godot APIs are only safe to call from the main thread. godot-bevy provides `GodotAccess`, a Bevy `SystemParam` that carries a `NonSend` guard, pinning any system that uses it to the main thread.
-
-### The Constraint
-
-```rust
-// This system is pinned to main thread because of GodotAccess
-fn sync_transforms(
-    godot: GodotAccess,
-    query: Query<(&Transform, &GodotNode)>,
-) {
-    for (transform, node) in query.iter() {
-        godot.set_position(node.id, transform.position); // Safe: main thread
-    }
-}
-
-// This system can run on any thread (no GodotAccess)
-fn movement_system(mut query: Query<(&mut Position, &Velocity)>) {
-    for (mut pos, vel) in query.iter_mut() {
-        pos.0 += vel.0;  // Pure ECS logic, no Godot calls
-    }
-}
-```
-
-Systems with `GodotAccess` cannot run in parallel with each other. Minimize their use to maximize Bevy's automatic parallelism.
-
-### Event-Driven Pattern
-
-For multi-threaded Bevy, the recommended pattern is:
-1. **Multi-threaded systems** handle logic and emit events
-2. **Main-thread systems** (with `GodotAccess`) consume events and call Godot APIs
-
-```rust
-// Runs on any thread — computes what to do
-fn damage_logic_system(
-    query: Query<(&Health, &Position)>,
-    mut events: EventWriter<PlaySoundEvent>,
-) {
-    for (health, pos) in query.iter() {
-        if health.just_took_damage {
-            events.send(PlaySoundEvent { pos: pos.0 });
-        }
-    }
-}
-
-// Pinned to main thread — calls Godot
-fn play_sounds_system(
-    godot: GodotAccess,
-    mut events: EventReader<PlaySoundEvent>,
-) {
-    for event in events.read() {
-        godot.play_sound_at(event.pos);
-    }
-}
-```
-
-### Endless Approach
-
-Endless currently runs Bevy single-threaded (via godot-bevy's `app.update()` on the main thread). Instead of `GodotAccess`, all Godot communication uses static Mutex queues:
-
-- **Bevy → GPU**: `GPU_UPDATE_QUEUE` (drained in `process()`)
-- **GDScript → Bevy**: `SPAWN_QUEUE`, `TARGET_QUEUE`, etc.
-- **GPU → Bevy**: `GPU_READ_STATE`, `ARRIVAL_QUEUE`, `DAMAGE_QUEUE`
-
-This pattern naturally decouples Bevy systems from Godot APIs. If Bevy moves to multi-threaded scheduling, the systems already avoid Godot calls — only the queue drain in `process()` touches Godot's `RenderingDevice`.
+Used in: `GpuComputePlugin` (extract NpcBufferWrites, NpcGpuData, NpcComputeParams), `NpcRenderPlugin` (extract NpcBatch entity)
 
 ---
 
@@ -682,15 +464,14 @@ This pattern naturally decouples Bevy systems from Godot APIs. If Bevy moves to 
 | Spatial Grid | O(n²) neighbor search | O(n×k) cell lookup |
 | Separation | NPC overlap | Push forces from neighbors |
 | Compute Shader | CPU bottleneck | GPU parallelism |
-| MultiMesh | Draw call overhead | Batched rendering |
+| Instanced Rendering | Draw call overhead | One draw call for all instances |
 | Stagger | Frame spikes | Spread work across frames |
 | LOD Intervals | Wasted updates | Update based on importance |
 | ECS | DOD ergonomics | Entity/Component/System pattern |
-| GPU Readback | Pipeline stalls | Cache on CPU, upload only |
+| GPU Readback | Pipeline stalls | Avoid readback, use CPU copies |
 | Debug Overhead | Metrics kill perf | Disable/throttle expensive checks |
 | Asymmetric Push | Can't enter crowds | Moving NPCs push through settled |
 | TCP Dodge | Head-on collisions | Perpendicular dodge on approach |
 | ECS States | State machine in ECS | Marker components per state |
 | World Resources | Static world data | Singleton Resources, not Entities |
-| Frame Execution | Autoload vs scene ordering | Two counters decouple allocation from dispatch |
-| Thread Safety | Godot APIs need main thread | GodotAccess guard or static Mutex queues |
+| Pipelined Rendering | CPU/GPU sync overhead | Parallel main + render worlds |

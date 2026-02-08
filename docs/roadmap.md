@@ -1,43 +1,26 @@
 # Roadmap
 
-Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + wgpu compute + bevy_egui.
+Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced rendering.
 
-## Pure Bevy Migration (In Progress)
-
-Migrating from Godot+Bevy hybrid to pure Bevy. Removes gdext/godot-bevy complexity.
-
-### What We Keep (~2,500 lines pure Bevy)
-- [x] components.rs, resources.rs, systems/*.rs
-- [x] constants.rs, messages.rs, world.rs
-- [x] build_app() system registration
-
-### What We Delete (~2,000 lines Godot bridge)
-- [x] gpu.rs (Godot RenderingDevice)
-- [x] rendering.rs (Godot MultiMesh)
-- [x] api.rs (GDScript FFI)
-- [x] channels.rs (Godot-Bevy messaging)
-- [x] EcsNpcManager struct
-
-### Migration Phases
+## Phases
 
 **Phase 1: Standalone Bevy App ✓**
-- [x] Update Cargo.toml (bevy 0.18, bevy_egui 0.39, bytemuck)
-- [x] Create main.rs with App runner
-- [x] Update imports (godot_bevy → bevy)
+- [x] Cargo.toml (bevy 0.18, bevy_egui 0.39, bytemuck)
+- [x] main.rs with App runner
 - [x] Test: `cargo run` opens window
 
 **Phase 2: GPU Compute via wgpu ✓**
-- [x] Port npc_compute.glsl → npc_compute.wgsl
-- [x] Create wgpu compute pipeline (Bevy render graph)
+- [x] npc_compute.wgsl compute shader
+- [x] wgpu compute pipeline (Bevy render graph)
 - [x] Pipeline compiles and dispatches
 - [x] ECS→GPU buffer writes (NpcBufferWrites + write_npc_buffers)
-- [x] Port projectile_compute.glsl → projectile_compute.wgsl
-- [ ] GPU→ECS readback (positions for sprite sync)
-- [ ] Test: NPCs move (log positions)
+- [x] projectile_compute.wgsl compute shader
+- [x] GPU→ECS readback (positions for sprite sync)
+- [x] Test: NPCs move (log positions)
 
-**Phase 2.5: GPU Instanced Rendering (In Progress)**
+**Phase 2.5: GPU Instanced Rendering ✓**
 
-*Note: Original render graph Node approach failed - Nodes are for compute/post-processing, not geometry. Switching to RenderCommand pattern.*
+*Note: Original render graph Node approach failed — Nodes are for compute/post-processing, not geometry. Switched to RenderCommand pattern.*
 
 Old approach (abandoned):
 - [x] Add sprite_indices and colors buffers to NpcGpuBuffers
@@ -66,8 +49,7 @@ New approach (RenderCommand pattern):
 - [ ] Test: NPCs visible @ 140fps
 
 **Phase 4: World Generation**
-- [ ] Port main.gd world gen to Rust
-- [ ] Town/farm/bed/guard_post placement
+- [ ] Procedural town/farm/bed/guard_post placement
 - [ ] Test: World generates correctly
 
 **Phase 5: Start Menu + Config**
@@ -101,13 +83,13 @@ New approach (RenderCommand pattern):
 - [x] Architecture cleanup (channels, Bevy resources, GPU messages)
 
 **Remaining:**
-- [ ] Economy: multi-camp food delivery, HP regen
+- [ ] GPU→CPU readback (positions, combat targets)
+- [ ] Combat end-to-end (targeting → damage → death)
+- [ ] Spatial grid build on GPU
 - [ ] Building system: runtime add/remove buildings
 - [ ] Config & upgrades: config-driven stats, upgrade API
-- [ ] Events: death/food events to GDScript
-- [ ] Architecture: remove 9 remaining statics, old drain functions
-- [ ] GDScript cleanup: delete old npc_manager files
-- [ ] Zero-copy rendering (blocked by Godot bug #105100)
+- [ ] Camera controls, input handling
+- [ ] UI panels (bevy_egui)
 
 ## Architecture
 
@@ -117,12 +99,11 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 
 ### Spawning & Rendering ✓
 - [x] NPCs spawn with jobs (guard, farmer, raider, fighter)
-- [x] GPU-accelerated MultiMesh rendering (10,000+ @ 140fps)
+- [x] GPU instanced rendering via RenderCommand + Transparent2d (10,000+ @ 140fps)
 - [x] Sprite frames, faction colors
 - [x] Unified spawn API with job-as-template pattern (phase 8.5)
 - [x] spawn_guard(), spawn_guard_at_post(), spawn_farmer() convenience APIs
-- [x] Slot reuse for dead NPCs (FREE_SLOTS pool)
-- [ ] Zero-copy rendering (blocked by Godot bug #105100)
+- [x] Slot reuse for dead NPCs (SlotAllocator)
 - [ ] Loot icon overlay (raider carrying food indicator)
 - [ ] Halo icon overlay (healing zone indicator)
 - [ ] Sleep icon overlay (resting indicator)
@@ -144,8 +125,8 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] Ranged attacks (range=300, speed=200, lifetime=3.0s)
 - [x] Health, damage, death systems
 - [x] O(1) entity lookup via NpcEntityMap
-- [x] Projectile slot reuse (FREE_PROJ_SLOTS pool)
-- [x] MultiMesh projectile rendering with velocity-based rotation
+- [x] Projectile slot reuse (ProjSlotAllocator)
+- [ ] Projectile instanced rendering
 - [x] Damage flash effect
 - [x] Guards have no leash (fight anywhere)
 - [x] Alert nearby allies when combat starts
@@ -177,7 +158,7 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] Food theft (raiders steal and deliver to camp)
 - [x] Respawning (dead NPCs respawn after cooldown via RespawnTimers)
 - [x] Per-town food storage (FoodStorage resource)
-- [x] GameTime resource (Bevy-owned, no GDScript bridge)
+- [x] GameTime resource (time_scale, pause, hourly tick events)
 - [x] GameConfig resource (farmers/guards per town, spawn interval, food per hour)
 - [x] PopulationStats resource (alive/working counts per job/clan)
 - [x] economy_tick_system (unified hourly economy)
@@ -218,19 +199,16 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] Roster panel with sorting/filtering
 - [x] Population stats and kill tracking (KILL_STATS)
 - [x] Name generation ("Adjective Noun" by job)
-- [x] NPC_META static (name, level, xp, trait, town_id, job)
-- [x] NPC_STATES static (state ID per NPC)
-- [x] NPC_ENERGY static (energy per NPC)
-- [x] NPCS_BY_TOWN static (per-town NPC lists)
-- [x] 10 query APIs: get_population_stats, get_town_population, get_npc_info, get_npcs_by_town, get/set_selected_npc, get_npc_name, get_npc_trait, set_npc_name, get_bed_stats
-- [x] left_panel.gd, roster_panel.gd, upgrade_menu.gd wired to ECS APIs
+- [x] NpcMetaCache resource (name, level, xp, trait, town_id, job per NPC)
+- [x] NpcEnergyCache resource (energy per NPC)
+- [x] NpcsByTownCache resource (per-town NPC lists)
+- [x] PopulationStats, KillStats, SelectedNpc resources
 - [ ] Villager role assignment UI
 - [ ] Train guards from population
 
 ### Building System
-- [ ] Runtime add/remove farm/bed/guard_post APIs
-- [ ] Wire up _on_build_requested(), _on_destroy_requested(), _get_clicked_farm()
-- [ ] Replace npc_manager array writes with EcsNpcManager API calls
+- [ ] Runtime add/remove farm/bed/guard_post
+- [ ] Click-to-build and click-to-destroy input handling
 - [ ] NPCs claim and use new buildings
 - [ ] Guard post auto-attack (turret behavior, fires at enemies)
 - [ ] Guard post upgrades (attack_enabled, range_level, damage_level)
@@ -240,11 +218,11 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] grant_xp() API and system
 - [ ] Level-up system (sqrt scaling: level 9999 = 100x stats)
 - [ ] Stat scaling (damage, max_health based on level)
-- [ ] npc_leveled_up event to GDScript
+- [ ] Level-up event for UI notification
 
 ### Config & Upgrades
 - [ ] CombatConfig Bevy resource (configurable melee/ranged stats)
-- [ ] set_combat_config() API to push Config.gd values at startup
+- [ ] CombatConfig initialization from GameConfig at startup
 - [ ] spawn_npc_system reads config instead of hardcoded AttackStats
 - [ ] apply_upgrade(town_idx, upgrade_type, level) API for stat multipliers
 - [ ] Guard upgrades: health, attack, range, size bonuses per town
@@ -258,10 +236,10 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] Fountain healing zone (radius + upgrade bonus)
 - [ ] Camp healing zone for raiders
 
-### Events to GDScript
-- [ ] DEATH_EVENT_QUEUE (npc_idx, job, faction, town_idx)
-- [ ] poll_events() API returning { deaths: [...], food_delivered: [...] }
-- [ ] main.gd _process() polls events, feeds combat_log
+### Event System
+- [ ] Death events (npc_idx, job, faction, town_idx)
+- [ ] Combat log feed from events
+- [ ] UI integration for event display
 
 ### Testing & Debug ✓
 - [x] Test harness with automated PASS/FAIL assertions
@@ -275,55 +253,12 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [x] get_npc_position() for position queries
 - [x] HEALTH_DEBUG, COMBAT_DEBUG resources for diagnostics
 
-### Architecture Cleanup
+### Architecture Cleanup ✓
 
-**Channel Migration (5 of 14 statics removed):**
-- [x] SPAWN_QUEUE → GodotToBevyMsg::SpawnNpc
-- [x] TARGET_QUEUE → GodotToBevyMsg::SetTarget
-- [x] DAMAGE_QUEUE → GodotToBevyMsg::ApplyDamage
-- [x] PROJECTILE_FIRE_QUEUE → BevyToGodotMsg::FireProjectile
-- [x] RESET_BEVY → GodotToBevyMsg::Reset
-- [ ] ARRIVAL_QUEUE (lib.rs still uses for GPU→Bevy arrivals)
-- [ ] GPU_UPDATE_QUEUE, GPU_READ_STATE, GPU_DISPATCH_COUNT (lib.rs process())
-- [ ] NPC_SLOT_COUNTER, FREE_SLOTS, FREE_PROJ_SLOTS (lib.rs slot allocation)
-- [ ] FOOD_STORAGE, GAME_CONFIG_STAGING (lib.rs APIs)
-
-**Bevy Resources Migrated (phase 10.3):**
-- [x] WORLD_DATA, BED_OCCUPANCY, FARM_OCCUPANCY → Bevy Resources
-- [x] HEALTH_DEBUG, COMBAT_DEBUG → Bevy Resources
-- [x] KILL_STATS, SELECTED_NPC → Bevy Resources
-- [x] NPC_META, NPC_STATES, NPC_ENERGY, NPCS_BY_TOWN, NPC_LOGS → Bevy Resources
-- [x] FOOD_DELIVERED_QUEUE, FOOD_CONSUMED_QUEUE → FoodEvents Resource
-
-**GPU Update Messages (phase 10.2):**
-- [x] GpuUpdateMsg Message type (wraps GpuUpdate enum)
-- [x] Systems use MessageWriter<GpuUpdateMsg> instead of direct GPU_UPDATE_QUEUE locks
-- [x] collect_gpu_updates system batches all messages with single Mutex lock
-
-**Channel Infrastructure (phase 11.1-11.2):**
-- [x] crossbeam-channel for lock-free message passing
-- [x] GodotToBevyMsg enum (SpawnNpc, SetTarget, ApplyDamage, SelectNpc, Reset, SetPaused, SetTimeScale)
-- [x] BevyToGodotMsg enum (SpawnView, DespawnView, SyncHealth, SyncColor, SyncSprite, FireProjectile)
-- [x] Bevy Position component (synced from GPU)
-- [x] SpawnView/DespawnView on spawn/death
-
-**GPU Sync (phase 11.3, partial):**
-- [x] gpu_position_readback system: GPU → Bevy Position (only if changed > epsilon)
-- [ ] GpuBuffers resource (CPU-side mirrors)
-- [ ] upload_to_gpu_system: Query components → fill buffers → upload
-
-**Outbox/Changed Sync (phase 11.5-11.6):**
-- [x] GDScript _process() drains outbox via bevy_to_godot()
-- [x] bevy_to_godot_write: Query Changed<Health> → SyncHealth
-- [x] death_cleanup_system: Query With<Dead> → DespawnView
-
-**Old Drain Functions (phase 11.4, not done):**
-- [ ] Remove drain_spawn_queue, drain_target_queue, drain_damage_queue
-- [ ] Single godot_to_bevy_read handles all inbox messages
-
-**godot-bevy Integration (phase 10.1, not done):**
-- [ ] Register EcsNpcManager as Bevy entity
-- [ ] EcsNpcManagerMarker component for querying
+- [x] Static queues → Bevy Messages (MessageWriter/MessageReader)
+- [x] All statics → Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
+- [x] GpuUpdateMsg batching via collect_gpu_updates
+- [x] Godot bridge removed (channels.rs, api.rs, rendering.rs, EcsNpcManager)
 
 ### Performance Optimizations
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
@@ -336,20 +271,14 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 - [ ] find_nearest_raider() for regrouping
 
 ### GDScript Cleanup ✓
-- [x] Delete npc_state.gd (state/job/trait now strings from Rust)
-- [x] Delete npc_manager.gd, npc_manager.tscn, npc_navigation.gd
-- [x] Delete npc_combat.gd, npc_needs.gd, npc_grid.gd, npc_renderer.gd
-- [x] Delete gpu_separation.gd, separation_compute.glsl
-- [x] Delete guard_post_combat.gd, projectile_manager.gd
-- [x] Remove .uid files from git tracking
-- [ ] Remove unused preloads from main.gd
-- [ ] Delete projectile_manager.tscn
+
+- [x] All GDScript files removed (npc_manager, npc_combat, npc_needs, gpu_separation, etc.)
+- [x] All .glsl shaders replaced with .wgsl
 
 ## Performance
 
 | Milestone | NPCs | FPS | Status |
 |-----------|------|-----|--------|
-| GDScript baseline | 3,000 | 60 | Reference |
 | CPU Bevy | 5,000 | 60+ | ✓ |
 | GPU physics | 10,000+ | 140 | ✓ |
 | Full behaviors | 10,000+ | 140 | ✓ |
@@ -394,5 +323,5 @@ See [gpu-compute.md](gpu-compute.md) for GPU buffers, optimizations, and perform
 ## References
 
 - [Simon Green's CUDA Particles](https://developer.download.nvidia.com/assets/cuda/files/particles.pdf) — GPU spatial grid approach
-- [godot-bevy Book](https://bytemeadow.github.io/godot-bevy/getting-started/basic-concepts.html)
-- [FSM in ECS](https://www.richardlord.net/blog/ecs/finite-state-machines-with-ash)
+- [FSM in ECS](https://www.richardlord.net/blog/ecs/finite-state-machines-with-ash) — marker component pattern
+- [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) — compute + render pipeline

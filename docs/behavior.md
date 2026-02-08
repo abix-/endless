@@ -128,12 +128,12 @@ Same situation, different outcomes. That's emergent behavior.
 | Patrolling | marker | Guard is walking to next patrol post |
 | OnDuty | `{ ticks: u32 }` | Guard is stationed at a post |
 | Working | marker | Farmer is at work position |
-| AssignedFarm | `Vector2` | Farm position farmer is working at (for occupancy tracking) |
+| AssignedFarm | `Vec2` | Farm position farmer is working at (for occupancy tracking) |
 | GoingToWork | marker | Farmer is walking to work |
 | Raiding | marker | NPC is walking to a farm to steal |
 | Returning | marker | NPC is walking back to home base |
 | CarryingFood | marker | NPC has stolen food |
-| CarriedItem | `u8` | Item NPC is carrying (0=none, 1=food). Rendered as separate MultiMesh layer above head. |
+| CarriedItem | `u8` | Item NPC is carrying (0=none, 1=food). No rendering yet. |
 | Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
 | Wandering | marker | NPC is walking to a random nearby position |
 | Starving | marker | NPC hasn't eaten in 24+ hours (50% HP cap, 75% speed) |
@@ -279,12 +279,7 @@ Farms have a growth cycle instead of infinite food:
 - If farm not ready: re-target another farm via `find_nearest_location()`
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another"
 
-**Visual feedback** (gpu.rs, build_item_multimesh + item_icon.gdshader):
-- Item MultiMesh renders food sprite (24,9) from roguelikeSheet on all farms
-- Progress bar at top (like NPC HP bar): green while growing, gold when ready
-- Separate `item_canvas_item` with `item_icon.gdshader` (z=10, above NPCs)
-- 16-float buffer per item: Transform2D(8) + Color(4) + CustomData(4) for progress
-- Farm slots allocated after NPC slots (MAX_NPC_COUNT + MAX_FARMS)
+**Visual feedback**: Not yet implemented. `FarmStates` tracks growth progress (0.0-1.0) and Ready/Growing state per farm, but no rendering pipeline reads this data yet.
 
 ## Starvation System
 
@@ -390,12 +385,11 @@ Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes ar
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
 - **~~Single camp index hardcoded~~**: Fixed. Raiders now deliver to their own faction's town using TownId component.
 - **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
-- **~~All raiders target same farm~~**: Fixed. Group raid system coordinates 5+ raiders to raid together via RaidCoordinator. Solo raiders wait at camp instead of raiding alone.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
-- **~~Farm data fetch performance~~**: Fixed. BevyApp reference is now cached in ready(), eliminating scene tree traversal every frame.
+- **Starvation speed bug**: `starvation_system` uses `BASE_SPEED=60.0` but spawn sets speed to 100.0. When starvation clears, NPCs get 60 speed instead of their original 100.
 
 ## Rating: 8/10
 
 Central brain architecture: `decision_system` handles all NPC decisions with clear priority cascade. SystemParam bundles organize parameters into logical groups, allowing the system to scale as more features are added. Utility AI for idle decisions creates lifelike behavior. Farm growth system adds meaningful gameplay loop.
 
-Gaps: no pathfinding, all raiders converge on same farm, healing halo visual broken.
+Gaps: no pathfinding, healing halo visual broken, starvation speed bug, no farm/carried item rendering.

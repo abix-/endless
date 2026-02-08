@@ -12,7 +12,11 @@ MAIN WORLD — Bevy Update Schedule
 ├─ bevy_timer_start
 │
 ├─ Step::Drain
-│     reset_bevy_system, drain_arrival_queue, drain_game_config
+│     reset_bevy_system, drain_arrival_queue, drain_game_config,
+│     sync_gpu_state_to_bevy (GPU_READ_STATE → GpuReadState resource)
+│
+├─ gpu_position_readback (after Drain, before Spawn)
+│     GpuReadState → ECS Position components
 │
 ├─ Step::Spawn
 │     spawn_npc_system, apply_targets_system
@@ -49,8 +53,8 @@ MAIN WORLD — Bevy Update Schedule
 RENDER WORLD — parallel with next frame's main world
 │
 ├─ PrepareResources
-│     write_npc_buffers          (flat arrays → GPU storage buffers)
-│     prepare_npc_buffers        (build instance buffer for rendering)
+│     write_npc_buffers          (only dirty fields → GPU storage buffers)
+│     prepare_npc_buffers        (build instance buffer from GPU_READ_STATE positions)
 │
 ├─ PrepareBindGroups
 │     prepare_npc_bind_groups    (compute shader)
@@ -60,7 +64,11 @@ RENDER WORLD — parallel with next frame's main world
 │     queue_npcs                 (NpcBatch → Transparent2d phase)
 │
 ├─ Render Graph
-│     NpcComputeNode → CameraDriver → Transparent2d (DrawNpcCommands)
+│     NpcComputeNode → ProjectileComputeNode → CameraDriver → Transparent2d
+│     NpcComputeNode: dispatch compute + copy positions → staging buffer
+│
+├─ Cleanup
+│     readback_npc_positions     (map staging → GPU_READ_STATE static)
 │
 └─ Present frame
 ```
@@ -69,25 +77,33 @@ RENDER WORLD — parallel with next frame's main world
 
 | Plugin | File | Responsibility |
 |--------|------|----------------|
-| `GpuComputePlugin` | `gpu/mod.rs` | GPU buffer creation, compute pipeline, NpcComputeNode |
+| `GpuComputePlugin` | `gpu.rs` | GPU buffer creation, compute pipeline, NpcComputeNode, readback |
 | `RenderPlugin` | `render.rs` | Camera, sprite sheet loading, NpcSpriteTexture |
 | `NpcRenderPlugin` | `npc_render.rs` | RenderCommand for Transparent2d, instanced draw call |
 
 ## Communication Flow
 
 ```
-Bevy systems emit GpuUpdateMsg via MessageWriter
-    → collect_gpu_updates batches into GPU_UPDATE_QUEUE (one mutex lock)
-    → populate_buffer_writes drains into NpcBufferWrites flat arrays
-    → ExtractResource clones to render world
-    → write_npc_buffers uploads to GPU via render_queue.write_buffer
-    → NpcComputeNode reads/writes positions (physics)
-    → DrawNpcCommands reads positions, sprites, colors (rendering)
+ECS → GPU:
+  GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
+    → populate_buffer_writes → NpcBufferWrites (per-field dirty flags)
+    → ExtractResource → write_npc_buffers (only dirty fields)
+    → NpcComputeNode: dispatch + copy positions to staging
+
+GPU → ECS:
+  readback_npc_positions: map staging → GPU_READ_STATE
+    → sync_gpu_state_to_bevy → GpuReadState resource
+    → gpu_position_readback → ECS Position components
+
+GPU → Render:
+  prepare_npc_buffers: reads GPU_READ_STATE positions + NpcBufferWrites sprites/colors
+    → DrawNpcCommands: instanced draw
 ```
 
 | Direction | Mechanism | Examples |
 |-----------|-----------|---------|
 | Systems → GPU | MessageWriter\<GpuUpdateMsg\> → collect → populate → extract → upload | SetPosition, SetTarget, SetColor, SetSpriteFrame |
+| GPU → ECS | staging buffer → GPU_READ_STATE → GpuReadState → Position components | Positions after compute |
 | Static queues → Bevy | Mutex queues drained in Step::Drain | ARRIVAL_QUEUE, GAME_CONFIG_STAGING |
 
 Systems use MessageWriter for GPU updates so they can run in parallel. The single `collect_gpu_updates` call at frame end does one mutex lock to batch everything.
@@ -105,7 +121,7 @@ Pipelined rendering: the render world processes frame N while the main world com
 
 ## Known Issues
 
-- **No GPU→CPU readback**: GPU compute updates positions but results aren't read back to ECS. `GpuReadState` exists but isn't populated. Combat targeting and arrival detection use stale CPU-side data.
 - **No generational GPU indices**: NPC slot indices are raw `usize`. Safe because chained combat systems prevent stale references within a frame. See [combat.md](combat.md).
 - **Hardcoded camera in render shader**: `npc_render.wgsl` uses constant `CAMERA_POS` and `VIEWPORT` instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering.
 - **Compute shader incomplete**: `npc_compute.wgsl` implements basic goal movement only. Separation physics, grid neighbor search, and combat targeting are not yet ported.
+- **One-frame readback latency**: GPU positions are read back in Cleanup phase and consumed next frame in Step::Drain. Acceptable for gameplay.

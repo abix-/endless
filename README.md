@@ -2,7 +2,7 @@
 
 A game about fighting entropy. Raiders steal your food. Guards die in combat. Farms lie fallow. Everything tends toward chaos and collapse. Can you build something that lasts?
 
-Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimizations for high-performance NPC management.
+Built with Bevy 0.18 ECS and GPU compute shaders (WGSL). Data-oriented design with Factorio-style optimizations — 16K NPCs via GPU instanced rendering in a single draw call.
 
 ## The Struggle
 
@@ -12,7 +12,7 @@ Built in Godot 4.5 using Data-Oriented Design (DOD) with Factorio-style optimiza
 4. **Expand** - Claim neutral towns. More territory, more production, more to defend.
 5. **Endure** - Entropy never stops. Neither can you.
 
-## Controls
+## Controls (Planned)
 
 | Key | Action |
 |-----|--------|
@@ -48,7 +48,5 @@ See [docs/](docs/README.md) for architecture documentation — system maps, file
 
 ## Credits
 
-- Engine: [Godot 4.5](https://godotengine.org/)
-- ECS: [Bevy](https://bevyengine.org/)
-- Integration: [godot-bevy](https://github.com/bytemeadow/godot-bevy)
+- Engine: [Bevy 0.18](https://bevyengine.org/)
 - Sprites: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)

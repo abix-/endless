@@ -19,3 +19,4 @@ When a mistake is made during development, document it here so we don't repeat i
 
 - **PowerShell error suppression**: Don't use `2>$null` - it causes parse errors. Use `-ErrorAction SilentlyContinue` instead.
 - **Godot version mismatch**: Always check `tasklist | grep -i godot` to find the actual process name. Update CLAUDE.md when upgrading Godot.
+- **Bash paths on Windows**: Use `/c/code/endless` not `C:\code\endless` in bash commands. Windows backslash paths fail in the bash shell.

@@ -2344,6 +2344,7 @@ dependencies = [
  "crossbeam-channel",
  "serde",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]
