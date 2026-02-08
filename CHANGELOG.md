@@ -1,6 +1,22 @@
 # Changelog
 
 ## 2026-02-08
+- **pure bevy migration phase 1**: convert from godot+bevy hybrid to standalone bevy app
+  - remove godot dependencies: api.rs, channels.rs, rendering.rs, gpu.rs deleted (~2,000 lines)
+  - keep pure bevy ECS: components.rs, resources.rs, systems/*.rs (~2,500 lines)
+  - update Cargo.toml: bevy 0.18, bevy_egui 0.39, remove godot deps
+  - add main.rs: bevy App entry point with window creation
+  - update lib.rs: strip to build_app() + helpers only
+  - migrate godot-bevy patterns to pure bevy:
+    - `#[derive(Event)]` → `#[derive(Message)]` (bevy 0.17+ terminology)
+    - `EventReader/Writer` → `MessageReader/Writer`
+    - `Vector2` → `Vec2`
+    - `PhysicsDelta` → bevy `Time` resource
+  - remove BevyToGodot channel (projectile firing stubbed for phase 3)
+  - window opens successfully with vulkan backend
+  - systems compile but not yet wired (phase 2: GPU compute)
+- update docs/README.md: reflect new pure bevy architecture
+
 - refactor lib.rs: split into modules (2887 → 2121 lines)
   - api.rs: UI query methods with #[godot_api(secondary)] (518 lines)
   - rendering.rs: MultiMesh setup methods (283 lines)

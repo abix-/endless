@@ -1,7 +1,6 @@
 //! Economy systems - Game time, population tracking, farm growth, camp foraging, respawning
 
-use godot_bevy::prelude::bevy_ecs_prelude::*;
-use godot_bevy::prelude::PhysicsDelta;
+use bevy::prelude::*;
 
 use crate::components::*;
 use crate::resources::*;
@@ -54,7 +53,7 @@ pub fn pop_inc_dead(stats: &mut PopulationStats, job: Job, clan: i32) {
 /// Advances game time based on delta and time_scale.
 /// Sets hour_ticked = true when the hour changes (for hourly systems).
 pub fn game_time_system(
-    delta: Res<PhysicsDelta>,
+    time: Res<Time>,
     mut game_time: ResMut<GameTime>,
 ) {
     // Reset tick flag each frame
@@ -64,7 +63,7 @@ pub fn game_time_system(
         return;
     }
 
-    game_time.total_seconds += delta.delta_seconds * game_time.time_scale;
+    game_time.total_seconds += time.delta_secs() * game_time.time_scale;
 
     // Check if hour changed
     let current_hour = game_time.total_hours();
@@ -83,7 +82,7 @@ pub fn game_time_system(
 /// - Tended growth: FARM_TENDED_GROWTH_RATE per game hour (~4 hours to full)
 /// When progress >= 1.0, farm transitions to Ready state.
 pub fn farm_growth_system(
-    delta: Res<PhysicsDelta>,
+    time: Res<Time>,
     game_time: Res<GameTime>,
     mut farm_states: ResMut<FarmStates>,
     world_data: Res<WorldData>,
@@ -94,7 +93,7 @@ pub fn farm_growth_system(
     }
 
     // Calculate hours elapsed this frame
-    let hours_elapsed = (delta.delta_seconds * game_time.time_scale) / game_time.seconds_per_hour;
+    let hours_elapsed = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
 
     for (farm_idx, farm) in world_data.farms.iter().enumerate() {
         // Skip if farm_states not initialized for this farm
@@ -262,4 +261,3 @@ pub fn starvation_system(
         }
     }
 }
-

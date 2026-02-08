@@ -1,7 +1,6 @@
 //! World Data - Towns, farms, beds, guard posts, sprite definitions
 
-use godot_bevy::prelude::godot_prelude::*;
-use godot_bevy::prelude::bevy_ecs_prelude::*;
+use bevy::prelude::*;
 use std::collections::HashMap;
 
 // ============================================================================
@@ -62,7 +61,7 @@ impl LocationType {
 /// A sprite instance for MultiMesh rendering
 #[derive(Clone, Debug)]
 pub struct SpriteInstance {
-    pub pos: Vector2,
+    pub pos: Vec2,
     pub uv: (i32, i32),  // Grid coords in sprite sheet
     pub scale: f32,
 }
@@ -75,7 +74,7 @@ pub struct SpriteInstance {
 #[derive(Clone, Debug)]
 pub struct Town {
     pub name: String,
-    pub center: Vector2,
+    pub center: Vec2,
     pub faction: i32,       // 0=Villager, 1+=Raider factions
     pub sprite_type: i32,   // 0=fountain, 1=tent
 }
@@ -83,21 +82,21 @@ pub struct Town {
 /// A farm building that farmers work at.
 #[derive(Clone, Debug)]
 pub struct Farm {
-    pub position: Vector2,
+    pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// A bed where NPCs sleep.
 #[derive(Clone, Debug)]
 pub struct Bed {
-    pub position: Vector2,
+    pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// A guard post where guards patrol.
 #[derive(Clone, Debug)]
 pub struct GuardPost {
-    pub position: Vector2,
+    pub position: Vec2,
     pub town_idx: u32,
     /// Patrol order (0-3 for clockwise perimeter)
     pub patrol_order: u32,
@@ -150,7 +149,7 @@ impl WorldData {
     }
 
     /// Add sprite instances for a location (handles multi-cell sprites).
-    fn add_sprite_instances(sprites: &mut Vec<SpriteInstance>, center: Vector2, loc_type: LocationType) {
+    fn add_sprite_instances(sprites: &mut Vec<SpriteInstance>, center: Vec2, loc_type: LocationType) {
         let def = loc_type.sprite_def();
         let total_scale = def.scale;
 
@@ -161,7 +160,7 @@ impl WorldData {
                 // Offset each cell: center the whole sprite, then position each cell
                 let cell_offset_x = (col as f32 - (def.size.0 - 1) as f32 / 2.0) * SPRITE_SIZE;
                 let cell_offset_y = (row as f32 - (def.size.1 - 1) as f32 / 2.0) * SPRITE_SIZE;
-                let world_pos = Vector2::new(
+                let world_pos = Vec2::new(
                     center.x + cell_offset_x * total_scale,
                     center.y + cell_offset_y * total_scale,
                 );
@@ -185,21 +184,21 @@ pub enum LocationKind {
 }
 
 /// Find nearest location of a given kind (no radius limit, position only).
-pub fn find_nearest_location(from: Vector2, world: &WorldData, kind: LocationKind) -> Option<Vector2> {
+pub fn find_nearest_location(from: Vec2, world: &WorldData, kind: LocationKind) -> Option<Vec2> {
     find_location_within_radius(from, world, kind, f32::MAX).map(|(_, pos)| pos)
 }
 
 /// Find nearest location of a given kind within radius. Returns (index, position).
 /// Core function used by both internal Rust code and FFI functions.
 pub fn find_location_within_radius(
-    from: Vector2,
+    from: Vec2,
     world: &WorldData,
     kind: LocationKind,
     radius: f32,
-) -> Option<(usize, Vector2)> {
-    let mut best: Option<(f32, usize, Vector2)> = None;
+) -> Option<(usize, Vec2)> {
+    let mut best: Option<(f32, usize, Vec2)> = None;
 
-    let positions: Vec<Vector2> = match kind {
+    let positions: Vec<Vec2> = match kind {
         LocationKind::Farm => world.farms.iter().map(|f| f.position).collect(),
         LocationKind::Bed => world.beds.iter().map(|b| b.position).collect(),
         LocationKind::GuardPost => world.guard_posts.iter().map(|g| g.position).collect(),
@@ -218,9 +217,9 @@ pub fn find_location_within_radius(
     best.map(|(_, idx, pos)| (idx, pos))
 }
 
-/// Convert Vector2 to integer key for HashMap lookup.
+/// Convert Vec2 to integer key for HashMap lookup.
 /// Uses rounded coordinates so slight position differences still match.
-pub fn pos_to_key(pos: Vector2) -> (i32, i32) {
+pub fn pos_to_key(pos: Vec2) -> (i32, i32) {
     (pos.x.round() as i32, pos.y.round() as i32)
 }
 
@@ -237,7 +236,7 @@ pub struct FarmOccupancy {
 }
 
 /// Find farm index by position (for FarmStates lookup which is still Vec-indexed).
-pub fn find_farm_index_by_pos(farms: &[Farm], pos: Vector2) -> Option<usize> {
+pub fn find_farm_index_by_pos(farms: &[Farm], pos: Vec2) -> Option<usize> {
     let key = pos_to_key(pos);
     farms.iter().position(|f| pos_to_key(f.position) == key)
 }

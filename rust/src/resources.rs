@@ -1,6 +1,6 @@
 //! ECS Resources - Shared state accessible by all systems
 
-use godot_bevy::prelude::bevy_ecs_prelude::*;
+use bevy::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use crate::constants::MAX_NPC_COUNT;

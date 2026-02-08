@@ -1,20 +1,17 @@
 //! Combat systems - Attack processing using GPU targeting results
 
-use godot_bevy::prelude::bevy_ecs_prelude::*;
-use godot_bevy::prelude::PhysicsDelta;
-
-use crate::channels::{BevyToGodot, BevyToGodotMsg};
+use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{CombatDebug, GpuReadState};
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
-    delta: Res<PhysicsDelta>,
+    time: Res<Time>,
     mut query: Query<&mut AttackTimer>,
     mut debug: ResMut<CombatDebug>,
 ) {
-    let dt = delta.delta_seconds;
+    let dt = time.delta_secs();
 
     let mut first_timer_before = -99.0f32;
     let mut timer_count = 0usize;
@@ -37,13 +34,13 @@ pub fn cooldown_system(
 
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
+/// Note: Projectile firing will be handled by Bevy rendering in Phase 3.
 pub fn attack_system(
     mut commands: Commands,
     mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
-    outbox: Option<Res<BevyToGodot>>,
 ) {
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
@@ -114,20 +111,7 @@ pub fn attack_system(
             }
             if timer.0 <= 0.0 {
                 timer_ready_count += 1;
-                // Attack! Fire projectile via outbox
-                if let Some(ref out) = outbox {
-                    let _ = out.0.send(BevyToGodotMsg::FireProjectile {
-                        from_x: x,
-                        from_y: y,
-                        to_x: tx,
-                        to_y: ty,
-                        damage: stats.damage,
-                        faction: _faction.to_i32(),
-                        shooter: i,
-                        speed: stats.projectile_speed,
-                        lifetime: stats.projectile_lifetime,
-                    });
-                }
+                // TODO: Fire projectile via Bevy rendering (Phase 3)
                 attacks += 1;
                 timer.0 = stats.cooldown;
             }

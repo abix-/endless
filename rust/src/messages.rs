@@ -1,15 +1,13 @@
-//! ECS Messages - Commands sent from GDScript to Bevy.
-//! See docs/messages.md for architecture.
+//! ECS Events - Commands sent between systems.
 
-use godot_bevy::prelude::bevy_ecs_prelude::Message;
+use bevy::prelude::*;
 use std::sync::Mutex;
 
 // ============================================================================
-// MESSAGE TYPES (Bevy ECS internal messages)
+// EVENT TYPES
 // ============================================================================
 
-/// Unified spawn message. Job determines component template at spawn time.
-/// Replaces SpawnNpcMsg, SpawnGuardMsg, SpawnFarmerMsg, SpawnRaiderMsg.
+/// Unified spawn event. Job determines component template at spawn time.
 #[derive(Message, Clone)]
 pub struct SpawnNpcMsg {
     pub slot_idx: usize,
@@ -110,22 +108,10 @@ pub static GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>> = Mutex::new(Vec::new());
 
 // ============================================================================
 // GPU-FIRST: Single Read State (GPU -> Bevy)
-// Replaces: GPU_POSITIONS, GPU_COMBAT_TARGETS, GPU_NPC_COUNT
+// Static for cross-thread access. Struct defined in resources.rs.
 // ============================================================================
 
-#[derive(Default)]
-pub struct GpuReadState {
-    /// Positions: [x0, y0, x1, y1, ...] - 2 floats per NPC
-    pub positions: Vec<f32>,
-    /// Combat targets: index i = target for NPC i (-1 = no target)
-    pub combat_targets: Vec<i32>,
-    /// Health values (GPU authoritative)
-    pub health: Vec<f32>,
-    /// Factions (for Bevy queries)
-    pub factions: Vec<i32>,
-    /// Current NPC count
-    pub npc_count: usize,
-}
+use crate::resources::GpuReadState;
 
 pub static GPU_READ_STATE: Mutex<GpuReadState> = Mutex::new(GpuReadState {
     positions: Vec::new(),

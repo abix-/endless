@@ -1,15 +1,16 @@
 [package]
-name = "endless-ecs"
+name = "endless"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.93"
 
-[lib]
-crate-type = ["cdylib"]
+[[bin]]
+name = "endless"
+path = "src/main.rs"
 
 [dependencies]
-godot = "0.4"
-godot-bevy = { git = "https://github.com/bytemeadow/godot-bevy.git", branch = "main" }
-bevy = { version = "0.18", default-features = false, features = ["bevy_asset", "bevy_log"] }
+bevy = "0.18"
+bevy_egui = "0.39"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 crossbeam-channel = "0.5"
-compile-time = "0.2"

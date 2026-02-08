@@ -1,15 +1,13 @@
-//! Spawn systems - Create Bevy entities from spawn messages
+//! Spawn systems - Create Bevy entities from spawn events
 
-use godot_bevy::prelude::bevy_ecs_prelude::*;
-use godot_bevy::prelude::godot_prelude::*;
+use bevy::prelude::*;
 
-use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
 use crate::constants::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, GPU_DISPATCH_COUNT};
 use crate::resources::{
     NpcCount, NpcEntityMap, PopulationStats, GpuDispatchCount, NpcMetaCache, NpcMeta,
-    NpcsByTownCache, FactionStats, ResetFlag, GameTime,
+    NpcsByTownCache, FactionStats, GameTime,
 };
 use crate::systems::economy::*;
 use crate::world::WorldData;
@@ -83,24 +81,6 @@ fn generate_personality(slot: usize) -> Personality {
     }
 }
 
-/// Despawn all Bevy entities when reset flag is set.
-pub fn reset_bevy_system(
-    mut commands: Commands,
-    query: Query<Entity, With<NpcIndex>>,
-    mut count: ResMut<NpcCount>,
-    mut npc_map: ResMut<NpcEntityMap>,
-    mut reset_flag: ResMut<ResetFlag>,
-) {
-    if reset_flag.0 {
-        reset_flag.0 = false;
-        for entity in query.iter() {
-            commands.entity(entity).despawn();
-        }
-        count.0 = 0;
-        npc_map.0.clear();
-    }
-}
-
 /// Generic spawn system. Job determines the component template.
 /// All GPU writes go through GpuUpdateMsg messages (collected at end of frame).
 pub fn spawn_npc_system(
@@ -115,7 +95,6 @@ pub fn spawn_npc_system(
     game_time: Res<GameTime>,
     mut npc_meta: ResMut<NpcMetaCache>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
-    outbox: Option<Res<BevyToGodot>>,
     mut gpu_dispatch: ResMut<GpuDispatchCount>,
 ) {
     let mut max_slot = 0usize;
@@ -171,7 +150,7 @@ pub fn spawn_npc_system(
             Health::default(),
             MaxHealth::default(),
             Faction::from_i32(msg.faction),
-            Home(Vector2::new(msg.home_x, msg.home_y)),
+            Home(Vec2::new(msg.home_x, msg.home_y)),
             personality,
             LastAteHour(current_hour),  // Track when NPC last ate for starvation
         ));
@@ -198,7 +177,7 @@ pub fn spawn_npc_system(
                 ec.insert(Farmer);
                 if msg.work_x >= 0.0 {
                     ec.insert((
-                        WorkPosition(Vector2::new(msg.work_x, msg.work_y)),
+                        WorkPosition(Vec2::new(msg.work_x, msg.work_y)),
                         GoingToWork,
                     ));
                 }
@@ -241,16 +220,6 @@ pub fn spawn_npc_system(
                 npcs_by_town.0[town_idx].push(idx);
             }
         }
-
-        // Send SpawnView to Godot via channel
-        if let Some(ref out) = outbox {
-            let _ = out.0.send(BevyToGodotMsg::SpawnView {
-                slot: idx,
-                job: msg.job as u8,
-                x: msg.x,
-                y: msg.y,
-            });
-        }
     }
 
     // Update GPU dispatch count so process() includes these NPCs
@@ -266,8 +235,8 @@ pub fn spawn_npc_system(
 }
 
 /// Build sorted patrol route from WorldData for a given town.
-fn build_patrol_route(world: &WorldData, town_idx: u32) -> Vec<Vector2> {
-    let mut posts: Vec<(u32, Vector2)> = world.guard_posts.iter()
+fn build_patrol_route(world: &WorldData, town_idx: u32) -> Vec<Vec2> {
+    let mut posts: Vec<(u32, Vec2)> = world.guard_posts.iter()
         .filter(|p| p.town_idx == town_idx)
         .map(|p| (p.patrol_order, p.position))
         .collect();

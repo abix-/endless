@@ -32,23 +32,24 @@ When a test fails, the phase results show exactly which layer broke and what val
 
 ## System Map
 
+**NOTE: Phase 1 of Pure Bevy migration complete. Architecture is transitioning from Godot+Bevy hybrid to pure Bevy.**
+
 ```
-GDScript (ecs_test.gd, game scenes)
+Pure Bevy App (main.rs)
     │
     ▼
-EcsNpcManager (lib.rs) ── GDScript API ──▶ [api.md]
+Bevy ECS (lib.rs build_app)
     │
-    ├─ Channels (GodotToBevy, BevyToGodot) ▶ [messages.md]
+    ├─ Messages (static queues) ───────────▶ [messages.md]
     │
-    ├─ GPU Compute ────────────────────────▶ [gpu-compute.md]
-    │   ├─ npc_compute.glsl
-    │   └─ projectile_compute.glsl
+    ├─ GPU Compute (TODO: Phase 2) ────────▶ [gpu-compute.md]
+    │   └─ wgpu compute shaders (port from GLSL)
     │
-    └─ Bevy ECS
+    └─ Bevy Systems
         ├─ Spawn systems ──────────────────▶ [spawn.md]
         ├─ Combat pipeline ────────────────▶ [combat.md]
         ├─ Behavior systems ───────────────▶ [behavior.md]
-        └─ Projectile system ──────────────▶ [projectiles.md]
+        └─ Economy systems ────────────────▶ [behavior.md]
 
 Frame execution order ─────────────────────▶ [frame-loop.md]
 ```
@@ -57,73 +58,57 @@ Frame execution order ───────────────────�
 
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
-| [frame-loop.md](frame-loop.md) | Per-frame execution order, communication bridges, timing | 7/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders, 11 GPU buffers, spatial grid, CPU sync | 6/10 |
+| [frame-loop.md](frame-loop.md) | Per-frame execution order, timing | 7/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders (TODO: port to wgpu/WGSL) | 6/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 7/10 |
-| [projectiles.md](projectiles.md) | Fire → move → collide → expire, dynamic MultiMesh | 7/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work/eat, steal/flee/recover, farm growth | 7/10 |
-| [api.md](api.md) | Complete GDScript-to-Rust API (36 methods) | - |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
-| [roadmap.md](roadmap.md) | Feature tracking, performance targets, game design reference | - |
+| [roadmap.md](roadmap.md) | Feature tracking, Pure Bevy migration plan | - |
 
 ## File Map
 
+**NOTE: Phase 1 migration complete. Godot files listed for reference during port to bevy_egui.**
+
 ```
-autoloads/
-  config.gd             # All tunable constants
-  user_settings.gd      # Persistent user preferences
-entities/
-  player.gd             # Camera controls
-world/
-  location.gd           # Building sprites (SPRITES dict, LOCATION_SPRITES, *_PIECES arrays)
-  terrain_renderer.gd   # Terrain tile rendering with sprite tiling
-  terrain_sprite.gdshader # Terrain tile shader (used by location MultiMesh in Rust)
-ui/
-  start_menu.gd         # Start menu (world size, towns, populations)
-  left_panel.gd         # Stats, performance, NPC inspector (uses ECS query APIs)
-  combat_log.gd         # Resizable event log (ECS-only, waiting for signals)
-  settings_menu.gd      # Options menu with log filters
-  upgrade_menu.gd       # Town management, upgrades (uses ECS query APIs)
-  build_menu.gd         # Grid slot building (farms, beds)
-  policies_panel.gd     # Faction policies (flee thresholds, off-duty behavior)
-  roster_panel.gd       # NPC roster with sorting/filtering (uses ECS query APIs)
-  farm_menu.gd          # Farm info popup (ECS-only, waiting for farm API)
-  guard_post_menu.gd    # Guard post upgrades
 rust/
-  Cargo.toml            # Bevy 0.18 + godot-bevy 0.11 dependencies
-  src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, lifecycle
-  src/api.rs            # UI query methods (#[godot_api(secondary)])
-  src/rendering.rs      # MultiMesh setup (NPCs, projectiles, items, locations)
-  src/gpu.rs            # GPU compute shader dispatch and buffer management
-  src/messages.rs       # Static queues and message types (GDScript → Bevy)
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states, flee/leash)
+  Cargo.toml            # Pure Bevy 0.18 + bevy_egui (no godot deps)
+  src/main.rs           # Bevy App entry point
+  src/lib.rs            # build_app(), system scheduling, helpers
+  src/messages.rs       # Static queues (GpuUpdate, Arrival), Message types
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
-  src/resources.rs      # Bevy resources (NpcCount, NpcEntityMap, GameTime, GameConfig, PopulationStats, FactionStats)
-  src/world.rs          # World data structs, sprite definitions, location MultiMesh rendering
+  src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
+  src/world.rs          # World data structs, sprite definitions
   src/systems/
-    spawn.rs            # Bevy spawn systems (drain queues → create entities)
-    combat.rs           # Attack system (GPU targets → damage → chase)
-    health.rs           # Damage, death, cleanup, slot recycling
-    behavior.rs         # Unified decision system (priority cascade), energy, arrivals
-    economy.rs          # Food production, respawning, population tracking
-shaders/
-  npc_compute.glsl      # GPU: movement + separation + combat targeting
-  projectile_compute.glsl # GPU: projectile movement + collision
-  npc_sprite.gdshader   # Visual: NPC sprites with HP bar, flash, sprite atlas
-  item_icon.gdshader    # Visual: farm progress bar + food sprite (24,9 from roguelikeSheet)
-  halo.gdshader         # Visual: healing zone indicator (not yet used)
-  loot_icon.gdshader    # Visual: raider carrying food (not yet used)
-  sleep_icon.gdshader   # Visual: resting indicator (not yet used)
+    spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
+    drain.rs            # Queue drain systems, reset
+    movement.rs         # Target application, GPU position readback
+    combat.rs           # Attack cooldown, targeting
+    health.rs           # Damage, death, cleanup, healing aura
+    behavior.rs         # Unified decision system, arrivals
+    economy.rs          # Game time, farm growth, respawning
+    energy.rs           # Energy drain/recovery
+    sync.rs             # GPU state sync
+
+(Godot files - to be ported to bevy_egui in Phase 5-7)
+autoloads/
+  config.gd             # → Bevy Resource constants
+  user_settings.gd      # → serde JSON persistence
+ui/
+  start_menu.gd         # → bevy_egui sliders
+  left_panel.gd         # → bevy_egui dashboard
+  upgrade_menu.gd       # → bevy_egui grid
+  roster_panel.gd       # → bevy_egui table
+  policies_panel.gd     # → bevy_egui forms
+  build_menu.gd         # → bevy_egui popup
+  combat_log.gd         # → bevy_egui window
 scenes/
-  main.gd               # World generation, food tracking, game setup
-  main.tscn             # Main game scene
-  ecs_test.gd           # Test harness (500-10000 NPCs configurable)
-  ecs_test.tscn         # 11 behavior tests with visual markers and PASS/FAIL
-  bevy_poc.tscn         # Original POC (5000 NPCs @ 140fps)
-tools/
-  sprite_browser.gd     # Dev tool for browsing sprite atlas
+  main.gd               # → world_gen.rs (Bevy systems)
+shaders/
+  npc_compute.glsl      # → gpu/npc_compute.wgsl (Phase 2)
+  projectile_compute.glsl # → gpu/projectile_compute.wgsl (Phase 2)
 ```
 
 ## Configuration

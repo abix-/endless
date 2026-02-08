@@ -1,7 +1,6 @@
 //! ECS Components - Bevy entities have these attached
 
-use godot_bevy::prelude::godot_prelude::*;
-use godot_bevy::prelude::bevy_ecs_prelude::*;
+use bevy::prelude::*;
 
 // ============================================================================
 // CORE COMPONENTS
@@ -109,7 +108,7 @@ impl Default for Energy {
 /// Where the NPC goes to rest (bed position).
 /// Home(-1, -1) means no home assigned — behavior systems should skip.
 #[derive(Component)]
-pub struct Home(pub Vector2);
+pub struct Home(pub Vec2);
 
 impl Home {
     pub fn is_valid(&self) -> bool {
@@ -120,13 +119,13 @@ impl Home {
 /// Patrol route for guards (or any NPC that patrols).
 #[derive(Component)]
 pub struct PatrolRoute {
-    pub posts: Vec<Vector2>,
+    pub posts: Vec<Vec2>,
     pub current: usize,
 }
 
 /// Work position for farmers (or any NPC that works at a location).
 #[derive(Component)]
-pub struct WorkPosition(pub Vector2);
+pub struct WorkPosition(pub Vec2);
 
 // ============================================================================
 // STATE MARKERS (mutually exclusive)
@@ -158,7 +157,7 @@ pub struct Working;
 /// Added when entering Working at a farm, removed when leaving.
 /// Stores position (not index) so buildings can be deleted without breaking refs.
 #[derive(Component)]
-pub struct AssignedFarm(pub Vector2);
+pub struct AssignedFarm(pub Vec2);
 
 /// NPC is walking to work position.
 #[derive(Component)]

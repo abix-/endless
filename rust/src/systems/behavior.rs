@@ -15,8 +15,7 @@
 //! Priority 8: Idle → Score Eat/Rest/Work/Wander
 
 use bevy::ecs::system::SystemParam;
-use godot_bevy::prelude::bevy_ecs_prelude::*;
-use godot_bevy::prelude::godot_prelude::*;
+use bevy::prelude::*;
 
 use crate::components::*;
 use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
@@ -177,10 +176,10 @@ pub fn arrival_system(
         let farm_pos = assigned.0;  // AssignedFarm now stores position
         let idx = npc_idx.0;
         if idx * 2 + 1 >= positions.len() { continue; }
-        let current = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
+        let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
         // If drifted too far, re-target to farm
-        if current.distance_to(farm_pos) > MAX_DRIFT {
+        if current.distance(farm_pos) > MAX_DRIFT {
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                 idx, x: farm_pos.x, y: farm_pos.y
             }));
@@ -377,9 +376,9 @@ pub fn decision_system(
                         .map(|wp| wp.0)
                         .unwrap_or_else(|_| {
                             if idx * 2 + 1 < positions.len() {
-                                Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                                Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                             } else {
-                                Vector2::new(0.0, 0.0)
+                                Vec2::new(0.0, 0.0)
                             }
                         });
 
@@ -425,9 +424,9 @@ pub fn decision_system(
                 } else {
                     // Non-farmers just transition to Working
                     let current_pos = if idx * 2 + 1 < positions.len() {
-                        Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                        Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                     } else {
-                        Vector2::new(0.0, 0.0)
+                        Vec2::new(0.0, 0.0)
                     };
                     commands.entity(entity)
                         .remove::<GoingToWork>()
@@ -439,7 +438,7 @@ pub fn decision_system(
             } else if raiding.is_some() {
                 // Raider arrived at farm - check if ready to steal
                 if idx * 2 + 1 < positions.len() {
-                    let pos = Vector2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                    let pos = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
                     let ready_farm = find_location_within_radius(pos, &farms.world, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
                         .filter(|(farm_idx, _)| {
@@ -704,7 +703,7 @@ pub fn decision_system(
                         if queue.len() >= RAID_GROUP_SIZE as usize {
                             // Find target farm from current position
                             let pos = if idx * 2 + 1 < positions.len() {
-                                Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                                Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                             } else {
                                 home.0
                             };

@@ -1,6 +1,6 @@
 //! Movement systems - Target tracking, arrival detection, position sync
 
-use godot_bevy::prelude::bevy_ecs_prelude::*;
+use bevy::prelude::*;
 
 use crate::components::*;
 use crate::messages::{SetTargetMsg, GpuUpdate, GpuUpdateMsg};

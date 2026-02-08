@@ -1,9 +1,6 @@
 //! Health systems - Damage, death detection, cleanup, healing aura
 
-use godot_bevy::prelude::bevy_ecs_prelude::*;
-use godot_bevy::prelude::PhysicsDelta;
-
-use crate::channels::{BevyToGodot, BevyToGodotMsg};
+use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
@@ -15,8 +12,6 @@ use crate::world::{WorldData, FarmOccupancy, pos_to_key};
 const HEAL_RATE: f32 = 5.0;
 /// Radius of healing aura around town center in pixels.
 const HEAL_RADIUS: f32 = 150.0;
-
-// Note: sync_health_system moved to sync.rs (unified sync_to_godot system)
 
 /// Apply queued damage to Health component and sync to GPU.
 /// Uses NpcEntityMap for O(1) entity lookup instead of O(n) iteration.
@@ -74,7 +69,6 @@ pub fn death_cleanup_system(
     mut debug: ResMut<HealthDebug>,
     mut kill_stats: ResMut<KillStats>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
-    outbox: Option<Res<BevyToGodot>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut slots: ResMut<SlotAllocator>,
     mut farm_occupancy: ResMut<FarmOccupancy>,
@@ -131,11 +125,6 @@ pub fn death_cleanup_system(
 
         // Return slot to free pool
         slots.free(idx);
-
-        // Send DespawnView to Godot via channel
-        if let Some(ref out) = outbox {
-            let _ = out.0.send(BevyToGodotMsg::DespawnView { slot: idx });
-        }
     }
 
     debug.despawned_this_frame = despawn_count;
@@ -149,12 +138,12 @@ pub fn healing_system(
     mut query: Query<(Entity, &NpcIndex, &mut Health, &MaxHealth, &Faction, &TownId, Option<&Healing>, Option<&Starving>), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
-    delta: Res<PhysicsDelta>,
+    time: Res<Time>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<HealthDebug>,
 ) {
     let positions = &gpu_state.positions;
-    let dt = delta.delta_seconds;
+    let dt = time.delta_secs();
     let heal_amount = HEAL_RATE * dt;
 
     // Debug tracking

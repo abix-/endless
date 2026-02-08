@@ -1,6 +1,65 @@
 # Roadmap
 
-Target: 20,000+ NPCs @ 60fps with Rust/Bevy ECS + GPU compute + bulk rendering.
+Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + wgpu compute + bevy_egui.
+
+## Pure Bevy Migration (In Progress)
+
+Migrating from Godot+Bevy hybrid to pure Bevy. Removes gdext/godot-bevy complexity.
+
+### What We Keep (~2,500 lines pure Bevy)
+- [x] components.rs, resources.rs, systems/*.rs
+- [x] constants.rs, messages.rs, world.rs
+- [x] build_app() system registration
+
+### What We Delete (~2,000 lines Godot bridge)
+- [ ] gpu.rs (Godot RenderingDevice)
+- [ ] rendering.rs (Godot MultiMesh)
+- [ ] api.rs (GDScript FFI)
+- [ ] channels.rs (Godot-Bevy messaging)
+- [ ] EcsNpcManager struct
+
+### Migration Phases
+
+**Phase 1: Standalone Bevy App**
+- [ ] Update Cargo.toml (bevy, bevy_egui, serde)
+- [ ] Create main.rs with App runner
+- [ ] Update imports (godot_bevy → bevy)
+- [ ] Test: `cargo run` opens window
+
+**Phase 2: GPU Compute via wgpu**
+- [ ] Port npc_compute.glsl → npc_compute.wgsl
+- [ ] Port projectile_compute.glsl → projectile_compute.wgsl
+- [ ] Create wgpu compute pipeline
+- [ ] Test: NPCs move (log positions)
+
+**Phase 3: Sprite Rendering**
+- [ ] Port npc_sprite.gdshader → WGSL
+- [ ] Port terrain_sprite.gdshader → WGSL
+- [ ] Bevy sprite instancing for 10K NPCs
+- [ ] Test: NPCs visible @ 140fps
+
+**Phase 4: World Generation**
+- [ ] Port main.gd world gen to Rust
+- [ ] Town/farm/bed/guard_post placement
+- [ ] Test: World generates correctly
+
+**Phase 5: Start Menu + Config**
+- [ ] Port config.gd → Bevy Resource
+- [ ] Port user_settings.gd → serde JSON
+- [ ] bevy_egui start menu
+- [ ] Test: Menu → game start
+
+**Phase 6: Core UI Panels**
+- [ ] left_panel.rs (stats, perf, inspector)
+- [ ] upgrade_menu.rs
+- [ ] policies_panel.rs
+- [ ] Test: UI shows live ECS data
+
+**Phase 7: Remaining UI + Polish**
+- [ ] roster_panel.rs, build_menu.rs, combat_log.rs
+- [ ] Camera controls, click selection
+- [ ] Audio (bevy_audio)
+- [ ] Test: Full game playable
 
 ## Current State
 
