@@ -93,7 +93,9 @@ ui/
   guard_post_menu.gd    # Guard post upgrades
 rust/
   Cargo.toml            # Bevy 0.18 + godot-bevy 0.11 dependencies
-  src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, rendering
+  src/lib.rs            # EcsNpcManager: GDScript API bridge, GPU dispatch, lifecycle
+  src/api.rs            # UI query methods (#[godot_api(secondary)])
+  src/rendering.rs      # MultiMesh setup (NPCs, projectiles, items, locations)
   src/gpu.rs            # GPU compute shader dispatch and buffer management
   src/messages.rs       # Static queues and message types (GDScript → Bevy)
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states, flee/leash)

@@ -24,7 +24,7 @@ const WORLD_SIZE_DEFAULT := 8000
 
 const TOWNS_MIN := 1
 const TOWNS_MAX := 7
-const TOWNS_DEFAULT := 10  # stress test default
+const TOWNS_DEFAULT := 1
 
 const FARMERS_MIN := 0
 const FARMERS_MAX := 50
@@ -32,7 +32,7 @@ const FARMERS_DEFAULT := 2  # per villager town
 
 const GUARDS_MIN := 0
 const GUARDS_MAX := 50
-const GUARDS_DEFAULT := 4
+const GUARDS_DEFAULT := 10
 
 const RAIDERS_MIN := 0
 const RAIDERS_MAX := 50

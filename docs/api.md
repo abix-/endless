@@ -2,7 +2,10 @@
 
 ## Overview
 
-All GDScript interaction with the ECS goes through `EcsNpcManager`, a Godot `Node2D` that owns the GPU compute context and bridges to Bevy. Methods are exposed via `#[func]` in `rust/src/lib.rs`.
+All GDScript interaction with the ECS goes through `EcsNpcManager`, a Godot `Node2D` that owns the GPU compute context and bridges to Bevy. Methods are split across files:
+- `rust/src/lib.rs` — Core lifecycle, spawn, debug methods (primary `#[godot_api]`)
+- `rust/src/api.rs` — UI query methods (secondary `#[godot_api]` with `#[godot_api(secondary)]`)
+- `rust/src/rendering.rs` — MultiMesh setup (internal `impl`, no `#[func]`)
 
 ## Spawn API
 

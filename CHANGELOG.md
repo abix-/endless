@@ -1,6 +1,13 @@
 # Changelog
 
 ## 2026-02-08
+- refactor lib.rs: split into modules (2887 → 2121 lines)
+  - api.rs: UI query methods with #[godot_api(secondary)] (518 lines)
+  - rendering.rs: MultiMesh setup methods (283 lines)
+- add town/camp info labels in main.gd showing population counts
+- change raid balance: max 5 raiders per camp (was 10), 3 per raid group (was 5)
+- change start menu defaults: 1 town, 10 guards per town
+
 - add game loop phase 1: raider economy
   - camp_forage_system: camps gain 1 food/hour passive income
   - raider_respawn_system: camps spawn raiders for 5 food each (max 10 per camp)

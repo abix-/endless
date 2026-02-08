@@ -72,6 +72,12 @@ var town_max_guards: PackedInt32Array   # Population cap per town
 var town_policies: Array = []  # Per-town faction policies
 var guard_post_upgrades: Array[Dictionary] = []  # Per-town: slot_key -> {attack_enabled, range_level, damage_level}
 
+# Town/camp info labels (world-space)
+var town_labels: Array[Label] = []
+var camp_labels: Array[Label] = []
+var _label_update_timer := 0.0
+const LABEL_UPDATE_INTERVAL := 0.5
+
 # Grid slot keys - max 100x100 grid (-49 to +50)
 # Town starts at 6x6 (-2 to +3), expands by unlocking adjacent slots
 const BASE_GRID_MIN := -2
@@ -393,6 +399,9 @@ func _setup_managers() -> void:
 	npc_manager.build_locations()
 	print("Built location sprites via ECS")
 
+	# Create town/camp info labels
+	_create_info_labels()
+
 
 func _setup_player() -> void:
 	player = player_scene.instantiate()
@@ -433,6 +442,47 @@ func _setup_ui() -> void:
 	var farm_menu_script: GDScript = preload("res://ui/farm_menu.gd")
 	farm_menu = farm_menu_script.new()
 	add_child(farm_menu)
+
+
+func _create_info_labels() -> void:
+	for town_idx in towns.size():
+		var town: Dictionary = towns[town_idx]
+		var grid: Dictionary = town.grid
+		var fountain_pos: Vector2 = grid["0,0"]
+
+		# Town label (above fountain)
+		var label := Label.new()
+		label.position = fountain_pos + Vector2(-40, -50)
+		label.add_theme_font_size_override("font_size", 10)
+		add_child(label)
+		town_labels.append(label)
+
+		# Camp label (above tent)
+		var camp_label := Label.new()
+		camp_label.position = town.camp_pos + Vector2(-40, -50)
+		camp_label.add_theme_font_size_override("font_size", 10)
+		camp_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
+		add_child(camp_label)
+		camp_labels.append(camp_label)
+
+	_update_info_labels()
+
+
+func _update_info_labels() -> void:
+	for town_idx in towns.size():
+		var town: Dictionary = towns[town_idx]
+
+		# Town stats from ECS
+		var pop: Dictionary = npc_manager.get_town_population(town_idx)
+		var farmers: int = pop.get("farmer_count", 0)
+		var guards: int = pop.get("guard_count", 0)
+		town_labels[town_idx].text = "%s\nF:%d G:%d" % [town.name, farmers, guards]
+
+		# Camp stats - faction = town_idx + 1, food at unified index towns.size() + town_idx
+		var camp_pop: Dictionary = npc_manager.get_faction_stats(town_idx + 1)
+		var raiders: int = camp_pop.get("alive", 0)
+		var food: int = npc_manager.get_town_food(towns.size() + town_idx)
+		camp_labels[town_idx].text = "Camp\nR:%d Food:%d" % [raiders, food]
 
 
 func _spawn_npcs() -> void:
@@ -510,10 +560,16 @@ func _spawn_npcs() -> void:
 #			town_food[town_idx] -= Config.FOOD_PER_MEAL
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	gd_timings.draw = 0
 	gd_timings.slots = 0
+
+	# Update town/camp info labels (throttled)
+	_label_update_timer += delta
+	if _label_update_timer >= LABEL_UPDATE_INTERVAL:
+		_label_update_timer = 0.0
+		_update_info_labels()
 
 	# Redraw main canvas only if showing active radius (follows camera)
 	if UserSettings.show_active_radius:

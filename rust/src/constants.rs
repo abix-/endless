@@ -130,10 +130,10 @@ pub const RAIDER_SPAWN_COST: i32 = 5;
 pub const RAIDER_RESPAWN_HOURS: f32 = 2.0;
 
 /// Maximum raiders per camp.
-pub const CAMP_MAX_POP: i32 = 10;
+pub const CAMP_MAX_POP: i32 = 5;
 
 /// Minimum raiders needed to form a raid group.
-pub const RAID_GROUP_SIZE: i32 = 5;
+pub const RAID_GROUP_SIZE: i32 = 3;
 
 /// Villager population per raider camp (1 camp per 20 villagers).
 pub const VILLAGERS_PER_CAMP: i32 = 20;

@@ -465,6 +465,12 @@ pub fn decision_system(
                         if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another".into());
+                        } else {
+                            // No farms available - abort raid and return home
+                            commands.entity(entity).remove::<Raiding>();
+                            commands.entity(entity).insert(Returning);
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farms, returning home".into());
                         }
                     }
                 }
@@ -715,6 +721,16 @@ pub fn decision_system(
                                         idx: raider_idx, x: farm_pos.x, y: farm_pos.y
                                     }));
                                 }
+                            } else {
+                                // No farms exist - clear queue and have everyone wander
+                                queue.clear();
+                                let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
+                                let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
+                                commands.entity(entity).insert(Wandering);
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                    idx, x: home.0.x + offset_x, y: home.0.y + offset_y
+                                }));
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farms to raid".into());
                             }
                         } else {
                             // Not enough raiders yet - wander near camp while waiting
