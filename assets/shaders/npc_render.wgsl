@@ -1,0 +1,73 @@
+// NPC Instanced Render Shader
+// Uses vertex instancing: slot 0 = quad vertices, slot 1 = per-instance data
+
+// Vertex input from two vertex buffers
+struct VertexInput {
+    // Slot 0: Static quad vertex
+    @location(0) quad_pos: vec2<f32>,
+    @location(1) quad_uv: vec2<f32>,
+    // Slot 1: Per-instance data (step_mode = Instance)
+    @location(2) instance_pos: vec2<f32>,
+    @location(3) sprite_cell: vec2<f32>,  // col, row
+    @location(4) color: vec4<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+// Texture (bind group 1)
+@group(1) @binding(0) var sprite_texture: texture_2d<f32>;
+@group(1) @binding(1) var sprite_sampler: sampler;
+
+// Constants
+const SPRITE_SIZE: f32 = 32.0;  // Size of sprite in world units
+
+// Sprite atlas layout (roguelikeChar_transparent.png: 918x203 pixels)
+// 16x16 sprites with 1px margin = 17px cells
+const CELL_SIZE: f32 = 17.0;
+const SPRITE_TEX_SIZE: f32 = 16.0;
+const TEXTURE_WIDTH: f32 = 918.0;
+const TEXTURE_HEIGHT: f32 = 203.0;
+
+// Camera settings (should match Bevy camera)
+const CAMERA_POS: vec2<f32> = vec2<f32>(400.0, 300.0);
+const VIEWPORT: vec2<f32> = vec2<f32>(1280.0, 720.0);
+
+@vertex
+fn vertex(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+
+    // Expand quad by sprite size and offset by instance position
+    let world_pos = in.instance_pos + in.quad_pos * SPRITE_SIZE;
+
+    // Simple orthographic projection: world to clip space
+    let offset = world_pos - CAMERA_POS;
+    let ndc = offset / (VIEWPORT * 0.5);
+    out.clip_position = vec4<f32>(ndc.x, ndc.y, 0.0, 1.0);
+
+    // Calculate UV for sprite atlas
+    let cell_uv = vec2<f32>(in.quad_uv.x, 1.0 - in.quad_uv.y);
+    let pixel_x = in.sprite_cell.x * CELL_SIZE + cell_uv.x * SPRITE_TEX_SIZE;
+    let pixel_y = in.sprite_cell.y * CELL_SIZE + cell_uv.y * SPRITE_TEX_SIZE;
+    out.uv = vec2<f32>(pixel_x / TEXTURE_WIDTH, pixel_y / TEXTURE_HEIGHT);
+
+    out.color = in.color;
+
+    return out;
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // DEBUG: Output solid color to verify geometry works
+    return vec4<f32>(in.color.rgb, 1.0);
+
+    // Sample sprite texture
+    // let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
+    // if tex_color.a < 0.1 {
+    //     discard;
+    // }
+    // return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+}

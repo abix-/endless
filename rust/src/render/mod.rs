@@ -4,6 +4,8 @@
 
 use bevy::prelude::*;
 
+use crate::gpu::NpcSpriteTexture;
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -59,8 +61,7 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpriteAssets>()
-            .add_systems(Startup, (setup_camera, load_sprites))
-            .add_systems(Update, spawn_test_sprites.run_if(run_once));
+            .add_systems(Startup, (setup_camera, load_sprites));
     }
 }
 
@@ -77,11 +78,15 @@ fn setup_camera(mut commands: Commands) {
 /// Load sprite sheets.
 fn load_sprites(
     mut assets: ResMut<SpriteAssets>,
+    mut npc_sprite_tex: ResMut<NpcSpriteTexture>,
     asset_server: Res<AssetServer>,
     mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     // Load character sprite sheet
     assets.char_texture = asset_server.load("roguelikeChar_transparent.png");
+
+    // Share texture handle with GPU module for instanced rendering
+    npc_sprite_tex.handle = Some(assets.char_texture.clone());
 
     // Create atlas layout for characters (16x16 with 1px padding)
     let char_layout = TextureAtlasLayout::from_grid(

@@ -30,16 +30,39 @@ Migrating from Godot+Bevy hybrid to pure Bevy. Removes gdext/godot-bevy complexi
 - [x] Port npc_compute.glsl → npc_compute.wgsl
 - [x] Create wgpu compute pipeline (Bevy render graph)
 - [x] Pipeline compiles and dispatches
+- [x] ECS→GPU buffer writes (NpcBufferWrites + write_npc_buffers)
 - [ ] Port projectile_compute.glsl → projectile_compute.wgsl
-- [ ] ECS↔GPU data flow (buffer writes/readback)
+- [ ] GPU→ECS readback (positions for sprite sync)
 - [ ] Test: NPCs move (log positions)
+
+**Phase 2.5: GPU Instanced Rendering (In Progress)**
+
+*Note: Original render graph Node approach failed - Nodes are for compute/post-processing, not geometry. Switching to RenderCommand pattern.*
+
+Old approach (abandoned):
+- [x] Add sprite_indices and colors buffers to NpcGpuBuffers
+- [x] Create quad vertex/index buffers (NpcRenderMesh)
+- [x] Create NpcRenderPipeline with bind group layouts
+- [x] Create npc_render.wgsl shader (vertex + fragment)
+- [x] Add NpcRenderNode to render graph
+- [x] Create bind group preparation systems
+- [x] Connect sprite texture from render module
+- [x] Implement draw call in NpcRenderNode::run()
+- [❌] Test: NPCs visible via GPU instancing - **FAILED: Nothing renders**
+
+New approach (RenderCommand pattern):
+- [x] Research correct Bevy pattern (mesh2d_manual, custom_phase_item examples)
+- [x] Create npc_render.rs module with RenderCommand implementation
+- [x] Update shader for instance vertex buffer input (@location 2-4)
+- [ ] Fix Bevy 0.18 API differences (RenderSystems, lifetimes, etc.)
+- [ ] Test: NPCs visible via Transparent2d phase
+- [ ] Enable sprite texture sampling (currently solid color debug)
 
 **Phase 3: Sprite Rendering ✓**
 - [x] 2D camera setup
 - [x] Texture atlas loading (char + world sprites)
 - [x] Test sprites rendering (8 visible)
-- [ ] Sync sprite positions with GPU/ECS
-- [ ] Full instancing for 10K NPCs
+- [ ] Full instancing for 10K NPCs (moved to Phase 2.5)
 - [ ] Test: NPCs visible @ 140fps
 
 **Phase 4: World Generation**

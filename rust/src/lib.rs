@@ -9,6 +9,7 @@ pub mod components;
 pub mod constants;
 pub mod gpu;
 pub mod messages;
+pub mod npc_render;
 pub mod render;
 pub mod resources;
 pub mod systems;
@@ -103,6 +104,34 @@ fn startup_system() {
     info!("Endless ECS initialized - systems registered");
 }
 
+/// Test: Spawn a few NPCs at startup to verify ECS→GPU data flow.
+fn test_spawn_npcs(
+    mut slot_alloc: ResMut<SlotAllocator>,
+    mut spawn_events: MessageWriter<SpawnNpcMsg>,
+) {
+    // Spawn 5 test farmers at different positions
+    for i in 0..5 {
+        let slot = slot_alloc.alloc().expect("slot allocation failed");
+        let x = 200.0 + (i as f32 * 100.0);
+        let y = 300.0;
+        spawn_events.write(SpawnNpcMsg {
+            slot_idx: slot,
+            x,
+            y,
+            job: 0, // Farmer
+            faction: 0,
+            town_idx: 0,
+            home_x: x,
+            home_y: y + 50.0,
+            work_x: x,
+            work_y: y - 50.0,
+            starting_post: -1,
+            attack_type: 0,
+        });
+    }
+    info!("Test: Spawned 5 NPCs for GPU data flow test");
+}
+
 /// Debug: log NPC count every second
 fn debug_tick_system(
     time: Res<Time>,
@@ -167,8 +196,9 @@ pub fn build_app(app: &mut App) {
        // Plugins
        .add_plugins(gpu::GpuComputePlugin)
        .add_plugins(render::RenderPlugin)
+       .add_plugins(npc_render::NpcRenderPlugin)
        // Startup
-       .add_systems(Startup, startup_system)
+       .add_systems(Startup, (startup_system, test_spawn_npcs))
        // System sets
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        .add_systems(Update, bevy_timer_start.before(Step::Drain))
