@@ -1,6 +1,14 @@
 # Changelog
 
 ## 2026-02-08
+- **port projectile_compute.glsl to wgsl + wire into bevy render graph**
+  - create shaders/projectile_compute.wgsl: lifetime, movement, spatial grid collision detection
+  - add ProjGpuUpdate enum and PROJ_GPU_UPDATE_QUEUE to messages.rs
+  - add projectile compute pipeline to gpu.rs: ProjGpuBuffers (8 buffers), ProjComputeParams, ProjBufferWrites, ProjectileComputeNode
+  - render graph: NpcCompute → ProjectileCompute → CameraDriver (grid built before projectile reads it)
+  - projectile bind group shares NPC buffers (positions, factions, healths, grid) as read-only
+  - pipeline compiles and dispatches; no-op with proj_count=0
+
 - **restructure: flatten project layout**
   - flatten gpu/mod.rs → gpu.rs, render/mod.rs → render.rs (single-file modules don't need folders)
   - move shaders from assets/shaders/ to root shaders/ (all shaders in one place)

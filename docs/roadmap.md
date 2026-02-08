@@ -31,7 +31,7 @@ Migrating from Godot+Bevy hybrid to pure Bevy. Removes gdext/godot-bevy complexi
 - [x] Create wgpu compute pipeline (Bevy render graph)
 - [x] Pipeline compiles and dispatches
 - [x] ECS→GPU buffer writes (NpcBufferWrites + write_npc_buffers)
-- [ ] Port projectile_compute.glsl → projectile_compute.wgsl
+- [x] Port projectile_compute.glsl → projectile_compute.wgsl
 - [ ] GPU→ECS readback (positions for sprite sync)
 - [ ] Test: NPCs move (log positions)
 

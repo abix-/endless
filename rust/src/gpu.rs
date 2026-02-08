@@ -15,7 +15,7 @@ use bevy::{
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_graph::{self, RenderGraph, RenderLabel},
         render_resource::{
-            binding_types::{storage_buffer, uniform_buffer},
+            binding_types::{storage_buffer, storage_buffer_read_only, uniform_buffer},
             *,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
@@ -25,18 +25,21 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE};
+use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
 
 const SHADER_ASSET_PATH: &str = "shaders/npc_compute.wgsl";
+const PROJ_SHADER_ASSET_PATH: &str = "shaders/projectile_compute.wgsl";
 const WORKGROUP_SIZE: u32 = 64;
 const MAX_NPCS: u32 = 16384;
+const MAX_PROJECTILES: u32 = 50_000;
 const GRID_WIDTH: u32 = 128;
 const GRID_HEIGHT: u32 = 128;
 const MAX_PER_CELL: u32 = 48;
+const HIT_RADIUS: f32 = 10.0;
 
 // =============================================================================
 // RESOURCES (Main World)
@@ -228,6 +231,123 @@ pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>) {
 }
 
 // =============================================================================
+// PROJECTILE RESOURCES (Main World)
+// =============================================================================
+
+/// Projectile GPU data extracted to render world each frame.
+#[derive(Resource, Clone, ExtractResource)]
+pub struct ProjGpuData {
+    pub proj_count: u32,
+    pub npc_count: u32,
+    pub delta: f32,
+}
+
+impl Default for ProjGpuData {
+    fn default() -> Self {
+        Self { proj_count: 0, npc_count: 0, delta: 0.016 }
+    }
+}
+
+/// Projectile compute parameters (uniform buffer).
+#[derive(Resource, Clone, ExtractResource, ShaderType)]
+pub struct ProjComputeParams {
+    pub proj_count: u32,
+    pub npc_count: u32,
+    pub delta: f32,
+    pub hit_radius: f32,
+    pub grid_width: u32,
+    pub grid_height: u32,
+    pub cell_size: f32,
+    pub max_per_cell: u32,
+}
+
+impl Default for ProjComputeParams {
+    fn default() -> Self {
+        Self {
+            proj_count: 0,
+            npc_count: 0,
+            delta: 0.016,
+            hit_radius: HIT_RADIUS,
+            grid_width: GRID_WIDTH,
+            grid_height: GRID_HEIGHT,
+            cell_size: 64.0,
+            max_per_cell: MAX_PER_CELL,
+        }
+    }
+}
+
+/// Projectile buffer data to upload to GPU each frame.
+#[derive(Resource, Clone, ExtractResource)]
+pub struct ProjBufferWrites {
+    pub positions: Vec<f32>,   // [x, y] per proj
+    pub velocities: Vec<f32>,  // [vx, vy] per proj
+    pub damages: Vec<f32>,
+    pub factions: Vec<i32>,
+    pub shooters: Vec<i32>,
+    pub lifetimes: Vec<f32>,
+    pub active: Vec<i32>,
+    pub hits: Vec<i32>,        // [npc_idx, processed] per proj
+    pub dirty: bool,
+}
+
+impl Default for ProjBufferWrites {
+    fn default() -> Self {
+        let max = MAX_PROJECTILES as usize;
+        Self {
+            positions: vec![0.0; max * 2],
+            velocities: vec![0.0; max * 2],
+            damages: vec![0.0; max],
+            factions: vec![0; max],
+            shooters: vec![-1; max],
+            lifetimes: vec![0.0; max],
+            active: vec![0; max],
+            hits: vec![-1; max * 2],   // -1 = no hit
+            dirty: false,
+        }
+    }
+}
+
+impl ProjBufferWrites {
+    pub fn apply(&mut self, update: &ProjGpuUpdate) {
+        match update {
+            ProjGpuUpdate::Spawn { idx, x, y, vx, vy, damage, faction, shooter, lifetime } => {
+                let i2 = *idx * 2;
+                if i2 + 1 < self.positions.len() {
+                    self.positions[i2] = *x;
+                    self.positions[i2 + 1] = *y;
+                    self.velocities[i2] = *vx;
+                    self.velocities[i2 + 1] = *vy;
+                    self.damages[*idx] = *damage;
+                    self.factions[*idx] = *faction;
+                    self.shooters[*idx] = *shooter;
+                    self.lifetimes[*idx] = *lifetime;
+                    self.active[*idx] = 1;
+                    self.hits[i2] = -1;
+                    self.hits[i2 + 1] = 0;
+                    self.dirty = true;
+                }
+            }
+            ProjGpuUpdate::Deactivate { idx } => {
+                if *idx < self.active.len() {
+                    self.active[*idx] = 0;
+                    self.dirty = true;
+                }
+            }
+        }
+    }
+}
+
+/// Drain PROJ_GPU_UPDATE_QUEUE and apply updates to ProjBufferWrites.
+pub fn populate_proj_buffer_writes(mut writes: ResMut<ProjBufferWrites>) {
+    writes.dirty = false;
+    if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+        for update in queue.drain(..) {
+            writes.apply(&update);
+        }
+    }
+}
+
+// =============================================================================
 // PLUGIN
 // =============================================================================
 
@@ -238,7 +358,7 @@ struct NpcComputeLabel;
 
 impl Plugin for GpuComputePlugin {
     fn build(&self, app: &mut App) {
-        // Initialize resources in main world
+        // Initialize NPC resources in main world
         app.init_resource::<NpcGpuData>()
             .init_resource::<NpcComputeParams>()
             .init_resource::<NpcBufferWrites>()
@@ -246,12 +366,22 @@ impl Plugin for GpuComputePlugin {
             .add_systems(Update, update_gpu_data)
             .add_systems(PostUpdate, populate_buffer_writes);
 
+        // Initialize projectile resources in main world
+        app.init_resource::<ProjGpuData>()
+            .init_resource::<ProjComputeParams>()
+            .init_resource::<ProjBufferWrites>()
+            .add_systems(Update, update_proj_gpu_data)
+            .add_systems(PostUpdate, populate_proj_buffer_writes);
+
         // Extract resources to render world
         app.add_plugins((
             ExtractResourcePlugin::<NpcGpuData>::default(),
             ExtractResourcePlugin::<NpcComputeParams>::default(),
             ExtractResourcePlugin::<NpcBufferWrites>::default(),
             ExtractResourcePlugin::<NpcSpriteTexture>::default(),
+            ExtractResourcePlugin::<ProjGpuData>::default(),
+            ExtractResourcePlugin::<ProjComputeParams>::default(),
+            ExtractResourcePlugin::<ProjBufferWrites>::default(),
         ));
 
         // Set up render world systems
@@ -264,25 +394,31 @@ impl Plugin for GpuComputePlugin {
         };
 
         render_app
-            .add_systems(RenderStartup, init_npc_compute_pipeline)
+            .add_systems(RenderStartup, (init_npc_compute_pipeline, init_proj_compute_pipeline))
             .add_systems(
                 Render,
                 (
-                    write_npc_buffers.in_set(RenderSystems::PrepareResources),
-                    prepare_npc_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+                    (write_npc_buffers, write_proj_buffers).in_set(RenderSystems::PrepareResources),
+                    (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
                 ),
             );
 
-        // Add compute node to render graph
+        // Add compute nodes to render graph
+        // NPC compute → Projectile compute → Camera driver
         {
             let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
             render_graph.add_node(NpcComputeLabel, NpcComputeNode::default());
-            render_graph.add_node_edge(NpcComputeLabel, bevy::render::graph::CameraDriverLabel);
+            render_graph.add_node(ProjectileComputeLabel, ProjectileComputeNode::default());
+            render_graph.add_node_edge(NpcComputeLabel, ProjectileComputeLabel);
+            render_graph.add_node_edge(ProjectileComputeLabel, bevy::render::graph::CameraDriverLabel);
         }
 
         info!("GPU compute plugin initialized");
     }
 }
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct ProjectileComputeLabel;
 
 /// Update GPU data from ECS each frame.
 fn update_gpu_data(
@@ -336,6 +472,32 @@ struct NpcComputePipeline {
 #[derive(Resource, Clone, ExtractResource, Default)]
 pub struct NpcSpriteTexture {
     pub handle: Option<Handle<Image>>,
+}
+
+/// GPU buffers for projectile compute.
+#[derive(Resource)]
+pub struct ProjGpuBuffers {
+    pub positions: Buffer,
+    pub velocities: Buffer,
+    pub damages: Buffer,
+    pub factions: Buffer,
+    pub shooters: Buffer,
+    pub lifetimes: Buffer,
+    pub active: Buffer,
+    pub hits: Buffer,
+}
+
+/// Bind groups for projectile compute pass.
+#[derive(Resource)]
+struct ProjBindGroups {
+    bind_group: BindGroup,
+}
+
+/// Pipeline resources for projectile compute.
+#[derive(Resource)]
+struct ProjComputePipeline {
+    bind_group_layout: BindGroupLayoutDescriptor,
+    pipeline_id: CachedComputePipelineId,
 }
 
 // =============================================================================
@@ -680,3 +842,285 @@ impl render_graph::Node for NpcComputeNode {
     }
 }
 
+// =============================================================================
+// PROJECTILE COMPUTE
+// =============================================================================
+
+/// Update projectile GPU data from ECS each frame.
+fn update_proj_gpu_data(
+    mut proj_data: ResMut<ProjGpuData>,
+    mut proj_params: ResMut<ProjComputeParams>,
+    npc_count: Res<crate::resources::NpcCount>,
+    proj_alloc: Res<crate::resources::ProjSlotAllocator>,
+    time: Res<Time>,
+) {
+    let pc = proj_alloc.next as u32;
+    let nc = npc_count.0 as u32;
+    let dt = time.delta_secs();
+    proj_data.proj_count = pc;
+    proj_data.npc_count = nc;
+    proj_data.delta = dt;
+    proj_params.proj_count = pc;
+    proj_params.npc_count = nc;
+    proj_params.delta = dt;
+}
+
+fn init_proj_compute_pipeline(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    asset_server: Res<AssetServer>,
+    pipeline_cache: Res<PipelineCache>,
+) {
+    let max = MAX_PROJECTILES as usize;
+
+    let buffers = ProjGpuBuffers {
+        positions: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_positions"),
+            size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        velocities: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_velocities"),
+            size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        damages: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_damages"),
+            size: (max * std::mem::size_of::<f32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        factions: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_factions"),
+            size: (max * std::mem::size_of::<i32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        shooters: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_shooters"),
+            size: (max * std::mem::size_of::<i32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        lifetimes: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_lifetimes"),
+            size: (max * std::mem::size_of::<f32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        active: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_active"),
+            size: (max * std::mem::size_of::<i32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        hits: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_hits"),
+            size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        }),
+    };
+
+    commands.insert_resource(buffers);
+
+    // 14 bindings: 8 proj (rw) + 3 NPC (ro) + 2 grid (ro) + 1 uniform
+    let bind_group_layout = BindGroupLayoutDescriptor::new(
+        "ProjComputeLayout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::COMPUTE,
+            (
+                // 0-7: projectile buffers (read_write)
+                storage_buffer::<Vec<[f32; 2]>>(false),  // positions
+                storage_buffer::<Vec<[f32; 2]>>(false),  // velocities
+                storage_buffer::<Vec<f32>>(false),        // damages
+                storage_buffer::<Vec<i32>>(false),        // factions
+                storage_buffer::<Vec<i32>>(false),        // shooters
+                storage_buffer::<Vec<f32>>(false),        // lifetimes
+                storage_buffer::<Vec<i32>>(false),        // active
+                storage_buffer::<Vec<[i32; 2]>>(false),   // hits
+                // 8-10: NPC buffers (read only)
+                storage_buffer_read_only::<Vec<[f32; 2]>>(false), // npc_positions
+                storage_buffer_read_only::<Vec<i32>>(false),      // npc_factions
+                storage_buffer_read_only::<Vec<f32>>(false),      // npc_healths
+                // 11-12: spatial grid (read only)
+                storage_buffer_read_only::<Vec<i32>>(false),      // grid_counts
+                storage_buffer_read_only::<Vec<i32>>(false),      // grid_data
+                // 13: uniform params
+                uniform_buffer::<ProjComputeParams>(false),
+            ),
+        ),
+    );
+
+    let shader = asset_server.load(PROJ_SHADER_ASSET_PATH);
+    let pipeline_id = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+        label: Some(Cow::from("proj_compute_pipeline")),
+        layout: vec![bind_group_layout.clone()],
+        shader,
+        entry_point: Some(Cow::from("main")),
+        ..default()
+    });
+
+    commands.insert_resource(ProjComputePipeline {
+        bind_group_layout,
+        pipeline_id,
+    });
+
+    info!("Projectile compute pipeline queued");
+}
+
+fn prepare_proj_bind_groups(
+    mut commands: Commands,
+    pipeline: Option<Res<ProjComputePipeline>>,
+    proj_buffers: Option<Res<ProjGpuBuffers>>,
+    npc_buffers: Option<Res<NpcGpuBuffers>>,
+    params: Option<Res<ProjComputeParams>>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    pipeline_cache: Res<PipelineCache>,
+) {
+    let Some(pipeline) = pipeline else { return };
+    let Some(proj) = proj_buffers else { return };
+    let Some(npc) = npc_buffers else { return };
+    let Some(params) = params else { return };
+
+    let mut uniform_buffer = UniformBuffer::from(params.clone());
+    uniform_buffer.write_buffer(&render_device, &render_queue);
+
+    let bind_group = render_device.create_bind_group(
+        Some("proj_compute_bind_group"),
+        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+        &BindGroupEntries::sequential((
+            // 0-7: projectile buffers
+            proj.positions.as_entire_buffer_binding(),
+            proj.velocities.as_entire_buffer_binding(),
+            proj.damages.as_entire_buffer_binding(),
+            proj.factions.as_entire_buffer_binding(),
+            proj.shooters.as_entire_buffer_binding(),
+            proj.lifetimes.as_entire_buffer_binding(),
+            proj.active.as_entire_buffer_binding(),
+            proj.hits.as_entire_buffer_binding(),
+            // 8-10: NPC buffers (shared, read only)
+            npc.positions.as_entire_buffer_binding(),
+            npc.factions.as_entire_buffer_binding(),
+            npc.healths.as_entire_buffer_binding(),
+            // 11-12: spatial grid (shared, read only)
+            npc.grid_counts.as_entire_buffer_binding(),
+            npc.grid_data.as_entire_buffer_binding(),
+            // 13: uniform
+            &uniform_buffer,
+        )),
+    );
+
+    commands.insert_resource(ProjBindGroups { bind_group });
+}
+
+/// Write projectile data from extracted resource to GPU buffers.
+fn write_proj_buffers(
+    buffers: Option<Res<ProjGpuBuffers>>,
+    writes: Option<Res<ProjBufferWrites>>,
+    render_queue: Res<RenderQueue>,
+) {
+    let Some(buffers) = buffers else { return };
+    let Some(writes) = writes else { return };
+
+    if !writes.dirty {
+        return;
+    }
+
+    render_queue.write_buffer(&buffers.positions, 0, bytemuck::cast_slice(&writes.positions));
+    render_queue.write_buffer(&buffers.velocities, 0, bytemuck::cast_slice(&writes.velocities));
+    render_queue.write_buffer(&buffers.damages, 0, bytemuck::cast_slice(&writes.damages));
+    render_queue.write_buffer(&buffers.factions, 0, bytemuck::cast_slice(&writes.factions));
+    render_queue.write_buffer(&buffers.shooters, 0, bytemuck::cast_slice(&writes.shooters));
+    render_queue.write_buffer(&buffers.lifetimes, 0, bytemuck::cast_slice(&writes.lifetimes));
+    render_queue.write_buffer(&buffers.active, 0, bytemuck::cast_slice(&writes.active));
+    render_queue.write_buffer(&buffers.hits, 0, bytemuck::cast_slice(&writes.hits));
+}
+
+enum ProjComputeState {
+    Loading,
+    Ready,
+}
+
+struct ProjectileComputeNode {
+    state: ProjComputeState,
+}
+
+impl Default for ProjectileComputeNode {
+    fn default() -> Self {
+        Self { state: ProjComputeState::Loading }
+    }
+}
+
+impl render_graph::Node for ProjectileComputeNode {
+    fn update(&mut self, world: &mut World) {
+        let Some(pipeline) = world.get_resource::<ProjComputePipeline>() else {
+            return;
+        };
+        let pipeline_cache = world.resource::<PipelineCache>();
+
+        match self.state {
+            ProjComputeState::Loading => {
+                match pipeline_cache.get_compute_pipeline_state(pipeline.pipeline_id) {
+                    CachedPipelineState::Ok(_) => {
+                        self.state = ProjComputeState::Ready;
+                        info!("Projectile compute pipeline ready");
+                    }
+                    CachedPipelineState::Err(PipelineCacheError::ShaderNotLoaded(_)) => {}
+                    CachedPipelineState::Err(err) => {
+                        panic!("Projectile compute shader error: {err}")
+                    }
+                    _ => {}
+                }
+            }
+            ProjComputeState::Ready => {}
+        }
+    }
+
+    fn run(
+        &self,
+        _graph: &mut render_graph::RenderGraphContext,
+        render_context: &mut RenderContext,
+        world: &World,
+    ) -> Result<(), render_graph::NodeRunError> {
+        if !matches!(self.state, ProjComputeState::Ready) {
+            return Ok(());
+        }
+
+        let Some(bind_groups) = world.get_resource::<ProjBindGroups>() else {
+            return Ok(());
+        };
+        let Some(proj_data) = world.get_resource::<ProjGpuData>() else {
+            return Ok(());
+        };
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let pipeline = world.resource::<ProjComputePipeline>();
+
+        let proj_count = proj_data.proj_count;
+        if proj_count == 0 {
+            return Ok(());
+        }
+
+        let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline.pipeline_id)
+        else {
+            return Ok(());
+        };
+
+        let mut pass = render_context
+            .command_encoder()
+            .begin_compute_pass(&ComputePassDescriptor::default());
+
+        pass.set_bind_group(0, &bind_groups.bind_group, &[]);
+        pass.set_pipeline(compute_pipeline);
+        pass.dispatch_workgroups(
+            (proj_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
+            1,
+            1,
+        );
+
+        Ok(())
+    }
+}

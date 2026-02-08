@@ -6,13 +6,13 @@ These docs are the **source of truth** for system architecture. When building ne
 
 1. **Before coding**: Read the relevant doc to understand the current architecture, data flow, and known issues.
 2. **During coding**: Follow the patterns documented here (job-as-template spawn, chained combat, GPU buffer layout). If you need to deviate, update the doc first.
-3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation. Adjust ratings if improvements were made.
-4. **Code comments** stay educational (explain what code does for someone learning Rust/GLSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
+3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation.
+4. **Code comments** stay educational (explain what code does for someone learning Rust/WGSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
 5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has feature checkboxes. Don't mix them.
 
 ## Test-Driven Development
 
-All systems are validated through TDD tests in `ecs_test.gd` (Test 1-11). Tests use **phased assertions** — each phase checks one layer of the pipeline and fails fast with diagnostic values.
+All systems should be validated through tests. Tests use **phased assertions** — each phase checks one layer of the pipeline and fails fast with diagnostic values.
 
 **Pattern:**
 1. Spawn minimal NPCs with **Fighter** job (job=3) — no behavior components, NPCs sit still
@@ -20,7 +20,7 @@ All systems are validated through TDD tests in `ecs_test.gd` (Test 1-11). Tests 
 3. Phase results record timestamp + values at pass/fail, included in debug dump
 4. Early phases isolate infrastructure (GPU buffers, grid) before testing logic (damage, death)
 
-**Example (Test 10 — Combat):**
+**Example (Combat test):**
 - Phase 1: GPU buffer integrity (faction/health written)
 - Phase 2: Spatial grid populated
 - Phase 3: GPU targeting finds enemies
@@ -32,8 +32,6 @@ When a test fails, the phase results show exactly which layer broke and what val
 
 ## System Map
 
-**NOTE: Phase 1-3 + 2.5 migration in progress. GPU compute working, instanced NPC rendering via RenderCommand.**
-
 ```
 Pure Bevy App (main.rs)
     │
@@ -42,16 +40,16 @@ Bevy ECS (lib.rs build_app)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
     │
-    ├─ GPU Compute (gpu.rs) ────────────▶ [gpu-compute.md]
+    ├─ GPU Compute (gpu.rs) ───────────────▶ [gpu-compute.md]
     │   ├─ Bevy render graph integration
-    │   └─ WGSL shader (assets/shaders/npc_compute.wgsl)
+    │   └─ WGSL shader (shaders/npc_compute.wgsl)
     │
     ├─ NPC Instanced Rendering (npc_render.rs)
     │   ├─ RenderCommand + Transparent2d phase
     │   ├─ Two vertex buffers (quad + per-instance)
-    │   └─ WGSL shader (assets/shaders/npc_render.wgsl)
+    │   └─ WGSL shader (shaders/npc_render.wgsl)
     │
-    ├─ Sprite Rendering (render/mod.rs)
+    ├─ Sprite Rendering (render.rs)
     │   ├─ 2D camera, texture atlases
     │   └─ Character + world sprite sheets
     │
@@ -68,18 +66,18 @@ Frame execution order ───────────────────�
 
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
-| [frame-loop.md](frame-loop.md) | Per-frame execution order, timing | 7/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders (wgpu/WGSL via Bevy render graph) | 7/10 |
+| [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders (wgpu/WGSL via Bevy render graph) | 5/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 7/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work/eat, steal/flee/recover, farm growth | 7/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
-| [roadmap.md](roadmap.md) | Feature tracking, Pure Bevy migration plan | - |
+| [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
+
+**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. GPU compute is 5/10 — pipeline works but only basic movement is ported (no separation, no grid, no combat targeting, no readback). Combat, spawn, behavior, and messages are solid at 7/10.
 
 ## File Map
-
-**NOTE: Phase 1-3 + 2.5 in progress. GPU compute, sprite rendering, instanced NPC rendering working.**
 
 ```
 rust/
@@ -96,64 +94,31 @@ rust/
   src/world.rs          # World data structs, sprite definitions
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
-    drain.rs            # Queue drain systems, reset
-    movement.rs         # Target application, GPU position readback
+    drain.rs            # Queue drain systems, reset, collect_gpu_updates
+    movement.rs         # Target application
     combat.rs           # Attack cooldown, targeting
-    health.rs           # Damage, death, cleanup, healing aura
+    health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, respawning
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 
 shaders/
-  npc_compute.wgsl          # WGSL compute shader (ported from GLSL)
-  npc_render.wgsl           # WGSL render shader (instanced quad + sprite atlas)
-  npc_compute.glsl          # Old GLSL compute shader (porting reference)
-  projectile_compute.glsl   # Old GLSL projectile shader (to be ported)
+  npc_compute.wgsl      # WGSL compute shader (NPC movement physics)
+  npc_render.wgsl       # WGSL render shader (instanced quad + sprite atlas)
 
 assets/
-  roguelikeChar_transparent.png   # Character sprites (54x12 grid)
-  roguelikeSheet_transparent.png  # World sprites (57x31 grid)
-
-(Godot files - to be ported to bevy_egui in Phase 5-7)
-ui/*.gd               # → bevy_egui panels
-scenes/main.gd        # → world_gen.rs
+  roguelikeChar_transparent.png   # Character sprites (54x12 grid, 16px + 1px margin)
+  roguelikeSheet_transparent.png  # World sprites (57x31 grid, 16px + 1px margin)
 ```
 
-## Configuration
-
-Game constants are in `autoloads/config.gd` (world size, NPC counts, energy thresholds). Most values are configurable via the start menu.
-
-## GDScript Patterns
-
-**User Settings** (`autoloads/user_settings.gd`):
-1. Add variable with default
-2. Add setter that emits `settings_changed`
-3. Add to `_save()` and `_load()`
-4. Connect via `UserSettings.settings_changed.connect()`
-
-**Shader Per-Instance Data** (INSTANCE_CUSTOM in `.gdshader`):
-```
-r = health percent
-g = flash intensity
-b = sprite frame X / 255
-a = sprite frame Y / 255
-```
-HP bar modes: 0=off, 1=when damaged, 2=always (uniform int)
-
-**Location Types** (valid `location_type` exports):
-- `"field"` - farm (3x3)
-- `"camp"` - raider camp (2x2)
-- `"home"` - bed (1x1)
-- `"guard_post"` - guard post (1x1)
-- `"fountain"` - town center (1x1)
-
-## Aggregate Known Issues
+## Known Issues
 
 Collected from all docs. Priority order:
 
-1. **No generational indices** — GPU slot indices are raw `usize`. Currently safe (chained execution), risk grows with async patterns. ([combat.md](combat.md))
-2. **npc_count/proj_count never shrink** — high-water marks. Grid and buffers sized to peak, not active count. ([spawn.md](spawn.md), [projectiles.md](projectiles.md))
-3. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
-4. **Two stat presets only** — AttackStats has melee and ranged constructors but no per-NPC variation beyond these. ([combat.md](combat.md))
-5. **Healing halo visual not working** — healing_system heals NPCs but shader halo effect isn't rendering correctly yet. ([behavior.md](behavior.md))
+1. **No GPU→CPU readback** — GPU compute updates positions but results aren't read back to ECS. Combat targeting and arrival detection use stale CPU-side data. ([gpu-compute.md](gpu-compute.md), [frame-loop.md](frame-loop.md))
+2. **Compute shader incomplete** — `npc_compute.wgsl` has basic goal movement only. Separation physics, grid neighbor search, and combat targeting not yet ported. ([gpu-compute.md](gpu-compute.md))
+3. **Hardcoded camera in render shader** — `npc_render.wgsl` uses constant camera position and viewport instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering. ([gpu-compute.md](gpu-compute.md))
+4. **No generational indices** — GPU slot indices are raw `usize`. Safe with chained execution, risk grows with async patterns. ([combat.md](combat.md))
+5. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
+6. **npc_count never shrinks** — high-water mark. Grid and buffers sized to peak, not active count. ([spawn.md](spawn.md))

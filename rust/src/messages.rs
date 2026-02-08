@@ -107,6 +107,29 @@ pub enum GpuUpdate {
 pub static GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>> = Mutex::new(Vec::new());
 
 // ============================================================================
+// PROJECTILE GPU UPDATES (Bevy -> GPU)
+// ============================================================================
+
+/// GPU update for projectile buffers.
+#[derive(Clone, Debug)]
+pub enum ProjGpuUpdate {
+    /// Spawn a projectile at a slot index.
+    Spawn {
+        idx: usize,
+        x: f32, y: f32,
+        vx: f32, vy: f32,
+        damage: f32,
+        faction: i32,
+        shooter: i32,
+        lifetime: f32,
+    },
+    /// Deactivate a projectile (hit processed by CPU).
+    Deactivate { idx: usize },
+}
+
+pub static PROJ_GPU_UPDATE_QUEUE: Mutex<Vec<ProjGpuUpdate>> = Mutex::new(Vec::new());
+
+// ============================================================================
 // GPU-FIRST: Single Read State (GPU -> Bevy)
 // Static for cross-thread access. Struct defined in resources.rs.
 // ============================================================================

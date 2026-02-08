@@ -2,132 +2,96 @@
 
 ## Overview
 
-NPCs are created through a single unified `spawn_npc()` API. Slot allocation uses Bevy's `SlotAllocator` resource, which reuses dead NPC indices before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GPU_UPDATE_QUEUE` — no direct `buffer_update()` calls in the spawn path.
+NPCs are created through `SpawnNpcMsg` messages processed by `spawn_npc_system`. Slot allocation uses Bevy's `SlotAllocator` resource, which reuses dead NPC indices before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GpuUpdateMsg` messages — see [messages.md](messages.md).
 
 ## Data Flow
 
 ```
-GDScript: spawn_npc(x, y, job, faction, opts: Dictionary)
-│
-├─ allocate_slot() via Bevy SlotAllocator resource
-│   ├─ Try slots.free.pop() (recycled from dead NPC)
-│   └─ Else slots.next++ (high-water mark)
-│
-├─ Build SpawnNpcMsg with slot_idx
-│
-└─ Send via GodotToBevy channel
-         │
-         ▼ (next frame, Bevy Step::Drain)
-   drain_spawn_queue → SpawnNpcMsg
-         │
-         ▼ (Step::Spawn)
-   spawn_npc_system
-   ├─ Push GPU_UPDATE_QUEUE: SetPosition, SetTarget,
-   │   SetColor, SetSpeed, SetFaction, SetHealth
-   ├─ Update GPU_DISPATCH_COUNT (max slot + 1)
-   │
-   └─ match job:
-      Guard  → Energy, AttackStats, AttackTimer, Guard,
-               PatrolRoute, OnDuty
-      Farmer → Energy, Farmer, WorkPosition, GoingToWork
-      Raider → Energy, AttackStats, AttackTimer, Stealer,
-               Raiding, FleeThreshold, LeashRange,
-               WoundedThreshold
-      Fighter→ AttackStats, AttackTimer
+SpawnNpcMsg (via MessageWriter)
+    │
+    ▼ (Step::Spawn)
+spawn_npc_system
+    │
+    ├─ Emit GPU updates: SetPosition, SetTarget, SetColor,
+    │   SetSpeed, SetFaction, SetHealth, SetSpriteFrame
+    │
+    ├─ Update GPU_DISPATCH_COUNT (max slot + 1)
+    │
+    ├─ Spawn ECS entity with base + job-specific components
+    │
+    ├─ Update NpcEntityMap, NpcCount, PopulationStats, FactionStats
+    │
+    ├─ Initialize NpcMetaCache (name, level, trait)
+    │
+    └─ Add to NpcsByTownCache
 ```
 
 ## Slot Allocation
 
-Slot allocation uses Bevy's `SlotAllocator` resource (defined in `resources.rs`):
+`SlotAllocator` (Bevy Resource, defined in `resources.rs`):
 
 ```rust
 pub struct SlotAllocator {
     pub next: usize,      // High-water mark
     pub free: Vec<usize>, // Recycled slots from dead NPCs
 }
-
-impl SlotAllocator {
-    pub fn alloc(&mut self) -> Option<usize> {
-        self.free.pop().or_else(|| {
-            if self.next < MAX_NPC_COUNT {
-                let idx = self.next;
-                self.next += 1;
-                Some(idx)
-            } else {
-                None
-            }
-        })
-    }
-    pub fn free(&mut self, slot: usize) { self.free.push(slot); }
-}
 ```
 
-Both spawn (`allocate_slot()` in lib.rs) and death (`death_cleanup_system`) use this single resource, ensuring freed slots are properly recycled. The `next` counter is a high-water mark — it only grows (or resets to 0). `GPU_DISPATCH_COUNT` (separate static) tracks how many NPCs have initialized GPU buffers — see [messages.md](messages.md).
+`alloc()` pops from the free list first, falls back to incrementing `next`. `free()` pushes onto the free list. Both spawn (`spawn_npc_system`) and death (`death_cleanup_system`) use this resource. LIFO reuse — most recently freed slot is allocated first.
 
-## GDScript Spawn API
+`GPU_DISPATCH_COUNT` (static Mutex) tracks how many NPCs have initialized GPU buffers. Updated by `spawn_npc_system` after emitting GPU writes, ensuring compute never dispatches NPCs with uninitialized buffers.
 
-Single method replaces 5 job-specific methods:
+## Spawn Parameters
 
-```gdscript
-# Returns slot index or -1 if at capacity
-spawn_npc(x, y, job, faction, opts: Dictionary) -> int
-```
+`SpawnNpcMsg` fields:
 
-**Required params:**
+| Field | Type | Notes |
+|-------|------|-------|
+| slot_idx | usize | Pre-allocated via SlotAllocator |
+| x, y | f32 | Spawn position |
+| job | i32 | 0=Farmer, 1=Guard, 2=Raider, 3=Fighter |
+| faction | i32 | 0=Villager, 1+=Raider camps |
+| town_idx | i32 | Town association (-1 = none) |
+| home_x, home_y | f32 | Home/camp position |
+| work_x, work_y | f32 | Farm position (-1 = none, farmers only) |
+| starting_post | i32 | Patrol start index (-1 = none, guards only) |
+| attack_type | i32 | 0=melee, 1=ranged (fighters only) |
 
-| Param | Values | Notes |
-|-------|--------|-------|
-| x, y | float | Spawn position |
-| job | 0=Farmer, 1=Guard, 2=Raider, 3=Fighter | Determines component template |
-| faction | 0=Villager, 1+=Raider camps | Each raider camp can be unique faction. GPU targeting uses != comparison. |
+## spawn_npc_system
 
-**Optional params (Dictionary):**
-
-| Key | Type | Default | Notes |
-|-----|------|---------|-------|
-| home_x, home_y | float | -1.0 | Home/camp position |
-| work_x, work_y | float | -1.0 | Farm position (farmers only) |
-| town_idx | int | -1 | Town association |
-| starting_post | int | -1 | Patrol start (guards only) |
-| attack_type | int | 0 | 0=melee, 1=ranged (fighters only) |
-
-```gdscript
-# Guard at patrol post 2:
-ecs.spawn_npc(pos.x, pos.y, 1, 0, {"home_x": home.x, "home_y": home.y, "town_idx": 0, "starting_post": 2})
-# Farmer:
-ecs.spawn_npc(pos.x, pos.y, 0, 0, {"home_x": home.x, "home_y": home.y, "work_x": farm.x, "work_y": farm.y, "town_idx": 0})
-# Ranged fighter:
-ecs.spawn_npc(pos.x, pos.y, 3, 1, {"attack_type": 1})
-# Simple NPC (all defaults):
-ecs.spawn_npc(pos.x, pos.y, 3, 0, {})
-```
-
-## spawn_npc_system (generic)
-
-Base components (all NPCs): `NpcIndex`, `Job`, `Speed(100)`, `Health(100)`, `Faction`, `Home`
+Base components (all NPCs): `NpcIndex`, `Position`, `Job`, `TownId`, `Speed(100)`, `Health(100)`, `MaxHealth(100)`, `Faction`, `Home`, `Personality`, `LastAteHour`
 
 Job-specific templates:
 
 | Job | Additional Components |
 |-----|----------------------|
-| Guard | `Energy`, `AttackStats`, `AttackTimer(0)`, `Guard { town_idx }`, `PatrolRoute`, `OnDuty { ticks: 0 }` |
-| Farmer | `Energy`, `Farmer { town_idx }`, `WorkPosition`, `GoingToWork` |
-| Raider | `Energy`, `AttackStats`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
+| Guard | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `OnDuty { ticks_waiting: 0 }` |
+| Farmer | `Energy`, `Farmer`, `WorkPosition`, `GoingToWork` |
+| Raider | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
 | Fighter | `AttackStats` (melee or ranged via attack_type), `AttackTimer(0)` |
 
-GPU writes (via GPU_UPDATE_QUEUE, all jobs): `SetPosition`, `SetTarget` (= spawn position, or work position for farmers), `SetColor` (job-based; raiders get unique colors per faction from 10-color palette), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetColor` (job-based; raiders get per-faction color from 10-color palette), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs)
 
-**FactionStats tracking:** `faction_stats.inc_alive(faction)` is called for each spawn.
+Sprite assignments: Farmer=(1,6), Guard=(0,11), Raider=(0,6), Fighter=(7,0)
+
+### Personality Generation
+
+Deterministic based on slot index (reproducible). Each NPC gets 0-2 traits from [Brave, Tough, Swift, Focused] with 30% chance each, magnitude 0.5-1.5.
+
+### Name Generation
+
+Deterministic: adjective + job noun. Adjective cycles through a 10-word list, noun cycles through a 5-word job-specific list. Slot index determines both.
 
 ### reset_bevy_system
-Checks `RESET_BEVY` flag. If set, despawns all entities with `NpcIndex`, clears `NpcEntityMap`, resets `NpcCount`.
 
-## Known Issues / Limitations
+Checks `ResetFlag`. If set, clears `NpcCount`, `NpcEntityMap`, `PopulationStats`, and resets `SlotAllocator`.
 
-- **npc_count never decreases**: High-water mark. 1000 spawns + 999 deaths = npc_count still 1000. Grid and buffers sized to high-water mark, not active count.
-- **No spawn validation**: spawn_npc doesn't verify the town_idx is valid or that guard posts exist. Bad input silently creates a guard with no patrol route.
-- **One-frame GPU delay**: GPU writes go through GPU_UPDATE_QUEUE, drained in `process()`. NPC won't render until the frame after Bevy processes the spawn. At 140fps this is invisible.
+## Known Issues
+
+- **npc_count never decreases**: High-water mark. 1000 spawns + 999 deaths = npc_count still 1000. Buffers sized to peak, not active count.
+- **No spawn validation**: Doesn't verify town_idx is valid or that guard posts exist. Bad input silently creates a guard with no patrol route.
+- **One-frame GPU delay**: GPU writes go through message collection → populate_buffer_writes → extract → upload. NPC won't render until the frame after Bevy processes the spawn.
 
 ## Rating: 7/10
 
-Single spawn path with job-as-template pattern. Slot index carried in message. However: npc_count never decreases (high-water mark means 1000 spawns + 999 deaths = buffers sized for 1000), no spawn validation (bad town_idx or missing patrol posts silently create broken NPCs), one-frame GPU delay before render. Clean API but no defensive validation.
+Single spawn path with job-as-template pattern. Slot recycling works. Personality and name generation are deterministic and reproducible. GPU writes properly batched through message system. Weaknesses: high-water mark dispatch count, no defensive validation on spawn parameters.
