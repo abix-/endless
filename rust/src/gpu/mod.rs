@@ -567,8 +567,8 @@ fn init_npc_compute_pipeline(
         index_buffer,
     });
 
-    // Create render pipeline for instanced NPCs
-    init_npc_render_pipeline(&mut commands, &render_device, &asset_server, &pipeline_cache);
+    // Old render pipeline disabled — replaced by npc_render.rs RenderCommand pattern
+    // init_npc_render_pipeline(&mut commands, &render_device, &asset_server, &pipeline_cache);
 
     info!("NPC compute pipeline queued");
 }

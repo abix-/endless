@@ -1,6 +1,15 @@
 # Changelog
 
 ## 2026-02-08
+- **phase 2.5: gpu instanced npc rendering working**
+  - fix npc_render.rs for Bevy 0.18 API: BindGroupLayoutDescriptor, Option<Cow> entry points
+  - add depth-stencil state (Depth32Float) matching Transparent2d render pass
+  - add dynamic MSAA sample count from camera Msaa component
+  - fix bind group layout: remove unused mesh2d view bind group, texture at group 0
+  - update npc_render.wgsl: texture bindings moved to @group(0)
+  - disable old render graph Node pipeline in gpu/mod.rs (replaced by RenderCommand pattern)
+  - 5 test NPCs visible as green squares via instanced draw call
+
 - **pure bevy migration phase 2-3**: wire ECS systems, add GPU compute and sprite rendering
   - wire build_app() into main.rs, verify systems tick with debug logging
   - add gpu/mod.rs: GPU compute via Bevy render graph (follows game_of_life pattern)

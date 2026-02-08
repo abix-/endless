@@ -143,6 +143,10 @@ After each dispatch, the CPU reads back:
 
 Note: health_buffer is CPU-authoritative — it's written to GPU but never read back. The GPU only reads it for targeting (skip dead NPCs).
 
+## NPC Rendering
+
+NPC rendering uses a separate module (`npc_render.rs`) with Bevy's RenderCommand pattern, NOT the render graph Node approach. The old render pipeline in `gpu/mod.rs` (`init_npc_render_pipeline`) is disabled — Nodes are for compute/post-processing, not geometry. See `npc_render.rs` for the working implementation using `Transparent2d` phase with instanced draw calls.
+
 ## Known Issues / Limitations
 
 - **Health is CPU-authoritative**: The GPU reads health for targeting but never modifies it. If GPU-side damage were ever needed, this would require a readback.
@@ -151,6 +155,7 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 - **Blocking sync**: `rd.sync()` stalls CPU until GPU completes. No async readback or double-buffering.
 - **Two sequential dispatches**: NPC and projectile shaders run with a full sync between them. Could be pipelined.
 - **Hit buffer init**: Must be initialized to -1. GPU default of 0 would falsely indicate "hit NPC 0".
+- **NPC render shader uses hardcoded camera**: Camera position and viewport are constants in npc_render.wgsl — should use Bevy view uniforms for camera movement/zoom.
 
 ## Key Optimizations
 

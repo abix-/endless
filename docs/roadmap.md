@@ -54,8 +54,8 @@ New approach (RenderCommand pattern):
 - [x] Research correct Bevy pattern (mesh2d_manual, custom_phase_item examples)
 - [x] Create npc_render.rs module with RenderCommand implementation
 - [x] Update shader for instance vertex buffer input (@location 2-4)
-- [ ] Fix Bevy 0.18 API differences (RenderSystems, lifetimes, etc.)
-- [ ] Test: NPCs visible via Transparent2d phase
+- [x] Fix Bevy 0.18 API differences (RenderSystems, lifetimes, etc.)
+- [x] Test: NPCs visible via Transparent2d phase
 - [ ] Enable sprite texture sampling (currently solid color debug)
 
 **Phase 3: Sprite Rendering ✓**

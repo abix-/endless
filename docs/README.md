@@ -32,7 +32,7 @@ When a test fails, the phase results show exactly which layer broke and what val
 
 ## System Map
 
-**NOTE: Phase 1-3 of Pure Bevy migration complete. GPU compute pipeline working, sprite rendering functional.**
+**NOTE: Phase 1-3 + 2.5 migration in progress. GPU compute working, instanced NPC rendering via RenderCommand.**
 
 ```
 Pure Bevy App (main.rs)
@@ -45,6 +45,11 @@ Bevy ECS (lib.rs build_app)
     ├─ GPU Compute (gpu/mod.rs) ──────────▶ [gpu-compute.md]
     │   ├─ Bevy render graph integration
     │   └─ WGSL shader (assets/shaders/npc_compute.wgsl)
+    │
+    ├─ NPC Instanced Rendering (npc_render.rs)
+    │   ├─ RenderCommand + Transparent2d phase
+    │   ├─ Two vertex buffers (quad + per-instance)
+    │   └─ WGSL shader (assets/shaders/npc_render.wgsl)
     │
     ├─ Sprite Rendering (render/mod.rs)
     │   ├─ 2D camera, texture atlases
@@ -74,7 +79,7 @@ Frame execution order ───────────────────�
 
 ## File Map
 
-**NOTE: Phase 1-3 migration complete. GPU compute and sprite rendering working.**
+**NOTE: Phase 1-3 + 2.5 in progress. GPU compute, sprite rendering, instanced NPC rendering working.**
 
 ```
 rust/
@@ -82,6 +87,7 @@ rust/
   src/main.rs           # Bevy App entry point, asset path config
   src/lib.rs            # build_app(), system scheduling, helpers
   src/gpu/mod.rs        # GPU compute via Bevy render graph
+  src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
   src/render/mod.rs     # 2D camera, texture atlases, sprite rendering
   src/messages.rs       # Static queues (GpuUpdate, Arrival), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
@@ -101,6 +107,7 @@ rust/
 
 assets/
   shaders/npc_compute.wgsl    # WGSL compute shader (ported from GLSL)
+  shaders/npc_render.wgsl     # WGSL render shader (instanced quad + sprite atlas)
   roguelikeChar_transparent.png   # Character sprites (54x12 grid)
   roguelikeSheet_transparent.png  # World sprites (57x31 grid)
 

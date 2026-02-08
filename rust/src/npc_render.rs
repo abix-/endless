@@ -3,6 +3,8 @@
 //! Uses Transparent2d phase to draw all NPCs with a single instanced draw call.
 //! Based on Bevy's custom_phase_item.rs example pattern.
 
+use std::borrow::Cow;
+
 use bevy::{
     core_pipeline::core_2d::Transparent2d,
     ecs::{
@@ -20,12 +22,13 @@ use bevy::{
         },
         render_resource::{
             binding_types::{sampler, texture_2d},
-            BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, BlendState,
-            Buffer, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites,
-            FragmentState, IndexFormat, MultisampleState, PipelineCache, PrimitiveState,
-            RawBufferVec, RenderPipelineDescriptor, SamplerBindingType, ShaderStages,
-            SpecializedRenderPipeline, SpecializedRenderPipelines, TextureFormat,
-            TextureSampleType, VertexAttribute, VertexFormat, VertexState, VertexStepMode,
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
+            BlendState, Buffer, BufferInitDescriptor, BufferUsages, ColorTargetState,
+            ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, FragmentState,
+            IndexFormat, MultisampleState, PipelineCache, PrimitiveState, RawBufferVec,
+            RenderPipelineDescriptor, SamplerBindingType, ShaderStages,
+            SpecializedRenderPipeline, SpecializedRenderPipelines, StencilState, TextureFormat,
+            TextureSampleType, VertexAttribute, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -33,10 +36,8 @@ use bevy::{
         view::ExtractedView,
         Extract, Render, RenderApp, RenderSystems,
     },
-    sprite_render::SetMesh2dViewBindGroup,
 };
 use bytemuck::{Pod, Zeroable};
-use std::borrow::Cow;
 
 use crate::gpu::{NpcBufferWrites, NpcSpriteTexture};
 
@@ -104,7 +105,7 @@ pub struct NpcRenderBuffers {
 #[derive(Resource)]
 pub struct NpcPipeline {
     pub shader: Handle<Shader>,
-    pub texture_bind_group_layout: BindGroupLayout,
+    pub texture_bind_group_layout: BindGroupLayoutDescriptor,
 }
 
 /// Bind group for NPC sprite texture.
@@ -168,8 +169,8 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNpcTextureBindGroup<I
 
     fn render<'w>(
         _item: &P,
-        _view: ROQueryItem<'w, Self::ViewQuery>,
-        _entity: Option<ROQueryItem<'w, Self::ItemQuery>>,
+        _view: ROQueryItem<'w, 'w, Self::ViewQuery>,
+        _entity: Option<ROQueryItem<'w, 'w, Self::ItemQuery>>,
         texture_bind_group: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
@@ -181,8 +182,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNpcTextureBindGroup<I
 /// Complete draw commands for NPCs.
 type DrawNpcCommands = (
     SetItemPipeline,
-    SetMesh2dViewBindGroup<0>,
-    SetNpcTextureBindGroup<1>,
+    SetNpcTextureBindGroup<0>,
     DrawNpcs,
 );
 
@@ -211,9 +211,9 @@ impl Plugin for NpcRenderPlugin {
             .add_systems(
                 Render,
                 (
-                    prepare_npc_buffers.in_set(RenderSet::Prepare),
-                    prepare_npc_texture_bind_group.in_set(RenderSet::PrepareBindGroups),
-                    queue_npcs.in_set(RenderSet::Queue),
+                    prepare_npc_buffers.in_set(RenderSystems::PrepareResources),
+                    prepare_npc_texture_bind_group.in_set(RenderSystems::PrepareBindGroups),
+                    queue_npcs.in_set(RenderSystems::Queue),
                 ),
             );
     }
@@ -246,7 +246,7 @@ fn extract_npc_batch(
     query: Extract<Query<Entity, With<NpcBatch>>>,
 ) {
     for entity in &query {
-        commands.get_or_spawn(entity).insert(NpcBatch);
+        commands.spawn((NpcBatch, MainEntity::from(entity)));
     }
 }
 
@@ -326,6 +326,7 @@ fn prepare_npc_texture_bind_group(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     pipeline: Option<Res<NpcPipeline>>,
+    pipeline_cache: Res<PipelineCache>,
     sprite_texture: Option<Res<NpcSpriteTexture>>,
     gpu_images: Res<RenderAssets<GpuImage>>,
 ) {
@@ -334,9 +335,11 @@ fn prepare_npc_texture_bind_group(
     let Some(handle) = &sprite_texture.handle else { return };
     let Some(gpu_image) = gpu_images.get(handle) else { return };
 
+    let layout = pipeline_cache.get_bind_group_layout(&pipeline.texture_bind_group_layout);
+
     let bind_group = render_device.create_bind_group(
         Some("npc_texture_bind_group"),
-        &pipeline.texture_bind_group_layout,
+        &layout,
         &BindGroupEntries::sequential((
             &gpu_image.texture_view,
             &gpu_image.sampler,
@@ -358,7 +361,7 @@ fn queue_npcs(
     pipeline_cache: Res<PipelineCache>,
     buffers: Option<Res<NpcRenderBuffers>>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
-    views: Query<(Entity, &ExtractedView)>,
+    views: Query<(Entity, &ExtractedView, &Msaa)>,
     npc_batch: Query<Entity, With<NpcBatch>>,
 ) {
     let Some(buffers) = buffers else { return };
@@ -368,13 +371,13 @@ fn queue_npcs(
 
     let draw_function = draw_functions.read().id::<DrawNpcCommands>();
 
-    for (view_entity, view) in &views {
+    for (view_entity, view, msaa) in &views {
         let Some(transparent_phase) = transparent_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
 
-        // Get pipeline for this view's settings
-        let pipeline_id = pipelines.specialize(&pipeline_cache, &pipeline, view.hdr);
+        // Get pipeline for this view's HDR mode + MSAA sample count
+        let pipeline_id = pipelines.specialize(&pipeline_cache, &pipeline, (view.hdr, msaa.samples()));
 
         for batch_entity in &npc_batch {
             transparent_phase.add(Transparent2d {
@@ -396,9 +399,9 @@ fn queue_npcs(
 // =============================================================================
 
 impl SpecializedRenderPipeline for NpcPipeline {
-    type Key = bool; // HDR or not
+    type Key = (bool, u32); // (HDR, MSAA sample count)
 
-    fn specialize(&self, hdr: Self::Key) -> RenderPipelineDescriptor {
+    fn specialize(&self, (hdr, sample_count): Self::Key) -> RenderPipelineDescriptor {
         let format = if hdr {
             TextureFormat::Rgba16Float
         } else {
@@ -416,7 +419,7 @@ impl SpecializedRenderPipeline for NpcPipeline {
             vertex: VertexState {
                 shader: self.shader.clone(),
                 shader_defs: vec![],
-                entry_point: "vertex".into(),
+                entry_point: Some(Cow::from("vertex")),
                 buffers: vec![
                     // Slot 0: Static quad vertices
                     VertexBufferLayout {
@@ -462,7 +465,7 @@ impl SpecializedRenderPipeline for NpcPipeline {
             fragment: Some(FragmentState {
                 shader: self.shader.clone(),
                 shader_defs: vec![],
-                entry_point: "fragment".into(),
+                entry_point: Some(Cow::from("fragment")),
                 targets: vec![Some(ColorTargetState {
                     format,
                     blend: Some(BlendState::ALPHA_BLENDING),
@@ -470,8 +473,17 @@ impl SpecializedRenderPipeline for NpcPipeline {
                 })],
             }),
             primitive: PrimitiveState::default(),
-            depth_stencil: None, // 2D doesn't need depth
-            multisample: MultisampleState::default(),
+            depth_stencil: Some(DepthStencilState {
+                format: TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                depth_compare: CompareFunction::GreaterEqual,
+                stencil: StencilState::default(),
+                bias: DepthBiasState::default(),
+            }),
+            multisample: MultisampleState {
+                count: sample_count,
+                ..default()
+            },
             push_constant_ranges: vec![],
             zero_initialize_workgroup_memory: false,
         }
@@ -481,10 +493,9 @@ impl SpecializedRenderPipeline for NpcPipeline {
 impl FromWorld for NpcPipeline {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
-        let render_device = world.resource::<RenderDevice>();
 
-        let texture_bind_group_layout = render_device.create_bind_group_layout(
-            Some("npc_texture_bind_group_layout"),
+        let texture_bind_group_layout = BindGroupLayoutDescriptor::new(
+            "npc_texture_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
                 (
