@@ -2,31 +2,42 @@
 
 ## Overview
 
-Two compute shaders run on the GPU each frame: `npc_compute.glsl` handles NPC movement, separation physics, and combat targeting; `projectile_compute.glsl` handles projectile movement and collision detection. Both use a spatial grid for O(1) neighbor lookups.
+**Pure Bevy Implementation**: GPU compute now uses Bevy's render graph with wgpu/WGSL, replacing the old Godot RenderingDevice + GLSL approach. The compute shader `assets/shaders/npc_compute.wgsl` handles NPC movement, separation physics, and combat targeting using a spatial grid for O(1) neighbor lookups.
+
+## Architecture
+
+```
+Main World (ECS)                    Render World (GPU)
+│                                   │
+├─ NpcGpuData ─────────────────────▶ ExtractResourcePlugin
+├─ NpcComputeParams ───────────────▶ (copies to render world)
+│                                   │
+│                                   ├─ init_npc_compute_pipeline (RenderStartup)
+│                                   │   └─ Create buffers, queue pipeline
+│                                   │
+│                                   ├─ prepare_npc_bind_groups (PrepareBindGroups)
+│                                   │   └─ Create bind groups each frame
+│                                   │
+│                                   └─ NpcComputeNode (render graph)
+│                                       └─ Dispatch compute shader
+```
 
 ## Data Flow
 
 ```
-CPU (process())                          GPU
+Bevy Update                              GPU (via NpcComputeNode)
 │                                        │
-├─ Dispatch npc_compute.glsl (mode 0) ──▶├─ Clear grid counts to 0
-│                          (barrier)     │
-├─ Dispatch npc_compute.glsl (mode 1) ──▶├─ Insert NPCs into grid (atomics)
-│                          (barrier)     │
-├─ Dispatch npc_compute.glsl (mode 2) ──▶├─ Read positions, targets, speeds
-│                                        ├─ Separation physics (3x3 grid)
-│                                        ├─ Movement toward target
-│                                        ├─ Blocking detection + backoff
-│                                        ├─ Combat targeting (nearest enemy)
-│◀──────────────────── Read back ────────├─ Write positions, arrivals, combat_targets
-│                                        │
-├─ Dispatch projectile_compute.glsl ────▶├─ Decrement lifetime
-│                                        ├─ Move by velocity
-│                                        ├─ Collision check (3x3 grid)
-│◀──────────────────── Read back ────────├─ Write hits, positions, active flags
+├─ update_gpu_data() ───────────────────▶ ExtractResource copies to render world
+│   (npc_count, delta)                   │
+│                                        ├─ Shader dispatched per frame:
+│                                        │   - Read positions, goals, speeds
+│                                        │   - Movement toward goal
+│                                        │   - (TODO) Separation physics
+│                                        │   - (TODO) Combat targeting
+│◀─────────────────── (TODO) ────────────├─ Write positions, arrivals
 ```
 
-## NPC Compute Shader (npc_compute.glsl)
+## NPC Compute Shader (npc_compute.wgsl)
 
 Workgroup: 64 threads. Dispatched 3 times per frame with different modes:
 
@@ -174,6 +185,17 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 - Throttle expensive operations to once per second
 - Advance test_phase immediately to prevent repeated assertion runs
 
-## Rating: 6/10
+## Rating: 7/10
 
-GPU compute works but hits fundamental Godot limitations. Blocking `rd.sync()` stalls CPU waiting for GPU (~2.5ms) with no workaround — `buffer_get_data_async()` doesn't work with local RenderingDevice (Godot issue #105256). Two sequential dispatches with full sync between them. Batched buffer uploads helped (0.1ms queue time) but the 9.5ms Godot overhead is outside ECS control. Spatial grid and TCP-style backoff are solid. The architecture is sound but performance ceiling is Godot-imposed.
+GPU compute now uses Bevy's render graph with wgpu, eliminating Godot's blocking `rd.sync()` limitation. Pipeline compiles successfully and dispatches each frame. Current implementation is simplified (movement only, no separation/targeting yet). Full GLSL logic needs to be ported to WGSL incrementally. Data flow from ECS→GPU works via ExtractResourcePlugin; GPU→ECS readback not yet implemented.
+
+**Improvements over Godot version:**
+- No blocking sync - render graph handles pipelining
+- Native wgpu access - no Godot RenderingDevice wrapper overhead
+- Simpler buffer management via Bevy's RenderDevice
+
+**Remaining work:**
+- Port full separation physics from GLSL
+- Port combat targeting logic
+- Implement GPU→ECS position readback
+- Multi-mode dispatch (clear grid → insert → main logic)

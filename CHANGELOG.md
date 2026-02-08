@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-02-08
+- **pure bevy migration phase 2-3**: wire ECS systems, add GPU compute and sprite rendering
+  - wire build_app() into main.rs, verify systems tick with debug logging
+  - add gpu/mod.rs: GPU compute via Bevy render graph (follows game_of_life pattern)
+  - add assets/shaders/npc_compute.wgsl: simplified WGSL shader for movement
+  - add render/mod.rs: 2D camera, texture atlas loading, sprite rendering
+  - configure AssetPlugin to load from ../assets
+  - test sprites rendering correctly (8 character sprites visible)
+  - GPU compute pipeline compiles and dispatches (no data flow yet)
+  - update /endless, /test, /debug skills for pure Bevy workflow
+
 - **pure bevy migration phase 1**: convert from godot+bevy hybrid to standalone bevy app
   - remove godot dependencies: api.rs, channels.rs, rendering.rs, gpu.rs deleted (~2,000 lines)
   - keep pure bevy ECS: components.rs, resources.rs, systems/*.rs (~2,500 lines)

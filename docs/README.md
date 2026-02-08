@@ -32,7 +32,7 @@ When a test fails, the phase results show exactly which layer broke and what val
 
 ## System Map
 
-**NOTE: Phase 1 of Pure Bevy migration complete. Architecture is transitioning from Godot+Bevy hybrid to pure Bevy.**
+**NOTE: Phase 1-3 of Pure Bevy migration complete. GPU compute pipeline working, sprite rendering functional.**
 
 ```
 Pure Bevy App (main.rs)
@@ -42,8 +42,13 @@ Bevy ECS (lib.rs build_app)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
     │
-    ├─ GPU Compute (TODO: Phase 2) ────────▶ [gpu-compute.md]
-    │   └─ wgpu compute shaders (port from GLSL)
+    ├─ GPU Compute (gpu/mod.rs) ──────────▶ [gpu-compute.md]
+    │   ├─ Bevy render graph integration
+    │   └─ WGSL shader (assets/shaders/npc_compute.wgsl)
+    │
+    ├─ Sprite Rendering (render/mod.rs)
+    │   ├─ 2D camera, texture atlases
+    │   └─ Character + world sprite sheets
     │
     └─ Bevy Systems
         ├─ Spawn systems ──────────────────▶ [spawn.md]
@@ -59,7 +64,7 @@ Frame execution order ───────────────────�
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, timing | 7/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders (TODO: port to wgpu/WGSL) | 6/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders (wgpu/WGSL via Bevy render graph) | 7/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 7/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | State machine, energy, patrol, rest/work/eat, steal/flee/recover, farm growth | 7/10 |
@@ -69,13 +74,15 @@ Frame execution order ───────────────────�
 
 ## File Map
 
-**NOTE: Phase 1 migration complete. Godot files listed for reference during port to bevy_egui.**
+**NOTE: Phase 1-3 migration complete. GPU compute and sprite rendering working.**
 
 ```
 rust/
-  Cargo.toml            # Pure Bevy 0.18 + bevy_egui (no godot deps)
-  src/main.rs           # Bevy App entry point
+  Cargo.toml            # Pure Bevy 0.18 + bevy_egui + bytemuck
+  src/main.rs           # Bevy App entry point, asset path config
   src/lib.rs            # build_app(), system scheduling, helpers
+  src/gpu/mod.rs        # GPU compute via Bevy render graph
+  src/render/mod.rs     # 2D camera, texture atlases, sprite rendering
   src/messages.rs       # Static queues (GpuUpdate, Arrival), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
@@ -92,23 +99,14 @@ rust/
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 
+assets/
+  shaders/npc_compute.wgsl    # WGSL compute shader (ported from GLSL)
+  roguelikeChar_transparent.png   # Character sprites (54x12 grid)
+  roguelikeSheet_transparent.png  # World sprites (57x31 grid)
+
 (Godot files - to be ported to bevy_egui in Phase 5-7)
-autoloads/
-  config.gd             # → Bevy Resource constants
-  user_settings.gd      # → serde JSON persistence
-ui/
-  start_menu.gd         # → bevy_egui sliders
-  left_panel.gd         # → bevy_egui dashboard
-  upgrade_menu.gd       # → bevy_egui grid
-  roster_panel.gd       # → bevy_egui table
-  policies_panel.gd     # → bevy_egui forms
-  build_menu.gd         # → bevy_egui popup
-  combat_log.gd         # → bevy_egui window
-scenes/
-  main.gd               # → world_gen.rs (Bevy systems)
-shaders/
-  npc_compute.glsl      # → gpu/npc_compute.wgsl (Phase 2)
-  projectile_compute.glsl # → gpu/projectile_compute.wgsl (Phase 2)
+ui/*.gd               # → bevy_egui panels
+scenes/main.gd        # → world_gen.rs
 ```
 
 ## Configuration
