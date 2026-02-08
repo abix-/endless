@@ -12,30 +12,34 @@ Migrating from Godot+Bevy hybrid to pure Bevy. Removes gdext/godot-bevy complexi
 - [x] build_app() system registration
 
 ### What We Delete (~2,000 lines Godot bridge)
-- [ ] gpu.rs (Godot RenderingDevice)
-- [ ] rendering.rs (Godot MultiMesh)
-- [ ] api.rs (GDScript FFI)
-- [ ] channels.rs (Godot-Bevy messaging)
-- [ ] EcsNpcManager struct
+- [x] gpu.rs (Godot RenderingDevice)
+- [x] rendering.rs (Godot MultiMesh)
+- [x] api.rs (GDScript FFI)
+- [x] channels.rs (Godot-Bevy messaging)
+- [x] EcsNpcManager struct
 
 ### Migration Phases
 
-**Phase 1: Standalone Bevy App**
-- [ ] Update Cargo.toml (bevy, bevy_egui, serde)
-- [ ] Create main.rs with App runner
-- [ ] Update imports (godot_bevy → bevy)
-- [ ] Test: `cargo run` opens window
+**Phase 1: Standalone Bevy App ✓**
+- [x] Update Cargo.toml (bevy 0.18, bevy_egui 0.39, bytemuck)
+- [x] Create main.rs with App runner
+- [x] Update imports (godot_bevy → bevy)
+- [x] Test: `cargo run` opens window
 
-**Phase 2: GPU Compute via wgpu**
-- [ ] Port npc_compute.glsl → npc_compute.wgsl
+**Phase 2: GPU Compute via wgpu ✓**
+- [x] Port npc_compute.glsl → npc_compute.wgsl
+- [x] Create wgpu compute pipeline (Bevy render graph)
+- [x] Pipeline compiles and dispatches
 - [ ] Port projectile_compute.glsl → projectile_compute.wgsl
-- [ ] Create wgpu compute pipeline
+- [ ] ECS↔GPU data flow (buffer writes/readback)
 - [ ] Test: NPCs move (log positions)
 
-**Phase 3: Sprite Rendering**
-- [ ] Port npc_sprite.gdshader → WGSL
-- [ ] Port terrain_sprite.gdshader → WGSL
-- [ ] Bevy sprite instancing for 10K NPCs
+**Phase 3: Sprite Rendering ✓**
+- [x] 2D camera setup
+- [x] Texture atlas loading (char + world sprites)
+- [x] Test sprites rendering (8 visible)
+- [ ] Sync sprite positions with GPU/ECS
+- [ ] Full instancing for 10K NPCs
 - [ ] Test: NPCs visible @ 140fps
 
 **Phase 4: World Generation**
