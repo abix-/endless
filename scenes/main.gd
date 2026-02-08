@@ -354,6 +354,8 @@ func _setup_managers() -> void:
 	npc_manager.init_food_storage(total_towns)
 	# Factions: 0=villagers, 1..N=raider camps (each camp is unique faction)
 	npc_manager.init_faction_stats(1 + NUM_TOWNS)
+	# Camp state: NUM_TOWNS camps, max 10 raiders each
+	npc_manager.init_camp_state(NUM_TOWNS, 10)
 
 	# Add all locations using unified API (no sprites yet - batch at end)
 	for town_idx in towns.size():

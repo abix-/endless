@@ -136,6 +136,8 @@ Same situation, different outcomes. That's emergent behavior.
 | CarriedItem | `u8` | Item NPC is carrying (0=none, 1=food). Rendered as separate MultiMesh layer above head. |
 | Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
 | Wandering | marker | NPC is walking to a random nearby position |
+| Starving | marker | NPC hasn't eaten in 24+ hours (50% HP cap, 75% speed) |
+| LastAteHour | `i32` | Game hour when NPC last ate (for starvation tracking) |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
 | Home | `{ x, y }` | NPC's home/bed position |
@@ -212,15 +214,37 @@ Same situation, different outcomes. That's emergent behavior.
 - Reads NPC position from `GpuReadState`, town centers from `WorldData`
 - All settlements (villager and raider) are Town entries with faction (unified town model)
 - If NPC within `HEAL_RADIUS` (150px) of same-faction town center: heal `HEAL_RATE` (5 HP/sec)
+- **Starvation HP cap**: Starving NPCs have HP capped at 50% of MaxHealth (can't heal above this)
 - Adds/removes `Healing` marker component for visual feedback
 - Sends `GpuUpdate::SetHealing` for shader halo effect
 - Debug: `get_health_debug()` returns healing_in_zone_count and healing_healed_count
 
-### economy_tick_system
-- Reads `Res<PhysicsDelta>` (godot-bevy's Godot-synced delta time)
-- Accumulates elapsed time, triggers on hour boundaries
-- **Food production**: removed (now handled by farm harvest in arrival_system)
-- **Respawn check**: (disabled) code exists to compare `PopulationStats` vs `GameConfig` caps and spawn replacements
+### game_time_system
+- Advances `GameTime.total_seconds` based on delta and time_scale
+- Sets `hour_ticked = true` when the hour changes (single source of truth for hourly events)
+- Other systems check `game_time.hour_ticked` instead of tracking their own timers
+
+### camp_forage_system
+- Runs when `game_time.hour_ticked` is true
+- Each raider camp (faction > 0) gains `CAMP_FORAGE_RATE` (1) food per hour
+- Passive income ensures raiders can survive even if they never steal
+
+### raider_respawn_system
+- Runs when `game_time.hour_ticked` is true
+- Camps with food >= `RAIDER_SPAWN_COST` (5) and population < `CAMP_MAX_POP` (10) spawn a new raider
+- Spawns at camp center via `SpawnNpcMsg`
+
+### raid_coordinator_system
+- Runs when `game_time.hour_ticked` is true
+- Counts "available" raiders per camp (idle, within 150px of camp, not raiding/returning/in combat)
+- When 5+ available and no raid in progress: picks nearest farm as target
+- Sets `RaidCoordinator.targets[camp_idx]` for raiders to join
+
+### starvation_system
+- Runs when `game_time.hour_ticked` is true
+- NPCs with `LastAteHour` older than `STARVATION_HOURS` (24) get `Starving` marker
+- Starving NPCs: speed set to 75% via GPU update
+- When NPCs eat (decision_system Eat action): `LastAteHour` updated, `Starving` removed, speed restored
 
 ### farm_growth_system
 - Runs every frame, advances farm growth based on elapsed game time
@@ -268,6 +292,70 @@ Farms have a growth cycle instead of infinite food:
 - 16-float buffer per item: Transform2D(8) + Color(4) + CustomData(4) for progress
 - Farm slots allocated after NPC slots (MAX_NPC_COUNT + MAX_FARMS)
 
+## Starvation System
+
+NPCs must eat periodically or suffer starvation debuffs:
+
+```
+LastAteHour tracks when NPC last ate
+        │
+        ▼  starvation_system (hourly)
+hours_since_ate >= 24?
+        │
+    YES ▼
+┌────────────┐
+│  Starving  │  - HP capped at 50%
+│   marker   │  - Speed reduced to 75%
+└────┬───────┘
+     │ NPC eats (decision_system)
+     ▼
+LastAteHour = current_hour
+Starving marker removed
+Speed restored to 100%
+```
+
+**Constants:**
+- `STARVATION_HOURS`: 24 (1 game day without eating)
+- `STARVING_HP_CAP`: 0.5 (50% of MaxHealth)
+- `STARVING_SPEED_MULT`: 0.75 (75% of normal speed)
+
+Starvation applies to **both villagers and raiders**. If raiders can't steal food and their camp runs out, they'll starve and become easier to kill.
+
+## Group Raid System
+
+Raiders coordinate into groups before raiding (like Factorio biters):
+
+```
+raid_coordinator_system (hourly)
+        │
+        ▼
+Count idle raiders at camp (within 150px)
+        │
+   >= 5? ──NO──▶ wait (raiders wander near camp)
+        │
+    YES ▼
+┌────────────────┐
+│RaidCoordinator │
+│.targets[camp]  │ = nearest farm
+│.joined[camp]   │ = 0
+└───────┬────────┘
+        │
+        ▼  decision_system (each raider picks Work)
+┌────────────────┐
+│ raider joins   │ joined++, Raiding marker, walk to target
+└───────┬────────┘
+        │ joined >= 5?
+    YES ▼
+RaidCoordinator.clear(faction)
+(next raiders wait for new group)
+```
+
+**Constants:**
+- `RAID_GROUP_SIZE`: 5 (minimum raiders to form a group)
+- `CAMP_RADIUS`: 150px (must be this close to camp to count as available)
+
+Solo raiders **wait at camp** instead of raiding alone. They wander near home until a group forms.
+
 ## Energy Model
 
 Energy uses game time (respects time_scale and pause):
@@ -301,7 +389,7 @@ Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes ar
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
 - **~~Single camp index hardcoded~~**: Fixed. Raiders now deliver to their own faction's town using TownId component.
 - **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
-- **All raiders target same farm**: decision_system picks nearest farm per raider. If all raiders spawn at the same camp, they all converge on the same farm.
+- **~~All raiders target same farm~~**: Fixed. Group raid system coordinates 5+ raiders to raid together via RaidCoordinator. Solo raiders wait at camp instead of raiding alone.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
 - **~~Farm data fetch performance~~**: Fixed. BevyApp reference is now cached in ready(), eliminating scene tree traversal every frame.
 

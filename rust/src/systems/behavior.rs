@@ -21,7 +21,7 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::components::*;
 use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState};
+use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidCoordinator};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy, find_farm_index_by_pos, pos_to_key};
 
@@ -319,6 +319,8 @@ pub fn decision_system(
          Option<&Resting>, Option<&Raiding>),
         Without<Dead>
     >,
+    // Separate query for LastAteHour (updated when eating)
+    mut hunger_query: Query<&mut LastAteHour, Without<Dead>>,
     // Bundled params (scalable - add to bundles, not here)
     mut npc_states: NpcStateParams,
     combat: CombatParams,
@@ -329,6 +331,8 @@ pub fn decision_system(
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
+    // Raid coordination
+    mut raid_coordinator: ResMut<RaidCoordinator>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
@@ -648,6 +652,12 @@ pub fn decision_system(
                     let old_energy = energy.0;
                     economy.food_storage.food[town_idx] -= 1;
                     energy.0 = (energy.0 + ENERGY_FROM_EATING).min(100.0);
+                    // Update LastAteHour to prevent starvation
+                    if let Ok(mut last_ate) = hunger_query.get_mut(entity) {
+                        last_ate.0 = game_time.total_hours();
+                    }
+                    // Remove Starving marker if present (eating cures starvation)
+                    commands.entity(entity).remove::<Starving>();
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                         format!("Ate (e:{:.0}→{:.0})", old_energy, energy.0));
                 }
@@ -675,14 +685,29 @@ pub fn decision_system(
                         }
                     }
                     Job::Raider => {
-                        let pos = if idx * 2 + 1 < positions.len() {
-                            Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
-                        } else {
-                            home.0
-                        };
-                        if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
+                        // Group raids only - check if coordinator has a target
+                        if let Some(farm_pos) = raid_coordinator.get_target(faction.0) {
+                            // Join the raid group
+                            raid_coordinator.join(faction.0);
                             commands.entity(entity).insert(Raiding);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Joined raid group".into());
+
+                            // Clear target once enough raiders have joined
+                            let camp_idx = (faction.0 - 1) as usize;
+                            if camp_idx < raid_coordinator.joined.len()
+                                && raid_coordinator.joined[camp_idx] >= RAID_GROUP_SIZE
+                            {
+                                raid_coordinator.clear(faction.0);
+                            }
+                        } else {
+                            // No group raid forming - wander near camp instead of solo raiding
+                            let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
+                            let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
+                            commands.entity(entity).insert(Wandering);
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx, x: home.0.x + offset_x, y: home.0.y + offset_y
+                            }));
                         }
                     }
                     Job::Fighter => {}

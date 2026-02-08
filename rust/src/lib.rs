@@ -141,6 +141,8 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<resources::ProjSlotAllocator>()
        .init_resource::<resources::FoodStorage>()
        .init_resource::<resources::FactionStats>()
+       .init_resource::<resources::CampState>()
+       .init_resource::<resources::RaidCoordinator>()
        .init_resource::<resources::BevyFrameTimer>()
        // Chain phases with explicit command flush between Spawn and Combat
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
@@ -178,6 +180,10 @@ fn build_app(app: &mut bevy::prelude::App) {
            on_duty_tick_system,
            game_time_system,
            farm_growth_system,
+           camp_forage_system,
+           raider_respawn_system,
+           starvation_system,
+           raid_coordinator_system,
            decision_system,
        ).in_set(Step::Behavior))
        // Collect GPU updates at end of frame (single Mutex lock point)
@@ -2086,6 +2092,24 @@ impl EcsNpcManager {
             if let Some(app) = bevy_app.bind_mut().get_app_mut() {
                 if let Some(mut stats) = app.world_mut().get_resource_mut::<resources::FactionStats>() {
                     stats.init(total_faction_count as usize);
+                }
+            }
+        }
+    }
+
+    /// Initialize camp state for raider camps.
+    /// num_camps = number of raider camps (faction 1+).
+    /// max_per_camp = max raiders per camp.
+    #[func]
+    fn init_camp_state(&mut self, num_camps: i32, max_per_camp: i32) {
+        if let Some(mut bevy_app) = self.get_bevy_app() {
+            if let Some(app) = bevy_app.bind_mut().get_app_mut() {
+                let world = app.world_mut();
+                if let Some(mut state) = world.get_resource_mut::<resources::CampState>() {
+                    state.init(num_camps as usize, max_per_camp);
+                }
+                if let Some(mut coordinator) = world.get_resource_mut::<resources::RaidCoordinator>() {
+                    coordinator.init(num_camps as usize);
                 }
             }
         }

@@ -9,7 +9,7 @@ use crate::constants::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, GPU_DISPATCH_COUNT};
 use crate::resources::{
     NpcCount, NpcEntityMap, PopulationStats, GpuDispatchCount, NpcMetaCache, NpcMeta,
-    NpcsByTownCache, FactionStats, ResetFlag,
+    NpcsByTownCache, FactionStats, ResetFlag, GameTime,
 };
 use crate::systems::economy::*;
 use crate::world::WorldData;
@@ -112,6 +112,7 @@ pub fn spawn_npc_system(
     mut faction_stats: ResMut<FactionStats>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     world_data: Res<WorldData>,
+    game_time: Res<GameTime>,
     mut npc_meta: ResMut<NpcMetaCache>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
     outbox: Option<Res<BevyToGodot>>,
@@ -160,6 +161,7 @@ pub fn spawn_npc_system(
         let personality = generate_personality(idx);
 
         // Base entity (all NPCs get these)
+        let current_hour = game_time.total_hours();
         let mut ec = commands.spawn((
             NpcIndex(idx),
             Position::new(msg.x, msg.y),  // Phase 11: Bevy owns position
@@ -171,6 +173,7 @@ pub fn spawn_npc_system(
             Faction::from_i32(msg.faction),
             Home(Vector2::new(msg.home_x, msg.home_y)),
             personality,
+            LastAteHour(current_hour),  // Track when NPC last ate for starvation
         ));
 
         // Job template — determines component bundle

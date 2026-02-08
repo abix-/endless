@@ -1,6 +1,7 @@
 //! ECS Resources - Shared state accessible by all systems
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
+use godot_bevy::prelude::godot_prelude::Vector2;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use crate::constants::MAX_NPC_COUNT;
@@ -92,6 +93,8 @@ pub struct GameTime {
     pub start_hour: i32,           // Hour at game start (6 = 6am)
     pub time_scale: f32,           // 1.0 = normal, 2.0 = 2x speed
     pub paused: bool,
+    pub last_hour: i32,            // Previous hour (for detecting hour ticks)
+    pub hour_ticked: bool,         // True if hour just changed this frame
 }
 
 impl GameTime {
@@ -125,6 +128,8 @@ impl Default for GameTime {
             seconds_per_hour: 5.0,
             start_hour: 6,
             time_scale: 1.0,
+            last_hour: 0,
+            hour_ticked: false,
             paused: false,
         }
     }
@@ -446,6 +451,86 @@ pub struct FactionStat {
 #[derive(Resource, Default)]
 pub struct FactionStats {
     pub stats: Vec<FactionStat>,
+}
+
+/// Raider camp state for respawning and foraging.
+/// Faction 1+ are raider camps. Index 0 in this struct = faction 1.
+#[derive(Resource, Default)]
+pub struct CampState {
+    /// Max raiders per camp (set from config at init).
+    pub max_pop: Vec<i32>,
+    /// Hours accumulated since last respawn check.
+    pub respawn_timers: Vec<f32>,
+    /// Hours accumulated since last forage tick.
+    pub forage_timers: Vec<f32>,
+}
+
+impl CampState {
+    /// Initialize camp state for N camps.
+    pub fn init(&mut self, num_camps: usize, max_per_camp: i32) {
+        self.max_pop = vec![max_per_camp; num_camps];
+        self.respawn_timers = vec![0.0; num_camps];
+        self.forage_timers = vec![0.0; num_camps];
+    }
+
+    /// Get camp index from faction (faction 1 = camp 0, etc).
+    pub fn faction_to_camp(faction: i32) -> Option<usize> {
+        if faction > 0 {
+            Some((faction - 1) as usize)
+        } else {
+            None
+        }
+    }
+}
+
+/// Pending raid target per camp. When set, raiders should join this raid.
+/// Cleared when raid group departs.
+#[derive(Resource, Default)]
+pub struct RaidCoordinator {
+    /// Target farm position per camp (None = no raid forming).
+    /// Index = camp index (faction - 1).
+    pub targets: Vec<Option<Vector2>>,
+    /// Count of raiders who have joined each pending raid.
+    pub joined: Vec<i32>,
+}
+
+impl RaidCoordinator {
+    pub fn init(&mut self, num_camps: usize) {
+        self.targets = vec![None; num_camps];
+        self.joined = vec![0; num_camps];
+    }
+
+    /// Check if a raid is forming for this faction.
+    pub fn get_target(&self, faction: i32) -> Option<Vector2> {
+        if faction <= 0 {
+            return None;
+        }
+        let camp_idx = (faction - 1) as usize;
+        self.targets.get(camp_idx).copied().flatten()
+    }
+
+    /// Mark a raider as joined for this faction's raid.
+    pub fn join(&mut self, faction: i32) {
+        if faction <= 0 {
+            return;
+        }
+        let camp_idx = (faction - 1) as usize;
+        if camp_idx < self.joined.len() {
+            self.joined[camp_idx] += 1;
+        }
+    }
+
+    /// Clear raid target after group departs.
+    pub fn clear(&mut self, faction: i32) {
+        if faction <= 0 {
+            return;
+        }
+        let camp_idx = (faction - 1) as usize;
+        if camp_idx < self.targets.len() {
+            self.targets[camp_idx] = None;
+            self.joined[camp_idx] = 0;
+        }
+    }
 }
 
 impl FactionStats {

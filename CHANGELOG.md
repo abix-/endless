@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-02-08
+- add game loop phase 1: raider economy
+  - camp_forage_system: camps gain 1 food/hour passive income
+  - raider_respawn_system: camps spawn raiders for 5 food each (max 10 per camp)
+  - hour_ticked flag in GameTime for clean hourly event triggering
+- add game loop phase 2: starvation system
+  - LastAteHour component tracks when NPC last ate
+  - Starving marker after 24 hours without eating
+  - starvation_system: adds/removes Starving, updates speed to 75%
+  - healing_system: HP capped at 50% for starving NPCs
+  - decision_system Eat action: updates LastAteHour, removes Starving
+- add game loop phase 3: group raids
+  - RaidCoordinator resource tracks pending raid targets per camp
+  - raid_coordinator_system: counts available raiders, triggers raid when 5+ idle
+  - decision_system: raiders join group raids or wait at camp (no solo raids)
+  - raiders walk together to same farm target
+- add constants: CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, RAID_GROUP_SIZE,
+  STARVATION_HOURS, STARVING_HP_CAP, STARVING_SPEED_MULT
+
 ## 2026-02-07
 - fix fountain offset: position at grid slot (0,0) instead of geometric center
   - gold ring also centered on fountain position

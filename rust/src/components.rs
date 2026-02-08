@@ -319,6 +319,16 @@ pub struct Recovering {
 #[derive(Component)]
 pub struct Healing;
 
+/// Marker: NPC is starving (hasn't eaten in 24+ hours).
+/// Debuffs: HP capped at 50%, speed reduced 25%.
+#[derive(Component)]
+pub struct Starving;
+
+/// Tracks when NPC last ate (total game hours).
+/// Used to determine starvation.
+#[derive(Component)]
+pub struct LastAteHour(pub i32);
+
 // ============================================================================
 // BEHAVIOR CONFIG COMPONENTS (generic, attach to any NPC)
 // ============================================================================

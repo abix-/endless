@@ -115,3 +115,38 @@ pub const PROJ_FLOATS_PER_INSTANCE: usize = 12;
 
 /// Size of push constants for projectile compute shader.
 pub const PROJ_PUSH_CONSTANTS_SIZE: usize = 32;
+
+// ============================================================================
+// RAIDER CAMP CONSTANTS
+// ============================================================================
+
+/// Food gained per game hour from passive foraging.
+pub const CAMP_FORAGE_RATE: i32 = 1;
+
+/// Food cost to spawn one raider.
+pub const RAIDER_SPAWN_COST: i32 = 5;
+
+/// Hours between respawn attempts.
+pub const RAIDER_RESPAWN_HOURS: f32 = 2.0;
+
+/// Maximum raiders per camp.
+pub const CAMP_MAX_POP: i32 = 10;
+
+/// Minimum raiders needed to form a raid group.
+pub const RAID_GROUP_SIZE: i32 = 5;
+
+/// Villager population per raider camp (1 camp per 20 villagers).
+pub const VILLAGERS_PER_CAMP: i32 = 20;
+
+// ============================================================================
+// STARVATION CONSTANTS
+// ============================================================================
+
+/// Hours without eating before starvation debuff.
+pub const STARVATION_HOURS: f32 = 24.0;
+
+/// Max HP multiplier when starving (50% of normal).
+pub const STARVING_HP_CAP: f32 = 0.5;
+
+/// Speed multiplier when starving (75% of normal).
+pub const STARVING_SPEED_MULT: f32 = 0.75;

@@ -5,6 +5,7 @@ use godot_bevy::prelude::PhysicsDelta;
 
 use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
+use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats};
 use crate::systems::economy::*;
@@ -136,9 +137,10 @@ pub fn death_cleanup_system(
 
 /// Heal NPCs inside their faction's town center healing aura.
 /// Adds/removes Healing marker for visual feedback.
+/// Starving NPCs are capped at 50% HP.
 pub fn healing_system(
     mut commands: Commands,
-    mut query: Query<(Entity, &NpcIndex, &mut Health, &MaxHealth, &Faction, &TownId, Option<&Healing>), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &mut Health, &MaxHealth, &Faction, &TownId, Option<&Healing>, Option<&Starving>), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
     delta: Res<PhysicsDelta>,
@@ -154,9 +156,22 @@ pub fn healing_system(
     let mut in_zone_count = 0usize;
     let mut healed_count = 0usize;
 
-    for (entity, npc_idx, mut health, max_health, faction, _town_id, healing_marker) in query.iter_mut() {
+    for (entity, npc_idx, mut health, max_health, faction, _town_id, healing_marker, starving) in query.iter_mut() {
         let idx = npc_idx.0;
         npcs_checked += 1;
+
+        // Calculate effective HP cap (50% if starving)
+        let hp_cap = if starving.is_some() {
+            max_health.0 * STARVING_HP_CAP
+        } else {
+            max_health.0
+        };
+
+        // If starving and HP > cap, drain to cap
+        if starving.is_some() && health.0 > hp_cap {
+            health.0 = hp_cap;
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
+        }
 
         if idx * 2 + 1 >= positions.len() {
             continue;
@@ -186,9 +201,9 @@ pub fn healing_system(
         if in_healing_zone {
             in_zone_count += 1;
 
-            // Heal up to max health
-            if health.0 < max_health.0 {
-                health.0 = (health.0 + heal_amount).min(max_health.0);
+            // Heal up to HP cap (50% if starving, 100% otherwise)
+            if health.0 < hp_cap {
+                health.0 = (health.0 + heal_amount).min(hp_cap);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
                 healed_count += 1;
             }
