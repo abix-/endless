@@ -1,6 +1,17 @@
 # Changelog
 
 ## 2026-02-08
+- **docs: authority model and roadmap restructure**
+  - messages.md: Data Ownership → Data Ownership & Authority Model with 4 categories (GPU-authoritative, CPU-authoritative, CPU-only, render-only)
+  - added staleness budget (1 frame, 1.6px drift) and anti-pattern rule (no read-then-write feedback loops)
+  - fixed stale entries: GPU_READ_STATE now documented as populated, removed "not yet ported" references
+  - roadmap: restructured phases 4-7 from infrastructure milestones to gameplay-driven milestones (core loop → visual feedback → playable game → content)
+  - roadmap: added multi-layer equipment rendering spec with data model, implementation steps, and performance budget
+  - roadmap: added maintenance guide (phases = priority, capabilities = backlog)
+  - behavior.md: removed strikethrough fixed-bug (changelog material)
+  - gpu-compute.md: "not ported from old GLSL shader" → "not yet implemented"
+  - economy.md, rendering.md: created from behavior.md split + new render pipeline docs
+
 - **wire combat projectiles end-to-end**
   - npc_compute.wgsl: 3-mode spatial grid (mode 0 clear, mode 1 build with atomicAdd, mode 2 movement + combat targeting)
   - multi-dispatch NpcComputeNode: 3 bind groups with different mode uniform, 3 dispatches per frame

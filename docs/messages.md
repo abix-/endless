@@ -8,29 +8,40 @@ Communication between Bevy systems and GPU compute uses two patterns:
 
 All message types and statics are defined in `rust/src/messages.rs`. Bevy resources are in `rust/src/resources.rs`.
 
-## Data Ownership
+## Data Ownership & Authority Model
 
-| Data | Owner | Direction | Notes |
-|------|-------|-----------|-------|
-| **GPU-Owned (Numeric/Physics)** ||||
-| Positions | GPU | Bevy → GPU | Compute shader moves NPCs each frame |
-| Targets | GPU | Bevy → GPU | Bevy decides destination, GPU interpolates movement |
-| Factions | GPU | Write-once | Set at spawn (0=Villager, 1=Raider) |
-| Combat targets | GPU | GPU → Bevy | Nearest enemy index or -1 (placeholder, not yet ported) |
-| Colors | GPU | Bevy → GPU | Set at spawn, updated by steal/flee systems |
-| Speeds | GPU | Write-once | Movement speed per NPC |
-| **Bevy-Owned (Logical State)** ||||
-| NpcIndex | Bevy | Internal | Links Bevy entity to GPU slot index |
-| Job | Bevy | Internal | Guard, Farmer, Raider, Fighter — determines behavior |
-| Energy | Bevy | Internal | Drives tired/rest decisions (drain/recover rates) |
-| Health | **Both** | Bevy → GPU | Bevy authoritative, synced to GPU for targeting |
-| State markers | Bevy | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, etc. |
-| Config components | Bevy | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer |
-| AttackTimer | Bevy | Internal | Cooldown between attacks |
-| AttackStats | Bevy | Internal | melee(range=150, speed=500) or ranged(range=300, speed=200) |
-| PatrolRoute | Bevy | Internal | Guard post sequence for patrols |
-| Home | Bevy | Internal | Rest location (bed or camp) |
-| WorkPosition | Bevy | Internal | Farm location for farmers |
+Each piece of NPC data has exactly one authoritative owner. Readers on the other side tolerate 1-frame staleness.
+
+**Staleness budget**: 1 frame = 16ms @ 60fps. NPC max speed 100px/s × 0.016s = 1.6px drift. All thresholds are designed for this: arrival=8px, targeting=300px, separation=20px.
+
+**Anti-pattern**: no system may read from GPU readback AND write back to the same GPU field in the same frame. That creates a feedback loop where 1-frame delay compounds into oscillation.
+
+| Data | Authority | Direction | Notes |
+|------|-----------|-----------|-------|
+| **GPU-Authoritative** (written by compute shader, read back 1 frame later) ||||
+| Positions | GPU | GPU → CPU | Compute shader moves NPCs; readback via staging → GpuReadState |
+| Spatial grid | GPU | Internal | Built each frame (clear → insert → query). Not read back. |
+| Combat targets | GPU | GPU → CPU | Nearest enemy index via grid neighbor search; readback to GpuReadState |
+| Arrivals | GPU | GPU → CPU | Settled flag when NPC reaches goal; triggers ArrivalMsg |
+| **CPU-Authoritative** (written by ECS systems, uploaded to GPU next frame) ||||
+| Health | CPU | CPU → GPU | damage_system/healing_system write; uploaded for GPU targeting threshold |
+| Targets/Goals | CPU | CPU → GPU | decision_system/attack_system set destination; GPU interpolates movement |
+| Factions | CPU | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider camps) |
+| Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system |
+| **CPU-Only** (never sent to GPU) ||||
+| NpcIndex | CPU | Internal | Links Bevy entity to GPU slot index |
+| Job | CPU | Internal | Guard, Farmer, Raider, Fighter — determines behavior |
+| Energy | CPU | Internal | Drives tired/rest decisions (drain/recover rates) |
+| State markers | CPU | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, etc. |
+| Config components | CPU | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer |
+| AttackTimer | CPU | Internal | Cooldown between attacks |
+| AttackStats | CPU | Internal | melee(range=150, speed=500) or ranged(range=300, speed=200) |
+| PatrolRoute | CPU | Internal | Guard post sequence for patrols |
+| Home | CPU | Internal | Rest location (bed or camp) |
+| WorkPosition | CPU | Internal | Farm location for farmers |
+| **Render-Only** (used by instance buffer, never in compute shader) ||||
+| Sprite indices | Render | CPU → Render | Atlas col/row per NPC; in NpcBufferWrites, not uploaded to compute |
+| Colors | Render | CPU → Render | RGBA tint; in NpcBufferWrites, not uploaded to compute |
 
 ## Bevy Messages
 
@@ -68,7 +79,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 |--------|------|--------|--------|
 | GPU_UPDATE_QUEUE | `Mutex<Vec<GpuUpdate>>` | collect_gpu_updates | populate_buffer_writes |
 | ARRIVAL_QUEUE | `Mutex<Vec<ArrivalMsg>>` | (future: GPU readback) | drain_arrival_queue |
-| GPU_READ_STATE | `Mutex<GpuReadState>` | (not yet populated) | attack_system, apply_targets_system |
+| GPU_READ_STATE | `Mutex<GpuReadState>` | readback_npc_positions | sync_gpu_state_to_bevy → attack_system, healing_system |
 | GPU_DISPATCH_COUNT | `Mutex<usize>` | spawn_npc_system | (legacy, used for dispatch count) |
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
 | PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | (unused) | (unused) |
@@ -77,12 +88,12 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 
 ## GPU Read State
 
-`GPU_READ_STATE` holds a snapshot of GPU output for Bevy systems to read. Currently **not populated** — no GPU→CPU readback is implemented. The struct exists with empty vecs.
+`GPU_READ_STATE` holds a snapshot of GPU output for Bevy systems to read. Populated each frame by `readback_npc_positions` (Render Cleanup) from the staging buffer after compute dispatch. Consumed next frame by `sync_gpu_state_to_bevy` (Step::Drain) which copies into the `GpuReadState` Bevy resource.
 
-| Field | Type | Intended Source | Consumers |
-|-------|------|----------------|-----------|
+| Field | Type | Source | Consumers |
+|-------|------|--------|-----------|
 | npc_count | usize | Dispatch count | apply_targets_system |
-| positions | Vec\<f32\> | position_buffer readback | attack_system (range check) |
+| positions | Vec\<f32\> | position_buffer readback | attack_system, healing_system, prepare_npc_buffers |
 | combat_targets | Vec\<i32\> | combat_target_buffer readback | attack_system (target selection) |
 | health | Vec\<f32\> | CPU cache | (available for queries) |
 | factions | Vec\<i32\> | CPU cache | (available for queries) |
@@ -123,11 +134,10 @@ GOING_TO_REST=11, GOING_TO_WORK=12
 
 ## Known Issues
 
-- **GPU_READ_STATE not populated**: No GPU→CPU readback. Systems reading positions and combat_targets get empty vecs.
-- **Projectile statics unused**: `FREE_PROJ_SLOTS` and `PROJ_GPU_UPDATE_QUEUE` exist but projectile compute is not ported.
-- **Health dual ownership**: CPU-authoritative but synced to GPU. Could diverge if sync fails.
-- **SetHealing/SetCarriedItem no-ops**: These GpuUpdate variants are matched but not applied to any GPU buffer.
+- **Health dual ownership**: CPU-authoritative but synced to GPU for targeting. If upload fails or is delayed, GPU targets based on stale health. Bounded to 1 frame.
+- **SetHealing/SetCarriedItem no-ops**: These GpuUpdate variants are matched but not applied to any GPU buffer. Visual-only, awaiting multi-layer equipment rendering.
+- **Synchronous readback blocks render thread**: `device.poll(Wait)` in readback. Double-buffer staging planned when this exceeds 0.5ms.
 
 ## Rating: 7/10
 
-MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Data ownership is clear (GPU owns physics, Bevy owns logic). Static queues are minimal — only used where Bevy's scheduler can't reach. Main weakness is the unpopulated GPU_READ_STATE and leftover projectile statics.
+MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Authority model is explicit — GPU owns positions/targeting, CPU owns health/behavior, render owns visuals. Staleness budget documented (1 frame, 1.6px drift). Static queues are minimal — only used where Bevy's scheduler can't reach. Main weakness: synchronous readback blocking, SetHealing/SetCarriedItem not wired to any buffer.
