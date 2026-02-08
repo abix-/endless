@@ -120,11 +120,20 @@ fn spawn_test_sprites(
         return;
     }
 
-    // Spawn a grid of test NPCs
-    let sprite_indices = [0, 1, 2, 3, 54, 55, 56, 57]; // First row + second row
+    // Spawn test NPCs: first 2 columns x 4 rows (assuming 54 cols per row)
+    // Row 0: 0, 1 | Row 1: 54, 55 | Row 2: 108, 109 | Row 3: 162, 163
+    let cols = CHAR_SHEET_COLS as usize; // 54
+    let sprite_indices = [
+        0, 1,           // row 0
+        cols, cols + 1, // row 1
+        cols * 2, cols * 2 + 1, // row 2
+        cols * 3, cols * 3 + 1, // row 3
+    ];
     for (i, &idx) in sprite_indices.iter().enumerate() {
-        let x = 200.0 + (i as f32 % 4.0) * 50.0;
-        let y = 200.0 + (i as f32 / 4.0).floor() * 50.0;
+        let col = i % 2;
+        let row = i / 2;
+        let x = 300.0 + (col as f32) * 50.0;
+        let y = 350.0 - (row as f32) * 50.0; // flip Y so row 0 is at top
 
         commands.spawn((
             Sprite::from_atlas_image(
