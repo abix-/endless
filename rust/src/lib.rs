@@ -7,6 +7,7 @@
 
 pub mod components;
 pub mod constants;
+pub mod gpu;
 pub mod messages;
 pub mod resources;
 pub mod systems;
@@ -97,6 +98,23 @@ fn bevy_timer_start(mut timer: ResMut<BevyFrameTimer>) {
     timer.start = Some(std::time::Instant::now());
 }
 
+fn startup_system() {
+    info!("Endless ECS initialized - systems registered");
+}
+
+/// Debug: log NPC count every second
+fn debug_tick_system(
+    time: Res<Time>,
+    npc_count: Res<NpcCount>,
+    mut last_log: Local<f32>,
+) {
+    *last_log += time.delta_secs();
+    if *last_log >= 1.0 {
+        info!("Tick: {} NPCs active", npc_count.0);
+        *last_log = 0.0;
+    }
+}
+
 fn bevy_timer_end(timer: Res<BevyFrameTimer>) {
     if let Some(start) = timer.start {
         let elapsed = start.elapsed().as_secs_f32() * 1000.0;
@@ -145,6 +163,10 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CampState>()
        .init_resource::<RaidQueue>()
        .init_resource::<BevyFrameTimer>()
+       // GPU compute plugin
+       .add_plugins(gpu::GpuComputePlugin)
+       // Startup
+       .add_systems(Startup, startup_system)
        // System sets
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        .add_systems(Update, bevy_timer_start.before(Step::Drain))
@@ -182,5 +204,7 @@ pub fn build_app(app: &mut App) {
            decision_system,
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior))
-       .add_systems(Update, bevy_timer_end.after(collect_gpu_updates));
+       .add_systems(Update, bevy_timer_end.after(collect_gpu_updates))
+       // Debug (remove when GPU compute working)
+       .add_systems(Update, debug_tick_system);
 }

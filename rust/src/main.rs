@@ -14,8 +14,8 @@ fn main() {
         ..default()
     }));
 
-    // TODO: Add game systems after lib.rs is converted
-    // endless::build_app(&mut app);
+    // Wire up ECS systems
+    endless::build_app(&mut app);
 
     app.run();
 }
