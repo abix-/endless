@@ -9,6 +9,7 @@ pub mod components;
 pub mod constants;
 pub mod gpu;
 pub mod messages;
+pub mod render;
 pub mod resources;
 pub mod systems;
 pub mod world;
@@ -163,8 +164,9 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CampState>()
        .init_resource::<RaidQueue>()
        .init_resource::<BevyFrameTimer>()
-       // GPU compute plugin
+       // Plugins
        .add_plugins(gpu::GpuComputePlugin)
+       .add_plugins(render::RenderPlugin)
        // Startup
        .add_systems(Startup, startup_system)
        // System sets
