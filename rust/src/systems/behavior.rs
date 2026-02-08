@@ -21,7 +21,7 @@ use godot_bevy::prelude::godot_prelude::*;
 use crate::components::*;
 use crate::messages::{ArrivalMsg, GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidCoordinator};
+use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy, find_farm_index_by_pos, pos_to_key};
 
@@ -62,6 +62,7 @@ pub struct NpcStateParams<'w, 's> {
         Option<&'static Wandering>,
         Option<&'static AtDestination>,
         Option<&'static WoundedThreshold>,
+        Option<&'static Returning>,
     )>,
     pub work: Query<'w, 's, &'static WorkPosition>,
     pub assigned: Query<'w, 's, &'static AssignedFarm>,
@@ -331,8 +332,8 @@ pub fn decision_system(
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
-    // Raid coordination
-    mut raid_coordinator: ResMut<RaidCoordinator>,
+    // Raid queue for group coordination
+    mut raid_queue: ResMut<RaidQueue>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
@@ -349,8 +350,8 @@ pub fn decision_system(
         let idx = npc_idx.0;
 
         // Get transit states from bundled query
-        let (patrolling, going_work, going_rest, wandering, at_destination, wounded) =
-            npc_states.transit.get(entity).unwrap_or((None, None, None, None, None, None));
+        let (patrolling, going_work, going_rest, wandering, at_destination, wounded, returning) =
+            npc_states.transit.get(entity).unwrap_or((None, None, None, None, None, None, None));
 
         // ====================================================================
         // Priority 0: AtDestination → Handle arrival transition
@@ -488,7 +489,8 @@ pub fn decision_system(
         // ====================================================================
         // Skip NPCs in transit states (they're walking to their destination)
         // ====================================================================
-        if patrolling.is_some() || going_work.is_some() || going_rest.is_some() || wandering.is_some() {
+        if patrolling.is_some() || going_work.is_some() || going_rest.is_some()
+            || wandering.is_some() || raiding.is_some() || returning.is_some() {
             continue;
         }
 
@@ -685,23 +687,37 @@ pub fn decision_system(
                         }
                     }
                     Job::Raider => {
-                        // Group raids only - check if coordinator has a target
-                        if let Some(farm_pos) = raid_coordinator.get_target(faction.0) {
-                            // Join the raid group
-                            raid_coordinator.join(faction.0);
-                            commands.entity(entity).insert(Raiding);
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Joined raid group".into());
+                        // Add self to raid queue (only if not already in it)
+                        let queue = raid_queue.waiting.entry(faction.0).or_default();
+                        let already_in_queue = queue.iter().any(|(e, _)| *e == entity);
+                        if !already_in_queue {
+                            queue.push((entity, idx));
+                        }
 
-                            // Clear target once enough raiders have joined
-                            let camp_idx = (faction.0 - 1) as usize;
-                            if camp_idx < raid_coordinator.joined.len()
-                                && raid_coordinator.joined[camp_idx] >= RAID_GROUP_SIZE
-                            {
-                                raid_coordinator.clear(faction.0);
+                        // Check if enough raiders waiting to form a group
+                        if queue.len() >= RAID_GROUP_SIZE as usize {
+                            // Find target farm from current position
+                            let pos = if idx * 2 + 1 < positions.len() {
+                                Vector2::new(positions[idx * 2], positions[idx * 2 + 1])
+                            } else {
+                                home.0
+                            };
+
+                            if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
+                                // Dispatch ALL waiting raiders to same target
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                                    format!("Raid group of {} dispatched!", queue.len()));
+                                for (raider_entity, raider_idx) in queue.drain(..) {
+                                    // Remove Wandering if raider was waiting
+                                    commands.entity(raider_entity).remove::<Wandering>();
+                                    commands.entity(raider_entity).insert(Raiding);
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                        idx: raider_idx, x: farm_pos.x, y: farm_pos.y
+                                    }));
+                                }
                             }
                         } else {
-                            // No group raid forming - wander near camp instead of solo raiding
+                            // Not enough raiders yet - wander near camp while waiting
                             let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
                             let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
                             commands.entity(entity).insert(Wandering);

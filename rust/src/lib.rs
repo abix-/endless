@@ -142,7 +142,7 @@ fn build_app(app: &mut bevy::prelude::App) {
        .init_resource::<resources::FoodStorage>()
        .init_resource::<resources::FactionStats>()
        .init_resource::<resources::CampState>()
-       .init_resource::<resources::RaidCoordinator>()
+       .init_resource::<resources::RaidQueue>()
        .init_resource::<resources::BevyFrameTimer>()
        // Chain phases with explicit command flush between Spawn and Combat
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
@@ -183,7 +183,6 @@ fn build_app(app: &mut bevy::prelude::App) {
            camp_forage_system,
            raider_respawn_system,
            starvation_system,
-           raid_coordinator_system,
            decision_system,
        ).in_set(Step::Behavior))
        // Collect GPU updates at end of frame (single Mutex lock point)
@@ -2108,9 +2107,7 @@ impl EcsNpcManager {
                 if let Some(mut state) = world.get_resource_mut::<resources::CampState>() {
                     state.init(num_camps as usize, max_per_camp);
                 }
-                if let Some(mut coordinator) = world.get_resource_mut::<resources::RaidCoordinator>() {
-                    coordinator.init(num_camps as usize);
-                }
+                // RaidQueue doesn't need init - starts empty
             }
         }
     }

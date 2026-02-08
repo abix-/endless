@@ -234,12 +234,6 @@ Same situation, different outcomes. That's emergent behavior.
 - Camps with food >= `RAIDER_SPAWN_COST` (5) and population < `CAMP_MAX_POP` (10) spawn a new raider
 - Spawns at camp center via `SpawnNpcMsg`
 
-### raid_coordinator_system
-- Runs when `game_time.hour_ticked` is true
-- Counts "available" raiders per camp (idle, within 150px of camp, not raiding/returning/in combat)
-- When 5+ available and no raid in progress: picks nearest farm as target
-- Sets `RaidCoordinator.targets[camp_idx]` for raiders to join
-
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
 - NPCs with `LastAteHour` older than `STARVATION_HOURS` (24) get `Starving` marker
@@ -326,33 +320,40 @@ Starvation applies to **both villagers and raiders**. If raiders can't steal foo
 Raiders coordinate into groups before raiding (like Factorio biters):
 
 ```
-raid_coordinator_system (hourly)
+decision_system: Raider picks Work
         │
         ▼
-Count idle raiders at camp (within 150px)
+Add (entity, idx) to RaidQueue.waiting[faction]
+(only if not already in queue)
         │
-   >= 5? ──NO──▶ wait (raiders wander near camp)
+        ▼
+queue.len() >= 5?
         │
-    YES ▼
-┌────────────────┐
-│RaidCoordinator │
-│.targets[camp]  │ = nearest farm
-│.joined[camp]   │ = 0
-└───────┬────────┘
+   NO ──┼──▶ Wander near camp (stays in queue)
         │
-        ▼  decision_system (each raider picks Work)
-┌────────────────┐
-│ raider joins   │ joined++, Raiding marker, walk to target
-└───────┬────────┘
-        │ joined >= 5?
-    YES ▼
-RaidCoordinator.clear(faction)
-(next raiders wait for new group)
+   YES ──▶ Dispatch ALL waiting raiders:
+           - Remove Wandering marker
+           - Insert Raiding marker
+           - Set target to nearest farm
+           - Clear queue
 ```
+
+**RaidQueue resource:**
+```rust
+pub struct RaidQueue {
+    pub waiting: HashMap<i32, Vec<(Entity, usize)>>,
+}
+```
+
+**Key behaviors:**
+- Raiders join queue when picking Work action
+- Queue checked inline (no separate system)
+- All 5+ raiders dispatched to same farm target
+- Dead raiders removed from queue in death_cleanup_system
+- Transit skip includes Raiding and Returning (no mid-journey decisions)
 
 **Constants:**
 - `RAID_GROUP_SIZE`: 5 (minimum raiders to form a group)
-- `CAMP_RADIUS`: 150px (must be this close to camp to count as available)
 
 Solo raiders **wait at camp** instead of raiding alone. They wander near home until a group forms.
 

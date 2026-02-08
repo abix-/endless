@@ -1,7 +1,6 @@
 //! ECS Resources - Shared state accessible by all systems
 
 use godot_bevy::prelude::bevy_ecs_prelude::*;
-use godot_bevy::prelude::godot_prelude::Vector2;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use crate::constants::MAX_NPC_COUNT;
@@ -483,52 +482,20 @@ impl CampState {
     }
 }
 
-/// Pending raid target per camp. When set, raiders should join this raid.
-/// Cleared when raid group departs.
+/// Queue of raiders waiting to form a raid group.
+/// When enough raiders join the queue, they all dispatch together.
 #[derive(Resource, Default)]
-pub struct RaidCoordinator {
-    /// Target farm position per camp (None = no raid forming).
-    /// Index = camp index (faction - 1).
-    pub targets: Vec<Option<Vector2>>,
-    /// Count of raiders who have joined each pending raid.
-    pub joined: Vec<i32>,
+pub struct RaidQueue {
+    /// (Entity, NpcIndex) waiting to raid, grouped by faction.
+    /// Key = faction ID (1+ for raiders).
+    pub waiting: HashMap<i32, Vec<(Entity, usize)>>,
 }
 
-impl RaidCoordinator {
-    pub fn init(&mut self, num_camps: usize) {
-        self.targets = vec![None; num_camps];
-        self.joined = vec![0; num_camps];
-    }
-
-    /// Check if a raid is forming for this faction.
-    pub fn get_target(&self, faction: i32) -> Option<Vector2> {
-        if faction <= 0 {
-            return None;
-        }
-        let camp_idx = (faction - 1) as usize;
-        self.targets.get(camp_idx).copied().flatten()
-    }
-
-    /// Mark a raider as joined for this faction's raid.
-    pub fn join(&mut self, faction: i32) {
-        if faction <= 0 {
-            return;
-        }
-        let camp_idx = (faction - 1) as usize;
-        if camp_idx < self.joined.len() {
-            self.joined[camp_idx] += 1;
-        }
-    }
-
-    /// Clear raid target after group departs.
-    pub fn clear(&mut self, faction: i32) {
-        if faction <= 0 {
-            return;
-        }
-        let camp_idx = (faction - 1) as usize;
-        if camp_idx < self.targets.len() {
-            self.targets[camp_idx] = None;
-            self.joined[camp_idx] = 0;
+impl RaidQueue {
+    /// Remove a specific raider from the queue (e.g., when they die or enter combat).
+    pub fn remove(&mut self, faction: i32, entity: Entity) {
+        if let Some(queue) = self.waiting.get_mut(&faction) {
+            queue.retain(|(e, _)| *e != entity);
         }
     }
 }

@@ -12,10 +12,10 @@
   - healing_system: HP capped at 50% for starving NPCs
   - decision_system Eat action: updates LastAteHour, removes Starving
 - add game loop phase 3: group raids
-  - RaidCoordinator resource tracks pending raid targets per camp
-  - raid_coordinator_system: counts available raiders, triggers raid when 5+ idle
-  - decision_system: raiders join group raids or wait at camp (no solo raids)
-  - raiders walk together to same farm target
+  - RaidQueue resource: simple waiting queue per faction
+  - raiders join queue when picking Work, dispatch all when 5+ waiting
+  - no separate coordinator system — queue checked inline in decision_system
+  - transit skip now includes Raiding and Returning (no mid-journey decisions)
 - add constants: CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, RAID_GROUP_SIZE,
   STARVATION_HOURS, STARVING_HP_CAP, STARVING_SPEED_MULT
 

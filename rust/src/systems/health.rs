@@ -7,7 +7,7 @@ use crate::channels::{BevyToGodot, BevyToGodotMsg};
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats};
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue};
 use crate::systems::economy::*;
 use crate::world::{WorldData, FarmOccupancy, pos_to_key};
 
@@ -78,6 +78,7 @@ pub fn death_cleanup_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut slots: ResMut<SlotAllocator>,
     mut farm_occupancy: ResMut<FarmOccupancy>,
+    mut raid_queue: ResMut<RaidQueue>,
 ) {
     let mut despawn_count = 0;
     for (entity, npc_idx, job, town_id, faction, working, assigned_farm) in query.iter() {
@@ -96,6 +97,11 @@ pub fn death_cleanup_system(
             if let Some(count) = farm_occupancy.occupants.get_mut(&farm_key) {
                 *count = count.saturating_sub(1);
             }
+        }
+
+        // Remove from raid queue if raider was waiting
+        if *job == Job::Raider {
+            raid_queue.remove(faction.0, entity);
         }
 
         // Track kill statistics for UI (faction 0 = player/villager, 1+ = raiders)
