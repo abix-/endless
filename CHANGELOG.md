@@ -1,6 +1,14 @@
 # Changelog
 
 ## 2026-02-08
+- **cleanup: remove dead render pipeline code from gpu/mod.rs**
+  - delete old render graph Node approach (~450 lines): NpcRenderNode, NpcRenderPipeline, NpcRenderBindGroups, NpcSpriteTextureBindGroup, init_npc_render_pipeline, prepare_npc_texture_bind_group, prepare_npc_render_bind_groups
+  - delete sprite_indices/colors fields from NpcGpuBuffers (npc_render.rs uses its own vertex buffer)
+  - delete quad mesh creation (NpcRenderMesh) from init_npc_compute_pipeline
+  - delete unused spawn_test_sprites from render/mod.rs
+  - clean up unused imports (TrackedRenderPass, ViewTarget, GpuImage, RenderAssets, old binding types)
+  - zero warnings, zero errors
+
 - **phase 2.5: gpu instanced npc rendering working**
   - fix npc_render.rs for Bevy 0.18 API: BindGroupLayoutDescriptor, Option<Cow> entry points
   - add depth-stencil state (Depth32Float) matching Transparent2d render pass

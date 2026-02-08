@@ -145,7 +145,7 @@ Note: health_buffer is CPU-authoritative — it's written to GPU but never read 
 
 ## NPC Rendering
 
-NPC rendering uses a separate module (`npc_render.rs`) with Bevy's RenderCommand pattern, NOT the render graph Node approach. The old render pipeline in `gpu/mod.rs` (`init_npc_render_pipeline`) is disabled — Nodes are for compute/post-processing, not geometry. See `npc_render.rs` for the working implementation using `Transparent2d` phase with instanced draw calls.
+NPC rendering uses a separate module (`npc_render.rs`) with Bevy's RenderCommand pattern. The old render graph Node approach and all related code (`NpcRenderNode`, `NpcRenderPipeline`, `NpcRenderBindGroups`, etc.) have been deleted from `gpu/mod.rs`. Render graph Nodes are for compute/post-processing, not geometry. See `npc_render.rs` for the working implementation using `Transparent2d` phase with instanced draw calls.
 
 ## Known Issues / Limitations
 
@@ -164,7 +164,7 @@ NPC rendering uses a separate module (`npc_render.rs`) with Bevy's RenderCommand
 - **Slot reuse**: `FREE_SLOTS` pool recycles dead NPC indices (infinite churn, no 10K cap)
 - **Grid sizing**: 100px cells ensure 3×3 neighborhood covers 300px detection range
 - **Single locks**: One Mutex per direction instead of 10+ scattered queues
-- **Removed dead code**: sprite_frame_buffer (never read by shader), multimesh GPU writes (CPU rebuilds)
+- **Removed dead code**: sprite_frame_buffer (never read by shader), multimesh GPU writes (CPU rebuilds), old render pipeline (NpcRenderNode/NpcRenderPipeline/NpcRenderBindGroups — replaced by npc_render.rs RenderCommand)
 
 ## Performance Lessons Learned
 

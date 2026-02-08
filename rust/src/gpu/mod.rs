@@ -14,23 +14,16 @@ use bevy::{
     render::{
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_graph::{self, RenderGraph, RenderLabel},
-        render_phase::TrackedRenderPass,
         render_resource::{
-            binding_types::{
-                sampler, storage_buffer, storage_buffer_read_only, texture_2d, uniform_buffer,
-            },
+            binding_types::{storage_buffer, uniform_buffer},
             *,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
-        view::ViewTarget,
         Render, RenderApp, RenderStartup, RenderSystems,
     },
     shader::PipelineCacheError,
 };
 use std::borrow::Cow;
-
-use bevy::render::texture::GpuImage;
-use bevy::render::render_asset::RenderAssets;
 
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE};
 
@@ -39,7 +32,6 @@ use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE};
 // =============================================================================
 
 const SHADER_ASSET_PATH: &str = "shaders/npc_compute.wgsl";
-const RENDER_SHADER_PATH: &str = "shaders/npc_render.wgsl";
 const WORKGROUP_SIZE: u32 = 64;
 const MAX_NPCS: u32 = 16384;
 const GRID_WIDTH: u32 = 128;
@@ -277,26 +269,15 @@ impl Plugin for GpuComputePlugin {
                 Render,
                 (
                     write_npc_buffers.in_set(RenderSystems::PrepareResources),
-                    (
-                        prepare_npc_bind_groups,
-                        prepare_npc_texture_bind_group,
-                        prepare_npc_render_bind_groups,
-                    ).chain().in_set(RenderSystems::PrepareBindGroups),
+                    prepare_npc_bind_groups.in_set(RenderSystems::PrepareBindGroups),
                 ),
             );
 
         // Add compute node to render graph
         {
-            let world = render_app.world_mut();
-            let render_node = NpcRenderNode::from_world(world);
-            let mut render_graph = world.resource_mut::<RenderGraph>();
+            let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
             render_graph.add_node(NpcComputeLabel, NpcComputeNode::default());
-            render_graph.add_node(NpcRenderLabel, render_node);
-
-            // Chain: Compute → Camera Driver → NPC Render (overlay on top)
-            // NPC render must come AFTER camera driver to not be overwritten by Bevy's clear
             render_graph.add_node_edge(NpcComputeLabel, bevy::render::graph::CameraDriverLabel);
-            render_graph.add_node_edge(bevy::render::graph::CameraDriverLabel, NpcRenderLabel);
         }
 
         info!("GPU compute plugin initialized");
@@ -334,9 +315,6 @@ pub struct NpcGpuBuffers {
     pub factions: Buffer,
     pub healths: Buffer,
     pub combat_targets: Buffer,
-    // Render buffers
-    pub sprite_indices: Buffer,  // vec4<f32> per NPC: xy=col/row
-    pub colors: Buffer,          // vec4<f32> per NPC: RGBA
 }
 
 /// Bind groups for compute passes.
@@ -351,36 +329,6 @@ struct NpcBindGroups {
 struct NpcComputePipeline {
     bind_group_layout: BindGroupLayoutDescriptor,
     pipeline_id: CachedComputePipelineId,
-}
-
-/// Mesh resources for instanced NPC rendering.
-#[derive(Resource)]
-pub struct NpcRenderMesh {
-    /// Quad vertex buffer: 4 vertices with position (vec2) and uv (vec2)
-    pub vertex_buffer: Buffer,
-    /// Index buffer: 6 indices for 2 triangles
-    pub index_buffer: Buffer,
-}
-
-/// Render pipeline for instanced NPCs.
-#[derive(Resource)]
-pub struct NpcRenderPipeline {
-    pub pipeline_id: CachedRenderPipelineId,
-    pub instance_bind_group_layout: BindGroupLayout,
-    pub texture_bind_group_layout: BindGroupLayout,
-}
-
-/// Bind groups for NPC rendering.
-#[derive(Resource)]
-pub struct NpcRenderBindGroups {
-    pub instance_bind_group: BindGroup,
-    pub texture_bind_group: Option<BindGroup>,
-}
-
-/// Sprite texture bind group (created when texture is extracted).
-#[derive(Resource, Clone)]
-pub struct NpcSpriteTextureBindGroup {
-    pub bind_group: BindGroup,
 }
 
 /// Handle to the NPC sprite texture (main world).
@@ -465,19 +413,6 @@ fn init_npc_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
-        // Render buffers
-        sprite_indices: render_device.create_buffer(&BufferDescriptor {
-            label: Some("sprite_indices"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 4]>()) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
-        colors: render_device.create_buffer(&BufferDescriptor {
-            label: Some("npc_colors"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 4]>()) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
     };
 
     commands.insert_resource(buffers);
@@ -529,149 +464,9 @@ fn init_npc_compute_pipeline(
         pipeline_id,
     });
 
-    // Create quad mesh for instanced rendering
-    // Vertex layout: [x, y, u, v] per vertex
-    #[rustfmt::skip]
-    let quad_vertices: [[f32; 4]; 4] = [
-        [-0.5, -0.5, 0.0, 1.0], // bottom-left
-        [ 0.5, -0.5, 1.0, 1.0], // bottom-right
-        [ 0.5,  0.5, 1.0, 0.0], // top-right
-        [-0.5,  0.5, 0.0, 0.0], // top-left
-    ];
-    let vertex_data: Vec<u8> = quad_vertices
-        .iter()
-        .flat_map(|v| v.iter().flat_map(|f| f.to_le_bytes()))
-        .collect();
-
-    let vertex_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("npc_quad_vertices"),
-        contents: &vertex_data,
-        usage: BufferUsages::VERTEX,
-    });
-
-    // Two triangles: 0-1-2, 0-2-3
-    let quad_indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
-    let index_data: Vec<u8> = quad_indices
-        .iter()
-        .flat_map(|i| i.to_le_bytes())
-        .collect();
-
-    let index_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("npc_quad_indices"),
-        contents: &index_data,
-        usage: BufferUsages::INDEX,
-    });
-
-    commands.insert_resource(NpcRenderMesh {
-        vertex_buffer,
-        index_buffer,
-    });
-
-    // Old render pipeline disabled — replaced by npc_render.rs RenderCommand pattern
-    // init_npc_render_pipeline(&mut commands, &render_device, &asset_server, &pipeline_cache);
-
     info!("NPC compute pipeline queued");
 }
 
-/// Initialize the render pipeline for instanced NPC sprites.
-fn init_npc_render_pipeline(
-    commands: &mut Commands,
-    _render_device: &RenderDevice,
-    asset_server: &AssetServer,
-    pipeline_cache: &PipelineCache,
-) {
-    // Instance data bind group layout (group 0 for our shader)
-    // Matches shader: positions, sprite_indices, colors
-    let instance_layout_desc = BindGroupLayoutDescriptor::new(
-        "NpcRenderInstanceLayout",
-        &BindGroupLayoutEntries::sequential(
-            ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-            (
-                // 0: positions - vec2<f32> per NPC
-                storage_buffer_read_only::<Vec<[f32; 2]>>(false),
-                // 1: sprite_indices - vec4<f32> per NPC
-                storage_buffer_read_only::<Vec<[f32; 4]>>(false),
-                // 2: colors - vec4<f32> per NPC
-                storage_buffer_read_only::<Vec<[f32; 4]>>(false),
-            ),
-        ),
-    );
-
-    // Texture bind group layout (group 1 for our shader)
-    let texture_layout_desc = BindGroupLayoutDescriptor::new(
-        "NpcRenderTextureLayout",
-        &BindGroupLayoutEntries::sequential(
-            ShaderStages::FRAGMENT,
-            (
-                // 0: sprite texture
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                // 1: sampler
-                sampler(SamplerBindingType::Filtering),
-            ),
-        ),
-    );
-
-    // Also create actual bind group layouts for later use
-    let instance_bind_group_layout = pipeline_cache.get_bind_group_layout(&instance_layout_desc);
-    let texture_bind_group_layout = pipeline_cache.get_bind_group_layout(&texture_layout_desc);
-
-    // Load shader
-    let shader = asset_server.load(RENDER_SHADER_PATH);
-
-    // Create render pipeline
-    let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
-        label: Some(Cow::from("npc_render_pipeline")),
-        layout: vec![
-            // Group 0: Instance data (positions, sprites, colors)
-            instance_layout_desc,
-            // Group 1: Texture
-            texture_layout_desc,
-        ],
-        vertex: VertexState {
-            shader: shader.clone(),
-            entry_point: Some(Cow::from("vertex")),
-            shader_defs: vec![],
-            buffers: vec![bevy::mesh::VertexBufferLayout::from_vertex_formats(
-                VertexStepMode::Vertex,
-                vec![
-                    VertexFormat::Float32x2, // position
-                    VertexFormat::Float32x2, // uv
-                ],
-            )],
-        },
-        fragment: Some(FragmentState {
-            shader,
-            entry_point: Some(Cow::from("fragment")),
-            shader_defs: vec![],
-            targets: vec![Some(ColorTargetState {
-                format: TextureFormat::Rgba8UnormSrgb,  // Match ViewTarget format
-                blend: Some(BlendState::ALPHA_BLENDING),
-                write_mask: ColorWrites::ALL,
-            })],
-        }),
-        primitive: PrimitiveState {
-            topology: PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: FrontFace::Ccw,
-            cull_mode: None, // No culling for 2D sprites
-            unclipped_depth: false,
-            polygon_mode: PolygonMode::Fill,
-            conservative: false,
-        },
-        depth_stencil: None,
-        multisample: MultisampleState::default(),
-        push_constant_ranges: vec![],
-        zero_initialize_workgroup_memory: false,
-    });
-
-    commands.insert_resource(NpcRenderPipeline {
-        pipeline_id,
-        instance_bind_group_layout,
-        texture_bind_group_layout,
-    });
-
-    info!("NPC render pipeline queued");
-}
 
 // =============================================================================
 // BIND GROUP PREPARATION
@@ -715,64 +510,6 @@ fn prepare_npc_bind_groups(
     commands.insert_resource(NpcBindGroups { bind_group });
 }
 
-/// Create texture bind group from extracted sprite texture.
-fn prepare_npc_texture_bind_group(
-    mut commands: Commands,
-    render_pipeline: Option<Res<NpcRenderPipeline>>,
-    sprite_texture: Option<Res<NpcSpriteTexture>>,
-    gpu_images: Res<RenderAssets<GpuImage>>,
-    render_device: Res<RenderDevice>,
-) {
-    let Some(pipeline) = render_pipeline else { return };
-    let Some(sprite_tex) = sprite_texture else { return };
-    let Some(handle) = &sprite_tex.handle else { return };
-
-    // Try to get the GPU image
-    let Some(gpu_image) = gpu_images.get(handle) else { return };
-
-    // Create texture bind group
-    let bind_group = render_device.create_bind_group(
-        Some("npc_sprite_texture_bind_group"),
-        &pipeline.texture_bind_group_layout,
-        &BindGroupEntries::sequential((
-            &gpu_image.texture_view,
-            &gpu_image.sampler,
-        )),
-    );
-
-    commands.insert_resource(NpcSpriteTextureBindGroup { bind_group });
-}
-
-/// Prepare bind groups for NPC instanced rendering.
-fn prepare_npc_render_bind_groups(
-    mut commands: Commands,
-    render_pipeline: Option<Res<NpcRenderPipeline>>,
-    buffers: Option<Res<NpcGpuBuffers>>,
-    render_device: Res<RenderDevice>,
-    sprite_texture: Option<Res<NpcSpriteTextureBindGroup>>,
-) {
-    let Some(pipeline) = render_pipeline else { return };
-    let Some(buffers) = buffers else { return };
-
-    // Create instance data bind group
-    let instance_bind_group = render_device.create_bind_group(
-        Some("npc_render_instance_bind_group"),
-        &pipeline.instance_bind_group_layout,
-        &BindGroupEntries::sequential((
-            buffers.positions.as_entire_buffer_binding(),
-            buffers.sprite_indices.as_entire_buffer_binding(),
-            buffers.colors.as_entire_buffer_binding(),
-        )),
-    );
-
-    // Get texture bind group if available
-    let texture_bind_group = sprite_texture.map(|t| t.bind_group.clone());
-
-    commands.insert_resource(NpcRenderBindGroups {
-        instance_bind_group,
-        texture_bind_group,
-    });
-}
 
 // =============================================================================
 // BUFFER WRITING
@@ -844,19 +581,6 @@ fn write_npc_buffers(
         bytemuck::cast_slice(&writes.healths),
     );
 
-    // Write sprite indices buffer
-    render_queue.write_buffer(
-        &buffers.sprite_indices,
-        0,
-        bytemuck::cast_slice(&writes.sprite_indices),
-    );
-
-    // Write colors buffer
-    render_queue.write_buffer(
-        &buffers.colors,
-        0,
-        bytemuck::cast_slice(&writes.colors),
-    );
 }
 
 // =============================================================================
@@ -956,148 +680,3 @@ impl render_graph::Node for NpcComputeNode {
     }
 }
 
-// =============================================================================
-// RENDER NODE (Instanced Sprite Rendering)
-// =============================================================================
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct NpcRenderLabel;
-
-enum NpcRenderState {
-    Loading,
-    Ready,
-}
-
-struct NpcRenderNode {
-    state: NpcRenderState,
-    view_query: QueryState<(Entity, &'static ViewTarget)>,
-}
-
-impl FromWorld for NpcRenderNode {
-    fn from_world(world: &mut World) -> Self {
-        Self {
-            state: NpcRenderState::Loading,
-            view_query: QueryState::new(world),
-        }
-    }
-}
-
-impl render_graph::Node for NpcRenderNode {
-    fn update(&mut self, world: &mut World) {
-        // Update query to see newly spawned ViewTarget entities
-        self.view_query.update_archetypes(world);
-
-        let Some(pipeline) = world.get_resource::<NpcRenderPipeline>() else {
-            return;
-        };
-        let pipeline_cache = world.resource::<PipelineCache>();
-
-        match self.state {
-            NpcRenderState::Loading => {
-                match pipeline_cache.get_render_pipeline_state(pipeline.pipeline_id) {
-                    CachedPipelineState::Ok(_) => {
-                        self.state = NpcRenderState::Ready;
-                        info!("NPC render pipeline ready");
-                    }
-                    CachedPipelineState::Err(PipelineCacheError::ShaderNotLoaded(_)) => {}
-                    CachedPipelineState::Err(err) => {
-                        warn!("NPC render shader error: {err}");
-                        // Don't panic - rendering is optional, compute still works
-                    }
-                    _ => {}
-                }
-            }
-            NpcRenderState::Ready => {}
-        }
-    }
-
-    fn run(
-        &self,
-        _graph: &mut render_graph::RenderGraphContext,
-        render_context: &mut RenderContext,
-        world: &World,
-    ) -> Result<(), render_graph::NodeRunError> {
-        // Only run if ready
-        if !matches!(self.state, NpcRenderState::Ready) {
-            return Ok(());
-        }
-
-        let Some(render_bind_groups) = world.get_resource::<NpcRenderBindGroups>() else {
-            return Ok(());
-        };
-        let Some(gpu_data) = world.get_resource::<NpcGpuData>() else {
-            return Ok(());
-        };
-        let Some(mesh) = world.get_resource::<NpcRenderMesh>() else {
-            return Ok(());
-        };
-        let pipeline_cache = world.resource::<PipelineCache>();
-        let pipeline = world.resource::<NpcRenderPipeline>();
-
-        let npc_count = gpu_data.npc_count;
-        if npc_count == 0 {
-            return Ok(());
-        }
-
-        let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline_id)
-        else {
-            return Ok(());
-        };
-
-        // Skip if texture bind group not ready
-        let Some(texture_bind_group) = &render_bind_groups.texture_bind_group else {
-            return Ok(());
-        };
-
-        let render_device = world.resource::<RenderDevice>();
-
-        // Iterate over extracted camera views using stored query
-        for (_entity, view_target) in self.view_query.iter_manual(world) {
-            // Get color attachment for this view
-            let color_attachment = RenderPassColorAttachment {
-                view: view_target.main_texture_view(),
-                resolve_target: None,
-                ops: Operations {
-                    // Load existing content (don't clear - Bevy's camera already cleared)
-                    load: LoadOp::Load,
-                    store: StoreOp::Store,
-                },
-                depth_slice: None,
-            };
-
-            let raw_render_pass = render_context
-                .command_encoder()
-                .begin_render_pass(&RenderPassDescriptor {
-                    label: Some("npc_instanced_render_pass"),
-                    color_attachments: &[Some(color_attachment)],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-
-            // Wrap in TrackedRenderPass to use Bevy's Buffer types
-            let mut render_pass = TrackedRenderPass::new(&render_device, raw_render_pass);
-
-            // Set pipeline and bind groups
-            render_pass.set_render_pipeline(render_pipeline);
-            render_pass.set_bind_group(0, &render_bind_groups.instance_bind_group, &[]);
-            render_pass.set_bind_group(1, texture_bind_group, &[]);
-
-            // Set vertex and index buffers
-            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(mesh.index_buffer.slice(..), IndexFormat::Uint16);
-
-            // Draw instanced: 6 indices (2 triangles), npc_count instances
-            render_pass.draw_indexed(0..6, 0, 0..npc_count);
-        }
-
-        // Log once when first frame renders
-        static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            let view_count = self.view_query.iter_manual(world).count();
-            info!("NPC instanced render: {} NPCs drawn to {} views", npc_count, view_count);
-        }
-
-        Ok(())
-    }
-}
