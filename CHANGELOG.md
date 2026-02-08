@@ -1,6 +1,13 @@
 # Changelog
 
 ## 2026-02-08
+- **restructure: flatten project layout**
+  - flatten gpu/mod.rs → gpu.rs, render/mod.rs → render.rs (single-file modules don't need folders)
+  - move shaders from assets/shaders/ to root shaders/ (all shaders in one place)
+  - delete Godot .import files from assets/
+  - change asset root to project root (asset_server loads from ".." instead of "../assets")
+  - update texture load paths with assets/ prefix
+
 - **cleanup: remove dead render pipeline code from gpu/mod.rs**
   - delete old render graph Node approach (~450 lines): NpcRenderNode, NpcRenderPipeline, NpcRenderBindGroups, NpcSpriteTextureBindGroup, init_npc_render_pipeline, prepare_npc_texture_bind_group, prepare_npc_render_bind_groups
   - delete sprite_indices/colors fields from NpcGpuBuffers (npc_render.rs uses its own vertex buffer)

@@ -83,7 +83,7 @@ fn load_sprites(
     mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     // Load character sprite sheet
-    assets.char_texture = asset_server.load("roguelikeChar_transparent.png");
+    assets.char_texture = asset_server.load("assets/roguelikeChar_transparent.png");
 
     // Share texture handle with GPU module for instanced rendering
     npc_sprite_tex.handle = Some(assets.char_texture.clone());
@@ -99,7 +99,7 @@ fn load_sprites(
     assets.char_atlas = texture_atlases.add(char_layout);
 
     // Load world sprite sheet
-    assets.world_texture = asset_server.load("roguelikeSheet_transparent.png");
+    assets.world_texture = asset_server.load("assets/roguelikeSheet_transparent.png");
 
     // Create atlas layout for world sprites
     let world_layout = TextureAtlasLayout::from_grid(

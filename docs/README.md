@@ -42,7 +42,7 @@ Bevy ECS (lib.rs build_app)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
     │
-    ├─ GPU Compute (gpu/mod.rs) ──────────▶ [gpu-compute.md]
+    ├─ GPU Compute (gpu.rs) ────────────▶ [gpu-compute.md]
     │   ├─ Bevy render graph integration
     │   └─ WGSL shader (assets/shaders/npc_compute.wgsl)
     │
@@ -84,11 +84,11 @@ Frame execution order ───────────────────�
 ```
 rust/
   Cargo.toml            # Pure Bevy 0.18 + bevy_egui + bytemuck
-  src/main.rs           # Bevy App entry point, asset path config
+  src/main.rs           # Bevy App entry point, asset root = project root
   src/lib.rs            # build_app(), system scheduling, helpers
-  src/gpu/mod.rs        # GPU compute via Bevy render graph
+  src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
-  src/render/mod.rs     # 2D camera, texture atlases, sprite rendering
+  src/render.rs         # 2D camera, texture atlases, sprite rendering
   src/messages.rs       # Static queues (GpuUpdate, Arrival), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
@@ -105,9 +105,13 @@ rust/
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 
+shaders/
+  npc_compute.wgsl          # WGSL compute shader (ported from GLSL)
+  npc_render.wgsl           # WGSL render shader (instanced quad + sprite atlas)
+  npc_compute.glsl          # Old GLSL compute shader (porting reference)
+  projectile_compute.glsl   # Old GLSL projectile shader (to be ported)
+
 assets/
-  shaders/npc_compute.wgsl    # WGSL compute shader (ported from GLSL)
-  shaders/npc_render.wgsl     # WGSL render shader (instanced quad + sprite atlas)
   roguelikeChar_transparent.png   # Character sprites (54x12 grid)
   roguelikeSheet_transparent.png  # World sprites (57x31 grid)
 
