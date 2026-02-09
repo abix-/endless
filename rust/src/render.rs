@@ -220,14 +220,18 @@ fn camera_viewport_sync(
     }
 }
 
-/// Sync CameraState to Bevy Camera2d Transform (for coordinate queries).
+/// Sync CameraState to Bevy Camera2d Transform + Projection.
+/// Position is used by coordinate queries; scale drives TilemapChunk zoom.
 fn camera_transform_sync(
     camera_state: Res<CameraState>,
-    mut query: Query<&mut Transform, With<MainCamera>>,
+    mut query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
-    let Ok(mut transform) = query.single_mut() else { return };
+    let Ok((mut transform, mut projection)) = query.single_mut() else { return };
     transform.translation.x = camera_state.position.x;
     transform.translation.y = camera_state.position.y;
+    if let Projection::Orthographic(ref mut ortho) = *projection {
+        ortho.scale = 1.0 / camera_state.zoom;
+    }
 }
 
 /// Left click to select nearest NPC within 20px.

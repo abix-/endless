@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-02-09
+- **require(HasTarget) on transit components: compile-time arrival detection guarantee**
+  - add `#[require(HasTarget)]` to 6 transit components (Patrolling, GoingToRest, GoingToWork, Raiding, Returning, Wandering)
+  - add `Default` derive to `HasTarget` (required by `#[require]`)
+  - remove 13 manual `.insert(HasTarget)` calls from `decision_system` and 1 from `spawn_npc_system`
+  - Bevy's required components auto-insert `HasTarget` on any `.insert(Patrolling)` etc — impossible to forget
+
+- **camera zoom sync: TilemapChunk zoom support**
+  - `camera_transform_sync` now queries `Projection` instead of `OrthographicProjection` (Bevy 0.18 API)
+  - syncs `ortho.scale = 1.0 / camera_state.zoom` so TilemapChunk layers zoom with camera
+
 - **building tilemap: two-layer TilemapChunk (terrain + buildings)**
   - buildings now rendered via second TilemapChunk layer (z=-0.5, AlphaMode2d::Blend) on top of terrain (z=-1, Opaque)
   - generic `build_tileset(atlas, tiles, images)` replaces `build_terrain_tileset()` — same pixel-copy logic, parameterized by tile list

@@ -253,7 +253,7 @@ type DrawProjCommands = (
 - `camera_pan_system`: WASD at 400px/s, speed scaled by 1/zoom for consistent screen-space feel
 - `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), uses `AccumulatedMouseScroll` resource
 - `camera_viewport_sync`: keeps viewport in sync with window size
-- `camera_transform_sync`: syncs CameraState → Bevy Camera2d Transform (position only)
+- `camera_transform_sync`: syncs CameraState → Bevy Camera2d Transform (position) + OrthographicProjection (zoom scale = 1/zoom)
 - `click_to_select_system`: left click → screen-to-world → find nearest NPC within 20px from GPU_READ_STATE
 
 **Render world**: `prepare_npc_camera_bind_group` writes `CameraUniform` (camera_pos, zoom, viewport) to a `UniformBuffer` each frame, creating a bind group at group 1.

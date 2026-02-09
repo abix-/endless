@@ -124,18 +124,18 @@ Same situation, different outcomes. That's emergent behavior.
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
 | Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
 | Resting | marker | NPC is at home, recovering energy |
-| GoingToRest | marker | NPC is walking home to rest |
-| Patrolling | marker | Guard is walking to next patrol post |
+| GoingToRest | marker | NPC is walking home to rest (`#[require(HasTarget)]`) |
+| Patrolling | marker | Guard is walking to next patrol post (`#[require(HasTarget)]`) |
 | OnDuty | `{ ticks: u32 }` | Guard is stationed at a post |
 | Working | marker | Farmer is at work position |
 | AssignedFarm | `Vec2` | Farm position farmer is working at (for occupancy tracking) |
-| GoingToWork | marker | Farmer is walking to work |
-| Raiding | marker | NPC is walking to a farm to steal |
-| Returning | marker | NPC is walking back to home base |
+| GoingToWork | marker | Farmer is walking to work (`#[require(HasTarget)]`) |
+| Raiding | marker | NPC is walking to a farm to steal (`#[require(HasTarget)]`) |
+| Returning | marker | NPC is walking back to home base (`#[require(HasTarget)]`) |
 | CarryingFood | marker | NPC has stolen food |
 | *(removed)* | | CarriedItem replaced by `SetEquipSprite(Item, ...)` for visual rendering |
 | Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
-| Wandering | marker | NPC is walking to a random nearby position |
+| Wandering | marker | NPC is walking to a random nearby position (`#[require(HasTarget)]`) |
 | Starving | marker | NPC hasn't eaten in 24+ hours (50% HP cap, 75% speed) |
 | LastAteHour | `i32` | Game hour when NPC last ate (for starvation tracking) |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
@@ -144,7 +144,7 @@ Same situation, different outcomes. That's emergent behavior.
 | WorkPosition | `{ x, y }` | Farmer's field position |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
 | AtDestination | marker | NPC arrived at destination, needs transition handling |
-| HasTarget | marker | NPC has an active movement target |
+| HasTarget | marker | NPC has an active movement target (auto-inserted via `#[require]` on transit components) |
 | InCombat | marker | Blocks behavior transitions |
 | CombatOrigin | `{ x, y }` | Position where combat started; leash measures from here |
 | Stealer | marker | NPC steals from farms (enables steal systems) |

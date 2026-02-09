@@ -61,7 +61,7 @@ impl Job {
 
 /// Marker component: this NPC has an active target to move toward.
 /// Added when set_target() is called, could be removed when arrived.
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct HasTarget;
 
 /// Movement speed in pixels per second.
@@ -133,6 +133,7 @@ pub struct WorkPosition(pub Vec2);
 
 /// NPC is moving toward next patrol post.
 #[derive(Component)]
+#[require(HasTarget)]
 pub struct Patrolling;
 
 /// NPC is standing at a post, waiting before moving to next.
@@ -147,6 +148,7 @@ pub struct Resting;
 
 /// NPC is walking home to rest.
 #[derive(Component)]
+#[require(HasTarget)]
 pub struct GoingToRest;
 
 /// NPC is at work position, working.
@@ -161,6 +163,7 @@ pub struct AssignedFarm(pub Vec2);
 
 /// NPC is walking to work position.
 #[derive(Component)]
+#[require(HasTarget)]
 pub struct GoingToWork;
 
 /// NPC has arrived at destination and needs transition handling.
@@ -305,14 +308,17 @@ pub struct CarryingFood;
 
 /// State: NPC is walking to a farm to steal food.
 #[derive(Component)]
+#[require(HasTarget)]
 pub struct Raiding;
 
 /// State: NPC is walking back to home base (with or without food).
 #[derive(Component)]
+#[require(HasTarget)]
 pub struct Returning;
 
 /// State: NPC is wandering to a random nearby position.
 #[derive(Component)]
+#[require(HasTarget)]
 pub struct Wandering;
 
 /// State: NPC is resting until HP reaches threshold before resuming activity.

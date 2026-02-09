@@ -438,20 +438,18 @@ pub fn decision_system(
                         commands.entity(entity)
                             .remove::<Raiding>()
                             .insert(CarryingFood)
-                            .insert(Returning)
-                            .insert(HasTarget);
+                            .insert(Returning);
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Item, col: FOOD_SPRITE.0, row: FOOD_SPRITE.1 }));
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning".into());
                     } else {
                         // Farm not ready - find another
                         if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
-                            commands.entity(entity).insert(HasTarget);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another".into());
                         } else {
                             // No farms available - abort raid and return home
-                            commands.entity(entity).remove::<Raiding>().insert(Returning).insert(HasTarget);
+                            commands.entity(entity).remove::<Raiding>().insert(Returning);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farms, returning home".into());
                         }
@@ -502,7 +500,7 @@ pub fn decision_system(
 
                 if health.0 / 100.0 < effective_threshold {
                     let mut cmds = commands.entity(entity);
-                    cmds.remove::<InCombat>().remove::<CombatOrigin>().remove::<Raiding>().insert(Returning).insert(HasTarget);
+                    cmds.remove::<InCombat>().remove::<CombatOrigin>().remove::<Raiding>().insert(Returning);
                     if carrying.is_some() {
                         cmds.remove::<CarryingFood>();
                         let (r, g, b, a) = raider_faction_color(faction);
@@ -523,7 +521,7 @@ pub fn decision_system(
                     if (dx * dx + dy * dy).sqrt() > leash.distance {
                         commands.entity(entity)
                             .remove::<InCombat>().remove::<CombatOrigin>().remove::<Raiding>()
-                            .insert(Returning).insert(HasTarget);
+                            .insert(Returning);
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Leashed → Returning".into());
                         continue;
@@ -577,7 +575,7 @@ pub fn decision_system(
                     if !patrol.posts.is_empty() {
                         patrol.current = (patrol.current + 1) % patrol.posts.len();
                     }
-                    commands.entity(entity).remove::<OnDuty>().insert(Patrolling).insert(HasTarget);
+                    commands.entity(entity).remove::<OnDuty>().insert(Patrolling);
                     if let Some(pos) = patrol.posts.get(patrol.current) {
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
                     }
@@ -655,7 +653,7 @@ pub fn decision_system(
             }
             Action::Rest => {
                 if home.is_valid() {
-                    commands.entity(entity).insert(GoingToRest).insert(HasTarget);
+                    commands.entity(entity).insert(GoingToRest);
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                 }
             }
@@ -663,13 +661,13 @@ pub fn decision_system(
                 match job {
                     Job::Farmer => {
                         if let Ok(wp) = npc_states.work.get(entity) {
-                            commands.entity(entity).insert(GoingToWork).insert(HasTarget);
+                            commands.entity(entity).insert(GoingToWork);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: wp.0.x, y: wp.0.y }));
                         }
                     }
                     Job::Guard => {
                         if let Ok(patrol) = npc_states.patrols.get(entity) {
-                            commands.entity(entity).insert(Patrolling).insert(HasTarget);
+                            commands.entity(entity).insert(Patrolling);
                             if let Some(pos) = patrol.posts.get(patrol.current) {
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
                             }
@@ -699,7 +697,7 @@ pub fn decision_system(
                                 for (raider_entity, raider_idx) in queue.drain(..) {
                                     // Remove Wandering if raider was waiting
                                     commands.entity(raider_entity).remove::<Wandering>();
-                                    commands.entity(raider_entity).insert(Raiding).insert(HasTarget);
+                                    commands.entity(raider_entity).insert(Raiding);
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                                         idx: raider_idx, x: farm_pos.x, y: farm_pos.y
                                     }));
@@ -709,7 +707,7 @@ pub fn decision_system(
                                 queue.clear();
                                 let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
                                 let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
-                                commands.entity(entity).insert(Wandering).insert(HasTarget);
+                                commands.entity(entity).insert(Wandering);
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                                     idx, x: home.0.x + offset_x, y: home.0.y + offset_y
                                 }));
@@ -719,7 +717,7 @@ pub fn decision_system(
                             // Not enough raiders yet - wander near camp while waiting
                             let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
                             let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
-                            commands.entity(entity).insert(Wandering).insert(HasTarget);
+                            commands.entity(entity).insert(Wandering);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                                 idx, x: home.0.x + offset_x, y: home.0.y + offset_y
                             }));
@@ -734,7 +732,7 @@ pub fn decision_system(
                     let y = positions[idx * 2 + 1];
                     let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
                     let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
-                    commands.entity(entity).insert(Wandering).insert(HasTarget);
+                    commands.entity(entity).insert(Wandering);
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: x + offset_x, y: y + offset_y }));
                 }
             }
