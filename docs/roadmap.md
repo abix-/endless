@@ -195,15 +195,15 @@ Tests for completed features (one file each in `src/tests/`):
 - [ ] Phase 4: Camp forage adds food over time
 - [ ] Phase 5: Raider respawns when camp has enough food
 
-`energy` — Energy System (3 phases, time_scale=50): needs retest
-- [ ] Phase 1: NPC starts at energy 100
-- [ ] Phase 2: Energy drains over time (< 90)
-- [ ] Phase 3: Energy reaches ENERGY_HUNGRY threshold
+`energy` — Energy System (3 phases, time_scale=50): **ALL PASS**
+- [x] Phase 1: NPC starts at energy 100
+- [x] Phase 2: Energy drains over time (< 90)
+- [x] Phase 3: Energy reaches ENERGY_HUNGRY threshold
 
 `healing` — Healing Aura (3 phases, time_scale=20): passes 2/3
 - [x] Phase 1: Damaged NPC (50 HP) inside town → Healing marker
 - [x] Phase 2: Health increases toward max
-- [ ] Phase 3: Health reaches max → healing stops (hp stuck at 50 — NPC walks away from aura)
+- [ ] Phase 3: Health reaches max → healing stops (hp heals to 55 then regresses to 50 — likely starvation HP cap clamping back down)
 
 `spawning` — Spawn & Slot Reuse (4 phases): needs retest
 - [ ] Phase 1: 5 NPCs exist with correct job components
