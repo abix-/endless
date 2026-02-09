@@ -557,7 +557,8 @@ fn test_hud_system(
             }
 
             ui.separator();
-            if ui.button("Cancel").clicked() {
+            let label = if test_state.passed || test_state.failed { "Back" } else { "Cancel" };
+            if ui.button(label).clicked() {
                 next_state.set(AppState::TestMenu);
             }
         });
@@ -569,6 +570,7 @@ fn test_hud_system(
 // ============================================================================
 
 /// Detects when a test passes or fails and handles transition.
+/// Single tests stay running (user clicks Back in HUD). Run All auto-advances.
 fn test_completion_system(
     test_state: Res<TestState>,
     mut run_all: ResMut<RunAllState>,
@@ -582,7 +584,12 @@ fn test_completion_system(
         return;
     }
 
-    // Delay 1.5s so user can see the result
+    // Single test: stay running — user clicks Back in HUD to return
+    if !run_all.active {
+        return;
+    }
+
+    // Run All mode: auto-advance after 1.5s delay
     let now = time.elapsed_secs();
     if delayed.is_none() {
         *delayed = Some(now);
@@ -592,27 +599,18 @@ fn test_completion_system(
     }
 
     // Record result for Run All
-    if run_all.active {
-        let name = test_state.test_name.clone().unwrap_or_default();
-        run_all.results.push((name, test_state.passed));
+    let name = test_state.test_name.clone().unwrap_or_default();
+    run_all.results.push((name, test_state.passed));
 
-        // Start next test or finish
-        if let Some(next_name) = run_all.queue.pop_front() {
-            if let Some(_entry) = registry.tests.iter().find(|t| t.name == next_name) {
-                // Can't call start_test here because we need mutable test_state
-                // but it's only Res. The state transition + OnEnter will handle it.
-                // We'll set it up in a follow-up frame via OnExit/OnEnter cycle.
-                info!("Run All: next test '{}'", next_name);
-                // Transition to menu briefly, then back to running
-                // Actually, we just go to menu — the menu system detects run_all.active
-                // and auto-starts the next test.
-            }
-        } else {
-            run_all.active = false;
-            info!("Run All: complete — {}/{} passed",
-                run_all.results.iter().filter(|(_, p)| *p).count(),
-                run_all.results.len());
+    if let Some(next_name) = run_all.queue.pop_front() {
+        if let Some(_entry) = registry.tests.iter().find(|t| t.name == next_name) {
+            info!("Run All: next test '{}'", next_name);
         }
+    } else {
+        run_all.active = false;
+        info!("Run All: complete — {}/{} passed",
+            run_all.results.iter().filter(|(_, p)| *p).count(),
+            run_all.results.len());
     }
 
     next_state.set(AppState::TestMenu);

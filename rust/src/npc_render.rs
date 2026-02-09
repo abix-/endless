@@ -1,6 +1,6 @@
-//! NPC Instanced Rendering via Bevy's RenderCommand pattern.
+//! Universal Instanced Rendering via Bevy's RenderCommand pattern.
 //!
-//! Uses Transparent2d phase to draw all NPCs with a single instanced draw call.
+//! Renders terrain, buildings, NPCs, equipment, and projectiles with instanced draw calls.
 //! Based on Bevy's custom_phase_item.rs example pattern.
 
 use std::borrow::Cow;
@@ -34,6 +34,7 @@ use bevy::{
         sync_world::MainEntity,
         texture::GpuImage,
         view::ExtractedView,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         Extract, Render, RenderApp, RenderSystems,
     },
 };
@@ -41,13 +42,14 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::gpu::{NpcBufferWrites, NpcGpuData, NpcSpriteTexture, ProjBufferWrites, ProjGpuData};
 use crate::render::CameraState;
+use crate::world::{WorldData, WorldGrid};
 
 // =============================================================================
 // MARKER COMPONENT
 // =============================================================================
 
-/// Layer count: body + 4 equipment layers.
-pub const LAYER_COUNT: usize = 5;
+/// Layer count: terrain + buildings + body + 4 equipment layers.
+pub const LAYER_COUNT: usize = 7;
 
 /// Marker component for the NPC batch entity.
 #[derive(Component, Clone)]
@@ -64,7 +66,7 @@ pub struct ProjBatch;
 /// Instance data for a single NPC (sent to GPU per-instance).
 #[derive(Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
-pub struct NpcInstanceData {
+pub struct InstanceData {
     /// World position (x, y)
     pub position: [f32; 2],
     /// Sprite atlas cell (col, row)
@@ -75,6 +77,10 @@ pub struct NpcInstanceData {
     pub health: f32,
     /// Damage flash intensity (0.0-1.0), white overlay that fades out
     pub flash: f32,
+    /// World-space quad size (16.0 for NPCs, 32.0 for terrain tiles)
+    pub scale: f32,
+    /// Which texture atlas to sample (0.0 = character, 1.0 = world)
+    pub atlas_id: f32,
 }
 
 /// Static quad vertex: position and UV
@@ -102,7 +108,7 @@ static QUAD_INDICES: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
 /// Per-layer instance buffer and count.
 pub struct LayerBuffer {
-    instances: RawBufferVec<NpcInstanceData>,
+    instances: RawBufferVec<InstanceData>,
     count: u32,
 }
 
@@ -119,7 +125,7 @@ pub struct NpcRenderBuffers {
 /// GPU buffers for projectile rendering (shares quad/index from NpcRenderBuffers).
 #[derive(Resource)]
 pub struct ProjRenderBuffers {
-    pub instance_buffer: RawBufferVec<NpcInstanceData>,
+    pub instance_buffer: RawBufferVec<InstanceData>,
     pub instance_count: u32,
 }
 
@@ -152,6 +158,65 @@ pub struct NpcCameraBindGroup {
     pub bind_group: Option<BindGroup>,
 }
 
+/// Pre-computed terrain + building instances for rendering. Computed once from WorldGrid,
+/// then extracted to render world each frame. Static data — only rebuilt when world changes.
+#[derive(Resource, Clone, ExtractResource, Default)]
+pub struct WorldRenderInstances {
+    pub terrain: Vec<InstanceData>,
+    pub buildings: Vec<InstanceData>,
+}
+
+/// Compute terrain + building instances from WorldGrid (runs once when grid is populated).
+fn compute_world_render_instances(
+    mut commands: Commands,
+    grid: Res<WorldGrid>,
+    world_data: Res<WorldData>,
+    existing: Option<Res<WorldRenderInstances>>,
+    mut computed: Local<bool>,
+) {
+    // Only compute once, and only when grid is populated
+    if *computed || grid.width == 0 { return; }
+    // Don't overwrite if already exists (e.g. from a previous run)
+    if existing.is_some() && existing.as_ref().unwrap().terrain.len() > 0 { *computed = true; return; }
+
+    let mut terrain = Vec::with_capacity(grid.width * grid.height);
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let cell_index = row * grid.width + col;
+            let cell = &grid.cells[cell_index];
+            let world_pos = grid.grid_to_world(col, row);
+            let (sprite_col, sprite_row) = cell.terrain.sprite(cell_index);
+
+            terrain.push(InstanceData {
+                position: [world_pos.x, world_pos.y],
+                sprite: [sprite_col, sprite_row],
+                color: [1.0, 1.0, 1.0, 1.0],
+                health: 1.0,
+                flash: 0.0,
+                scale: grid.cell_size,
+                atlas_id: 1.0,
+            });
+        }
+    }
+
+    let mut buildings = Vec::new();
+    for sprite in world_data.get_all_sprites() {
+        buildings.push(InstanceData {
+            position: [sprite.pos.x, sprite.pos.y],
+            sprite: [sprite.uv.0 as f32, sprite.uv.1 as f32],
+            color: [1.0, 1.0, 1.0, 1.0],
+            health: 1.0,
+            flash: 0.0,
+            scale: sprite.scale * 16.0, // SpriteDef.scale * base sprite size
+            atlas_id: 1.0,
+        });
+    }
+
+    info!("World render instances: {} terrain, {} buildings", terrain.len(), buildings.len());
+    commands.insert_resource(WorldRenderInstances { terrain, buildings });
+    *computed = true;
+}
+
 // =============================================================================
 // RENDER COMMAND
 // =============================================================================
@@ -177,7 +242,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNpcs {
         pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
         pass.set_index_buffer(buffers.index_buffer.slice(..), IndexFormat::Uint16);
 
-        // Draw each non-empty layer in order: body → armor → helmet → weapon → item
+        // Draw each non-empty layer: terrain → buildings → body → armor → helmet → weapon → item
         let mut drew_any = false;
         for layer in &buffers.layers {
             if layer.count == 0 { continue; }
@@ -299,6 +364,11 @@ pub struct NpcRenderPlugin;
 
 impl Plugin for NpcRenderPlugin {
     fn build(&self, app: &mut App) {
+        // World render instances: computed in main world, extracted to render world
+        app.init_resource::<WorldRenderInstances>();
+        app.add_systems(Update, compute_world_render_instances);
+        app.add_plugins(ExtractResourcePlugin::<WorldRenderInstances>::default());
+
         // Spawn batch entities in main world
         app.add_systems(Startup, (spawn_npc_batch, spawn_proj_batch));
 
@@ -371,13 +441,14 @@ const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32); 4] = [
     |w, i| { let j = i * 2; (w.item_sprites.get(j).copied().unwrap_or(-1.0), w.item_sprites.get(j+1).copied().unwrap_or(0.0)) },
 ];
 
-/// Prepare NPC buffers from extracted data — builds all 5 layers in one pass.
+/// Prepare all instance buffers — terrain, buildings, NPCs, equipment (7 layers).
 fn prepare_npc_buffers(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     buffer_writes: Option<Res<NpcBufferWrites>>,
     gpu_data: Option<Res<NpcGpuData>>,
+    world_instances: Option<Res<WorldRenderInstances>>,
     existing_buffers: Option<ResMut<NpcRenderBuffers>>,
 ) {
     let Some(writes) = buffer_writes else { return };
@@ -393,10 +464,20 @@ fn prepare_npc_buffers(
         .filter(|s| s.positions.len() >= npc_count * 2)
         .map(|s| s.positions.clone());
 
-    // Build all layer buffers in one pass
-    let mut layer_instances: Vec<RawBufferVec<NpcInstanceData>> = (0..LAYER_COUNT)
+    // Build all layer buffers: [0]=terrain, [1]=buildings, [2]=body, [3-6]=equipment
+    let mut layer_instances: Vec<RawBufferVec<InstanceData>> = (0..LAYER_COUNT)
         .map(|_| RawBufferVec::new(BufferUsages::VERTEX))
         .collect();
+
+    // Layers 0-1: Terrain + buildings from pre-computed world instances
+    if let Some(world) = world_instances {
+        for inst in &world.terrain {
+            layer_instances[0].push(*inst);
+        }
+        for inst in &world.buildings {
+            layer_instances[1].push(*inst);
+        }
+    }
 
     for i in 0..npc_count {
         let (px, py) = if let Some(ref pos) = readback_positions {
@@ -423,24 +504,28 @@ fn prepare_npc_buffers(
         let health = (writes.healths.get(i).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
         let flash = writes.flash_values.get(i).copied().unwrap_or(0.0);
 
-        layer_instances[0].push(NpcInstanceData {
+        layer_instances[2].push(InstanceData {
             position: [px, py],
             sprite: [sc, sr],
             color: [cr, cg, cb, ca],
             health,
             flash,
+            scale: 16.0,
+            atlas_id: 0.0,
         });
 
-        // Layers 1-4: Equipment (only if sprite col >= 0, i.e. equipped)
+        // Layers 3-6: Equipment (only if sprite col >= 0, i.e. equipped)
         for (layer_idx, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
             let (ecol, erow) = get_sprite(&writes, i);
             if ecol >= 0.0 {
-                layer_instances[layer_idx + 1].push(NpcInstanceData {
+                layer_instances[layer_idx + 3].push(InstanceData {
                     position: [px, py],
                     sprite: [ecol, erow],
-                    color: [1.0, 1.0, 1.0, 1.0], // Natural sprite colors
-                    health: 1.0,                    // No health bar on equipment
-                    flash,                          // Inherit damage flash
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    health: 1.0,
+                    flash,
+                    scale: 16.0,
+                    atlas_id: 0.0,
                 });
             }
         }
@@ -480,7 +565,7 @@ fn prepare_npc_buffers(
     }
 }
 
-/// Prepare texture bind group.
+/// Prepare texture bind group (dual atlas: character + world).
 fn prepare_npc_texture_bind_group(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
@@ -491,8 +576,10 @@ fn prepare_npc_texture_bind_group(
 ) {
     let Some(pipeline) = pipeline else { return };
     let Some(sprite_texture) = sprite_texture else { return };
-    let Some(handle) = &sprite_texture.handle else { return };
-    let Some(gpu_image) = gpu_images.get(handle) else { return };
+    let Some(char_handle) = &sprite_texture.handle else { return };
+    let Some(world_handle) = &sprite_texture.world_handle else { return };
+    let Some(char_image) = gpu_images.get(char_handle) else { return };
+    let Some(world_image) = gpu_images.get(world_handle) else { return };
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.texture_bind_group_layout);
 
@@ -500,8 +587,10 @@ fn prepare_npc_texture_bind_group(
         Some("npc_texture_bind_group"),
         &layout,
         &BindGroupEntries::sequential((
-            &gpu_image.texture_view,
-            &gpu_image.sampler,
+            &char_image.texture_view,
+            &char_image.sampler,
+            &world_image.texture_view,
+            &world_image.sampler,
         )),
     );
 
@@ -632,7 +721,7 @@ impl SpecializedRenderPipeline for NpcPipeline {
                     },
                     // Slot 1: Per-instance NPC data
                     VertexBufferLayout {
-                        array_stride: std::mem::size_of::<NpcInstanceData>() as u64,
+                        array_stride: std::mem::size_of::<InstanceData>() as u64,
                         step_mode: VertexStepMode::Instance,
                         attributes: vec![
                             VertexAttribute {
@@ -659,6 +748,16 @@ impl SpecializedRenderPipeline for NpcPipeline {
                                 format: bevy::render::render_resource::VertexFormat::Float32,
                                 offset: 36,
                                 shader_location: 6, // flash
+                            },
+                            VertexAttribute {
+                                format: bevy::render::render_resource::VertexFormat::Float32,
+                                offset: 40,
+                                shader_location: 7, // scale
+                            },
+                            VertexAttribute {
+                                format: bevy::render::render_resource::VertexFormat::Float32,
+                                offset: 44,
+                                shader_location: 8, // atlas_id
                             },
                         ],
                     },
@@ -701,6 +800,10 @@ impl FromWorld for NpcPipeline {
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
                 (
+                    // Bindings 0-1: Character atlas
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    // Bindings 2-3: World atlas
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                 ),
@@ -793,12 +896,14 @@ fn prepare_proj_buffers(
         };
 
         // Projectile sprite (20, 7) — small arrow/bolt
-        instances.push(NpcInstanceData {
+        instances.push(InstanceData {
             position: [px, py],
             sprite: [20.0, 7.0],
             color: [cr, cg, cb, 1.0],
-            health: 1.0, // No health bar on projectiles
+            health: 1.0,
             flash: 0.0,
+            scale: 16.0,
+            atlas_id: 0.0,
         });
     }
 

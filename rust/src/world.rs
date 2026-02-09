@@ -260,6 +260,28 @@ pub enum Biome {
     Dirt,
 }
 
+impl Biome {
+    /// Map biome + cell index to world atlas sprite (col, row).
+    /// Cell index provides deterministic variation per cell.
+    pub fn sprite(self, cell_index: usize) -> (f32, f32) {
+        match self {
+            Biome::Grass => {
+                // Two grass variants
+                let col = if cell_index % 2 == 0 { 0 } else { 1 };
+                (col as f32, 14.0)
+            }
+            Biome::Forest => {
+                // Six tree variants (cols 13-18, row 9)
+                let col = 13 + (cell_index % 6);
+                (col as f32, 9.0)
+            }
+            Biome::Water => (3.0, 1.0),
+            Biome::Rock => (7.0, 13.0),
+            Biome::Dirt => (8.0, 10.0),
+        }
+    }
+}
+
 /// Building occupying a grid cell.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Building {

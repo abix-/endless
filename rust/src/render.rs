@@ -120,7 +120,7 @@ fn load_sprites(
     // Load character sprite sheet
     assets.char_texture = asset_server.load("assets/roguelikeChar_transparent.png");
 
-    // Share texture handle with GPU module for instanced rendering
+    // Share texture handles with instanced renderer
     npc_sprite_tex.handle = Some(assets.char_texture.clone());
 
     // Create atlas layout for characters (16x16 with 1px padding)
@@ -135,6 +135,7 @@ fn load_sprites(
 
     // Load world sprite sheet
     assets.world_texture = asset_server.load("assets/roguelikeSheet_transparent.png");
+    npc_sprite_tex.world_handle = Some(assets.world_texture.clone());
 
     // Create atlas layout for world sprites
     let world_layout = TextureAtlasLayout::from_grid(

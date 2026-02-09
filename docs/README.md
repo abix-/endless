@@ -20,9 +20,10 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 - `test_is("name")` run condition gates per-test setup/tick systems
 - Each test exports `setup` (OnEnter Running) + `tick` (Update after Behavior)
 - Cleanup on OnExit(Running): despawn all NPC entities, reset all resources
-- Run All: sequential execution via `RunAllState` queue
+- Run All: sequential execution via `RunAllState` queue (auto-advances after 1.5s)
+- Single tests stay running after pass/fail — user clicks Back in HUD to return
 
-**HUD**: Phase checklist overlay during test execution — gray `○` pending, yellow `▶` active, green `✓` passed, red `✗` failed.
+**HUD**: Phase checklist overlay during test execution — gray `○` pending, yellow `▶` active, green `✓` passed, red `✗` failed. Back/Cancel button at bottom.
 
 **Tests** (`src/tests/`):
 

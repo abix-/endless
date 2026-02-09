@@ -124,7 +124,9 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Status |
 |----------|------|--------|
 | GpuReadState | positions, combat_targets, health, factions, npc_count | Populated via staging buffer readback each frame |
+| NpcSpriteTexture | handle (char atlas), world_handle (world atlas) | Shared with instanced renderer for dual atlas bind group |
 | ProjSlotAllocator | next, free list, max (50,000) | Active — allocates projectile slots |
+| WorldRenderInstances | terrain: Vec\<InstanceData\>, buildings: Vec\<InstanceData\> | Pre-computed instances for terrain + building layers |
 
 `GpuReadState` is populated each frame by staging buffer readback. Used by combat systems, position sync, and test assertions.
 

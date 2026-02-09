@@ -564,6 +564,7 @@ struct NpcComputePipeline {
 #[derive(Resource, Clone, ExtractResource, Default)]
 pub struct NpcSpriteTexture {
     pub handle: Option<Handle<Image>>,
+    pub world_handle: Option<Handle<Image>>,
 }
 
 /// GPU buffers for projectile compute.

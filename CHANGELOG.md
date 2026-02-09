@@ -1,6 +1,17 @@
 # Changelog
 
 ## 2026-02-09
+- **unified instanced renderer: terrain + buildings + NPCs in one pipeline**
+  - rename `NpcInstanceData` → `InstanceData`, add `scale` (per-instance quad size) and `atlas_id` (atlas selection) fields (40→48 bytes)
+  - bind both character and world atlases simultaneously (group 0, bindings 0-3)
+  - shader selects atlas per-instance: character (NPCs/equipment/projectiles) or world (terrain/buildings)
+  - add `WorldRenderInstances` resource: pre-computed terrain + building instances, extracted to render world
+  - add `compute_world_render_instances` system: builds 62,500 terrain + ~42 building instances from WorldGrid
+  - add `Biome::sprite(cell_index)` method for deterministic terrain sprite variation
+  - `LAYER_COUNT` 5→7: terrain (0), buildings (1), NPC body (2), equipment (3-6)
+  - world-gen test now renders visible terrain tiles and buildings
+  - tests stay running after pass/fail (single test mode) — user clicks Back to return
+
 - **fix arrival detection: consolidate to single targeting path**
   - remove dead `SetTargetMsg` + `apply_targets_system` (redundant O(n) entity scan, nobody wrote SetTargetMsg)
   - remove dead `ArrivalMsg` + `ARRIVAL_QUEUE` + `drain_arrival_queue` (nothing ever wrote to the queue)

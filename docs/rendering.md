@@ -2,7 +2,7 @@
 
 ## Overview
 
-NPCs, equipment layers, and projectiles are rendered via a custom GPU instanced pipeline using Bevy's RenderCommand pattern in the Transparent2d phase. NPCs use multi-layer rendering: body sprite first, then up to 4 equipment layers (armor, helmet, weapon, carried item), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. World sprites (buildings, terrain) use Bevy's built-in sprite system.
+Terrain, buildings, NPCs, equipment layers, and projectiles are rendered via a custom GPU instanced pipeline using Bevy's RenderCommand pattern in the Transparent2d phase. The renderer uses 7 layers: terrain tiles (layer 0), buildings (layer 1), NPC body (layer 2), and 4 equipment layers (layers 3-6), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. Both character and world sprite atlases are bound simultaneously — per-instance `atlas_id` selects which atlas to sample.
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -11,7 +11,7 @@ Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.
 Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that's 16K entities in the render world — the scheduling/extraction overhead dominates. The custom pipeline uses:
 
 - **1 entity per batch** (NpcBatch, ProjBatch) instead of 16,384 entities
-- **40 bytes/instance** (position + sprite + color + health + flash) instead of ~80 bytes/entity
+- **48 bytes/instance** (position + sprite + color + health + flash + scale + atlas_id) instead of ~80 bytes/entity
 - **GPU compute data stays on GPU** — readback only for rendering
 - **Multi-layer drawing** — body + up to 4 equipment layers, each a separate `draw_indexed` call within one RenderCommand
 
@@ -20,17 +20,19 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 ```
 Main World                        Render World
 ───────────                       ────────────
-NpcBufferWrites ──ExtractResource──▶ NpcBufferWrites
-NpcGpuData      ──ExtractResource──▶ NpcGpuData
-CameraState     ──ExtractResource──▶ CameraState
-NpcBatch entity ──extract_npc_batch──▶ NpcBatch entity
+NpcBufferWrites      ──ExtractResource──▶ NpcBufferWrites
+NpcGpuData           ──ExtractResource──▶ NpcGpuData
+CameraState          ──ExtractResource──▶ CameraState
+WorldRenderInstances ──ExtractResource──▶ WorldRenderInstances
+NpcBatch entity      ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                                prepare_npc_buffers
-                               (build NpcInstanceData[])
+                               (build InstanceData[] for 7 layers)
                                       │
                                       ▼
                             prepare_npc_texture_bind_group
+                            (dual atlas: char + world)
                             prepare_npc_camera_bind_group
                                       │
                                       ▼
@@ -49,7 +51,7 @@ ProjBatch entity ──extract_proj_batch──▶ ProjBatch entity
                                       │
                                       ▼
                                prepare_proj_buffers
-                               (build NpcInstanceData[] from PROJ_POSITION_STATE)
+                               (build InstanceData[] from PROJ_POSITION_STATE)
                                       │
                                       ▼
                                   queue_projs
@@ -64,21 +66,27 @@ ProjBatch entity ──extract_proj_batch──▶ ProjBatch entity
 
 ## Instance Data
 
-Each NPC is 40 bytes of per-instance data:
+Each instance is 48 bytes of per-instance data, shared across all layer types:
 
 ```rust
-pub struct NpcInstanceData {
+pub struct InstanceData {
     pub position: [f32; 2],  // world XY (8 bytes)
     pub sprite: [f32; 2],    // atlas cell col, row (8 bytes)
     pub color: [f32; 4],     // RGBA tint (16 bytes)
     pub health: f32,         // normalized 0.0-1.0 (4 bytes)
     pub flash: f32,          // damage flash 0.0-1.0 (4 bytes)
+    pub scale: f32,          // world-space quad size (4 bytes)
+    pub atlas_id: f32,       // 0.0=character, 1.0=world atlas (4 bytes)
 }
 ```
 
-Built each frame by `prepare_npc_buffers` from `NpcBufferWrites`. Five layers are built per pass:
+Built each frame by `prepare_npc_buffers`. Seven layers are built per pass:
 
-**Layer 0 (body):**
+**Layer 0 (terrain):** Pre-computed `WorldRenderInstances.terrain` (from WorldGrid cells). scale=32 (cell_size), atlas_id=1.0. Biome→sprite mapping via `Biome::sprite(cell_index)`.
+
+**Layer 1 (buildings):** Pre-computed `WorldRenderInstances.buildings` (from WorldData::get_all_sprites()). scale=SpriteDef.scale×16, atlas_id=1.0.
+
+**Layer 2 (body):**
 - **Positions**: from GPU readback if available, else from CPU-side NpcBufferWrites
 - **Sprites**: from `sprite_indices` (4 floats per NPC, uses first 2: col, row)
 - **Colors**: from `colors` (4 floats per NPC: RGBA)
@@ -86,7 +94,7 @@ Built each frame by `prepare_npc_buffers` from `NpcBufferWrites`. Five layers ar
 - **Flash**: from `flash_values` (0.0-1.0, decays at 5.0/s in `populate_buffer_writes`)
 - **Hidden NPCs** (position.x < -9000) are skipped
 
-**Layers 1-4 (equipment: armor, helmet, weapon, item):**
+**Layers 3-6 (equipment: armor, helmet, weapon, item):**
 - Same position as body (from readback)
 - Sprite from `armor_sprites`/`helmet_sprites`/`weapon_sprites`/`item_sprites` (stride 2, col/row per NPC)
 - Sentinel: col < 0 means unequipped → skip
@@ -117,7 +125,7 @@ static QUAD_VERTICES: [QuadVertex; 4] = [
 ];
 ```
 
-The vertex shader scales the unit quad by `SPRITE_SIZE` (16 world units, matching 16px atlas cells) and offsets by instance position.
+The vertex shader scales the unit quad by the per-instance `scale` field (16.0 for NPCs, 32.0 for terrain) and offsets by instance position.
 
 ## Vertex Buffers
 
@@ -126,29 +134,32 @@ Two vertex buffer slots with different step modes:
 | Slot | Step Mode | Data | Stride | Attributes |
 |------|-----------|------|--------|------------|
 | 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) position, @location(1) uv |
-| 1 | Instance | Per-NPC data (N instances) | 40B | @location(2) position, @location(3) sprite, @location(4) color, @location(5) health, @location(6) flash |
+| 1 | Instance | Per-instance data (N instances) | 48B | @location(2) position, @location(3) sprite, @location(4) color, @location(5) health, @location(6) flash, @location(7) scale, @location(8) atlas_id |
 
 `VertexStepMode::Vertex` advances per-vertex (4 times per quad). `VertexStepMode::Instance` advances per-instance (once per NPC).
 
-## Sprite Atlas
+## Sprite Atlases
 
-All NPC sprites come from `roguelikeChar_transparent.png` (918×203 pixels, 54 cols × 12 rows, 16px sprites with 1px margin).
+Both atlases are bound simultaneously at group 0 (bindings 0-3). Per-instance `atlas_id` selects which to sample.
 
-The shader converts (col, row) to UV coordinates:
+| Atlas | Bindings | File | Size | Grid | Used By |
+|-------|----------|------|------|------|---------|
+| Character | 0-1 | `roguelikeChar_transparent.png` | 918×203 | 54×12 | NPCs, equipment, projectiles |
+| World | 2-3 | `roguelikeSheet_transparent.png` | 968×526 | 57×31 | Terrain, buildings |
+
+Both use 16px sprites with 1px margin (17px cells). The vertex shader selects atlas constants based on `atlas_id`:
 
 ```wgsl
-const CELL_SIZE: f32 = 17.0;      // 16px sprite + 1px margin
-const SPRITE_TEX_SIZE: f32 = 16.0;
-const TEXTURE_WIDTH: f32 = 918.0;
-const TEXTURE_HEIGHT: f32 = 203.0;
-
-// In vertex shader:
-let pixel_x = sprite_cell.x * CELL_SIZE + quad_uv.x * SPRITE_TEX_SIZE;
-let pixel_y = sprite_cell.y * CELL_SIZE + quad_uv.y * SPRITE_TEX_SIZE;
-out.uv = vec2<f32>(pixel_x / TEXTURE_WIDTH, pixel_y / TEXTURE_HEIGHT);
+if in.atlas_id < 0.5 {
+    // Character atlas: 918×203
+    out.uv = compute_uv(in.sprite_cell, CHAR_CELL, CHAR_SPRITE, CHAR_TEX_W, CHAR_TEX_H);
+} else {
+    // World atlas: 968×526
+    out.uv = compute_uv(in.sprite_cell, WORLD_CELL, WORLD_SPRITE, WORLD_TEX_W, WORLD_TEX_H);
+}
 ```
 
-Each quad corner's UV (`quad_uv` from 0,0 to 1,1) maps to a 16×16 pixel region within the sprite's cell. The alpha channel handles non-rectangular shapes — the fragment shader discards pixels with `alpha < 0.1`.
+The fragment shader samples from the correct texture based on `atlas_id`. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`).
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
@@ -170,14 +181,16 @@ if in.quad_uv.y > 0.85 && in.health < 0.99 {
 
 **Sprite rendering** (remaining 85%):
 ```wgsl
-let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
-if tex_color.a < 0.1 {
-    discard;  // transparent pixels → not drawn
+// Sample from correct atlas based on atlas_id
+var tex_color: vec4<f32>;
+if in.atlas_id < 0.5 {
+    tex_color = textureSample(char_texture, char_sampler, in.uv);
+} else {
+    tex_color = textureSample(world_texture, world_sampler, in.uv);
 }
+if tex_color.a < 0.1 { discard; }
 // Equipment layers: discard bottom pixels to preserve health bar visibility
-if in.health >= 0.99 && in.quad_uv.y > 0.85 {
-    discard;
-}
+if in.health >= 0.99 && in.quad_uv.y > 0.85 && in.atlas_id < 0.5 { discard; }
 var final_color = vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
 ```
 
@@ -200,9 +213,9 @@ The render pipeline runs in Bevy's render world after extract:
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
 | Extract | `extract_proj_batch` | Clone ProjBatch entity to render world |
-| PrepareResources | `prepare_npc_buffers` | Build 5 layer buffers (body + 4 equipment) from GPU_READ_STATE |
+| PrepareResources | `prepare_npc_buffers` | Build 7 layer buffers (terrain + buildings + body + 4 equipment) |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
-| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture |
+| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create dual atlas bind group from NpcSpriteTexture (char + world) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
 | Queue | `queue_npcs` | Add NpcBatch to Transparent2d (sort_key=0.0) |
 | Queue | `queue_projs` | Add ProjBatch to Transparent2d (sort_key=1.0, above NPCs) |
@@ -222,7 +235,7 @@ type DrawNpcCommands = (
 );
 ```
 
-`DrawNpcs::render()` sets the shared vertex/index buffers, then iterates over all 5 `LayerBuffer`s in `NpcRenderBuffers.layers`, issuing a separate `draw_indexed` call per non-empty layer. Layers are drawn in order: body (0), armor (1), helmet (2), weapon (3), item (4). If no layers have instances, it returns `Skip`.
+`DrawNpcs::render()` sets the shared vertex/index buffers, then iterates over all 7 `LayerBuffer`s in `NpcRenderBuffers.layers`, issuing a separate `draw_indexed` call per non-empty layer. Layers are drawn in order: terrain (0), buildings (1), body (2), armor (3), helmet (4), weapon (5), item (6). If no layers have instances, it returns `Skip`.
 
 Projectiles reuse the same pipeline, shader, and bind groups with a separate instance buffer:
 
@@ -274,7 +287,7 @@ let ndc = offset / (camera.viewport * 0.5);
 | Characters | `roguelikeChar_transparent.png` | 918×203 | 54×12 (16px + 1px margin) | NPC instanced rendering |
 | World | `roguelikeSheet_transparent.png` | 968×526 | 57×31 (16px + 1px margin) | Building/terrain sprites |
 
-The character texture handle is shared via `NpcSpriteTexture` resource (extracted to render world for bind group creation).
+Both texture handles are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas), extracted to render world for dual bind group creation.
 
 ## Equipment Layers
 
@@ -282,10 +295,10 @@ Multi-layer equipment rendering uses `NpcBufferWrites` fields for 4 equipment ty
 
 | Layer | Index | NpcBufferWrites Field | Stride | Sentinel |
 |-------|-------|----------------------|--------|----------|
-| Armor | 1 | `armor_sprites` | 2 (col, row) | col < 0 |
-| Helmet | 2 | `helmet_sprites` | 2 (col, row) | col < 0 |
-| Weapon | 3 | `weapon_sprites` | 2 (col, row) | col < 0 |
-| Item | 4 | `item_sprites` | 2 (col, row) | col < 0 |
+| Armor | 3 | `armor_sprites` | 2 (col, row) | col < 0 |
+| Helmet | 4 | `helmet_sprites` | 2 (col, row) | col < 0 |
+| Weapon | 5 | `weapon_sprites` | 2 (col, row) | col < 0 |
+| Item | 6 | `item_sprites` | 2 (col, row) | col < 0 |
 
 Equipment is set via `GpuUpdate::SetEquipSprite { idx, layer, col, row }`. At spawn, all layers are cleared to -1.0 (unequipped), then job-specific gear is applied. Equipment is also cleared on death to prevent stale data on slot reuse.
 
@@ -294,15 +307,25 @@ Current equipment assignments:
 - **Raiders**: Weapon (0, 8)
 - **Carried food**: Item layer set when raider steals food, cleared on delivery
 
+## World Render Instances
+
+Static terrain and building instance data is pre-computed once in the main world and extracted to the render world each frame.
+
+**`WorldRenderInstances`** resource (main world, `ExtractResource + Clone`):
+- `terrain: Vec<InstanceData>` — one instance per WorldGrid cell, biome→sprite via `Biome::sprite(cell_index)`
+- `buildings: Vec<InstanceData>` — from `WorldData::get_all_sprites()`, scale = SpriteDef.scale × 16
+
+**`compute_world_render_instances`** system (Update schedule): runs once when WorldGrid is populated (Local<bool> guard). Builds terrain + building instances, then inserts the resource.
+
 ## Known Issues
 
-- **No building rendering**: World sprite sheet is loaded but not used for instanced building rendering.
-- **Sprite texture in debug mode**: Fragment shader samples textures and applies color tint, but some visual artifacts may exist from atlas margin bleed.
+- **Terrain rebuilt per frame**: Terrain/building instances are copied from `WorldRenderInstances` into `RawBufferVec` every frame (62K push() calls + 3MB upload). Should cache the GPU buffer since data is static.
+- **No frustum culling**: All terrain instances (62K+) run through vertex shader even when off-screen. At large world sizes (1000×1000) this becomes a bottleneck. Consider migrating terrain to Bevy's built-in TilemapChunk.
 - **Health bar mode hardcoded**: Only "when damaged" mode (show when health < 99%). Off/always modes need a uniform or config resource.
 - **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
 - **Equipment sprite placeholders**: Current equipment sprites (sword, helmet, food) use placeholder atlas coordinates — need tuning with sprite browser.
-- **Single sort key for all NPC layers**: All 5 layers share sort_key=0.0 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but equipment can't interleave with other phase items between body and topmost layer.
+- **Single sort key for all layers**: All 7 layers share sort_key=0.0 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but layers can't interleave with other phase items.
 
 ## Rating: 8/10
 
-Custom instanced pipeline with multi-layer rendering (body + 4 equipment layers + projectiles). Per-instance data is compact (40 bytes). Fragment shader handles transparency, faction color tinting, in-shader health bars (3-color, show-when-damaged), damage flash, and equipment layer health bar preservation. Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. Equipment renders via sentinel-based layer filtering in a single pass. However: no building rendering, equipment sprites are placeholders, and positions fall back to CPU-side data when readback isn't available.
+Unified instanced pipeline renders terrain, buildings, NPCs, equipment, and projectiles through a single shader with dual atlas support. Per-instance data is compact (48 bytes) with per-instance scale and atlas selection. Fragment shader handles transparency, dual atlas sampling, faction color tinting, in-shader health bars (3-color, show-when-damaged), damage flash, and equipment layer health bar preservation. Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. Known performance limitation: terrain instances are rebuilt per frame and lack frustum culling — planned migration to TilemapChunk for static terrain.
