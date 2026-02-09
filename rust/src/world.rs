@@ -17,59 +17,6 @@ pub const CELL: f32 = 17.0;  // 16px sprite + 1px margin
 pub const SPRITE_SIZE: f32 = 16.0;
 pub const SHEET_SIZE: (f32, f32) = (968.0, 526.0);
 
-/// Sprite definition: grid position, size in cells, optional scale
-#[derive(Clone, Copy, Debug)]
-pub struct SpriteDef {
-    pub pos: (i32, i32),   // Grid position in sprite sheet
-    pub size: (i32, i32),  // Size in grid cells (1x1, 2x2, etc.)
-    pub scale: f32,        // Extra scale multiplier
-}
-
-impl SpriteDef {
-    pub const fn new(pos: (i32, i32), size: (i32, i32)) -> Self {
-        Self { pos, size, scale: 1.0 }
-    }
-    pub const fn scaled(pos: (i32, i32), size: (i32, i32), scale: f32) -> Self {
-        Self { pos, size, scale }
-    }
-}
-
-// Sprite definitions - discovered via sprite_browser tool
-pub const SPRITE_FARM: SpriteDef = SpriteDef::new((2, 15), (2, 2));
-pub const SPRITE_TENT: SpriteDef = SpriteDef::scaled((48, 10), (2, 2), 3.0);
-pub const SPRITE_FOUNTAIN: SpriteDef = SpriteDef::scaled((50, 9), (1, 1), 2.0);
-pub const SPRITE_BED: SpriteDef = SpriteDef::new((15, 2), (1, 1));
-pub const SPRITE_GUARD_POST: SpriteDef = SpriteDef::scaled((20, 20), (1, 1), 2.0);
-
-/// Location type for sprite rendering
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum LocationType {
-    Farm,
-    Camp,
-    Bed,
-    GuardPost,
-    Fountain,
-}
-
-impl LocationType {
-    pub fn sprite_def(&self) -> SpriteDef {
-        match self {
-            LocationType::Farm => SPRITE_FARM,
-            LocationType::Camp => SPRITE_TENT,
-            LocationType::Bed => SPRITE_BED,
-            LocationType::GuardPost => SPRITE_GUARD_POST,
-            LocationType::Fountain => SPRITE_FOUNTAIN,
-        }
-    }
-}
-
-/// A sprite instance for MultiMesh rendering
-#[derive(Clone, Debug)]
-pub struct SpriteInstance {
-    pub pos: Vec2,
-    pub uv: (i32, i32),  // Grid coords in sprite sheet
-    pub scale: f32,
-}
 
 // ============================================================================
 // WORLD DATA STRUCTS
@@ -118,65 +65,6 @@ pub struct WorldData {
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub guard_posts: Vec<GuardPost>,
-}
-
-impl WorldData {
-    /// Generate all sprite instances for location MultiMesh rendering.
-    /// Each multi-cell sprite (2x2 farm, 2x2 tent) generates multiple instances.
-    pub fn get_all_sprites(&self) -> Vec<SpriteInstance> {
-        let mut sprites = Vec::new();
-
-        // Farms (2x2)
-        for farm in &self.farms {
-            Self::add_sprite_instances(&mut sprites, farm.position, LocationType::Farm);
-        }
-
-        // Beds (1x1)
-        for bed in &self.beds {
-            Self::add_sprite_instances(&mut sprites, bed.position, LocationType::Bed);
-        }
-
-        // Guard posts (1x1)
-        for post in &self.guard_posts {
-            Self::add_sprite_instances(&mut sprites, post.position, LocationType::GuardPost);
-        }
-
-        // Town centers (sprite based on sprite_type: 0=fountain, 1=tent)
-        for town in &self.towns {
-            let loc_type = match town.sprite_type {
-                1 => LocationType::Camp,  // tent
-                _ => LocationType::Fountain,
-            };
-            Self::add_sprite_instances(&mut sprites, town.center, loc_type);
-        }
-
-        sprites
-    }
-
-    /// Add sprite instances for a location (handles multi-cell sprites).
-    fn add_sprite_instances(sprites: &mut Vec<SpriteInstance>, center: Vec2, loc_type: LocationType) {
-        let def = loc_type.sprite_def();
-        let total_scale = def.scale;
-
-        // Build grid of sprites for multi-cell definitions
-        for row in 0..def.size.1 {
-            for col in 0..def.size.0 {
-                let uv = (def.pos.0 + col, def.pos.1 + row);
-                // Offset each cell: center the whole sprite, then position each cell
-                let cell_offset_x = (col as f32 - (def.size.0 - 1) as f32 / 2.0) * SPRITE_SIZE;
-                let cell_offset_y = (row as f32 - (def.size.1 - 1) as f32 / 2.0) * SPRITE_SIZE;
-                let world_pos = Vec2::new(
-                    center.x + cell_offset_x * total_scale,
-                    center.y + cell_offset_y * total_scale,
-                );
-                sprites.push(SpriteInstance {
-                    pos: world_pos,
-                    uv,
-                    scale: total_scale,
-                });
-            }
-        }
-    }
 }
 
 /// Location types for find_nearest_location.
@@ -276,7 +164,7 @@ impl Biome {
 }
 
 /// Atlas (col, row) positions for the 11 terrain tiles used in the TilemapChunk tileset.
-const TERRAIN_TILES: [(u32, u32); 11] = [
+pub const TERRAIN_TILES: [(u32, u32); 11] = [
     (0, 14),  // 0: Grass A
     (1, 14),  // 1: Grass B
     (13, 9),  // 2: Forest A
@@ -290,19 +178,29 @@ const TERRAIN_TILES: [(u32, u32); 11] = [
     (8, 10),  // 10: Dirt
 ];
 
-/// Extract terrain tiles from the world atlas and build a texture_2d_array for TilemapChunk.
+/// Atlas (col, row) positions for the 5 building tiles used in the building TilemapChunk layer.
+pub const BUILDING_TILES: [(u32, u32); 5] = [
+    (50, 9),  // 0: Fountain
+    (15, 2),  // 1: Bed
+    (20, 20), // 2: Guard Post
+    (2, 15),  // 3: Farm
+    (48, 10), // 4: Camp/Tent
+];
+
+/// Extract tiles from the world atlas and build a texture_2d_array for TilemapChunk.
 /// Each tile is 16x16 pixels. The atlas has 1px margins (17px cells).
-pub fn build_terrain_tileset(atlas: &Image, images: &mut Assets<Image>) -> Handle<Image> {
+/// Called with TERRAIN_TILES (11 tiles) or BUILDING_TILES (5 tiles).
+pub fn build_tileset(atlas: &Image, tiles: &[(u32, u32)], images: &mut Assets<Image>) -> Handle<Image> {
     let tile_size = SPRITE_SIZE as u32; // 16
     let cell_size = CELL as u32;        // 17
     let atlas_width = atlas.width();
-    let layers = TERRAIN_TILES.len() as u32;
+    let layers = tiles.len() as u32;
 
-    // Stack tiles vertically: 16 wide × (16 * 11) tall
+    // Stack tiles vertically: 16 wide × (16 * N) tall
     let mut data = vec![0u8; (tile_size * tile_size * layers * 4) as usize];
     let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
 
-    for (layer, &(col, row)) in TERRAIN_TILES.iter().enumerate() {
+    for (layer, &(col, row)) in tiles.iter().enumerate() {
         let src_x = col * cell_size;
         let src_y = row * cell_size;
 
@@ -339,6 +237,19 @@ pub enum Building {
     Bed { town_idx: u32 },
     GuardPost { town_idx: u32, patrol_order: u32 },
     Camp { town_idx: u32 },
+}
+
+impl Building {
+    /// Map building variant to tileset array index (matches BUILDING_TILES order).
+    pub fn tileset_index(&self) -> u16 {
+        match self {
+            Building::Fountain { .. } => 0,
+            Building::Bed { .. } => 1,
+            Building::GuardPost { .. } => 2,
+            Building::Farm { .. } => 3,
+            Building::Camp { .. } => 4,
+        }
+    }
 }
 
 /// A single cell in the world grid.

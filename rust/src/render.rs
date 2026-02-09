@@ -10,7 +10,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 
 use crate::gpu::NpcSpriteTexture;
 use crate::resources::SelectedNpc;
-use crate::world::{WorldGrid, build_terrain_tileset};
+use crate::world::{WorldGrid, build_tileset, TERRAIN_TILES, BUILDING_TILES};
 
 // =============================================================================
 // CONSTANTS
@@ -99,7 +99,7 @@ impl Plugin for RenderPlugin {
                 camera_viewport_sync,
                 camera_transform_sync,
                 click_to_select_system,
-                spawn_terrain_tilemap,
+                spawn_world_tilemap,
             ));
     }
 }
@@ -280,12 +280,36 @@ fn click_to_select_system(
 }
 
 // =============================================================================
-// TERRAIN TILEMAP
+// WORLD TILEMAP (TERRAIN + BUILDINGS)
 // =============================================================================
 
-/// Spawn terrain as a TilemapChunk entity. Runs once when WorldGrid is populated
+/// Spawn a TilemapChunk entity with the given tile data, z-depth, and alpha mode.
+fn spawn_chunk(
+    commands: &mut Commands,
+    grid: &WorldGrid,
+    tileset: Handle<Image>,
+    tile_data: Vec<Option<TileData>>,
+    z: f32,
+    alpha: AlphaMode2d,
+) {
+    let world_w = grid.width as f32 * grid.cell_size;
+    let world_h = grid.height as f32 * grid.cell_size;
+
+    commands.spawn((
+        TilemapChunk {
+            chunk_size: UVec2::new(grid.width as u32, grid.height as u32),
+            tile_display_size: UVec2::new(grid.cell_size as u32, grid.cell_size as u32),
+            tileset,
+            alpha_mode: alpha,
+        },
+        TilemapChunkTileData(tile_data),
+        Transform::from_xyz(world_w / 2.0, world_h / 2.0, z),
+    ));
+}
+
+/// Spawn terrain + building TilemapChunk layers. Runs once when WorldGrid is populated
 /// and the world atlas image is loaded.
-fn spawn_terrain_tilemap(
+fn spawn_world_tilemap(
     mut commands: Commands,
     grid: Res<WorldGrid>,
     assets: Res<SpriteAssets>,
@@ -295,29 +319,21 @@ fn spawn_terrain_tilemap(
     if *spawned || grid.width == 0 { return; }
     let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
 
-    // Build texture_2d_array tileset from world atlas
-    let tileset = build_terrain_tileset(&atlas, &mut images);
-
-    // Build tile data from WorldGrid
-    let tile_data: Vec<Option<TileData>> = grid.cells.iter().enumerate()
+    // Terrain layer: every cell filled, opaque
+    let terrain_tileset = build_tileset(&atlas, &TERRAIN_TILES, &mut images);
+    let terrain_tiles: Vec<Option<TileData>> = grid.cells.iter().enumerate()
         .map(|(i, cell)| Some(TileData::from_tileset_index(cell.terrain.tileset_index(i))))
         .collect();
+    spawn_chunk(&mut commands, &grid, terrain_tileset, terrain_tiles, -1.0, AlphaMode2d::Opaque);
 
-    // Chunk is centered at its Transform. 250×250 grid at 32px = 8000×8000, center at (4000, 4000).
-    let world_w = grid.width as f32 * grid.cell_size;
-    let world_h = grid.height as f32 * grid.cell_size;
+    // Building layer: None for empty cells, building tile where placed
+    let building_tileset = build_tileset(&atlas, &BUILDING_TILES, &mut images);
+    let building_tiles: Vec<Option<TileData>> = grid.cells.iter()
+        .map(|cell| cell.building.as_ref().map(|b| TileData::from_tileset_index(b.tileset_index())))
+        .collect();
+    let building_count = building_tiles.iter().filter(|t| t.is_some()).count();
+    spawn_chunk(&mut commands, &grid, building_tileset, building_tiles, -0.5, AlphaMode2d::Blend);
 
-    commands.spawn((
-        TilemapChunk {
-            chunk_size: UVec2::new(grid.width as u32, grid.height as u32),
-            tile_display_size: UVec2::new(grid.cell_size as u32, grid.cell_size as u32),
-            tileset,
-            alpha_mode: AlphaMode2d::Opaque,
-        },
-        TilemapChunkTileData(tile_data),
-        Transform::from_xyz(world_w / 2.0, world_h / 2.0, -1.0),
-    ));
-
-    info!("Terrain tilemap spawned: {}x{} tiles, {}x{} world", grid.width, grid.height, world_w, world_h);
+    info!("World tilemap spawned: {}x{} grid, {} buildings", grid.width, grid.height, building_count);
     *spawned = true;
 }

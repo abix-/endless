@@ -2,7 +2,7 @@
 
 ## Overview
 
-Two rendering systems work together: **terrain** uses Bevy's built-in `TilemapChunk` (single quad, fragment shader tile lookup, zero per-frame CPU cost), while **buildings, NPCs, equipment, and projectiles** use a custom GPU instanced pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. The instanced renderer uses 6 layers: buildings (layer 0), NPC body (layer 1), and 4 equipment layers (layers 2-5), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. Both character and world sprite atlases are bound simultaneously — per-instance `atlas_id` selects which atlas to sample.
+Two rendering systems work together: **terrain and buildings** use Bevy's built-in `TilemapChunk` (two layers on the same grid — terrain opaque at z=-1, buildings alpha-blended at z=-0.5, zero per-frame CPU cost), while **NPCs, equipment, and projectiles** use a custom GPU instanced pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. The instanced renderer uses 5 layers: NPC body (layer 0) and 4 equipment layers (layers 1-4), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. Both character and world sprite atlases are bound simultaneously — per-instance `atlas_id` selects which atlas to sample.
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -23,12 +23,11 @@ Main World                        Render World
 NpcBufferWrites      ──ExtractResource──▶ NpcBufferWrites
 NpcGpuData           ──ExtractResource──▶ NpcGpuData
 CameraState          ──ExtractResource──▶ CameraState
-WorldRenderInstances ──ExtractResource──▶ WorldRenderInstances
 NpcBatch entity      ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                                prepare_npc_buffers
-                               (build InstanceData[] for 6 layers)
+                               (build InstanceData[] for 5 layers)
                                       │
                                       ▼
                             prepare_npc_texture_bind_group
@@ -80,11 +79,9 @@ pub struct InstanceData {
 }
 ```
 
-Built each frame by `prepare_npc_buffers`. Six layers are built per pass (terrain is handled by TilemapChunk — see Terrain Tilemap section below):
+Built each frame by `prepare_npc_buffers`. Five layers are built per pass (terrain and buildings are handled by TilemapChunk — see World Tilemap section below):
 
-**Layer 0 (buildings):** Pre-computed `WorldRenderInstances.buildings` (from WorldData::get_all_sprites()). scale=SpriteDef.scale×16, atlas_id=1.0.
-
-**Layer 1 (body):**
+**Layer 0 (body):**
 - **Positions**: from GPU readback if available, else from CPU-side NpcBufferWrites
 - **Sprites**: from `sprite_indices` (4 floats per NPC, uses first 2: col, row)
 - **Colors**: from `colors` (4 floats per NPC: RGBA)
@@ -92,7 +89,7 @@ Built each frame by `prepare_npc_buffers`. Six layers are built per pass (terrai
 - **Flash**: from `flash_values` (0.0-1.0, decays at 5.0/s in `populate_buffer_writes`)
 - **Hidden NPCs** (position.x < -9000) are skipped
 
-**Layers 2-5 (equipment: armor, helmet, weapon, item):**
+**Layers 1-4 (equipment: armor, helmet, weapon, item):**
 - Same position as body (from readback)
 - Sprite from `armor_sprites`/`helmet_sprites`/`weapon_sprites`/`item_sprites` (stride 2, col/row per NPC)
 - Sentinel: col < 0 means unequipped → skip
@@ -123,7 +120,7 @@ static QUAD_VERTICES: [QuadVertex; 4] = [
 ];
 ```
 
-The vertex shader scales the unit quad by the per-instance `scale` field (16.0 for NPCs, variable for buildings) and offsets by instance position.
+The vertex shader scales the unit quad by the per-instance `scale` field (16.0 for NPCs) and offsets by instance position.
 
 ## Vertex Buffers
 
@@ -211,7 +208,7 @@ The render pipeline runs in Bevy's render world after extract:
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
 | Extract | `extract_proj_batch` | Clone ProjBatch entity to render world |
-| PrepareResources | `prepare_npc_buffers` | Build 6 layer buffers (buildings + body + 4 equipment) |
+| PrepareResources | `prepare_npc_buffers` | Build 5 layer buffers (body + 4 equipment) |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create dual atlas bind group from NpcSpriteTexture (char + world) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
@@ -233,7 +230,7 @@ type DrawNpcCommands = (
 );
 ```
 
-`DrawNpcs::render()` sets the shared vertex/index buffers, then iterates over all 6 `LayerBuffer`s in `NpcRenderBuffers.layers`, issuing a separate `draw_indexed` call per non-empty layer. Layers are drawn in order: buildings (0), body (1), armor (2), helmet (3), weapon (4), item (5). If no layers have instances, it returns `Skip`.
+`DrawNpcs::render()` sets the shared vertex/index buffers, then iterates over all 5 `LayerBuffer`s in `NpcRenderBuffers.layers`, issuing a separate `draw_indexed` call per non-empty layer. Layers are drawn in order: body (0), armor (1), helmet (2), weapon (3), item (4). If no layers have instances, it returns `Skip`.
 
 Projectiles reuse the same pipeline, shader, and bind groups with a separate instance buffer:
 
@@ -293,10 +290,10 @@ Multi-layer equipment rendering uses `NpcBufferWrites` fields for 4 equipment ty
 
 | Layer | Index | NpcBufferWrites Field | Stride | Sentinel |
 |-------|-------|----------------------|--------|----------|
-| Armor | 2 | `armor_sprites` | 2 (col, row) | col < 0 |
-| Helmet | 3 | `helmet_sprites` | 2 (col, row) | col < 0 |
-| Weapon | 4 | `weapon_sprites` | 2 (col, row) | col < 0 |
-| Item | 5 | `item_sprites` | 2 (col, row) | col < 0 |
+| Armor | 1 | `armor_sprites` | 2 (col, row) | col < 0 |
+| Helmet | 2 | `helmet_sprites` | 2 (col, row) | col < 0 |
+| Weapon | 3 | `weapon_sprites` | 2 (col, row) | col < 0 |
+| Item | 4 | `item_sprites` | 2 (col, row) | col < 0 |
 
 Equipment is set via `GpuUpdate::SetEquipSprite { idx, layer, col, row }`. At spawn, all layers are cleared to -1.0 (unequipped), then job-specific gear is applied. Equipment is also cleared on death to prevent stale data on slot reuse.
 
@@ -305,34 +302,32 @@ Current equipment assignments:
 - **Raiders**: Weapon (0, 8)
 - **Carried food**: Item layer set when raider steals food, cleared on delivery
 
-## Terrain Tilemap
+## World Tilemap (Terrain + Buildings)
 
-Terrain is rendered via Bevy's built-in `TilemapChunk` — a single quad mesh where a fragment shader does per-pixel tile lookup from a `texture_2d_array` tileset. This gives O(1) draw cost regardless of grid size (250×250 = 62,500 tiles, 1 draw call, zero per-frame CPU cost).
+Both terrain and buildings are rendered via Bevy's built-in `TilemapChunk` — two separate layer entities on the same 250×250 grid. Each layer is a single quad mesh where a fragment shader does per-pixel tile lookup from a `texture_2d_array` tileset. This gives O(1) draw cost regardless of grid size (62,500 cells, 2 draw calls, zero per-frame CPU cost).
 
-**Tileset**: 11 terrain tiles (16×16 pixels each) extracted at runtime from the world atlas into a `texture_2d_array` via `build_terrain_tileset()` in `world.rs`. Tiles: 2 grass variants, 6 forest variants, water, rock, dirt.
+| Layer | Z | Alpha | Content | Tileset |
+|-------|---|-------|---------|---------|
+| Terrain | -1.0 | Opaque | Every cell filled (biome tiles) | 11 tiles (`TERRAIN_TILES`) |
+| Buildings | -0.5 | Blend | `None` for empty, building tile where placed | 5 tiles (`BUILDING_TILES`) |
 
-**`Biome::tileset_index(cell_index)`**: Maps biome + cell position to tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
+**`build_tileset(atlas, tiles, images)`** (`world.rs`): Generic function that extracts 16×16 tiles from the world atlas at specified (col, row) positions and builds a `texture_2d_array`. Called twice — once with `TERRAIN_TILES` (11 tiles: 2 grass, 6 forest, water, rock, dirt) and once with `BUILDING_TILES` (5 tiles: fountain, bed, guard post, farm, camp).
 
-**`spawn_terrain_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Spawns a `TilemapChunk` entity at world center (4000, 4000) with z=-1 (behind instanced sprites). Chunk size matches WorldGrid dimensions, tile_display_size matches cell_size (32px).
+**`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
+
+**`Building::tileset_index()`**: Maps building variant to building tileset array index (0-4). Fountain=0, Bed=1, GuardPost=2, Farm=3, Camp=4.
+
+**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Uses the shared `spawn_chunk()` helper to spawn both layers. Terrain layer has all cells filled (opaque). Building layer has `None` for empty cells — the alpha blend mode makes empty cells transparent so terrain shows through.
 
 Dynamic updates supported: mutate `TilemapChunkTileData`, Bevy detects `Changed<>` and re-uploads.
-
-## World Render Instances
-
-Building instance data is pre-computed once in the main world and extracted to the render world each frame.
-
-**`WorldRenderInstances`** resource (main world, `ExtractResource + Clone`):
-- `buildings: Vec<InstanceData>` — from `WorldData::get_all_sprites()`, scale = SpriteDef.scale × 16
-
-**`compute_world_render_instances`** system (Update schedule): runs once when WorldData towns are populated (Local<bool> guard). Builds building instances, then inserts the resource. Buildings stay instanced (~50 instances, negligible cost) because they use varying scales that don't fit TilemapChunk's fixed tile_display_size.
 
 ## Known Issues
 
 - **Health bar mode hardcoded**: Only "when damaged" mode (show when health < 99%). Off/always modes need a uniform or config resource.
 - **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
 - **Equipment sprite placeholders**: Current equipment sprites (sword, helmet, food) use placeholder atlas coordinates — need tuning with sprite browser.
-- **Single sort key for all layers**: All 6 layers share sort_key=0.0 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but layers can't interleave with other phase items.
+- **Single sort key for all layers**: All 5 NPC layers share sort_key=0.0 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but layers can't interleave with other phase items.
 
 ## Rating: 9/10
 
-Terrain rendered via Bevy's built-in TilemapChunk (1 draw call, zero per-frame CPU cost for 62K tiles). Buildings, NPCs, equipment, and projectiles rendered through a unified instanced pipeline with dual atlas support. Per-instance data is compact (48 bytes) with per-instance scale and atlas selection. Fragment shader handles transparency, dual atlas sampling, faction color tinting, in-shader health bars (3-color, show-when-damaged), damage flash, and equipment layer health bar preservation. Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. FPS counter overlay via egui.
+Terrain and buildings rendered via two Bevy TilemapChunk layers (2 draw calls, zero per-frame CPU cost for 62K tiles + buildings). NPCs, equipment, and projectiles rendered through a custom instanced pipeline with dual atlas support. Per-instance data is compact (48 bytes). Fragment shader handles transparency, dual atlas sampling, faction color tinting, in-shader health bars (3-color, show-when-damaged), damage flash, and equipment layer health bar preservation. Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. FPS counter overlay via egui.

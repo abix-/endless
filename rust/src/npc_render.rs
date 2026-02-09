@@ -34,7 +34,6 @@ use bevy::{
         sync_world::MainEntity,
         texture::GpuImage,
         view::ExtractedView,
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
         Extract, Render, RenderApp, RenderSystems,
     },
 };
@@ -42,14 +41,13 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::gpu::{NpcBufferWrites, NpcGpuData, NpcSpriteTexture, ProjBufferWrites, ProjGpuData};
 use crate::render::CameraState;
-use crate::world::WorldData;
 
 // =============================================================================
 // MARKER COMPONENT
 // =============================================================================
 
-/// Layer count: terrain + buildings + body + 4 equipment layers.
-pub const LAYER_COUNT: usize = 6;
+/// Layer count: body + 4 equipment layers.
+pub const LAYER_COUNT: usize = 5;
 
 /// Marker component for the NPC batch entity.
 #[derive(Component, Clone)]
@@ -158,43 +156,6 @@ pub struct NpcCameraBindGroup {
     pub bind_group: Option<BindGroup>,
 }
 
-/// Pre-computed building instances for rendering. Computed once from WorldData,
-/// then extracted to render world each frame. Static data — only rebuilt when world changes.
-/// Terrain is handled by TilemapChunk (see render.rs).
-#[derive(Resource, Clone, ExtractResource, Default)]
-pub struct WorldRenderInstances {
-    pub buildings: Vec<InstanceData>,
-}
-
-/// Compute building instances from WorldData (runs once when world is populated).
-/// Terrain is rendered via TilemapChunk — see render.rs::spawn_terrain_tilemap.
-fn compute_world_render_instances(
-    mut commands: Commands,
-    world_data: Res<WorldData>,
-    existing: Option<Res<WorldRenderInstances>>,
-    mut computed: Local<bool>,
-) {
-    if *computed { return; }
-    if existing.is_some() && !existing.as_ref().unwrap().buildings.is_empty() { *computed = true; return; }
-    if world_data.towns.is_empty() { return; }
-
-    let mut buildings = Vec::new();
-    for sprite in world_data.get_all_sprites() {
-        buildings.push(InstanceData {
-            position: [sprite.pos.x, sprite.pos.y],
-            sprite: [sprite.uv.0 as f32, sprite.uv.1 as f32],
-            color: [1.0, 1.0, 1.0, 1.0],
-            health: 1.0,
-            flash: 0.0,
-            scale: sprite.scale * 16.0,
-            atlas_id: 1.0,
-        });
-    }
-
-    info!("World render instances: {} buildings", buildings.len());
-    commands.insert_resource(WorldRenderInstances { buildings });
-    *computed = true;
-}
 
 // =============================================================================
 // RENDER COMMAND
@@ -221,7 +182,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNpcs {
         pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
         pass.set_index_buffer(buffers.index_buffer.slice(..), IndexFormat::Uint16);
 
-        // Draw each non-empty layer: terrain → buildings → body → armor → helmet → weapon → item
+        // Draw each non-empty layer: body → armor → helmet → weapon → item
         let mut drew_any = false;
         for layer in &buffers.layers {
             if layer.count == 0 { continue; }
@@ -343,11 +304,6 @@ pub struct NpcRenderPlugin;
 
 impl Plugin for NpcRenderPlugin {
     fn build(&self, app: &mut App) {
-        // World render instances: computed in main world, extracted to render world
-        app.init_resource::<WorldRenderInstances>();
-        app.add_systems(Update, compute_world_render_instances);
-        app.add_plugins(ExtractResourcePlugin::<WorldRenderInstances>::default());
-
         // Spawn batch entities in main world
         app.add_systems(Startup, (spawn_npc_batch, spawn_proj_batch));
 
@@ -420,14 +376,14 @@ const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32); 4] = [
     |w, i| { let j = i * 2; (w.item_sprites.get(j).copied().unwrap_or(-1.0), w.item_sprites.get(j+1).copied().unwrap_or(0.0)) },
 ];
 
-/// Prepare all instance buffers — buildings, NPCs, equipment (6 layers).
+/// Prepare all instance buffers — body + 4 equipment layers (5 layers).
+/// Buildings are rendered via TilemapChunk (see render.rs).
 fn prepare_npc_buffers(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     buffer_writes: Option<Res<NpcBufferWrites>>,
     gpu_data: Option<Res<NpcGpuData>>,
-    world_instances: Option<Res<WorldRenderInstances>>,
     existing_buffers: Option<ResMut<NpcRenderBuffers>>,
 ) {
     let Some(writes) = buffer_writes else { return };
@@ -443,17 +399,10 @@ fn prepare_npc_buffers(
         .filter(|s| s.positions.len() >= npc_count * 2)
         .map(|s| s.positions.clone());
 
-    // Build all layer buffers: [0]=buildings, [1]=body, [2-5]=equipment
+    // Build all layer buffers: [0]=body, [1-4]=equipment
     let mut layer_instances: Vec<RawBufferVec<InstanceData>> = (0..LAYER_COUNT)
         .map(|_| RawBufferVec::new(BufferUsages::VERTEX))
         .collect();
-
-    // Layer 0: Buildings from pre-computed world instances
-    if let Some(world) = world_instances {
-        for inst in &world.buildings {
-            layer_instances[0].push(*inst);
-        }
-    }
 
     for i in 0..npc_count {
         let (px, py) = if let Some(ref pos) = readback_positions {
@@ -470,7 +419,7 @@ fn prepare_npc_buffers(
             continue;
         }
 
-        // Layer 1: Body
+        // Layer 0: Body
         let sc = writes.sprite_indices.get(i * 4).copied().unwrap_or(0.0);
         let sr = writes.sprite_indices.get(i * 4 + 1).copied().unwrap_or(0.0);
         let cr = writes.colors.get(i * 4).copied().unwrap_or(1.0);
@@ -480,7 +429,7 @@ fn prepare_npc_buffers(
         let health = (writes.healths.get(i).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
         let flash = writes.flash_values.get(i).copied().unwrap_or(0.0);
 
-        layer_instances[1].push(InstanceData {
+        layer_instances[0].push(InstanceData {
             position: [px, py],
             sprite: [sc, sr],
             color: [cr, cg, cb, ca],
@@ -490,11 +439,11 @@ fn prepare_npc_buffers(
             atlas_id: 0.0,
         });
 
-        // Layers 2-5: Equipment (only if sprite col >= 0, i.e. equipped)
+        // Layers 1-4: Equipment (only if sprite col >= 0, i.e. equipped)
         for (layer_idx, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
             let (ecol, erow) = get_sprite(&writes, i);
             if ecol >= 0.0 {
-                layer_instances[layer_idx + 2].push(InstanceData {
+                layer_instances[layer_idx + 1].push(InstanceData {
                     position: [px, py],
                     sprite: [ecol, erow],
                     color: [1.0, 1.0, 1.0, 1.0],

@@ -41,7 +41,7 @@ Rules:
 - [x] RenderCommand + Transparent2d phase (single instanced draw call)
 - [x] 2D camera setup, texture atlas loading (char + world sprites)
 - [x] Sprite texture sampling with alpha discard and color tinting
-- [x] TilemapChunk terrain (250x250 grid, single quad, zero per-frame CPU cost)
+- [x] TilemapChunk terrain + buildings (two layers on 250x250 grid, zero per-frame CPU cost)
 - [x] FPS counter overlay (egui, bottom-left, EMA-smoothed)
 
 ### Movement & Physics

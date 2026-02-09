@@ -107,12 +107,12 @@ rust/
   src/lib.rs            # build_app(), system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
-  src/render.rs         # 2D camera, texture atlases, sprite rendering
+  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
-  src/world.rs          # World data structs, world grid, procedural generation
+  src/world.rs          # World data structs, world grid, procedural generation, tileset builder
   src/tests/
     mod.rs              # Test framework (AppState, TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)

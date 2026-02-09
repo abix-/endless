@@ -1,6 +1,17 @@
 # Changelog
 
 ## 2026-02-09
+- **building tilemap: two-layer TilemapChunk (terrain + buildings)**
+  - buildings now rendered via second TilemapChunk layer (z=-0.5, AlphaMode2d::Blend) on top of terrain (z=-1, Opaque)
+  - generic `build_tileset(atlas, tiles, images)` replaces `build_terrain_tileset()` — same pixel-copy logic, parameterized by tile list
+  - add `BUILDING_TILES` const (5 atlas positions: fountain, bed, guard post, farm, camp)
+  - add `Building::tileset_index()` mapping building variant to tileset array index
+  - add `spawn_chunk()` DRY helper in render.rs, called twice for terrain and building layers
+  - rename `spawn_terrain_tilemap` → `spawn_world_tilemap`
+  - remove `WorldRenderInstances` resource, `compute_world_render_instances` system, `ExtractResourcePlugin` from instanced renderer
+  - `LAYER_COUNT` 6→5: body(0), armor(1), helmet(2), weapon(3), item(4) — buildings no longer instanced
+  - remove dead code from world.rs: `SpriteDef`, `LocationType`, `SpriteInstance`, `get_all_sprites()`, sprite constants
+
 - **terrain tilemap: migrate 62K instanced terrain to TilemapChunk**
   - terrain rendered via Bevy's built-in `TilemapChunk` (single quad, fragment shader tile lookup, zero per-frame CPU cost)
   - `build_terrain_tileset()`: extracts 11 terrain tiles from world atlas into `texture_2d_array` at runtime
