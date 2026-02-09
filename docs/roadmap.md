@@ -120,16 +120,8 @@ Rules:
 - [x] PopulationStats, KillStats, SelectedNpc resources
 
 ### Testing & Debug
-- [x] Test harness with automated PASS/FAIL assertions
-- [x] Test 1-5: Movement scenarios (arrive, separation, both, circle, mass)
-- [x] Test 6: World data visual markers (town, camp, farms, beds, posts)
-- [x] Test 7: Guard patrol (4 guards patrol perimeter clockwise)
-- [x] Test 8: Farmer work cycle
-- [x] Test 9: Health/death validation
-- [x] Test 10: Combat TDD (6 phases)
-- [x] Test 11: Unified attacks TDD (7 phases)
-- [x] Test 12: Vertical slice (8 phases, spawn→readback→farm→raid→combat→death→respawn, 6.8s)
-- [x] get_npc_position() for position queries
+- [x] Test harness with phased PASS/FAIL assertions
+- [x] Test 12: Vertical slice (8 phases, spawn→readback→farm→raid→combat→death→respawn)
 - [x] HEALTH_DEBUG, COMBAT_DEBUG resources for diagnostics
 
 ### Architecture
