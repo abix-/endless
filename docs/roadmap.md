@@ -146,20 +146,20 @@ Rules:
 
 *Done when: 5 farmers grow food, 5 raiders form a group and steal it, 2 guards intercept with combat, someone dies, slot recycles, replacement spawns. Validated by Test 12 (8 phases, 6.8s).*
 
-**Stage 4b: Test Framework**
+**Stage 5: Test Framework**
 
-*Done when: every completed system has a dedicated test, tests are selectable via CLI, and all tests pass.*
+*Done when: every completed system has a dedicated test, tests are selectable from an in-game menu, and all tests pass.*
 
 Test infrastructure:
-- [ ] CLI test selection: `cargo run --release -- --test <name>` runs one test, no flag = normal game
-- [ ] Parse `std::env::args()` in main.rs, pass `Option<String>` to `build_app()`
-- [ ] `TestMode` resource holds active test name
+- [ ] `TestMenu` state — bevy_egui panel listing all registered tests with run buttons
+- [ ] `TestMode` resource holds active test name (None = normal game)
 - [ ] `TestState` shared resource (phase, start, results, passed/failed, counters HashMap, flags HashMap)
 - [ ] Helper methods: `pass_phase()`, `fail_phase()`, `set_flag()`, `get_flag()`, `inc()`
-- [ ] `src/tests/mod.rs` with `register_tests(app, test_name)` — matches name, adds setup+tick systems
+- [ ] `src/tests/mod.rs` with `register_tests(app)` — registers all test setup+tick systems
 - [ ] Each test file exports `setup` (Startup) + `tick` (Update, after Step::Behavior)
-- [ ] Tests auto-exit app on pass (exit 0) or fail (exit 1)
-- [ ] `--test list` prints available tests and exits
+- [ ] Test results displayed on screen (phase progress, pass/fail, elapsed time)
+- [ ] Return to test menu after test completes (or on cancel)
+- [ ] "Run All" button that runs tests sequentially, shows summary
 - [ ] Move existing Test12 from lib.rs into `src/tests/vertical_slice.rs`
 
 Tests for completed features (one file each in `src/tests/`):
@@ -230,7 +230,7 @@ Tests for completed features (one file each in `src/tests/`):
 `vertical-slice` — Existing Test12 (8 phases):
 - [ ] Relocated from lib.rs to src/tests/vertical_slice.rs (same logic)
 
-**Stage 5: Visual Feedback**
+**Stage 6: Visual Feedback**
 
 *Done when: you can watch the core loop happen on screen and understand what's going on without reading logs.*
 
@@ -255,7 +255,7 @@ Visual state indicators:
 - [ ] Sleep indicator on resting NPCs (z icon overlay)
 - [ ] Carried item icon (food sprite on returning raiders)
 
-**Stage 6: Playable Game**
+**Stage 7: Playable Game**
 
 *Done when: someone who isn't you can open it, understand what's happening, and make decisions that affect the outcome.*
 
@@ -287,9 +287,9 @@ Events:
 - [ ] Combat log feed from events
 - [ ] UI integration for event display
 
-**Stage 7: Content + Polish**
+**Stage 8: Config & Progression**
 
-*Done when: there's enough systems depth that emergent gameplay happens — raids succeed or fail based on guard upgrades, economy collapses if farms aren't defended, raiders starve if they can't steal.*
+*Done when: upgrades change gameplay outcomes — upgraded guards survive longer, leveled NPCs deal more damage, and town policies visibly alter NPC behavior.*
 
 Config & upgrades:
 - [ ] CombatConfig Bevy resource (configurable melee/ranged stats)
@@ -315,16 +315,16 @@ Town policies:
 - [ ] Fountain healing zone (radius + upgrade bonus)
 - [ ] Camp healing zone for raiders
 
+**Stage 9: Gameplay Depth**
+
+*Done when: emergent gameplay happens — raids succeed or fail based on guard upgrades, economy collapses if farms aren't defended, raiders starve if they can't steal.*
+
 Combat depth:
 - [ ] Target switching (prefer non-fleeing enemies over fleeing)
 - [ ] Trait combat modifiers (Strong +25%, Berserker +50% at low HP, Efficient -25% cooldown, Lazy +20% cooldown)
 - [ ] Trait flee modifiers (Brave never flees, Coward +20% threshold)
 - [ ] Trait combinations (multiple traits per NPC)
 - [ ] Player combat abilities
-- [ ] Army units (peasant levy, archers, knights)
-- [ ] Equipment crafting (weapons, armor)
-- [ ] Army recruitment and movement
-- [ ] Attack and capture enemy towns
 
 Economy depth:
 - [ ] Multi-camp food delivery (currently hardcoded to camp_food[0])
@@ -334,6 +334,16 @@ Economy depth:
 - [ ] Starvation effects (HP drain, desertion)
 - [ ] Multiple resources (wood, iron, gold)
 - [ ] Production buildings (lumber mill, mine, blacksmith)
+
+**Stage 10: Endgame**
+
+*Done when: AI factions compete autonomously, armies clash over territory, and the simulation runs efficiently at scale.*
+
+Armies & conquest:
+- [ ] Army units (peasant levy, archers, knights)
+- [ ] Equipment crafting (weapons, armor)
+- [ ] Army recruitment and movement
+- [ ] Attack and capture enemy towns
 
 AI & coordination:
 - [ ] AI lords that expand and compete
