@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-02-09
+- **health bars + projectile sprite**
+  - add `health: f32` to NpcInstanceData (32 → 36 bytes), vertex attribute @location(5)
+  - prepare_npc_buffers reads NpcBufferWrites.healths, normalizes by /100.0
+  - prepare_proj_buffers sets health=1.0 (no bar on projectiles)
+  - npc_render.wgsl: pass quad_uv + health through vertex shader, 3-color health bar in bottom 15% of sprite (green >50%, yellow >25%, red ≤25%), show-when-damaged mode
+  - change projectile sprite from (7, 0) to (20, 7)
+  - test 12 passes (2.3s)
+
 ## 2026-02-08
 - **projectile instanced rendering**
   - add projectile position readback: COPY_SRC on proj_positions buffer, position_staging buffer, copy in ProjectileComputeNode, PROJ_POSITION_STATE static

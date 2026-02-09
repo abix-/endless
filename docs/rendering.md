@@ -11,7 +11,7 @@ Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.
 Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that's 16K entities in the render world — the scheduling/extraction overhead dominates. The custom pipeline uses:
 
 - **1 entity per layer** (NpcBatch, ProjBatch) instead of 16,384 entities
-- **32 bytes/instance** (position + sprite + color) instead of ~80 bytes/entity
+- **36 bytes/instance** (position + sprite + color + health) instead of ~80 bytes/entity
 - **GPU compute data stays on GPU** — readback only for rendering
 - **One draw call per layer** — `draw_indexed(0..6, 0, 0..instance_count)`
 
@@ -64,13 +64,14 @@ ProjBatch entity ──extract_proj_batch──▶ ProjBatch entity
 
 ## Instance Data
 
-Each NPC is 32 bytes of per-instance data:
+Each NPC is 36 bytes of per-instance data:
 
 ```rust
 pub struct NpcInstanceData {
     pub position: [f32; 2],  // world XY (8 bytes)
     pub sprite: [f32; 2],    // atlas cell col, row (8 bytes)
     pub color: [f32; 4],     // RGBA tint (16 bytes)
+    pub health: f32,         // normalized 0.0-1.0 (4 bytes)
 }
 ```
 
@@ -78,7 +79,9 @@ Built each frame by `prepare_npc_buffers` from `NpcBufferWrites`:
 - **Positions**: from GPU readback if available, else from CPU-side NpcBufferWrites
 - **Sprites**: from `sprite_indices` (4 floats per NPC, uses first 2: col, row)
 - **Colors**: from `colors` (4 floats per NPC: RGBA)
+- **Health**: from `healths` (normalized by dividing by 100.0, clamped to 0-1)
 - **Hidden NPCs** (position.x < -9000) are skipped
+- **Projectiles**: health set to 1.0 (no health bar)
 
 ## The Quad
 
@@ -110,7 +113,7 @@ Two vertex buffer slots with different step modes:
 | Slot | Step Mode | Data | Stride | Attributes |
 |------|-----------|------|--------|------------|
 | 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) position, @location(1) uv |
-| 1 | Instance | Per-NPC data (N instances) | 32B | @location(2) position, @location(3) sprite, @location(4) color |
+| 1 | Instance | Per-NPC data (N instances) | 36B | @location(2) position, @location(3) sprite, @location(4) color, @location(5) health |
 
 `VertexStepMode::Vertex` advances per-vertex (4 times per quad). `VertexStepMode::Instance` advances per-instance (once per NPC).
 
@@ -142,15 +145,23 @@ Job sprite assignments (from constants.rs):
 
 ## Fragment Shader
 
+The fragment shader handles both health bar rendering and sprite rendering. The vertex shader passes two UV sets: `uv` (atlas-transformed for texture sampling) and `quad_uv` (raw 0-1 within the sprite quad for health bar positioning).
+
+**Health bar** (bottom 15% of sprite, show-when-damaged mode):
 ```wgsl
-@fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
-    if tex_color.a < 0.1 {
-        discard;  // transparent pixels → not drawn
-    }
-    return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+if in.quad_uv.y > 0.85 && in.health < 0.99 {
+    // Dark grey background, filled portion colored by health level
+    // Green (>50%), Yellow (>25%), Red (≤25%)
 }
+```
+
+**Sprite rendering** (remaining 85%):
+```wgsl
+let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
+if tex_color.a < 0.1 {
+    discard;  // transparent pixels → not drawn
+}
+return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
 ```
 
 Texture color is multiplied by the instance's tint color. This is how faction colors work — raiders get per-faction RGB tints (10-color palette), while villagers get job-based colors.
@@ -243,9 +254,10 @@ The character texture handle is shared via `NpcSpriteTexture` resource (extracte
 
 - **No building rendering**: World sprite sheet is loaded but not used for instanced building rendering.
 - **No carried item overlay**: CarriedItem component exists but no visual rendering.
-- **No health bar rendering**: NPC health data is on GPU but no overlay draws HP bars.
 - **Sprite texture in debug mode**: Fragment shader samples textures and applies color tint, but some visual artifacts may exist from atlas margin bleed.
+- **Health bar mode hardcoded**: Only "when damaged" mode (show when health < 99%). Off/always modes need a uniform or config resource.
+- **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
 
-## Rating: 7/10
+## Rating: 8/10
 
-Custom instanced pipeline with two draw layers (NPCs + projectiles). Per-instance data is compact (32 bytes). Fragment shader handles transparency and faction color tinting. Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. However: no building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).
+Custom instanced pipeline with two draw layers (NPCs + projectiles). Per-instance data is compact (36 bytes). Fragment shader handles transparency, faction color tinting, and in-shader health bars (3-color, show-when-damaged). Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. However: no building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).

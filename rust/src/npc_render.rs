@@ -69,6 +69,8 @@ pub struct NpcInstanceData {
     pub sprite: [f32; 2],
     /// Color tint (r, g, b, a)
     pub color: [f32; 4],
+    /// Health percentage (0.0-1.0), used for health bar rendering
+    pub health: f32,
 }
 
 /// Static quad vertex: position and UV
@@ -403,11 +405,13 @@ fn prepare_npc_buffers(
         let cg = writes.colors.get(i * 4 + 1).copied().unwrap_or(1.0);
         let cb = writes.colors.get(i * 4 + 2).copied().unwrap_or(1.0);
         let ca = writes.colors.get(i * 4 + 3).copied().unwrap_or(1.0);
+        let health = (writes.healths.get(i).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
 
         instances.push(NpcInstanceData {
             position: [px, py],
             sprite: [sc, sr],
             color: [cr, cg, cb, ca],
+            health,
         });
     }
 
@@ -612,6 +616,11 @@ impl SpecializedRenderPipeline for NpcPipeline {
                                 offset: 16,
                                 shader_location: 4, // color
                             },
+                            VertexAttribute {
+                                format: bevy::render::render_resource::VertexFormat::Float32,
+                                offset: 32,
+                                shader_location: 5, // health
+                            },
                         ],
                     },
                 ],
@@ -744,11 +753,12 @@ fn prepare_proj_buffers(
             (1.0, 0.3, 0.2)
         };
 
-        // Fighter sprite (7, 0) as projectile — small and visible
+        // Projectile sprite (20, 7) — small arrow/bolt
         instances.push(NpcInstanceData {
             position: [px, py],
-            sprite: [7.0, 0.0],
+            sprite: [20.0, 7.0],
             color: [cr, cg, cb, 1.0],
+            health: 1.0, // No health bar on projectiles
         });
     }
 

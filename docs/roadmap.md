@@ -173,7 +173,7 @@ Projectile rendering:
 
 Visual state indicators:
 - [ ] Farm growth state visible (Growing → Ready sprite change + progress bar)
-- [ ] Health bars (3-color: green/yellow/red, configurable show mode: off/damaged/always)
+- [x] Health bars (3-color: green/yellow/red, show-when-damaged mode in fragment shader)
 - [ ] Damage flash in npc_render.wgsl (white overlay on hit, fade out — was Godot-only, needs re-impl)
 - [ ] Healing glow effect (pulsing green tint + radial halo — needs TIME uniform in shader)
 - [ ] Sleep indicator on resting NPCs (z icon overlay)

@@ -10,12 +10,15 @@ struct VertexInput {
     @location(2) instance_pos: vec2<f32>,
     @location(3) sprite_cell: vec2<f32>,  // col, row
     @location(4) color: vec4<f32>,
+    @location(5) health: f32,            // 0.0-1.0 normalized
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
+    @location(2) health: f32,
+    @location(3) quad_uv: vec2<f32>,     // raw 0-1 UV within sprite quad
 };
 
 // Texture (bind group 0)
@@ -60,12 +63,35 @@ fn vertex(in: VertexInput) -> VertexOutput {
     out.uv = vec2<f32>(pixel_x / TEXTURE_WIDTH, pixel_y / TEXTURE_HEIGHT);
 
     out.color = in.color;
+    out.health = in.health;
+    out.quad_uv = in.quad_uv;
 
     return out;
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Health bar in bottom 15% of sprite (quad_uv.y > 0.85 = bottom rows)
+    // Only show when damaged (health < 99%)
+    let show_hp_bar = in.health < 0.99;
+    if in.quad_uv.y > 0.85 && show_hp_bar {
+        // Dark grey background for missing health
+        var bar_color = vec4<f32>(0.2, 0.2, 0.2, 1.0);
+
+        // Filled portion colored by health level
+        if in.quad_uv.x < in.health {
+            if in.health > 0.5 {
+                bar_color = vec4<f32>(0.0, 0.8, 0.0, 1.0);  // Green: healthy
+            } else if in.health > 0.25 {
+                bar_color = vec4<f32>(1.0, 0.8, 0.0, 1.0);  // Yellow: wounded
+            } else {
+                bar_color = vec4<f32>(1.0, 0.0, 0.0, 1.0);  // Red: critical
+            }
+        }
+        return bar_color;
+    }
+
+    // Normal sprite rendering
     let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
     if tex_color.a < 0.1 {
         discard;

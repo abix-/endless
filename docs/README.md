@@ -68,7 +68,7 @@ Frame execution order ───────────────────�
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
 | [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, separation physics, combat targeting, GPU→ECS readback | 9/10 |
-| [rendering.md](rendering.md) | GPU instanced NPC rendering, sprite atlas, RenderCommand pipeline, camera controls | 7/10 |
+| [rendering.md](rendering.md) | GPU instanced NPC rendering, sprite atlas, RenderCommand pipeline, camera controls, health bars | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 4/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
@@ -79,7 +79,7 @@ Frame execution order ───────────────────�
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 
-**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. Rendering is 7/10 — custom instanced pipeline with camera controls and projectile rendering. GPU compute is 9/10 — 3-mode spatial grid, separation physics (boids + TCP dodge + backoff), combat targeting, full readback. Combat is 4/10 — pipeline exists but attack_system wired to GPU targeting. Projectiles are 7/10 — full pipeline (compute + readback + rendering + hit processing). Behavior is 8/10 — central brain with utility AI. Spawn, economy, messages, and resources are solid at 7/10.
+**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. Rendering is 8/10 — custom instanced pipeline with camera controls, projectile rendering, and in-shader health bars. GPU compute is 9/10 — 3-mode spatial grid, separation physics (boids + TCP dodge + backoff), combat targeting, full readback. Combat is 4/10 — pipeline exists but attack_system wired to GPU targeting. Projectiles are 7/10 — full pipeline (compute + readback + rendering + hit processing). Behavior is 8/10 — central brain with utility AI. Spawn, economy, messages, and resources are solid at 7/10.
 
 ## File Map
 
