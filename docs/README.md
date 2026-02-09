@@ -117,10 +117,3 @@ assets/
   roguelikeSheet_transparent.png  # World sprites (57x31 grid, 16px + 1px margin)
 ```
 
-## Known Issues
-
-Collected from all docs. Priority order:
-
-1. **No generational indices** — GPU slot indices are raw `usize`. Safe with chained execution, risk grows with async patterns. ([combat.md](combat.md))
-2. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
-3. **npc_count never shrinks** — high-water mark. Grid and buffers sized to peak, not active count. ([spawn.md](spawn.md))
