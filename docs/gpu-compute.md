@@ -26,7 +26,7 @@ Main World (ECS)                       Render World (GPU)
 │                                      ├─ NpcComputeNode (render graph, 3 passes)
 │                                      │   ├─ Mode 0: clear grid (atomicStore 0)
 │                                      │   ├─ Mode 1: build grid (atomicAdd NPC indices)
-│                                      │   ├─ Mode 2: movement + combat targeting
+│                                      │   ├─ Mode 2: separation + movement + combat targeting
 │                                      │   └─ copy positions + combat_targets → staging
 │                                      │
 │                                      └─ readback_npc_positions (Cleanup)
@@ -73,10 +73,14 @@ One thread per grid cell. Atomically clears `grid_counts[cell]` to 0. Early exit
 ### Mode 1: Build Grid
 One thread per NPC. Computes cell from `floor(pos / cell_size)`, atomically increments `grid_counts[cell]`, writes NPC index into `grid_data[cell * max_per_cell + slot]`. Skips hidden NPCs (pos.x < -9000).
 
-### Mode 2: Movement + Combat Targeting
-One thread per NPC. Two phases per thread:
+### Mode 2: Separation + Movement + Combat Targeting
+One thread per NPC. Four phases per thread:
 
-**Movement**: Straight-line toward goal at NPC speed × delta. NPCs with `arrivals[i] == 1` are settled and skip movement. When close enough (< `arrival_threshold`), marks `settled = 1`.
+**Separation**: 3x3 grid neighborhood scan. For each neighbor within `separation_radius`, computes push-away force proportional to overlap. Asymmetric push: moving NPCs (settled=0) push through settled ones (0.2x strength), settled NPCs get shoved by movers (2.0x). Exact overlaps use golden angle spread (`angle = f32(i) * 2.399 + f32(j) * 0.7`). Total force scaled by `separation_strength`.
+
+**TCP dodge**: For moving NPCs approaching other moving NPCs within 2x `separation_radius`, dodges perpendicular to movement direction. Detects head-on (0.5), crossing (0.4), and overtaking (0.3) scenarios via dot-product convergence check. Consistent side-picking via index comparison (`i < j`). Scaled by `strength * 0.7`.
+
+**Movement with backoff**: Moves toward goal at `speed * persistence` where `persistence = 1 / (1 + backoff)`. Blocked NPCs slow down exponentially. Blocking detection: pushed away from goal = backoff +2, pushed toward = backoff -2, clear path = backoff -1, cap at 200.
 
 **Combat targeting**: Searches grid cells within `combat_range / cell_size + 1` radius around NPC's cell. For each NPC in neighboring cells, checks: different faction, alive (health > 0), not self. Tracks nearest enemy by squared distance. Writes best target index to `combat_targets[i]` (-1 if none found).
 
@@ -94,7 +98,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 3 | grid_counts | atomic\<i32\>[] | — | Not uploaded | NPCs per grid cell (atomically written by mode 0+1) |
 | 4 | grid_data | i32[] | — | Not uploaded | NPC indices per cell (written by mode 1) |
 | 5 | arrivals | i32 | 4B | NpcBufferWrites.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
-| 6 | backoff | i32 | 4B | Not uploaded | Collision backoff counter (allocated, unused) |
+| 6 | backoff | i32 | 4B | Not uploaded | TCP-style collision backoff counter (read/written by mode 2) |
 | 7 | factions | i32 | 4B | NpcBufferWrites.factions | 0=Villager, 1+=Raider camps |
 | 8 | healths | f32 | 4B | NpcBufferWrites.healths | Current HP |
 | 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader) |
@@ -116,15 +120,15 @@ Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; spri
 | Field | Default | Purpose |
 |-------|---------|---------|
 | count | 0 | Active NPC count (set from NpcCount each frame) |
-| separation_radius | 20.0 | Separation physics radius (unused by current shader) |
-| separation_strength | 100.0 | Separation force strength (unused by current shader) |
+| separation_radius | 20.0 | Minimum distance NPCs try to maintain |
+| separation_strength | 100.0 | Repulsion force multiplier |
 | delta | 0.016 | Frame delta time |
-| grid_width | 128 | Spatial grid columns (unused by current shader) |
-| grid_height | 128 | Spatial grid rows (unused by current shader) |
-| cell_size | 64.0 | Pixels per grid cell (unused by current shader) |
-| max_per_cell | 48 | Max NPCs per cell (unused by current shader) |
+| grid_width | 128 | Spatial grid columns |
+| grid_height | 128 | Spatial grid rows |
+| cell_size | 64.0 | Pixels per grid cell |
+| max_per_cell | 48 | Max NPCs per cell |
 | arrival_threshold | 8.0 | Distance to mark as arrived |
-| mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=movement+targeting) |
+| mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=separation+movement+targeting) |
 | combat_range | 300.0 | Maximum distance for combat targeting |
 
 ## Spatial Grid
@@ -137,7 +141,7 @@ Built on GPU each frame via 3-mode dispatch with atomic operations:
 - **Total cells**: 16,384
 - **Memory**: grid_counts = 64KB, grid_data = 3MB
 
-NPCs are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode 1 inserts NPCs via `atomicAdd`, mode 2 searches `combat_range / cell_size + 1` radius neighborhood for combat targeting.
+NPCs are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode 1 inserts NPCs via `atomicAdd`, mode 2 uses 3x3 neighborhood for separation/dodge forces and `combat_range / cell_size + 1` radius for combat targeting.
 
 ## NPC Rendering
 
@@ -157,12 +161,11 @@ const MAX_PER_CELL: u32 = 48;
 
 ## Known Issues
 
-- **No separation physics**: NPCs converge to same position when chasing the same target. Spatial grid is ready for separation forces but not yet implemented.
 - **Hardcoded camera**: `npc_render.wgsl` has constant `CAMERA_POS` and `VIEWPORT`. Camera movement/zoom won't affect NPC rendering.
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
 - **sprite_indices/colors not uploaded to compute**: These fields exist in NpcBufferWrites for the render pipeline only. The compute shader has no access to them.
 - **Synchronous readback blocks render thread**: `device.poll(Wait)` blocks until staging buffer mapping completes. For 128KB this is sub-millisecond, but could be upgraded to async double-buffered readback if needed.
 
-## Rating: 8/10
+## Rating: 9/10
 
-3-mode compute dispatch with spatial grid, combat targeting, and full GPU→ECS readback (positions + combat_targets). Per-field dirty flags prevent stale data from overwriting GPU output. Arrival flag reset on SetTarget ensures NPCs resume movement. Remaining: separation physics to prevent NPC overlap.
+3-mode compute dispatch with spatial grid, separation physics (boids-style + TCP dodge + backoff), combat targeting, and full GPU→ECS readback. Per-field dirty flags prevent stale data from overwriting GPU output. Arrival flag reset on SetTarget ensures NPCs resume movement. Remaining: hardcoded camera in render shader.

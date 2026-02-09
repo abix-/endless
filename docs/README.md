@@ -8,7 +8,7 @@ These docs are the **source of truth** for system architecture. When building ne
 2. **During coding**: Follow the patterns documented here (job-as-template spawn, chained combat, GPU buffer layout). If you need to deviate, update the doc first.
 3. **After coding**: Update the doc if the architecture changed. Add new known issues discovered during implementation.
 4. **Code comments** stay educational (explain what code does for someone learning Rust/WGSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
-5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has phases (priority order) and capabilities (feature inventory) — read its maintenance guide before editing.
+5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has stages (priority order) and capabilities (feature inventory) — read its maintenance guide before editing.
 
 ## Test-Driven Development
 
@@ -67,7 +67,7 @@ Frame execution order ───────────────────�
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, combat targeting, GPU→ECS readback | 8/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, separation physics, combat targeting, GPU→ECS readback | 9/10 |
 | [rendering.md](rendering.md) | GPU instanced NPC rendering, sprite atlas, RenderCommand pipeline | 6/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 4/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
@@ -79,7 +79,7 @@ Frame execution order ───────────────────�
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 
-**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. Rendering is 6/10 — custom instanced pipeline works but camera is hardcoded. GPU compute is 8/10 — 3-mode spatial grid, combat targeting, full readback; separation physics remaining. Combat is 4/10 — pipeline exists but attack_system wired to GPU targeting. Projectiles are 4/10 — compute + hit readback working but no rendering. Behavior is 8/10 — central brain with utility AI. Spawn, economy, messages, and resources are solid at 7/10.
+**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. Rendering is 6/10 — custom instanced pipeline works but camera is hardcoded. GPU compute is 9/10 — 3-mode spatial grid, separation physics (boids + TCP dodge + backoff), combat targeting, full readback. Combat is 4/10 — pipeline exists but attack_system wired to GPU targeting. Projectiles are 4/10 — compute + hit readback working but no rendering. Behavior is 8/10 — central brain with utility AI. Spawn, economy, messages, and resources are solid at 7/10.
 
 ## File Map
 
@@ -121,8 +121,7 @@ assets/
 
 Collected from all docs. Priority order:
 
-1. **No separation physics** — NPCs converge to same position when chasing same target. Spatial grid is ready for separation forces. ([gpu-compute.md](gpu-compute.md))
-2. **Hardcoded camera in render shader** — `npc_render.wgsl` uses constant camera position and viewport instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering. ([rendering.md](rendering.md))
-3. **No generational indices** — GPU slot indices are raw `usize`. Safe with chained execution, risk grows with async patterns. ([combat.md](combat.md))
-4. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
-5. **npc_count never shrinks** — high-water mark. Grid and buffers sized to peak, not active count. ([spawn.md](spawn.md))
+1. **Hardcoded camera in render shader** — `npc_render.wgsl` uses constant camera position and viewport instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering. ([rendering.md](rendering.md))
+2. **No generational indices** — GPU slot indices are raw `usize`. Safe with chained execution, risk grows with async patterns. ([combat.md](combat.md))
+3. **No pathfinding** — straight-line movement with separation physics. ([behavior.md](behavior.md))
+4. **npc_count never shrinks** — high-water mark. Grid and buffers sized to peak, not active count. ([spawn.md](spawn.md))

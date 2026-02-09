@@ -4,7 +4,7 @@
 // 3-pass dispatch per frame:
 //   Mode 0: Clear spatial grid
 //   Mode 1: Build spatial grid (insert NPCs into cells)
-//   Mode 2: Movement toward goals + combat targeting via grid
+//   Mode 2: Separation + movement + combat targeting via grid
 
 struct Params {
     count: u32,
@@ -76,7 +76,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // =========================================================================
-    // MODE 2: Movement + combat targeting
+    // MODE 2: Separation + Movement + Combat Targeting
     // =========================================================================
     if (i >= params.count) { return; }
 
@@ -84,6 +84,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let goal = goals[i];
     let speed = speeds[i];
     var settled = arrivals[i];
+    var my_backoff = backoff[i];
 
     // Skip dead/hidden NPCs
     if (pos.x < -9000.0) {
@@ -91,73 +92,240 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    // --- Movement toward goal ---
     let to_goal = goal - pos;
     let dist_to_goal = length(to_goal);
     let wants_goal = settled == 0;
 
+    // Grid constants (shared by separation + combat targeting)
+    let gw = i32(params.grid_width);
+    let gh = i32(params.grid_height);
+    let mpc = i32(params.max_per_cell);
+
+    // --- STEP 2: Separation force (push away from neighbors) ---
+    // Uses spatial grid for O(1) neighbor lookup. 3x3 cell neighborhood
+    // covers separation_radius (20px) well within cell_size (64px).
+    var avoidance = vec2<f32>(0.0, 0.0);
+    let sep_radius_sq = params.separation_radius * params.separation_radius;
+
+    let cx = clamp(i32(pos.x / params.cell_size), 0, gw - 1);
+    let cy = clamp(i32(pos.y / params.cell_size), 0, gh - 1);
+
+    for (var dy: i32 = -1; dy <= 1; dy++) {
+        let ny = cy + dy;
+        if (ny < 0 || ny >= gh) { continue; }
+
+        for (var dx: i32 = -1; dx <= 1; dx++) {
+            let nx = cx + dx;
+            if (nx < 0 || nx >= gw) { continue; }
+
+            let cell_idx = ny * gw + nx;
+            let cell_count = min(atomicLoad(&grid_counts[cell_idx]), mpc);
+            let cell_base = cell_idx * mpc;
+
+            for (var n: i32 = 0; n < cell_count; n++) {
+                let j = grid_data[cell_base + n];
+                if (j == i32(i)) { continue; }
+                if (j < 0 || u32(j) >= params.count) { continue; }
+
+                let other_pos = positions[j];
+                var diff = pos - other_pos;
+                let dist_sq = dot(diff, diff);
+
+                if (dist_sq < sep_radius_sq) {
+                    // Asymmetric push: moving NPCs shove through settled ones
+                    let neighbor_settled = arrivals[j];
+                    var push_strength = 1.0;
+                    if (settled == 0 && neighbor_settled == 1) {
+                        push_strength = 0.2;  // I'm moving, they're settled: barely block me
+                    } else if (settled == 1 && neighbor_settled == 0) {
+                        push_strength = 2.0;  // I'm settled, they're moving: shove me aside
+                    }
+
+                    if (dist_sq < 0.0001) {
+                        // Golden angle spread for exactly-overlapping NPCs
+                        let angle = f32(i) * 2.399 + f32(j) * 0.7;
+                        diff = vec2<f32>(cos(angle), sin(angle));
+                        avoidance += diff * params.separation_radius * push_strength;
+                    } else {
+                        // Normal case: push proportional to overlap
+                        let dist = sqrt(dist_sq);
+                        let overlap = params.separation_radius - dist;
+                        avoidance += diff * (overlap / dist) * push_strength;
+                    }
+                }
+            }
+        }
+    }
+
+    avoidance *= params.separation_strength;
+
+    // --- STEP 2b: TCP-style dodge (avoid approaching moving NPCs) ---
+    // When two moving NPCs converge, dodge sideways to pass smoothly.
+    // Handles head-on, overtaking, and crossing paths.
+    var dodge = vec2<f32>(0.0, 0.0);
+    if (wants_goal && dist_to_goal > params.arrival_threshold) {
+        let my_dir = normalize(to_goal);
+
+        for (var dy2: i32 = -1; dy2 <= 1; dy2++) {
+            let ny2 = cy + dy2;
+            if (ny2 < 0 || ny2 >= gh) { continue; }
+
+            for (var dx2: i32 = -1; dx2 <= 1; dx2++) {
+                let nx2 = cx + dx2;
+                if (nx2 < 0 || nx2 >= gw) { continue; }
+
+                let cell_idx2 = ny2 * gw + nx2;
+                let cell_count2 = min(atomicLoad(&grid_counts[cell_idx2]), mpc);
+                let cell_base2 = cell_idx2 * mpc;
+
+                for (var n2: i32 = 0; n2 < cell_count2; n2++) {
+                    let j2 = grid_data[cell_base2 + n2];
+                    if (j2 == i32(i)) { continue; }
+                    if (j2 < 0 || u32(j2) >= params.count) { continue; }
+
+                    // Only dodge around other MOVING NPCs
+                    if (arrivals[j2] == 1) { continue; }
+
+                    let other_pos2 = positions[j2];
+                    let diff2 = pos - other_pos2;
+                    let dist_sq2 = dot(diff2, diff2);
+
+                    // Check within approach radius (2x separation)
+                    let approach_radius = params.separation_radius * 2.0;
+                    if (dist_sq2 > approach_radius * approach_radius) { continue; }
+                    if (dist_sq2 < 0.0001) { continue; }
+
+                    let dist2 = sqrt(dist_sq2);
+                    let to_other = -diff2 / dist2;
+
+                    // Am I moving toward them?
+                    let i_approach = dot(my_dir, to_other);
+                    if (i_approach > 0.3) {
+                        let other_goal = goals[j2];
+                        let ot = other_goal - other_pos2;
+                        let ot_len = length(ot);
+
+                        if (ot_len > 0.001) {
+                            let other_dir = ot / ot_len;
+                            let they_approach = -dot(other_dir, to_other);
+
+                            let perp = vec2<f32>(-my_dir.y, my_dir.x);
+                            var dodge_strength = 0.4;
+
+                            if (they_approach > 0.3) {
+                                dodge_strength = 0.5;  // Head-on collision
+                            } else if (they_approach < -0.3) {
+                                dodge_strength = 0.3;  // Overtaking
+                            }
+
+                            // Consistent side-picking via index comparison
+                            if (i < u32(j2)) {
+                                dodge += perp * dodge_strength;
+                            } else {
+                                dodge -= perp * dodge_strength;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let dodge_len = length(dodge);
+        if (dodge_len > 0.0) {
+            dodge = (dodge / dodge_len) * params.separation_strength * 0.7;
+        }
+    }
+
+    avoidance += dodge;
+
+    // --- STEP 3: Movement toward goal with backoff persistence ---
+    // Higher backoff = slower pursuit. Prevents oscillation when blocked.
     var movement = vec2<f32>(0.0, 0.0);
     if (wants_goal && dist_to_goal > params.arrival_threshold) {
-        movement = normalize(to_goal) * speed;
+        let persistence = 1.0 / f32(1 + my_backoff);
+        movement = normalize(to_goal) * speed * persistence;
+    }
+
+    // --- STEP 4: Blocking detection + backoff update ---
+    // Pushed AWAY from goal = blocked (backoff++).
+    // Pushed TOWARD goal or clear path = progress (backoff--).
+    let avoidance_mag = length(avoidance);
+
+    if (wants_goal && dist_to_goal > params.arrival_threshold) {
+        if (avoidance_mag > 0.1) {
+            let goal_dir = normalize(to_goal);
+            let push_dir = normalize(avoidance);
+            let alignment = dot(push_dir, goal_dir);
+
+            if (alignment < -0.3) {
+                my_backoff += 2;  // Pushed strongly AWAY from goal
+            } else if (alignment > 0.3) {
+                my_backoff = max(0, my_backoff - 2);  // Making progress
+            }
+            // Sideways pushing = jostling, no backoff change
+        } else {
+            my_backoff = max(0, my_backoff - 1);  // Clear path
+        }
+        my_backoff = min(my_backoff, 200);
     } else if (wants_goal && dist_to_goal <= params.arrival_threshold) {
         settled = 1;
     }
 
-    pos += movement * params.delta;
+    // --- STEP 5: Apply movement + avoidance ---
+    pos += (movement + avoidance) * params.delta;
 
     positions[i] = pos;
     arrivals[i] = settled;
+    backoff[i] = my_backoff;
 
     // --- Combat targeting via spatial grid ---
+    // Uses wider search radius than separation (combat_range >> separation_radius)
     let my_faction = factions[i];
 
-    // Dead NPCs can't target
     if (healths[i] <= 0.0) {
         combat_targets[i] = -1;
         return;
     }
 
-    let gw = i32(params.grid_width);
-    let gh = i32(params.grid_height);
-    let mpc = i32(params.max_per_cell);
     let range_sq = params.combat_range * params.combat_range;
     let search_r = i32(ceil(params.combat_range / params.cell_size)) + 1;
 
+    // Use post-movement position for combat targeting
     let my_cx = i32(pos.x / params.cell_size);
     let my_cy = i32(pos.y / params.cell_size);
 
     var best_dist_sq = range_sq;
     var best_target: i32 = -1;
 
-    for (var dy: i32 = -search_r; dy <= search_r; dy++) {
-        for (var dx: i32 = -search_r; dx <= search_r; dx++) {
-            let nx = my_cx + dx;
-            let ny = my_cy + dy;
+    for (var dy3: i32 = -search_r; dy3 <= search_r; dy3++) {
+        for (var dx3: i32 = -search_r; dx3 <= search_r; dx3++) {
+            let nx3 = my_cx + dx3;
+            let ny3 = my_cy + dy3;
 
-            if (nx < 0 || nx >= gw || ny < 0 || ny >= gh) { continue; }
+            if (nx3 < 0 || nx3 >= gw || ny3 < 0 || ny3 >= gh) { continue; }
 
-            let cell_idx = ny * gw + nx;
-            let count = min(atomicLoad(&grid_counts[cell_idx]), mpc);
+            let cell_idx3 = ny3 * gw + nx3;
+            let count3 = min(atomicLoad(&grid_counts[cell_idx3]), mpc);
 
-            for (var n: i32 = 0; n < count; n++) {
-                let other = grid_data[cell_idx * mpc + n];
+            for (var n3: i32 = 0; n3 < count3; n3++) {
+                let other3 = grid_data[cell_idx3 * mpc + n3];
 
-                if (other < 0 || other == i32(i)) { continue; }
-                if (u32(other) >= params.count) { continue; }
+                if (other3 < 0 || other3 == i32(i)) { continue; }
+                if (u32(other3) >= params.count) { continue; }
 
                 // Same faction = ally, skip
-                if (factions[other] == my_faction) { continue; }
+                if (factions[other3] == my_faction) { continue; }
 
                 // Dead targets not worth targeting
-                if (healths[other] <= 0.0) { continue; }
+                if (healths[other3] <= 0.0) { continue; }
 
-                let other_pos = positions[other];
-                let diff = pos - other_pos;
-                let dist_sq = dot(diff, diff);
+                let other_pos3 = positions[other3];
+                let diff3 = pos - other_pos3;
+                let dist_sq3 = dot(diff3, diff3);
 
-                if (dist_sq < best_dist_sq) {
-                    best_dist_sq = dist_sq;
-                    best_target = other;
+                if (dist_sq3 < best_dist_sq) {
+                    best_dist_sq = dist_sq3;
+                    best_target = other3;
                 }
             }
         }

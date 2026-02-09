@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-02-09
+- **port separation physics from glsl to wgsl compute shader**
+  - boids-style separation force: 3x3 grid neighbor scan, asymmetric push (moving=0.2x, settled=2.0x), golden angle for exact overlap
+  - TCP-style dodge: perpendicular avoidance for converging NPCs (head-on/crossing/overtaking), consistent side-picking via index comparison
+  - backoff persistence: blocked NPCs slow down exponentially (persistence = 1/(1+backoff)), blocking detection via push/goal alignment
+  - backoff buffer (binding 6) now read/written by shader — was allocated but unused
+  - all params now active: separation_radius, separation_strength, grid_width/height, cell_size, max_per_cell
+  - combat targeting unchanged (wider search radius than GLSL version)
+  - test 12 still passes (5.3s, down from 6.8s)
+
 ## 2026-02-08
 - **test 12: vertical slice integration test — phase 4 complete**
   - add Test12 resource with phased assertions (8 phases, time-gated, PASS/FAIL logging)
