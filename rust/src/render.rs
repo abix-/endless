@@ -4,7 +4,6 @@
 
 use bevy::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
-use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
 
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
@@ -58,22 +57,13 @@ pub struct NpcSprite {
 #[derive(Component)]
 pub struct MainCamera;
 
-/// Camera state — extracted to render world for shader upload.
-#[derive(Resource, Clone, ExtractResource)]
+/// Camera state for the render world — extracted from Bevy camera each frame.
+/// Not used in the main world; input systems write to Transform + Projection directly.
+#[derive(Resource, Clone)]
 pub struct CameraState {
     pub position: Vec2,
     pub zoom: f32,
     pub viewport: Vec2,
-}
-
-impl Default for CameraState {
-    fn default() -> Self {
-        Self {
-            position: Vec2::new(400.0, 300.0),
-            zoom: 1.0,
-            viewport: Vec2::new(1280.0, 720.0),
-        }
-    }
 }
 
 const CAMERA_PAN_SPEED: f32 = 400.0;
@@ -90,14 +80,10 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpriteAssets>()
-            .init_resource::<CameraState>()
-            .add_plugins(ExtractResourcePlugin::<CameraState>::default())
             .add_systems(Startup, (setup_camera, load_sprites))
             .add_systems(Update, (
                 camera_pan_system,
                 camera_zoom_system,
-                camera_viewport_sync,
-                camera_transform_sync,
                 click_to_select_system,
                 spawn_world_tilemap,
             ));
@@ -160,12 +146,22 @@ fn load_sprites(
 // CAMERA SYSTEMS
 // =============================================================================
 
+/// Read zoom factor from Projection (1.0 / orthographic scale).
+fn ortho_zoom(projection: &Projection) -> f32 {
+    match projection {
+        Projection::Orthographic(ortho) => 1.0 / ortho.scale,
+        _ => 1.0,
+    }
+}
+
 /// WASD camera pan. Speed scales inversely with zoom for consistent screen-space feel.
 fn camera_pan_system(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
-    mut camera_state: ResMut<CameraState>,
+    mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
 ) {
+    let Ok((mut transform, projection)) = query.single_mut() else { return };
+
     let mut dir = Vec2::ZERO;
     if keys.pressed(KeyCode::KeyW) { dir.y += 1.0; }
     if keys.pressed(KeyCode::KeyS) { dir.y -= 1.0; }
@@ -173,23 +169,29 @@ fn camera_pan_system(
     if keys.pressed(KeyCode::KeyD) { dir.x += 1.0; }
 
     if dir != Vec2::ZERO {
-        let speed = CAMERA_PAN_SPEED / camera_state.zoom;
-        camera_state.position += dir.normalize() * speed * time.delta_secs();
+        let speed = CAMERA_PAN_SPEED / ortho_zoom(projection);
+        let delta = dir.normalize() * speed * time.delta_secs();
+        transform.translation.x += delta.x;
+        transform.translation.y += delta.y;
     }
 }
 
-/// Scroll wheel zoom toward mouse cursor (same math as Godot player.gd).
+/// Scroll wheel zoom toward mouse cursor.
 fn camera_zoom_system(
     accumulated_scroll: Res<AccumulatedMouseScroll>,
     windows: Query<&Window>,
-    mut camera_state: ResMut<CameraState>,
+    mut query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
     let scroll = accumulated_scroll.delta.y;
     if scroll == 0.0 { return; }
 
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
+    let Ok((mut transform, mut projection)) = query.single_mut() else { return };
+    let Projection::Orthographic(ref mut ortho) = *projection else { return };
 
+    let zoom = 1.0 / ortho.scale;
+    let position = transform.translation.truncate();
     let viewport = Vec2::new(window.width(), window.height());
     let screen_center = viewport / 2.0;
 
@@ -200,59 +202,41 @@ fn camera_zoom_system(
     );
 
     // World position under mouse before zoom
-    let world_pos = camera_state.position + mouse_offset / camera_state.zoom;
+    let world_pos = position + mouse_offset / zoom;
 
     // Apply zoom
     let factor = if scroll > 0.0 { 1.0 + CAMERA_ZOOM_SPEED } else { 1.0 - CAMERA_ZOOM_SPEED };
-    camera_state.zoom = (camera_state.zoom * factor).clamp(CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM);
+    let new_zoom = (zoom * factor).clamp(CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM);
+    ortho.scale = 1.0 / new_zoom;
 
     // Move camera so world_pos stays under mouse
-    camera_state.position = world_pos - mouse_offset / camera_state.zoom;
-}
-
-/// Keep viewport size in sync with window.
-fn camera_viewport_sync(
-    windows: Query<&Window>,
-    mut camera_state: ResMut<CameraState>,
-) {
-    if let Ok(window) = windows.single() {
-        camera_state.viewport = Vec2::new(window.width(), window.height());
-    }
-}
-
-/// Sync CameraState to Bevy Camera2d Transform + Projection.
-/// Position is used by coordinate queries; scale drives TilemapChunk zoom.
-fn camera_transform_sync(
-    camera_state: Res<CameraState>,
-    mut query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
-) {
-    let Ok((mut transform, mut projection)) = query.single_mut() else { return };
-    transform.translation.x = camera_state.position.x;
-    transform.translation.y = camera_state.position.y;
-    if let Projection::Orthographic(ref mut ortho) = *projection {
-        ortho.scale = 1.0 / camera_state.zoom;
-    }
+    let new_position = world_pos - mouse_offset / new_zoom;
+    transform.translation.x = new_position.x;
+    transform.translation.y = new_position.y;
 }
 
 /// Left click to select nearest NPC within 20px.
 fn click_to_select_system(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
-    camera_state: Res<CameraState>,
+    camera_query: Query<(&Transform, &Projection), With<MainCamera>>,
     mut selected: ResMut<SelectedNpc>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
 
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
+    let Ok((transform, projection)) = camera_query.single() else { return };
 
+    let zoom = ortho_zoom(projection);
+    let position = transform.translation.truncate();
     let viewport = Vec2::new(window.width(), window.height());
     let screen_center = viewport / 2.0;
     let mouse_offset = Vec2::new(
         cursor_pos.x - screen_center.x,
         screen_center.y - cursor_pos.y,
     );
-    let world_pos = camera_state.position + mouse_offset / camera_state.zoom;
+    let world_pos = position + mouse_offset / zoom;
 
     // Find nearest NPC within 20px radius using GPU readback positions
     let positions = crate::messages::GPU_READ_STATE

@@ -20,10 +20,10 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 ```
 Main World                        Render World
 ───────────                       ────────────
-NpcBufferWrites      ──ExtractResource──▶ NpcBufferWrites
-NpcGpuData           ──ExtractResource──▶ NpcGpuData
-CameraState          ──ExtractResource──▶ CameraState
-NpcBatch entity      ──extract_npc_batch──▶ NpcBatch entity
+NpcBufferWrites       ──ExtractResource──▶ NpcBufferWrites
+NpcGpuData            ──ExtractResource──▶ NpcGpuData
+Camera2d entity       ──extract_camera_state──▶ CameraState
+NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                                prepare_npc_buffers
@@ -208,6 +208,7 @@ The render pipeline runs in Bevy's render world after extract:
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
 | Extract | `extract_proj_batch` | Clone ProjBatch entity to render world |
+| Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | PrepareResources | `prepare_npc_buffers` | Build 5 layer buffers (body + 4 equipment) |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create dual atlas bind group from NpcSpriteTexture (char + world) |
@@ -247,16 +248,14 @@ type DrawProjCommands = (
 
 ## Camera
 
-`render.rs` manages camera state via the `CameraState` resource (position, zoom, viewport) with `ExtractResource` for automatic main→render world cloning each frame.
+Bevy's Camera2d is the single source of truth — input systems write directly to `Transform` (position) and `Projection::Orthographic` (zoom via `scale`). No intermediate `CameraState` resource in the main world.
 
 **Main world systems** (registered in `RenderPlugin::build`, Update schedule):
-- `camera_pan_system`: WASD at 400px/s, speed scaled by 1/zoom for consistent screen-space feel
-- `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), uses `AccumulatedMouseScroll` resource
-- `camera_viewport_sync`: keeps viewport in sync with window size
-- `camera_transform_sync`: syncs CameraState → Bevy Camera2d Transform (position) + OrthographicProjection (zoom scale = 1/zoom)
-- `click_to_select_system`: left click → screen-to-world → find nearest NPC within 20px from GPU_READ_STATE
+- `camera_pan_system`: WASD at 400px/s, speed scaled by 1/zoom via `ortho_zoom()` helper, writes `Transform` directly
+- `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), writes `Projection::Orthographic.scale` and `Transform` directly
+- `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE
 
-**Render world**: `prepare_npc_camera_bind_group` writes `CameraUniform` (camera_pos, zoom, viewport) to a `UniformBuffer` each frame, creating a bind group at group 1.
+**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame, creating a bind group at group 1.
 
 **Shader** (`npc_render.wgsl`): reads camera from uniform buffer:
 ```wgsl

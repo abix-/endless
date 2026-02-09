@@ -40,7 +40,7 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 use crate::gpu::{NpcBufferWrites, NpcGpuData, NpcSpriteTexture, ProjBufferWrites, ProjGpuData};
-use crate::render::CameraState;
+use crate::render::{CameraState, MainCamera};
 
 // =============================================================================
 // MARKER COMPONENT
@@ -317,7 +317,7 @@ impl Plugin for NpcRenderPlugin {
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
             .add_systems(
                 ExtractSchedule,
-                (extract_npc_batch, extract_proj_batch),
+                (extract_npc_batch, extract_proj_batch, extract_camera_state),
             )
             .add_systems(
                 Render,
@@ -362,6 +362,27 @@ fn extract_npc_batch(
     for entity in &query {
         commands.spawn((NpcBatch, MainEntity::from(entity)));
     }
+}
+
+/// Extract camera state from Bevy camera into render world resource.
+fn extract_camera_state(
+    mut commands: Commands,
+    query: Extract<Query<(&Transform, &Projection), With<MainCamera>>>,
+    windows: Extract<Query<&Window>>,
+) {
+    let Ok((transform, projection)) = query.single() else { return };
+    let Ok(window) = windows.single() else { return };
+
+    let zoom = match projection {
+        Projection::Orthographic(ortho) => 1.0 / ortho.scale,
+        _ => 1.0,
+    };
+
+    commands.insert_resource(CameraState {
+        position: transform.translation.truncate(),
+        zoom,
+        viewport: Vec2::new(window.width(), window.height()),
+    });
 }
 
 // =============================================================================

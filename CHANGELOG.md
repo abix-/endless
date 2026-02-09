@@ -7,9 +7,13 @@
   - remove 13 manual `.insert(HasTarget)` calls from `decision_system` and 1 from `spawn_npc_system`
   - Bevy's required components auto-insert `HasTarget` on any `.insert(Patrolling)` etc — impossible to forget
 
-- **camera zoom sync: TilemapChunk zoom support**
-  - `camera_transform_sync` now queries `Projection` instead of `OrthographicProjection` (Bevy 0.18 API)
-  - syncs `ortho.scale = 1.0 / camera_state.zoom` so TilemapChunk layers zoom with camera
+- **camera: eliminate CameraState duplication, Bevy camera is single source of truth**
+  - remove `CameraState` from main world (`init_resource`, `ExtractResourcePlugin`)
+  - remove `camera_viewport_sync` and `camera_transform_sync` systems (6 systems → 4)
+  - `camera_pan_system` and `camera_zoom_system` write directly to `Transform` + `Projection`
+  - `click_to_select_system` reads `Transform` + `Projection` instead of `CameraState`
+  - add `extract_camera_state` in render world ExtractSchedule: reads Camera2d entity → builds CameraState for shader
+  - add `ortho_zoom()` helper: reads zoom from `Projection::Orthographic.scale`
 
 - **building tilemap: two-layer TilemapChunk (terrain + buildings)**
   - buildings now rendered via second TilemapChunk layer (z=-0.5, AlphaMode2d::Blend) on top of terrain (z=-1, Opaque)
