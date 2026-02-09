@@ -133,7 +133,7 @@ Same situation, different outcomes. That's emergent behavior.
 | Raiding | marker | NPC is walking to a farm to steal |
 | Returning | marker | NPC is walking back to home base |
 | CarryingFood | marker | NPC has stolen food |
-| CarriedItem | `u8` | Item NPC is carrying (0=none, 1=food). No rendering yet. |
+| *(removed)* | | CarriedItem replaced by `SetEquipSprite(Item, ...)` for visual rendering |
 | Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
 | Wandering | marker | NPC is walking to a random nearby position |
 | Starving | marker | NPC hasn't eaten in 24+ hours (50% HP cap, 75% speed) |

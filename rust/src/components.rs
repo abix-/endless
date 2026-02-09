@@ -281,15 +281,23 @@ pub struct CombatOrigin {
 #[derive(Component)]
 pub struct Stealer;
 
-/// Item being carried by NPC (0 = none, 1 = food, 2+ = other items).
-/// Rendered as icon above NPC's head.
-#[derive(Component, Clone, Copy)]
-pub struct CarriedItem(pub u8);
+/// Equipment rendering layer index.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum EquipLayer { Armor = 0, Helmet = 1, Weapon = 2, Item = 3 }
+impl EquipLayer { pub const COUNT: usize = 4; }
 
-impl CarriedItem {
-    pub const NONE: u8 = 0;
-    pub const FOOD: u8 = 1;
-}
+/// Equipped weapon sprite (col, row in atlas). Presence = has weapon.
+#[derive(Component, Clone, Copy)]
+pub struct EquippedWeapon(pub f32, pub f32);
+
+/// Equipped helmet sprite (col, row in atlas). Presence = has helmet.
+#[derive(Component, Clone, Copy)]
+pub struct EquippedHelmet(pub f32, pub f32);
+
+/// Equipped armor sprite (col, row in atlas). Presence = has armor.
+#[derive(Component, Clone, Copy)]
+pub struct EquippedArmor(pub f32, pub f32);
 
 /// Marker for backwards compat - will be removed
 #[derive(Component)]

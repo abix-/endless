@@ -150,10 +150,9 @@ pub fn arrival_system(
 
             if carrying.is_some() {
                 cmds.remove::<CarryingFood>();
-                cmds.remove::<CarriedItem>();
                 let (r, g, b, a) = raider_faction_color(faction);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem { idx, item_id: CarriedItem::NONE }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Item, col: -1.0, row: 0.0 }));
                 let camp_idx = town.0 as usize;
                 if camp_idx < food_storage.food.len() {
                     food_storage.food[camp_idx] += 1;
@@ -454,9 +453,8 @@ pub fn decision_system(
                         commands.entity(entity)
                             .remove::<Raiding>()
                             .insert(CarryingFood)
-                            .insert(CarriedItem(CarriedItem::FOOD))
                             .insert(Returning);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem { idx, item_id: CarriedItem::FOOD }));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Item, col: FOOD_SPRITE.0, row: FOOD_SPRITE.1 }));
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning".into());
                     } else {
@@ -520,10 +518,10 @@ pub fn decision_system(
                     let mut cmds = commands.entity(entity);
                     cmds.remove::<InCombat>().remove::<CombatOrigin>().remove::<Raiding>().insert(Returning);
                     if carrying.is_some() {
-                        cmds.remove::<CarryingFood>().remove::<CarriedItem>();
+                        cmds.remove::<CarryingFood>();
                         let (r, g, b, a) = raider_faction_color(faction);
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetCarriedItem { idx, item_id: CarriedItem::NONE }));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Item, col: -1.0, row: 0.0 }));
                     }
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Fled combat".into());

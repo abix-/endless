@@ -123,6 +123,10 @@ pub fn death_cleanup_system(
 
         // Hide NPC visually via message
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx }));
+        // Clear all equipment layers (prevents stale data on slot reuse)
+        for layer in [EquipLayer::Armor, EquipLayer::Helmet, EquipLayer::Weapon, EquipLayer::Item] {
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer, col: -1.0, row: 0.0 }));
+        }
 
         // Return slot to free pool
         slots.free(idx);

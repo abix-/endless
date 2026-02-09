@@ -2,7 +2,7 @@
 
 ## Overview
 
-NPCs and projectiles are rendered via a custom GPU instanced pipeline using Bevy's RenderCommand pattern in the Transparent2d phase. Each layer draws in a single instanced call — one static quad shared by all instances, with per-instance position, sprite, and color data. World sprites (buildings, terrain) use Bevy's built-in sprite system.
+NPCs, equipment layers, and projectiles are rendered via a custom GPU instanced pipeline using Bevy's RenderCommand pattern in the Transparent2d phase. NPCs use multi-layer rendering: body sprite first, then up to 4 equipment layers (armor, helmet, weapon, carried item), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. World sprites (buildings, terrain) use Bevy's built-in sprite system.
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -10,10 +10,10 @@ Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.
 
 Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that's 16K entities in the render world — the scheduling/extraction overhead dominates. The custom pipeline uses:
 
-- **1 entity per layer** (NpcBatch, ProjBatch) instead of 16,384 entities
+- **1 entity per batch** (NpcBatch, ProjBatch) instead of 16,384 entities
 - **40 bytes/instance** (position + sprite + color + health + flash) instead of ~80 bytes/entity
 - **GPU compute data stays on GPU** — readback only for rendering
-- **One draw call per layer** — `draw_indexed(0..6, 0, 0..instance_count)`
+- **Multi-layer drawing** — body + up to 4 equipment layers, each a separate `draw_indexed` call within one RenderCommand
 
 ## Data Flow
 
@@ -76,14 +76,25 @@ pub struct NpcInstanceData {
 }
 ```
 
-Built each frame by `prepare_npc_buffers` from `NpcBufferWrites`:
+Built each frame by `prepare_npc_buffers` from `NpcBufferWrites`. Five layers are built per pass:
+
+**Layer 0 (body):**
 - **Positions**: from GPU readback if available, else from CPU-side NpcBufferWrites
 - **Sprites**: from `sprite_indices` (4 floats per NPC, uses first 2: col, row)
 - **Colors**: from `colors` (4 floats per NPC: RGBA)
 - **Health**: from `healths` (normalized by dividing by 100.0, clamped to 0-1)
 - **Flash**: from `flash_values` (0.0-1.0, decays at 5.0/s in `populate_buffer_writes`)
 - **Hidden NPCs** (position.x < -9000) are skipped
-- **Projectiles**: health set to 1.0 (no health bar), flash set to 0.0
+
+**Layers 1-4 (equipment: armor, helmet, weapon, item):**
+- Same position as body (from readback)
+- Sprite from `armor_sprites`/`helmet_sprites`/`weapon_sprites`/`item_sprites` (stride 2, col/row per NPC)
+- Sentinel: col < 0 means unequipped → skip
+- Color: white (1,1,1,1) — natural sprite colors
+- Health: 1.0 (no health bar; shader discards bottom pixels for health >= 0.99)
+- Flash: inherited from body (equipment flashes on hit)
+
+**Projectiles**: health set to 1.0 (no health bar), flash set to 0.0
 
 ## The Quad
 
@@ -163,10 +174,14 @@ let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
 if tex_color.a < 0.1 {
     discard;  // transparent pixels → not drawn
 }
+// Equipment layers: discard bottom pixels to preserve health bar visibility
+if in.health >= 0.99 && in.quad_uv.y > 0.85 {
+    discard;
+}
 var final_color = vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
 ```
 
-Texture color is multiplied by the instance's tint color. This is how faction colors work — raiders get per-faction RGB tints (10-color palette), while villagers get job-based colors.
+Texture color is multiplied by the instance's tint color. This is how faction colors work — raiders get per-faction RGB tints (10-color palette), while villagers get job-based colors. Equipment layers (health >= 0.99) discard pixels in the health bar region so the body's health bar remains visible underneath.
 
 **Damage flash** (white overlay, applied after color tinting):
 ```wgsl
@@ -185,7 +200,7 @@ The render pipeline runs in Bevy's render world after extract:
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
 | Extract | `extract_proj_batch` | Clone ProjBatch entity to render world |
-| PrepareResources | `prepare_npc_buffers` | Build NPC instance buffer from GPU_READ_STATE |
+| PrepareResources | `prepare_npc_buffers` | Build 5 layer buffers (body + 4 equipment) from GPU_READ_STATE |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
@@ -207,7 +222,7 @@ type DrawNpcCommands = (
 );
 ```
 
-`DrawNpcs::render()` sets both vertex buffer slots and issues the instanced draw call. If `instance_count == 0` or the instance buffer is empty, it returns `Skip`.
+`DrawNpcs::render()` sets the shared vertex/index buffers, then iterates over all 5 `LayerBuffer`s in `NpcRenderBuffers.layers`, issuing a separate `draw_indexed` call per non-empty layer. Layers are drawn in order: body (0), armor (1), helmet (2), weapon (3), item (4). If no layers have instances, it returns `Skip`.
 
 Projectiles reuse the same pipeline, shader, and bind groups with a separate instance buffer:
 
@@ -261,14 +276,33 @@ let ndc = offset / (camera.viewport * 0.5);
 
 The character texture handle is shared via `NpcSpriteTexture` resource (extracted to render world for bind group creation).
 
+## Equipment Layers
+
+Multi-layer equipment rendering uses `NpcBufferWrites` fields for 4 equipment types:
+
+| Layer | Index | NpcBufferWrites Field | Stride | Sentinel |
+|-------|-------|----------------------|--------|----------|
+| Armor | 1 | `armor_sprites` | 2 (col, row) | col < 0 |
+| Helmet | 2 | `helmet_sprites` | 2 (col, row) | col < 0 |
+| Weapon | 3 | `weapon_sprites` | 2 (col, row) | col < 0 |
+| Item | 4 | `item_sprites` | 2 (col, row) | col < 0 |
+
+Equipment is set via `GpuUpdate::SetEquipSprite { idx, layer, col, row }`. At spawn, all layers are cleared to -1.0 (unequipped), then job-specific gear is applied. Equipment is also cleared on death to prevent stale data on slot reuse.
+
+Current equipment assignments:
+- **Guards**: Weapon (0, 8) + Helmet (7, 9)
+- **Raiders**: Weapon (0, 8)
+- **Carried food**: Item layer set when raider steals food, cleared on delivery
+
 ## Known Issues
 
 - **No building rendering**: World sprite sheet is loaded but not used for instanced building rendering.
-- **No carried item overlay**: CarriedItem component exists but no visual rendering.
 - **Sprite texture in debug mode**: Fragment shader samples textures and applies color tint, but some visual artifacts may exist from atlas margin bleed.
 - **Health bar mode hardcoded**: Only "when damaged" mode (show when health < 99%). Off/always modes need a uniform or config resource.
 - **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
+- **Equipment sprite placeholders**: Current equipment sprites (sword, helmet, food) use placeholder atlas coordinates — need tuning with sprite browser.
+- **Single sort key for all NPC layers**: All 5 layers share sort_key=0.0 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but equipment can't interleave with other phase items between body and topmost layer.
 
 ## Rating: 8/10
 
-Custom instanced pipeline with two draw layers (NPCs + projectiles). Per-instance data is compact (40 bytes). Fragment shader handles transparency, faction color tinting, in-shader health bars (3-color, show-when-damaged), and damage flash (white overlay that fades out over ~0.2s). Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. However: no building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).
+Custom instanced pipeline with multi-layer rendering (body + 4 equipment layers + projectiles). Per-instance data is compact (40 bytes). Fragment shader handles transparency, faction color tinting, in-shader health bars (3-color, show-when-damaged), damage flash, and equipment layer health bar preservation. Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. Equipment renders via sentinel-based layer filtering in a single pass. However: no building rendering, equipment sprites are placeholders, and positions fall back to CPU-side data when readback isn't available.

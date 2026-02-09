@@ -136,6 +136,23 @@ pub fn spawn_npc_system(
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 100.0 }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row }));
 
+        // Clear all equipment layers (defense against stale slot data on recycled slots)
+        for layer in [EquipLayer::Armor, EquipLayer::Helmet, EquipLayer::Weapon, EquipLayer::Item] {
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer, col: -1.0, row: 0.0 }));
+        }
+
+        // Equip job-specific gear
+        match job {
+            Job::Guard => {
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Weapon, col: EQUIP_SWORD.0, row: EQUIP_SWORD.1 }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Helmet, col: EQUIP_HELMET.0, row: EQUIP_HELMET.1 }));
+            }
+            Job::Raider => {
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Weapon, col: EQUIP_SWORD.0, row: EQUIP_SWORD.1 }));
+            }
+            _ => {}
+        }
+
         // Generate personality for this NPC
         let personality = generate_personality(idx);
 
@@ -161,6 +178,7 @@ pub fn spawn_npc_system(
                 ec.insert(Energy::default());
                 ec.insert((AttackStats::melee(), AttackTimer(0.0)));
                 ec.insert(Guard);
+                ec.insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)));
                 if msg.starting_post >= 0 {
                     let patrol_posts = build_patrol_route(&world_data, msg.town_idx as u32);
                     ec.insert((
@@ -187,6 +205,7 @@ pub fn spawn_npc_system(
                 ec.insert(Energy::default());
                 ec.insert((AttackStats::melee(), AttackTimer(0.0)));
                 ec.insert(Stealer);
+                ec.insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
                 ec.insert(FleeThreshold { pct: 0.50 });
                 ec.insert(LeashRange { distance: 400.0 });
                 ec.insert(WoundedThreshold { pct: 0.25 });

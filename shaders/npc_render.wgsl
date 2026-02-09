@@ -99,6 +99,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if tex_color.a < 0.1 {
         discard;
     }
+    // Equipment layers (health >= 1.0): discard bottom pixels to preserve health bar visibility
+    if in.health >= 0.99 && in.quad_uv.y > 0.85 {
+        discard;
+    }
     var final_color = vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
 
     // Damage flash: white overlay that fades out

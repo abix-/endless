@@ -1,6 +1,19 @@
 # Changelog
 
 ## 2026-02-09
+- **multi-layer equipment rendering**
+  - add EquipLayer enum (Armor, Helmet, Weapon, Item) + EquippedWeapon/Helmet/Armor components (components.rs)
+  - add EQUIP_SWORD, EQUIP_HELMET, FOOD_SPRITE sprite constants (constants.rs)
+  - add SetEquipSprite GpuUpdate variant, remove SetCarriedItem (messages.rs)
+  - add 4 equipment sprite Vec fields to NpcBufferWrites (stride 2, -1.0 sentinel), route by EquipLayer in apply() (gpu.rs)
+  - refactor NpcRenderBuffers: single instance_buffer → Vec<LayerBuffer> with 5 layers (npc_render.rs)
+  - DrawNpcs draws all non-empty layers sequentially (body → armor → helmet → weapon → item)
+  - npc_render.wgsl: equipment layers (health >= 0.99) discard bottom pixels to preserve health bar
+  - spawn clears all equipment, then sets job-specific gear: guards get sword+helmet, raiders get sword
+  - death_cleanup clears all 4 equipment layers on death (prevents stale slot data)
+  - behavior.rs: SetCarriedItem → SetEquipSprite(Item) for food carry/deliver
+  - test 12 passes
+
 - **damage flash (white overlay on hit, fade out)**
   - add `SetDamageFlash { idx, intensity }` to GpuUpdate enum (messages.rs)
   - add `flash_values: Vec<f32>` to NpcBufferWrites, handle in apply(), decay at 5.0/s in populate_buffer_writes (gpu.rs)

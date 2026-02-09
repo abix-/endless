@@ -65,12 +65,12 @@ Job-specific templates:
 
 | Job | Additional Components |
 |-----|----------------------|
-| Guard | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `OnDuty { ticks_waiting: 0 }` |
+| Guard | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
 | Farmer | `Energy`, `Farmer`, `WorkPosition`, `GoingToWork`, `HasTarget` |
-| Raider | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
+| Raider | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)`, `EquippedWeapon` |
 | Fighter | `AttackStats` (melee or ranged via attack_type), `AttackTimer(0)` |
 
-GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetColor` (job-based; raiders get per-faction color from 10-color palette), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs)
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetColor` (job-based; raiders get per-faction color from 10-color palette), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetEquipSprite` × 4 (clear all equipment layers to -1.0), then job-specific equipment: Guards get weapon (0,8) + helmet (7,9), Raiders get weapon (0,8)
 
 Sprite assignments: Farmer=(1,6), Guard=(0,11), Raider=(0,6), Fighter=(7,0)
 

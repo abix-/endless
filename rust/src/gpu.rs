@@ -25,6 +25,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
+use crate::components::EquipLayer;
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, GPU_READ_STATE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, PROJ_HIT_STATE};
 
 // =============================================================================
@@ -121,6 +122,11 @@ pub struct NpcBufferWrites {
     pub colors: Vec<f32>,
     /// Damage flash intensity: 0.0-1.0 per NPC (decays each frame)
     pub flash_values: Vec<f32>,
+    /// Equipment sprites per layer: [col, row] per NPC, stride 2. -1.0 col = unequipped.
+    pub armor_sprites: Vec<f32>,
+    pub helmet_sprites: Vec<f32>,
+    pub weapon_sprites: Vec<f32>,
+    pub item_sprites: Vec<f32>,
     /// Whether any data changed this frame (skip upload if false)
     pub dirty: bool,
     /// Per-field dirty flags to avoid overwriting GPU-computed positions
@@ -146,6 +152,10 @@ impl Default for NpcBufferWrites {
             sprite_indices: vec![0.0; max * 4], // vec4 per NPC
             colors: vec![1.0; max * 4],          // RGBA, default white
             flash_values: vec![0.0; max],
+            armor_sprites: vec![-1.0; max * 2],
+            helmet_sprites: vec![-1.0; max * 2],
+            weapon_sprites: vec![-1.0; max * 2],
+            item_sprites: vec![-1.0; max * 2],
             dirty: false,
             positions_dirty: false,
             targets_dirty: false,
@@ -247,9 +257,22 @@ impl NpcBufferWrites {
                     self.dirty = true;
                 }
             }
-            // These don't affect GPU buffers (visual effects handled separately)
-            GpuUpdate::SetHealing { .. } |
-            GpuUpdate::SetCarriedItem { .. } => {}
+            GpuUpdate::SetEquipSprite { idx, layer, col, row } => {
+                let vec = match layer {
+                    EquipLayer::Armor => &mut self.armor_sprites,
+                    EquipLayer::Helmet => &mut self.helmet_sprites,
+                    EquipLayer::Weapon => &mut self.weapon_sprites,
+                    EquipLayer::Item => &mut self.item_sprites,
+                };
+                let i = *idx * 2;
+                if i + 1 < vec.len() {
+                    vec[i] = *col;
+                    vec[i + 1] = *row;
+                    self.dirty = true;
+                }
+            }
+            // Visual effect flag, not wired to any buffer yet
+            GpuUpdate::SetHealing { .. } => {}
         }
     }
 }

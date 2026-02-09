@@ -100,8 +100,8 @@ pub enum GpuUpdate {
     SetSpriteFrame { idx: usize, col: f32, row: f32 },
     /// Set healing aura flag (visual only)
     SetHealing { idx: usize, healing: bool },
-    /// Set carried item (0 = none, 1 = food, etc.)
-    SetCarriedItem { idx: usize, item_id: u8 },
+    /// Set equipment sprite for a layer (-1.0 col = unequipped)
+    SetEquipSprite { idx: usize, layer: crate::components::EquipLayer, col: f32, row: f32 },
     /// Set damage flash intensity (1.0 = full white, decays to 0.0)
     SetDamageFlash { idx: usize, intensity: f32 },
 }

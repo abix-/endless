@@ -46,8 +46,10 @@ use crate::render::CameraState;
 // MARKER COMPONENT
 // =============================================================================
 
-/// Marker component for the single NPC batch entity.
-/// We only need one entity that represents "all NPCs" for rendering.
+/// Layer count: body + 4 equipment layers.
+pub const LAYER_COUNT: usize = 5;
+
+/// Marker component for the NPC batch entity.
 #[derive(Component, Clone)]
 pub struct NpcBatch;
 
@@ -98,16 +100,20 @@ static QUAD_INDICES: [u16; 6] = [0, 1, 2, 0, 2, 3];
 // RENDER RESOURCES
 // =============================================================================
 
-/// GPU buffers for NPC rendering.
+/// Per-layer instance buffer and count.
+pub struct LayerBuffer {
+    instances: RawBufferVec<NpcInstanceData>,
+    count: u32,
+}
+
+/// GPU buffers for NPC rendering — one layer buffer per rendering layer.
 #[derive(Resource)]
 pub struct NpcRenderBuffers {
     /// Static quad geometry (slot 0)
     pub vertex_buffer: Buffer,
     pub index_buffer: Buffer,
-    /// Per-instance NPC data (slot 1)
-    pub instance_buffer: RawBufferVec<NpcInstanceData>,
-    /// Number of NPCs to draw
-    pub instance_count: u32,
+    /// Per-layer instance data (body + 4 equipment layers)
+    pub layers: Vec<LayerBuffer>,
 }
 
 /// GPU buffers for projectile rendering (shares quad/index from NpcRenderBuffers).
@@ -150,7 +156,7 @@ pub struct NpcCameraBindGroup {
 // RENDER COMMAND
 // =============================================================================
 
-/// Custom draw command for NPCs.
+/// Custom draw command for NPCs — draws all layers sequentially (body, then equipment).
 pub struct DrawNpcs;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawNpcs {
@@ -167,27 +173,22 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNpcs {
     ) -> RenderCommandResult {
         let buffers = buffers.into_inner();
 
-        if buffers.instance_count == 0 {
-            return RenderCommandResult::Skip;
-        }
-
-        // Slot 0: static quad vertices
+        // Shared geometry
         pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
-
-        // Slot 1: per-instance NPC data
-        if let Some(instance_buffer) = buffers.instance_buffer.buffer() {
-            pass.set_vertex_buffer(1, instance_buffer.slice(..));
-        } else {
-            return RenderCommandResult::Skip;
-        }
-
-        // Index buffer
         pass.set_index_buffer(buffers.index_buffer.slice(..), IndexFormat::Uint16);
 
-        // Draw all NPCs in one instanced call
-        pass.draw_indexed(0..6, 0, 0..buffers.instance_count);
+        // Draw each non-empty layer in order: body → armor → helmet → weapon → item
+        let mut drew_any = false;
+        for layer in &buffers.layers {
+            if layer.count == 0 { continue; }
+            if let Some(instance_buffer) = layer.instances.buffer() {
+                pass.set_vertex_buffer(1, instance_buffer.slice(..));
+                pass.draw_indexed(0..6, 0, 0..layer.count);
+                drew_any = true;
+            }
+        }
 
-        RenderCommandResult::Success
+        if drew_any { RenderCommandResult::Success } else { RenderCommandResult::Skip }
     }
 }
 
@@ -334,14 +335,14 @@ impl Plugin for NpcRenderPlugin {
     }
 }
 
-/// Spawn a single NPC batch entity (represents all NPCs for rendering).
+/// Spawn the single NPC batch entity (represents all NPC layers for rendering).
 fn spawn_npc_batch(mut commands: Commands) {
     commands.spawn((
         NpcBatch,
         Transform::default(),
         Visibility::default(),
     ));
-    info!("NPC batch entity spawned");
+    info!("NPC batch entity spawned ({LAYER_COUNT} layers)");
 }
 
 // =============================================================================
@@ -362,7 +363,15 @@ fn extract_npc_batch(
 // PREPARE
 // =============================================================================
 
-/// Prepare NPC buffers from extracted data.
+/// Equipment layer sprite sources (matches EquipLayer enum order).
+const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32); 4] = [
+    |w, i| { let j = i * 2; (w.armor_sprites.get(j).copied().unwrap_or(-1.0), w.armor_sprites.get(j+1).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 2; (w.helmet_sprites.get(j).copied().unwrap_or(-1.0), w.helmet_sprites.get(j+1).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 2; (w.weapon_sprites.get(j).copied().unwrap_or(-1.0), w.weapon_sprites.get(j+1).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 2; (w.item_sprites.get(j).copied().unwrap_or(-1.0), w.item_sprites.get(j+1).copied().unwrap_or(0.0)) },
+];
+
+/// Prepare NPC buffers from extracted data — builds all 5 layers in one pass.
 fn prepare_npc_buffers(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
@@ -374,19 +383,22 @@ fn prepare_npc_buffers(
     let Some(writes) = buffer_writes else { return };
 
     // Use actual NPC count, not buffer length (buffer is pre-allocated for MAX_NPCS)
-    let instance_count = gpu_data.map(|d| d.npc_count).unwrap_or(0);
+    let npc_count = gpu_data.map(|d| d.npc_count).unwrap_or(0) as usize;
 
     // Use GPU readback positions if available (compute shader moves NPCs),
     // fall back to NpcBufferWrites for first frame before readback starts
     let readback_positions = crate::messages::GPU_READ_STATE
         .lock()
         .ok()
-        .filter(|s| s.positions.len() >= (instance_count as usize) * 2)
+        .filter(|s| s.positions.len() >= npc_count * 2)
         .map(|s| s.positions.clone());
 
-    // Build instance data from buffer writes
-    let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
-    for i in 0..instance_count as usize {
+    // Build all layer buffers in one pass
+    let mut layer_instances: Vec<RawBufferVec<NpcInstanceData>> = (0..LAYER_COUNT)
+        .map(|_| RawBufferVec::new(BufferUsages::VERTEX))
+        .collect();
+
+    for i in 0..npc_count {
         let (px, py) = if let Some(ref pos) = readback_positions {
             (pos[i * 2], pos[i * 2 + 1])
         } else {
@@ -401,6 +413,7 @@ fn prepare_npc_buffers(
             continue;
         }
 
+        // Layer 0: Body (existing logic)
         let sc = writes.sprite_indices.get(i * 4).copied().unwrap_or(0.0);
         let sr = writes.sprite_indices.get(i * 4 + 1).copied().unwrap_or(0.0);
         let cr = writes.colors.get(i * 4).copied().unwrap_or(1.0);
@@ -410,21 +423,41 @@ fn prepare_npc_buffers(
         let health = (writes.healths.get(i).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
         let flash = writes.flash_values.get(i).copied().unwrap_or(0.0);
 
-        instances.push(NpcInstanceData {
+        layer_instances[0].push(NpcInstanceData {
             position: [px, py],
             sprite: [sc, sr],
             color: [cr, cg, cb, ca],
             health,
             flash,
         });
+
+        // Layers 1-4: Equipment (only if sprite col >= 0, i.e. equipped)
+        for (layer_idx, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
+            let (ecol, erow) = get_sprite(&writes, i);
+            if ecol >= 0.0 {
+                layer_instances[layer_idx + 1].push(NpcInstanceData {
+                    position: [px, py],
+                    sprite: [ecol, erow],
+                    color: [1.0, 1.0, 1.0, 1.0], // Natural sprite colors
+                    health: 1.0,                    // No health bar on equipment
+                    flash,                          // Inherit damage flash
+                });
+            }
+        }
     }
 
-    let actual_count = instances.len() as u32;
-    instances.write_buffer(&render_device, &render_queue);
+    // Write all layer buffers to GPU and collect counts
+    let layers: Vec<LayerBuffer> = layer_instances
+        .into_iter()
+        .map(|mut inst| {
+            let count = inst.len() as u32;
+            inst.write_buffer(&render_device, &render_queue);
+            LayerBuffer { instances: inst, count }
+        })
+        .collect();
 
     if let Some(mut buffers) = existing_buffers {
-        buffers.instance_buffer = instances;
-        buffers.instance_count = actual_count;
+        buffers.layers = layers;
     } else {
         // Create static quad buffers on first run
         let vertex_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -442,8 +475,7 @@ fn prepare_npc_buffers(
         commands.insert_resource(NpcRenderBuffers {
             vertex_buffer,
             index_buffer,
-            instance_buffer: instances,
-            instance_count: actual_count,
+            layers,
         });
     }
 }
@@ -517,7 +549,7 @@ fn prepare_npc_camera_bind_group(
 // QUEUE
 // =============================================================================
 
-/// Queue NPC batch into Transparent2d phase.
+/// Queue NPC batch into Transparent2d phase — single entity draws all layers.
 fn queue_npcs(
     draw_functions: Res<DrawFunctions<Transparent2d>>,
     pipeline: Res<NpcPipeline>,
@@ -529,9 +561,8 @@ fn queue_npcs(
     npc_batch: Query<Entity, With<NpcBatch>>,
 ) {
     let Some(buffers) = buffers else { return };
-    if buffers.instance_count == 0 {
-        return;
-    }
+    // Check if any layer has instances
+    if !buffers.layers.iter().any(|l| l.count > 0) { return; }
 
     let draw_function = draw_functions.read().id::<DrawNpcCommands>();
 
@@ -540,7 +571,6 @@ fn queue_npcs(
             continue;
         };
 
-        // Get pipeline for this view's HDR mode + MSAA sample count
         let pipeline_id = pipelines.specialize(&pipeline_cache, &pipeline, (view.hdr, msaa.samples()));
 
         for batch_entity in &npc_batch {
@@ -548,7 +578,7 @@ fn queue_npcs(
                 entity: (view_entity, MainEntity::from(batch_entity)),
                 draw_function,
                 pipeline: pipeline_id,
-                sort_key: FloatOrd(0.0), // NPCs render at z=0
+                sort_key: FloatOrd(0.0),
                 batch_range: 0..1,
                 extra_index: PhaseItemExtraIndex::None,
                 extracted_index: usize::MAX,

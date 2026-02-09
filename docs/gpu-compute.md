@@ -61,7 +61,7 @@ GPU → Render:
     NpcBufferWrites on first frame), reads sprite_indices/colors from NpcBufferWrites
 ```
 
-Note: `sprite_indices` and `colors` are in NpcBufferWrites but are not uploaded to GPU storage buffers. They're only consumed by the render pipeline's instance buffer, not the compute shader. Positions for rendering come from GPU readback, not NpcBufferWrites.
+Note: `sprite_indices`, `colors`, and equipment sprite fields (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`) are in NpcBufferWrites but are not uploaded to GPU storage buffers. They're only consumed by the render pipeline's instance buffer, not the compute shader. Positions for rendering come from GPU readback, not NpcBufferWrites.
 
 ## NPC Compute Shader (npc_compute.wgsl)
 

@@ -121,7 +121,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | GPU → CPU | Combat targets | `GpuReadState.combat_targets[]` — **not populated** (empty vec) |
 | GPU → CPU | Positions | `GpuReadState.positions[]` — **not populated** (empty vec) |
 | CPU → GPU | Health sync | `GpuUpdate::SetHealth` after damage |
-| CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
+| CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health + `SetEquipSprite` clears all 4 equipment layers |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
 
 ## Debug

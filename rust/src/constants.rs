@@ -39,6 +39,11 @@ pub const SPRITE_FIGHTER: (f32, f32) = (7.0, 0.0);
 /// Size of push constants passed to the compute shader.
 pub const PUSH_CONSTANTS_SIZE: usize = 48;
 
+// Equipment sprite frames (column, row) — placeholder coordinates
+pub const EQUIP_SWORD: (f32, f32) = (0.0, 8.0);
+pub const EQUIP_HELMET: (f32, f32) = (7.0, 9.0);
+pub const FOOD_SPRITE: (f32, f32) = (6.0, 8.0);
+
 // ============================================================================
 // BEHAVIOR CONSTANTS
 // ============================================================================

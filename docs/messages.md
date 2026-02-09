@@ -42,6 +42,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | **Render-Only** (used by instance buffer, never in compute shader) ||||
 | Sprite indices | Render | CPU → Render | Atlas col/row per NPC; in NpcBufferWrites, not uploaded to compute |
 | Colors | Render | CPU → Render | RGBA tint; in NpcBufferWrites, not uploaded to compute |
+| Equipment sprites | Render | CPU → Render | Per-layer col/row (armor/helmet/weapon/item); -1.0 sentinel = unequipped |
 
 ## Bevy Messages
 
@@ -72,7 +73,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | SetSpriteFrame | idx, col, row | spawn_npc_system |
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_buffer_writes) |
 | SetHealing | idx, healing | healing_system (visual only, not applied to GPU buffer) |
-| SetCarriedItem | idx, item_id | arrival_system (visual only, not applied to GPU buffer) |
+| SetEquipSprite | idx, layer, col, row | spawn_npc_system, death_cleanup_system, behavior (steal/deliver food) |
 
 ## Static Queues
 
@@ -136,9 +137,9 @@ GOING_TO_REST=11, GOING_TO_WORK=12
 ## Known Issues
 
 - **Health dual ownership**: CPU-authoritative but synced to GPU for targeting. If upload fails or is delayed, GPU targets based on stale health. Bounded to 1 frame.
-- **SetHealing/SetCarriedItem no-ops**: These GpuUpdate variants are matched but not applied to any GPU buffer. Visual-only, awaiting multi-layer equipment rendering.
+- **SetHealing no-op**: This GpuUpdate variant is matched but not applied to any GPU buffer. Visual-only, awaiting healing glow rendering.
 - **Synchronous readback blocks render thread**: `device.poll(Wait)` in readback. Double-buffer staging planned when this exceeds 0.5ms.
 
 ## Rating: 7/10
 
-MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Authority model is explicit — GPU owns positions/targeting, CPU owns health/behavior, render owns visuals. Staleness budget documented (1 frame, 1.6px drift). Static queues are minimal — only used where Bevy's scheduler can't reach. Main weakness: synchronous readback blocking, SetHealing/SetCarriedItem not wired to any buffer.
+MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Authority model is explicit — GPU owns positions/targeting, CPU owns health/behavior, render owns visuals. Staleness budget documented (1 frame, 1.6px drift). Static queues are minimal — only used where Bevy's scheduler can't reach. SetEquipSprite routes to 4 equipment sprite vecs via EquipLayer enum. Main weakness: synchronous readback blocking, SetHealing not wired to any buffer.
