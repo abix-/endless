@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sprite Browser — Endless</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #e0e0e0; font-family: 'Consolas', 'Monaco', monospace; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+
+#toolbar {
+  background: #16213e; padding: 8px 16px; display: flex; align-items: center; gap: 16px;
+  border-bottom: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap;
+}
+#toolbar button {
+  background: #0f3460; color: #e0e0e0; border: 1px solid #533483; padding: 6px 14px;
+  cursor: pointer; font-family: inherit; font-size: 13px; border-radius: 3px;
+}
+#toolbar button:hover { background: #533483; }
+#toolbar button.active { background: #533483; border-color: #e94560; }
+#toolbar .sep { width: 1px; height: 24px; background: #0f3460; }
+#toolbar label { font-size: 13px; color: #aaa; }
+#toolbar .info { font-size: 13px; color: #e94560; font-weight: bold; }
+
+#main { display: flex; flex: 1; overflow: hidden; }
+
+#canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; cursor: crosshair;
+}
+canvas { position: absolute; top: 0; left: 0; image-rendering: pixelated; }
+
+#sidebar {
+  width: 280px; background: #16213e; border-left: 1px solid #0f3460;
+  padding: 16px; overflow-y: auto; flex-shrink: 0;
+}
+#sidebar h3 { color: #e94560; margin-bottom: 8px; font-size: 14px; }
+#sidebar .field { margin-bottom: 12px; }
+#sidebar .field label { display: block; font-size: 11px; color: #888; margin-bottom: 2px; }
+#sidebar .field .val { font-size: 16px; color: #fff; }
+#sidebar .field .val.code { background: #0a0a1a; padding: 4px 8px; border-radius: 3px; display: inline-block; }
+
+#preview-canvas {
+  image-rendering: pixelated; border: 1px solid #533483;
+  background: repeating-conic-gradient(#222 0% 25%, #333 0% 50%) 50% / 8px 8px;
+  margin-top: 8px;
+}
+
+#drop-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(83, 52, 131, 0.8); display: flex; align-items: center;
+  justify-content: center; font-size: 28px; color: #fff; z-index: 100; display: none;
+}
+
+#empty-state {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: #666; font-size: 16px; gap: 16px;
+}
+#empty-state .big { font-size: 48px; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button onclick="loadPreset('char')">Character Atlas</button>
+  <button onclick="loadPreset('world')">World Atlas</button>
+  <div class="sep"></div>
+  <button onclick="loadFile()">Load PNG...</button>
+  <div class="sep"></div>
+  <label>Zoom:</label>
+  <button onclick="setZoom(zoom / 1.5)">−</button>
+  <span id="zoom-label" class="info">4x</span>
+  <button onclick="setZoom(zoom * 1.5)">+</button>
+  <div class="sep"></div>
+  <label>Cell:</label>
+  <span class="info">17px</span>
+  <label>(16+1 margin)</label>
+  <div class="sep"></div>
+  <label>Grid:</label>
+  <input type="checkbox" id="grid-toggle" checked onchange="draw()">
+  <div class="sep"></div>
+  <span id="hover-info" style="color:#aaa; font-size:13px;">—</span>
+</div>
+
+<div id="main">
+  <div id="empty-state">
+    <div class="big">🎨</div>
+    <div>Click <b>Character Atlas</b> or <b>World Atlas</b> above</div>
+    <div>Or drag & drop any PNG</div>
+  </div>
+  <div id="canvas-wrap" style="display:none;">
+    <canvas id="atlas-canvas"></canvas>
+  </div>
+  <div id="sidebar" style="display:none;">
+    <h3>Selected Sprite</h3>
+    <div class="field">
+      <label>Grid Position</label>
+      <div class="val code" id="sel-pos">—</div>
+    </div>
+    <div class="field">
+      <label>Rust Constant</label>
+      <div class="val code" id="sel-rust">—</div>
+    </div>
+    <div class="field">
+      <label>Pixel Origin</label>
+      <div class="val" id="sel-pixel">—</div>
+    </div>
+    <div class="field">
+      <label>Preview (8x)</label>
+      <canvas id="preview-canvas" width="128" height="128"></canvas>
+    </div>
+
+    <h3 style="margin-top:24px;">Atlas Info</h3>
+    <div class="field">
+      <label>Image Size</label>
+      <div class="val" id="atlas-size">—</div>
+    </div>
+    <div class="field">
+      <label>Grid Size</label>
+      <div class="val" id="atlas-grid">—</div>
+    </div>
+    <div class="field">
+      <label>File</label>
+      <div class="val" id="atlas-file" style="font-size:12px; word-break:break-all;">—</div>
+    </div>
+
+    <h3 style="margin-top:24px;">Controls</h3>
+    <div style="font-size:12px; color:#888; line-height:1.8;">
+      <b>Click</b> — select cell<br>
+      <b>Scroll</b> — zoom<br>
+      <b>Middle-drag</b> / <b>Right-drag</b> — pan<br>
+      <b>Ctrl+scroll</b> — zoom at cursor<br>
+    </div>
+  </div>
+</div>
+
+<div id="drop-overlay">Drop PNG here</div>
+
+<input type="file" id="file-input" accept="image/png" style="display:none" onchange="handleFile(this.files[0])">
+
+<script>
+const CELL = 17;
+const SPRITE = 16;
+const MARGIN = 1;
+
+let img = null;
+let zoom = 4;
+let panX = 0, panY = 0;
+let selectedCol = -1, selectedRow = -1;
+let isDragging = false, dragStartX = 0, dragStartY = 0, dragPanX = 0, dragPanY = 0;
+let atlasName = '';
+
+const canvas = document.getElementById('atlas-canvas');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('canvas-wrap');
+const previewCanvas = document.getElementById('preview-canvas');
+const previewCtx = previewCanvas.getContext('2d');
+
+// Preset atlases — relative to this HTML file's location
+const PRESETS = {
+  char: { path: '../assets/roguelikeChar_transparent.png', name: 'roguelikeChar (918×203)', cols: 54, rows: 12 },
+  world: { path: '../assets/roguelikeSheet_transparent.png', name: 'roguelikeSheet (968×526)', cols: 57, rows: 31 },
+};
+
+function loadPreset(key) {
+  const p = PRESETS[key];
+  atlasName = p.name;
+  const i = new Image();
+  i.onload = () => { setImage(i); document.getElementById('atlas-file').textContent = p.name; };
+  i.onerror = () => alert('Failed to load ' + p.path + '\nOpen this HTML from the project folder, or drag the PNG in.');
+  i.src = p.path;
+}
+
+function loadFile() { document.getElementById('file-input').click(); }
+
+function handleFile(file) {
+  if (!file) return;
+  atlasName = file.name;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const i = new Image();
+    i.onload = () => { setImage(i); document.getElementById('atlas-file').textContent = file.name; };
+    i.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function setImage(newImg) {
+  img = newImg;
+  selectedCol = -1; selectedRow = -1;
+  const cols = Math.floor(img.width / CELL);
+  const rows = Math.floor(img.height / CELL);
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('canvas-wrap').style.display = 'block';
+  document.getElementById('sidebar').style.display = 'block';
+  document.getElementById('atlas-size').textContent = img.width + ' × ' + img.height + ' px';
+  document.getElementById('atlas-grid').textContent = cols + ' cols × ' + rows + ' rows';
+  document.getElementById('sel-pos').textContent = '—';
+  document.getElementById('sel-rust').textContent = '—';
+  document.getElementById('sel-pixel').textContent = '—';
+
+  // Center the image
+  panX = 20;
+  panY = 20;
+  zoom = Math.min(4, Math.floor((wrap.clientWidth - 40) / img.width) || 1);
+  draw();
+}
+
+function setZoom(z) {
+  zoom = Math.max(0.5, Math.min(32, z));
+  document.getElementById('zoom-label').textContent = zoom.toFixed(1) + 'x';
+  draw();
+}
+
+function worldFromScreen(sx, sy) {
+  return { x: (sx - panX) / zoom, y: (sy - panY) / zoom };
+}
+
+function cellFromWorld(wx, wy) {
+  const col = Math.floor(wx / CELL);
+  const row = Math.floor(wy / CELL);
+  const maxCol = Math.floor(img.width / CELL) - 1;
+  const maxRow = Math.floor(img.height / CELL) - 1;
+  if (col < 0 || row < 0 || col > maxCol || row > maxRow) return null;
+  return { col, row };
+}
+
+function draw() {
+  if (!img) return;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  canvas.width = w;
+  canvas.height = h;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, w, h);
+
+  // Draw atlas image
+  ctx.save();
+  ctx.translate(panX, panY);
+  ctx.scale(zoom, zoom);
+  ctx.drawImage(img, 0, 0);
+
+  // Draw grid
+  if (document.getElementById('grid-toggle').checked) {
+    const cols = Math.floor(img.width / CELL);
+    const rows = Math.floor(img.height / CELL);
+    ctx.strokeStyle = 'rgba(233, 69, 96, 0.3)';
+    ctx.lineWidth = 1 / zoom;
+
+    for (let c = 0; c <= cols; c++) {
+      const x = c * CELL;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, rows * CELL); ctx.stroke();
+    }
+    for (let r = 0; r <= rows; r++) {
+      const y = r * CELL;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cols * CELL, y); ctx.stroke();
+    }
+
+    // Highlight selected cell
+    if (selectedCol >= 0 && selectedRow >= 0) {
+      ctx.strokeStyle = '#e94560';
+      ctx.lineWidth = 2 / zoom;
+      ctx.strokeRect(selectedCol * CELL + 0.5/zoom, selectedRow * CELL + 0.5/zoom, CELL - 1/zoom, CELL - 1/zoom);
+
+      // Fill with semi-transparent highlight
+      ctx.fillStyle = 'rgba(233, 69, 96, 0.15)';
+      ctx.fillRect(selectedCol * CELL, selectedRow * CELL, CELL, CELL);
+    }
+  }
+
+  ctx.restore();
+}
+
+function selectCell(col, row) {
+  selectedCol = col;
+  selectedRow = row;
+  const px = col * CELL;
+  const py = row * CELL;
+
+  document.getElementById('sel-pos').textContent = '(' + col + ', ' + row + ')';
+  document.getElementById('sel-rust').textContent = '(' + col + '.0, ' + row + '.0)';
+  document.getElementById('sel-pixel').textContent = px + ', ' + py + ' px';
+
+  // Draw preview
+  previewCanvas.width = 128;
+  previewCanvas.height = 128;
+  previewCtx.imageSmoothingEnabled = false;
+  previewCtx.clearRect(0, 0, 128, 128);
+  previewCtx.drawImage(img, px, py, SPRITE, SPRITE, 0, 0, 128, 128);
+
+  draw();
+}
+
+// --- Event handlers ---
+
+wrap.addEventListener('click', (e) => {
+  if (!img) return;
+  const rect = wrap.getBoundingClientRect();
+  const w = worldFromScreen(e.clientX - rect.left, e.clientY - rect.top);
+  const cell = cellFromWorld(w.x, w.y);
+  if (cell) selectCell(cell.col, cell.row);
+});
+
+wrap.addEventListener('mousemove', (e) => {
+  if (!img) return;
+  const rect = wrap.getBoundingClientRect();
+
+  if (isDragging) {
+    panX = dragPanX + (e.clientX - dragStartX);
+    panY = dragPanY + (e.clientY - dragStartY);
+    draw();
+    return;
+  }
+
+  const w = worldFromScreen(e.clientX - rect.left, e.clientY - rect.top);
+  const cell = cellFromWorld(w.x, w.y);
+  if (cell) {
+    document.getElementById('hover-info').textContent = 'Hover: (' + cell.col + ', ' + cell.row + ')';
+  } else {
+    document.getElementById('hover-info').textContent = '—';
+  }
+});
+
+wrap.addEventListener('mousedown', (e) => {
+  if (e.button === 1 || e.button === 2) {
+    isDragging = true;
+    dragStartX = e.clientX; dragStartY = e.clientY;
+    dragPanX = panX; dragPanY = panY;
+    e.preventDefault();
+  }
+});
+
+window.addEventListener('mouseup', () => { isDragging = false; });
+
+wrap.addEventListener('contextmenu', (e) => e.preventDefault());
+
+wrap.addEventListener('wheel', (e) => {
+  if (!img) return;
+  e.preventDefault();
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  // Zoom toward cursor
+  const oldZoom = zoom;
+  const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+  zoom = Math.max(0.5, Math.min(32, zoom * factor));
+
+  // Adjust pan so cursor stays over same world point
+  panX = mx - (mx - panX) * (zoom / oldZoom);
+  panY = my - (my - panY) * (zoom / oldZoom);
+
+  document.getElementById('zoom-label').textContent = zoom.toFixed(1) + 'x';
+  draw();
+}, { passive: false });
+
+// Drag-and-drop
+document.addEventListener('dragover', (e) => { e.preventDefault(); document.getElementById('drop-overlay').style.display = 'flex'; });
+document.addEventListener('dragleave', (e) => {
+  if (e.relatedTarget === null) document.getElementById('drop-overlay').style.display = 'none';
+});
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  document.getElementById('drop-overlay').style.display = 'none';
+  const file = e.dataTransfer.files[0];
+  if (file && file.type === 'image/png') handleFile(file);
+});
+
+// Resize
+window.addEventListener('resize', () => draw());
+</script>
+</body>
+</html>
