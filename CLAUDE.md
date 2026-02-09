@@ -4,10 +4,15 @@ Colony sim: pure Bevy 0.18 ECS with GPU compute for 16K NPCs via instanced rende
 
 - When writing Rust for Endless, read `~/.claude/skills/bevy.md` first.
 - When writing WGSL shaders, read `~/.claude/skills/wgsl.md` first.
-- Read `~/.claude/commands/endless.md` and `~/.claude/commands/test.md` for build/test commands.
 - [docs/README.md](docs/README.md) - architecture, file map, patterns
 - [docs/roadmap.md](docs/roadmap.md) - feature tracking with `[x]`/`[ ]` checkboxes
 - [CHANGELOG.md](CHANGELOG.md) - dated entries describing changes
+
+## Build & Run
+
+- Build: `cd /c/code/endless/rust && cargo build --release 2>&1`
+- Run: `cd /c/code/endless/rust && cargo run --release 2>&1`
+- Check: `cd /c/code/endless/rust && cargo check 2>&1`
 
 ## Lessons Learned
 
