@@ -250,9 +250,11 @@ Visual state indicators:
 *Done when: someone who isn't you can open it, understand what's happening, and make decisions that affect the outcome.*
 
 World setup:
-- [ ] Procedural town/farm/bed/guard_post placement (1-7 towns, 1200px spacing, ring-based layout)
-- [ ] Named towns from pool of Florida cities
-- [ ] Building grid (6x6 start, expandable to 100x100)
+- [x] Procedural town/farm/bed/guard_post placement (2 towns default, 1200px spacing, random layout)
+- [x] Named towns from pool of Florida cities
+- [x] WorldGrid (250x250 cells, 32px each, terrain biome + building per cell)
+- [x] WorldGenConfig resource (world size, town count, spacing, NPC counts)
+- [ ] Building grid expansion (6x6 start, expandable to 100x100)
 - [ ] Visible world border with corner markers
 - [ ] Port config.gd → Bevy Resource
 - [ ] Port user_settings.gd → serde JSON

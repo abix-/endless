@@ -64,6 +64,25 @@ Static world data, immutable after initialization.
 
 Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `find_farm_index_by_pos()`.
 
+### World Grid
+
+250x250 cell grid covering the entire 8000x8000 world (32px per cell). Each cell has a terrain biome and optional building.
+
+| Resource | Data | Purpose |
+|----------|------|---------|
+| WorldGrid | `Vec<WorldCell>` (width × height), cell_size | World-wide terrain + building grid |
+| WorldGenConfig | world dimensions, num_towns, spacing, per-town NPC counts | Procedural generation parameters |
+
+**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<Building>`.
+
+**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `GuardPost { town_idx, patrol_order }`, `Camp { town_idx }`.
+
+**WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
+
+**WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 34px grid spacing, 1100px camp distance, 5 farmers / 2 guards / 5 raiders per town.
+
+**`generate_world()`**: Pure function that takes config and populates both WorldGrid and WorldData. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 beds, 4 guard posts at grid corners).
+
 ## Food & Economy
 
 | Resource | Data | Writers | Readers |

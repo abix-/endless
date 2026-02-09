@@ -1,6 +1,17 @@
 # Changelog
 
 ## 2026-02-09
+- **world grid + procedural generation (TDD)**
+  - add `WorldGrid` resource: 250x250 cell grid (32px/cell) covering 8000x8000 world
+  - add `WorldCell` with `Biome` (Grass/Forest/Water/Rock/Dirt) + `Option<Building>` layers
+  - add `Building` enum: Fountain, Farm, Bed, GuardPost, Camp (each with town_idx)
+  - add `WorldGenConfig` resource with defaults (2 towns, 1200px spacing, 1100px camp distance)
+  - add `generate_world()` pure function: random town placement, camp positioning, simplex terrain, building layout
+  - add terrain generation via `noise` crate (simplex noise, Dirt override near settlements)
+  - add `world_gen.rs` test (6 phases): grid dimensions, town count, distances, buildings, terrain, camps
+  - add `rand` 0.9 and `noise` 0.9 dependencies
+  - all 6 test phases pass
+
 - **stage 5: write 10 test suites**
   - add `spawning.rs`: spawn 5 NPCs, kill one, verify slot freed and reused (4 phases)
   - add `energy.rs`: energy starts at 100, drains, reaches ENERGY_HUNGRY (3 phases, time_scale=50)

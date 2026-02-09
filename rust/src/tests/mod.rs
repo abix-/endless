@@ -14,6 +14,7 @@ pub mod combat;
 pub mod projectiles;
 pub mod healing;
 pub mod economy;
+pub mod world_gen;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -48,6 +49,7 @@ pub struct CleanupExtra<'w> {
     pub camp_state: ResMut<'w, crate::resources::CampState>,
     pub raid_queue: ResMut<'w, crate::resources::RaidQueue>,
     pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
+    pub world_grid: ResMut<'w, crate::world::WorldGrid>,
 }
 
 // ============================================================================
@@ -396,6 +398,21 @@ pub fn register_tests(app: &mut App) {
             .run_if(test_is("economy"))
             .after(Step::Behavior));
 
+    // world-gen
+    registry.tests.push(TestEntry {
+        name: "world-gen".into(),
+        description: "Grid dimensions, town placement, buildings, terrain, camps".into(),
+        phase_count: 6,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        world_gen::setup.run_if(test_is("world-gen")));
+    app.add_systems(Update,
+        world_gen::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("world-gen"))
+            .after(Step::Behavior));
+
     app.insert_resource(registry);
 }
 
@@ -659,6 +676,7 @@ fn cleanup_test_world(
     *extra.camp_state = Default::default();
     *extra.raid_queue = Default::default();
     *extra.proj_alloc = Default::default();
+    *extra.world_grid = Default::default();
 
     info!("Test cleanup: despawned {} NPCs, reset resources", count);
 }

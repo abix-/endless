@@ -215,6 +215,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CampState>()
        .init_resource::<RaidQueue>()
        .init_resource::<BevyFrameTimer>()
+       .init_resource::<world::WorldGrid>()
+       .init_resource::<world::WorldGenConfig>()
        // Plugins
        .add_plugins(bevy_egui::EguiPlugin::default())
        .add_plugins(gpu::GpuComputePlugin)

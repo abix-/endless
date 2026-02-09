@@ -39,6 +39,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `projectiles` | 4 | Ranged targeting → projectile spawn → hit + damage → slot freed |
 | `healing` | 3 | Damaged NPC near town → Healing marker → health recovers to max |
 | `economy` | 5 | Farm growing → ready → harvest → camp forage → raider respawn |
+| `world-gen` | 6 | Grid dimensions, town placement, buildings, terrain, camps |
 
 ## System Map
 
@@ -100,7 +101,7 @@ Ratings reflect system quality, not doc accuracy.
 
 ```
 rust/
-  Cargo.toml            # Pure Bevy 0.18 + bevy_egui + bytemuck
+  Cargo.toml            # Pure Bevy 0.18 + bevy_egui + bytemuck + rand + noise
   src/main.rs           # Bevy App entry point, asset root = project root
   src/lib.rs            # build_app(), system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
@@ -110,7 +111,7 @@ rust/
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
-  src/world.rs          # World data structs, sprite definitions
+  src/world.rs          # World data structs, world grid, procedural generation
   src/tests/
     mod.rs              # Test framework (AppState, TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)
@@ -124,6 +125,7 @@ rust/
     projectiles.rs      # Projectile pipeline test (4 phases)
     healing.rs          # Healing aura test (3 phases, time_scale=20)
     economy.rs          # Economy test (5 phases, time_scale=50)
+    world_gen.rs        # World generation test (6 phases)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
