@@ -190,12 +190,12 @@ Tests for completed features (one file each in `src/tests/`):
 - [x] Phase 5: NPC dies (Dead marker or npc_count drops)
 - [x] Phase 6: Slot freed, entity despawned
 
-`economy` — Farm Growth & Respawn (5 phases, time_scale=50): passes 3/5
+`economy` — Farm Growth & Respawn (5 phases, time_scale=50): **ALL PASS**
 - [x] Phase 1: Farm in Growing state
 - [x] Phase 2: Farm transitions to Ready (farmer tending = faster rate)
 - [x] Phase 3: Farmer harvests → food increases
-- [ ] Phase 4: Camp forage adds food over time
-- [ ] Phase 5: Raider respawns when camp has enough food
+- [x] Phase 4: Camp forage adds food over time
+- [x] Phase 5: Raider respawns when camp has enough food
 
 `energy` — Energy System (3 phases, time_scale=50): **ALL PASS**
 - [x] Phase 1: NPC starts at energy 100
@@ -207,11 +207,11 @@ Tests for completed features (one file each in `src/tests/`):
 - [x] Phase 2: Health increases toward max
 - [ ] Phase 3: Health reaches max → healing stops (hp heals to 55 then regresses to 50 — likely starvation HP cap clamping back down)
 
-`spawning` — Spawn & Slot Reuse (4 phases): needs retest
-- [ ] Phase 1: 5 NPCs exist with correct job components
-- [ ] Phase 2: Kill one (health → 0) → Dead marker
-- [ ] Phase 3: Slot freed in SlotAllocator
-- [ ] Phase 4: New spawn reuses freed slot index
+`spawning` — Spawn & Slot Reuse (4 phases): **ALL PASS**
+- [x] Phase 1: 5 NPCs exist with correct job components
+- [x] Phase 2: Kill one (health → 0) → Dead marker
+- [x] Phase 3: Slot freed in SlotAllocator
+- [x] Phase 4: New spawn reuses freed slot index
 
 `projectiles` — Projectile Pipeline (4 phases): **ALL PASS**
 - [x] Phase 1: 2 ranged NPCs — combat targeting finds enemy
@@ -227,7 +227,7 @@ Tests for completed features (one file each in `src/tests/`):
 - [x] Phase 5: Terrain near towns is Dirt
 - [x] Phase 6: Raider camps exist with correct faction
 
-`vertical-slice` — Existing Test12 (8 phases):
+`vertical-slice` — Full Core Loop (8 phases, time_scale=10): **ALL PASS**
 - [x] Relocated from lib.rs to src/tests/vertical_slice.rs (same logic)
 
 **Stage 6: Visual Feedback**
