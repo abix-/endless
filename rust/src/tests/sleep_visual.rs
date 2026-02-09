@@ -16,6 +16,7 @@ pub fn setup(
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut food_storage: ResMut<FoodStorage>,
+    mut farm_states: ResMut<FarmStates>,
     mut faction_stats: ResMut<FactionStats>,
     mut game_time: ResMut<GameTime>,
     mut test_state: ResMut<TestState>,
@@ -34,6 +35,8 @@ pub fn setup(
         position: Vec2::new(450.0, 400.0),
         town_idx: 0,
     });
+    farm_states.states.push(FarmGrowthState::Growing);
+    farm_states.progress.push(0.0);
     food_storage.init(1);
     faction_stats.init(1);
     game_time.time_scale = 20.0;
@@ -46,7 +49,7 @@ pub fn setup(
         job: 0, faction: 0, town_idx: 0,
         home_x: 380.0, home_y: 420.0,
         work_x: 450.0, work_y: 400.0,
-        starting_post: 0,
+        starting_post: -1,
         attack_type: 0,
     });
 

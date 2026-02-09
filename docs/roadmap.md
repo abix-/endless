@@ -202,10 +202,10 @@ Tests for completed features (one file each in `src/tests/`):
 - [x] Phase 2: Energy drains over time (< 90)
 - [x] Phase 3: Energy reaches ENERGY_HUNGRY threshold
 
-`healing` — Healing Aura (3 phases, time_scale=20): passes 2/3
+`healing` — Healing Aura (3 phases, time_scale=20): **ALL PASS**
 - [x] Phase 1: Damaged NPC (50 HP) inside town → Healing marker
 - [x] Phase 2: Health increases toward max
-- [ ] Phase 3: Health reaches max → healing stops (hp heals to 55 then regresses to 50 — likely starvation HP cap clamping back down)
+- [x] Phase 3: Health reaches max → healing stops
 
 `spawning` — Spawn & Slot Reuse (4 phases): **ALL PASS**
 - [x] Phase 1: 5 NPCs exist with correct job components

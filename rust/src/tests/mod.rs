@@ -693,11 +693,15 @@ pub fn auto_start_next_test(
 fn cleanup_test_world(
     mut commands: Commands,
     npc_query: Query<Entity, With<NpcIndex>>,
+    marker_query: Query<Entity, With<crate::components::FarmReadyMarker>>,
     mut core: CleanupCore,
     mut extra: CleanupExtra,
 ) {
     let count = npc_query.iter().count();
     for entity in npc_query.iter() {
+        commands.entity(entity).despawn();
+    }
+    for entity in marker_query.iter() {
         commands.entity(entity).despawn();
     }
 

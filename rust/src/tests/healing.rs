@@ -52,10 +52,17 @@ pub fn setup(
 pub fn tick(
     mut health_query: Query<(&mut Health, &MaxHealth, &NpcIndex), (With<Farmer>, Without<Dead>)>,
     healing_query: Query<(), (With<Healing>, With<Farmer>, Without<Dead>)>,
+    mut last_ate_query: Query<&mut LastAteHour, (With<Farmer>, Without<Dead>)>,
+    game_time: Res<GameTime>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     if test.passed || test.failed { return; }
+
+    // Keep farmer fed — this test validates healing, not starvation
+    for mut last_ate in last_ate_query.iter_mut() {
+        last_ate.0 = game_time.total_hours();
+    }
 
     let now = time.elapsed_secs();
     if test.start == 0.0 { test.start = now; }

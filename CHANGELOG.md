@@ -1,6 +1,15 @@
 # Changelog
 
 ## 2026-02-09
+- **fix healing test: all 3 phases pass**
+  - keep farmer fed each tick (`LastAteHour = total_hours`) — isolates healing from starvation
+  - healing was 2/3 (hp regressed due to starvation HP cap), now ALL PASS
+  - all 12 behavior tests pass; 3 visual indicator red tests remain (expected)
+
+- **review fixes for visual indicator tests**
+  - `sleep_visual.rs`: add missing FarmStates init, fix `starting_post: 0` → `-1`
+  - `mod.rs`: add FarmReadyMarker cleanup to `cleanup_test_world`
+
 - **fix guard-patrol test: all 5 phases pass**
   - tired guards now leave post (Priority 6 energy check) and fall through to rest scoring
   - test keeps guard fed via `LastAteHour` reset each tick — isolates duty cycle from starvation
