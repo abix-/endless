@@ -30,6 +30,7 @@ pub fn damage_system(
             if let Ok((mut health, npc_idx)) = query.get_mut(entity) {
                 health.0 = (health.0 - event.amount).max(0.0);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: npc_idx.0, intensity: 1.0 }));
             }
         }
     }

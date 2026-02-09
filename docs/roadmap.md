@@ -60,7 +60,7 @@ Rules:
 - [x] Health, damage, death systems
 - [x] O(1) entity lookup via NpcEntityMap
 - [x] Projectile slot reuse (ProjSlotAllocator)
-- [x] Damage flash effect
+- [x] Damage flash effect (white overlay, CPU-side decay at 5.0/s)
 - [x] Guards have no leash (fight anywhere)
 - [x] Alert nearby allies when combat starts
 
@@ -174,7 +174,7 @@ Projectile rendering:
 Visual state indicators:
 - [ ] Farm growth state visible (Growing → Ready sprite change + progress bar)
 - [x] Health bars (3-color: green/yellow/red, show-when-damaged mode in fragment shader)
-- [ ] Damage flash in npc_render.wgsl (white overlay on hit, fade out — was Godot-only, needs re-impl)
+- [x] Damage flash in npc_render.wgsl (white overlay on hit, fade out over ~0.2s via CPU-side decay)
 - [ ] Healing glow effect (pulsing green tint + radial halo — needs TIME uniform in shader)
 - [ ] Sleep indicator on resting NPCs (z icon overlay)
 - [ ] Carried item icon (food sprite on returning raiders)

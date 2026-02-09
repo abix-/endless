@@ -1,6 +1,14 @@
 # Changelog
 
 ## 2026-02-09
+- **damage flash (white overlay on hit, fade out)**
+  - add `SetDamageFlash { idx, intensity }` to GpuUpdate enum (messages.rs)
+  - add `flash_values: Vec<f32>` to NpcBufferWrites, handle in apply(), decay at 5.0/s in populate_buffer_writes (gpu.rs)
+  - damage_system sends SetDamageFlash(1.0) after SetHealth (health.rs)
+  - add `flash: f32` to NpcInstanceData (36 → 40 bytes), vertex attribute @location(6) (npc_render.rs)
+  - npc_render.wgsl: add flash to vertex I/O, mix(color, white, flash) in fragment shader
+  - test 12 passes
+
 - **health bars + projectile sprite**
   - add `health: f32` to NpcInstanceData (32 → 36 bytes), vertex attribute @location(5)
   - prepare_npc_buffers reads NpcBufferWrites.healths, normalizes by /100.0

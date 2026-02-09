@@ -11,7 +11,7 @@ Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.
 Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that's 16K entities in the render world — the scheduling/extraction overhead dominates. The custom pipeline uses:
 
 - **1 entity per layer** (NpcBatch, ProjBatch) instead of 16,384 entities
-- **36 bytes/instance** (position + sprite + color + health) instead of ~80 bytes/entity
+- **40 bytes/instance** (position + sprite + color + health + flash) instead of ~80 bytes/entity
 - **GPU compute data stays on GPU** — readback only for rendering
 - **One draw call per layer** — `draw_indexed(0..6, 0, 0..instance_count)`
 
@@ -64,7 +64,7 @@ ProjBatch entity ──extract_proj_batch──▶ ProjBatch entity
 
 ## Instance Data
 
-Each NPC is 36 bytes of per-instance data:
+Each NPC is 40 bytes of per-instance data:
 
 ```rust
 pub struct NpcInstanceData {
@@ -72,6 +72,7 @@ pub struct NpcInstanceData {
     pub sprite: [f32; 2],    // atlas cell col, row (8 bytes)
     pub color: [f32; 4],     // RGBA tint (16 bytes)
     pub health: f32,         // normalized 0.0-1.0 (4 bytes)
+    pub flash: f32,          // damage flash 0.0-1.0 (4 bytes)
 }
 ```
 
@@ -80,8 +81,9 @@ Built each frame by `prepare_npc_buffers` from `NpcBufferWrites`:
 - **Sprites**: from `sprite_indices` (4 floats per NPC, uses first 2: col, row)
 - **Colors**: from `colors` (4 floats per NPC: RGBA)
 - **Health**: from `healths` (normalized by dividing by 100.0, clamped to 0-1)
+- **Flash**: from `flash_values` (0.0-1.0, decays at 5.0/s in `populate_buffer_writes`)
 - **Hidden NPCs** (position.x < -9000) are skipped
-- **Projectiles**: health set to 1.0 (no health bar)
+- **Projectiles**: health set to 1.0 (no health bar), flash set to 0.0
 
 ## The Quad
 
@@ -113,7 +115,7 @@ Two vertex buffer slots with different step modes:
 | Slot | Step Mode | Data | Stride | Attributes |
 |------|-----------|------|--------|------------|
 | 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) position, @location(1) uv |
-| 1 | Instance | Per-NPC data (N instances) | 36B | @location(2) position, @location(3) sprite, @location(4) color, @location(5) health |
+| 1 | Instance | Per-NPC data (N instances) | 40B | @location(2) position, @location(3) sprite, @location(4) color, @location(5) health, @location(6) flash |
 
 `VertexStepMode::Vertex` advances per-vertex (4 times per quad). `VertexStepMode::Instance` advances per-instance (once per NPC).
 
@@ -161,10 +163,19 @@ let tex_color = textureSample(sprite_texture, sprite_sampler, in.uv);
 if tex_color.a < 0.1 {
     discard;  // transparent pixels → not drawn
 }
-return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+var final_color = vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
 ```
 
 Texture color is multiplied by the instance's tint color. This is how faction colors work — raiders get per-faction RGB tints (10-color palette), while villagers get job-based colors.
+
+**Damage flash** (white overlay, applied after color tinting):
+```wgsl
+if in.flash > 0.0 {
+    final_color = vec4<f32>(mix(final_color.rgb, vec3(1.0, 1.0, 1.0), in.flash), final_color.a);
+}
+```
+
+Flash intensity starts at 1.0 (full white) on damage hit and decays to 0.0 over ~0.2s (rate 5.0/s). Decay happens on CPU in `populate_buffer_writes` via `flash_values` in `NpcBufferWrites`. The `mix()` function interpolates between the tinted sprite color and pure white.
 
 ## Render World Phases
 
@@ -260,4 +271,4 @@ The character texture handle is shared via `NpcSpriteTexture` resource (extracte
 
 ## Rating: 8/10
 
-Custom instanced pipeline with two draw layers (NPCs + projectiles). Per-instance data is compact (36 bytes). Fragment shader handles transparency, faction color tinting, and in-shader health bars (3-color, show-when-damaged). Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. However: no building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).
+Custom instanced pipeline with two draw layers (NPCs + projectiles). Per-instance data is compact (40 bytes). Fragment shader handles transparency, faction color tinting, in-shader health bars (3-color, show-when-damaged), and damage flash (white overlay that fades out over ~0.2s). Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. However: no building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).

@@ -11,6 +11,7 @@ struct VertexInput {
     @location(3) sprite_cell: vec2<f32>,  // col, row
     @location(4) color: vec4<f32>,
     @location(5) health: f32,            // 0.0-1.0 normalized
+    @location(6) flash: f32,             // 0.0-1.0 damage flash intensity
 };
 
 struct VertexOutput {
@@ -19,6 +20,7 @@ struct VertexOutput {
     @location(1) color: vec4<f32>,
     @location(2) health: f32,
     @location(3) quad_uv: vec2<f32>,     // raw 0-1 UV within sprite quad
+    @location(4) flash: f32,
 };
 
 // Texture (bind group 0)
@@ -65,6 +67,7 @@ fn vertex(in: VertexInput) -> VertexOutput {
     out.color = in.color;
     out.health = in.health;
     out.quad_uv = in.quad_uv;
+    out.flash = in.flash;
 
     return out;
 }
@@ -96,5 +99,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if tex_color.a < 0.1 {
         discard;
     }
-    return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+    var final_color = vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+
+    // Damage flash: white overlay that fades out
+    if in.flash > 0.0 {
+        final_color = vec4<f32>(mix(final_color.rgb, vec3<f32>(1.0, 1.0, 1.0), in.flash), final_color.a);
+    }
+    return final_color;
 }

@@ -119,6 +119,8 @@ pub struct NpcBufferWrites {
     pub sprite_indices: Vec<f32>,
     /// Colors: [r, g, b, a] per NPC
     pub colors: Vec<f32>,
+    /// Damage flash intensity: 0.0-1.0 per NPC (decays each frame)
+    pub flash_values: Vec<f32>,
     /// Whether any data changed this frame (skip upload if false)
     pub dirty: bool,
     /// Per-field dirty flags to avoid overwriting GPU-computed positions
@@ -143,6 +145,7 @@ impl Default for NpcBufferWrites {
             arrivals: vec![0; max],  // 0 = wants to move
             sprite_indices: vec![0.0; max * 4], // vec4 per NPC
             colors: vec![1.0; max * 4],          // RGBA, default white
+            flash_values: vec![0.0; max],
             dirty: false,
             positions_dirty: false,
             targets_dirty: false,
@@ -238,6 +241,12 @@ impl NpcBufferWrites {
                     self.dirty = true;
                 }
             }
+            GpuUpdate::SetDamageFlash { idx, intensity } => {
+                if *idx < self.flash_values.len() {
+                    self.flash_values[*idx] = *intensity;
+                    self.dirty = true;
+                }
+            }
             // These don't affect GPU buffers (visual effects handled separately)
             GpuUpdate::SetHealing { .. } |
             GpuUpdate::SetCarriedItem { .. } => {}
@@ -247,7 +256,7 @@ impl NpcBufferWrites {
 
 /// Drain GPU_UPDATE_QUEUE and apply updates to NpcBufferWrites.
 /// Runs in main world each frame before extraction.
-pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>) {
+pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: Res<Time>) {
     // Reset dirty flags - will be set if any updates applied
     buffer_writes.dirty = false;
     buffer_writes.positions_dirty = false;
@@ -261,6 +270,20 @@ pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>) {
         for update in queue.drain(..) {
             buffer_writes.apply(&update);
         }
+    }
+
+    // Decay damage flash values (1.0 → 0.0 in ~0.2s)
+    let dt = time.delta_secs();
+    const FLASH_DECAY_RATE: f32 = 5.0;
+    let mut any_flash = false;
+    for flash in buffer_writes.flash_values.iter_mut() {
+        if *flash > 0.0 {
+            *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
+            any_flash = true;
+        }
+    }
+    if any_flash {
+        buffer_writes.dirty = true;
     }
 }
 

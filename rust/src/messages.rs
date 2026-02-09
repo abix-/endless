@@ -102,6 +102,8 @@ pub enum GpuUpdate {
     SetHealing { idx: usize, healing: bool },
     /// Set carried item (0 = none, 1 = food, etc.)
     SetCarriedItem { idx: usize, item_id: u8 },
+    /// Set damage flash intensity (1.0 = full white, decays to 0.0)
+    SetDamageFlash { idx: usize, intensity: f32 },
 }
 
 pub static GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>> = Mutex::new(Vec::new());

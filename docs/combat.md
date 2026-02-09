@@ -78,6 +78,7 @@ Execution order is **chained** — each system completes before the next starts.
 - O(1) entity lookup via `NpcEntityMap[npc_index]`
 - Subtracts damage: `health.0 = (health.0 - amount).max(0.0)`
 - Pushes `GpuUpdate::SetHealth` to sync GPU health buffer
+- Pushes `GpuUpdate::SetDamageFlash` (intensity 1.0) for visual hit feedback
 
 ### 4. death_system (health.rs)
 - Queries all NPCs with Health but `Without<Dead>`

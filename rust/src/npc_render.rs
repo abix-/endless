@@ -71,6 +71,8 @@ pub struct NpcInstanceData {
     pub color: [f32; 4],
     /// Health percentage (0.0-1.0), used for health bar rendering
     pub health: f32,
+    /// Damage flash intensity (0.0-1.0), white overlay that fades out
+    pub flash: f32,
 }
 
 /// Static quad vertex: position and UV
@@ -406,12 +408,14 @@ fn prepare_npc_buffers(
         let cb = writes.colors.get(i * 4 + 2).copied().unwrap_or(1.0);
         let ca = writes.colors.get(i * 4 + 3).copied().unwrap_or(1.0);
         let health = (writes.healths.get(i).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
+        let flash = writes.flash_values.get(i).copied().unwrap_or(0.0);
 
         instances.push(NpcInstanceData {
             position: [px, py],
             sprite: [sc, sr],
             color: [cr, cg, cb, ca],
             health,
+            flash,
         });
     }
 
@@ -621,6 +625,11 @@ impl SpecializedRenderPipeline for NpcPipeline {
                                 offset: 32,
                                 shader_location: 5, // health
                             },
+                            VertexAttribute {
+                                format: bevy::render::render_resource::VertexFormat::Float32,
+                                offset: 36,
+                                shader_location: 6, // flash
+                            },
                         ],
                     },
                 ],
@@ -759,6 +768,7 @@ fn prepare_proj_buffers(
             sprite: [20.0, 7.0],
             color: [cr, cg, cb, 1.0],
             health: 1.0, // No health bar on projectiles
+            flash: 0.0,
         });
     }
 

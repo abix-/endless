@@ -106,14 +106,16 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 
 ### Render Instance Data (npc_render.rs)
 
-Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; sprites/colors from NpcBufferWrites.
+Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; sprites/colors/flash from NpcBufferWrites.
 
 | Field | Type | Size | Source |
 |-------|------|------|--------|
 | position | [f32; 2] | 8B | GPU_READ_STATE (readback), fallback NpcBufferWrites |
 | sprite | [f32; 2] | 8B | NpcBufferWrites.sprite_indices |
 | color | [f32; 4] | 16B | NpcBufferWrites.colors |
-| **Total** | | **32B/NPC** | |
+| health | f32 | 4B | NpcBufferWrites.healths (normalized /100.0) |
+| flash | f32 | 4B | NpcBufferWrites.flash_values (0.0-1.0, decays at 5.0/s) |
+| **Total** | | **40B/NPC** | |
 
 ## Uniform Params (NpcComputeParams)
 
@@ -147,7 +149,7 @@ NPCs are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode
 
 Separate from compute. Uses `npc_render.rs` with Bevy's RenderCommand pattern hooked into the Transparent2d phase. Renders all NPCs in a single instanced draw call: one static quad (4 vertices, 6 indices) drawn `instance_count` times with per-instance position, sprite atlas cell, and color tint.
 
-The render shader (`shaders/npc_render.wgsl`) expands each quad by `SPRITE_SIZE` (32px), applies an orthographic projection, and samples the sprite atlas. Fragment shader is currently in debug mode (solid colors, texture sampling commented out).
+The render shader (`shaders/npc_render.wgsl`) expands each quad by `SPRITE_SIZE` (16px), applies an orthographic camera projection, and samples the sprite atlas. Fragment shader handles alpha discard, color tinting, health bars, and damage flash.
 
 ## Constants
 
@@ -161,11 +163,10 @@ const MAX_PER_CELL: u32 = 48;
 
 ## Known Issues
 
-- **Hardcoded camera**: `npc_render.wgsl` has constant `CAMERA_POS` and `VIEWPORT`. Camera movement/zoom won't affect NPC rendering.
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
 - **sprite_indices/colors not uploaded to compute**: These fields exist in NpcBufferWrites for the render pipeline only. The compute shader has no access to them.
 - **Synchronous readback blocks render thread**: `device.poll(Wait)` blocks until staging buffer mapping completes. For 128KB this is sub-millisecond, but could be upgraded to async double-buffered readback if needed.
 
 ## Rating: 9/10
 
-3-mode compute dispatch with spatial grid, separation physics (boids-style + TCP dodge + backoff), combat targeting, and full GPU→ECS readback. Per-field dirty flags prevent stale data from overwriting GPU output. Arrival flag reset on SetTarget ensures NPCs resume movement. Remaining: hardcoded camera in render shader.
+3-mode compute dispatch with spatial grid, separation physics (boids-style + TCP dodge + backoff), combat targeting, and full GPU→ECS readback. Per-field dirty flags prevent stale data from overwriting GPU output. Arrival flag reset on SetTarget ensures NPCs resume movement.
