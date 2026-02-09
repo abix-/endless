@@ -23,7 +23,7 @@ struct VertexOutput {
 @group(0) @binding(1) var sprite_sampler: sampler;
 
 // Constants
-const SPRITE_SIZE: f32 = 32.0;  // Size of sprite in world units
+const SPRITE_SIZE: f32 = 16.0;  // Size of sprite in world units (matches 16px atlas cells)
 
 // Sprite atlas layout (roguelikeChar_transparent.png: 918x203 pixels)
 // 16x16 sprites with 1px margin = 17px cells
