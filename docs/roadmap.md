@@ -113,12 +113,9 @@ Rules:
 - [x] HEALTH_DEBUG, COMBAT_DEBUG resources for diagnostics
 
 ### Architecture
-- [x] Static queues → Bevy Messages (MessageWriter/MessageReader)
-- [x] All statics → Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
+- [x] Bevy Messages (MessageWriter/MessageReader) for all inter-system communication
+- [x] All state as Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
 - [x] GpuUpdateMsg batching via collect_gpu_updates
-- [x] Godot bridge removed (channels.rs, api.rs, rendering.rs, EcsNpcManager)
-- [x] All GDScript files removed (npc_manager, npc_combat, npc_needs, gpu_separation, etc.)
-- [x] All .glsl shaders replaced with .wgsl
 
 ## Stages
 
@@ -228,8 +225,8 @@ Camera + viewport:
 - [x] Click-to-select NPC wired to camera transform
 
 Equipment rendering:
-- [ ] Multi-layer equipment rendering (see [spec](#multi-layer-equipment-rendering) below)
-- [ ] Guards spawn with weapon + helmet layers, raiders with weapon layer
+- [x] Multi-layer equipment rendering (see [spec](#multi-layer-equipment-rendering) below)
+- [x] Guards spawn with weapon + helmet layers, raiders with weapon layer
 
 Projectile rendering:
 - [x] Projectile instanced pipeline (same RenderCommand pattern as NPC renderer)
@@ -241,7 +238,7 @@ Visual state indicators:
 - [x] Damage flash in npc_render.wgsl (white overlay on hit, fade out over ~0.2s via CPU-side decay)
 - [ ] Healing glow effect (pulsing green tint + radial halo — needs TIME uniform in shader)
 - [ ] Sleep indicator on resting NPCs (z icon overlay)
-- [ ] Carried item icon (food sprite on returning raiders)
+- [x] Carried item icon (food sprite on returning raiders)
 
 **Stage 7: Playable Game**
 
@@ -392,19 +389,17 @@ LayerBuffer:
 
 **Implementation steps:**
 
-- [ ] Add equipment sprite fields to `NpcBufferWrites` (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`)
-- [ ] Add ECS components: `EquippedArmor(col, row)`, `EquippedHelmet(col, row)`, `EquippedWeapon(col, row)` — sprite atlas coordinates
-- [ ] Add equipment to spawn: guards get weapon+helmet, farmers get nothing, raiders get weapon
-- [ ] Update `collect_gpu_updates` to write equipment sprites to `NpcBufferWrites` when equipment changes
-- [ ] Refactor `NpcRenderBuffers`: replace single `instance_buffer`/`instance_count` with `Vec<LayerBuffer>`
-- [ ] Refactor `prepare_npc_buffers`: build one `LayerBuffer` per layer, skipping NPCs with -1 sentinel in that slot
-- [ ] Refactor `queue_npcs`: add one `Transparent2d` phase item per non-empty layer with incrementing sort keys (body=0.0, armor=0.001, helmet=0.002, weapon=0.003, item=0.004)
-- [ ] Refactor `DrawNpcs`: read layer index from batch entity to select correct `LayerBuffer`. Add `LayerIndex(usize)` component to batch entities, or spawn separate `NpcBatch` entities per layer
-- [ ] Set `CarryingFood` → write food sprite to `item_sprites`, clear on delivery
+- [x] Add equipment sprite fields to `NpcBufferWrites` (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`)
+- [x] Add ECS components: `EquippedArmor(col, row)`, `EquippedHelmet(col, row)`, `EquippedWeapon(col, row)` — sprite atlas coordinates
+- [x] Add equipment to spawn: guards get weapon+helmet, farmers get nothing, raiders get weapon
+- [x] Update `collect_gpu_updates` to write equipment sprites to `NpcBufferWrites` when equipment changes
+- [x] Refactor `NpcRenderBuffers`: replace single `instance_buffer`/`instance_count` with `Vec<LayerBuffer>`
+- [x] Refactor `prepare_npc_buffers`: build one `LayerBuffer` per layer, skipping NPCs with -1 sentinel in that slot
+- [x] Refactor `queue_npcs`: add one `Transparent2d` phase item per non-empty layer with incrementing sort keys
+- [x] Refactor `DrawNpcs`: read layer index from batch entity to select correct `LayerBuffer`
+- [x] Set `CarryingFood` → write food sprite to `item_sprites`, clear on delivery
 - [ ] Set `Healing` → write halo sprite to `item_sprites` (or dedicated healing layer)
 - [ ] Set `Resting` → write sleep icon to `item_sprites`
-- [ ] Test: spawn 100 NPCs with mixed equipment, verify layers render in correct order
-- [ ] Test: 10K NPCs × 5 layers, verify fps stays above 60
 
 **Performance budget:**
 
