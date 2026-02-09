@@ -575,7 +575,6 @@ fn test_hud_system(
 fn test_completion_system(
     test_state: Res<TestState>,
     mut run_all: ResMut<RunAllState>,
-    registry: Res<TestRegistry>,
     mut next_state: ResMut<NextState<AppState>>,
     mut delayed: Local<Option<f32>>,
     time: Res<Time>,
@@ -603,11 +602,7 @@ fn test_completion_system(
     let name = test_state.test_name.clone().unwrap_or_default();
     run_all.results.push((name, test_state.passed));
 
-    if let Some(next_name) = run_all.queue.pop_front() {
-        if let Some(_entry) = registry.tests.iter().find(|t| t.name == next_name) {
-            info!("Run All: next test '{}'", next_name);
-        }
-    } else {
+    if run_all.queue.is_empty() {
         run_all.active = false;
         info!("Run All: complete — {}/{} passed",
             run_all.results.iter().filter(|(_, p)| *p).count(),
