@@ -15,20 +15,20 @@ These docs are the **source of truth** for system architecture. When building ne
 All systems should be validated through tests. Tests use **phased assertions** — each phase checks one layer of the pipeline and fails fast with diagnostic values.
 
 **Pattern:**
-1. Spawn minimal NPCs with **Fighter** job (job=3) — no behavior components, NPCs sit still
-2. Each phase has a time gate and assertion (e.g., "at t=2s, GPU targeting should find enemies")
-3. Phase results record timestamp + values at pass/fail, included in debug dump
-4. Early phases isolate infrastructure (GPU buffers, grid) before testing logic (damage, death)
+1. Startup system populates world data and spawns NPCs
+2. Update system runs phased assertions with time gates
+3. Each phase checks one pipeline layer and logs PASS/FAIL with diagnostic values
+4. On failure, all prior phase results show exactly which layer broke
 
-**Example (Combat test):**
-- Phase 1: GPU buffer integrity (faction/health written)
-- Phase 2: Spatial grid populated
-- Phase 3: GPU targeting finds enemies
-- Phase 4: Damage processed
-- Phase 5: Death occurs
-- Phase 6: Slot recycling
-
-When a test fails, the phase results show exactly which layer broke and what values it saw.
+**Test 12 (Vertical Slice) — validates full core loop:**
+- Phase 1: 12 NPCs spawned (5 farmers, 2 guards, 5 raiders)
+- Phase 2: GPU readback returns valid positions
+- Phase 3: Farmers arrive at farms, begin working
+- Phase 4: Raiders form group, dispatched to farm
+- Phase 5: Guards acquire combat targets via spatial grid
+- Phase 6: Damage applied
+- Phase 7: Death occurs, slot recycled
+- Phase 8: Replacement raider respawns from camp food
 
 ## System Map
 

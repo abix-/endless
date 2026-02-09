@@ -37,6 +37,7 @@ Main World (ECS)                       Render World (GPU)
 │
 └─ gpu_position_readback (after Drain)
       GpuReadState → ECS Position components
+      + CPU-side arrival detection (position vs goal within ARRIVAL_THRESHOLD → AtDestination)
 ```
 
 ## Data Flow
@@ -53,6 +54,7 @@ GPU → ECS (readback):
     → readback_npc_positions: map staging, write to GPU_READ_STATE
     → sync_gpu_state_to_bevy: GPU_READ_STATE → GpuReadState resource
     → gpu_position_readback: GpuReadState → ECS Position components
+      + arrival detection: if HasTarget && dist(pos, goal) < ARRIVAL_THRESHOLD → AtDestination
 
 GPU → Render:
   prepare_npc_buffers: reads GPU_READ_STATE for positions (falls back to

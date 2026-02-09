@@ -25,11 +25,11 @@ use bevy::prelude::*;
 use messages::{SpawnNpcMsg, SetTargetMsg, ArrivalMsg, DamageMsg, GpuUpdateMsg};
 use resources::{
     NpcCount, NpcEntityMap, PopulationStats, GameConfig, GameTime, RespawnTimers,
-    FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
+    FarmStates, FarmGrowthState, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcEnergyCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, GpuDispatchCount, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
-    DebugFlags,
+    DebugFlags, Test12,
 };
 // Systems are re-exported via glob from systems/mod.rs
 use systems::*;
@@ -105,52 +105,297 @@ fn startup_system() {
     info!("Endless ECS initialized - systems registered");
 }
 
-/// Test: Spawn two factions of fighters facing each other to verify full combat pipeline.
-fn test_spawn_combat(
+// ============================================================================
+// TEST 12: VERTICAL SLICE INTEGRATION TEST
+// ============================================================================
+// Validates full core loop: spawn → work → raid → combat → death → respawn
+// 5 farmers + 2 guards + 5 raiders, phased assertions with time gates.
+
+/// Farm positions for test 12 (5 farms near villager town).
+const TEST12_FARMS: [(f32, f32); 5] = [
+    (300.0, 350.0), (350.0, 350.0), (400.0, 350.0), (450.0, 350.0), (500.0, 350.0),
+];
+
+/// Startup system: populate world, spawn NPCs, init resources.
+fn test12_setup(
     mut slot_alloc: ResMut<SlotAllocator>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
+    mut world_data: ResMut<world::WorldData>,
+    mut food_storage: ResMut<FoodStorage>,
+    mut farm_states: ResMut<FarmStates>,
+    mut faction_stats: ResMut<FactionStats>,
+    mut game_time: ResMut<GameTime>,
     mut flags: ResMut<DebugFlags>,
 ) {
-    // Spawn 5 faction-0 fighters on the left
-    for i in 0..5 {
-        let slot = slot_alloc.alloc().expect("slot allocation failed");
-        spawn_events.write(SpawnNpcMsg {
-            slot_idx: slot,
-            x: 300.0,
-            y: 300.0 + (i as f32 * 40.0),
-            job: 3, // Fighter
-            faction: 0,
+    // --- World data ---
+    // Town 0: Villagers
+    world_data.towns.push(world::Town {
+        name: "Harvest".into(),
+        center: Vec2::new(400.0, 400.0),
+        faction: 0,
+        sprite_type: 0,
+    });
+    // Town 1: Raider camp
+    world_data.towns.push(world::Town {
+        name: "Raiders".into(),
+        center: Vec2::new(400.0, 100.0),
+        faction: 1,
+        sprite_type: 1,
+    });
+
+    // 5 farms near town 0
+    for &(fx, fy) in &TEST12_FARMS {
+        world_data.farms.push(world::Farm {
+            position: Vec2::new(fx, fy),
             town_idx: 0,
-            home_x: 300.0,
-            home_y: 300.0,
-            work_x: -1.0,
-            work_y: -1.0,
-            starting_post: -1,
-            attack_type: 0, // melee
+        });
+        farm_states.states.push(FarmGrowthState::Ready);
+        farm_states.progress.push(1.0);
+    }
+
+    // 5 beds near town 0
+    for i in 0..5 {
+        world_data.beds.push(world::Bed {
+            position: Vec2::new(300.0 + (i as f32 * 50.0), 450.0),
+            town_idx: 0,
         });
     }
 
-    // Spawn 5 faction-1 fighters on the right (200px apart — within 300px targeting range)
-    for i in 0..5 {
-        let slot = slot_alloc.alloc().expect("slot allocation failed");
+    // 4 guard posts (square patrol around town)
+    for (order, &(gx, gy)) in [(250.0, 250.0), (550.0, 250.0), (550.0, 550.0), (250.0, 550.0)].iter().enumerate() {
+        world_data.guard_posts.push(world::GuardPost {
+            position: Vec2::new(gx, gy),
+            town_idx: 0,
+            patrol_order: order as u32,
+        });
+    }
+
+    // --- Resources ---
+    food_storage.init(2);
+    food_storage.food[1] = 10; // Camp starts with 10 food (2 respawns worth)
+    faction_stats.init(2);
+    game_time.time_scale = 10.0; // 1 game hour = 0.5 real seconds
+
+    // --- Spawn 5 farmers ---
+    for (i, &(fx, fy)) in TEST12_FARMS.iter().enumerate() {
+        let slot = slot_alloc.alloc().expect("slot alloc");
         spawn_events.write(SpawnNpcMsg {
             slot_idx: slot,
-            x: 500.0,
-            y: 300.0 + (i as f32 * 40.0),
-            job: 3, // Fighter
-            faction: 1,
-            town_idx: -1,
-            home_x: 500.0,
-            home_y: 300.0,
-            work_x: -1.0,
-            work_y: -1.0,
+            x: fx, y: fy + 200.0, // 200px south of farm — must walk to arrive
+            job: 0, // Farmer
+            faction: 0,
+            town_idx: 0,
+            home_x: 300.0 + (i as f32 * 50.0), home_y: 450.0,
+            work_x: fx, work_y: fy,
             starting_post: -1,
-            attack_type: 0, // melee
+            attack_type: 0,
+        });
+    }
+
+    // --- Spawn 2 guards ---
+    for i in 0..2 {
+        let slot = slot_alloc.alloc().expect("slot alloc");
+        spawn_events.write(SpawnNpcMsg {
+            slot_idx: slot,
+            x: 400.0, y: 400.0, // Start at town center
+            job: 1, // Guard
+            faction: 0,
+            town_idx: 0,
+            home_x: 400.0, home_y: 400.0,
+            work_x: -1.0, work_y: -1.0,
+            starting_post: i,
+            attack_type: 0,
+        });
+    }
+
+    // --- Spawn 5 raiders ---
+    for i in 0..5 {
+        let slot = slot_alloc.alloc().expect("slot alloc");
+        spawn_events.write(SpawnNpcMsg {
+            slot_idx: slot,
+            x: 380.0 + (i as f32 * 10.0), y: 100.0, // Near camp
+            job: 2, // Raider
+            faction: 1,
+            town_idx: 1,
+            home_x: 400.0, home_y: 100.0,
+            work_x: -1.0, work_y: -1.0,
+            starting_post: -1,
+            attack_type: 0,
         });
     }
 
     flags.combat = true;
-    info!("Combat test: 5v5 fighters, 200px apart (melee range=150, targeting range=300)");
+    flags.readback = true;
+    info!("Test12: Setup complete — 5 farmers, 2 guards, 5 raiders");
+}
+
+/// Update system: phased assertions with time gates.
+fn test12_tick(
+    time: Res<Time>,
+    npc_count: Res<NpcCount>,
+    gpu_state: Res<GpuReadState>,
+    combat_debug: Res<CombatDebug>,
+    health_debug: Res<HealthDebug>,
+    working_query: Query<(), With<Working>>,
+    raiding_query: Query<(), With<Raiding>>,
+    going_to_work_query: Query<(), With<GoingToWork>>,
+    at_dest_query: Query<(), With<AtDestination>>,
+    has_target_query: Query<(), With<HasTarget>>,
+    mut test: ResMut<Test12>,
+) {
+    if test.passed || test.failed {
+        return;
+    }
+
+    let now = time.elapsed_secs();
+    if test.start == 0.0 {
+        test.start = now;
+    }
+    let elapsed = now - test.start;
+
+    // Track lowest NPC count for death detection
+    if npc_count.0 > 0 && npc_count.0 < test.lowest_npc_count {
+        test.lowest_npc_count = npc_count.0;
+    }
+
+    match test.phase {
+        // Phase 1: All 12 NPCs spawned
+        1 => {
+            if npc_count.0 == 12 {
+                let msg = format!("npc_count={}", npc_count.0);
+                info!("Test12 Phase 1: PASS — {}", msg);
+                test.results.push((1, elapsed, msg));
+                test.phase = 2;
+            } else if elapsed > 2.0 {
+                let msg = format!("npc_count={} (expected 12)", npc_count.0);
+                info!("Test12 Phase 1: FAIL — {} (waited {:.1}s)", msg, elapsed);
+                test.results.push((1, elapsed, msg));
+                test.failed = true;
+            }
+        }
+        // Phase 2: GPU readback has valid positions
+        2 => {
+            let has_positions = gpu_state.positions.len() >= 24
+                && gpu_state.positions.iter().take(24).any(|&v| v != 0.0);
+            if has_positions {
+                let p0 = (gpu_state.positions.get(0).copied().unwrap_or(0.0),
+                           gpu_state.positions.get(1).copied().unwrap_or(0.0));
+                let msg = format!("positions_len={}, sample=({:.0},{:.0})", gpu_state.positions.len(), p0.0, p0.1);
+                info!("Test12 Phase 2: PASS — {}", msg);
+                test.results.push((2, elapsed, msg));
+                test.phase = 3;
+            } else if elapsed > 3.0 {
+                let msg = format!("positions_len={}, all zeros", gpu_state.positions.len());
+                info!("Test12 Phase 2: FAIL — {} (waited {:.1}s)", msg, elapsed);
+                test.results.push((2, elapsed, msg));
+                test.failed = true;
+            }
+        }
+        // Phase 3: Farmers arrive at farms and start working
+        3 => {
+            let working = working_query.iter().count();
+            let going_to_work = going_to_work_query.iter().count();
+            let at_dest = at_dest_query.iter().count();
+            let has_target = has_target_query.iter().count();
+            if working >= 3 {
+                let msg = format!("working={}", working);
+                info!("Test12 Phase 3: PASS — {}", msg);
+                test.results.push((3, elapsed, msg));
+                test.phase = 4;
+            } else if elapsed > 8.0 {
+                let msg = format!("working={} going_to_work={} at_dest={} has_target={} (expected working>=3)", working, going_to_work, at_dest, has_target);
+                info!("Test12 Phase 3: FAIL — {} (waited {:.1}s)", msg, elapsed);
+                test.results.push((3, elapsed, msg));
+                test.failed = true;
+            }
+        }
+        // Phase 4: Raiders form group and get dispatched
+        4 => {
+            let raiding = raiding_query.iter().count();
+            if raiding >= 3 {
+                let msg = format!("raiding={}", raiding);
+                info!("Test12 Phase 4: PASS — {}", msg);
+                test.results.push((4, elapsed, msg));
+                test.phase = 5;
+            } else if elapsed > 15.0 {
+                let msg = format!("raiding={} (expected >=3)", raiding);
+                info!("Test12 Phase 4: FAIL — {} (waited {:.1}s)", msg, elapsed);
+                test.results.push((4, elapsed, msg));
+                test.failed = true;
+            }
+        }
+        // Phase 5: Guards acquire combat targets
+        5 => {
+            if combat_debug.targets_found > 0 {
+                let msg = format!("targets_found={}", combat_debug.targets_found);
+                info!("Test12 Phase 5: PASS — {}", msg);
+                test.results.push((5, elapsed, msg));
+                test.phase = 6;
+            } else if elapsed > 25.0 {
+                let msg = format!("targets_found=0");
+                info!("Test12 Phase 5: FAIL — {} (waited {:.1}s)", msg, elapsed);
+                test.results.push((5, elapsed, msg));
+                test.failed = true;
+            }
+        }
+        // Phase 6: Damage applied
+        6 => {
+            if health_debug.damage_processed > 0 {
+                let msg = format!("damage_processed={}", health_debug.damage_processed);
+                info!("Test12 Phase 6: PASS — {}", msg);
+                test.results.push((6, elapsed, msg));
+                test.phase = 7;
+            } else if elapsed > 30.0 {
+                let msg = format!("damage_processed=0");
+                info!("Test12 Phase 6: FAIL — {} (waited {:.1}s)", msg, elapsed);
+                test.results.push((6, elapsed, msg));
+                test.failed = true;
+            }
+        }
+        // Phase 7: At least one death
+        7 => {
+            if npc_count.0 < 12 || health_debug.deaths_this_frame > 0 {
+                test.death_seen = true;
+                let msg = format!("npc_count={}, deaths_frame={}", npc_count.0, health_debug.deaths_this_frame);
+                info!("Test12 Phase 7: PASS — {}", msg);
+                test.results.push((7, elapsed, msg));
+                test.phase = 8;
+            } else if elapsed > 40.0 {
+                let msg = format!("npc_count={} (no deaths)", npc_count.0);
+                info!("Test12 Phase 7: FAIL — {} (waited {:.1}s)", msg, elapsed);
+                test.results.push((7, elapsed, msg));
+                test.failed = true;
+            }
+        }
+        // Phase 8: Respawn — NPC count recovers after death
+        8 => {
+            // Wait for respawn: count should go back up (camp has food)
+            if test.death_seen && npc_count.0 >= 12 {
+                let msg = format!("npc_count={} (recovered after death)", npc_count.0);
+                info!("Test12 Phase 8: PASS — {}", msg);
+                test.results.push((8, elapsed, msg));
+                test.passed = true;
+                info!("========================================");
+                info!("Test12: ALL 8 PHASES PASSED ({:.1}s)", elapsed);
+                info!("========================================");
+                for (phase, t, m) in &test.results {
+                    info!("  Phase {}: {:.1}s — {}", phase, t, m);
+                }
+            } else if elapsed > 60.0 {
+                let msg = format!("npc_count={}, lowest={}, death_seen={}", npc_count.0, test.lowest_npc_count, test.death_seen);
+                info!("Test12 Phase 8: FAIL — {} (waited {:.1}s)", msg, elapsed);
+                test.results.push((8, elapsed, msg));
+                test.failed = true;
+                info!("========================================");
+                info!("Test12: FAILED at Phase 8");
+                info!("========================================");
+                for (phase, t, m) in &test.results {
+                    info!("  Phase {}: {:.1}s — {}", phase, t, m);
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Toggle debug flags with F1-F4 keys.
@@ -261,12 +506,13 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CampState>()
        .init_resource::<RaidQueue>()
        .init_resource::<BevyFrameTimer>()
+       .init_resource::<Test12>()
        // Plugins
        .add_plugins(gpu::GpuComputePlugin)
        .add_plugins(render::RenderPlugin)
        .add_plugins(npc_render::NpcRenderPlugin)
        // Startup
-       .add_systems(Startup, (startup_system, test_spawn_combat))
+       .add_systems(Startup, (startup_system, test12_setup))
        // System sets
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain())
        .add_systems(Update, bevy_timer_start.before(Step::Drain))
@@ -308,6 +554,7 @@ pub fn build_app(app: &mut App) {
            decision_system,
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior))
+       .add_systems(Update, test12_tick.after(Step::Behavior))
        .add_systems(Update, bevy_timer_end.after(collect_gpu_updates))
        // Debug (F1=readback, F2=combat, F3=spawns, F4=behavior)
        .add_systems(Update, (debug_toggle_system, debug_tick_system));

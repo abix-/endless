@@ -1,6 +1,15 @@
 # Changelog
 
 ## 2026-02-08
+- **test 12: vertical slice integration test — phase 4 complete**
+  - add Test12 resource with phased assertions (8 phases, time-gated, PASS/FAIL logging)
+  - test12_setup startup: populate WorldData (2 towns, 5 farms, 5 beds, 4 guard posts), spawn 12 NPCs, init FoodStorage/FarmStates
+  - test12_tick: validates spawn → GPU readback → farmers working → raiders raiding → combat → death → respawn
+  - all 8 phases pass in 6.8s at time_scale=10
+  - fix: add CPU-side arrival detection in gpu_position_readback (position vs goal within ARRIVAL_THRESHOLD → AtDestination)
+  - fix: add HasTarget component to farmers at spawn (was missing, blocking arrival detection)
+  - ARRIVAL_QUEUE static is now unused — replaced by CPU-side arrival detection in movement.rs
+
 - **docs: authority model and roadmap restructure**
   - messages.md: Data Ownership → Data Ownership & Authority Model with 4 categories (GPU-authoritative, CPU-authoritative, CPU-only, render-only)
   - added staleness budget (1 frame, 1.6px drift) and anti-pattern rule (no read-then-write feedback loops)

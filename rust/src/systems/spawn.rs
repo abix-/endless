@@ -179,6 +179,7 @@ pub fn spawn_npc_system(
                     ec.insert((
                         WorkPosition(Vec2::new(msg.work_x, msg.work_y)),
                         GoingToWork,
+                        HasTarget,
                     ));
                 }
             }

@@ -66,7 +66,7 @@ Job-specific templates:
 | Job | Additional Components |
 |-----|----------------------|
 | Guard | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `OnDuty { ticks_waiting: 0 }` |
-| Farmer | `Energy`, `Farmer`, `WorkPosition`, `GoingToWork` |
+| Farmer | `Energy`, `Farmer`, `WorkPosition`, `GoingToWork`, `HasTarget` |
 | Raider | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)` |
 | Fighter | `AttackStats` (melee or ranged via attack_type), `AttackTimer(0)` |
 

@@ -553,3 +553,30 @@ impl FactionStats {
         }
     }
 }
+
+/// Test 12: Vertical slice integration test state.
+/// Tracks phased assertions validating the full core loop.
+#[derive(Resource)]
+pub struct Test12 {
+    pub phase: u32,
+    pub start: f32,
+    pub results: Vec<(u32, f32, String)>,
+    pub passed: bool,
+    pub failed: bool,
+    pub death_seen: bool,
+    pub lowest_npc_count: usize,
+}
+
+impl Default for Test12 {
+    fn default() -> Self {
+        Self {
+            phase: 1,
+            start: 0.0,
+            results: Vec::new(),
+            passed: false,
+            failed: false,
+            death_seen: false,
+            lowest_npc_count: usize::MAX,
+        }
+    }
+}

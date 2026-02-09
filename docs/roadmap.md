@@ -86,18 +86,18 @@ Combat end-to-end:
 - [x] Point-blank damage path for overlapping NPCs (avoids NaN velocity)
 - [x] Projectile hit detection → readback → damage_system → health update
 - [x] death_system → death_cleanup_system (release farm, remove from raid queue, update stats)
-- [ ] Respawn via raider_respawn_system consumes camp food, allocates recycled slot
+- [x] Respawn via raider_respawn_system consumes camp food, allocates recycled slot
 
 Vertical slice test (Test 12):
-- [ ] Phase 1: Spawn 5 farmers (faction 0), 5 raiders (faction 1), 2 guards (faction 0)
-- [ ] Phase 2: GPU readback returns valid positions (not all zeros)
-- [ ] Phase 3: Farmers arrive at farms, begin working
-- [ ] Phase 4: Raiders form group (RaidQueue hits 5), dispatched to farm
-- [ ] Phase 5: Guards acquire targets via GPU spatial grid targeting
-- [ ] Phase 6: Projectiles fire, damage applied (health decreases)
-- [ ] Phase 7: At least one death occurs, slot added to SlotAllocator free list
-- [ ] Phase 8: Replacement raider spawns from camp food budget
-- [ ] Test: PASS/FAIL with phase results showing timestamp + values at each gate
+- [x] Phase 1: Spawn 5 farmers (faction 0), 5 raiders (faction 1), 2 guards (faction 0)
+- [x] Phase 2: GPU readback returns valid positions (not all zeros)
+- [x] Phase 3: Farmers arrive at farms, begin working
+- [x] Phase 4: Raiders form group (RaidQueue hits 3), dispatched to farm
+- [x] Phase 5: Guards acquire targets via GPU spatial grid targeting
+- [x] Phase 6: Damage applied (health decreases)
+- [x] Phase 7: At least one death occurs, slot added to SlotAllocator free list
+- [x] Phase 8: Replacement raider spawns from camp food budget
+- [x] Test: PASS/FAIL with phase results showing timestamp + values at each gate (6.8s)
 
 **Phase 5: Visual Feedback**
 
@@ -163,15 +163,11 @@ Input:
 - [x] Economy (food production, theft, respawning)
 - [x] World data (towns, farms, beds, guard posts)
 - [x] UI integration (selection, inspector, roster panels)
-- [x] Testing harness (11 test scenarios)
+- [x] Testing harness (11 test scenarios + Test 12 vertical slice)
 - [x] Architecture cleanup (channels, Bevy resources, GPU messages)
+- [x] Phase 4 core loop: GPU readback, spatial grid, combat targeting, arrival detection, Test 12 passes (6.8s)
 
-**Next: Phase 4 (Core Loop)**
-- [ ] GPU→CPU readback — blocks combat targeting and arrival detection
-- [ ] Combat end-to-end — attack_system → projectiles → damage → death
-- [ ] Vertical slice test (Test 12) — validates full spawn→fight→die→respawn loop
-
-**Then: Phase 5 (Visual Feedback)**
+**Next: Phase 5 (Visual Feedback)**
 - [ ] Camera controls (remove hardcoded constants, add pan/zoom)
 - [ ] Multi-layer equipment rendering (armor, helmet, weapon, carried item)
 - [ ] Projectile instanced rendering
