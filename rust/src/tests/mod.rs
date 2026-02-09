@@ -15,6 +15,9 @@ pub mod projectiles;
 pub mod healing;
 pub mod economy;
 pub mod world_gen;
+pub mod sleep_visual;
+pub mod farm_visual;
+pub mod heal_visual;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -412,6 +415,51 @@ pub fn register_tests(app: &mut App) {
         world_gen::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("world-gen"))
+            .after(Step::Behavior));
+
+    // sleep-visual
+    registry.tests.push(TestEntry {
+        name: "sleep-visual".into(),
+        description: "Resting NPC gets sleep icon, cleared on wake".into(),
+        phase_count: 3,
+        time_scale: 20.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        sleep_visual::setup.run_if(test_is("sleep-visual")));
+    app.add_systems(Update,
+        sleep_visual::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("sleep-visual"))
+            .after(Step::Behavior));
+
+    // farm-visual
+    registry.tests.push(TestEntry {
+        name: "farm-visual".into(),
+        description: "Ready farm spawns FarmReadyMarker, removed on harvest".into(),
+        phase_count: 3,
+        time_scale: 50.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        farm_visual::setup.run_if(test_is("farm-visual")));
+    app.add_systems(Update,
+        farm_visual::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("farm-visual"))
+            .after(Step::Behavior));
+
+    // heal-visual
+    registry.tests.push(TestEntry {
+        name: "heal-visual".into(),
+        description: "Healing NPC gets heal icon, cleared when healed".into(),
+        phase_count: 3,
+        time_scale: 20.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        heal_visual::setup.run_if(test_is("heal-visual")));
+    app.add_systems(Update,
+        heal_visual::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("heal-visual"))
             .after(Step::Behavior));
 
     app.insert_resource(registry);

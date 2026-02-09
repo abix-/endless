@@ -41,6 +41,9 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `healing` | 3 | Damaged NPC near town → Healing marker → health recovers to max |
 | `economy` | 5 | Farm growing → ready → harvest → camp forage → raider respawn |
 | `world-gen` | 6 | Grid dimensions, town placement, buildings, terrain, camps |
+| `sleep-visual` | 3 | Resting NPC gets sleep icon on item layer, cleared on wake |
+| `farm-visual` | 3 | Ready farm spawns FarmReadyMarker, removed on harvest |
+| `heal-visual` | 3 | Healing NPC gets heal icon on item layer, cleared when healed |
 
 ## System Map
 
@@ -127,6 +130,9 @@ rust/
     healing.rs          # Healing aura test (3 phases, time_scale=20)
     economy.rs          # Economy test (5 phases, time_scale=50)
     world_gen.rs        # World generation test (6 phases)
+    sleep_visual.rs     # Sleep icon visual test (3 phases, time_scale=20)
+    farm_visual.rs      # Farm ready marker visual test (3 phases, time_scale=50)
+    heal_visual.rs      # Heal icon visual test (3 phases, time_scale=20)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates

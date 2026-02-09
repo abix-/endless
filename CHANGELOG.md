@@ -1,6 +1,22 @@
 # Changelog
 
 ## 2026-02-09
+- **fix guard-patrol test: all 5 phases pass**
+  - tired guards now leave post (Priority 6 energy check) and fall through to rest scoring
+  - test keeps guard fed via `LastAteHour` reset each tick — isolates duty cycle from starvation
+  - guard-patrol was 3/5, now ALL PASS
+
+- **gate tick spam behind debug flag**
+  - "Tick: N NPCs active" log now requires `flags.readback` (F1) to be on
+  - merge the NPC count log into the readback block — no output unless F1 toggled
+
+- **visual indicator test infrastructure (red tests)**
+  - add `sleep_visual.rs`: resting NPC gets SLEEP_SPRITE on item layer, cleared on wake (3 phases)
+  - add `farm_visual.rs`: ready farm spawns FarmReadyMarker entity, removed on harvest (3 phases)
+  - add `heal_visual.rs`: healing NPC gets HEAL_SPRITE on item layer, cleared when healed (3 phases)
+  - add `FarmReadyMarker` component, `SLEEP_SPRITE` and `HEAL_SPRITE` constants
+  - tests are expected to fail Phase 2 until visual systems write to `item_sprites`/spawn markers
+
 - **require(HasTarget) on transit components: compile-time arrival detection guarantee**
   - add `#[require(HasTarget)]` to 6 transit components (Patrolling, GoingToRest, GoingToWork, Raiding, Returning, Wandering)
   - add `Default` derive to `HasTarget` (required by `#[require]`)

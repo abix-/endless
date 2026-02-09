@@ -67,10 +67,17 @@ pub fn tick(
     going_rest_query: Query<(), (With<GoingToRest>, With<Guard>, Without<Dead>)>,
     energy_query: Query<&Energy, (With<Guard>, Without<Dead>)>,
     guard_query: Query<(), (With<Guard>, Without<Dead>)>,
+    mut last_ate_query: Query<&mut LastAteHour, (With<Guard>, Without<Dead>)>,
+    game_time: Res<GameTime>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     if test.passed || test.failed { return; }
+
+    // Keep guard fed — this test validates the duty cycle, not starvation
+    for mut last_ate in last_ate_query.iter_mut() {
+        last_ate.0 = game_time.total_hours();
+    }
 
     let now = time.elapsed_secs();
     if test.start == 0.0 { test.start = now; }

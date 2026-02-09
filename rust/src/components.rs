@@ -335,6 +335,12 @@ pub struct Healing;
 #[derive(Component)]
 pub struct Starving;
 
+/// Marker: farm is visually Ready (food icon overlay).
+#[derive(Component)]
+pub struct FarmReadyMarker {
+    pub farm_idx: usize,
+}
+
 /// Tracks when NPC last ate (total game hours).
 /// Used to determine starvation.
 #[derive(Component)]

@@ -161,12 +161,12 @@ Tests for completed features (one file each in `src/tests/`):
 - [x] Phase 2: GPU positions move toward target (not at origin)
 - [x] Phase 3: NPCs reach destination — AtDestination added
 
-`guard-patrol` — Guard Patrol Cycle (5 phases, time_scale=20): passes 3/5
+`guard-patrol` — Guard Patrol Cycle (5 phases, time_scale=20): **ALL PASS**
 - [x] Phase 1: Guard spawns with OnDuty at first post
 - [x] Phase 2: After GUARD_PATROL_WAIT ticks → Patrolling
 - [x] Phase 3: Arrives at next post → OnDuty again
-- [ ] Phase 4: Energy < ENERGY_HUNGRY → goes to rest (guard at energy=0 but OnDuty blocks rest decision)
-- [ ] Phase 5: Energy > ENERGY_RESTED → resumes patrol
+- [x] Phase 4: Energy < ENERGY_HUNGRY → goes to rest
+- [x] Phase 5: Energy > ENERGY_RESTED → resumes patrol
 
 `farmer-cycle` — Farmer Work Cycle (5 phases, time_scale=20): **ALL PASS**
 - [x] Phase 1: Farmer spawns with GoingToWork + HasTarget
@@ -254,6 +254,23 @@ Visual state indicators:
 - [ ] Healing glow effect (pulsing green tint + radial halo — needs TIME uniform in shader)
 - [ ] Sleep indicator on resting NPCs (z icon overlay)
 - [x] Carried item icon (food sprite on returning raiders)
+
+Visual indicator tests (red tests — infrastructure ready, visual implementation pending):
+
+`sleep-visual` — Sleep Icon (3 phases, time_scale=20): not yet passing
+- [ ] Phase 1: Farmer spawns with energy 100
+- [ ] Phase 2: Farmer rests → item_sprites shows SLEEP_SPRITE
+- [ ] Phase 3: Farmer wakes → item_sprites cleared to -1
+
+`farm-visual` — Farm Ready Marker (3 phases, time_scale=50): not yet passing
+- [ ] Phase 1: Farm is Growing, no FarmReadyMarker entities
+- [ ] Phase 2: Farm reaches Ready → FarmReadyMarker entity spawned
+- [ ] Phase 3: Farmer harvests → FarmReadyMarker despawned, farm Growing again
+
+`heal-visual` — Heal Icon (3 phases, time_scale=20): not yet passing
+- [ ] Phase 1: Damaged NPC (50 HP) → Healing marker
+- [ ] Phase 2: Healing NPC → item_sprites shows HEAL_SPRITE
+- [ ] Phase 3: NPC healed → Healing removed, item_sprites cleared
 
 **Stage 7: Playable Game**
 
@@ -415,8 +432,8 @@ LayerBuffer:
 - [x] Refactor `queue_npcs`: add one `Transparent2d` phase item per non-empty layer with incrementing sort keys
 - [x] Refactor `DrawNpcs`: read layer index from batch entity to select correct `LayerBuffer`
 - [x] Set `CarryingFood` → write food sprite to `item_sprites`, clear on delivery
-- [ ] Set `Healing` → write halo sprite to `item_sprites` (or dedicated healing layer)
-- [ ] Set `Resting` → write sleep icon to `item_sprites`
+- [ ] Set `Healing` → write halo sprite to `item_sprites` (or dedicated healing layer) — red test: `heal-visual`
+- [ ] Set `Resting` → write sleep icon to `item_sprites` — red test: `sleep-visual`
 
 **Performance budget:**
 
