@@ -24,17 +24,6 @@ pub struct SpawnNpcMsg {
     pub attack_type: i32,   // 0=melee, 1=ranged
 }
 
-#[derive(Message, Clone)]
-pub struct SetTargetMsg {
-    pub npc_index: usize,
-    pub x: f32,
-    pub y: f32,
-}
-
-#[derive(Message, Clone)]
-pub struct ArrivalMsg {
-    pub npc_index: usize,
-}
 
 #[derive(Message, Clone)]
 pub struct DamageMsg {
@@ -42,12 +31,6 @@ pub struct DamageMsg {
     pub amount: f32,
 }
 
-// ============================================================================
-// BEVY MESSAGE QUEUES (remaining statics - arrivals still needed by lib.rs)
-// Phase 11.7: Removed SPAWN_QUEUE, TARGET_QUEUE, DAMAGE_QUEUE → channels
-// ============================================================================
-
-pub static ARRIVAL_QUEUE: Mutex<Vec<ArrivalMsg>> = Mutex::new(Vec::new());
 
 // ============================================================================
 // GPU DISPATCH COUNT

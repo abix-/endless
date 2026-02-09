@@ -12,14 +12,14 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 ├─ bevy_timer_start
 │
 ├─ Step::Drain
-│     reset_bevy_system, drain_arrival_queue, drain_game_config,
+│     reset_bevy_system, drain_game_config,
 │     sync_gpu_state_to_bevy (GPU_READ_STATE → GpuReadState resource)
 │
 ├─ gpu_position_readback (after Drain, before Spawn)
 │     GpuReadState → ECS Position components
 │
 ├─ Step::Spawn
-│     spawn_npc_system, apply_targets_system
+│     spawn_npc_system
 │
 ├─ ApplyDeferred (flush entity commands before combat)
 │
@@ -104,7 +104,7 @@ GPU → Render:
 |-----------|-----------|---------|
 | Systems → GPU | MessageWriter\<GpuUpdateMsg\> → collect → populate → extract → upload | SetPosition, SetTarget, SetColor, SetSpriteFrame |
 | GPU → ECS | staging buffer → GPU_READ_STATE → GpuReadState → Position components | Positions after compute |
-| Static queues → Bevy | Mutex queues drained in Step::Drain | ARRIVAL_QUEUE, GAME_CONFIG_STAGING |
+| Static queues → Bevy | Mutex queues drained in Step::Drain | GAME_CONFIG_STAGING |
 
 Systems use MessageWriter for GPU updates so they can run in parallel. The single `collect_gpu_updates` call at frame end does one mutex lock to batch everything.
 

@@ -5,15 +5,6 @@ use bevy::prelude::*;
 use crate::messages::*;
 use crate::resources::{self, ResetFlag};
 
-/// Drain arrival queue and convert to Bevy events.
-pub fn drain_arrival_queue(mut events: MessageWriter<ArrivalMsg>) {
-    if let Ok(mut queue) = ARRIVAL_QUEUE.lock() {
-        for msg in queue.drain(..) {
-            events.write(msg);
-        }
-    }
-}
-
 /// Drain game config staging into Bevy Resource (one-shot).
 pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>) {
     if let Ok(mut staging) = GAME_CONFIG_STAGING.lock() {

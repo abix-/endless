@@ -22,7 +22,7 @@ pub mod world;
 
 use bevy::prelude::*;
 
-use messages::{SpawnNpcMsg, SetTargetMsg, ArrivalMsg, DamageMsg, GpuUpdateMsg};
+use messages::{SpawnNpcMsg, DamageMsg, GpuUpdateMsg};
 use resources::{
     NpcCount, NpcEntityMap, PopulationStats, GameConfig, GameTime, RespawnTimers,
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
@@ -180,8 +180,6 @@ pub fn build_app(app: &mut App) {
     app
        // Events
        .add_message::<SpawnNpcMsg>()
-       .add_message::<SetTargetMsg>()
-       .add_message::<ArrivalMsg>()
        .add_message::<DamageMsg>()
        .add_message::<GpuUpdateMsg>()
        // Resources
@@ -232,17 +230,14 @@ pub fn build_app(app: &mut App) {
        // Drain
        .add_systems(Update, (
            reset_bevy_system,
-           drain_arrival_queue,
            drain_game_config,
            sync_gpu_state_to_bevy,
        ).in_set(Step::Drain))
        // GPU→ECS position readback
        .add_systems(Update, gpu_position_readback.after(Step::Drain).before(Step::Spawn).run_if(running.clone()))
        // Spawn
-       .add_systems(Update, (
-           spawn_npc_system,
-           apply_targets_system,
-       ).in_set(Step::Spawn))
+       .add_systems(Update,
+           spawn_npc_system.in_set(Step::Spawn))
        // Combat
        .add_systems(Update, (
            process_proj_hits,

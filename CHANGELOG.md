@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-02-09
+- **fix arrival detection: consolidate to single targeting path**
+  - remove dead `SetTargetMsg` + `apply_targets_system` (redundant O(n) entity scan, nobody wrote SetTargetMsg)
+  - remove dead `ArrivalMsg` + `ARRIVAL_QUEUE` + `drain_arrival_queue` (nothing ever wrote to the queue)
+  - remove ArrivalMsg event-reading section from `arrival_system` (now proximity checks only)
+  - add `HasTarget` insert at all 13 transit points in `decision_system` (was missing — arrival detection required it)
+  - single targeting path: `decision_system` writes `GpuUpdate::SetTarget` + inserts `HasTarget` → `gpu_position_readback` detects arrival → `AtDestination`
+  - fixes guard-patrol Phase 3, farmer-cycle Phase 5, raider-cycle Phase 2, combat Phase 5, projectiles Phase 3
+  - 4 previously-failing tests now fully pass (farmer-cycle, raider-cycle, combat, projectiles)
+
+
 - **world grid + procedural generation (TDD)**
   - add `WorldGrid` resource: 250x250 cell grid (32px/cell) covering 8000x8000 world
   - add `WorldCell` with `Biome` (Grass/Forest/Water/Rock/Dirt) + `Option<Building>` layers

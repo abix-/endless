@@ -5,33 +5,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ARRIVAL_THRESHOLD;
 use crate::gpu::NpcBufferWrites;
-use crate::messages::{SetTargetMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::GpuReadState;
-
-/// Process target messages: push to GPU update queue and add HasTarget component.
-pub fn apply_targets_system(
-    mut commands: Commands,
-    mut events: MessageReader<SetTargetMsg>,
-    query: Query<(Entity, &NpcIndex), Without<HasTarget>>,
-    gpu_state: Res<GpuReadState>,
-    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-) {
-    let npc_count = gpu_state.npc_count;
-
-    for event in events.read() {
-        if event.npc_index < npc_count {
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: event.npc_index, x: event.x, y: event.y }));
-
-            // Add HasTarget component to entity (if not already present)
-            for (entity, npc_idx) in query.iter() {
-                if npc_idx.0 == event.npc_index {
-                    commands.entity(entity).insert(HasTarget);
-                    break;
-                }
-            }
-        }
-    }
-}
 
 /// Read positions from GPU and update Bevy Position components.
 /// Also detects arrivals: if NPC has HasTarget and is within ARRIVAL_THRESHOLD

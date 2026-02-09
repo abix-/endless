@@ -164,7 +164,7 @@ pub struct AssignedFarm(pub Vec2);
 pub struct GoingToWork;
 
 /// NPC has arrived at destination and needs transition handling.
-/// Set by arrival_system when ArrivalMsg received; cleared by decision_system.
+/// Set by gpu_position_readback when within ARRIVAL_THRESHOLD; cleared by decision_system.
 #[derive(Component)]
 pub struct AtDestination;
 

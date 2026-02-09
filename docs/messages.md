@@ -22,7 +22,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | Positions | GPU | GPU → CPU | Compute shader moves NPCs; readback via staging → GpuReadState |
 | Spatial grid | GPU | Internal | Built each frame (clear → insert → query). Not read back. |
 | Combat targets | GPU | GPU → CPU | Nearest enemy index via grid neighbor search; readback to GpuReadState |
-| Arrivals | GPU | GPU → CPU | Settled flag when NPC reaches goal; triggers ArrivalMsg |
+| Arrivals | CPU | Internal | `HasTarget` + `gpu_position_readback` distance check → `AtDestination` |
 | **CPU-Authoritative** (written by ECS systems, uploaded to GPU next frame) ||||
 | Health | CPU | CPU → GPU | damage_system/healing_system write; uploaded for GPU targeting threshold |
 | Targets/Goals | CPU | CPU → GPU | decision_system/attack_system set destination; GPU interpolates movement |
@@ -46,13 +46,11 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 
 ## Bevy Messages
 
-Four message types used for intra-ECS communication:
+Three message types used for intra-ECS communication:
 
 | Message | Fields | Pattern |
 |---------|--------|---------|
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
-| SetTargetMsg | npc_index, x, y | MessageWriter → MessageReader |
-| ArrivalMsg | npc_index | MessageWriter → MessageReader |
 | DamageMsg | npc_index, amount | MessageWriter → MessageReader |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → collect_gpu_updates |
 
@@ -62,7 +60,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 
 | Variant | Fields | Producer Systems |
 |---------|--------|------------------|
-| SetTarget | idx, x, y | attack_system, decision_system, apply_targets_system |
+| SetTarget | idx, x, y | attack_system, decision_system |
 | SetHealth | idx, health | spawn_npc_system, damage_system |
 | SetFaction | idx, faction | spawn_npc_system |
 | SetPosition | idx, x, y | spawn_npc_system |
@@ -80,7 +78,6 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | Static | Type | Writer | Reader |
 |--------|------|--------|--------|
 | GPU_UPDATE_QUEUE | `Mutex<Vec<GpuUpdate>>` | collect_gpu_updates | populate_buffer_writes |
-| ARRIVAL_QUEUE | `Mutex<Vec<ArrivalMsg>>` | (future: GPU readback) | drain_arrival_queue |
 | GPU_READ_STATE | `Mutex<GpuReadState>` | readback_npc_positions | sync_gpu_state_to_bevy → attack_system, healing_system |
 | GPU_DISPATCH_COUNT | `Mutex<usize>` | spawn_npc_system | (legacy, used for dispatch count) |
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
@@ -94,7 +91,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 
 | Field | Type | Source | Consumers |
 |-------|------|--------|-----------|
-| npc_count | usize | Dispatch count | apply_targets_system |
+| npc_count | usize | Dispatch count | gpu_position_readback |
 | positions | Vec\<f32\> | position_buffer readback | attack_system, healing_system, prepare_npc_buffers |
 | combat_targets | Vec\<i32\> | combat_target_buffer readback | attack_system (target selection) |
 | health | Vec\<f32\> | CPU cache | (available for queries) |

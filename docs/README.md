@@ -107,7 +107,7 @@ rust/
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
   src/render.rs         # 2D camera, texture atlases, sprite rendering
-  src/messages.rs       # Static queues (GpuUpdate, Arrival), Message types
+  src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
@@ -129,7 +129,7 @@ rust/
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
-    movement.rs         # Target application
+    movement.rs         # GPU position readback, arrival detection
     combat.rs           # Attack cooldown, targeting
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals

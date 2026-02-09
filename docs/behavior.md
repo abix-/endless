@@ -197,11 +197,11 @@ Same situation, different outcomes. That's emergent behavior.
 - Increments `ticks_waiting` each frame
 - Separated from decision_system to allow mutable `OnDuty` access while main query has immutable view
 
-### arrival_system (Minimal)
-- Reads `ArrivalMsg` events (from GPU arrival detection) and marks NPCs with `AtDestination`
+### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for Returning raiders: checks distance to home, delivers food within DELIVERY_RADIUS (150px)
 - **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm
-- All state transitions moved to decision_system Priority 0 (central brain model)
+- Arrival detection (`HasTarget` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs
+- All state transitions handled by decision_system Priority 0 (central brain model)
 
 ### energy_system
 - NPCs with `Resting`: recover `ENERGY_RECOVER_RATE` per tick
@@ -252,7 +252,6 @@ Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes ar
 ## Known Issues / Limitations
 
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
-- **Linear arrival scan**: arrival_system iterates all entities per arrival event — O(events * entities). A HashMap lookup would be more efficient at scale.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
 - **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
