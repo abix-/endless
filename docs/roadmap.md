@@ -88,18 +88,7 @@ Rules:
 - [x] Population caps per town (upgradeable)
 
 ### World Generation
-- [x] Procedural town generation (1-7 towns, 1200px minimum spacing)
-- [x] Named towns from pool of 15 Florida cities
-- [x] Farms (2 per town, 200-300px from center)
-- [x] Homes/beds for farmers (ring 350-450px from center, 16 starting beds)
-- [x] Guard posts (4 per town at corners, clockwise patrol)
-- [x] Raider camps (positioned away from all towns)
-- [x] Visible world border with corner markers
-- [x] Building grid (6x6 start, expandable to 100x100)
-- [x] Destructible buildings (right-click slot → Destroy)
-- [x] Build new structures (right-click empty slots - farms, beds, guard posts)
-- [x] Double-click locked slots to unlock (1 food each)
-- [x] Town circle indicator expands with building range
+*Note: procedural generation, building grid, and building interactions were Godot-era features not yet ported to Bevy. They live in Stage 7.*
 
 ### World Data
 - [x] Towns, farms, beds, guard posts as Bevy resources
@@ -109,15 +98,14 @@ Rules:
 - [x] init_world, add_town/farm/bed/guard_post APIs
 
 ### UI Integration
-- [x] Click to select NPC (get_npc_at_position with radius)
-- [x] Inspector panel (name, HP, job, energy, state)
-- [x] Roster panel with sorting/filtering
-- [x] Population stats and kill tracking (KILL_STATS)
+- [x] Click to select NPC (click_to_select_system, nearest within 20px)
 - [x] Name generation ("Adjective Noun" by job)
 - [x] NpcMetaCache resource (name, level, xp, trait, town_id, job per NPC)
 - [x] NpcEnergyCache resource (energy per NPC)
 - [x] NpcsByTownCache resource (per-town NPC lists)
 - [x] PopulationStats, KillStats, SelectedNpc resources
+
+*Note: inspector panel, roster panel, and population stats display were Godot UI — not yet ported. They live in Stage 7.*
 
 ### Testing & Debug
 - [x] Test harness with phased PASS/FAIL assertions
@@ -260,7 +248,10 @@ Visual state indicators:
 *Done when: someone who isn't you can open it, understand what's happening, and make decisions that affect the outcome.*
 
 World setup:
-- [ ] Procedural town/farm/bed/guard_post placement
+- [ ] Procedural town/farm/bed/guard_post placement (1-7 towns, 1200px spacing, ring-based layout)
+- [ ] Named towns from pool of Florida cities
+- [ ] Building grid (6x6 start, expandable to 100x100)
+- [ ] Visible world border with corner markers
 - [ ] Port config.gd → Bevy Resource
 - [ ] Port user_settings.gd → serde JSON
 
@@ -278,6 +269,8 @@ Input:
 
 Building system:
 - [ ] Runtime add/remove farm/bed/guard_post
+- [ ] Slot unlock system (spend food to unlock grid slots)
+- [ ] Town circle indicator expands with building range
 - [ ] NPCs claim and use new buildings
 - [ ] Guard post auto-attack (turret behavior, fires at enemies)
 - [ ] Guard post upgrades (attack_enabled, range_level, damage_level)
