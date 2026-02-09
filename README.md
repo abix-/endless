@@ -4,6 +4,16 @@ A game about fighting entropy. Raiders steal your food. Guards die in combat. Fa
 
 Built with Bevy 0.18 ECS and GPU compute shaders (WGSL). Data-oriented design with Factorio-style optimizations — 16K NPCs via GPU instanced rendering in a single draw call.
 
+## Getting Started
+
+**Prerequisites:** [Rust 1.93+](https://rustup.rs/), GPU with Vulkan or DX12 support
+
+```bash
+git clone https://github.com/abix-/endless.git
+cd endless/rust
+cargo run --release
+```
+
 ## The Struggle
 
 1. **Produce** - Farmers generate food. Without food, nothing else matters.
