@@ -2,7 +2,7 @@
 
 ## Overview
 
-NPCs are rendered via a custom GPU instanced pipeline using Bevy's RenderCommand pattern in the Transparent2d phase. All NPCs draw in a single instanced call — one static quad shared by all instances, with per-NPC position, sprite, and color data. World sprites (buildings, terrain) use Bevy's built-in sprite system.
+NPCs and projectiles are rendered via a custom GPU instanced pipeline using Bevy's RenderCommand pattern in the Transparent2d phase. Each layer draws in a single instanced call — one static quad shared by all instances, with per-instance position, sprite, and color data. World sprites (buildings, terrain) use Bevy's built-in sprite system.
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -10,10 +10,10 @@ Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.
 
 Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that's 16K entities in the render world — the scheduling/extraction overhead dominates. The custom pipeline uses:
 
-- **1 entity** (NpcBatch) instead of 16,384 entities
-- **32 bytes/NPC** (position + sprite + color) instead of ~80 bytes/entity
-- **GPU compute data stays on GPU** — no CPU round-trip for positions
-- **Single draw call** — `draw_indexed(0..6, 0, 0..instance_count)`
+- **1 entity per layer** (NpcBatch, ProjBatch) instead of 16,384 entities
+- **32 bytes/instance** (position + sprite + color) instead of ~80 bytes/entity
+- **GPU compute data stays on GPU** — readback only for rendering
+- **One draw call per layer** — `draw_indexed(0..6, 0, 0..instance_count)`
 
 ## Data Flow
 
@@ -42,6 +42,24 @@ NpcBatch entity ──extract_npc_batch──▶ NpcBatch entity
                               SetNpcTextureBindGroup<0>
                               SetNpcCameraBindGroup<1>
                               DrawNpcs
+
+ProjBufferWrites ──ExtractResource──▶ ProjBufferWrites
+ProjGpuData      ──ExtractResource──▶ ProjGpuData
+ProjBatch entity ──extract_proj_batch──▶ ProjBatch entity
+                                      │
+                                      ▼
+                               prepare_proj_buffers
+                               (build NpcInstanceData[] from PROJ_POSITION_STATE)
+                                      │
+                                      ▼
+                                  queue_projs
+                               (add to Transparent2d, sort_key=1.0)
+                                      │
+                                      ▼
+                              SetItemPipeline
+                              SetNpcTextureBindGroup<0>
+                              SetNpcCameraBindGroup<1>
+                              DrawProjs
 ```
 
 ## Instance Data
@@ -144,11 +162,15 @@ The render pipeline runs in Bevy's render world after extract:
 | Phase | System | Purpose |
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
-| PrepareResources | `prepare_npc_buffers` | Build instance buffer from NpcBufferWrites |
+| Extract | `extract_proj_batch` | Clone ProjBatch entity to render world |
+| PrepareResources | `prepare_npc_buffers` | Build NPC instance buffer from GPU_READ_STATE |
+| PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
-| Queue | `queue_npcs` | Add NpcBatch to Transparent2d phase |
+| Queue | `queue_npcs` | Add NpcBatch to Transparent2d (sort_key=0.0) |
+| Queue | `queue_projs` | Add ProjBatch to Transparent2d (sort_key=1.0, above NPCs) |
 | Render | `DrawNpcCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawNpcs |
+| Render | `DrawProjCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawProjs |
 
 ## RenderCommand Pattern
 
@@ -164,6 +186,19 @@ type DrawNpcCommands = (
 ```
 
 `DrawNpcs::render()` sets both vertex buffer slots and issues the instanced draw call. If `instance_count == 0` or the instance buffer is empty, it returns `Skip`.
+
+Projectiles reuse the same pipeline, shader, and bind groups with a separate instance buffer:
+
+```rust
+type DrawProjCommands = (
+    SetItemPipeline,           // Same NPC pipeline
+    SetNpcTextureBindGroup<0>, // Same sprite texture
+    SetNpcCameraBindGroup<1>,  // Same camera uniform
+    DrawProjs,                 // Uses NPC quad + proj instance buffer
+);
+```
+
+`DrawProjs::render()` reads `(NpcRenderBuffers, ProjRenderBuffers)` — sharing the static quad/index buffers from NPCs but using its own instance buffer. Faction-colored: blue for villagers, red for raiders.
 
 ## Camera
 
@@ -206,7 +241,6 @@ The character texture handle is shared via `NpcSpriteTexture` resource (extracte
 
 ## Known Issues
 
-- **No projectile rendering**: Projectile compute runs on GPU but no instanced draw pipeline exists for projectiles.
 - **No building rendering**: World sprite sheet is loaded but not used for instanced building rendering.
 - **No carried item overlay**: CarriedItem component exists but no visual rendering.
 - **No health bar rendering**: NPC health data is on GPU but no overlay draws HP bars.
@@ -214,4 +248,4 @@ The character texture handle is shared via `NpcSpriteTexture` resource (extracte
 
 ## Rating: 7/10
 
-Custom instanced pipeline works and is the right architectural choice for this scale. Single draw call for all NPCs. Per-instance data is compact (32 bytes). Fragment shader handles transparency and faction color tinting. Camera controls work (WASD pan, scroll zoom toward cursor, click-to-select). However: no projectile/building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).
+Custom instanced pipeline with two draw layers (NPCs + projectiles). Per-instance data is compact (32 bytes). Fragment shader handles transparency and faction color tinting. Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. However: no building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).

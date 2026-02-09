@@ -39,7 +39,7 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-use crate::gpu::{NpcBufferWrites, NpcGpuData, NpcSpriteTexture};
+use crate::gpu::{NpcBufferWrites, NpcGpuData, NpcSpriteTexture, ProjBufferWrites, ProjGpuData};
 use crate::render::CameraState;
 
 // =============================================================================
@@ -50,6 +50,10 @@ use crate::render::CameraState;
 /// We only need one entity that represents "all NPCs" for rendering.
 #[derive(Component, Clone)]
 pub struct NpcBatch;
+
+/// Marker component for the single projectile batch entity.
+#[derive(Component, Clone)]
+pub struct ProjBatch;
 
 // =============================================================================
 // VERTEX DATA
@@ -99,6 +103,13 @@ pub struct NpcRenderBuffers {
     /// Per-instance NPC data (slot 1)
     pub instance_buffer: RawBufferVec<NpcInstanceData>,
     /// Number of NPCs to draw
+    pub instance_count: u32,
+}
+
+/// GPU buffers for projectile rendering (shares quad/index from NpcRenderBuffers).
+#[derive(Resource)]
+pub struct ProjRenderBuffers {
+    pub instance_buffer: RawBufferVec<NpcInstanceData>,
     pub instance_count: u32,
 }
 
@@ -228,6 +239,53 @@ type DrawNpcCommands = (
     DrawNpcs,
 );
 
+/// Draw command for projectiles. Shares NPC quad geometry, uses proj instance buffer.
+pub struct DrawProjs;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawProjs {
+    type Param = (SRes<NpcRenderBuffers>, SRes<ProjRenderBuffers>);
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    fn render<'w>(
+        _item: &P,
+        _view: ROQueryItem<'w, 'w, Self::ViewQuery>,
+        _entity: Option<ROQueryItem<'w, 'w, Self::ItemQuery>>,
+        params: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let (npc_buffers, proj_buffers) = params;
+        let npc_buffers = npc_buffers.into_inner();
+        let proj_buffers = proj_buffers.into_inner();
+
+        if proj_buffers.instance_count == 0 {
+            return RenderCommandResult::Skip;
+        }
+
+        // Slot 0: static quad vertices (shared with NPCs)
+        pass.set_vertex_buffer(0, npc_buffers.vertex_buffer.slice(..));
+
+        // Slot 1: per-instance projectile data
+        let Some(instance_buffer) = proj_buffers.instance_buffer.buffer() else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_vertex_buffer(1, instance_buffer.slice(..));
+
+        pass.set_index_buffer(npc_buffers.index_buffer.slice(..), IndexFormat::Uint16);
+        pass.draw_indexed(0..6, 0, 0..proj_buffers.instance_count);
+
+        RenderCommandResult::Success
+    }
+}
+
+/// Complete draw commands for projectiles (reuses NPC pipeline + bind groups).
+type DrawProjCommands = (
+    SetItemPipeline,
+    SetNpcTextureBindGroup<0>,
+    SetNpcCameraBindGroup<1>,
+    DrawProjs,
+);
+
 // =============================================================================
 // PLUGIN
 // =============================================================================
@@ -236,8 +294,8 @@ pub struct NpcRenderPlugin;
 
 impl Plugin for NpcRenderPlugin {
     fn build(&self, app: &mut App) {
-        // Spawn a single NPC batch entity in main world
-        app.add_systems(Startup, spawn_npc_batch);
+        // Spawn batch entities in main world
+        app.add_systems(Startup, (spawn_npc_batch, spawn_proj_batch));
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -245,18 +303,21 @@ impl Plugin for NpcRenderPlugin {
 
         render_app
             .add_render_command::<Transparent2d, DrawNpcCommands>()
+            .add_render_command::<Transparent2d, DrawProjCommands>()
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
             .add_systems(
                 ExtractSchedule,
-                extract_npc_batch,
+                (extract_npc_batch, extract_proj_batch),
             )
             .add_systems(
                 Render,
                 (
                     prepare_npc_buffers.in_set(RenderSystems::PrepareResources),
+                    prepare_proj_buffers.in_set(RenderSystems::PrepareResources),
                     prepare_npc_texture_bind_group.in_set(RenderSystems::PrepareBindGroups),
                     prepare_npc_camera_bind_group.in_set(RenderSystems::PrepareBindGroups),
                     queue_npcs.in_set(RenderSystems::Queue),
+                    queue_projs.in_set(RenderSystems::Queue),
                 ),
             );
     }
@@ -610,6 +671,137 @@ impl FromWorld for NpcPipeline {
             shader: asset_server.load("shaders/npc_render.wgsl"),
             texture_bind_group_layout,
             camera_bind_group_layout,
+        }
+    }
+}
+
+// =============================================================================
+// PROJECTILE RENDERING
+// =============================================================================
+
+fn spawn_proj_batch(mut commands: Commands) {
+    commands.spawn((
+        ProjBatch,
+        Transform::default(),
+        Visibility::default(),
+    ));
+    info!("Projectile batch entity spawned");
+}
+
+fn extract_proj_batch(
+    mut commands: Commands,
+    query: Extract<Query<Entity, With<ProjBatch>>>,
+) {
+    for entity in &query {
+        commands.spawn((ProjBatch, MainEntity::from(entity)));
+    }
+}
+
+/// Prepare projectile instance buffers from GPU readback positions.
+fn prepare_proj_buffers(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    buffer_writes: Option<Res<ProjBufferWrites>>,
+    proj_data: Option<Res<ProjGpuData>>,
+    existing_buffers: Option<ResMut<ProjRenderBuffers>>,
+) {
+    let Some(writes) = buffer_writes else { return };
+    let Some(data) = proj_data else { return };
+
+    let proj_count = data.proj_count as usize;
+
+    // Use GPU readback positions (compute shader moves projectiles each frame)
+    let readback_positions = crate::messages::PROJ_POSITION_STATE
+        .lock()
+        .ok()
+        .filter(|s| s.len() >= proj_count * 2)
+        .map(|s| s.clone());
+
+    let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
+    for i in 0..proj_count {
+        // Only render active projectiles
+        if writes.active.get(i).copied().unwrap_or(0) == 0 {
+            continue;
+        }
+
+        let (px, py) = if let Some(ref pos) = readback_positions {
+            (pos[i * 2], pos[i * 2 + 1])
+        } else {
+            (
+                writes.positions.get(i * 2).copied().unwrap_or(0.0),
+                writes.positions.get(i * 2 + 1).copied().unwrap_or(0.0),
+            )
+        };
+
+        if px < -9000.0 { continue; }
+
+        // Color by faction: 0 = villager (blue), 1+ = raider (red)
+        let faction = writes.factions.get(i).copied().unwrap_or(0);
+        let (cr, cg, cb) = if faction == 0 {
+            (0.4, 0.6, 1.0)
+        } else {
+            (1.0, 0.3, 0.2)
+        };
+
+        // Fighter sprite (7, 0) as projectile — small and visible
+        instances.push(NpcInstanceData {
+            position: [px, py],
+            sprite: [7.0, 0.0],
+            color: [cr, cg, cb, 1.0],
+        });
+    }
+
+    let actual_count = instances.len() as u32;
+    instances.write_buffer(&render_device, &render_queue);
+
+    if let Some(mut buffers) = existing_buffers {
+        buffers.instance_buffer = instances;
+        buffers.instance_count = actual_count;
+    } else {
+        commands.insert_resource(ProjRenderBuffers {
+            instance_buffer: instances,
+            instance_count: actual_count,
+        });
+    }
+}
+
+/// Queue projectile batch into Transparent2d phase (above NPCs).
+fn queue_projs(
+    draw_functions: Res<DrawFunctions<Transparent2d>>,
+    pipeline: Res<NpcPipeline>,
+    mut pipelines: ResMut<SpecializedRenderPipelines<NpcPipeline>>,
+    pipeline_cache: Res<PipelineCache>,
+    npc_buffers: Option<Res<NpcRenderBuffers>>,
+    proj_buffers: Option<Res<ProjRenderBuffers>>,
+    mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
+    views: Query<(Entity, &ExtractedView, &Msaa)>,
+    proj_batch: Query<Entity, With<ProjBatch>>,
+) {
+    let Some(_npc_buffers) = npc_buffers else { return };
+    let Some(proj_buffers) = proj_buffers else { return };
+    if proj_buffers.instance_count == 0 { return; }
+
+    let draw_function = draw_functions.read().id::<DrawProjCommands>();
+
+    for (view_entity, view, msaa) in &views {
+        let Some(transparent_phase) = transparent_phases.get_mut(&view.retained_view_entity) else {
+            continue;
+        };
+
+        let pipeline_id = pipelines.specialize(&pipeline_cache, &pipeline, (view.hdr, msaa.samples()));
+
+        for batch_entity in &proj_batch {
+            transparent_phase.add(Transparent2d {
+                entity: (view_entity, MainEntity::from(batch_entity)),
+                draw_function,
+                pipeline: pipeline_id,
+                sort_key: FloatOrd(1.0), // Above NPCs (NPCs use 0.0)
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::None,
+                extracted_index: usize::MAX,
+                indexed: true,
+            });
         }
     }
 }

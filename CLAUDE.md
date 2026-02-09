@@ -2,6 +2,8 @@
 
 Colony sim: Godot 4.6 frontend, Rust/Bevy ECS backend, GPU compute for 10K NPCs @ 140fps.
 
+When writing Rust for Endless (Bevy), read `~/.claude/skills/bevy.md` first.
+When writing WGSL shaders, read `~/.claude/skills/wgsl.md` first.
 Read `~/.claude/commands/endless.md` and `~/.claude/commands/test.md` for build/test commands.
 
 - [docs/README.md](docs/README.md) - architecture, file map, patterns

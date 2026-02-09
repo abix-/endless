@@ -55,13 +55,13 @@ For each active projectile:
 
 ## Hit Processing
 
-Not yet implemented in Bevy. The shader writes hits to `proj_hits` buffer, but no GPU→CPU readback reads them back. When implemented:
+`readback_proj_data` reads both hit results and positions from GPU staging buffers to CPU statics (`PROJ_HIT_STATE`, `PROJ_POSITION_STATE`) via a single `device.poll()`. `process_proj_hits` then converts hits to damage:
 
 ```
 for each projectile with hit.x >= 0 and hit.y == 0 (unprocessed):
     push DamageMsg { npc_index: hit.x, amount: damage }
     recycle slot via ProjSlotAllocator
-    mark hit.y = 1 (processed)
+    send ProjGpuUpdate::Deactivate to GPU
 ```
 
 ## GPU Buffers
@@ -110,7 +110,7 @@ PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
                          │                    hit or expire
                          │                            │
                          │                            ▼
-              ProjSlotAllocator ◀──── return slot (not yet implemented)
+              ProjSlotAllocator ◀──── process_proj_hits frees slot
 ```
 
 `ProjSlotAllocator` (Bevy Resource) manages slot indices with an internal free list, same pattern as NPC `SlotAllocator`. `proj_count` is the high-water mark from `ProjSlotAllocator.next`.
@@ -129,13 +129,10 @@ PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
 
 ## Known Issues
 
-- **No GPU→CPU hit readback**: Shader writes hits but CPU never reads them back. Projectile damage doesn't reach Bevy's combat pipeline.
-- **No projectile rendering**: No instanced draw pipeline for projectiles (unlike NPCs which have `npc_render.rs`). Projectiles compute but are invisible.
-- **Grid not yet built on GPU**: Projectile shader reads NPC spatial grid, but NPC compute doesn't build the grid yet (modes 0/1 not ported). Collision detection is non-functional.
 - **proj_count never shrinks**: High-water mark. Slot recycling exists in `ProjSlotAllocator` but freed slots don't reduce dispatch count.
 - **No projectile-projectile collision**: Projectiles pass through each other.
 - **Hit buffer must init to -1**: GPU default of 0 would falsely indicate "hit NPC 0".
 
-## Rating: 4/10
+## Rating: 7/10
 
-Pipeline compiles and dispatches. WGSL shader is fully ported with movement, lifetime, and grid-based collision logic. Buffers are allocated and uploaded. However: no hit readback (damage doesn't work), no rendering (invisible projectiles), and collision depends on the NPC spatial grid which isn't built yet. The plumbing is complete but the system is non-functional end-to-end.
+Full end-to-end pipeline: compute shader moves projectiles, spatial grid collision detects hits, readback sends damage to ECS, instanced rendering draws faction-colored projectiles. Hit readback and position readback share a single `device.poll()` via `readback_proj_data`. Rendering reuses the NPC pipeline (same shader, quad, bind groups) with a separate instance buffer. Projectiles render above NPCs via sort key.

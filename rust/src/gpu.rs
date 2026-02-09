@@ -440,7 +440,7 @@ impl Plugin for GpuComputePlugin {
                 (
                     (write_npc_buffers, write_proj_buffers).in_set(RenderSystems::PrepareResources),
                     (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
-                    (readback_npc_positions, readback_proj_hits).in_set(RenderSystems::Cleanup),
+                    (readback_npc_positions, readback_proj_data).in_set(RenderSystems::Cleanup),
                 ),
             );
 
@@ -533,6 +533,8 @@ pub struct ProjGpuBuffers {
     pub hits: Buffer,
     /// Staging buffer for CPU readback of hit results (MAP_READ | COPY_DST)
     pub hit_staging: Buffer,
+    /// Staging buffer for CPU readback of projectile positions (MAP_READ | COPY_DST)
+    pub position_staging: Buffer,
 }
 
 /// Bind groups for projectile compute pass.
@@ -918,7 +920,9 @@ fn readback_npc_positions(
 }
 
 /// Read back projectile hit results from GPU → PROJ_HIT_STATE static.
-fn readback_proj_hits(
+/// Read back projectile hits AND positions from GPU staging buffers.
+/// Single poll for both maps (same pattern as NPC readback).
+fn readback_proj_data(
     proj_buffers: Option<Res<ProjGpuBuffers>>,
     proj_data: Option<Res<ProjGpuData>>,
     render_device: Res<RenderDevice>,
@@ -929,25 +933,40 @@ fn readback_proj_hits(
     let proj_count = data.proj_count as usize;
     if proj_count == 0 { return; }
 
-    let copy_size = proj_count * std::mem::size_of::<[i32; 2]>();
-    let slice = buffers.hit_staging.slice(..copy_size as u64);
+    let hit_size = proj_count * std::mem::size_of::<[i32; 2]>();
+    let pos_size = proj_count * std::mem::size_of::<[f32; 2]>();
 
-    let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+    let hit_slice = buffers.hit_staging.slice(..hit_size as u64);
+    let pos_slice = buffers.position_staging.slice(..pos_size as u64);
 
+    let (tx1, rx1) = std::sync::mpsc::sync_channel(1);
+    let (tx2, rx2) = std::sync::mpsc::sync_channel(1);
+    hit_slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx1.send(r); });
+    pos_slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx2.send(r); });
+
+    // Single poll flushes both maps
     let _ = render_device.poll(wgpu::PollType::wait_indefinitely());
 
-    if let Ok(Ok(())) = rx.recv() {
-        let mapped = slice.get_mapped_range();
+    if let Ok(Ok(())) = rx1.recv() {
+        let mapped = hit_slice.get_mapped_range();
         let hits: &[[i32; 2]] = bytemuck::cast_slice(&mapped);
-
         if let Ok(mut state) = PROJ_HIT_STATE.lock() {
             state.clear();
             state.extend_from_slice(&hits[..proj_count]);
         }
-
         drop(mapped);
         buffers.hit_staging.unmap();
+    }
+
+    if let Ok(Ok(())) = rx2.recv() {
+        let mapped = pos_slice.get_mapped_range();
+        let positions: &[f32] = bytemuck::cast_slice(&mapped);
+        if let Ok(mut state) = crate::messages::PROJ_POSITION_STATE.lock() {
+            state.clear();
+            state.extend_from_slice(&positions[..proj_count * 2]);
+        }
+        drop(mapped);
+        buffers.position_staging.unmap();
     }
 }
 
@@ -1112,7 +1131,7 @@ fn init_proj_compute_pipeline(
         positions: render_device.create_buffer(&BufferDescriptor {
             label: Some("proj_positions"),
             size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
         velocities: render_device.create_buffer(&BufferDescriptor {
@@ -1160,6 +1179,12 @@ fn init_proj_compute_pipeline(
         hit_staging: render_device.create_buffer(&BufferDescriptor {
             label: Some("proj_hit_staging"),
             size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        position_staging: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_position_staging"),
+            size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
             usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
@@ -1365,11 +1390,15 @@ impl render_graph::Node for ProjectileComputeNode {
             );
         }
 
-        // Copy hits → staging buffer for CPU readback
+        // Copy hits + positions → staging buffers for CPU readback
         let proj_buffers = world.resource::<ProjGpuBuffers>();
         let hit_copy_size = (proj_count as u64) * std::mem::size_of::<[i32; 2]>() as u64;
         render_context.command_encoder().copy_buffer_to_buffer(
             &proj_buffers.hits, 0, &proj_buffers.hit_staging, 0, hit_copy_size,
+        );
+        let pos_copy_size = (proj_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
+        render_context.command_encoder().copy_buffer_to_buffer(
+            &proj_buffers.positions, 0, &proj_buffers.position_staging, 0, pos_copy_size,
         );
 
         Ok(())

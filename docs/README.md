@@ -75,11 +75,11 @@ Frame execution order ───────────────────�
 | [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, raider respawning | 7/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
-| [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, slot allocation | 4/10 |
+| [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
 
-**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. Rendering is 7/10 — custom instanced pipeline with camera controls (WASD pan, scroll zoom, click-to-select). GPU compute is 9/10 — 3-mode spatial grid, separation physics (boids + TCP dodge + backoff), combat targeting, full readback. Combat is 4/10 — pipeline exists but attack_system wired to GPU targeting. Projectiles are 4/10 — compute + hit readback working but no rendering. Behavior is 8/10 — central brain with utility AI. Spawn, economy, messages, and resources are solid at 7/10.
+**Ratings reflect system quality, not doc accuracy.** Frame loop is clean with clear phase ordering. Rendering is 7/10 — custom instanced pipeline with camera controls and projectile rendering. GPU compute is 9/10 — 3-mode spatial grid, separation physics (boids + TCP dodge + backoff), combat targeting, full readback. Combat is 4/10 — pipeline exists but attack_system wired to GPU targeting. Projectiles are 7/10 — full pipeline (compute + readback + rendering + hit processing). Behavior is 8/10 — central brain with utility AI. Spawn, economy, messages, and resources are solid at 7/10.
 
 ## File Map
 

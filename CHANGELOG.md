@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-02-08
+- **projectile instanced rendering**
+  - add projectile position readback: COPY_SRC on proj_positions buffer, position_staging buffer, copy in ProjectileComputeNode, PROJ_POSITION_STATE static
+  - merge readback_proj_hits into readback_proj_data: single device.poll() reads both hits and positions
+  - add ProjBatch marker, ProjRenderBuffers resource, DrawProjs RenderCommand, DrawProjCommands type
+  - add spawn_proj_batch, extract_proj_batch, prepare_proj_buffers, queue_projs systems in NpcRenderPlugin
+  - projectiles reuse NPC pipeline, shader, quad geometry, texture and camera bind groups
+  - faction-colored: blue (0.4, 0.6, 1.0) for villagers, red (1.0, 0.3, 0.2) for raiders
+  - sort_key=1.0 renders projectiles above NPCs (0.0)
+  - test 12 passes (2.3s)
+
 - **camera controls: WASD pan + scroll zoom + click-to-select**
   - npc_render.wgsl: replace hardcoded CAMERA_POS/VIEWPORT with `Camera` uniform struct at @group(1) @binding(0)
   - render.rs: add CameraState resource (ExtractResource), 5 camera systems (pan, zoom, viewport sync, transform sync, click select)

@@ -168,8 +168,8 @@ Equipment rendering:
 - [ ] Guards spawn with weapon + helmet layers, raiders with weapon layer
 
 Projectile rendering:
-- [ ] Projectile instanced pipeline (same RenderCommand pattern as NPC renderer)
-- [ ] Separate NpcInstanceData buffer for active projectiles
+- [x] Projectile instanced pipeline (same RenderCommand pattern as NPC renderer)
+- [x] Separate NpcInstanceData buffer for active projectiles
 
 Visual state indicators:
 - [ ] Farm growth state visible (Growing → Ready sprite change + progress bar)
