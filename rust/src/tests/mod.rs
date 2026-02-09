@@ -4,6 +4,16 @@
 //! Tests are selected from a bevy_egui menu and run within the full Bevy app.
 
 pub mod vertical_slice;
+pub mod spawning;
+pub mod energy;
+pub mod movement;
+pub mod guard_patrol;
+pub mod farmer_cycle;
+pub mod raider_cycle;
+pub mod combat;
+pub mod projectiles;
+pub mod healing;
+pub mod economy;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -234,6 +244,156 @@ pub fn register_tests(app: &mut App) {
         vertical_slice::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("vertical-slice"))
+            .after(Step::Behavior));
+
+    // spawning
+    registry.tests.push(TestEntry {
+        name: "spawning".into(),
+        description: "Spawn 5 NPCs, kill one, slot freed, slot reused".into(),
+        phase_count: 4,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        spawning::setup.run_if(test_is("spawning")));
+    app.add_systems(Update,
+        spawning::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("spawning"))
+            .after(Step::Behavior));
+
+    // energy
+    registry.tests.push(TestEntry {
+        name: "energy".into(),
+        description: "Energy starts at 100, drains, reaches hungry threshold".into(),
+        phase_count: 3,
+        time_scale: 50.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        energy::setup.run_if(test_is("energy")));
+    app.add_systems(Update,
+        energy::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("energy"))
+            .after(Step::Behavior));
+
+    // movement
+    registry.tests.push(TestEntry {
+        name: "movement".into(),
+        description: "NPCs get targets, GPU moves them, arrive at destination".into(),
+        phase_count: 3,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        movement::setup.run_if(test_is("movement")));
+    app.add_systems(Update,
+        movement::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("movement"))
+            .after(Step::Behavior));
+
+    // guard-patrol
+    registry.tests.push(TestEntry {
+        name: "guard-patrol".into(),
+        description: "Guard: OnDuty → Patrol → OnDuty → rest → resume".into(),
+        phase_count: 5,
+        time_scale: 20.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        guard_patrol::setup.run_if(test_is("guard-patrol")));
+    app.add_systems(Update,
+        guard_patrol::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("guard-patrol"))
+            .after(Step::Behavior));
+
+    // farmer-cycle
+    registry.tests.push(TestEntry {
+        name: "farmer-cycle".into(),
+        description: "Farmer: work → tired → rest → recover → return".into(),
+        phase_count: 5,
+        time_scale: 20.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        farmer_cycle::setup.run_if(test_is("farmer-cycle")));
+    app.add_systems(Update,
+        farmer_cycle::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("farmer-cycle"))
+            .after(Step::Behavior));
+
+    // raider-cycle
+    registry.tests.push(TestEntry {
+        name: "raider-cycle".into(),
+        description: "Raiders: dispatch → steal → return → deliver food".into(),
+        phase_count: 5,
+        time_scale: 20.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        raider_cycle::setup.run_if(test_is("raider-cycle")));
+    app.add_systems(Update,
+        raider_cycle::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("raider-cycle"))
+            .after(Step::Behavior));
+
+    // combat
+    registry.tests.push(TestEntry {
+        name: "combat".into(),
+        description: "GPU targeting → InCombat → damage → death → slot freed".into(),
+        phase_count: 6,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        combat::setup.run_if(test_is("combat")));
+    app.add_systems(Update,
+        combat::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("combat"))
+            .after(Step::Behavior));
+
+    // projectiles
+    registry.tests.push(TestEntry {
+        name: "projectiles".into(),
+        description: "Ranged targeting → projectile spawn → hit → slot freed".into(),
+        phase_count: 4,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        projectiles::setup.run_if(test_is("projectiles")));
+    app.add_systems(Update,
+        projectiles::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("projectiles"))
+            .after(Step::Behavior));
+
+    // healing
+    registry.tests.push(TestEntry {
+        name: "healing".into(),
+        description: "Damaged NPC near town → Healing → health recovers".into(),
+        phase_count: 3,
+        time_scale: 20.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        healing::setup.run_if(test_is("healing")));
+    app.add_systems(Update,
+        healing::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("healing"))
+            .after(Step::Behavior));
+
+    // economy
+    registry.tests.push(TestEntry {
+        name: "economy".into(),
+        description: "Farm growth → harvest → camp forage → raider respawn".into(),
+        phase_count: 5,
+        time_scale: 50.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        economy::setup.run_if(test_is("economy")));
+    app.add_systems(Update,
+        economy::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("economy"))
             .after(Step::Behavior));
 
     app.insert_resource(registry);

@@ -1,6 +1,19 @@
 # Changelog
 
 ## 2026-02-09
+- **stage 5: write 10 test suites**
+  - add `spawning.rs`: spawn 5 NPCs, kill one, verify slot freed and reused (4 phases)
+  - add `energy.rs`: energy starts at 100, drains, reaches ENERGY_HUNGRY (3 phases, time_scale=50)
+  - add `movement.rs`: HasTarget set, GPU positions update, AtDestination on arrival (3 phases)
+  - add `guard_patrol.rs`: OnDuty → Patrolling → OnDuty → rest → resume (5 phases, time_scale=20)
+  - add `farmer_cycle.rs`: GoingToWork → Working → tired → rest → return (5 phases, time_scale=20)
+  - add `raider_cycle.rs`: dispatch group → steal food → return → deliver (5 phases, time_scale=20)
+  - add `combat.rs`: GPU targeting → InCombat → damage → death → slot freed (6 phases)
+  - add `projectiles.rs`: ranged targeting → projectile spawn → hit → slot freed (4 phases)
+  - add `healing.rs`: damaged NPC near town → Healing marker → health recovers (3 phases, time_scale=20)
+  - add `economy.rs`: farm growth → harvest → camp forage → raider respawn (5 phases, time_scale=50)
+  - add `Debug` derive to `FarmGrowthState` (needed for test display)
+
 - **test framework (stage 5)**
   - add UI-selectable test menu via bevy_egui (`EguiPrimaryContextPass` schedule)
   - add `AppState` (TestMenu | Running) — all game systems gated on `in_state(Running)`

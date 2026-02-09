@@ -441,7 +441,7 @@ impl FoodStorage {
 }
 
 /// Farm growth state.
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum FarmGrowthState {
     #[default]
     Growing,  // Crops growing, progress accumulating

@@ -218,7 +218,7 @@ Tests for completed features (one file each in `src/tests/`):
 - [ ] Phase 4: Projectile slot freed
 
 `vertical-slice` — Existing Test12 (8 phases):
-- [ ] Relocated from lib.rs to src/tests/vertical_slice.rs (same logic)
+- [x] Relocated from lib.rs to src/tests/vertical_slice.rs (same logic)
 
 **Stage 6: Visual Feedback**
 

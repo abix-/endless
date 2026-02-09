@@ -24,15 +24,21 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 
 **HUD**: Phase checklist overlay during test execution — gray `○` pending, yellow `▶` active, green `✓` passed, red `✗` failed.
 
-**Vertical Slice Test** — validates full core loop (8 phases):
-1. 12 NPCs spawned (5 farmers, 2 guards, 5 raiders)
-2. GPU readback returns valid positions
-3. Farmers arrive at farms, begin working
-4. Raiders form group, dispatched to farm
-5. Guards acquire combat targets via spatial grid
-6. Damage applied
-7. Death occurs, slot recycled
-8. Replacement raider respawns from camp food
+**Tests** (`src/tests/`):
+
+| Test | Phases | What it validates |
+|------|--------|-------------------|
+| `vertical-slice` | 8 | Full core loop: spawn → work → raid → combat → death → respawn |
+| `spawning` | 4 | Spawn entities, kill via health=0, slot freed, slot reused |
+| `energy` | 3 | Energy starts at 100, drains over time, reaches ENERGY_HUNGRY |
+| `movement` | 3 | HasTarget added, GPU positions update, AtDestination on arrival |
+| `guard-patrol` | 5 | OnDuty → Patrolling → OnDuty → rest when tired → resume |
+| `farmer-cycle` | 5 | GoingToWork → Working → tired → rest → recover → return |
+| `raider-cycle` | 5 | Dispatch group → arrive at farm → steal → return → deliver |
+| `combat` | 6 | GPU targeting → InCombat → damage → health drop → death → slot freed |
+| `projectiles` | 4 | Ranged targeting → projectile spawn → hit + damage → slot freed |
+| `healing` | 3 | Damaged NPC near town → Healing marker → health recovers to max |
+| `economy` | 5 | Farm growing → ready → harvest → camp forage → raider respawn |
 
 ## System Map
 
@@ -108,6 +114,16 @@ rust/
   src/tests/
     mod.rs              # Test framework (AppState, TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)
+    spawning.rs         # Spawn + slot reuse test (4 phases)
+    energy.rs           # Energy drain test (3 phases, time_scale=50)
+    movement.rs         # Movement + arrival test (3 phases)
+    guard_patrol.rs     # Guard patrol cycle (5 phases, time_scale=20)
+    farmer_cycle.rs     # Farmer work cycle (5 phases, time_scale=20)
+    raider_cycle.rs     # Raider raid cycle (5 phases, time_scale=20)
+    combat.rs           # Combat pipeline test (6 phases)
+    projectiles.rs      # Projectile pipeline test (4 phases)
+    healing.rs          # Healing aura test (3 phases, time_scale=20)
+    economy.rs          # Economy test (5 phases, time_scale=50)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
