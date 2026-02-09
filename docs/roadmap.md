@@ -121,11 +121,15 @@ Rules:
 
 **Stage 1: Standalone Bevy App ✓**
 
+*Done when: Bevy app launches, spawns NPC entities with job components, and runs an Update loop.*
+
 **Stage 2: GPU Compute ✓**
+
+*Done when: compute shader dispatches movement, targeting, and spatial grid — positions read back to ECS every frame.*
 
 **Stage 3: GPU Instanced Rendering ✓**
 
-*Lesson learned: render graph Nodes are for compute/post-processing, not geometry. Switched to RenderCommand pattern after first approach failed.*
+*Done when: 10,000+ NPCs render at 140fps via a single instanced draw call using the RenderCommand pattern.*
 
 **Stage 4: Core Loop ✓**
 
