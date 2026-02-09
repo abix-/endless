@@ -140,16 +140,17 @@ Rules:
 *Done when: every completed system has a dedicated test, tests are selectable from an in-game menu, and all tests pass.*
 
 Test infrastructure:
-- [ ] `TestMenu` state — bevy_egui panel listing all registered tests with run buttons
-- [ ] `TestMode` resource holds active test name (None = normal game)
-- [ ] `TestState` shared resource (phase, start, results, passed/failed, counters HashMap, flags HashMap)
-- [ ] Helper methods: `pass_phase()`, `fail_phase()`, `set_flag()`, `get_flag()`, `inc()`
-- [ ] `src/tests/mod.rs` with `register_tests(app)` — registers all test setup+tick systems
-- [ ] Each test file exports `setup` (Startup) + `tick` (Update, after Step::Behavior)
-- [ ] Test results displayed on screen (phase progress, pass/fail, elapsed time)
-- [ ] Return to test menu after test completes (or on cancel)
-- [ ] "Run All" button that runs tests sequentially, shows summary
-- [ ] Move existing Test12 from lib.rs into `src/tests/vertical_slice.rs`
+- [x] `AppState` (TestMenu/Running) with bevy_egui menu listing tests with run buttons
+- [x] `TestState` shared resource (phase, start, results, passed/failed, counters HashMap, flags HashMap)
+- [x] Helper methods: `pass_phase()`, `fail_phase()`, `set_flag()`, `get_flag()`, `inc()`
+- [x] `src/tests/mod.rs` with `register_tests(app)` — registers all test setup+tick systems
+- [x] Each test file exports `setup` (OnEnter) + `tick` (Update, after Step::Behavior)
+- [x] Test results displayed on screen (phase progress, pass/fail, elapsed time)
+- [x] Return to test menu after test completes (or on cancel)
+- [x] "Run All" button that runs tests sequentially, shows summary
+- [x] Move existing Test12 from lib.rs into `src/tests/vertical_slice.rs`
+- [x] Game systems gated on `AppState::Running` (don't tick during menu)
+- [x] World cleanup on `OnExit(AppState::Running)` (despawn NPCs, reset resources)
 
 Tests for completed features (one file each in `src/tests/`):
 

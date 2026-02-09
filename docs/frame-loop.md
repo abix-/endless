@@ -7,7 +7,7 @@ Pure Bevy application. `App::run()` drives ECS game logic in the main world and 
 ## Per-Frame Execution Order
 
 ```
-MAIN WORLD — Bevy Update Schedule
+MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │
 ├─ bevy_timer_start
 │
@@ -119,9 +119,15 @@ Pipelined rendering: the render world processes frame N while the main world com
 - **One-frame render latency**: GPU renders positions from the previous main world frame.
 - **Spawn visibility**: SpawnNpcMsg → spawn_npc_system → GpuUpdateMsg → collect → populate → extract → GPU. Visible on the next rendered frame.
 
+## App States
+
+The app uses `AppState` (TestMenu | Running) to gate system execution:
+- **TestMenu**: Only test framework UI systems run (bevy_egui menu in `EguiPrimaryContextPass`)
+- **Running**: All game systems execute (Drain → Spawn → Combat → Behavior), plus test HUD overlay and per-test tick systems
+
+State transitions: `NextState<AppState>` set by menu clicks or test completion. `OnEnter(Running)` triggers test setup. `OnExit(Running)` triggers world cleanup (despawn NPCs, reset resources).
+
 ## Known Issues
 
 - **No generational GPU indices**: NPC slot indices are raw `usize`. Safe because chained combat systems prevent stale references within a frame. See [combat.md](combat.md).
-- **Hardcoded camera in render shader**: `npc_render.wgsl` uses constant `CAMERA_POS` and `VIEWPORT` instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering.
-- **Compute shader incomplete**: `npc_compute.wgsl` implements basic goal movement only. Separation physics, grid neighbor search, and combat targeting are not yet ported.
 - **One-frame readback latency**: GPU positions are read back in Cleanup phase and consumed next frame in Step::Drain. Acceptable for gameplay.

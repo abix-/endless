@@ -10,25 +10,29 @@ These docs are the **source of truth** for system architecture. When building ne
 4. **Code comments** stay educational (explain what code does for someone learning Rust/WGSL). Architecture diagrams, data flow, buffer layouts, and system interaction docs live here, not in code.
 5. **README.md** is the game intro (description, gameplay, controls). **docs/roadmap.md** has stages (priority order) and capabilities (feature inventory) — read its maintenance guide before editing.
 
-## Test-Driven Development
+## Test Framework
 
-All systems should be validated through tests. Tests use **phased assertions** — each phase checks one layer of the pipeline and fails fast with diagnostic values.
+UI-selectable integration tests run inside the full Bevy app via a bevy_egui menu. `AppState::TestMenu` shows the test list; clicking a test transitions to `AppState::Running` where game systems execute normally. Tests use **phased assertions** — each phase checks one pipeline layer and fails fast with diagnostic values.
 
-**Pattern:**
-1. Startup system populates world data and spawns NPCs
-2. Update system runs phased assertions with time gates
-3. Each phase checks one pipeline layer and logs PASS/FAIL with diagnostic values
-4. On failure, all prior phase results show exactly which layer broke
+**Architecture** (`rust/src/tests/`):
+- `TestState` resource: shared phase tracking, counters, flags, results
+- `TestRegistry`: registered test entries (name, description, phase_count, time_scale)
+- `test_is("name")` run condition gates per-test setup/tick systems
+- Each test exports `setup` (OnEnter Running) + `tick` (Update after Behavior)
+- Cleanup on OnExit(Running): despawn all NPC entities, reset all resources
+- Run All: sequential execution via `RunAllState` queue
 
-**Test 12 (Vertical Slice) — validates full core loop:**
-- Phase 1: 12 NPCs spawned (5 farmers, 2 guards, 5 raiders)
-- Phase 2: GPU readback returns valid positions
-- Phase 3: Farmers arrive at farms, begin working
-- Phase 4: Raiders form group, dispatched to farm
-- Phase 5: Guards acquire combat targets via spatial grid
-- Phase 6: Damage applied
-- Phase 7: Death occurs, slot recycled
-- Phase 8: Replacement raider respawns from camp food
+**HUD**: Phase checklist overlay during test execution — gray `○` pending, yellow `▶` active, green `✓` passed, red `✗` failed.
+
+**Vertical Slice Test** — validates full core loop (8 phases):
+1. 12 NPCs spawned (5 farmers, 2 guards, 5 raiders)
+2. GPU readback returns valid positions
+3. Farmers arrive at farms, begin working
+4. Raiders form group, dispatched to farm
+5. Guards acquire combat targets via spatial grid
+6. Damage applied
+7. Death occurs, slot recycled
+8. Replacement raider respawns from camp food
 
 ## System Map
 
@@ -53,11 +57,16 @@ Bevy ECS (lib.rs build_app)
     │   ├─ 2D camera, texture atlases
     │   └─ Character + world sprite sheets
     │
-    └─ Bevy Systems
-        ├─ Spawn systems ──────────────────▶ [spawn.md]
-        ├─ Combat pipeline ────────────────▶ [combat.md]
-        ├─ Behavior systems ───────────────▶ [behavior.md]
-        └─ Economy systems ────────────────▶ [economy.md]
+    ├─ Bevy Systems (gated on AppState::Running)
+    │   ├─ Spawn systems ──────────────────▶ [spawn.md]
+    │   ├─ Combat pipeline ────────────────▶ [combat.md]
+    │   ├─ Behavior systems ───────────────▶ [behavior.md]
+    │   └─ Economy systems ────────────────▶ [economy.md]
+    │
+    └─ Test Framework (tests/)
+        ├─ bevy_egui menu (EguiPrimaryContextPass)
+        ├─ AppState: TestMenu ↔ Running
+        └─ Per-test setup + tick systems
 
 Frame execution order ─────────────────────▶ [frame-loop.md]
 ```
@@ -96,6 +105,9 @@ rust/
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
   src/world.rs          # World data structs, sprite definitions
+  src/tests/
+    mod.rs              # Test framework (AppState, TestState, menu UI, HUD, cleanup)
+    vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates

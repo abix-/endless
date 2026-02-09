@@ -104,16 +104,27 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 | Resource | Data | Status |
 |----------|------|--------|
-| GpuReadState | positions, combat_targets, health, factions, npc_count | **Not populated** — no GPU→CPU readback implemented |
+| GpuReadState | positions, combat_targets, health, factions, npc_count | Populated via staging buffer readback each frame |
 | ProjSlotAllocator | next, free list, max (50,000) | Active — allocates projectile slots |
 
-`GpuReadState` exists for future readback. Systems reading it currently get empty vecs. See [gpu-compute.md](gpu-compute.md).
+`GpuReadState` is populated each frame by staging buffer readback. Used by combat systems, position sync, and test assertions.
 
 ## Selection
 
 | Resource | Data | Purpose |
 |----------|------|---------|
 | SelectedNpc | `i32` (-1 = none) | Currently selected NPC for inspector panel |
+
+## Test Framework
+
+| Resource | Data | Purpose |
+|----------|------|---------|
+| AppState | TestMenu \| Running | Gates game systems; menu vs active test |
+| TestState | test_name, phase, total_phases, phase_name, results, counters, flags | Shared state for active test |
+| TestRegistry | `Vec<TestEntry>` (name, description, phase_count, time_scale) | All registered tests |
+| RunAllState | active, queue, results | Sequential test execution state |
+
+`TestState` is reset between tests via `cleanup_test_world` (OnExit Running). `test_is("name")` run condition gates per-test systems.
 
 ## Debug Resources
 
@@ -134,7 +145,6 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 ## Known Issues
 
-- **GpuReadState empty**: No GPU→CPU readback. Combat targeting and position queries return empty data.
 - **Health dual ownership**: CPU-authoritative but synced to GPU via messages. Could diverge if sync fails.
 - **NpcCount high-water mark**: SlotAllocator.next never shrinks. 1000 spawns + 999 deaths = count still 1000.
 - **No external API**: All state is internal Bevy Resources. No query interface for external tools or UI frameworks.

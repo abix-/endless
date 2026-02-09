@@ -1,6 +1,18 @@
 # Changelog
 
 ## 2026-02-09
+- **test framework (stage 5)**
+  - add UI-selectable test menu via bevy_egui (`EguiPrimaryContextPass` schedule)
+  - add `AppState` (TestMenu | Running) — all game systems gated on `in_state(Running)`
+  - add `TestState`, `TestRegistry`, `RunAllState` resources for test lifecycle
+  - add `test_is("name")` run condition for per-test system gating
+  - add test HUD: phase checklist overlay with `○` pending, `▶` active, `✓` passed, `✗` failed
+  - add Run All: sequential test execution with summary on completion
+  - add `CleanupCore`/`CleanupExtra` SystemParam bundles (avoids 16-param limit)
+  - add `cleanup_test_world` (OnExit Running): despawn NPC entities, reset all resources
+  - relocate Test12 to `tests/vertical_slice.rs` (8 phases, all passing in ~4s)
+  - remove `Test12` resource from `resources.rs`
+
 - **multi-layer equipment rendering**
   - add EquipLayer enum (Armor, Helmet, Weapon, Item) + EquippedWeapon/Helmet/Armor components (components.rs)
   - add EQUIP_SWORD, EQUIP_HELMET, FOOD_SPRITE sprite constants (constants.rs)
