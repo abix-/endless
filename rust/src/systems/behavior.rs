@@ -571,24 +571,28 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Priority 6: OnDuty + time to patrol?
+        // Priority 6: OnDuty (tired → leave post, else patrol when ready)
         // ====================================================================
         if let Some(duty) = on_duty {
-            // Note: We need mutable access to increment ticks, but we have immutable here.
-            // The tick increment happens via the mutable query below.
-            if duty.ticks_waiting >= GUARD_PATROL_WAIT {
-                if let Ok(mut patrol) = npc_states.patrols.get_mut(entity) {
-                    if !patrol.posts.is_empty() {
-                        patrol.current = (patrol.current + 1) % patrol.posts.len();
+            if energy.0 < ENERGY_TIRED_THRESHOLD {
+                commands.entity(entity).remove::<OnDuty>();
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Left post".into());
+                // Fall through to idle scoring — Rest will win
+            } else {
+                if duty.ticks_waiting >= GUARD_PATROL_WAIT {
+                    if let Ok(mut patrol) = npc_states.patrols.get_mut(entity) {
+                        if !patrol.posts.is_empty() {
+                            patrol.current = (patrol.current + 1) % patrol.posts.len();
+                        }
+                        commands.entity(entity).remove::<OnDuty>().insert(Patrolling);
+                        if let Some(pos) = patrol.posts.get(patrol.current) {
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
+                        }
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Patrolling".into());
                     }
-                    commands.entity(entity).remove::<OnDuty>().insert(Patrolling);
-                    if let Some(pos) = patrol.posts.get(patrol.current) {
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
-                    }
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Patrolling".into());
                 }
+                continue;
             }
-            continue;
         }
 
 
