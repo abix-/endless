@@ -154,66 +154,66 @@ Test infrastructure:
 
 Tests for completed features (one file each in `src/tests/`):
 
-`movement` — Movement & Arrival (3 phases):
-- [ ] Phase 1: Spawn 3 NPCs, set targets — HasTarget added
-- [ ] Phase 2: GPU positions move toward target (not at origin)
-- [ ] Phase 3: NPCs reach destination — AtDestination added
+`movement` — Movement & Arrival (3 phases): **ALL PASS**
+- [x] Phase 1: Spawn 3 NPCs, set targets — HasTarget added
+- [x] Phase 2: GPU positions move toward target (not at origin)
+- [x] Phase 3: NPCs reach destination — AtDestination added
 
-`guard-patrol` — Guard Patrol Cycle (5 phases, time_scale=20):
-- [ ] Phase 1: Guard spawns with OnDuty at first post
-- [ ] Phase 2: After GUARD_PATROL_WAIT ticks → Patrolling
+`guard-patrol` — Guard Patrol Cycle (5 phases, time_scale=20): passes 2/5
+- [x] Phase 1: Guard spawns with OnDuty at first post
+- [x] Phase 2: After GUARD_PATROL_WAIT ticks → Patrolling
 - [ ] Phase 3: Arrives at next post → OnDuty again
 - [ ] Phase 4: Energy < ENERGY_HUNGRY → goes to rest
 - [ ] Phase 5: Energy > ENERGY_RESTED → resumes patrol
 
-`farmer-cycle` — Farmer Work Cycle (5 phases, time_scale=20):
-- [ ] Phase 1: Farmer spawns with GoingToWork + HasTarget
-- [ ] Phase 2: Arrives at farm → Working marker
-- [ ] Phase 3: Energy drains below threshold → stops working
-- [ ] Phase 4: Goes home to rest
+`farmer-cycle` — Farmer Work Cycle (5 phases, time_scale=20): passes 4/5
+- [x] Phase 1: Farmer spawns with GoingToWork + HasTarget
+- [x] Phase 2: Arrives at farm → Working marker
+- [x] Phase 3: Energy drains below threshold → stops working
+- [x] Phase 4: Goes home to rest
 - [ ] Phase 5: Energy recovers → returns to work
 
-`raider-cycle` — Raider Raid Cycle (5 phases, time_scale=20):
-- [ ] Phase 1: 3 raiders dispatched → Raiding marker on ≥3
+`raider-cycle` — Raider Raid Cycle (5 phases, time_scale=20): passes 1/5
+- [x] Phase 1: 3 raiders dispatched → Raiding marker on ≥3
 - [ ] Phase 2: Raiders arrive at farm
 - [ ] Phase 3: Food stolen (farm food decreases)
 - [ ] Phase 4: Raiders returning (Returning marker)
 - [ ] Phase 5: Food delivered (camp food increases)
 
-`combat` — Combat Pipeline (6 phases):
-- [ ] Phase 1: 2 opposing NPCs — GPU targeting finds enemy
-- [ ] Phase 2: InCombat marker added
-- [ ] Phase 3: Projectile spawned or damage dealt
-- [ ] Phase 4: Health decreases
+`combat` — Combat Pipeline (6 phases): passes 4/6
+- [x] Phase 1: 2 opposing NPCs — GPU targeting finds enemy
+- [x] Phase 2: InCombat marker added
+- [x] Phase 3: Projectile spawned or damage dealt
+- [x] Phase 4: Health decreases
 - [ ] Phase 5: NPC dies (Dead marker or npc_count drops)
 - [ ] Phase 6: Slot freed, entity despawned
 
-`economy` — Farm Growth & Respawn (5 phases, time_scale=50):
-- [ ] Phase 1: Farm in Growing state
-- [ ] Phase 2: Farm transitions to Ready (farmer tending = faster rate)
-- [ ] Phase 3: Farmer harvests → food increases
+`economy` — Farm Growth & Respawn (5 phases, time_scale=50): passes 3/5
+- [x] Phase 1: Farm in Growing state
+- [x] Phase 2: Farm transitions to Ready (farmer tending = faster rate)
+- [x] Phase 3: Farmer harvests → food increases
 - [ ] Phase 4: Camp forage adds food over time
 - [ ] Phase 5: Raider respawns when camp has enough food
 
-`energy` — Energy System (3 phases, time_scale=50):
+`energy` — Energy System (3 phases, time_scale=50): needs retest
 - [ ] Phase 1: NPC starts at energy 100
 - [ ] Phase 2: Energy drains over time (< 90)
 - [ ] Phase 3: Energy reaches ENERGY_HUNGRY threshold
 
-`healing` — Healing Aura (3 phases, time_scale=20):
-- [ ] Phase 1: Damaged NPC (50 HP) inside town → Healing marker
+`healing` — Healing Aura (3 phases, time_scale=20): passes 1/3
+- [x] Phase 1: Damaged NPC (50 HP) inside town → Healing marker
 - [ ] Phase 2: Health increases toward max
 - [ ] Phase 3: Health reaches max → healing stops
 
-`spawning` — Spawn & Slot Reuse (4 phases):
+`spawning` — Spawn & Slot Reuse (4 phases): needs retest
 - [ ] Phase 1: 5 NPCs exist with correct job components
 - [ ] Phase 2: Kill one (health → 0) → Dead marker
 - [ ] Phase 3: Slot freed in SlotAllocator
 - [ ] Phase 4: New spawn reuses freed slot index
 
-`projectiles` — Projectile Pipeline (4 phases):
-- [ ] Phase 1: 2 ranged NPCs — combat targeting finds enemy
-- [ ] Phase 2: Projectile spawned (slot allocated)
+`projectiles` — Projectile Pipeline (4 phases): passes 2/4
+- [x] Phase 1: 2 ranged NPCs — combat targeting finds enemy
+- [x] Phase 2: Projectile spawned (slot allocated)
 - [ ] Phase 3: Projectile hits → DamageMsg processed
 - [ ] Phase 4: Projectile slot freed
 
