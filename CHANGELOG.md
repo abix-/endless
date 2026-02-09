@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-02-08
+- **camera controls: WASD pan + scroll zoom + click-to-select**
+  - npc_render.wgsl: replace hardcoded CAMERA_POS/VIEWPORT with `Camera` uniform struct at @group(1) @binding(0)
+  - render.rs: add CameraState resource (ExtractResource), 5 camera systems (pan, zoom, viewport sync, transform sync, click select)
+  - npc_render.rs: add CameraUniform (ShaderType), NpcCameraBindGroup, SetNpcCameraBindGroup RenderCommand, prepare_npc_camera_bind_group system
+  - pipeline layout: 2 bind groups (texture at 0, camera at 1)
+  - pan speed 400px/s scaled by 1/zoom, scroll zoom factor 0.1 toward mouse cursor (range 0.1–4.0)
+  - click-to-select: screen-to-world via CameraState, nearest NPC within 20px from GPU_READ_STATE
+  - delete old .glsl shaders and .zip archive (cleanup)
+  - test 12 passes (2.3s)
+
 - **port separation physics from glsl to wgsl compute shader**
   - boids-style separation force: 3x3 grid neighbor scan, asymmetric push (moving=0.2x, settled=2.0x), golden angle for exact overlap
   - TCP-style dodge: perpendicular avoidance for converging NPCs (head-on/crossing/overtaking), consistent side-picking via index comparison

@@ -22,6 +22,15 @@ struct VertexOutput {
 @group(0) @binding(0) var sprite_texture: texture_2d<f32>;
 @group(0) @binding(1) var sprite_sampler: sampler;
 
+// Camera uniform (bind group 1)
+struct Camera {
+    pos: vec2<f32>,
+    zoom: f32,
+    _pad: f32,
+    viewport: vec2<f32>,
+};
+@group(1) @binding(0) var<uniform> camera: Camera;
+
 // Constants
 const SPRITE_SIZE: f32 = 16.0;  // Size of sprite in world units (matches 16px atlas cells)
 
@@ -32,10 +41,6 @@ const SPRITE_TEX_SIZE: f32 = 16.0;
 const TEXTURE_WIDTH: f32 = 918.0;
 const TEXTURE_HEIGHT: f32 = 203.0;
 
-// Camera settings (should match Bevy camera)
-const CAMERA_POS: vec2<f32> = vec2<f32>(400.0, 300.0);
-const VIEWPORT: vec2<f32> = vec2<f32>(1280.0, 720.0);
-
 @vertex
 fn vertex(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -43,9 +48,9 @@ fn vertex(in: VertexInput) -> VertexOutput {
     // Expand quad by sprite size and offset by instance position
     let world_pos = in.instance_pos + in.quad_pos * SPRITE_SIZE;
 
-    // Simple orthographic projection: world to clip space
-    let offset = world_pos - CAMERA_POS;
-    let ndc = offset / (VIEWPORT * 0.5);
+    // Orthographic projection with camera transform
+    let offset = (world_pos - camera.pos) * camera.zoom;
+    let ndc = offset / (camera.viewport * 0.5);
     out.clip_position = vec4<f32>(ndc.x, ndc.y, 0.0, 1.0);
 
     // Calculate UV for sprite atlas

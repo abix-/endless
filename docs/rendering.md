@@ -22,6 +22,7 @@ Main World                        Render World
 ───────────                       ────────────
 NpcBufferWrites ──ExtractResource──▶ NpcBufferWrites
 NpcGpuData      ──ExtractResource──▶ NpcGpuData
+CameraState     ──ExtractResource──▶ CameraState
 NpcBatch entity ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
@@ -30,6 +31,7 @@ NpcBatch entity ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                             prepare_npc_texture_bind_group
+                            prepare_npc_camera_bind_group
                                       │
                                       ▼
                                   queue_npcs
@@ -38,6 +40,7 @@ NpcBatch entity ──extract_npc_batch──▶ NpcBatch entity
                                       ▼
                               SetItemPipeline
                               SetNpcTextureBindGroup<0>
+                              SetNpcCameraBindGroup<1>
                               DrawNpcs
 ```
 
@@ -80,7 +83,7 @@ static QUAD_VERTICES: [QuadVertex; 4] = [
 ];
 ```
 
-The vertex shader scales the unit quad by `SPRITE_SIZE` (32 world units) and offsets by instance position.
+The vertex shader scales the unit quad by `SPRITE_SIZE` (16 world units, matching 16px atlas cells) and offsets by instance position.
 
 ## Vertex Buffers
 
@@ -143,8 +146,9 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
 | PrepareResources | `prepare_npc_buffers` | Build instance buffer from NpcBufferWrites |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture |
+| PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
 | Queue | `queue_npcs` | Add NpcBatch to Transparent2d phase |
-| Render | `DrawNpcCommands` | SetItemPipeline → SetNpcTextureBindGroup → DrawNpcs |
+| Render | `DrawNpcCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawNpcs |
 
 ## RenderCommand Pattern
 
@@ -154,6 +158,7 @@ Bevy's RenderCommand trait defines the GPU commands for drawing. The NPC pipelin
 type DrawNpcCommands = (
     SetItemPipeline,           // Bind the NPC render pipeline
     SetNpcTextureBindGroup<0>, // Bind sprite texture at group 0
+    SetNpcCameraBindGroup<1>,  // Bind camera uniform at group 1
     DrawNpcs,                  // Set vertex/index buffers, draw_indexed
 );
 ```
@@ -162,14 +167,31 @@ type DrawNpcCommands = (
 
 ## Camera
 
-`render.rs` sets up a 2D orthographic camera at (400, 300) via Bevy's `Camera2d`. The render shader uses hardcoded constants to match:
+`render.rs` manages camera state via the `CameraState` resource (position, zoom, viewport) with `ExtractResource` for automatic main→render world cloning each frame.
 
+**Main world systems** (registered in `RenderPlugin::build`, Update schedule):
+- `camera_pan_system`: WASD at 400px/s, speed scaled by 1/zoom for consistent screen-space feel
+- `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), uses `AccumulatedMouseScroll` resource
+- `camera_viewport_sync`: keeps viewport in sync with window size
+- `camera_transform_sync`: syncs CameraState → Bevy Camera2d Transform (position only)
+- `click_to_select_system`: left click → screen-to-world → find nearest NPC within 20px from GPU_READ_STATE
+
+**Render world**: `prepare_npc_camera_bind_group` writes `CameraUniform` (camera_pos, zoom, viewport) to a `UniformBuffer` each frame, creating a bind group at group 1.
+
+**Shader** (`npc_render.wgsl`): reads camera from uniform buffer:
 ```wgsl
-const CAMERA_POS: vec2<f32> = vec2<f32>(400.0, 300.0);
-const VIEWPORT: vec2<f32> = vec2<f32>(1280.0, 720.0);
-```
+struct Camera {
+    pos: vec2<f32>,
+    zoom: f32,
+    _pad: f32,
+    viewport: vec2<f32>,
+};
+@group(1) @binding(0) var<uniform> camera: Camera;
 
-This is a known issue — the shader should read Bevy's view uniforms instead of hardcoded values.
+// Vertex shader:
+let offset = (world_pos - camera.pos) * camera.zoom;
+let ndc = offset / (camera.viewport * 0.5);
+```
 
 ## Texture Loading
 
@@ -184,13 +206,12 @@ The character texture handle is shared via `NpcSpriteTexture` resource (extracte
 
 ## Known Issues
 
-- **Hardcoded camera**: `npc_render.wgsl` uses constant `CAMERA_POS` and `VIEWPORT` instead of Bevy view uniforms. Camera movement/zoom won't affect NPC rendering.
 - **No projectile rendering**: Projectile compute runs on GPU but no instanced draw pipeline exists for projectiles.
 - **No building rendering**: World sprite sheet is loaded but not used for instanced building rendering.
 - **No carried item overlay**: CarriedItem component exists but no visual rendering.
 - **No health bar rendering**: NPC health data is on GPU but no overlay draws HP bars.
 - **Sprite texture in debug mode**: Fragment shader samples textures and applies color tint, but some visual artifacts may exist from atlas margin bleed.
 
-## Rating: 6/10
+## Rating: 7/10
 
-Custom instanced pipeline works and is the right architectural choice for this scale. Single draw call for all NPCs. Per-instance data is compact (32 bytes). Fragment shader handles transparency and faction color tinting. However: hardcoded camera constants prevent any camera control, no projectile/building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).
+Custom instanced pipeline works and is the right architectural choice for this scale. Single draw call for all NPCs. Per-instance data is compact (32 bytes). Fragment shader handles transparency and faction color tinting. Camera controls work (WASD pan, scroll zoom toward cursor, click-to-select). However: no projectile/building/overlay rendering, and positions fall back to CPU-side data when readback isn't available (one-frame latency at best).

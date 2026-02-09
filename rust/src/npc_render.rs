@@ -21,14 +21,14 @@ use bevy::{
             RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
-            binding_types::{sampler, texture_2d},
+            binding_types::{sampler, texture_2d, uniform_buffer},
             BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
             BlendState, Buffer, BufferInitDescriptor, BufferUsages, ColorTargetState,
             ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, FragmentState,
             IndexFormat, MultisampleState, PipelineCache, PrimitiveState, RawBufferVec,
-            RenderPipelineDescriptor, SamplerBindingType, ShaderStages,
+            RenderPipelineDescriptor, SamplerBindingType, ShaderStages, ShaderType,
             SpecializedRenderPipeline, SpecializedRenderPipelines, StencilState, TextureFormat,
-            TextureSampleType, VertexAttribute, VertexState, VertexStepMode,
+            TextureSampleType, UniformBuffer, VertexAttribute, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -40,6 +40,7 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 use crate::gpu::{NpcBufferWrites, NpcGpuData, NpcSpriteTexture};
+use crate::render::CameraState;
 
 // =============================================================================
 // MARKER COMPONENT
@@ -106,12 +107,28 @@ pub struct NpcRenderBuffers {
 pub struct NpcPipeline {
     pub shader: Handle<Shader>,
     pub texture_bind_group_layout: BindGroupLayoutDescriptor,
+    pub camera_bind_group_layout: BindGroupLayoutDescriptor,
 }
 
 /// Bind group for NPC sprite texture.
 #[derive(Resource)]
 pub struct NpcTextureBindGroup {
     pub bind_group: BindGroup,
+}
+
+/// Camera uniform data uploaded to GPU each frame.
+#[derive(Clone, ShaderType)]
+pub struct CameraUniform {
+    pub camera_pos: Vec2,
+    pub zoom: f32,
+    pub viewport: Vec2,
+}
+
+/// Bind group for camera uniform.
+#[derive(Resource)]
+pub struct NpcCameraBindGroup {
+    pub buffer: UniformBuffer<CameraUniform>,
+    pub bind_group: Option<BindGroup>,
 }
 
 // =============================================================================
@@ -179,10 +196,35 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNpcTextureBindGroup<I
     }
 }
 
+/// Bind group setter for camera uniform.
+pub struct SetNpcCameraBindGroup<const I: usize>;
+
+impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNpcCameraBindGroup<I> {
+    type Param = SRes<NpcCameraBindGroup>;
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    fn render<'w>(
+        _item: &P,
+        _view: ROQueryItem<'w, 'w, Self::ViewQuery>,
+        _entity: Option<ROQueryItem<'w, 'w, Self::ItemQuery>>,
+        camera_bg: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        if let Some(ref bind_group) = camera_bg.into_inner().bind_group {
+            pass.set_bind_group(I, bind_group, &[]);
+            RenderCommandResult::Success
+        } else {
+            RenderCommandResult::Skip
+        }
+    }
+}
+
 /// Complete draw commands for NPCs.
 type DrawNpcCommands = (
     SetItemPipeline,
     SetNpcTextureBindGroup<0>,
+    SetNpcCameraBindGroup<1>,
     DrawNpcs,
 );
 
@@ -213,6 +255,7 @@ impl Plugin for NpcRenderPlugin {
                 (
                     prepare_npc_buffers.in_set(RenderSystems::PrepareResources),
                     prepare_npc_texture_bind_group.in_set(RenderSystems::PrepareBindGroups),
+                    prepare_npc_camera_bind_group.in_set(RenderSystems::PrepareBindGroups),
                     queue_npcs.in_set(RenderSystems::Queue),
                 ),
             );
@@ -364,6 +407,43 @@ fn prepare_npc_texture_bind_group(
     commands.insert_resource(NpcTextureBindGroup { bind_group });
 }
 
+/// Prepare camera uniform bind group — uploads CameraState to GPU each frame.
+fn prepare_npc_camera_bind_group(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    pipeline: Option<Res<NpcPipeline>>,
+    pipeline_cache: Res<PipelineCache>,
+    camera_state: Option<Res<CameraState>>,
+) {
+    let Some(pipeline) = pipeline else { return };
+    let Some(camera_state) = camera_state else { return };
+
+    let uniform = CameraUniform {
+        camera_pos: camera_state.position,
+        zoom: camera_state.zoom,
+        viewport: camera_state.viewport,
+    };
+
+    let mut buffer = UniformBuffer::from(uniform);
+    buffer.write_buffer(&render_device, &render_queue);
+
+    let Some(binding) = buffer.binding() else { return };
+
+    let layout = pipeline_cache.get_bind_group_layout(&pipeline.camera_bind_group_layout);
+
+    let bind_group = render_device.create_bind_group(
+        Some("npc_camera_bind_group"),
+        &layout,
+        &BindGroupEntries::sequential((binding,)),
+    );
+
+    commands.insert_resource(NpcCameraBindGroup {
+        buffer,
+        bind_group: Some(bind_group),
+    });
+}
+
 // =============================================================================
 // QUEUE
 // =============================================================================
@@ -426,10 +506,8 @@ impl SpecializedRenderPipeline for NpcPipeline {
         RenderPipelineDescriptor {
             label: Some("npc_render_pipeline".into()),
             layout: vec![
-                // Bind group 0: View uniforms (from Mesh2dPipeline)
-                // We'll use SetMesh2dViewBindGroup which handles this
-                // Bind group 1: Texture
-                self.texture_bind_group_layout.clone(),
+                self.texture_bind_group_layout.clone(),   // group 0: texture + sampler
+                self.camera_bind_group_layout.clone(),    // group 1: camera uniform
             ],
             vertex: VertexState {
                 shader: self.shader.clone(),
@@ -520,9 +598,18 @@ impl FromWorld for NpcPipeline {
             ),
         );
 
+        let camera_bind_group_layout = BindGroupLayoutDescriptor::new(
+            "npc_camera_bind_group_layout",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::VERTEX,
+                (uniform_buffer::<CameraUniform>(false),),
+            ),
+        );
+
         NpcPipeline {
             shader: asset_server.load("shaders/npc_render.wgsl"),
             texture_bind_group_layout,
+            camera_bind_group_layout,
         }
     }
 }

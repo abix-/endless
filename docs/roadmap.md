@@ -159,9 +159,9 @@ Rules:
 *Done when: you can watch the core loop happen on screen and understand what's going on without reading logs.*
 
 Camera + viewport:
-- [ ] Replace hardcoded CAMERA_POS/VIEWPORT in npc_render.wgsl with Bevy view uniforms
-- [ ] Camera pan (WASD or drag) and zoom (scroll wheel)
-- [ ] Click-to-select NPC wired to camera transform
+- [x] Replace hardcoded CAMERA_POS/VIEWPORT in npc_render.wgsl with camera uniform buffer
+- [x] Camera pan (WASD) and zoom (scroll wheel toward cursor)
+- [x] Click-to-select NPC wired to camera transform
 
 Equipment rendering:
 - [ ] Multi-layer equipment rendering (see [spec](#multi-layer-equipment-rendering) below)
@@ -172,8 +172,11 @@ Projectile rendering:
 - [ ] Separate NpcInstanceData buffer for active projectiles
 
 Visual state indicators:
-- [ ] Farm growth state visible (Growing → Ready sprite change)
-- [ ] Health bars or floating damage numbers
+- [ ] Farm growth state visible (Growing → Ready sprite change + progress bar)
+- [ ] Health bars (3-color: green/yellow/red, configurable show mode: off/damaged/always)
+- [ ] Damage flash in npc_render.wgsl (white overlay on hit, fade out — was Godot-only, needs re-impl)
+- [ ] Healing glow effect (pulsing green tint + radial halo — needs TIME uniform in shader)
+- [ ] Sleep indicator on resting NPCs (z icon overlay)
 - [ ] Carried item icon (food sprite on returning raiders)
 
 **Stage 6: Playable Game**
@@ -270,22 +273,6 @@ Performance:
 Audio:
 - [ ] bevy_audio integration
 
-## Current State
-
-Stages 1-4 complete. Working on Stage 5.
-
-**Next: Stage 5 (Visual Feedback)**
-- [ ] Camera controls (remove hardcoded constants, add pan/zoom)
-- [ ] Multi-layer equipment rendering (armor, helmet, weapon, carried item)
-- [ ] Projectile instanced rendering
-- [ ] Farm/health/item visual indicators
-
-**Then: Stage 6 (Playable Game)**
-- [ ] World generation, start menu, UI panels, input handling, building system
-
-**Later: Stage 7 (Content + Polish)**
-- [ ] Config & upgrades, XP, town policies, combat depth, economy depth, AI lords
-
 ## Specs
 
 ### Multi-Layer Equipment Rendering
@@ -296,7 +283,7 @@ NPCs need visible equipment: armor, helmet, weapon, and carried items (food icon
 
 Current renderer does 1 batch entity → 1 instance buffer → 1 draw call for all 10K NPCs. Extend to N layers where each layer is an independent instanced draw call with its own instance buffer. Only NPCs that have equipment in that slot appear in that layer's buffer (a layer with 200 carried-item sprites = 200 instances, not 10K).
 
-Same pipeline, same shader (`npc_render.wgsl`), same texture atlas, same `NpcInstanceData` struct (32 bytes: position + sprite + color). No shader changes needed.
+Same pipeline, same shader (`npc_render.wgsl`), same `NpcInstanceData` struct (32 bytes: position + sprite + color). Most layers use the character atlas (`roguelikeChar`, 918×203). See "Atlas and procedural notes" below for exceptions.
 
 **Data model:**
 
@@ -353,11 +340,20 @@ LayerBuffer:
 
 5 instanced draw calls is trivial GPU overhead. Factorio benchmarks 25K sprites/frame as normal load. Buffer upload is <1MB/frame. Bottleneck is fill rate (overdraw from transparent layers), not draw calls.
 
+**Atlas and procedural notes:**
+
+Two issues from the Godot shaders that the implementer needs to handle:
+
+1. **Procedural effects vs sprite overlays.** The Godot `halo.gdshader` (golden healing halo, pulsing radial glow) and `sleep_icon.gdshader` (procedural "z" shape) were not atlas sprites — they were generated in the fragment shader. Options: (a) bake small icons into the character atlas and use the standard sprite pipeline, or (b) add a procedural shader path for overlay layers. Option (a) is simpler and keeps one shader for all layers.
+
+2. **World atlas for items.** The Godot `loot_icon.gdshader` and `item_icon.gdshader` sample from `roguelikeSheet` (world atlas, 968×526), not the character atlas (918×203). Carried items (food) and farm items use world sprites. Options: (a) copy needed item sprites into the character atlas, (b) bind the world atlas as a second texture and select per-layer, or (c) use a separate pipeline for item layers with world atlas bind group. Option (b) is cleanest — add a `texture_index` to `LayerBuffer` and bind both atlases.
+
 **References:**
 - [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) — sprite batching, per-layer draw queues
 - [NSprites (Unity DOTS)](https://github.com/Antoshidza/NSprites) — one draw call per material, component-to-GPU sync
 - Current implementation: `npc_render.rs` (RenderCommand pattern), `npc_render.wgsl` (unchanged)
 - Architecture doc: [rendering.md](rendering.md)
+- Godot reference shaders (kept until WGSL parity): `halo.gdshader`, `sleep_icon.gdshader`, `loot_icon.gdshader`, `item_icon.gdshader`, `npc_sprite.gdshader`
 
 ## Performance
 
