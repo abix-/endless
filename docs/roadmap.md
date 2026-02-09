@@ -41,6 +41,8 @@ Rules:
 - [x] RenderCommand + Transparent2d phase (single instanced draw call)
 - [x] 2D camera setup, texture atlas loading (char + world sprites)
 - [x] Sprite texture sampling with alpha discard and color tinting
+- [x] TilemapChunk terrain (250x250 grid, single quad, zero per-frame CPU cost)
+- [x] FPS counter overlay (egui, bottom-left, EMA-smoothed)
 
 ### Movement & Physics
 - [x] GPU compute shader for movement toward targets
@@ -243,7 +245,7 @@ Equipment rendering:
 
 Projectile rendering:
 - [x] Projectile instanced pipeline (same RenderCommand pattern as NPC renderer)
-- [x] Separate NpcInstanceData buffer for active projectiles
+- [x] Separate InstanceData buffer for active projectiles
 
 Visual state indicators:
 - [ ] Farm growth state visible (Growing → Ready sprite change + progress bar)
@@ -374,7 +376,7 @@ NPCs need visible equipment: armor, helmet, weapon, and carried items (food icon
 
 Current renderer does 1 batch entity → 1 instance buffer → 1 draw call for all 10K NPCs. Extend to N layers where each layer is an independent instanced draw call with its own instance buffer. Only NPCs that have equipment in that slot appear in that layer's buffer (a layer with 200 carried-item sprites = 200 instances, not 10K).
 
-Same pipeline, same shader (`npc_render.wgsl`), same `NpcInstanceData` struct (32 bytes: position + sprite + color). Most layers use the character atlas (`roguelikeChar`, 918×203). See "Atlas and procedural notes" below for exceptions.
+Same pipeline, same shader (`npc_render.wgsl`), same `InstanceData` struct (48 bytes: position + sprite + color + health + flash + scale + atlas_id). Both character and world atlases are bound simultaneously — per-instance `atlas_id` selects which to sample.
 
 **Data model:**
 
@@ -398,7 +400,7 @@ NpcRenderBuffers:
   layers: Vec<LayerBuffer>           ← NEW (replaces single instance_buffer)
 
 LayerBuffer:
-  instance_buffer: RawBufferVec<NpcInstanceData>
+  instance_buffer: RawBufferVec<InstanceData>
   instance_count: u32
 ```
 
@@ -435,7 +437,7 @@ Two issues from the Godot shaders that the implementer needs to handle:
 
 1. **Procedural effects vs sprite overlays.** The Godot `halo.gdshader` (golden healing halo, pulsing radial glow) and `sleep_icon.gdshader` (procedural "z" shape) were not atlas sprites — they were generated in the fragment shader. Options: (a) bake small icons into the character atlas and use the standard sprite pipeline, or (b) add a procedural shader path for overlay layers. Option (a) is simpler and keeps one shader for all layers.
 
-2. **World atlas for items.** The Godot `loot_icon.gdshader` and `item_icon.gdshader` sample from `roguelikeSheet` (world atlas, 968×526), not the character atlas (918×203). Carried items (food) and farm items use world sprites. Options: (a) copy needed item sprites into the character atlas, (b) bind the world atlas as a second texture and select per-layer, or (c) use a separate pipeline for item layers with world atlas bind group. Option (b) is cleanest — add a `texture_index` to `LayerBuffer` and bind both atlases.
+2. **World atlas for items.** ✓ Resolved — both atlases are now bound simultaneously (group 0, bindings 0-3). Per-instance `atlas_id` selects character (0.0) or world (1.0) atlas. Carried items use world sprites via atlas_id=1.0.
 
 **References:**
 - [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) — sprite batching, per-layer draw queues

@@ -42,14 +42,14 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::gpu::{NpcBufferWrites, NpcGpuData, NpcSpriteTexture, ProjBufferWrites, ProjGpuData};
 use crate::render::CameraState;
-use crate::world::{WorldData, WorldGrid};
+use crate::world::WorldData;
 
 // =============================================================================
 // MARKER COMPONENT
 // =============================================================================
 
 /// Layer count: terrain + buildings + body + 4 equipment layers.
-pub const LAYER_COUNT: usize = 7;
+pub const LAYER_COUNT: usize = 6;
 
 /// Marker component for the NPC batch entity.
 #[derive(Component, Clone)]
@@ -158,46 +158,25 @@ pub struct NpcCameraBindGroup {
     pub bind_group: Option<BindGroup>,
 }
 
-/// Pre-computed terrain + building instances for rendering. Computed once from WorldGrid,
+/// Pre-computed building instances for rendering. Computed once from WorldData,
 /// then extracted to render world each frame. Static data — only rebuilt when world changes.
+/// Terrain is handled by TilemapChunk (see render.rs).
 #[derive(Resource, Clone, ExtractResource, Default)]
 pub struct WorldRenderInstances {
-    pub terrain: Vec<InstanceData>,
     pub buildings: Vec<InstanceData>,
 }
 
-/// Compute terrain + building instances from WorldGrid (runs once when grid is populated).
+/// Compute building instances from WorldData (runs once when world is populated).
+/// Terrain is rendered via TilemapChunk — see render.rs::spawn_terrain_tilemap.
 fn compute_world_render_instances(
     mut commands: Commands,
-    grid: Res<WorldGrid>,
     world_data: Res<WorldData>,
     existing: Option<Res<WorldRenderInstances>>,
     mut computed: Local<bool>,
 ) {
-    // Only compute once, and only when grid is populated
-    if *computed || grid.width == 0 { return; }
-    // Don't overwrite if already exists (e.g. from a previous run)
-    if existing.is_some() && existing.as_ref().unwrap().terrain.len() > 0 { *computed = true; return; }
-
-    let mut terrain = Vec::with_capacity(grid.width * grid.height);
-    for row in 0..grid.height {
-        for col in 0..grid.width {
-            let cell_index = row * grid.width + col;
-            let cell = &grid.cells[cell_index];
-            let world_pos = grid.grid_to_world(col, row);
-            let (sprite_col, sprite_row) = cell.terrain.sprite(cell_index);
-
-            terrain.push(InstanceData {
-                position: [world_pos.x, world_pos.y],
-                sprite: [sprite_col, sprite_row],
-                color: [1.0, 1.0, 1.0, 1.0],
-                health: 1.0,
-                flash: 0.0,
-                scale: grid.cell_size,
-                atlas_id: 1.0,
-            });
-        }
-    }
+    if *computed { return; }
+    if existing.is_some() && !existing.as_ref().unwrap().buildings.is_empty() { *computed = true; return; }
+    if world_data.towns.is_empty() { return; }
 
     let mut buildings = Vec::new();
     for sprite in world_data.get_all_sprites() {
@@ -207,13 +186,13 @@ fn compute_world_render_instances(
             color: [1.0, 1.0, 1.0, 1.0],
             health: 1.0,
             flash: 0.0,
-            scale: sprite.scale * 16.0, // SpriteDef.scale * base sprite size
+            scale: sprite.scale * 16.0,
             atlas_id: 1.0,
         });
     }
 
-    info!("World render instances: {} terrain, {} buildings", terrain.len(), buildings.len());
-    commands.insert_resource(WorldRenderInstances { terrain, buildings });
+    info!("World render instances: {} buildings", buildings.len());
+    commands.insert_resource(WorldRenderInstances { buildings });
     *computed = true;
 }
 
@@ -441,7 +420,7 @@ const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32); 4] = [
     |w, i| { let j = i * 2; (w.item_sprites.get(j).copied().unwrap_or(-1.0), w.item_sprites.get(j+1).copied().unwrap_or(0.0)) },
 ];
 
-/// Prepare all instance buffers — terrain, buildings, NPCs, equipment (7 layers).
+/// Prepare all instance buffers — buildings, NPCs, equipment (6 layers).
 fn prepare_npc_buffers(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
@@ -464,18 +443,15 @@ fn prepare_npc_buffers(
         .filter(|s| s.positions.len() >= npc_count * 2)
         .map(|s| s.positions.clone());
 
-    // Build all layer buffers: [0]=terrain, [1]=buildings, [2]=body, [3-6]=equipment
+    // Build all layer buffers: [0]=buildings, [1]=body, [2-5]=equipment
     let mut layer_instances: Vec<RawBufferVec<InstanceData>> = (0..LAYER_COUNT)
         .map(|_| RawBufferVec::new(BufferUsages::VERTEX))
         .collect();
 
-    // Layers 0-1: Terrain + buildings from pre-computed world instances
+    // Layer 0: Buildings from pre-computed world instances
     if let Some(world) = world_instances {
-        for inst in &world.terrain {
-            layer_instances[0].push(*inst);
-        }
         for inst in &world.buildings {
-            layer_instances[1].push(*inst);
+            layer_instances[0].push(*inst);
         }
     }
 
@@ -494,7 +470,7 @@ fn prepare_npc_buffers(
             continue;
         }
 
-        // Layer 0: Body (existing logic)
+        // Layer 1: Body
         let sc = writes.sprite_indices.get(i * 4).copied().unwrap_or(0.0);
         let sr = writes.sprite_indices.get(i * 4 + 1).copied().unwrap_or(0.0);
         let cr = writes.colors.get(i * 4).copied().unwrap_or(1.0);
@@ -504,7 +480,7 @@ fn prepare_npc_buffers(
         let health = (writes.healths.get(i).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
         let flash = writes.flash_values.get(i).copied().unwrap_or(0.0);
 
-        layer_instances[2].push(InstanceData {
+        layer_instances[1].push(InstanceData {
             position: [px, py],
             sprite: [sc, sr],
             color: [cr, cg, cb, ca],
@@ -514,11 +490,11 @@ fn prepare_npc_buffers(
             atlas_id: 0.0,
         });
 
-        // Layers 3-6: Equipment (only if sprite col >= 0, i.e. equipped)
+        // Layers 2-5: Equipment (only if sprite col >= 0, i.e. equipped)
         for (layer_idx, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
             let (ecol, erow) = get_sprite(&writes, i);
             if ecol >= 0.0 {
-                layer_instances[layer_idx + 3].push(InstanceData {
+                layer_instances[layer_idx + 2].push(InstanceData {
                     position: [px, py],
                     sprite: [ecol, erow],
                     color: [1.0, 1.0, 1.0, 1.0],

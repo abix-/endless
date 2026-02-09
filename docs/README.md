@@ -85,7 +85,7 @@ Frame execution order ───────────────────�
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
 | [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, separation physics, combat targeting, GPU→ECS readback | 9/10 |
-| [rendering.md](rendering.md) | GPU instanced NPC rendering, multi-layer equipment, sprite atlas, RenderCommand pipeline, camera controls, health bars | 8/10 |
+| [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, dual atlas, RenderCommand pipeline, camera controls, health bars, FPS overlay | 9/10 |
 | [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 4/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |

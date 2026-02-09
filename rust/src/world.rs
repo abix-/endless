@@ -3,6 +3,7 @@
 //! World Generation - Procedural town placement and building layout
 
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashMap;
 
 use crate::resources::FarmStates;
@@ -261,25 +262,73 @@ pub enum Biome {
 }
 
 impl Biome {
-    /// Map biome + cell index to world atlas sprite (col, row).
-    /// Cell index provides deterministic variation per cell.
-    pub fn sprite(self, cell_index: usize) -> (f32, f32) {
+    /// Map biome + cell index to tileset array index (0-10) for TilemapChunk.
+    /// Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
+    pub fn tileset_index(self, cell_index: usize) -> u16 {
         match self {
-            Biome::Grass => {
-                // Two grass variants
-                let col = if cell_index % 2 == 0 { 0 } else { 1 };
-                (col as f32, 14.0)
-            }
-            Biome::Forest => {
-                // Six tree variants (cols 13-18, row 9)
-                let col = 13 + (cell_index % 6);
-                (col as f32, 9.0)
-            }
-            Biome::Water => (3.0, 1.0),
-            Biome::Rock => (7.0, 13.0),
-            Biome::Dirt => (8.0, 10.0),
+            Biome::Grass => if cell_index % 2 == 0 { 0 } else { 1 },
+            Biome::Forest => 2 + (cell_index % 6) as u16,
+            Biome::Water => 8,
+            Biome::Rock => 9,
+            Biome::Dirt => 10,
         }
     }
+}
+
+/// Atlas (col, row) positions for the 11 terrain tiles used in the TilemapChunk tileset.
+const TERRAIN_TILES: [(u32, u32); 11] = [
+    (0, 14),  // 0: Grass A
+    (1, 14),  // 1: Grass B
+    (13, 9),  // 2: Forest A
+    (14, 9),  // 3: Forest B
+    (15, 9),  // 4: Forest C
+    (16, 9),  // 5: Forest D
+    (17, 9),  // 6: Forest E
+    (18, 9),  // 7: Forest F
+    (3, 1),   // 8: Water
+    (7, 13),  // 9: Rock
+    (8, 10),  // 10: Dirt
+];
+
+/// Extract terrain tiles from the world atlas and build a texture_2d_array for TilemapChunk.
+/// Each tile is 16x16 pixels. The atlas has 1px margins (17px cells).
+pub fn build_terrain_tileset(atlas: &Image, images: &mut Assets<Image>) -> Handle<Image> {
+    let tile_size = SPRITE_SIZE as u32; // 16
+    let cell_size = CELL as u32;        // 17
+    let atlas_width = atlas.width();
+    let layers = TERRAIN_TILES.len() as u32;
+
+    // Stack tiles vertically: 16 wide × (16 * 11) tall
+    let mut data = vec![0u8; (tile_size * tile_size * layers * 4) as usize];
+    let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
+
+    for (layer, &(col, row)) in TERRAIN_TILES.iter().enumerate() {
+        let src_x = col * cell_size;
+        let src_y = row * cell_size;
+
+        for ty in 0..tile_size {
+            for tx in 0..tile_size {
+                let src_idx = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                let dst_idx = (layer as u32 * tile_size * tile_size + ty * tile_size + tx) as usize * 4;
+                data[dst_idx..dst_idx + 4].copy_from_slice(&atlas_data[src_idx..src_idx + 4]);
+            }
+        }
+    }
+
+    let mut image = Image::new(
+        Extent3d {
+            width: tile_size,
+            height: tile_size * layers,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        Default::default(),
+    );
+
+    image.reinterpret_stacked_2d_as_array(layers).expect("tileset reinterpret failed");
+    images.add(image)
 }
 
 /// Building occupying a grid cell.

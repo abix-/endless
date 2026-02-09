@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-02-09
+- **terrain tilemap: migrate 62K instanced terrain to TilemapChunk**
+  - terrain rendered via Bevy's built-in `TilemapChunk` (single quad, fragment shader tile lookup, zero per-frame CPU cost)
+  - `build_terrain_tileset()`: extracts 11 terrain tiles from world atlas into `texture_2d_array` at runtime
+  - `Biome::tileset_index()`: maps biome + cell position to tileset array index (0-10)
+  - `spawn_terrain_tilemap` system: spawns TilemapChunk entity when WorldGrid populated + atlas loaded
+  - remove terrain from instanced pipeline: `LAYER_COUNT` 7→6, `WorldRenderInstances` buildings-only
+  - remove dead `Biome::sprite()` method (replaced by tileset_index)
+  - add FPS counter overlay (egui, bottom-left, EMA-smoothed)
+  - suppress tick log when 0 NPCs active
+
 - **unified instanced renderer: terrain + buildings + NPCs in one pipeline**
   - rename `NpcInstanceData` → `InstanceData`, add `scale` (per-instance quad size) and `atlas_id` (atlas selection) fields (40→48 bytes)
   - bind both character and world atlases simultaneously (group 0, bindings 0-3)

@@ -220,6 +220,7 @@ pub fn register_tests(app: &mut App) {
     // Menu + HUD UI (must run in EguiPrimaryContextPass, not Update)
     app.add_systems(EguiPrimaryContextPass, test_menu_system.run_if(in_state(AppState::TestMenu)));
     app.add_systems(EguiPrimaryContextPass, test_hud_system.run_if(in_state(AppState::Running)));
+    app.add_systems(EguiPrimaryContextPass, fps_display_system);
     app.add_systems(OnEnter(AppState::TestMenu), auto_start_next_test);
 
     // Cleanup when leaving Running
@@ -677,4 +678,33 @@ fn cleanup_test_world(
     *extra.world_grid = Default::default();
 
     info!("Test cleanup: despawned {} NPCs, reset resources", count);
+}
+
+// ============================================================================
+// FPS DISPLAY
+// ============================================================================
+
+/// Always-visible FPS counter at bottom-left. Smoothed with exponential moving average.
+fn fps_display_system(
+    mut contexts: EguiContexts,
+    time: Res<Time>,
+    mut avg_fps: Local<f32>,
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
+    let dt = time.delta_secs();
+    if dt > 0.0 {
+        let fps = 1.0 / dt;
+        // EMA smoothing: 5% weight on new sample
+        *avg_fps = if *avg_fps == 0.0 { fps } else { *avg_fps * 0.95 + fps * 0.05 };
+    }
+
+    egui::Area::new(egui::Id::new("fps_display"))
+        .anchor(egui::Align2::LEFT_BOTTOM, [8.0, -8.0])
+        .show(ctx, |ui| {
+            ui.label(egui::RichText::new(format!("FPS: {:.0}", *avg_fps))
+                .size(14.0)
+                .color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 180)));
+        });
+
+    Ok(())
 }

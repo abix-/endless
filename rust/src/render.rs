@@ -6,8 +6,11 @@ use bevy::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
 
+use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
+
 use crate::gpu::NpcSpriteTexture;
 use crate::resources::SelectedNpc;
+use crate::world::{WorldGrid, build_terrain_tileset};
 
 // =============================================================================
 // CONSTANTS
@@ -96,6 +99,7 @@ impl Plugin for RenderPlugin {
                 camera_viewport_sync,
                 camera_transform_sync,
                 click_to_select_system,
+                spawn_terrain_tilemap,
             ));
     }
 }
@@ -275,3 +279,45 @@ fn click_to_select_system(
     selected.0 = best_idx;
 }
 
+// =============================================================================
+// TERRAIN TILEMAP
+// =============================================================================
+
+/// Spawn terrain as a TilemapChunk entity. Runs once when WorldGrid is populated
+/// and the world atlas image is loaded.
+fn spawn_terrain_tilemap(
+    mut commands: Commands,
+    grid: Res<WorldGrid>,
+    assets: Res<SpriteAssets>,
+    mut images: ResMut<Assets<Image>>,
+    mut spawned: Local<bool>,
+) {
+    if *spawned || grid.width == 0 { return; }
+    let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
+
+    // Build texture_2d_array tileset from world atlas
+    let tileset = build_terrain_tileset(&atlas, &mut images);
+
+    // Build tile data from WorldGrid
+    let tile_data: Vec<Option<TileData>> = grid.cells.iter().enumerate()
+        .map(|(i, cell)| Some(TileData::from_tileset_index(cell.terrain.tileset_index(i))))
+        .collect();
+
+    // Chunk is centered at its Transform. 250×250 grid at 32px = 8000×8000, center at (4000, 4000).
+    let world_w = grid.width as f32 * grid.cell_size;
+    let world_h = grid.height as f32 * grid.cell_size;
+
+    commands.spawn((
+        TilemapChunk {
+            chunk_size: UVec2::new(grid.width as u32, grid.height as u32),
+            tile_display_size: UVec2::new(grid.cell_size as u32, grid.cell_size as u32),
+            tileset,
+            alpha_mode: AlphaMode2d::Opaque,
+        },
+        TilemapChunkTileData(tile_data),
+        Transform::from_xyz(world_w / 2.0, world_h / 2.0, -1.0),
+    ));
+
+    info!("Terrain tilemap spawned: {}x{} tiles, {}x{} world", grid.width, grid.height, world_w, world_h);
+    *spawned = true;
+}

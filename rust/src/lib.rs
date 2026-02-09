@@ -140,7 +140,9 @@ fn debug_tick_system(
 ) {
     *last_log += time.delta_secs();
     if *last_log >= 1.0 {
-        info!("Tick: {} NPCs active", npc_count.0);
+        if npc_count.0 > 0 {
+            info!("Tick: {} NPCs active", npc_count.0);
+        }
 
         if flags.readback {
             let n = gpu_state.npc_count.min(5);
