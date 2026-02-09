@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026-02-09
+## 2026-02-08
 - **port separation physics from glsl to wgsl compute shader**
   - boids-style separation force: 3x3 grid neighbor scan, asymmetric push (moving=0.2x, settled=2.0x), golden angle for exact overlap
   - TCP-style dodge: perpendicular avoidance for converging NPCs (head-on/crossing/overtaking), consistent side-picking via index comparison
