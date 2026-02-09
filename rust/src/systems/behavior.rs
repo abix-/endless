@@ -8,11 +8,10 @@
 //! The decision system is the NPC's "brain" - all decisions flow through it:
 //! Priority 0: AtDestination? → Handle arrival transition
 //! Priority 1-3: Combat (flee/leash/skip)
-//! Priority 4: Recovering + healed? → Resume
+//! Priority 4: Resting? → Wake when HP recovered (if wounded) AND energy >= 90%
 //! Priority 5: Working + tired? → Stop work
 //! Priority 6: OnDuty + time_to_patrol? → Patrol
-//! Priority 7: Resting + rested? → Wake up
-//! Priority 8: Idle → Score Eat/Rest/Work/Wander
+//! Priority 7: Idle → Score Eat/Rest/Work/Wander
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -289,17 +288,16 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 /// Priority order (first match wins):
 /// 0. AtDestination → Handle arrival transition (Patrolling→OnDuty, GoingToWork→Working, etc.)
 /// 1-3. Combat (flee/leash/skip)
-/// 4. Recovering + healed? → Resume
+/// 4. Resting? → Wake when HP recovered (if wounded) AND energy >= 90%
 /// 5. Working + tired? → Stop work
 /// 6. OnDuty + time_to_patrol? → Patrol
-/// 7. Resting + rested? → Wake up
-/// 8. Idle → Score Eat/Rest/Work/Wander (utility AI)
+/// 7. Idle → Score Eat/Rest/Work/Wander (utility AI)
 pub fn decision_system(
     mut commands: Commands,
     // Main query: core NPC data (15 elements - at Bevy tuple limit)
     mut query: Query<
         (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
-         Option<&InCombat>, Option<&Recovering>, Option<&Working>, Option<&OnDuty>,
+         Option<&InCombat>, Option<&Working>, Option<&OnDuty>,
          Option<&Resting>, Option<&Raiding>),
         Without<Dead>
     >,
@@ -328,7 +326,7 @@ pub fn decision_system(
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
-         in_combat, recovering, working, on_duty, resting, raiding) in query.iter_mut()
+         in_combat, working, on_duty, resting, raiding) in query.iter_mut()
     {
         let idx = npc_idx.0;
 
@@ -351,7 +349,7 @@ pub fn decision_system(
             } else if going_rest.is_some() {
                 commands.entity(entity)
                     .remove::<GoingToRest>()
-                    .insert(Resting);
+                    .insert(Resting::default());
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
             } else if going_work.is_some() {
                 // Farmers: find farm at WorkPosition and start working
@@ -465,8 +463,7 @@ pub fn decision_system(
                 let health_pct = health.0 / 100.0;
                 if health_pct < w.pct {
                     commands.entity(entity)
-                        .insert(Recovering { threshold: 0.75 })
-                        .insert(Resting);
+                        .insert(Resting { recover_until: Some(0.75) });
                 }
             }
 
@@ -534,15 +531,24 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Priority 4: Recovering + healed?
+        // Priority 4: Resting? (energy rest + wounded recovery unified)
         // ====================================================================
-        if let Some(rec) = recovering {
-            if health.0 / 100.0 >= rec.threshold {
-                commands.entity(entity).remove::<Recovering>();
-                if resting.is_some() { commands.entity(entity).remove::<Resting>(); }
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Recovered".into());
+        if let Some(rest) = resting {
+            // Wounded recovery: wait for HP threshold before waking
+            if let Some(threshold) = rest.recover_until {
+                if health.0 / 100.0 < threshold {
+                    continue; // still recovering HP
+                }
             }
-            continue;
+            // Normal wake: energy must reach threshold
+            if energy.0 >= ENERGY_WAKE_THRESHOLD {
+                commands.entity(entity).remove::<Resting>();
+                let msg = if rest.recover_until.is_some() { "Recovered" } else { "Woke up" };
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), msg.into());
+                // Fall through to make a decision
+            } else {
+                continue;
+            }
         }
 
         // ====================================================================
@@ -585,18 +591,6 @@ pub fn decision_system(
             continue;
         }
 
-        // ====================================================================
-        // Priority 7: Resting + rested?
-        // ====================================================================
-        if resting.is_some() {
-            if energy.0 >= ENERGY_WAKE_THRESHOLD {
-                commands.entity(entity).remove::<Resting>();
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Woke up".into());
-                // Fall through to make a decision
-            } else {
-                continue;
-            }
-        }
 
         // ====================================================================
         // Priority 8: Idle → Score Eat/Rest/Work/Wander

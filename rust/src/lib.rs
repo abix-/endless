@@ -43,8 +43,9 @@ use tests::AppState;
 pub fn derive_npc_state(world: &World, entity: Entity) -> &'static str {
     if world.get::<Dead>(entity).is_some() { return "Dead"; }
     if world.get::<InCombat>(entity).is_some() { return "Fighting"; }
-    if world.get::<Recovering>(entity).is_some() { return "Recovering"; }
-    if world.get::<Resting>(entity).is_some() { return "Resting"; }
+    if let Some(rest) = world.get::<Resting>(entity) {
+        return if rest.recover_until.is_some() { "Recovering" } else { "Resting" };
+    }
     if world.get::<Working>(entity).is_some() { return "Working"; }
     if world.get::<OnDuty>(entity).is_some() { return "On Duty"; }
     if world.get::<Patrolling>(entity).is_some() { return "Patrolling"; }

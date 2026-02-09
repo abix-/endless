@@ -142,9 +142,12 @@ pub struct OnDuty {
     pub ticks_waiting: u32,
 }
 
-/// NPC is at home/bed recovering energy.
-#[derive(Component)]
-pub struct Resting;
+/// NPC is at home/bed recovering energy. Optional HP threshold for wounded recovery.
+#[derive(Component, Default)]
+pub struct Resting {
+    /// None = normal energy rest, Some(0.75) = wounded rest (wait for HP too)
+    pub recover_until: Option<f32>,
+}
 
 /// NPC is walking home to rest.
 #[derive(Component)]
@@ -321,11 +324,6 @@ pub struct Returning;
 #[require(HasTarget)]
 pub struct Wandering;
 
-/// State: NPC is resting until HP reaches threshold before resuming activity.
-#[derive(Component)]
-pub struct Recovering {
-    pub threshold: f32,
-}
 
 /// Marker: NPC is inside a healing aura (near own faction's town center).
 /// Used for visual feedback (halo effect).
