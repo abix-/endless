@@ -160,6 +160,20 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 `TownUpgrades` is indexed by town, each entry is a fixed-size array of 14 upgrade levels (`UpgradeType` enum). `UpgradeQueue` decouples the UI from stat re-resolution — `upgrade_menu.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates food cost (`10 * 2^level`), increments level, deducts food, and re-resolves `CachedStats` for affected NPCs.
 
+## Town Policies
+
+| Resource | Data | Writers | Readers |
+|----------|------|---------|---------|
+| TownPolicies | `Vec<PolicySet>` — per-town behavior configuration (16 slots default) | policies_panel (UI) | decision_system, behavior systems |
+
+`PolicySet` fields: `eat_food` (bool), `guard_aggressive` (bool), `guard_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `guard_flee_hp` (f32), `recovery_hp` (f32), `work_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `guard_off_duty` (OffDutyBehavior enum).
+
+`WorkSchedule`: Both (default), DayOnly, NightOnly. `OffDutyBehavior`: GoToBed (default), StayAtFountain, WanderTown.
+
+Defaults: eat_food=true, guard_aggressive=false, guard_leash=true, farmer_fight_back=false, prioritize_healing=true, farmer_flee_hp=0.30, guard_flee_hp=0.15, recovery_hp=0.80.
+
+Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard NPCs. Raiders use hardcoded flee threshold (0.50). Per-entity overrides still possible via `FleeThreshold` component (e.g., boss NPCs).
+
 ## Selection
 
 | Resource | Data | Purpose |

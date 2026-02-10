@@ -124,7 +124,6 @@ pub fn spawn_npc_system(
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row }));
 
         // Base entity (all NPCs get these)
-        let current_hour = game_time.total_hours();
         let mut ec = commands.spawn((
             NpcIndex(idx),
             Position::new(msg.x, msg.y),
@@ -137,7 +136,6 @@ pub fn spawn_npc_system(
             Faction::from_i32(msg.faction),
             Home(Vec2::new(msg.home_x, msg.home_y)),
             personality,
-            LastAteHour(current_hour),
             Activity::default(),
             CombatState::default(),
         ));
@@ -171,9 +169,7 @@ pub fn spawn_npc_system(
                 ec.insert(AttackTimer(0.0));
                 ec.insert(Stealer);
                 ec.insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
-                ec.insert(FleeThreshold { pct: 0.50 });
                 ec.insert(LeashRange { distance: 400.0 });
-                ec.insert(WoundedThreshold { pct: 0.25 });
             }
             Job::Fighter => {
                 ec.insert(AttackTimer(0.0));

@@ -65,7 +65,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Combat log (L): global event feed (kills, spawns, raids, harvests)
     │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Destroy/Unlock/Turret toggle)
     │   ├─ Upgrade menu (U): per-town upgrades (spend food → stat boost)
-│   ├─ Policies (P): scaffold
+│   ├─ Policies (P): per-town behavior config (flee thresholds, work schedule, off-duty)
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
@@ -140,7 +140,7 @@ rust/
     combat_log.rs       # Event feed with color-coded timestamps (L key)
     build_menu.rs       # Right-click context menu: build/destroy/unlock town slots, turret toggle
     upgrade_menu.rs     # 14 upgrade rows with level/cost, spend food to purchase (U key)
-    policies_panel.rs   # Faction behavior config scaffold (P key, disabled)
+    policies_panel.rs   # Per-town behavior config (P key, wired to TownPolicies resource)
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)

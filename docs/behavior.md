@@ -26,7 +26,7 @@ Priority order (first match wins):
 7. Resting + rested? → Wake up
 8. Idle → Score Eat/Rest/Work/Wander
 
-All checks are **enum-driven, not job-driven**. Flee logic operates on any NPC with `FleeThreshold` + `CombatState::Fighting`, regardless of whether it's a guard or raider.
+All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `guard_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
 
 ## Utility AI (Weighted Random Decisions)
 
@@ -156,9 +156,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
-| FleeThreshold | `{ pct: f32 }` | Flee combat below this HP % |
-| LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin |
-| WoundedThreshold | `{ pct: f32 }` | Drop everything and go home below this HP % |
+| LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin (raiders only) |
 
 ## Systems
 
@@ -174,12 +172,12 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `GoingToWork` → `Activity::Working` + `AssignedFarm` + harvest if farm ready
   - `Raiding { .. }` → steal if farm ready, else re-target; `Activity::Returning { has_food: true }`
   - `Wandering` → `Activity::Idle`
-  - Check `WoundedThreshold` for recovery mode (`Resting { recover_until: Some(0.75) }`)
+  - Wounded check: if `prioritize_healing` policy enabled and HP < `recovery_hp` threshold, set `Resting { recover_until: Some(recovery_hp) }` and target town fountain
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
-- If `CombatState::Fighting` + has `FleeThreshold`: dynamic threat assessment (enemies vs allies within 200px, throttled every 30 frames), flee if HP < effective threshold
-- If `CombatState::Fighting` + has `LeashRange`: check distance from `CombatState::Fighting { origin }`, disengage if > leash distance
+- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — guards use `guard_flee_hp`, farmers use `farmer_flee_hp`, raiders hardcoded 0.50. `guard_aggressive` disables guard flee, `farmer_fight_back` disables farmer flee. Dynamic threat assessment (enemies vs allies within 200px, throttled every 30 frames)
+- If `CombatState::Fighting` + should leash: guards check `guard_leash` policy (if disabled, guards chase freely), raiders use per-entity `LeashRange` component
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
 
 **Priority 4: Recovery**
@@ -195,6 +193,9 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `Activity::Resting { .. }` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
 **Priority 8: Idle scoring (Utility AI)**
+- **Healing priority**: if `prioritize_healing` policy enabled, HP < `recovery_hp`, and town center known → go to fountain for healing (score 80)
+- **Work schedule gate**: Work only scored if `work_schedule` policy allows it (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
+- **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
@@ -260,10 +261,9 @@ Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes ar
 
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
-- **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
 
 ## Rating: 8/10
 
-Central brain architecture: `decision_system` handles all NPC decisions with clear priority cascade. SystemParam bundles organize parameters into logical groups, allowing the system to scale as more features are added. Utility AI for idle decisions creates lifelike behavior.
+Central brain architecture: `decision_system` handles all NPC decisions with clear priority cascade. Policy-driven flee/leash/schedule system replaces per-entity threshold components. Utility AI for idle decisions creates lifelike behavior with work schedule and off-duty policies.
 
-Gaps: no pathfinding, deterministic pseudo-random.
+Gaps: no pathfinding.

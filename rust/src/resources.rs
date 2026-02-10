@@ -682,4 +682,70 @@ pub struct GuardPostState {
 #[derive(Resource, Default)]
 pub struct ReassignQueue(pub Vec<(usize, i32)>); // (npc_slot, new_job: 0=Farmer, 1=Guard)
 
+// ============================================================================
+// TOWN POLICIES
+// ============================================================================
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum WorkSchedule {
+    #[default]
+    Both,
+    DayOnly,
+    NightOnly,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum OffDutyBehavior {
+    #[default]
+    GoToBed,
+    StayAtFountain,
+    WanderTown,
+}
+
+/// Per-town behavior configuration. Controls flee thresholds, work schedules, off-duty behavior.
+#[derive(Clone, Debug)]
+pub struct PolicySet {
+    pub eat_food: bool,
+    pub guard_aggressive: bool,
+    pub guard_leash: bool,
+    pub farmer_fight_back: bool,
+    pub prioritize_healing: bool,
+    pub farmer_flee_hp: f32,     // 0.0-1.0 percentage
+    pub guard_flee_hp: f32,
+    pub recovery_hp: f32,        // 0.0-1.0 — go rest/heal when below this
+    pub work_schedule: WorkSchedule,
+    pub farmer_off_duty: OffDutyBehavior,
+    pub guard_off_duty: OffDutyBehavior,
+}
+
+impl Default for PolicySet {
+    fn default() -> Self {
+        Self {
+            eat_food: true,
+            guard_aggressive: false,
+            guard_leash: true,
+            farmer_fight_back: false,
+            prioritize_healing: true,
+            farmer_flee_hp: 0.30,
+            guard_flee_hp: 0.15,
+            recovery_hp: 0.80,
+            work_schedule: WorkSchedule::Both,
+            farmer_off_duty: OffDutyBehavior::GoToBed,
+            guard_off_duty: OffDutyBehavior::GoToBed,
+        }
+    }
+}
+
+/// Per-town policy settings. Index matches WorldData.towns.
+#[derive(Resource)]
+pub struct TownPolicies {
+    pub policies: Vec<PolicySet>,
+}
+
+impl Default for TownPolicies {
+    fn default() -> Self {
+        Self { policies: vec![PolicySet::default(); 16] }
+    }
+}
+
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

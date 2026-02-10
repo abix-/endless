@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind};
+use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy, find_farm_index_by_pos, pos_to_key};
 
@@ -211,9 +211,12 @@ enum Action {
 }
 
 /// Simple deterministic "random" for weighted selection.
+/// Uses xorshift-style mixing so both seed and frame affect the result.
 fn pseudo_random(seed: usize, frame: usize) -> f32 {
-    let x = ((seed.wrapping_mul(1103515245).wrapping_add(frame)) >> 16) & 0x7fff;
-    (x as f32) / 32767.0
+    let mut h = seed ^ frame.wrapping_mul(2654435761);
+    h = h.wrapping_mul(1103515245).wrapping_add(12345);
+    h ^= h >> 16;
+    (h & 0x7fff) as f32 / 32767.0
 }
 
 /// Weighted random selection from scored actions.
@@ -252,13 +255,10 @@ pub fn decision_system(
     // Main query: core NPC data
     mut query: Query<
         (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
-         &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&WoundedThreshold>),
+         &mut Activity, &mut CombatState, Option<&AtDestination>),
         Without<Dead>
     >,
-    // Separate query for LastAteHour (updated when eating)
-    mut hunger_query: Query<&mut LastAteHour, Without<Dead>>,
     // Combat config queries
-    flee_query: Query<&FleeThreshold>,
     leash_query: Query<&LeashRange>,
     // Work-related queries
     work_query: Query<&WorkPosition>,
@@ -273,6 +273,7 @@ pub fn decision_system(
     mut npc_logs: ResMut<NpcLogCache>,
     mut raid_queue: ResMut<RaidQueue>,
     mut combat_log: ResMut<CombatLog>,
+    policies: Res<TownPolicies>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
@@ -284,7 +285,7 @@ pub fn decision_system(
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
-         mut activity, mut combat_state, at_destination, wounded) in query.iter_mut()
+         mut activity, mut combat_state, at_destination) in query.iter_mut()
     {
         let idx = npc_idx.0;
 
@@ -406,11 +407,25 @@ pub fn decision_system(
                 _ => {}
             }
 
-            // Check wounded threshold on arrival
-            if let Some(w) = wounded {
-                let health_pct = health.0 / 100.0;
-                if health_pct < w.pct {
-                    *activity = Activity::Resting { recover_until: Some(0.75) };
+            // Check wounded threshold on arrival (policy-driven)
+            let town_idx = town_id.0 as usize;
+            if let Some(policy) = policies.policies.get(town_idx) {
+                let max_hp = 100.0; // TODO: use CachedStats.max_health when available in query
+                let health_pct = health.0 / max_hp;
+                if health_pct < policy.recovery_hp {
+                    // Prioritize healing: go to fountain if enabled, else rest at home
+                    if policy.prioritize_healing {
+                        if let Some(town) = farms.world.towns.get(town_idx) {
+                            let center = town.center;
+                            *activity = Activity::GoingToRest;
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded → Fountain".into());
+                        } else {
+                            *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
+                        }
+                    } else {
+                        *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
+                    }
                 }
             }
 
@@ -428,17 +443,38 @@ pub fn decision_system(
         // Priority 1-3: Combat decisions (flee/leash/skip)
         // ====================================================================
         if combat_state.is_fighting() {
-            // Priority 1: Should flee?
-            if let Ok(flee_threshold) = flee_query.get(entity) {
+            // Priority 1: Should flee? (policy-driven)
+            let town_idx_usize = town_id.0 as usize;
+            let flee_pct = match job {
+                Job::Raider => 0.50, // raiders always flee at 50%
+                Job::Guard => {
+                    let p = policies.policies.get(town_idx_usize);
+                    if p.is_some_and(|p| p.guard_aggressive) {
+                        0.0 // aggressive guards never flee
+                    } else {
+                        p.map(|p| p.guard_flee_hp).unwrap_or(0.15)
+                    }
+                }
+                Job::Farmer => {
+                    let p = policies.policies.get(town_idx_usize);
+                    if p.is_some_and(|p| p.farmer_fight_back) {
+                        0.0 // fight-back farmers don't flee
+                    } else {
+                        p.map(|p| p.farmer_flee_hp).unwrap_or(0.30)
+                    }
+                }
+                Job::Fighter => 0.0,
+            };
+            if flee_pct > 0.0 {
                 let should_check_threat = (frame + idx) % CHECK_INTERVAL == 0;
                 let effective_threshold = if should_check_threat {
                     let (enemies, allies) = count_nearby_factions(
                         positions, factions_buf, health_buf, idx, faction.0, THREAT_RADIUS
                     );
                     let ratio = (enemies as f32 + 1.0) / (allies as f32 + 1.0);
-                    (flee_threshold.pct * ratio).min(1.0)
+                    (flee_pct * ratio).min(1.0)
                 } else {
-                    flee_threshold.pct
+                    flee_pct
                 };
 
                 if health.0 / 100.0 < effective_threshold {
@@ -450,13 +486,18 @@ pub fn decision_system(
                 }
             }
 
-            // Priority 2: Should leash?
-            if let Ok(leash) = leash_query.get(entity) {
+            // Priority 2: Should leash? (per-entity LeashRange or policy guard_leash)
+            let should_leash = match job {
+                Job::Guard => policies.policies.get(town_idx_usize).is_none_or(|p| p.guard_leash),
+                _ => leash_query.get(entity).is_ok(),
+            };
+            if should_leash {
+                let leash_dist = leash_query.get(entity).map(|l| l.distance).unwrap_or(400.0);
                 if let CombatState::Fighting { origin } = &*combat_state {
                     if idx * 2 + 1 < positions.len() {
                         let dx = positions[idx * 2] - origin.x;
                         let dy = positions[idx * 2 + 1] - origin.y;
-                        if (dx * dx + dy * dy).sqrt() > leash.distance {
+                        if (dx * dx + dy * dy).sqrt() > leash_dist {
                             *combat_state = CombatState::None;
                             *activity = Activity::Returning { has_food: false };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -538,14 +579,30 @@ pub fn decision_system(
 
 
         // ====================================================================
-        // Priority 8: Idle → Score Eat/Rest/Work/Wander
+        // Priority 8: Idle → Score Eat/Rest/Work/Wander (policy-aware)
         // ====================================================================
         let en = energy.0;
         let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
 
         let town_idx = town_id.0 as usize;
-        let food_available = town_idx < economy.food_storage.food.len() && economy.food_storage.food[town_idx] > 0;
+        let policy = policies.policies.get(town_idx);
+        let food_available = policy.is_none_or(|p| p.eat_food)
+            && town_idx < economy.food_storage.food.len()
+            && economy.food_storage.food[town_idx] > 0;
         let mut scores: Vec<(Action, f32)> = Vec::with_capacity(4);
+
+        // Prioritize healing: wounded NPCs go to fountain before doing anything else
+        if let Some(p) = policy {
+            if p.prioritize_healing && health.0 / 100.0 < p.recovery_hp && *job != Job::Raider {
+                if let Some(town) = farms.world.towns.get(town_idx) {
+                    let center = town.center;
+                    *activity = Activity::GoingToRest;
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded → Fountain".into());
+                    continue;
+                }
+            }
+        }
 
         if food_available {
             let eat_score = (100.0 - en) * SCORE_EAT_MULT * eat_m;
@@ -555,7 +612,14 @@ pub fn decision_system(
         let rest_score = (100.0 - en) * SCORE_REST_MULT * rest_m;
         if rest_score > 0.0 && home.is_valid() { scores.push((Action::Rest, rest_score)); }
 
-        let can_work = match job {
+        // Work schedule gate: check if current time allows work
+        let work_allowed = match policy.map(|p| p.work_schedule).unwrap_or(WorkSchedule::Both) {
+            WorkSchedule::Both => true,
+            WorkSchedule::DayOnly => game_time.is_daytime(),
+            WorkSchedule::NightOnly => !game_time.is_daytime(),
+        };
+
+        let can_work = work_allowed && match job {
             Job::Farmer => work_query.get(entity).is_ok(),
             Job::Guard => patrol_query.get(entity).is_ok(),
             Job::Raider => true,
@@ -566,6 +630,34 @@ pub fn decision_system(
             let hp_mult = if hp_pct < 0.5 { 0.0 } else { (hp_pct - 0.5) * 2.0 };
             let work_score = SCORE_WORK_BASE * work_m * hp_mult;
             if work_score > 0.0 { scores.push((Action::Work, work_score)); }
+        }
+
+        // Off-duty behavior when work is gated out by schedule
+        if !work_allowed {
+            let off_duty = match job {
+                Job::Farmer => policy.map(|p| p.farmer_off_duty).unwrap_or(OffDutyBehavior::GoToBed),
+                Job::Guard => policy.map(|p| p.guard_off_duty).unwrap_or(OffDutyBehavior::GoToBed),
+                _ => OffDutyBehavior::GoToBed,
+            };
+            match off_duty {
+                OffDutyBehavior::GoToBed => {
+                    // Boost rest score so NPCs prefer going to bed
+                    if home.is_valid() { scores.push((Action::Rest, 80.0 * rest_m)); }
+                }
+                OffDutyBehavior::StayAtFountain => {
+                    // Go to town center (fountain)
+                    if let Some(town) = farms.world.towns.get(town_idx) {
+                        let center = town.center;
+                        *activity = Activity::Wandering;
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Off-duty → Fountain".into());
+                        continue;
+                    }
+                }
+                OffDutyBehavior::WanderTown => {
+                    scores.push((Action::Wander, 80.0 * wander_m));
+                }
+            }
         }
 
         scores.push((Action::Wander, SCORE_WANDER_BASE * wander_m));
@@ -579,11 +671,7 @@ pub fn decision_system(
                 if town_idx < economy.food_storage.food.len() && economy.food_storage.food[town_idx] > 0 {
                     let old_energy = energy.0;
                     economy.food_storage.food[town_idx] -= 1;
-                    energy.0 = (energy.0 + ENERGY_FROM_EATING).min(100.0);
-                    if let Ok(mut last_ate) = hunger_query.get_mut(entity) {
-                        last_ate.0 = game_time.total_hours();
-                    }
-                    commands.entity(entity).remove::<Starving>();
+                    energy.0 = 100.0;
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                         format!("Ate (e:{:.0}→{:.0})", old_energy, energy.0));
                 }

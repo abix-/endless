@@ -2,6 +2,18 @@
 
 ## 2026-02-10
 
+- **stage 10: town policies**
+  - add `TownPolicies` resource with `PolicySet` per town: flee thresholds, work schedule, off-duty behavior, healing priority
+  - add `WorkSchedule` enum (Both/DayOnly/NightOnly) — gates work scoring in `decision_system` based on `GameTime.is_daytime()`
+  - add `OffDutyBehavior` enum (GoToBed/StayAtFountain/WanderTown) — drives idle behavior when work is gated out
+  - wire `policies_panel.rs` to `ResMut<TownPolicies>` — sliders/checkboxes directly mutate resource, removed `ui.disable()` and `Local<PolicyState>`
+  - `decision_system` reads `Res<TownPolicies>` for policy-driven flee: guards use `guard_flee_hp`, farmers use `farmer_flee_hp`, raiders hardcoded 0.50
+  - `guard_aggressive` disables guard flee, `farmer_fight_back` disables farmer flee
+  - `guard_leash` policy controls whether guards return to post after combat (off = chase freely)
+  - `prioritize_healing` sends wounded NPCs (HP < `recovery_hp`) to town fountain before resuming work
+  - remove hardcoded `FleeThreshold(0.50)` and `WoundedThreshold(0.25)` from raider spawn — thresholds now policy-driven
+  - fix `pseudo_random()` PRNG: old implementation discarded frame contribution via `>> 16` shift, causing identical rolls per NPC across frames (rest/wake loops). New xorshift mixing with Knuth's multiplicative hash (2654435761)
+
 - **stage 9: upgrades & xp**
   - add `UpgradeQueue` resource + `process_upgrades_system`: UI pushes upgrade requests, system validates food cost, increments `TownUpgrades`, re-resolves `CachedStats` for affected NPCs
   - add `upgrade_cost(level) = 10 * 2^level` (doubles each level, capped at 20)
