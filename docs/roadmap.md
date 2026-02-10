@@ -240,8 +240,8 @@ Rules:
 - [ ] Replace `HEAL_RATE` / `HEAL_RADIUS` constants in `healing_system` with `CombatConfig` fields
 - [ ] Remove `MaxHealth` component — derive max_health via resolver at point-of-use (healing cap, HP bars, damage clamp)
 - [ ] Wire existing `Personality::get_stat_multipliers()` into `resolve_combat_stats()` (currently defined but never called)
-- [ ] Fix `starvation_system` speed: use `CombatConfig.jobs[job].speed` instead of hardcoded 60.0
 - [ ] Init values MUST match current hardcoded values: guard/raider damage=15, all speeds=100, all max_health=100, heal_rate=5, heal_radius=150
+- [ ] `constants.rs` remains but only as bootstrap for `CombatConfig::default()` — no system may read constants directly after this stage
 
 **Stage 9: Upgrades & XP** (see [spec](#stat-resolution--upgrades))
 
@@ -256,14 +256,19 @@ Upgrades:
 - [ ] Guard upgrades: health (+10%), attack (+10%), range (+5%), size (+5%), attack speed (-8%), move speed (+5%), alert radius (+10%)
 - [ ] Farm upgrades: yield (+15%), farmer HP (+20%), farmer cap (+2)
 - [ ] Town upgrades: guard cap (+10), healing rate (+20%), food efficiency (10% free meal), fountain radius (+24px)
+- [ ] AttackSpeed upgrade uses reciprocal cooldown scaling: `1/(1+level*pct)` — asymptotic, never reaches zero
 
 XP & leveling:
 - [ ] `grant_xp(npc_meta, amount)` — updates `NpcMeta.xp`, recomputes `NpcMeta.level = sqrt(xp / 100)`
 - [ ] `level_multiplier(level) -> f32` = `1.0 + level as f32 * 0.01` (level 100 = 2x stats)
 - [ ] Wire into `resolve_combat_stats()`
 - [ ] `death_cleanup_system`: grant XP to killer (use `combat_targets` to find attacker)
-- [ ] Level-up → `CombatLog` event (LevelUp kind)
+- [ ] Level-up → `CombatLog` event (LevelUp kind), rescale current HP proportionally to new max
 - [ ] `game_hud.rs` NPC inspector shows level/XP
+
+Gameplay fixes (deferred from Stage 8 to avoid breaking "identical"):
+- [ ] Fix `starvation_system` speed: use resolver-derived speed instead of hardcoded 60.0 (currently Speed::default is 100, so starving speed should be 100*0.75=75, not 60)
+- [ ] Differentiate job base stats if desired (e.g., raider damage != guard damage) — Stage 8 must keep them identical
 
 **Stage 10: Town Policies**
 
@@ -441,9 +446,11 @@ pub struct CombatConfig {
 }
 
 /// Per-job identity stats. Determines "what kind of NPC is this?"
+/// Farmers have no AttackStats/BaseAttackType — resolver is never called for them.
+/// Farmer entry exists for max_health/speed only (healing cap, starvation speed).
 pub struct JobStats {
     pub max_health: f32,         // all jobs: 100.0 (matches current Health::default)
-    pub damage: f32,             // guard=15, raider=15, farmer=0 (matches current AttackStats::melee)
+    pub damage: f32,             // guard=15, raider=15 (matches current AttackStats::melee). farmer=0 (never used — farmers don't attack)
     pub speed: f32,              // all jobs: 100.0 (matches current Speed::default)
 }
 
@@ -540,6 +547,7 @@ pub fn resolve_combat_stats(
     let atk_base = &config.attacks[&attack_type];
     let (trait_damage, trait_hp, trait_speed, _trait_yield) = personality.get_stat_multipliers();
     let level_mult = 1.0 + level as f32 * 0.01;
+    // unwrap_or ensures NPCs without a valid town_idx (neutral, world mobs) get zero upgrades
     let town = upgrades.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT]);
 
     // Job-gated upgrades: only apply to matching job
@@ -630,8 +638,7 @@ Stage 8 (pure refactor — gameplay must be identical):
 | `systems/spawn.rs` | Read `CombatConfig`, insert `BaseAttackType` instead of `AttackStats::melee()`. Set `Health` from job_base.max_health (same value: 100.0). |
 | `systems/combat.rs` | `attack_system` calls `resolve_combat_stats()` instead of reading `&AttackStats`. |
 | `systems/health.rs` | `healing_system` reads `CombatConfig.heal_rate` / `CombatConfig.heal_radius`. Derive max_health via resolver (replaces `&MaxHealth` query). |
-| `systems/economy.rs` | `starvation_system` uses `CombatConfig.jobs[job].speed` instead of hardcoded 60.0. |
-| `constants.rs` | Keep all constants — `CombatConfig` default values reference them. |
+| `constants.rs` | Keep all constants as bootstrap for `CombatConfig::default()`. No system reads constants directly after Stage 8 — all reads go through config/resolver. |
 
 Stage 9 (upgrades + XP — new behavior):
 
@@ -643,6 +650,7 @@ Stage 9 (upgrades + XP — new behavior):
 | `resources.rs` | `grant_xp()` function, level-up detection. |
 | `systems/combat.rs` | `death_cleanup_system` grants XP to killer. |
 | `ui/game_hud.rs` | NPC inspector shows level, XP, XP-to-next. |
+| `systems/economy.rs` | `starvation_system` uses resolver-derived speed. `farm_growth_system` applies FarmYield upgrade. |
 
 Stage 10 (policies — behavior config):
 
@@ -663,8 +671,8 @@ Stage 10 (policies — behavior config):
 
 **Verification per stage:**
 
-Stage 8: `cargo check` clean. `cargo run --release` — game plays identically (pure refactor). All tests pass. Specifically: guards and raiders still deal 15 damage, all NPCs move at speed 100, healing is 5 HP/s in 150px radius.
-Stage 9: Upgrade guard attack in UI. Guards should deal more damage (visible in combat log kill speed). Let a guard get kills — NPC inspector shows level > 1, combat log shows "Level up" events.
+Stage 8: `cargo check` clean. `cargo run --release` — game plays identically (pure refactor). All tests pass. Specifically: guards and raiders still deal 15 damage, all NPCs move at speed 100, healing is 5 HP/s in 150px radius. Starvation speed is unchanged (still hardcoded 60 — fixed in Stage 9).
+Stage 9: Upgrade guard attack in UI. Guards should deal more damage (visible in combat log kill speed). Let a guard get kills — NPC inspector shows level > 1, combat log shows "Level up" events. Level-up rescales current HP proportionally to new max. Starving NPCs now slow to 75 (100*0.75) instead of 60.
 Stage 10: Change raider flee threshold slider to 80%. Raiders should flee much earlier. Change work schedule to "Day Only" — farmers idle at night.
 
 ### GPU Readback & Extract Optimization
