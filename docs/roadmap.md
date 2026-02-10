@@ -666,12 +666,12 @@ Stage 8 (pure refactor — gameplay must be identical):
 
 | File | Changes |
 |---|---|
-| `resources.rs` | Add `CombatConfig`, `TownUpgrades` (initialized to all zeros), `CachedStats`, `UpgradeType`. |
-| `components.rs` | Add `BaseAttackType` enum. Remove `AttackStats` after migration verified. Remove `MaxHealth` — derive via resolver. |
-| `systems/stats.rs` (new) | `resolve_combat_stats()` function. |
-| `systems/spawn.rs` | Read `CombatConfig`, insert `BaseAttackType` instead of `AttackStats::melee()`. Set `Health` from job_base.max_health (same value: 100.0). |
-| `systems/combat.rs` | `attack_system` calls `resolve_combat_stats()` instead of reading `&AttackStats`. |
-| `systems/health.rs` | `healing_system` reads `CombatConfig.heal_rate` / `CombatConfig.heal_radius`. Derive max_health via resolver (replaces `&MaxHealth` query). |
+| `resources.rs` | Add `CombatConfig`, `TownUpgrades` (initialized to all zeros), `UpgradeType`. |
+| `components.rs` | Add `BaseAttackType` enum + `CachedStats` component. Remove `AttackStats` and `MaxHealth` after migration verified. |
+| `systems/stats.rs` (new) | `resolve_combat_stats()` function + `invalidate_town_stats()` helper. |
+| `systems/spawn.rs` | Read `CombatConfig`, insert `BaseAttackType` + `CachedStats` from resolver. `#[cfg(debug_assertions)]` parity checks. |
+| `systems/combat.rs` | `attack_system` reads `&CachedStats` instead of `&AttackStats` (same query pattern, different component). |
+| `systems/health.rs` | `healing_system` reads `CombatConfig.heal_rate` / `CombatConfig.heal_radius`. Reads `CachedStats.max_health` (replaces `&MaxHealth` query). |
 | `constants.rs` | Keep all constants as bootstrap for `CombatConfig::default()`. No system reads constants directly after Stage 8 — all reads go through config/resolver. |
 
 Stage 9 (upgrades + XP — new behavior):
