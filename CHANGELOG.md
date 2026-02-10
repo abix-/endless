@@ -9,6 +9,13 @@
   - deleted: `readback_all` (~140 lines), `StagingIndex`, 8 staging buffers, 3 static Mutexes
   - deleted: `sync_gpu_state_to_bevy` system + `systems/sync.rs` module
   - `GpuReadState` + `ProjPositionState` extracted to render world for instanced rendering
+  - fix: proj hit readback buffer initialized with `[-1, 0]` per slot (zeroes misread as "hit NPC 0")
+  - fix: `npc_count` no longer overwritten from readback (buffer is MAX-sized, actual count from `NpcCount` resource)
+
+- **fix process_proj_hits iteration bounds and inactive skip**
+  - iterate only up to `proj_alloc.next` (high-water mark) instead of full readback buffer
+  - skip inactive projectiles (deactivated but stale in readback) via `proj_writes.active[slot] == 0` check
+  - prevents wasted iteration over 50K unallocated slots
 
 - **optimize per-frame visual sync and flash decay**
   - `sync_visual_sprites`: merged two-pass (clear all + set all) into single pass that writes defaults inline where components are absent, eliminating ~8K redundant array writes per frame at 500 NPCs

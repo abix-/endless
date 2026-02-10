@@ -178,7 +178,15 @@ pub fn process_proj_hits(
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
 ) {
-    for (slot, hit) in hit_state.0.iter().enumerate() {
+    // Only iterate up to high-water mark — readback returns full MAX buffer but
+    // slots beyond proj_alloc.next were never allocated (stale/zero data)
+    let max_slot = proj_alloc.next.min(hit_state.0.len());
+    for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
+        // Skip inactive projectiles (deactivated but stale in readback)
+        if slot < proj_writes.active.len() && proj_writes.active[slot] == 0 {
+            continue;
+        }
+
         let npc_idx = hit[0];
         let processed = hit[1];
 

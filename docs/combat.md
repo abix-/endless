@@ -117,9 +117,9 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 
 | Direction | What | How |
 |-----------|------|-----|
-| GPU → CPU | Combat targets | `GpuReadState.combat_targets[]` — populated via `readback_all` ping-pong staging |
-| GPU → CPU | Positions | `GpuReadState.positions[]` — populated via `readback_all` ping-pong staging |
-| GPU → CPU | Projectile hits | `PROJ_HIT_STATE` — populated via `readback_all`, includes expired sentinel (-2) |
+| GPU → CPU | Combat targets | `GpuReadState.combat_targets[]` — populated via Bevy `ReadbackComplete` observer |
+| GPU → CPU | Positions | `GpuReadState.positions[]` — populated via Bevy `ReadbackComplete` observer |
+| GPU → CPU | Projectile hits | `ProjHitState` — populated via Bevy `ReadbackComplete` observer, includes expired sentinel (-2) |
 | CPU → GPU | Health sync | `GpuUpdate::SetHealth` after damage |
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |

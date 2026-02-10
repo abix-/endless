@@ -533,7 +533,9 @@ fn setup_readback_buffers(
         buffers.add(buf)
     };
     let proj_hit_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_PROJECTILES as usize * 8], RenderAssetUsages::RENDER_WORLD);
+        // Initialize with [-1, 0] per slot so zeroed memory isn't misread as "hit NPC 0"
+        let init_hits: Vec<[i32; 2]> = vec![[-1, 0]; MAX_PROJECTILES as usize];
+        let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_hits), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
@@ -555,7 +557,7 @@ fn setup_readback_buffers(
     commands.spawn(Readback::buffer(npc_pos_buf))
         .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
             let data: Vec<f32> = event.to_shader_type();
-            state.npc_count = data.len() / 2;
+            // Don't overwrite npc_count — buffer is MAX-sized, actual count comes from NpcCount resource
             state.positions = data;
         });
 

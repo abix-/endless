@@ -19,7 +19,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | Data | Authority | Direction | Notes |
 |------|-----------|-----------|-------|
 | **GPU-Authoritative** (written by compute shader, read back 1 frame later) ||||
-| Positions | GPU | GPU → CPU | Compute shader moves NPCs; readback via staging → GpuReadState |
+| Positions | GPU | GPU → CPU | Compute shader moves NPCs; Bevy async Readback → GpuReadState |
 | Spatial grid | GPU | Internal | Built each frame (clear → insert → query). Not read back. |
 | Combat targets | GPU | GPU → CPU | Nearest enemy index via grid neighbor search; readback to GpuReadState |
 | Arrivals | CPU | Internal | `HasTarget` + `gpu_position_readback` distance check → `AtDestination` |
@@ -77,22 +77,23 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | Static | Type | Writer | Reader |
 |--------|------|--------|--------|
 | GPU_UPDATE_QUEUE | `Mutex<Vec<GpuUpdate>>` | collect_gpu_updates | populate_buffer_writes |
-| GPU_READ_STATE | `Mutex<GpuReadState>` | readback_npc_positions | sync_gpu_state_to_bevy → attack_system, healing_system |
 | GPU_DISPATCH_COUNT | `Mutex<usize>` | spawn_npc_system | (legacy, used for dispatch count) |
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
-| PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | (unused) | (unused) |
+| PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | attack_system | populate_proj_buffer_writes |
 | FREE_PROJ_SLOTS | `Mutex<Vec<usize>>` | (unused) | (unused) |
 | PERF_STATS | `Mutex<PerfStats>` | bevy_timer_end | (debug display) |
 
+GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`) deleted — replaced by Bevy `ReadbackComplete` observers writing directly to Bevy resources.
+
 ## GPU Read State
 
-`GPU_READ_STATE` holds a snapshot of GPU output for Bevy systems to read. Populated each frame by `readback_npc_positions` (Render Cleanup) from the staging buffer after compute dispatch. Consumed next frame by `sync_gpu_state_to_bevy` (Step::Drain) which copies into the `GpuReadState` Bevy resource.
+`GpuReadState` (Bevy Resource, `Clone + ExtractResource`) holds GPU output for Bevy systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Extracted to render world for `prepare_npc_buffers`. `npc_count` set by `NpcCount` resource (not from readback — buffer is MAX-sized).
 
 | Field | Type | Source | Consumers |
 |-------|------|--------|-----------|
-| npc_count | usize | Dispatch count | gpu_position_readback |
-| positions | Vec\<f32\> | position_buffer readback | attack_system, healing_system, prepare_npc_buffers |
-| combat_targets | Vec\<i32\> | combat_target_buffer readback | attack_system (target selection) |
+| npc_count | usize | NpcCount resource | gpu_position_readback |
+| positions | Vec\<f32\> | ReadbackComplete (npc_positions buffer) | attack_system, healing_system, prepare_npc_buffers |
+| combat_targets | Vec\<i32\> | ReadbackComplete (combat_targets buffer) | attack_system (target selection) |
 | health | Vec\<f32\> | CPU cache | (available for queries) |
 | factions | Vec\<i32\> | CPU cache | (available for queries) |
 
@@ -100,7 +101,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 
 `SlotAllocator` (Bevy Resource) manages NPC slot indices with an internal free list. Slots are allocated in `spawn_npc_system` and recycled in `death_cleanup_system`. LIFO reuse — most recently freed slot is allocated first.
 
-`ProjSlotAllocator` (Bevy Resource) manages projectile slot indices. Currently unused — projectile compute is not yet ported.
+`ProjSlotAllocator` (Bevy Resource) manages projectile slot indices with an internal free list. Slots are allocated in `attack_system` and recycled in `process_proj_hits` (on collision or expiry).
 
 ## Bevy Resources for State
 
@@ -133,8 +134,8 @@ GOING_TO_REST=11, GOING_TO_WORK=12
 ## Known Issues
 
 - **Health dual ownership**: CPU-authoritative but synced to GPU for targeting. If upload fails or is delayed, GPU targets based on stale health. Bounded to 1 frame.
-- **Synchronous readback blocks render thread**: `device.poll(Wait)` in readback. Double-buffer staging planned when this exceeds 0.5ms.
+- **GpuReadState/ProjPositionState cloned for extraction**: `Clone + ExtractResource` copies ~600KB/frame to render world. Acceptable at current scale.
 
 ## Rating: 7/10
 
-MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Authority model is explicit — GPU owns positions/targeting, CPU owns health/behavior, render owns visuals. Staleness budget documented (1 frame, 1.6px drift). Static queues are minimal — only used where Bevy's scheduler can't reach. Visual state (colors, equipment, indicators) derived from ECS by `sync_visual_sprites` — no deferred messages needed. Main weakness: synchronous readback blocking.
+MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Authority model is explicit — GPU owns positions/targeting, CPU owns health/behavior, render owns visuals. Staleness budget documented (1 frame, 1.6px drift). Static queues are minimal — only used where Bevy's scheduler can't reach. Visual state (colors, equipment, indicators) derived from ECS by `sync_visual_sprites` — no deferred messages needed. Bevy async Readback replaces blocking readback — no render thread stall.

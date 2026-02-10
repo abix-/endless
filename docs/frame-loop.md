@@ -12,8 +12,7 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 ├─ bevy_timer_start
 │
 ├─ Step::Drain
-│     reset_bevy_system, drain_game_config,
-│     sync_gpu_state_to_bevy (GPU_READ_STATE → GpuReadState resource)
+│     reset_bevy_system, drain_game_config
 │
 ├─ gpu_position_readback (after Drain, before Spawn)
 │     GpuReadState → ECS Position components
@@ -54,7 +53,7 @@ RENDER WORLD — parallel with next frame's main world
 │
 ├─ PrepareResources
 │     write_npc_buffers          (only dirty fields → GPU storage buffers)
-│     prepare_npc_buffers        (build instance buffer from GPU_READ_STATE positions)
+│     prepare_npc_buffers        (build instance buffer from GpuReadState positions)
 │
 ├─ PrepareBindGroups
 │     prepare_npc_bind_groups    (compute shader)
@@ -65,10 +64,11 @@ RENDER WORLD — parallel with next frame's main world
 │
 ├─ Render Graph
 │     NpcComputeNode → ProjectileComputeNode → CameraDriver → Transparent2d
-│     NpcComputeNode: dispatch compute + copy positions → staging buffer
+│     NpcComputeNode: dispatch compute + copy positions → ReadbackHandles assets
+│     ProjectileComputeNode: dispatch + copy hits/positions → ReadbackHandles assets
 │
-├─ Cleanup
-│     readback_npc_positions     (map staging → GPU_READ_STATE static)
+├─ Bevy Readback (async, managed by Bevy runtime)
+│     ReadbackComplete observers fire → write to GpuReadState, ProjHitState, ProjPositionState
 │
 └─ Present frame
 ```
@@ -88,22 +88,22 @@ ECS → GPU:
   GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
     → populate_buffer_writes → NpcBufferWrites (per-field dirty flags)
     → ExtractResource → write_npc_buffers (only dirty fields)
-    → NpcComputeNode: dispatch + copy positions to staging
+    → NpcComputeNode: dispatch + copy positions → ReadbackHandles assets
 
 GPU → ECS:
-  readback_npc_positions: map staging → GPU_READ_STATE
-    → sync_gpu_state_to_bevy → GpuReadState resource
+  Bevy Readback async-reads ShaderStorageBuffer assets
+    → ReadbackComplete observers → GpuReadState, ProjHitState, ProjPositionState
     → gpu_position_readback → ECS Position components
 
 GPU → Render:
-  prepare_npc_buffers: reads GPU_READ_STATE positions + NpcBufferWrites sprites/colors
+  prepare_npc_buffers: reads GpuReadState positions (ExtractResource) + NpcBufferWrites sprites/colors
     → DrawNpcCommands: instanced draw
 ```
 
 | Direction | Mechanism | Examples |
 |-----------|-----------|---------|
-| Systems → GPU | MessageWriter\<GpuUpdateMsg\> → collect → populate → extract → upload | SetPosition, SetTarget, SetColor, SetSpriteFrame |
-| GPU → ECS | staging buffer → GPU_READ_STATE → GpuReadState → Position components | Positions after compute |
+| Systems → GPU | MessageWriter\<GpuUpdateMsg\> → collect → populate → extract → upload | SetPosition, SetTarget, SetSpriteFrame |
+| GPU → ECS | Bevy Readback → ReadbackComplete → GpuReadState → Position components | Positions after compute |
 | Static queues → Bevy | Mutex queues drained in Step::Drain | GAME_CONFIG_STAGING |
 
 Systems use MessageWriter for GPU updates so they can run in parallel. The single `collect_gpu_updates` call at frame end does one mutex lock to batch everything.
@@ -130,4 +130,4 @@ State transitions: `NextState<AppState>` set by menu clicks or test completion. 
 ## Known Issues
 
 - **No generational GPU indices**: NPC slot indices are raw `usize`. Safe because chained combat systems prevent stale references within a frame. See [combat.md](combat.md).
-- **One-frame readback latency**: GPU positions are read back in Cleanup phase and consumed next frame in Step::Drain. Acceptable for gameplay.
+- **One-frame readback latency**: GPU positions are read back asynchronously by Bevy's Readback system. Data arrives ~1 frame later. Acceptable for gameplay.

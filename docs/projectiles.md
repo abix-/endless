@@ -55,10 +55,11 @@ For each active projectile:
 
 ## Hit Processing
 
-`readback_all` (unified NPC + projectile readback) reads hit results and positions from double-buffered GPU staging buffers to CPU statics (`PROJ_HIT_STATE`, `PROJ_POSITION_STATE`) via a single `device.poll()`. `process_proj_hits` then handles two cases:
+`ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` then iterates only up to `proj_alloc.next` (high-water mark) and skips inactive slots:
 
 ```
-for each projectile slot:
+for slot in 0..min(proj_alloc.next, hit_state.len()):
+    skip if proj_writes.active[slot] == 0 (inactive, stale in readback)
     if hit.x >= 0 and hit.y == 0 (collision):
         push DamageMsg { npc_index: hit.x, amount: damage }
         recycle slot via ProjSlotAllocator
@@ -135,8 +136,8 @@ PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
 
 - **proj_count never shrinks**: High-water mark (`ProjSlotAllocator.next`). Freed slots are recycled via LIFO free list but don't reduce dispatch count.
 - **No projectile-projectile collision**: Projectiles pass through each other.
-- **Hit buffer must init to -1**: GPU default of 0 would falsely indicate "hit NPC 0".
+- **Hit buffer must init to [-1, 0]**: `setup_readback_buffers` initializes proj hit `ShaderStorageBuffer` with `[-1, 0]` per slot. GPU zeroes would falsely indicate "hit NPC 0".
 
 ## Rating: 7/10
 
-Full end-to-end pipeline: compute shader moves projectiles, spatial grid collision detects hits, readback sends damage to ECS, instanced rendering draws faction-colored projectiles. Unified `readback_all` handles NPC + projectile readback with double-buffered ping-pong staging and a single `device.poll()`. Expired projectiles signal CPU via `-2` sentinel for slot recycling. Per-slot dirty tracking minimizes GPU uploads. Rendering reuses the NPC pipeline (same shader, quad, bind groups) with a separate instance buffer. Projectiles render above NPCs via sort key.
+Full end-to-end pipeline: compute shader moves projectiles, spatial grid collision detects hits, readback sends damage to ECS, instanced rendering draws faction-colored projectiles. Bevy async `Readback` + `ReadbackComplete` observers write directly to Bevy resources (no manual staging). `process_proj_hits` bounds iteration to high-water mark and skips inactive slots. Expired projectiles signal CPU via `-2` sentinel for slot recycling. Per-slot dirty tracking minimizes GPU uploads. Rendering reuses the NPC pipeline (same shader, quad, bind groups) with a separate instance buffer. Projectiles render above NPCs via sort key.

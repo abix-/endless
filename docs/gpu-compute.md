@@ -13,9 +13,11 @@ Main World (ECS)                       Render World (GPU)
 ├─ NpcComputeParams ─────────────────▶ (cloned each frame)
 ├─ NpcBufferWrites ──────────────────▶
 ├─ NpcSpriteTexture ─────────────────▶
+├─ GpuReadState (Clone+ExtractResource) ▶ (for prepare_npc_buffers)
+├─ ProjPositionState (Clone+ExtractResource) ▶ (for prepare_proj_buffers)
 │                                      │
 │                                      ├─ init_npc_compute_pipeline (RenderStartup)
-│                                      │   └─ Create GPU buffers + 2x staging buffers (ping-pong)
+│                                      │   └─ Create GPU buffers (no staging — Bevy Readback handles it)
 │                                      │
 │                                      ├─ write_npc_buffers (PrepareResources)
 │                                      │   └─ Per-index uploads (only changed NPC slots)
@@ -27,16 +29,14 @@ Main World (ECS)                       Render World (GPU)
 │                                      │   ├─ Mode 0: clear grid (atomicStore 0)
 │                                      │   ├─ Mode 1: build grid (atomicAdd NPC indices)
 │                                      │   ├─ Mode 2: separation + movement + combat targeting
-│                                      │   └─ copy positions + combat_targets → staging[current]
+│                                      │   └─ copy positions + combat_targets → ReadbackHandles assets
 │                                      │
-│                                      └─ readback_all (Cleanup)
-│                                          ├─ map NPC staging[1-current] → GPU_READ_STATE
-│                                          ├─ map proj staging[1-current] → PROJ_HIT_STATE + PROJ_POSITION_STATE
-│                                          ├─ single device.poll() for all maps
-│                                          └─ flip StagingIndex for next frame
-│
-├─ sync_gpu_state_to_bevy (Step::Drain)
-│     GPU_READ_STATE → GpuReadState resource
+│                                      └─ Bevy Readback (async, managed by Bevy)
+│                                          ReadbackComplete observers fire when GPU data ready:
+│                                          ├─ npc_positions → GpuReadState.positions
+│                                          ├─ combat_targets → GpuReadState.combat_targets
+│                                          ├─ proj_hits → ProjHitState.0
+│                                          └─ proj_positions → ProjPositionState.0
 │
 └─ gpu_position_readback (after Drain)
       GpuReadState → ECS Position components
@@ -58,17 +58,23 @@ ECS → GPU (upload):
     Single source of truth — replaces deferred SetColor/SetEquipSprite/SetHealing/SetSleeping messages
     Dead NPCs skipped by renderer (x < -9000), stale visual data is harmless
 
-GPU → ECS (readback, double-buffered ping-pong):
-  NpcComputeNode: dispatch compute + copy positions → staging[current]
-    → readback_all (Cleanup): map staging[1-current], single poll, write to GPU_READ_STATE + PROJ_HIT_STATE
-    → sync_gpu_state_to_bevy: GPU_READ_STATE → GpuReadState resource
+GPU → ECS (readback, Bevy async Readback):
+  NpcComputeNode: dispatch compute + copy positions/combat_targets → ReadbackHandles ShaderStorageBuffer assets
+  ProjectileComputeNode: copy hits/positions → ReadbackHandles ShaderStorageBuffer assets
+    → Bevy Readback entities async-read buffers, fire ReadbackComplete observers:
+      npc_positions → GpuReadState.positions
+      combat_targets → GpuReadState.combat_targets
+      proj_hits → ProjHitState.0
+      proj_positions → ProjPositionState.0
     → gpu_position_readback: GpuReadState → ECS Position components
       + arrival detection: if HasTarget && dist(pos, goal) < ARRIVAL_THRESHOLD → AtDestination
   Data is 1 frame old (~1.6px drift at 100px/s). ARRIVAL_THRESHOLD=8px >> drift.
+  npc_count not set from readback (buffer is MAX-sized) — comes from NpcCount resource.
 
 GPU → Render:
-  prepare_npc_buffers: reads GPU_READ_STATE for positions (falls back to
-    NpcBufferWrites on first frame), reads sprite_indices/colors from NpcBufferWrites
+  prepare_npc_buffers: reads GpuReadState (extracted to render world) for positions,
+    falls back to NpcBufferWrites on first frame before readback starts.
+    Reads sprite_indices/colors from NpcBufferWrites.
 ```
 
 Note: `sprite_indices`, `colors`, and equipment sprite fields (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`, `status_sprites`, `healing_sprites`) are in NpcBufferWrites but are not uploaded to GPU storage buffers. They're only consumed by the render pipeline's instance buffer, not the compute shader. Positions for rendering come from GPU readback, not NpcBufferWrites. Colors and equipment are derived from ECS components by `sync_visual_sprites` each frame.
@@ -98,7 +104,7 @@ One thread per NPC. Four phases per thread:
 
 ### Compute Buffers (gpu.rs NpcGpuBuffers)
 
-Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`. Double-buffered staging buffers (`position_staging: [Buffer; 2]`, `combat_target_staging: [Buffer; 2]`) are created with `MAP_READ | COPY_DST` for ping-pong GPU→CPU readback.
+Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`. GPU→CPU readback uses Bevy's async `Readback` + `ReadbackComplete` pattern via `ShaderStorageBuffer` assets (no manual staging buffers).
 
 | Binding | Name | Type | Per-NPC Size | Uploaded From | Purpose |
 |---------|------|------|-------------|---------------|---------|
@@ -175,8 +181,8 @@ const MAX_PER_CELL: u32 = 48;
 
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
 - **sprite_indices/colors not uploaded to compute**: These fields exist in NpcBufferWrites for the render pipeline only. The compute shader has no access to them.
-- **Blocking readback poll**: `device.poll(wait_indefinitely())` blocks on ALL GPU work (this frame's render), not just the staging buffers. Ping-pong staging is structurally ready but the blocking poll negates the latency benefit. Fix: change to non-blocking `poll(Poll)` + `try_recv()`.
+- **GpuReadState/ProjPositionState cloned for extraction**: `Clone + ExtractResource` means ~600KB/frame cloned to render world. Acceptable at current scale but could be replaced with `Arc<RwLock>` shared approach if it becomes a bottleneck.
 
 ## Rating: 9/10
 
-3-mode compute dispatch with spatial grid, separation physics (boids-style + TCP dodge + backoff), combat targeting, and full GPU→ECS readback. Per-index dirty tracking uploads only changed NPC slots. Double-buffered ping-pong staging with unified `readback_all` for NPC + projectile readback. Arrival flag reset on SetTarget ensures NPCs resume movement.
+3-mode compute dispatch with spatial grid, separation physics (boids-style + TCP dodge + backoff), combat targeting, and full GPU→ECS readback. Per-index dirty tracking uploads only changed NPC slots. Bevy async Readback replaces manual ping-pong staging — `ReadbackComplete` observers write directly to Bevy resources. Arrival flag reset on SetTarget ensures NPCs resume movement.
