@@ -1,7 +1,12 @@
-//! UI module — main menu, game startup, in-game HUD.
+//! UI module — main menu, game startup, in-game HUD, and gameplay panels.
 
 pub mod main_menu;
 pub mod game_hud;
+pub mod roster_panel;
+pub mod combat_log;
+pub mod build_menu;
+pub mod upgrade_menu;
+pub mod policies_panel;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -26,12 +31,47 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(EguiPrimaryContextPass,
         game_hud::game_hud_system.run_if(in_state(AppState::Playing)));
 
+    // Gameplay panels (egui, gated on Playing)
+    app.add_systems(EguiPrimaryContextPass, (
+        roster_panel::roster_panel_system,
+        combat_log::combat_log_system,
+        build_menu::build_menu_system,
+        upgrade_menu::upgrade_menu_system,
+        policies_panel::policies_panel_system,
+    ).run_if(in_state(AppState::Playing)));
+
+    // Panel toggle keyboard shortcuts
+    app.add_systems(Update,
+        ui_toggle_system.run_if(in_state(AppState::Playing)));
+
     // ESC to leave game
     app.add_systems(Update,
         game_escape_system.run_if(in_state(AppState::Playing)));
 
     // Cleanup when leaving Playing
     app.add_systems(OnExit(AppState::Playing), game_cleanup_system);
+}
+
+/// Keyboard shortcuts for toggling UI panels.
+fn ui_toggle_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut ui_state: ResMut<UiState>,
+) {
+    if keys.just_pressed(KeyCode::KeyR) {
+        ui_state.roster_open = !ui_state.roster_open;
+    }
+    if keys.just_pressed(KeyCode::KeyL) {
+        ui_state.combat_log_open = !ui_state.combat_log_open;
+    }
+    if keys.just_pressed(KeyCode::KeyB) {
+        ui_state.build_menu_open = !ui_state.build_menu_open;
+    }
+    if keys.just_pressed(KeyCode::KeyU) {
+        ui_state.upgrade_menu_open = !ui_state.upgrade_menu_open;
+    }
+    if keys.just_pressed(KeyCode::KeyP) {
+        ui_state.policies_open = !ui_state.policies_open;
+    }
 }
 
 // ============================================================================
@@ -235,6 +275,8 @@ fn game_cleanup_system(
     tilemap_query: Query<Entity, With<bevy::sprite_render::TilemapChunk>>,
     mut world: CleanupWorld,
     mut debug: CleanupDebug,
+    mut combat_log: ResMut<CombatLog>,
+    mut ui_state: ResMut<UiState>,
 ) {
     // Despawn all entities
     for entity in npc_query.iter() {
@@ -269,6 +311,10 @@ fn game_cleanup_system(
     *debug.raid_queue = Default::default();
     *debug.npc_entity_map = Default::default();
     *debug.pop_stats = Default::default();
+
+    // Reset UI state
+    *combat_log = Default::default();
+    *ui_state = Default::default();
 
     info!("Game cleanup complete");
 }

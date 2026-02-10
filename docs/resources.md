@@ -146,6 +146,17 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 `TestState` is reset between tests via `cleanup_test_world` (OnExit Running). `test_is("name")` run condition gates per-test systems.
 
+## UI State
+
+| Resource | Data | Writers | Readers |
+|----------|------|---------|---------|
+| UiState | roster_open, combat_log_open, build_menu_open, upgrade_menu_open, policies_open | ui_toggle_system (keyboard), game_hud (buttons) | All panel systems |
+| CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system | combat_log panel |
+
+`UiState` tracks which panels are open. `combat_log_open` defaults to true, all others false. Reset on game cleanup.
+
+`CombatLog` is a ring buffer of global events with 4 kinds: Kill, Spawn, Raid, Harvest. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
+
 ## Debug Resources
 
 | Resource | Key Fields | Updated By |

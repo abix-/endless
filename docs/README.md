@@ -57,10 +57,13 @@ Bevy ECS (lib.rs build_app)
     │
     ├─ AppState: MainMenu → Playing | TestMenu → Running
     │
-    ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, startup, cleanup
+    ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, panels, startup, cleanup
     │   ├─ Main menu: world config sliders + Play / Debug Tests
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
-    │   ├─ In-game HUD: population, time, food, NPC inspector
+    │   ├─ In-game HUD: population, time, food, NPC inspector, panel toggles
+    │   ├─ Roster panel (R): NPC list with sort/filter/select/follow
+    │   ├─ Combat log (L): global event feed (kills, spawns, raids, harvests)
+    │   ├─ Build menu (B), Upgrade menu (U), Policies (P): scaffolds
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
@@ -127,9 +130,14 @@ rust/
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
   src/world.rs          # World data structs, world grid, procedural generation, tileset builder
   src/ui/
-    mod.rs              # register_ui(), game startup, cleanup, escape/time controls
+    mod.rs              # register_ui(), game startup, cleanup, escape/time controls, keyboard toggles
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons
-    game_hud.rs         # In-game HUD (population, time, food, NPC inspector)
+    game_hud.rs         # In-game HUD (population, time, food, NPC inspector, panel toggles)
+    roster_panel.rs     # NPC list with sort/filter/select/follow (R key)
+    combat_log.rs       # Event feed with color-coded timestamps (L key)
+    build_menu.rs       # Building placement scaffold (B key, disabled)
+    upgrade_menu.rs     # 14 upgrade rows scaffold (U key, disabled)
+    policies_panel.rs   # Faction behavior config scaffold (P key, disabled)
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)

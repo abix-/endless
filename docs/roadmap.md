@@ -294,10 +294,12 @@ World setup:
 UI:
 - [x] bevy_egui start menu with world config sliders (ui/main_menu.rs)
 - [x] Game HUD: population, time, food, kill stats, NPC inspector (ui/game_hud.rs)
-- [ ] roster_panel.rs (NPC list with sorting/filtering)
-- [ ] build_menu.rs (building placement UI)
-- [ ] combat_log.rs (event feed)
-- [ ] upgrade_menu.rs, policies_panel.rs
+- [x] roster_panel.rs (NPC list with sorting/filtering, select/follow)
+- [x] build_menu.rs (building placement scaffold, disabled until Stage 7 backend)
+- [x] combat_log.rs (event feed with color-coded timestamps, Kill/Spawn/Raid/Harvest)
+- [x] upgrade_menu.rs (14 upgrade rows scaffold, disabled until Stage 8 backend)
+- [x] policies_panel.rs (behavior config scaffold, disabled until Stage 8 backend)
+- [x] Keyboard toggles: R=roster, L=log, B=build, U=upgrades, P=policies
 
 Input:
 - [ ] Click-to-build and click-to-destroy buildings
@@ -314,9 +316,11 @@ Building system:
 - [ ] Guard post upgrades (attack_enabled, range_level, damage_level)
 
 Events:
-- [ ] Death events (npc_idx, job, faction, town_idx)
-- [ ] Combat log feed from events
-- [ ] UI integration for event display
+- [x] Death events emitted to CombatLog (Kill kind, NPC name/job/level)
+- [x] Spawn events emitted to CombatLog (Spawn kind, skips initial bulk spawn)
+- [x] Raid dispatch events emitted to CombatLog (Raid kind, group size)
+- [x] Harvest events emitted to CombatLog (Harvest kind, farm index)
+- [x] Combat log panel displays events with color coding and filters
 
 **Stage 8: Config & Progression**
 

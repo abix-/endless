@@ -2,6 +2,20 @@
 
 ## 2026-02-10
 
+- **5 UI panels: roster, combat log, build menu, upgrades, policies**
+  - `roster_panel.rs`: right side panel (R key) — NPC list with job filter (All/Farmers/Guards/Raiders), sortable column headers (Name/Job/Lv/HP/State/Trait with ▼/▲ arrows), click-to-select, follow button moves camera to NPC, cached rows rebuild every 30 frames
+  - `combat_log.rs`: bottom panel (L key) — event feed with color-coded timestamps (red=Kill, green=Spawn, orange=Raid, yellow=Harvest), filter checkboxes, auto-scroll, 200-entry ring buffer
+  - `build_menu.rs`: floating window (B key) — Farm/Bed/GuardPost buttons with costs and tooltips, all disabled until Stage 7 backend
+  - `upgrade_menu.rs`: floating window (U key) — 14 upgrade rows (Guard: Health/Attack/Range/Size/Speed/MoveSpeed/AlertRadius, Farm: Yield/FarmerHP/FarmerCap/GuardCap, Town: HealingRate/FoodEfficiency/FountainRadius), all disabled until Stage 8 backend
+  - `policies_panel.rs`: floating window (P key) — checkboxes (Eat Food, Aggressive, Leash, Fight Back, Prioritize Healing), sliders (Farmer/Guard flee HP%, Recovery HP%), dropdowns (Work Schedule, Off-Duty behavior), all disabled until Stage 8 backend
+  - add `UiState` resource (tracks which panels are open, combat_log defaults true)
+  - add `CombatLog` resource (ring buffer VecDeque, max 200 entries, 4 event kinds)
+  - add `ui_toggle_system` for keyboard shortcuts (R/L/B/U/P)
+  - add panel toggle buttons to game HUD left panel (Roster/Log/Build/Upgrades/Policies)
+  - add combat log emitters: `death_cleanup_system` → Kill, `spawn_npc_system` → Spawn (skip initial bulk), `decision_system` → Raid dispatch, `arrival_system` → Harvest
+  - all panels ported from Godot originals (roster_panel.gd, combat_log.gd, build_menu.gd, upgrade_menu.gd, policies_panel.gd)
+
+
 - **async GPU readback via Bevy `Readback` + `ReadbackComplete`**
   - replaces hand-rolled ping-pong staging buffers + blocking `device.poll(Wait)` (~9ms/frame)
   - 4 `ShaderStorageBuffer` assets as async readback targets (npc positions, combat targets, proj hits, proj positions)

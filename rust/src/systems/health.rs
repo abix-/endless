@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue};
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue, CombatLog, CombatEventKind, NpcMetaCache, GameTime};
 use crate::systems::economy::*;
 use crate::world::{WorldData, FarmOccupancy, pos_to_key};
 
@@ -74,6 +74,9 @@ pub fn death_cleanup_system(
     mut slots: ResMut<SlotAllocator>,
     mut farm_occupancy: ResMut<FarmOccupancy>,
     mut raid_queue: ResMut<RaidQueue>,
+    mut combat_log: ResMut<CombatLog>,
+    game_time: Res<GameTime>,
+    meta_cache: Res<NpcMetaCache>,
 ) {
     let mut despawn_count = 0;
     for (entity, npc_idx, job, town_id, faction, activity, assigned_farm) in query.iter() {
@@ -105,6 +108,16 @@ pub fn death_cleanup_system(
         } else {
             kill_stats.guard_kills += 1;
         }
+
+        // Combat log: death event
+        let meta = &meta_cache.0[idx];
+        let job_str = crate::job_name(meta.job);
+        let msg = if meta.name.is_empty() {
+            format!("{} #{} died", job_str, idx)
+        } else {
+            format!("{} '{}' Lv.{} died", job_str, meta.name, meta.level)
+        };
+        combat_log.push(CombatEventKind::Kill, game_time.day(), game_time.hour(), game_time.minute(), msg);
 
         // Track per-faction stats (alive/dead)
         faction_stats.dec_alive(faction.0);

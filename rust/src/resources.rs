@@ -565,4 +565,70 @@ impl FactionStats {
     }
 }
 
+// ============================================================================
+// UI STATE
+// ============================================================================
+
+/// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
+#[derive(Resource)]
+pub struct UiState {
+    pub roster_open: bool,
+    pub combat_log_open: bool,
+    pub build_menu_open: bool,
+    pub upgrade_menu_open: bool,
+    pub policies_open: bool,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            roster_open: false,
+            combat_log_open: true,
+            build_menu_open: false,
+            upgrade_menu_open: false,
+            policies_open: false,
+        }
+    }
+}
+
+// ============================================================================
+// COMBAT LOG
+// ============================================================================
+
+/// Event type for combat log color coding.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CombatEventKind {
+    Kill,
+    Spawn,
+    Raid,
+    Harvest,
+}
+
+/// A single combat log entry.
+#[derive(Clone)]
+pub struct CombatLogEntry {
+    pub day: i32,
+    pub hour: i32,
+    pub minute: i32,
+    pub kind: CombatEventKind,
+    pub message: String,
+}
+
+const COMBAT_LOG_MAX: usize = 200;
+
+/// Global combat event log. Ring buffer, newest at back.
+#[derive(Resource, Default)]
+pub struct CombatLog {
+    pub entries: VecDeque<CombatLogEntry>,
+}
+
+impl CombatLog {
+    pub fn push(&mut self, kind: CombatEventKind, day: i32, hour: i32, minute: i32, message: String) {
+        if self.entries.len() >= COMBAT_LOG_MAX {
+            self.entries.pop_front();
+        }
+        self.entries.push_back(CombatLogEntry { day, hour, minute, kind, message });
+    }
+}
+
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

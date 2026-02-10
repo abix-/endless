@@ -7,7 +7,7 @@ use crate::constants::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, GPU_DISPATCH_COUNT};
 use crate::resources::{
     NpcCount, NpcEntityMap, PopulationStats, GpuDispatchCount, NpcMetaCache, NpcMeta,
-    NpcsByTownCache, FactionStats, GameTime,
+    NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind,
 };
 use crate::systems::economy::*;
 use crate::world::WorldData;
@@ -76,6 +76,7 @@ pub fn spawn_npc_system(
     mut npc_meta: ResMut<NpcMetaCache>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
     mut gpu_dispatch: ResMut<GpuDispatchCount>,
+    mut combat_log: ResMut<CombatLog>,
 ) {
     let mut max_slot = 0usize;
     let mut had_spawns = false;
@@ -193,6 +194,14 @@ pub fn spawn_npc_system(
             if town_idx < npcs_by_town.0.len() {
                 npcs_by_town.0[town_idx].push(idx);
             }
+        }
+
+        // Combat log: spawn event (only after initial startup, day > 1 or hour > 6)
+        if game_time.total_hours() > 0 {
+            let job_str = crate::job_name(msg.job);
+            combat_log.push(CombatEventKind::Spawn,
+                game_time.day(), game_time.hour(), game_time.minute(),
+                format!("{} #{} spawned", job_str, idx));
         }
     }
 

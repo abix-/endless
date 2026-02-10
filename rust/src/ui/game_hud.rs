@@ -41,6 +41,7 @@ pub fn game_hud_system(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<NpcBufferWrites>,
     npc_logs: Res<NpcLogCache>,
+    mut ui_state: ResMut<UiState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     let mut copy_text: Option<String> = None;
@@ -239,6 +240,28 @@ pub fn game_hud_system(
         } else {
             ui.label("Click an NPC to inspect");
         }
+
+        // Panel toggle buttons (mirrors left_panel.gd's TownButtons)
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            if ui.selectable_label(ui_state.roster_open, "Roster (R)").clicked() {
+                ui_state.roster_open = !ui_state.roster_open;
+            }
+            if ui.selectable_label(ui_state.combat_log_open, "Log (L)").clicked() {
+                ui_state.combat_log_open = !ui_state.combat_log_open;
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui.selectable_label(ui_state.build_menu_open, "Build (B)").clicked() {
+                ui_state.build_menu_open = !ui_state.build_menu_open;
+            }
+            if ui.selectable_label(ui_state.upgrade_menu_open, "Upgrades (U)").clicked() {
+                ui_state.upgrade_menu_open = !ui_state.upgrade_menu_open;
+            }
+            if ui.selectable_label(ui_state.policies_open, "Policies (P)").clicked() {
+                ui_state.policies_open = !ui_state.policies_open;
+            }
+        });
 
         ui.separator();
         ui.small("ESC = back to menu");

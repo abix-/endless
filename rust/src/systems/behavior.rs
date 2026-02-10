@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue};
+use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy, find_farm_index_by_pos, pos_to_key};
 
@@ -66,6 +66,7 @@ pub fn arrival_system(
     mut npc_logs: ResMut<NpcLogCache>,
     mut farm_states: ResMut<FarmStates>,
     mut frame_counter: Local<u32>,
+    mut combat_log: ResMut<CombatLog>,
 ) {
     let positions = &gpu_state.positions;
     const DELIVERY_RADIUS: f32 = 150.0;     // Same as healing radius - deliver when near camp
@@ -138,6 +139,8 @@ pub fn arrival_system(
                 farm_states.states[farm_idx] = FarmGrowthState::Growing;
                 farm_states.progress[farm_idx] = 0.0;
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)".into());
+                combat_log.push(CombatEventKind::Harvest, game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("Farm #{} harvested", farm_idx));
             }
         }
     }
@@ -269,6 +272,7 @@ pub fn decision_system(
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
     mut raid_queue: ResMut<RaidQueue>,
+    mut combat_log: ResMut<CombatLog>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
@@ -336,6 +340,8 @@ pub fn decision_system(
                                 farms.states.states[farm_idx] = FarmGrowthState::Growing;
                                 farms.states.progress[farm_idx] = 0.0;
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working".into());
+                                combat_log.push(CombatEventKind::Harvest, game_time.day(), game_time.hour(), game_time.minute(),
+                                    format!("Farm #{} harvested", farm_idx));
                             } else {
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
                             }
@@ -621,8 +627,11 @@ pub fn decision_system(
                             };
 
                             if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
+                                let group_size = queue.len();
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                                    format!("Raid group of {} dispatched!", queue.len()));
+                                    format!("Raid group of {} dispatched!", group_size));
+                                combat_log.push(CombatEventKind::Raid, game_time.day(), game_time.hour(), game_time.minute(),
+                                    format!("{} Raiders dispatched to farm", group_size));
                                 for (raider_entity, raider_idx) in queue.drain(..) {
                                     // Can't mutate other entities' Activity here — use commands
                                     commands.entity(raider_entity).insert(Activity::Raiding { target: farm_pos });
