@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue, CombatLog, CombatEventKind, NpcMetaCache, GameTime};
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, UPGRADE_PCT};
 use crate::systems::economy::*;
 use crate::world::{WorldData, FarmOccupancy, pos_to_key};
@@ -78,10 +78,16 @@ pub fn death_cleanup_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     meta_cache: Res<NpcMetaCache>,
+    mut selected: ResMut<SelectedNpc>,
 ) {
     let mut despawn_count = 0;
     for (entity, npc_idx, job, town_id, faction, activity, assigned_farm) in query.iter() {
         let idx = npc_idx.0;
+
+        // Deselect if the selected NPC died
+        if selected.0 == idx as i32 {
+            selected.0 = -1;
+        }
         commands.entity(entity).despawn();
         despawn_count += 1;
         pop_dec_alive(&mut pop_stats, *job, town_id.0);

@@ -600,6 +600,8 @@ pub struct BuildMenuContext {
     pub slot: Option<(i32, i32)>,
     /// World position of the slot center.
     pub slot_world_pos: Vec2,
+    /// Screen position where right-click occurred (for menu placement).
+    pub screen_pos: [f32; 2],
     /// True if the slot is locked (show Unlock button).
     pub is_locked: bool,
     /// True if the slot already has a building.

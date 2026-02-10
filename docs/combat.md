@@ -119,7 +119,8 @@ Execution order is **chained** — each system completes before the next starts.
   5. Remove from `RaidQueue` if Raider
   6. Update stats: `PopulationStats` (dec_alive, inc_dead, dec_working), `FactionStats` (dec_alive, inc_dead), `KillStats`
   7. Remove from `NpcsByTownCache`
-  8. `SlotAllocator.free(idx)` — recycle slot for future spawns
+  8. Deselect if `SelectedNpc` matches dying NPC (clears inspector panel)
+  9. `SlotAllocator.free(idx)` — recycle slot for future spawns
 
 ### 7. guard_post_attack_system (combat.rs)
 - Iterates `WorldData.guard_posts` with `GuardPostState` per-post timers and enabled flags

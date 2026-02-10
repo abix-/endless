@@ -343,6 +343,7 @@ fn slot_right_click_system(
         town_data_idx: Some(info.town_data_idx),
         slot: Some((info.row, info.col)),
         slot_world_pos,
+        screen_pos: [cursor_pos.x, cursor_pos.y],
         is_locked: info.slot_state == world::SlotState::Locked,
         has_building,
         is_fountain,

@@ -171,7 +171,9 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `GoingToWork` → `Activity::Working` + `AssignedFarm` + harvest if farm ready
   - `Raiding { .. }` → steal if farm ready, else re-target; `Activity::Returning { has_food: true }`
   - `Wandering` → `Activity::Idle`
-  - Wounded check: if `prioritize_healing` policy enabled and HP < `recovery_hp` threshold, set `Resting { recover_until: Some(recovery_hp) }` and target town fountain
+  - Wounded check (skipped if starving — HP capped at 50% by starvation, fountain can't heal past it, NPC must rest for energy first): if `prioritize_healing` policy enabled and HP < `recovery_hp` threshold:
+    - If already `Resting`: stamp `recover_until: Some(recovery_hp)` on existing state (avoids redirect loop when NPC is already at destination)
+    - Else: set `GoingToRest` targeting town fountain
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
@@ -192,7 +194,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `Activity::Resting { .. }` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
 **Priority 8: Idle scoring (Utility AI)**
-- **Healing priority**: if `prioritize_healing` policy enabled, HP < `recovery_hp`, and town center known → go to fountain for healing (score 80)
+- **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → go to fountain for healing. Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
 - **Work schedule gate**: Work only scored if `work_schedule` policy allows it (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
 - **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier

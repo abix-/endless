@@ -15,7 +15,20 @@ pub struct UserSettings {
     pub raiders: usize,
     // Camera
     pub scroll_speed: f32,
+    // Combat log filters
+    #[serde(default = "default_true")]
+    pub log_kills: bool,
+    #[serde(default = "default_true")]
+    pub log_spawns: bool,
+    #[serde(default = "default_true")]
+    pub log_raids: bool,
+    #[serde(default = "default_true")]
+    pub log_harvests: bool,
+    #[serde(default = "default_true")]
+    pub log_levelups: bool,
 }
+
+fn default_true() -> bool { true }
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -26,6 +39,11 @@ impl Default for UserSettings {
             guards: 2,
             raiders: 0,
             scroll_speed: 400.0,
+            log_kills: true,
+            log_spawns: true,
+            log_raids: true,
+            log_harvests: true,
+            log_levelups: true,
         }
     }
 }

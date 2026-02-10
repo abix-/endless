@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::resources::*;
+use crate::settings::{self, UserSettings};
 
 #[derive(Default)]
 pub struct CombatLogState {
@@ -20,22 +21,26 @@ pub fn combat_log_system(
     ui_state: Res<UiState>,
     combat_log: Res<CombatLog>,
     mut state: Local<CombatLogState>,
+    user_settings: Res<UserSettings>,
 ) -> Result {
     if !ui_state.combat_log_open {
         return Ok(());
     }
 
-    // Default all filters on
+    // Load filters from saved settings
     if !state.initialized {
-        state.show_kills = true;
-        state.show_spawns = true;
-        state.show_raids = true;
-        state.show_harvests = true;
-        state.show_levelups = true;
+        state.show_kills = user_settings.log_kills;
+        state.show_spawns = user_settings.log_spawns;
+        state.show_raids = user_settings.log_raids;
+        state.show_harvests = user_settings.log_harvests;
+        state.show_levelups = user_settings.log_levelups;
         state.initialized = true;
     }
 
     let ctx = contexts.ctx_mut()?;
+
+    // Snapshot filter state before UI to detect changes
+    let prev = (state.show_kills, state.show_spawns, state.show_raids, state.show_harvests, state.show_levelups);
 
     egui::TopBottomPanel::bottom("combat_log").default_height(120.0).show(ctx, |ui| {
         ui.horizontal(|ui| {
@@ -83,6 +88,18 @@ pub fn combat_log_system(
                 }
             });
     });
+
+    // Persist on change
+    let curr = (state.show_kills, state.show_spawns, state.show_raids, state.show_harvests, state.show_levelups);
+    if curr != prev {
+        let mut s = user_settings.clone();
+        s.log_kills = state.show_kills;
+        s.log_spawns = state.show_spawns;
+        s.log_raids = state.show_raids;
+        s.log_harvests = state.show_harvests;
+        s.log_levelups = state.show_levelups;
+        settings::save_settings(&s);
+    }
 
     Ok(())
 }

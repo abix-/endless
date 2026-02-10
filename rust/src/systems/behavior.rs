@@ -408,23 +408,29 @@ pub fn decision_system(
             }
 
             // Check wounded threshold on arrival (policy-driven)
+            // Skip if starving — HP is capped at 50% until energy recovers, so
+            // fountain healing can't reach recovery_hp. Let them rest for energy first.
             let town_idx = town_id.0 as usize;
-            if let Some(policy) = policies.policies.get(town_idx) {
-                let max_hp = 100.0; // TODO: use CachedStats.max_health when available in query
-                let health_pct = health.0 / max_hp;
-                if health_pct < policy.recovery_hp {
-                    // Prioritize healing: go to fountain if enabled, else rest at home
-                    if policy.prioritize_healing {
-                        if let Some(town) = farms.world.towns.get(town_idx) {
-                            let center = town.center;
-                            *activity = Activity::GoingToRest;
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded → Fountain".into());
+            if energy.0 > 0.0 {
+                if let Some(policy) = policies.policies.get(town_idx) {
+                    let max_hp = 100.0; // TODO: use CachedStats.max_health when available in query
+                    let health_pct = health.0 / max_hp;
+                    if health_pct < policy.recovery_hp {
+                        if matches!(*activity, Activity::Resting { .. }) {
+                            // Already resting at destination — just set recovery threshold
+                            *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
+                        } else if policy.prioritize_healing {
+                            if let Some(town) = farms.world.towns.get(town_idx) {
+                                let center = town.center;
+                                *activity = Activity::GoingToRest;
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded → Fountain".into());
+                            } else {
+                                *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
+                            }
                         } else {
                             *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
                         }
-                    } else {
-                        *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
                     }
                 }
             }
@@ -592,8 +598,9 @@ pub fn decision_system(
         let mut scores: Vec<(Action, f32)> = Vec::with_capacity(4);
 
         // Prioritize healing: wounded NPCs go to fountain before doing anything else
+        // Skip if starving — HP capped at 50% until energy recovers
         if let Some(p) = policy {
-            if p.prioritize_healing && health.0 / 100.0 < p.recovery_hp && *job != Job::Raider {
+            if p.prioritize_healing && energy.0 > 0.0 && health.0 / 100.0 < p.recovery_hp && *job != Job::Raider {
                 if let Some(town) = farms.world.towns.get(town_idx) {
                     let center = town.center;
                     *activity = Activity::GoingToRest;

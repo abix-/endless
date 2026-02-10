@@ -197,11 +197,11 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 |----------|------|---------|---------|
 | UiState | roster_open, combat_log_open, build_menu_open, upgrade_menu_open, policies_open | ui_toggle_system (keyboard), game_hud (buttons) | All panel systems |
 | CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system, reassign_npc_system | combat_log panel |
-| BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
+| BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, screen_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
 | ReassignQueue | `Vec<(usize, i32)>` — (npc_slot, new_job) | roster_panel (UI) | reassign_npc_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | upgrade_menu (UI) | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
-| UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed | main_menu (save on Play) | main_menu (load on init), camera_pan_system |
+| UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups | main_menu (save on Play), combat_log (save on filter change) | main_menu (load on init), combat_log (load on init), camera_pan_system |
 
 `UiState` tracks which panels are open. `combat_log_open` defaults to true, all others false. Reset on game cleanup.
 

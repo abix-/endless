@@ -2,6 +2,14 @@
 
 ## 2026-02-10
 
+- **fix starving wounded oscillation + UI polish**
+  - fix decision system oscillation: starving wounded NPCs looped between "Resting" and "Wounded → Fountain" every frame because fountain healing can't exceed the 50% starvation HP cap — skip wounded→fountain redirect when energy=0 so NPCs rest for energy first
+  - fix arrival wounded check: if NPC is already Resting when wounded check fires, stamp `recover_until` threshold on existing state instead of redirecting to GoingToRest (prevents redirect loop at destination)
+  - deselect NPC inspector when selected NPC dies (`death_cleanup_system` clears `SelectedNpc`)
+  - persist combat log filter toggles to `UserSettings` JSON — filters load on init, save on change
+  - main menu settings save now merges into existing file instead of overwriting (preserves log filters)
+  - build menu opens at mouse cursor position (`fixed_pos` + `movable(false)`)
+
 - **fix NPC inspector energy display + rebalance drain**
   - inspector energy bar was stuck at 100 — `NpcEnergyCache` resource was never synced
   - remove `NpcEnergyCache` entirely; HUD now queries `Energy` component directly (same pattern as HP)

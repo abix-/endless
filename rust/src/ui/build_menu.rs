@@ -58,11 +58,15 @@ pub fn build_menu_system(
         format!("Build ({},{})", row, col)
     };
 
+    let menu_pos = egui::pos2(build_ctx.screen_pos[0], build_ctx.screen_pos[1]);
+
     egui::Window::new(title)
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
         .default_width(220.0)
+        .fixed_pos(menu_pos)
+        .movable(false)
         .show(ctx, |ui| {
             ui.label(format!("{} — Food: {}", town_name, food));
             ui.separator();

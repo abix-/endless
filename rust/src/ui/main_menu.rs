@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::AppState;
-use crate::settings::{self, UserSettings};
+use crate::settings;
 use crate::world::WorldGenConfig;
 
 /// Slider state persisted across frames via Local.
@@ -157,15 +157,14 @@ pub fn main_menu_system(
                     wg_config.guards_per_town = state.guards as usize;
                     wg_config.raiders_per_camp = state.raiders as usize;
 
-                    // Persist settings
-                    settings::save_settings(&UserSettings {
-                        world_size: state.world_size,
-                        towns: state.towns as usize,
-                        farmers: state.farmers as usize,
-                        guards: state.guards as usize,
-                        raiders: state.raiders as usize,
-                        scroll_speed: 400.0,
-                    });
+                    // Persist settings (merge into existing to preserve log filters)
+                    let mut saved = settings::load_settings();
+                    saved.world_size = state.world_size;
+                    saved.towns = state.towns as usize;
+                    saved.farmers = state.farmers as usize;
+                    saved.guards = state.guards as usize;
+                    saved.raiders = state.raiders as usize;
+                    settings::save_settings(&saved);
 
                     next_state.set(AppState::Playing);
                 }
