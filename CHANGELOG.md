@@ -2,6 +2,11 @@
 
 ## 2026-02-10
 
+- **fix NPC inspector energy display + rebalance drain**
+  - inspector energy bar was stuck at 100 — `NpcEnergyCache` resource was never synced
+  - remove `NpcEnergyCache` entirely; HUD now queries `Energy` component directly (same pattern as HP)
+  - change energy drain from 24h to 12h to empty — tighter rest/work cycle
+
 - **energy-driven starvation**
   - remove `LastAteHour` component — energy is now the single survival resource
   - starvation triggers at energy=0 instead of 24h without eating

@@ -7,7 +7,7 @@ use crate::resources::GameTime;
 
 /// Energy recovery/drain rates (per game hour)
 const ENERGY_RECOVER_PER_HOUR: f32 = 100.0 / 6.0;  // 6 hours to full (resting)
-const ENERGY_DRAIN_PER_HOUR: f32 = 100.0 / 24.0;   // 24 hours to empty (active)
+const ENERGY_DRAIN_PER_HOUR: f32 = 100.0 / 12.0;   // 12 hours to empty (active)
 
 /// Energy system: drain while active, recover while resting.
 /// Uses game time so it respects time_scale.

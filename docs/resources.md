@@ -24,7 +24,6 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 | Resource | Per-NPC Data | Writers | Readers |
 |----------|-------------|---------|---------|
 | NpcMetaCache | name, level, xp, trait_id, town_id, job | spawn_npc_system, xp_grant_system | UI queries |
-| NpcEnergyCache | `f32` energy level | energy_system | UI queries |
 | NpcLogCache | `VecDeque<NpcLogEntry>` (100 cap, circular) | behavior/decision systems | UI queries |
 | NpcsByTownCache | `Vec<Vec<usize>>` — NPC slots grouped by town | spawn/death systems | UI queries |
 

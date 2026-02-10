@@ -28,7 +28,7 @@ use messages::{SpawnNpcMsg, DamageMsg, GpuUpdateMsg};
 use resources::{
     NpcCount, NpcEntityMap, PopulationStats, GameConfig, GameTime, RespawnTimers,
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
-    NpcMetaCache, NpcEnergyCache, NpcsByTownCache, NpcLogCache, FoodEvents,
+    NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, GpuDispatchCount, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
@@ -216,7 +216,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<SelectedNpc>()
        .init_resource::<FollowSelected>()
        .init_resource::<NpcMetaCache>()
-       .init_resource::<NpcEnergyCache>()
        .init_resource::<NpcsByTownCache>()
        .init_resource::<NpcLogCache>()
        .init_resource::<FoodEvents>()

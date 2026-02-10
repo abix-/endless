@@ -34,7 +34,6 @@ pub struct HudData<'w> {
     food_storage: Res<'w, FoodStorage>,
     faction_stats: Res<'w, FactionStats>,
     meta_cache: Res<'w, NpcMetaCache>,
-    energy_cache: Res<'w, NpcEnergyCache>,
     npc_logs: Res<'w, NpcLogCache>,
 }
 
@@ -43,7 +42,7 @@ pub fn game_hud_system(
     data: HudData,
     selected: Res<SelectedNpc>,
     world_data: Res<WorldData>,
-    health_query: Query<(&NpcIndex, &Health, &CachedStats), Without<Dead>>,
+    health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
     npc_states: NpcStateQuery,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<NpcBufferWrites>,
@@ -91,7 +90,6 @@ pub fn game_hud_system(
             let idx = sel as usize;
             if idx < data.meta_cache.0.len() {
                 let meta = &data.meta_cache.0[idx];
-                let energy = data.energy_cache.0.get(idx).copied().unwrap_or(0.0);
 
                 ui.heading(format!("{}", meta.name));
                 let next_level_xp = (meta.level + 1) * (meta.level + 1) * 100;
@@ -102,13 +100,15 @@ pub fn game_hud_system(
                     ui.label(format!("Trait: {}", trait_str));
                 }
 
-                // Find HP from query
+                // Find HP + energy from query
                 let mut hp = 0.0f32;
                 let mut max_hp = 100.0f32;
-                for (npc_idx, health, cached) in health_query.iter() {
+                let mut energy = 0.0f32;
+                for (npc_idx, health, cached, npc_energy) in health_query.iter() {
                     if npc_idx.0 == idx {
                         hp = health.0;
                         max_hp = cached.max_health;
+                        energy = npc_energy.0;
                         break;
                     }
                 }

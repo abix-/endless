@@ -237,7 +237,7 @@ Energy uses game time (respects time_scale and pause):
 | Constant | Value | Purpose |
 |----------|-------|---------|
 | ENERGY_RECOVER_PER_HOUR | 100/6 (~16.7) | Recovery while resting (6 hours to full) |
-| ENERGY_DRAIN_PER_HOUR | 100/24 (~4.2) | Drain while active (24 hours to empty) |
+| ENERGY_DRAIN_PER_HOUR | 100/12 (~8.3) | Drain while active (12 hours to empty) |
 | ENERGY_WAKE_THRESHOLD | 90.0 | Wake from Resting when energy reaches this |
 | ENERGY_TIRED_THRESHOLD | 30.0 | Stop working and seek rest below this |
 With utility AI, there are no fixed thresholds for decisions. Low energy increases Rest/Eat scores, but NPCs might still choose Work if their Focused trait outweighs tiredness. NPCs automatically wake from `Resting` at 90% energy (handled in decision_system for proper command sync).

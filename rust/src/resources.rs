@@ -288,16 +288,6 @@ impl Default for NpcMetaCache {
     }
 }
 
-/// Energy per NPC. Synced from Bevy Energy component.
-#[derive(Resource)]
-pub struct NpcEnergyCache(pub Vec<f32>);
-
-impl Default for NpcEnergyCache {
-    fn default() -> Self {
-        Self(vec![100.0; MAX_NPC_COUNT])
-    }
-}
-
 /// Per-town NPC lists for O(1) roster queries. Index = town_id, value = Vec of NPC slots.
 #[derive(Resource, Default)]
 pub struct NpcsByTownCache(pub Vec<Vec<usize>>);
