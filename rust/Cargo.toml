@@ -18,3 +18,4 @@ crossbeam-channel = "0.5"
 wgpu = { version = "27", default-features = false }
 rand = "0.9"
 noise = "0.9"
+arboard = "3"

@@ -260,7 +260,7 @@ Bevy's Camera2d is the single source of truth — input systems write directly t
 **Main world systems** (registered in `RenderPlugin::build`, Update schedule):
 - `camera_pan_system`: WASD at 400px/s, speed scaled by 1/zoom via `ortho_zoom()` helper, writes `Transform` directly
 - `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), writes `Projection::Orthographic.scale` and `Transform` directly
-- `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE
+- `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE. Guarded by `ctx.wants_pointer_input() || ctx.is_pointer_over_area()` to avoid stealing clicks from egui UI panels.
 
 **Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame, creating a bind group at group 1.
 
@@ -316,8 +316,10 @@ Both terrain and buildings are rendered via Bevy's built-in `TilemapChunk` — t
 
 | Layer | Z | Alpha | Content | Tileset |
 |-------|---|-------|---------|---------|
-| Terrain | -100.0 | Opaque | Every cell filled (biome tiles) | 11 tiles (`TERRAIN_TILES`) |
-| Buildings | -99.0 | Blend | `None` for empty, building tile where placed | 5 tiles (`BUILDING_TILES`) |
+| Terrain | -1.0 | Blend | Every cell filled (biome tiles) | 11 tiles (`TERRAIN_TILES`) |
+| Buildings | -0.5 | Blend | `None` for empty, building tile where placed | 5 tiles (`BUILDING_TILES`) |
+
+Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase alongside NPCs (sort_key=0.0). Using `Opaque` would place terrain in the Opaque2d phase which renders *after* Transparent2d, causing terrain to draw over NPCs regardless of z-value.
 
 **`build_tileset(atlas, tiles, images)`** (`world.rs`): Generic function that extracts 16×16 tiles from the world atlas at specified (col, row) positions and builds a `texture_2d_array`. Called twice — once with `TERRAIN_TILES` (11 tiles: 2 grass, 6 forest, water, rock, dirt) and once with `BUILDING_TILES` (5 tiles: fountain, bed, guard post, farm, camp).
 

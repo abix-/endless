@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-02-10
+- **fix terrain z-ordering: AlphaMode2d::Opaque → Blend**
+  - terrain was rendering over NPCs because Opaque2d phase executes after Transparent2d regardless of z-value
+  - both tilemap layers now use AlphaMode2d::Blend in Transparent2d phase (terrain z=-1.0, buildings z=-0.5, NPCs sort_key=0.0)
+
+- **NPC debug inspector with clipboard copy**
+  - add full debug section to game HUD: position, target, home, faction, all state components, recent log entries
+  - add "Copy Debug Info" button using `arboard::Clipboard` directly (bevy_egui `EguiClipboard`/`ctx.copy_text()` didn't work)
+  - add `NpcStateQuery` SystemParam bundle for querying 15 state marker components
+  - guard `click_to_select_system` with `ctx.wants_pointer_input() || ctx.is_pointer_over_area()` — prevents game click handler from stealing egui button clicks (was deselecting NPC on same frame as Copy button press)
+  - add `arboard = "3"` dependency
+
 ## 2026-02-09
 - **main game mode: menu → world gen → play → HUD → cleanup cycle**
   - add `AppState` to `lib.rs` with 4 states: MainMenu (default), Playing, TestMenu, Running

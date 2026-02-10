@@ -2338,6 +2338,7 @@ dependencies = [
 name = "endless"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "bevy",
  "bevy_egui",
  "bytemuck",

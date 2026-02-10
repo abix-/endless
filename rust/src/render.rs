@@ -217,13 +217,22 @@ fn camera_zoom_system(
 }
 
 /// Left click to select nearest NPC within 20px.
+/// Skips when egui wants the pointer (clicking UI buttons).
 fn click_to_select_system(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_query: Query<(&Transform, &Projection), With<MainCamera>>,
     mut selected: ResMut<SelectedNpc>,
+    mut egui_contexts: bevy_egui::EguiContexts,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
+
+    // Don't steal clicks from egui UI
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
 
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
@@ -317,7 +326,7 @@ fn spawn_world_tilemap(
     let terrain_tiles: Vec<Option<TileData>> = grid.cells.iter().enumerate()
         .map(|(i, cell)| Some(TileData::from_tileset_index(cell.terrain.tileset_index(i))))
         .collect();
-    spawn_chunk(&mut commands, &grid, terrain_tileset, terrain_tiles, -100.0, AlphaMode2d::Opaque);
+    spawn_chunk(&mut commands, &grid, terrain_tileset, terrain_tiles, -1.0, AlphaMode2d::Blend);
 
     // Building layer: None for empty cells, building tile where placed
     let building_tileset = build_tileset(&atlas, &BUILDING_TILES, &mut images);
@@ -325,7 +334,7 @@ fn spawn_world_tilemap(
         .map(|cell| cell.building.as_ref().map(|b| TileData::from_tileset_index(b.tileset_index())))
         .collect();
     let building_count = building_tiles.iter().filter(|t| t.is_some()).count();
-    spawn_chunk(&mut commands, &grid, building_tileset, building_tiles, -99.0, AlphaMode2d::Blend);
+    spawn_chunk(&mut commands, &grid, building_tileset, building_tiles, -0.5, AlphaMode2d::Blend);
 
     info!("World tilemap spawned: {}x{} grid, {} buildings", grid.width, grid.height, building_count);
     spawned.0 = true;
