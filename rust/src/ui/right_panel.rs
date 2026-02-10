@@ -115,7 +115,7 @@ pub fn right_panel_system(
     let ctx = contexts.ctx_mut()?;
 
     // Panel width: narrow for just tabs, wide when content is open
-    let width = if ui_state.right_panel_open { 480.0 } else { 80.0 };
+    let width = if ui_state.right_panel_open { 480.0 } else { 200.0 };
 
     egui::SidePanel::right("right_panel")
         .exact_width(width)
