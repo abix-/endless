@@ -35,11 +35,7 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     match test.phase {
         // Phase 1: Grid has correct dimensions

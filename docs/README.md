@@ -17,9 +17,11 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 **Architecture** (`rust/src/tests/`):
 - `TestState` resource: shared phase tracking, counters, flags, results
 - `TestRegistry`: registered test entries (name, description, phase_count, time_scale)
+- `TestSetupParams`: SystemParam bundle for test setup (slot alloc, spawn, world data, food, factions, game time, test state)
 - `test_is("name")` run condition gates per-test setup/tick systems
 - Each test exports `setup` (OnEnter Running) + `tick` (Update after Behavior)
-- Cleanup on OnExit(Running): despawn all NPC entities, reset all resources
+- Helpers: `tick_elapsed()`, `require_entity()`, `keep_fed()` reduce boilerplate
+- Cleanup on OnExit(Running): despawn all NPC + FarmReadyMarker entities, reset all resources
 - Run All: sequential execution via `RunAllState` queue (auto-advances after 1.5s)
 - Single tests stay running after pass/fail — user clicks Back in HUD to return
 
@@ -41,9 +43,9 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `healing` | 3 | Damaged NPC near town → Healing marker → health recovers to max |
 | `economy` | 5 | Farm growing → ready → harvest → camp forage → raider respawn |
 | `world-gen` | 6 | Grid dimensions, town placement, buildings, terrain, camps |
-| `sleep-visual` | 3 | Resting NPC gets sleep icon on item layer, cleared on wake |
+| `sleep-visual` | 3 | Resting NPC gets sleep icon on status layer, cleared on wake |
 | `farm-visual` | 3 | Ready farm spawns FarmReadyMarker, removed on harvest |
-| `heal-visual` | 3 | Healing NPC gets heal icon on item layer, cleared when healed |
+| `heal-visual` | 3 | Healing NPC gets heal icon on healing layer, cleared when healed |
 
 ## System Map
 

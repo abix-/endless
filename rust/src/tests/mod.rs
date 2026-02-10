@@ -24,7 +24,10 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use std::collections::HashMap;
 
-use crate::components::NpcIndex;
+use crate::components::{NpcIndex, FarmReadyMarker, Dead, LastAteHour};
+use crate::messages::SpawnNpcMsg;
+use crate::resources::*;
+use crate::world;
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES (keeps cleanup under 16-param limit)
@@ -53,6 +56,75 @@ pub struct CleanupExtra<'w> {
     pub raid_queue: ResMut<'w, crate::resources::RaidQueue>,
     pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
     pub world_grid: ResMut<'w, crate::world::WorldGrid>,
+}
+
+// ============================================================================
+// TEST SETUP PARAMS (shared by most test setup functions)
+// ============================================================================
+
+#[derive(SystemParam)]
+pub struct TestSetupParams<'w> {
+    pub slot_alloc: ResMut<'w, SlotAllocator>,
+    pub spawn_events: MessageWriter<'w, SpawnNpcMsg>,
+    pub world_data: ResMut<'w, world::WorldData>,
+    pub food_storage: ResMut<'w, FoodStorage>,
+    pub faction_stats: ResMut<'w, FactionStats>,
+    pub game_time: ResMut<'w, GameTime>,
+    pub test_state: ResMut<'w, TestState>,
+}
+
+impl TestSetupParams<'_> {
+    /// Add a default faction-0 town at (400,400).
+    pub fn add_town(&mut self, name: &str) {
+        self.world_data.towns.push(world::Town {
+            name: name.into(),
+            center: Vec2::new(400.0, 400.0),
+            faction: 0,
+            sprite_type: 0,
+        });
+    }
+
+    /// Add a bed at the given position for town 0.
+    pub fn add_bed(&mut self, x: f32, y: f32) {
+        self.world_data.beds.push(world::Bed {
+            position: Vec2::new(x, y),
+            town_idx: 0,
+        });
+    }
+
+    /// Init food_storage + faction_stats for N towns.
+    pub fn init_economy(&mut self, town_count: usize) {
+        self.food_storage.init(town_count);
+        self.faction_stats.init(town_count);
+    }
+
+    /// Alloc a slot and write a SpawnNpcMsg with sensible defaults.
+    /// Returns the allocated slot index.
+    pub fn spawn_npc(&mut self, job: i32, x: f32, y: f32, home_x: f32, home_y: f32) -> usize {
+        let slot = self.slot_alloc.alloc().expect("slot alloc");
+        self.spawn_events.write(SpawnNpcMsg {
+            slot_idx: slot,
+            x, y,
+            job, faction: 0, town_idx: 0,
+            home_x, home_y,
+            work_x: -1.0, work_y: -1.0,
+            starting_post: -1,
+            attack_type: 0,
+        });
+        slot
+    }
+}
+
+// ============================================================================
+// TEST HELPERS
+// ============================================================================
+
+/// Keep all alive NPCs fed (prevents starvation from interfering with tests).
+pub fn keep_fed(query: &mut Query<&mut LastAteHour, Without<Dead>>, game_time: &GameTime) {
+    let hour = game_time.total_hours();
+    for mut last_ate in query.iter_mut() {
+        last_ate.0 = hour;
+    }
 }
 
 // ============================================================================
@@ -158,6 +230,24 @@ impl TestState {
 
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    /// Tick preamble: returns elapsed seconds, or None if test is done.
+    pub fn tick_elapsed(&mut self, time: &Time) -> Option<f32> {
+        if self.passed || self.failed { return None; }
+        let now = time.elapsed_secs();
+        if self.start == 0.0 { self.start = now; }
+        Some(now - self.start)
+    }
+
+    /// Fail if no entities found within 3s. Returns false to signal early return.
+    pub fn require_entity(&mut self, count: usize, elapsed: f32, name: &str) -> bool {
+        if count == 0 {
+            self.phase_name = format!("Waiting for {}...", name);
+            if elapsed > 3.0 { self.fail_phase(elapsed, format!("No {} entity", name)); }
+            return false;
+        }
+        true
     }
 }
 
@@ -692,16 +782,12 @@ pub fn auto_start_next_test(
 /// Despawn all NPC entities and reset resources when leaving a test.
 fn cleanup_test_world(
     mut commands: Commands,
-    npc_query: Query<Entity, With<NpcIndex>>,
-    marker_query: Query<Entity, With<crate::components::FarmReadyMarker>>,
+    entity_query: Query<Entity, Or<(With<NpcIndex>, With<FarmReadyMarker>)>>,
     mut core: CleanupCore,
     mut extra: CleanupExtra,
 ) {
-    let count = npc_query.iter().count();
-    for entity in npc_query.iter() {
-        commands.entity(entity).despawn();
-    }
-    for entity in marker_query.iter() {
+    let count = entity_query.iter().count();
+    for entity in entity_query.iter() {
         commands.entity(entity).despawn();
     }
 

@@ -3,59 +3,41 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
-use crate::world;
 
-use super::TestState;
+use super::{TestState, TestSetupParams};
 
 pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
-    mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
+    mut params: TestSetupParams,
     mut farm_states: ResMut<FarmStates>,
-    mut faction_stats: ResMut<FactionStats>,
     mut camp_state: ResMut<CampState>,
-    mut game_time: ResMut<GameTime>,
-    mut test_state: ResMut<TestState>,
 ) {
     // Villager town
-    world_data.towns.push(world::Town {
-        name: "EcoTown".into(),
-        center: Vec2::new(400.0, 400.0),
-        faction: 0,
-        sprite_type: 0,
-    });
+    params.add_town("EcoTown");
     // Raider camp
-    world_data.towns.push(world::Town {
+    params.world_data.towns.push(crate::world::Town {
         name: "EcoCamp".into(),
         center: Vec2::new(400.0, 100.0),
         faction: 1,
         sprite_type: 1,
     });
     // 1 farm near town — starts Growing
-    world_data.farms.push(world::Farm {
+    params.world_data.farms.push(crate::world::Farm {
         position: Vec2::new(400.0, 350.0),
         town_idx: 0,
     });
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.5); // halfway grown
-    // 1 bed
-    world_data.beds.push(world::Bed {
-        position: Vec2::new(400.0, 450.0),
-        town_idx: 0,
-    });
+    params.add_bed(400.0, 450.0);
 
-    food_storage.init(2);
-    food_storage.food[1] = 10; // camp has enough food for respawn
-    faction_stats.init(2);
+    params.init_economy(2);
+    params.food_storage.food[1] = 10; // camp has enough food for respawn
     camp_state.init(1, 5); // 1 camp, max 5 raiders
-    game_time.time_scale = 50.0;
+    params.game_time.time_scale = 50.0;
 
     // Spawn 1 farmer to tend the farm (speeds growth)
-    let slot = slot_alloc.alloc().expect("slot alloc");
-    spawn_events.write(SpawnNpcMsg {
+    let slot = params.slot_alloc.alloc().expect("slot alloc");
+    params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
         x: 400.0, y: 380.0,
         job: 0, faction: 0, town_idx: 0,
@@ -65,7 +47,7 @@ pub fn setup(
         attack_type: 0,
     });
 
-    test_state.phase_name = "Waiting for farmer...".into();
+    params.test_state.phase_name = "Waiting for farmer...".into();
     info!("economy: setup — 1 farmer, 1 farm at 50%, camp with 10 food, time_scale=50");
 }
 
@@ -78,11 +60,7 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let farm_state = farm_states.states.first().copied().unwrap_or(FarmGrowthState::Growing);
     let farm_progress = farm_states.progress.first().copied().unwrap_or(0.0);

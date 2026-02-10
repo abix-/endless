@@ -1,6 +1,16 @@
 # Changelog
 
 ## 2026-02-09
+- **stage 6 green phase: visual indicator render layers + test refactor**
+  - add 2 new render layers: Status (layer 5, sleep icon) and Healing (layer 6, heal glow)
+  - LAYER_COUNT 5→7, EquipLayer enum extended with Status=4 and Healing=5
+  - wire SetHealing to write HEAL_SPRITE to `healing_sprites` buffer (was no-op)
+  - add SetSleeping message, sent from behavior.rs at 3 Resting insert/remove sites
+  - add `farm_visual_system`: spawns/despawns FarmReadyMarker on farm state transitions
+  - update sleep/heal visual tests to check dedicated buffers (`status_sprites`/`healing_sprites`)
+  - refactor test infrastructure: TestSetupParams SystemParam bundle, tick_elapsed/require_entity/keep_fed helpers (-278 lines)
+  - heal-visual phases 1-2 pass; sleep-visual and farm-visual still have timing issues to debug
+
 - **fix healing test: all 3 phases pass**
   - keep farmer fed each tick (`LastAteHour = total_hours`) — isolates healing from starvation
   - healing was 2/3 (hp regressed due to starvation HP cap), now ALL PASS

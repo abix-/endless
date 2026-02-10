@@ -71,11 +71,7 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let alive = npc_query.iter().count();
     let in_combat = in_combat_query.iter().count();

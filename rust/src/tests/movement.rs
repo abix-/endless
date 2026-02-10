@@ -3,53 +3,33 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
-use crate::world;
 
-use super::TestState;
+use super::{TestState, TestSetupParams};
 
 /// Farms placed 150px from spawn positions — close enough to arrive quickly.
 const SPAWN_Y: f32 = 500.0;
 const FARM_Y: f32 = 350.0;
 
-pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
-    mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut farm_states: ResMut<FarmStates>,
-    mut faction_stats: ResMut<FactionStats>,
-    mut test_state: ResMut<TestState>,
-) {
-    // 1 town, 3 farms, 3 beds
-    world_data.towns.push(world::Town {
-        name: "TestTown".into(),
-        center: Vec2::new(400.0, 400.0),
-        faction: 0,
-        sprite_type: 0,
-    });
+pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
+    params.add_town("TestTown");
     for i in 0..3 {
         let fx = 300.0 + (i as f32 * 100.0);
-        world_data.farms.push(world::Farm {
+        params.world_data.farms.push(crate::world::Farm {
             position: Vec2::new(fx, FARM_Y),
             town_idx: 0,
         });
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
-        world_data.beds.push(world::Bed {
-            position: Vec2::new(fx, 550.0),
-            town_idx: 0,
-        });
+        params.add_bed(fx, 550.0);
     }
-    food_storage.init(1);
-    faction_stats.init(1);
+    params.init_economy(1);
 
     // Spawn 3 farmers with work positions at farms (150px away)
     for i in 0..3 {
         let fx = 300.0 + (i as f32 * 100.0);
-        let slot = slot_alloc.alloc().expect("slot alloc");
-        spawn_events.write(SpawnNpcMsg {
+        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: fx, y: SPAWN_Y,
             job: 0, faction: 0, town_idx: 0,
@@ -60,7 +40,7 @@ pub fn setup(
         });
     }
 
-    test_state.phase_name = "Waiting for spawns...".into();
+    params.test_state.phase_name = "Waiting for spawns...".into();
     info!("movement: setup — 3 farmers, 150px to farms");
 }
 
@@ -74,11 +54,7 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     match test.phase {
         // Phase 1: 3 NPCs have HasTarget or GoingToWork (movement initiated)

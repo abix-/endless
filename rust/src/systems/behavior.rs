@@ -350,6 +350,7 @@ pub fn decision_system(
                 commands.entity(entity)
                     .remove::<GoingToRest>()
                     .insert(Resting::default());
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSleeping { idx, sleeping: true }));
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
             } else if going_work.is_some() {
                 // Farmers: find farm at WorkPosition and start working
@@ -464,6 +465,7 @@ pub fn decision_system(
                 if health_pct < w.pct {
                     commands.entity(entity)
                         .insert(Resting { recover_until: Some(0.75) });
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSleeping { idx, sleeping: true }));
                 }
             }
 
@@ -543,6 +545,7 @@ pub fn decision_system(
             // Normal wake: energy must reach threshold
             if energy.0 >= ENERGY_WAKE_THRESHOLD {
                 commands.entity(entity).remove::<Resting>();
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSleeping { idx, sleeping: false }));
                 let msg = if rest.recover_until.is_some() { "Recovered" } else { "Woke up" };
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), msg.into());
                 // Fall through to make a decision

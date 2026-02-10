@@ -46,8 +46,8 @@ use crate::render::{CameraState, MainCamera};
 // MARKER COMPONENT
 // =============================================================================
 
-/// Layer count: body + 4 equipment layers.
-pub const LAYER_COUNT: usize = 5;
+/// Layer count: body + 4 equipment layers + status + healing.
+pub const LAYER_COUNT: usize = 7;
 
 /// Marker component for the NPC batch entity.
 #[derive(Component, Clone)]
@@ -116,7 +116,7 @@ pub struct NpcRenderBuffers {
     /// Static quad geometry (slot 0)
     pub vertex_buffer: Buffer,
     pub index_buffer: Buffer,
-    /// Per-layer instance data (body + 4 equipment layers)
+    /// Per-layer instance data (body + 6 overlay layers)
     pub layers: Vec<LayerBuffer>,
 }
 
@@ -390,14 +390,16 @@ fn extract_camera_state(
 // =============================================================================
 
 /// Equipment layer sprite sources (matches EquipLayer enum order).
-const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32); 4] = [
+const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32); 6] = [
     |w, i| { let j = i * 2; (w.armor_sprites.get(j).copied().unwrap_or(-1.0), w.armor_sprites.get(j+1).copied().unwrap_or(0.0)) },
     |w, i| { let j = i * 2; (w.helmet_sprites.get(j).copied().unwrap_or(-1.0), w.helmet_sprites.get(j+1).copied().unwrap_or(0.0)) },
     |w, i| { let j = i * 2; (w.weapon_sprites.get(j).copied().unwrap_or(-1.0), w.weapon_sprites.get(j+1).copied().unwrap_or(0.0)) },
     |w, i| { let j = i * 2; (w.item_sprites.get(j).copied().unwrap_or(-1.0), w.item_sprites.get(j+1).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 2; (w.status_sprites.get(j).copied().unwrap_or(-1.0), w.status_sprites.get(j+1).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 2; (w.healing_sprites.get(j).copied().unwrap_or(-1.0), w.healing_sprites.get(j+1).copied().unwrap_or(0.0)) },
 ];
 
-/// Prepare all instance buffers — body + 4 equipment layers (5 layers).
+/// Prepare all instance buffers — body + 6 overlay layers (7 layers).
 /// Buildings are rendered via TilemapChunk (see render.rs).
 fn prepare_npc_buffers(
     mut commands: Commands,

@@ -20,8 +20,11 @@ game_time_system (every frame)
     ├─ raider_respawn_system (hourly)
     │   └─ Camps with food + population room → spawn raider
     │
-    └─ starvation_system (hourly)
-        └─ NPCs who haven't eaten in 24h → Starving marker
+    ├─ starvation_system (hourly)
+    │   └─ NPCs who haven't eaten in 24h → Starving marker
+    │
+    └─ farm_visual_system (every frame)
+        └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
 ```
 
 ## Systems
@@ -88,7 +91,7 @@ Farms have a growth cycle instead of infinite food:
 - If farm not ready: re-target another farm via `find_nearest_location()`
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another"
 
-**Visual feedback**: Not yet implemented. `FarmStates` tracks growth progress (0.0-1.0) and Ready/Growing state per farm, but no rendering pipeline reads this data yet.
+**Visual feedback**: `farm_visual_system` watches `FarmStates` for state transitions and spawns/despawns `FarmReadyMarker` entities. Uses `Local<Vec<FarmGrowthState>>` to detect transitions without extra resources. Growing→Ready spawns a marker; Ready→Growing (harvest) despawns it.
 
 ## Starvation
 
@@ -193,7 +196,6 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 ## Known Issues
 
 - **Starvation speed bug**: `starvation_system` uses `BASE_SPEED=60.0` but spawn sets speed to 100.0. When starvation clears, NPCs get 60 speed instead of their original 100.
-- **No farm visual feedback**: FarmStates tracks progress but no rendering pipeline reads it.
 - **No carried item rendering**: CarriedItem component exists but nothing draws the food icon.
 
 ## Rating: 7/10

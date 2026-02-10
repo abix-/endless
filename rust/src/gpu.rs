@@ -26,6 +26,7 @@ use bevy::{
 use std::borrow::Cow;
 
 use crate::components::EquipLayer;
+use crate::constants::{HEAL_SPRITE, SLEEP_SPRITE};
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, GPU_READ_STATE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, PROJ_HIT_STATE};
 
 // =============================================================================
@@ -127,6 +128,10 @@ pub struct NpcBufferWrites {
     pub helmet_sprites: Vec<f32>,
     pub weapon_sprites: Vec<f32>,
     pub item_sprites: Vec<f32>,
+    /// Status indicator sprites per NPC: [col, row], -1.0 = none. Layer 5 (sleep icon, etc.)
+    pub status_sprites: Vec<f32>,
+    /// Healing indicator sprites per NPC: [col, row], -1.0 = none. Layer 6 (healing glow)
+    pub healing_sprites: Vec<f32>,
     /// Whether any data changed this frame (skip upload if false)
     pub dirty: bool,
     /// Per-field dirty flags to avoid overwriting GPU-computed positions
@@ -156,6 +161,8 @@ impl Default for NpcBufferWrites {
             helmet_sprites: vec![-1.0; max * 2],
             weapon_sprites: vec![-1.0; max * 2],
             item_sprites: vec![-1.0; max * 2],
+            status_sprites: vec![-1.0; max * 2],
+            healing_sprites: vec![-1.0; max * 2],
             dirty: false,
             positions_dirty: false,
             targets_dirty: false,
@@ -263,6 +270,8 @@ impl NpcBufferWrites {
                     EquipLayer::Helmet => &mut self.helmet_sprites,
                     EquipLayer::Weapon => &mut self.weapon_sprites,
                     EquipLayer::Item => &mut self.item_sprites,
+                    EquipLayer::Status => &mut self.status_sprites,
+                    EquipLayer::Healing => &mut self.healing_sprites,
                 };
                 let i = *idx * 2;
                 if i + 1 < vec.len() {
@@ -271,8 +280,22 @@ impl NpcBufferWrites {
                     self.dirty = true;
                 }
             }
-            // Visual effect flag, not wired to any buffer yet
-            GpuUpdate::SetHealing { .. } => {}
+            GpuUpdate::SetHealing { idx, healing } => {
+                let i = *idx * 2;
+                if i + 1 < self.healing_sprites.len() {
+                    self.healing_sprites[i] = if *healing { HEAL_SPRITE.0 } else { -1.0 };
+                    self.healing_sprites[i + 1] = if *healing { HEAL_SPRITE.1 } else { 0.0 };
+                    self.dirty = true;
+                }
+            }
+            GpuUpdate::SetSleeping { idx, sleeping } => {
+                let i = *idx * 2;
+                if i + 1 < self.status_sprites.len() {
+                    self.status_sprites[i] = if *sleeping { SLEEP_SPRITE.0 } else { -1.0 };
+                    self.status_sprites[i + 1] = if *sleeping { SLEEP_SPRITE.1 } else { 0.0 };
+                    self.dirty = true;
+                }
+            }
         }
     }
 }

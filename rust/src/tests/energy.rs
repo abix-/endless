@@ -4,44 +4,15 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ENERGY_HUNGRY;
-use crate::messages::SpawnNpcMsg;
-use crate::resources::*;
-use crate::world;
 
-use super::TestState;
+use super::{TestState, TestSetupParams};
 
-pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
-    mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut faction_stats: ResMut<FactionStats>,
-    mut game_time: ResMut<GameTime>,
-    mut test_state: ResMut<TestState>,
-) {
-    world_data.towns.push(world::Town {
-        name: "TestTown".into(),
-        center: Vec2::new(400.0, 400.0),
-        faction: 0,
-        sprite_type: 0,
-    });
-    food_storage.init(1);
-    faction_stats.init(1);
-    game_time.time_scale = 50.0;
-
-    // Spawn 1 farmer without work position (stays idle, drains energy)
-    let slot = slot_alloc.alloc().expect("slot alloc");
-    spawn_events.write(SpawnNpcMsg {
-        slot_idx: slot,
-        x: 400.0, y: 400.0,
-        job: 0, faction: 0, town_idx: 0,
-        home_x: 400.0, home_y: 450.0,
-        work_x: -1.0, work_y: -1.0,
-        starting_post: -1,
-        attack_type: 0,
-    });
-
-    test_state.phase_name = "Waiting for spawn...".into();
+pub fn setup(mut params: TestSetupParams) {
+    params.add_town("TestTown");
+    params.init_economy(1);
+    params.game_time.time_scale = 50.0;
+    params.spawn_npc(0, 400.0, 400.0, 400.0, 450.0);
+    params.test_state.phase_name = "Waiting for spawn...".into();
     info!("energy: setup — 1 farmer, time_scale=50");
 }
 
@@ -50,19 +21,10 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
-
-    let Some((energy, _)) = query.iter().next() else {
-        test.phase_name = "Waiting for farmer...".into();
-        if elapsed > 3.0 {
-            test.fail_phase(elapsed, "No farmer entity found");
-        }
-        return;
-    };
+    if !test.require_entity(query.iter().count(), elapsed, "farmer") { return; }
+    let Some((energy, _)) = query.iter().next() else { return; };
 
     let e = energy.0;
 

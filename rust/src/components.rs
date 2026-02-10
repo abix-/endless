@@ -290,8 +290,8 @@ pub struct Stealer;
 /// Equipment rendering layer index.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
-pub enum EquipLayer { Armor = 0, Helmet = 1, Weapon = 2, Item = 3 }
-impl EquipLayer { pub const COUNT: usize = 4; }
+pub enum EquipLayer { Armor = 0, Helmet = 1, Weapon = 2, Item = 3, Status = 4, Healing = 5 }
+impl EquipLayer { pub const COUNT: usize = 6; }
 
 /// Equipped weapon sprite (col, row in atlas). Presence = has weapon.
 #[derive(Component, Clone, Copy)]

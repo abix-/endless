@@ -3,46 +3,25 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
-use crate::world;
 
-use super::TestState;
+use super::{TestState, TestSetupParams};
 
-pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
-    mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut farm_states: ResMut<FarmStates>,
-    mut faction_stats: ResMut<FactionStats>,
-    mut game_time: ResMut<GameTime>,
-    mut test_state: ResMut<TestState>,
-) {
-    world_data.towns.push(world::Town {
-        name: "FarmVisTown".into(),
-        center: Vec2::new(400.0, 400.0),
-        faction: 0,
-        sprite_type: 0,
-    });
-    world_data.farms.push(world::Farm {
+pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
+    params.add_town("FarmVisTown");
+    params.world_data.farms.push(crate::world::Farm {
         position: Vec2::new(400.0, 350.0),
         town_idx: 0,
     });
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.8); // almost ready
-    world_data.beds.push(world::Bed {
-        position: Vec2::new(400.0, 450.0),
-        town_idx: 0,
-    });
-
-    food_storage.init(1);
-    faction_stats.init(1);
-    game_time.time_scale = 50.0;
+    params.add_bed(400.0, 450.0);
+    params.init_economy(1);
+    params.game_time.time_scale = 50.0;
 
     // Spawn 1 farmer to tend the farm (speeds growth to Ready)
-    let slot = slot_alloc.alloc().expect("slot alloc");
-    spawn_events.write(SpawnNpcMsg {
+    let slot = params.slot_alloc.alloc().expect("slot alloc");
+    params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
         x: 400.0, y: 350.0,
         job: 0, faction: 0, town_idx: 0,
@@ -52,7 +31,7 @@ pub fn setup(
         attack_type: 0,
     });
 
-    test_state.phase_name = "Waiting for farm growth...".into();
+    params.test_state.phase_name = "Waiting for farm growth...".into();
     info!("farm-visual: setup — 1 farm (progress=0.8), 1 farmer, time_scale=50");
 }
 
@@ -62,11 +41,7 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let farm_state = farm_states.states.first().copied();
     let farm_progress = farm_states.progress.first().copied().unwrap_or(0.0);

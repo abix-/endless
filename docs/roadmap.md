@@ -255,22 +255,22 @@ Visual state indicators:
 - [ ] Sleep indicator on resting NPCs (z icon overlay)
 - [x] Carried item icon (food sprite on returning raiders)
 
-Visual indicator tests (red tests — infrastructure ready, visual implementation pending):
+Visual indicator tests (green phase — dedicated render layers wired):
 
-`sleep-visual` — Sleep Icon (3 phases, time_scale=20): not yet passing
-- [ ] Phase 1: Farmer spawns with energy 100
-- [ ] Phase 2: Farmer rests → item_sprites shows SLEEP_SPRITE
-- [ ] Phase 3: Farmer wakes → item_sprites cleared to -1
+`sleep-visual` — Sleep Icon (3 phases, time_scale=20): Phase 2 failing (buffer write timing)
+- [x] Phase 1: Farmer spawns with energy 100
+- [ ] Phase 2: Farmer rests → status_sprites shows SLEEP_SPRITE
+- [ ] Phase 3: Farmer wakes → status_sprites cleared to -1
 
-`farm-visual` — Farm Ready Marker (3 phases, time_scale=50): not yet passing
-- [ ] Phase 1: Farm is Growing, no FarmReadyMarker entities
+`farm-visual` — Farm Ready Marker (3 phases, time_scale=50): Phase 2 failing (marker spawn timing)
+- [x] Phase 1: Farm is Growing, no FarmReadyMarker entities
 - [ ] Phase 2: Farm reaches Ready → FarmReadyMarker entity spawned
 - [ ] Phase 3: Farmer harvests → FarmReadyMarker despawned, farm Growing again
 
-`heal-visual` — Heal Icon (3 phases, time_scale=20): not yet passing
-- [ ] Phase 1: Damaged NPC (50 HP) → Healing marker
-- [ ] Phase 2: Healing NPC → item_sprites shows HEAL_SPRITE
-- [ ] Phase 3: NPC healed → Healing removed, item_sprites cleared
+`heal-visual` — Heal Icon (3 phases, time_scale=20): Phases 1-2 pass
+- [x] Phase 1: Damaged NPC (50 HP) → Healing marker
+- [x] Phase 2: Healing NPC → healing_sprites shows HEAL_SPRITE
+- [ ] Phase 3: NPC healed → Healing removed, healing_sprites cleared
 
 **Stage 7: Playable Game**
 

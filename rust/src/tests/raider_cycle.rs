@@ -3,32 +3,19 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
-use crate::world;
 
-use super::TestState;
+use super::{TestState, TestSetupParams};
 
 pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
-    mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
+    mut params: TestSetupParams,
     mut farm_states: ResMut<FarmStates>,
-    mut faction_stats: ResMut<FactionStats>,
-    mut game_time: ResMut<GameTime>,
     mut camp_state: ResMut<CampState>,
-    mut test_state: ResMut<TestState>,
 ) {
     // Villager town (faction 0) with farms
-    world_data.towns.push(world::Town {
-        name: "FarmVille".into(),
-        center: Vec2::new(400.0, 400.0),
-        faction: 0,
-        sprite_type: 0,
-    });
+    params.add_town("FarmVille");
     // Raider camp (faction 1)
-    world_data.towns.push(world::Town {
+    params.world_data.towns.push(crate::world::Town {
         name: "RaiderCamp".into(),
         center: Vec2::new(400.0, 100.0),
         faction: 1,
@@ -36,24 +23,23 @@ pub fn setup(
     });
     // 3 farms near villager town — all Ready so raiders can steal
     for i in 0..3 {
-        world_data.farms.push(world::Farm {
+        params.world_data.farms.push(crate::world::Farm {
             position: Vec2::new(350.0 + (i as f32 * 50.0), 350.0),
             town_idx: 0,
         });
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
     }
-    food_storage.init(2);
-    food_storage.food[0] = 10; // villager food
-    food_storage.food[1] = 0;  // raider camp starts empty
-    faction_stats.init(2);
+    params.init_economy(2);
+    params.food_storage.food[0] = 10; // villager food
+    params.food_storage.food[1] = 0;  // raider camp starts empty
     camp_state.init(1, 5);
-    game_time.time_scale = 20.0;
+    params.game_time.time_scale = 20.0;
 
     // Spawn 3 raiders (minimum for RAID_GROUP_SIZE)
     for i in 0..3 {
-        let slot = slot_alloc.alloc().expect("slot alloc");
-        spawn_events.write(SpawnNpcMsg {
+        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: 380.0 + (i as f32 * 20.0), y: 100.0,
             job: 2, faction: 1, town_idx: 1,
@@ -64,7 +50,7 @@ pub fn setup(
         });
     }
 
-    test_state.phase_name = "Waiting for raiders...".into();
+    params.test_state.phase_name = "Waiting for raiders...".into();
     info!("raider-cycle: setup — 3 raiders, 3 ready farms, time_scale=20");
 }
 
@@ -77,18 +63,9 @@ pub fn tick(
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
-
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     let alive = npc_query.iter().count();
-    if alive == 0 {
-        test.phase_name = "Waiting for raiders...".into();
-        if elapsed > 3.0 { test.fail_phase(elapsed, "No raider entities"); }
-        return;
-    }
+    if !test.require_entity(alive, elapsed, "raider") { return; }
 
     let raiding = raiding_query.iter().count();
     let returning = returning_query.iter().count();

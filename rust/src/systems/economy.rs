@@ -261,3 +261,34 @@ pub fn starvation_system(
         }
     }
 }
+
+// ============================================================================
+// FARM VISUAL SYSTEM
+// ============================================================================
+
+/// Spawns/despawns FarmReadyMarker entities when farm state transitions.
+/// Growing→Ready: spawn marker. Ready→Growing (harvest): despawn marker.
+pub fn farm_visual_system(
+    mut commands: Commands,
+    farm_states: Res<FarmStates>,
+    world_data: Res<crate::world::WorldData>,
+    markers: Query<(Entity, &FarmReadyMarker)>,
+    mut prev_states: Local<Vec<FarmGrowthState>>,
+) {
+    prev_states.resize(farm_states.states.len(), FarmGrowthState::Growing);
+    for (farm_idx, state) in farm_states.states.iter().enumerate() {
+        let prev = prev_states[farm_idx];
+        if *state == FarmGrowthState::Ready && prev == FarmGrowthState::Growing {
+            if world_data.farms.get(farm_idx).is_some() {
+                commands.spawn(FarmReadyMarker { farm_idx });
+            }
+        } else if *state == FarmGrowthState::Growing && prev == FarmGrowthState::Ready {
+            for (entity, marker) in markers.iter() {
+                if marker.farm_idx == farm_idx {
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+        prev_states[farm_idx] = *state;
+    }
+}

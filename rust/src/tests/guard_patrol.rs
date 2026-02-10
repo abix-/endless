@@ -4,30 +4,15 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{ENERGY_HUNGRY, ENERGY_RESTED};
-use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
-use crate::world;
 
-use super::TestState;
+use super::{TestState, TestSetupParams, keep_fed};
 
-pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
-    mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut faction_stats: ResMut<FactionStats>,
-    mut game_time: ResMut<GameTime>,
-    mut test_state: ResMut<TestState>,
-) {
-    world_data.towns.push(world::Town {
-        name: "GuardTown".into(),
-        center: Vec2::new(400.0, 400.0),
-        faction: 0,
-        sprite_type: 0,
-    });
+pub fn setup(mut params: TestSetupParams) {
+    params.add_town("GuardTown");
     // 4 guard posts (square patrol)
     for (order, &(gx, gy)) in [(300.0, 300.0), (500.0, 300.0), (500.0, 500.0), (300.0, 500.0)].iter().enumerate() {
-        world_data.guard_posts.push(world::GuardPost {
+        params.world_data.guard_posts.push(crate::world::GuardPost {
             position: Vec2::new(gx, gy),
             town_idx: 0,
             patrol_order: order as u32,
@@ -35,18 +20,14 @@ pub fn setup(
     }
     // Beds for resting
     for i in 0..2 {
-        world_data.beds.push(world::Bed {
-            position: Vec2::new(380.0 + (i as f32 * 40.0), 420.0),
-            town_idx: 0,
-        });
+        params.add_bed(380.0 + (i as f32 * 40.0), 420.0);
     }
-    food_storage.init(1);
-    faction_stats.init(1);
-    game_time.time_scale = 20.0;
+    params.init_economy(1);
+    params.game_time.time_scale = 20.0;
 
-    // Spawn 1 guard at post 0
-    let slot = slot_alloc.alloc().expect("slot alloc");
-    spawn_events.write(SpawnNpcMsg {
+    // Spawn 1 guard at post 0 (job=1, starting_post=0)
+    let slot = params.slot_alloc.alloc().expect("slot alloc");
+    params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
         x: 300.0, y: 300.0,
         job: 1, faction: 0, town_idx: 0,
@@ -56,7 +37,7 @@ pub fn setup(
         attack_type: 0,
     });
 
-    test_state.phase_name = "Waiting for guard spawn...".into();
+    params.test_state.phase_name = "Waiting for guard spawn...".into();
     info!("guard-patrol: setup — 1 guard, 4 posts, time_scale=20");
 }
 
@@ -67,28 +48,14 @@ pub fn tick(
     going_rest_query: Query<(), (With<GoingToRest>, With<Guard>, Without<Dead>)>,
     energy_query: Query<&Energy, (With<Guard>, Without<Dead>)>,
     guard_query: Query<(), (With<Guard>, Without<Dead>)>,
-    mut last_ate_query: Query<&mut LastAteHour, (With<Guard>, Without<Dead>)>,
+    mut last_ate_query: Query<&mut LastAteHour, Without<Dead>>,
     game_time: Res<GameTime>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    // Keep guard fed — this test validates the duty cycle, not starvation
-    for mut last_ate in last_ate_query.iter_mut() {
-        last_ate.0 = game_time.total_hours();
-    }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
-
-    let guard_exists = guard_query.iter().count() > 0;
-    if !guard_exists {
-        test.phase_name = "Waiting for guard...".into();
-        if elapsed > 3.0 { test.fail_phase(elapsed, "No guard entity"); }
-        return;
-    }
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    keep_fed(&mut last_ate_query, &game_time);
+    if !test.require_entity(guard_query.iter().count(), elapsed, "guard") { return; }
 
     let energy = energy_query.iter().next().map(|e| e.0).unwrap_or(100.0);
     let on_duty = on_duty_query.iter().count();

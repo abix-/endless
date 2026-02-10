@@ -162,7 +162,7 @@ Same situation, different outcomes. That's emergent behavior.
 **Priority 0: Arrival transitions**
 - If `AtDestination`: handle state-specific transitions
   - `Patrolling` → `OnDuty { ticks: 0 }`
-  - `GoingToRest` → `Resting`
+  - `GoingToRest` → `Resting` + `SetSleeping(true)`
   - `GoingToWork` → `Working` + `AssignedFarm` + harvest if farm ready
   - `Raiding` → steal if farm ready, else re-target another farm; `CarryingFood` + `Returning`
   - `Wandering` → clear state
@@ -184,7 +184,7 @@ Same situation, different outcomes. That's emergent behavior.
 - If `OnDuty` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, transition to `Patrolling`
 
 **Priority 7: Wake up**
-- If `Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): remove `Resting`, proceed to idle scoring
+- If `Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): remove `Resting` + `SetSleeping(false)`, proceed to idle scoring
 
 **Priority 8: Idle scoring (Utility AI)**
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
@@ -216,7 +216,7 @@ Same situation, different outcomes. That's emergent behavior.
 - If NPC within `HEAL_RADIUS` (150px) of same-faction town center: heal `HEAL_RATE` (5 HP/sec)
 - **Starvation HP cap**: Starving NPCs have HP capped at 50% of MaxHealth (can't heal above this)
 - Adds/removes `Healing` marker component for visual feedback
-- Sends `GpuUpdate::SetHealing` for shader halo effect
+- Sends `GpuUpdate::SetHealing` which writes HEAL_SPRITE to `healing_sprites` buffer (dedicated render layer 6)
 - Debug: `get_health_debug()` returns healing_in_zone_count and healing_healed_count
 
 *Economy systems (game_time, farm_growth, camp_forage, raider_respawn, starvation) documented in [economy.md](economy.md).*
@@ -253,11 +253,10 @@ Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes ar
 
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
-- **Healing halo visual not working**: healing_system heals NPCs but the shader halo effect isn't rendering correctly yet.
 - **Deterministic pseudo-random**: decision_system uses slot index as random seed, so same NPC makes same choices each run.
 
 ## Rating: 8/10
 
 Central brain architecture: `decision_system` handles all NPC decisions with clear priority cascade. SystemParam bundles organize parameters into logical groups, allowing the system to scale as more features are added. Utility AI for idle decisions creates lifelike behavior.
 
-Gaps: no pathfinding, healing halo visual broken, deterministic pseudo-random.
+Gaps: no pathfinding, deterministic pseudo-random.

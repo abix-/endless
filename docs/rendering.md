@@ -2,7 +2,7 @@
 
 ## Overview
 
-Two rendering systems work together: **terrain and buildings** use Bevy's built-in `TilemapChunk` (two layers on the same grid — terrain opaque at z=-1, buildings alpha-blended at z=-0.5, zero per-frame CPU cost), while **NPCs, equipment, and projectiles** use a custom GPU instanced pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. The instanced renderer uses 5 layers: NPC body (layer 0) and 4 equipment layers (layers 1-4), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. Both character and world sprite atlases are bound simultaneously — per-instance `atlas_id` selects which atlas to sample.
+Two rendering systems work together: **terrain and buildings** use Bevy's built-in `TilemapChunk` (two layers on the same grid — terrain opaque at z=-1, buildings alpha-blended at z=-0.5, zero per-frame CPU cost), while **NPCs, equipment, and projectiles** use a custom GPU instanced pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. The instanced renderer uses 7 layers: NPC body (layer 0), 4 equipment layers (layers 1-4), and 2 visual indicator layers (status=5, healing=6), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. Both character and world sprite atlases are bound simultaneously — per-instance `atlas_id` selects which atlas to sample.
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -13,7 +13,7 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 - **1 entity per batch** (NpcBatch, ProjBatch) instead of 16,384 entities
 - **48 bytes/instance** (position + sprite + color + health + flash + scale + atlas_id) instead of ~80 bytes/entity
 - **GPU compute data stays on GPU** — readback only for rendering
-- **Multi-layer drawing** — body + up to 4 equipment layers, each a separate `draw_indexed` call within one RenderCommand
+- **Multi-layer drawing** — body + up to 6 overlay layers (4 equipment + 2 visual indicators), each a separate `draw_indexed` call within one RenderCommand
 
 ## Data Flow
 
@@ -79,7 +79,7 @@ pub struct InstanceData {
 }
 ```
 
-Built each frame by `prepare_npc_buffers`. Five layers are built per pass (terrain and buildings are handled by TilemapChunk — see World Tilemap section below):
+Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terrain and buildings are handled by TilemapChunk — see World Tilemap section below):
 
 **Layer 0 (body):**
 - **Positions**: from GPU readback if available, else from CPU-side NpcBufferWrites
@@ -96,6 +96,13 @@ Built each frame by `prepare_npc_buffers`. Five layers are built per pass (terra
 - Color: white (1,1,1,1) — natural sprite colors
 - Health: 1.0 (no health bar; shader discards bottom pixels for health >= 0.99)
 - Flash: inherited from body (equipment flashes on hit)
+
+**Layers 5-6 (visual indicators: status, healing):**
+- Same position as body (from readback)
+- Sprite from `status_sprites` (sleep icon) / `healing_sprites` (heal glow) (stride 2, col/row per NPC)
+- Sentinel: col < 0 means inactive → skip
+- Written by `GpuUpdate::SetSleeping` (behavior.rs Resting insert/remove) and `GpuUpdate::SetHealing` (health.rs healing aura)
+- Independent layers: NPC can show sleep AND healing simultaneously
 
 **Projectiles**: health set to 1.0 (no health bar), flash set to 0.0
 
@@ -209,7 +216,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
 | Extract | `extract_proj_batch` | Clone ProjBatch entity to render world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
-| PrepareResources | `prepare_npc_buffers` | Build 5 layer buffers (body + 4 equipment) |
+| PrepareResources | `prepare_npc_buffers` | Build 7 layer buffers (body + 4 equipment + 2 indicators) |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create dual atlas bind group from NpcSpriteTexture (char + world) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
@@ -231,7 +238,7 @@ type DrawNpcCommands = (
 );
 ```
 
-`DrawNpcs::render()` sets the shared vertex/index buffers, then iterates over all 5 `LayerBuffer`s in `NpcRenderBuffers.layers`, issuing a separate `draw_indexed` call per non-empty layer. Layers are drawn in order: body (0), armor (1), helmet (2), weapon (3), item (4). If no layers have instances, it returns `Skip`.
+`DrawNpcs::render()` sets the shared vertex/index buffers, then iterates over all 7 `LayerBuffer`s in `NpcRenderBuffers.layers`, issuing a separate `draw_indexed` call per non-empty layer. Layers are drawn in order: body (0), armor (1), helmet (2), weapon (3), item (4), status (5), healing (6). If no layers have instances, it returns `Skip`.
 
 Projectiles reuse the same pipeline, shader, and bind groups with a separate instance buffer:
 
@@ -285,16 +292,18 @@ Both texture handles are shared via `NpcSpriteTexture` resource (`handle` for ch
 
 ## Equipment Layers
 
-Multi-layer equipment rendering uses `NpcBufferWrites` fields for 4 equipment types:
+Multi-layer rendering uses `NpcBufferWrites` fields for 6 overlay types:
 
-| Layer | Index | NpcBufferWrites Field | Stride | Sentinel |
-|-------|-------|----------------------|--------|----------|
-| Armor | 1 | `armor_sprites` | 2 (col, row) | col < 0 |
-| Helmet | 2 | `helmet_sprites` | 2 (col, row) | col < 0 |
-| Weapon | 3 | `weapon_sprites` | 2 (col, row) | col < 0 |
-| Item | 4 | `item_sprites` | 2 (col, row) | col < 0 |
+| Layer | Index | NpcBufferWrites Field | Stride | Sentinel | Set By |
+|-------|-------|----------------------|--------|----------|--------|
+| Armor | 1 | `armor_sprites` | 2 (col, row) | col < 0 | SetEquipSprite |
+| Helmet | 2 | `helmet_sprites` | 2 (col, row) | col < 0 | SetEquipSprite |
+| Weapon | 3 | `weapon_sprites` | 2 (col, row) | col < 0 | SetEquipSprite |
+| Item | 4 | `item_sprites` | 2 (col, row) | col < 0 | SetEquipSprite |
+| Status | 5 | `status_sprites` | 2 (col, row) | col < 0 | SetSleeping |
+| Healing | 6 | `healing_sprites` | 2 (col, row) | col < 0 | SetHealing |
 
-Equipment is set via `GpuUpdate::SetEquipSprite { idx, layer, col, row }`. At spawn, all layers are cleared to -1.0 (unequipped), then job-specific gear is applied. Equipment is also cleared on death to prevent stale data on slot reuse.
+Equipment layers (1-4) are set via `GpuUpdate::SetEquipSprite { idx, layer, col, row }`. Status and healing layers are set via dedicated `SetSleeping`/`SetHealing` messages that write sprite constants (`SLEEP_SPRITE`, `HEAL_SPRITE`) or clear to -1.0. At spawn, all layers are cleared to -1.0 (unequipped/inactive). Equipment is also cleared on death to prevent stale data on slot reuse.
 
 Current equipment assignments:
 - **Guards**: Weapon (0, 8) + Helmet (7, 9)

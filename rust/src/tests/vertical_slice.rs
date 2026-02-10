@@ -4,11 +4,9 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
-use crate::world;
 
-use super::TestState;
+use super::{TestState, TestSetupParams};
 
 /// Farm positions for the vertical slice test.
 const FARMS: [(f32, f32); 5] = [
@@ -17,24 +15,13 @@ const FARMS: [(f32, f32); 5] = [
 
 /// Setup: populate world, spawn NPCs, init resources.
 pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
-    mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
+    mut params: TestSetupParams,
     mut farm_states: ResMut<FarmStates>,
-    mut faction_stats: ResMut<FactionStats>,
-    mut game_time: ResMut<GameTime>,
     mut flags: ResMut<DebugFlags>,
-    mut test_state: ResMut<TestState>,
 ) {
     // World data: 2 towns
-    world_data.towns.push(world::Town {
-        name: "Harvest".into(),
-        center: Vec2::new(400.0, 400.0),
-        faction: 0,
-        sprite_type: 0,
-    });
-    world_data.towns.push(world::Town {
+    params.add_town("Harvest");
+    params.world_data.towns.push(crate::world::Town {
         name: "Raiders".into(),
         center: Vec2::new(400.0, 100.0),
         faction: 1,
@@ -43,7 +30,7 @@ pub fn setup(
 
     // 5 farms near town 0
     for &(fx, fy) in &FARMS {
-        world_data.farms.push(world::Farm {
+        params.world_data.farms.push(crate::world::Farm {
             position: Vec2::new(fx, fy),
             town_idx: 0,
         });
@@ -53,15 +40,12 @@ pub fn setup(
 
     // 5 beds near town 0
     for i in 0..5 {
-        world_data.beds.push(world::Bed {
-            position: Vec2::new(300.0 + (i as f32 * 50.0), 450.0),
-            town_idx: 0,
-        });
+        params.add_bed(300.0 + (i as f32 * 50.0), 450.0);
     }
 
     // 4 guard posts (square patrol around town)
     for (order, &(gx, gy)) in [(250.0, 250.0), (550.0, 250.0), (550.0, 550.0), (250.0, 550.0)].iter().enumerate() {
-        world_data.guard_posts.push(world::GuardPost {
+        params.world_data.guard_posts.push(crate::world::GuardPost {
             position: Vec2::new(gx, gy),
             town_idx: 0,
             patrol_order: order as u32,
@@ -69,15 +53,14 @@ pub fn setup(
     }
 
     // Resources
-    food_storage.init(2);
-    food_storage.food[1] = 10;
-    faction_stats.init(2);
-    game_time.time_scale = 10.0;
+    params.init_economy(2);
+    params.food_storage.food[1] = 10;
+    params.game_time.time_scale = 10.0;
 
     // Spawn 5 farmers
     for (i, &(fx, fy)) in FARMS.iter().enumerate() {
-        let slot = slot_alloc.alloc().expect("slot alloc");
-        spawn_events.write(SpawnNpcMsg {
+        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: fx, y: fy + 200.0,
             job: 0, faction: 0, town_idx: 0,
@@ -90,8 +73,8 @@ pub fn setup(
 
     // Spawn 2 guards
     for i in 0..2 {
-        let slot = slot_alloc.alloc().expect("slot alloc");
-        spawn_events.write(SpawnNpcMsg {
+        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: 400.0, y: 400.0,
             job: 1, faction: 0, town_idx: 0,
@@ -104,8 +87,8 @@ pub fn setup(
 
     // Spawn 5 raiders
     for i in 0..5 {
-        let slot = slot_alloc.alloc().expect("slot alloc");
-        spawn_events.write(SpawnNpcMsg {
+        let slot = params.slot_alloc.alloc().expect("slot alloc");
+        params.spawn_events.write(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
             x: 380.0 + (i as f32 * 10.0), y: 100.0,
             job: 2, faction: 1, town_idx: 1,
@@ -119,7 +102,7 @@ pub fn setup(
     flags.combat = true;
     flags.readback = true;
 
-    test_state.phase_name = "Waiting for spawns...".into();
+    params.test_state.phase_name = "Waiting for spawns...".into();
     info!("vertical-slice: setup complete — 5 farmers, 2 guards, 5 raiders");
 }
 
@@ -137,11 +120,7 @@ pub fn tick(
     has_target_query: Query<(), With<HasTarget>>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     // Track lowest NPC count for death detection
     if npc_count.0 > 0 && npc_count.0 < test.count("lowest_npc") as usize {

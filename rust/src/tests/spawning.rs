@@ -3,45 +3,20 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
-use crate::world;
 
-use super::TestState;
+use super::{TestState, TestSetupParams};
 
-pub fn setup(
-    mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
-    mut world_data: ResMut<world::WorldData>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut faction_stats: ResMut<FactionStats>,
-    mut test_state: ResMut<TestState>,
-) {
-    // Minimal world: 1 town
-    world_data.towns.push(world::Town {
-        name: "TestTown".into(),
-        center: Vec2::new(400.0, 400.0),
-        faction: 0,
-        sprite_type: 0,
-    });
-    food_storage.init(1);
-    faction_stats.init(1);
+pub fn setup(mut params: TestSetupParams) {
+    params.add_town("TestTown");
+    params.init_economy(1);
 
     // Spawn 5 farmers
     for i in 0..5 {
-        let slot = slot_alloc.alloc().expect("slot alloc");
-        spawn_events.write(SpawnNpcMsg {
-            slot_idx: slot,
-            x: 300.0 + (i as f32 * 40.0), y: 400.0,
-            job: 0, faction: 0, town_idx: 0,
-            home_x: 300.0 + (i as f32 * 40.0), home_y: 450.0,
-            work_x: -1.0, work_y: -1.0,
-            starting_post: -1,
-            attack_type: 0,
-        });
+        params.spawn_npc(0, 300.0 + (i as f32 * 40.0), 400.0, 300.0 + (i as f32 * 40.0), 450.0);
     }
 
-    test_state.phase_name = "Waiting for 5 NPCs...".into();
+    params.test_state.phase_name = "Waiting for 5 NPCs...".into();
     info!("spawning: setup — 5 farmers");
 }
 
@@ -49,15 +24,11 @@ pub fn tick(
     mut npc_query: Query<(Entity, &NpcIndex, &Job, &mut Health), Without<Dead>>,
     all_npc_query: Query<(), With<NpcIndex>>,
     mut slot_alloc: ResMut<SlotAllocator>,
-    mut spawn_events: MessageWriter<SpawnNpcMsg>,
+    mut spawn_events: MessageWriter<crate::messages::SpawnNpcMsg>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
-    if test.passed || test.failed { return; }
-
-    let now = time.elapsed_secs();
-    if test.start == 0.0 { test.start = now; }
-    let elapsed = now - test.start;
+    let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let alive = npc_query.iter().count();
 
@@ -112,7 +83,7 @@ pub fn tick(
                 let killed_slot = test.count("killed_slot") as usize;
                 let new_slot = slot_alloc.alloc().expect("slot alloc for respawn");
                 test.counters.insert("new_slot".into(), new_slot as u32);
-                spawn_events.write(SpawnNpcMsg {
+                spawn_events.write(crate::messages::SpawnNpcMsg {
                     slot_idx: new_slot,
                     x: 400.0, y: 400.0,
                     job: 0, faction: 0, town_idx: 0,
