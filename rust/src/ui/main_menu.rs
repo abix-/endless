@@ -71,6 +71,10 @@ pub fn main_menu_system(
                 ui.add(egui::Slider::new(&mut state.world_size, 4000.0..=32000.0)
                     .step_by(500.0)
                     .show_value(false));
+                let mut ws = state.world_size as i32;
+                if ui.add(egui::DragValue::new(&mut ws).range(4000..=32000).speed(500)).changed() {
+                    state.world_size = ws as f32;
+                }
                 let tiles = state.world_size as i32 / 32;
                 ui.label(format!("{} ({}x{})", size_name(state.world_size), tiles, tiles));
             });
@@ -83,8 +87,10 @@ pub fn main_menu_system(
                 ui.add(egui::Slider::new(&mut state.towns, 1.0..=50.0)
                     .step_by(1.0)
                     .show_value(false));
-                let t = state.towns as i32;
-                ui.label(format!("{} town{}", t, if t > 1 { "s" } else { "" }));
+                let mut t = state.towns as i32;
+                if ui.add(egui::DragValue::new(&mut t).range(1..=50)).changed() {
+                    state.towns = t as f32;
+                }
             });
 
             ui.add_space(4.0);
@@ -95,7 +101,10 @@ pub fn main_menu_system(
                 ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
                     .step_by(1.0)
                     .show_value(false));
-                ui.label(format!("{} per town", state.farmers as i32));
+                let mut f = state.farmers as i32;
+                if ui.add(egui::DragValue::new(&mut f).range(0..=50).suffix(" /town")).changed() {
+                    state.farmers = f as f32;
+                }
             });
 
             ui.add_space(4.0);
@@ -106,7 +115,10 @@ pub fn main_menu_system(
                 ui.add(egui::Slider::new(&mut state.guards, 0.0..=1000.0)
                     .step_by(1.0)
                     .show_value(false));
-                ui.label(format!("{} per town", state.guards as i32));
+                let mut g = state.guards as i32;
+                if ui.add(egui::DragValue::new(&mut g).range(0..=1000).suffix(" /town")).changed() {
+                    state.guards = g as f32;
+                }
             });
 
             ui.add_space(4.0);
@@ -117,7 +129,10 @@ pub fn main_menu_system(
                 ui.add(egui::Slider::new(&mut state.raiders, 0.0..=1000.0)
                     .step_by(1.0)
                     .show_value(false));
-                ui.label(format!("{} per camp", state.raiders as i32));
+                let mut r = state.raiders as i32;
+                if ui.add(egui::DragValue::new(&mut r).range(0..=1000).suffix(" /camp")).changed() {
+                    state.raiders = r as f32;
+                }
             });
 
             ui.add_space(8.0);

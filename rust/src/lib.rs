@@ -243,6 +243,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GuardPostState>()
        .init_resource::<systems::stats::CombatConfig>()
        .init_resource::<systems::stats::TownUpgrades>()
+       .init_resource::<systems::stats::UpgradeQueue>()
        .init_resource::<settings::UserSettings>()
        // Plugins
        .add_plugins(bevy_egui::EguiPlugin::default())
@@ -273,6 +274,7 @@ pub fn build_app(app: &mut App) {
            attack_system,
            damage_system,
            death_system,
+           xp_grant_system,
            death_cleanup_system,
            guard_post_attack_system,
        ).chain().in_set(Step::Combat))
@@ -290,6 +292,7 @@ pub fn build_app(app: &mut App) {
            decision_system,
            farm_visual_system,
            reassign_npc_system,
+           process_upgrades_system,
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))

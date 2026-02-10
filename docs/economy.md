@@ -43,6 +43,7 @@ game_time_system (every frame)
   - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
 - Farm transitions to `Ready` when progress >= 1.0
 - Checks `FarmOccupancy` to determine if a farmer is tending (position key lookup)
+- **FarmYield upgrade**: growth rate multiplied by `1.0 + level * 0.15` per-town (reads `TownUpgrades` via `farm.town_idx`)
 
 ### camp_forage_system
 - Runs when `game_time.hour_ticked` is true
@@ -58,8 +59,8 @@ game_time_system (every frame)
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
 - NPCs with `LastAteHour` older than `STARVATION_HOURS` (24) get `Starving` marker
-- Starving NPCs: speed set to 75% via `GpuUpdate::SetSpeed`
-- When NPCs eat (decision_system Eat action): `LastAteHour` updated, `Starving` removed, speed restored
+- Starving NPCs: speed set to `CachedStats.speed * STARVING_SPEED_MULT` (0.75) via `GpuUpdate::SetSpeed`
+- When NPCs eat (decision_system Eat action): `LastAteHour` updated, `Starving` removed, speed restored to `CachedStats.speed`
 
 ## Farm Growth
 
@@ -112,7 +113,7 @@ hours_since_ate >= 24?
      ▼
 LastAteHour = current_hour
 Starving marker removed
-Speed restored to 100%
+Speed restored to CachedStats.speed
 ```
 
 **Constants:**
@@ -195,9 +196,8 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 
 ## Known Issues
 
-- **Starvation speed bug**: `starvation_system` uses `BASE_SPEED=60.0` but spawn sets speed to 100.0. When starvation clears, NPCs get 60 speed instead of their original 100.
 - **No carried item rendering**: CarriedItem component exists but nothing draws the food icon.
 
-## Rating: 7/10
+## Rating: 8/10
 
-Farm growth cycle creates meaningful gameplay loop — farmers tend crops, raiders steal harvests, camps forage passively. Group raid coordination prevents solo suicide runs. Starvation adds survival pressure to both factions. Game time system is clean with single `hour_ticked` flag. Weaknesses: starvation speed bug, no visual feedback for farm state, population helpers use raw `(job, town)` tuple keys.
+Farm growth cycle creates meaningful gameplay loop — farmers tend crops, raiders steal harvests, camps forage passively. Group raid coordination prevents solo suicide runs. Starvation adds survival pressure to both factions. Game time system is clean with single `hour_ticked` flag. FarmYield upgrade scales per-town via `TownUpgrades`. Starvation uses resolved `CachedStats.speed` instead of hardcoded constants. Weaknesses: no visual feedback for farm state, population helpers use raw `(job, town)` tuple keys.

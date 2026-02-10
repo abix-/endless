@@ -7,6 +7,7 @@ use crate::resources::*;
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, STARVATION_HOURS, STARVING_SPEED_MULT};
 use crate::world::{WorldData, FarmOccupancy, pos_to_key};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
+use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
 
 // ============================================================================
 // POPULATION TRACKING HELPERS
@@ -87,6 +88,7 @@ pub fn farm_growth_system(
     mut farm_states: ResMut<FarmStates>,
     world_data: Res<WorldData>,
     farm_occupancy: Res<FarmOccupancy>,
+    upgrades: Res<TownUpgrades>,
 ) {
     if game_time.paused {
         return;
@@ -110,11 +112,16 @@ pub fn farm_growth_system(
         let farm_key = pos_to_key(farm.position);
         let is_tended = farm_occupancy.occupants.get(&farm_key).copied().unwrap_or(0) > 0;
 
-        let growth_rate = if is_tended {
+        let base_rate = if is_tended {
             FARM_TENDED_GROWTH_RATE
         } else {
             FARM_BASE_GROWTH_RATE
         };
+
+        // Apply FarmYield upgrade multiplier
+        let town = farm.town_idx as usize;
+        let yield_level = upgrades.levels.get(town).map(|l| l[UpgradeType::FarmYield as usize]).unwrap_or(0);
+        let growth_rate = base_rate * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::FarmYield as usize]);
 
         // Advance growth progress
         farm_states.progress[farm_idx] += growth_rate * hours_elapsed;
@@ -230,7 +237,7 @@ pub fn raider_respawn_system(
 pub fn starvation_system(
     mut commands: Commands,
     game_time: Res<GameTime>,
-    query: Query<(Entity, &NpcIndex, &LastAteHour, Option<&Starving>), Without<Dead>>,
+    query: Query<(Entity, &NpcIndex, &LastAteHour, &CachedStats, Option<&Starving>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     if !game_time.hour_ticked {
@@ -238,9 +245,8 @@ pub fn starvation_system(
     }
 
     let current_hour = game_time.total_hours();
-    const BASE_SPEED: f32 = 60.0; // Default NPC speed
 
-    for (entity, npc_idx, last_ate, starving) in query.iter() {
+    for (entity, npc_idx, last_ate, cached, starving) in query.iter() {
         let idx = npc_idx.0;
         let hours_since_ate = current_hour - last_ate.0;
 
@@ -248,15 +254,13 @@ pub fn starvation_system(
             // Should be starving
             if starving.is_none() {
                 commands.entity(entity).insert(Starving);
-                // Reduce speed
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: BASE_SPEED * STARVING_SPEED_MULT }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed * STARVING_SPEED_MULT }));
             }
         } else {
             // Not starving - remove marker if present
             if starving.is_some() {
                 commands.entity(entity).remove::<Starving>();
-                // Restore speed
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: BASE_SPEED }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed }));
             }
         }
     }

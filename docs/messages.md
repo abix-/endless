@@ -51,7 +51,7 @@ Three message types used for intra-ECS communication:
 | Message | Fields | Pattern |
 |---------|--------|---------|
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
-| DamageMsg | npc_index, amount | MessageWriter → MessageReader |
+| DamageMsg | npc_index, amount, attacker (i32, -1=no attacker) | MessageWriter → MessageReader |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → collect_gpu_updates |
 | ReassignMsg | npc_index, new_job | Defined but unused — UI uses `ReassignQueue` resource instead (EguiPrimaryContextPass can't use MessageWriter) |
 

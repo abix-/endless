@@ -11,6 +11,7 @@ pub struct CombatLogState {
     pub show_spawns: bool,
     pub show_raids: bool,
     pub show_harvests: bool,
+    pub show_levelups: bool,
     pub initialized: bool,
 }
 
@@ -30,6 +31,7 @@ pub fn combat_log_system(
         state.show_spawns = true;
         state.show_raids = true;
         state.show_harvests = true;
+        state.show_levelups = true;
         state.initialized = true;
     }
 
@@ -43,6 +45,7 @@ pub fn combat_log_system(
             ui.checkbox(&mut state.show_spawns, "Spawns");
             ui.checkbox(&mut state.show_raids, "Raids");
             ui.checkbox(&mut state.show_harvests, "Harvests");
+            ui.checkbox(&mut state.show_levelups, "Levels");
         });
 
         ui.separator();
@@ -58,6 +61,7 @@ pub fn combat_log_system(
                         CombatEventKind::Spawn => state.show_spawns,
                         CombatEventKind::Raid => state.show_raids,
                         CombatEventKind::Harvest => state.show_harvests,
+                        CombatEventKind::LevelUp => state.show_levelups,
                     };
                     if !show {
                         continue;
@@ -68,6 +72,7 @@ pub fn combat_log_system(
                         CombatEventKind::Spawn => egui::Color32::from_rgb(80, 200, 80),
                         CombatEventKind::Raid => egui::Color32::from_rgb(220, 160, 40),
                         CombatEventKind::Harvest => egui::Color32::from_rgb(200, 200, 60),
+                        CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
                     };
 
                     let timestamp = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);

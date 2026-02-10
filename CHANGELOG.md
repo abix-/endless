@@ -2,6 +2,23 @@
 
 ## 2026-02-10
 
+- **stage 9: upgrades & xp**
+  - add `UpgradeQueue` resource + `process_upgrades_system`: UI pushes upgrade requests, system validates food cost, increments `TownUpgrades`, re-resolves `CachedStats` for affected NPCs
+  - add `upgrade_cost(level) = 10 * 2^level` (doubles each level, capped at 20)
+  - add last-hit XP tracking: `DamageMsg.attacker` → `LastHitBy` component → `xp_grant_system` grants 100 XP to killer on death
+  - add `level_from_xp(xp) = floor(sqrt(xp/100))`, level multiplier `1.0 + level * 0.01` wired into `resolve_combat_stats()`
+  - level-up rescales current HP proportionally to new max, emits `CombatEventKind::LevelUp` to combat log (cyan)
+  - wire `upgrade_menu.rs`: functional buttons show level/cost, push to `UpgradeQueue`, disabled when unaffordable
+  - wire `farm_growth_system`: applies FarmYield upgrade multiplier per-town
+  - wire `healing_system`: applies HealingRate + FountainRadius upgrades per-town
+  - fix `starvation_system` speed: uses `CachedStats.speed * 0.75` instead of hardcoded 60.0
+  - fix `reassign_npc_system`: passes actual NPC level instead of hardcoded 0
+  - fix NPC meta init: `level: 0` (was 1), aligned with `level_from_xp(0) == 0`
+  - remove Stage 8 `#[cfg(debug_assertions)]` parity checks
+  - `game_hud.rs` NPC inspector shows XP and XP-to-next-level
+  - `combat_log.rs` adds LevelUp filter checkbox + cyan color
+  - `main_menu.rs` adds DragValue widgets alongside sliders for typeable config inputs
+
 - **stage 8: data-driven stats**
   - add `systems/stats.rs`: `CombatConfig` resource with per-job `JobStats` + per-attack-type `AttackTypeStats`, `TownUpgrades` resource stub, `resolve_combat_stats()` resolver
   - add `CachedStats` component on all NPCs — resolved from config on spawn, replaces `AttackStats` + `MaxHealth`

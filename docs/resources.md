@@ -23,7 +23,7 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 
 | Resource | Per-NPC Data | Writers | Readers |
 |----------|-------------|---------|---------|
-| NpcMetaCache | name, level, xp, trait_id, town_id, job | spawn_npc_system | UI queries |
+| NpcMetaCache | name, level, xp, trait_id, town_id, job | spawn_npc_system, xp_grant_system | UI queries |
 | NpcEnergyCache | `f32` energy level | energy_system | UI queries |
 | NpcLogCache | `VecDeque<NpcLogEntry>` (100 cap, circular) | behavior/decision systems | UI queries |
 | NpcsByTownCache | `Vec<Vec<usize>>` — NPC slots grouped by town | spawn/death systems | UI queries |
@@ -153,11 +153,12 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Defined In | Purpose |
 |----------|------|------------|---------|
 | CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats — resolved via `resolve_combat_stats()` |
-| TownUpgrades | `Vec<[u8; 14]>` per town | `systems/stats.rs` | Per-town upgrade levels (all zeros until Stage 9) |
+| TownUpgrades | `Vec<[u8; 14]>` per town | `systems/stats.rs` | Per-town upgrade levels, indexed by `UpgradeType` enum |
+| UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | `systems/stats.rs` | Pending upgrade purchases from UI, drained by `process_upgrades_system` |
 
 `CombatConfig::default()` initializes from hardcoded values (guard/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150). `resolve_combat_stats()` combines job base × upgrade mult × trait mult × level mult → `CachedStats` component.
 
-`TownUpgrades` is indexed by town, each entry is a fixed-size array of 14 upgrade levels (`UpgradeType` enum). Stage 8 keeps all at 0. Stage 9 enables the upgrade menu.
+`TownUpgrades` is indexed by town, each entry is a fixed-size array of 14 upgrade levels (`UpgradeType` enum). `UpgradeQueue` decouples the UI from stat re-resolution — `upgrade_menu.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates food cost (`10 * 2^level`), increments level, deducts food, and re-resolves `CachedStats` for affected NPCs.
 
 ## Selection
 
@@ -185,12 +186,13 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system, reassign_npc_system | combat_log panel |
 | BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
 | ReassignQueue | `Vec<(usize, i32)>` — (npc_slot, new_job) | roster_panel (UI) | reassign_npc_system |
+| UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | upgrade_menu (UI) | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
 | UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed | main_menu (save on Play) | main_menu (load on init), camera_pan_system |
 
 `UiState` tracks which panels are open. `combat_log_open` defaults to true, all others false. Reset on game cleanup.
 
-`CombatLog` is a ring buffer of global events with 4 kinds: Kill, Spawn, Raid, Harvest. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
+`CombatLog` is a ring buffer of global events with 5 kinds: Kill, Spawn, Raid, Harvest, LevelUp. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
 
 ## Debug Resources
 

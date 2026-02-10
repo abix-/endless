@@ -103,19 +103,6 @@ pub fn spawn_npc_system(
             job, attack_type, msg.town_idx, 0, &personality, &combat_config, &upgrades,
         );
 
-        // Debug parity checks — verify base stats match old hardcoded values
-        #[cfg(debug_assertions)]
-        {
-            let base = resolve_combat_stats(
-                job, attack_type, msg.town_idx, 0, &Personality::default(), &combat_config, &upgrades,
-            );
-            if job == Job::Guard || job == Job::Raider {
-                debug_assert!((base.damage - 15.0).abs() < 0.01, "Stage 8 drift: damage {} != 15", base.damage);
-            }
-            debug_assert!((base.max_health - 100.0).abs() < 0.01, "Stage 8 drift: max_health {} != 100", base.max_health);
-            debug_assert!((base.speed - 100.0).abs() < 0.01, "Stage 8 drift: speed {} != 100", base.speed);
-        }
-
         // GPU writes via messages — collected at end of frame
         let (target_x, target_y) = if job == Job::Farmer && msg.work_x >= 0.0 {
             (msg.work_x, msg.work_y)
@@ -202,7 +189,7 @@ pub fn spawn_npc_system(
         if idx < npc_meta.0.len() {
             npc_meta.0[idx] = NpcMeta {
                 name: generate_name(job, idx),
-                level: 1,
+                level: 0,
                 xp: 0,
                 trait_id: (idx % 5) as i32,  // Simple trait assignment (0-4)
                 town_id: msg.town_idx,
@@ -286,9 +273,10 @@ pub fn reassign_npc_system(
                     }
                 }
 
-                // Resolve new stats as guard
+                // Resolve new stats as guard (use actual NPC level)
+                let level = npc_meta.0[slot].level;
                 let cached = resolve_combat_stats(
-                    Job::Guard, BaseAttackType::Melee, town, 0, personality, &combat_config, &upgrades,
+                    Job::Guard, BaseAttackType::Melee, town, level, personality, &combat_config, &upgrades,
                 );
 
                 // Remove farmer components, insert guard components
@@ -334,9 +322,10 @@ pub fn reassign_npc_system(
             }
             (Job::Guard, 0) => {
                 // Guard → Farmer
-                // Resolve new stats as farmer
+                // Resolve new stats as farmer (use actual NPC level)
+                let level = npc_meta.0[slot].level;
                 let cached = resolve_combat_stats(
-                    Job::Farmer, BaseAttackType::Melee, town, 0, personality, &combat_config, &upgrades,
+                    Job::Farmer, BaseAttackType::Melee, town, level, personality, &combat_config, &upgrades,
                 );
 
                 // Remove guard components, insert farmer

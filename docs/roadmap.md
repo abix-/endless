@@ -136,7 +136,7 @@ Rules:
 - [x] Click-to-select NPC wired to camera transform
 - [x] Camera follow selected NPC (F key toggle, WASD cancels follow)
 - [x] Target indicator overlay (yellow line + diamond marker to NPC's movement target, blue circle on NPC)
-- [x] Multi-layer equipment rendering (see [spec](#multi-layer-equipment-rendering))
+- [x] Multi-layer equipment rendering (see [rendering.md](rendering.md))
 - [x] Guards spawn with weapon + helmet layers, raiders with weapon layer
 - [x] Projectile instanced pipeline (same RenderCommand pattern as NPC renderer)
 - [x] Separate InstanceData buffer for active projectiles
@@ -244,34 +244,38 @@ Rules:
 
 *Done when: all NPC stats resolve from `CombatConfig` resource via `resolve_combat_stats()`. Game plays identically — pure refactor, no behavior change. All existing tests pass.*
 
-**Architecture: cache with explicit invalidation.** Stats resolve from config via `resolve_combat_stats()`. Resolved stats are cached on the entity as a `CachedStats` component and invalidated on the ~3 events that change them (spawn, upgrade purchased, level-up). This avoids both stale-data bugs (explicit invalidation) and per-frame resolution cost (10K HashMap lookups/frame). See spec for full struct definitions, formulas, and file change table.
+**Architecture: cache with explicit invalidation.** Stats resolve from config via `resolve_combat_stats()`. Resolved stats are cached on the entity as a `CachedStats` component and invalidated on the ~3 events that change them (spawn, upgrade purchased, level-up). See [combat.md](combat.md) and [resources.md](resources.md) for implementation detail.
 
 **Stage 9: Upgrades & XP** (see [spec](#stat-resolution--upgrades))
 
 *Done when: player can spend food on upgrades in the UI, guards with upgrades visibly outperform unupgraded ones, and NPCs gain levels from kills.*
 
 Upgrades:
-- [ ] `TownUpgrades` resource: `Vec<UpgradeSet>` per town (see spec for struct)
-- [ ] `apply_upgrade(town_idx, upgrade_type) -> Result` — checks food cost `base * 2^level`, increments level
-- [ ] `upgrade_multiplier(town_idx, upgrade_type, &upgrades) -> f32` — `1.0 + level * pct_per_level`
-- [ ] Wire `upgrade_multiplier` into `resolve_combat_stats()`
-- [ ] Enable `upgrade_menu.rs` buttons: click → spend food → increment level
-- [ ] Guard upgrades: health (+10%), attack (+10%), range (+5%), size (+5%), attack speed (-8%), move speed (+5%), alert radius (+10%)
-- [ ] Farm upgrades: yield (+15%), farmer HP (+20%), farmer cap (+2)
-- [ ] Town upgrades: guard cap (+10), healing rate (+20%), food efficiency (10% free meal), fountain radius (+24px)
-- [ ] AttackSpeed upgrade uses reciprocal cooldown scaling: `1/(1+level*pct)` — asymptotic, never reaches zero
+- [x] `UpgradeQueue` resource + `process_upgrades_system`: drains queue, validates food cost, increments `TownUpgrades`, re-resolves `CachedStats` for affected NPCs
+- [x] `upgrade_cost(level) -> i32` = `10 * 2^level` (doubles each level, capped at 20)
+- [x] Wire upgrade multipliers into `resolve_combat_stats()` via `UPGRADE_PCT` array
+- [x] Enable `upgrade_menu.rs` buttons: click → push to `UpgradeQueue` → deduct food → increment level
+- [x] Guard upgrades: health (+10%), attack (+10%), range (+5%), size (+5%), attack speed (-8%), move speed (+5%), alert radius (+10%)
+- [x] Farm upgrades: yield (+15%), farmer HP (+20%), farmer cap (+2 flat)
+- [x] Town upgrades: guard cap (+10 flat), healing rate (+20%), food efficiency (10%), fountain radius (+24px flat)
+- [x] AttackSpeed upgrade uses reciprocal cooldown scaling: `1/(1+level*pct)` — asymptotic, never reaches zero
+- [x] `farm_growth_system` applies FarmYield upgrade per-town via `TownUpgrades`
+- [x] `healing_system` applies HealingRate + FountainRadius upgrades per-town
 
 XP & leveling:
-- [ ] `grant_xp(npc_meta, amount)` — updates `NpcMeta.xp`, recomputes `NpcMeta.level = sqrt(xp / 100)`
-- [ ] `level_multiplier(level) -> f32` = `1.0 + level as f32 * 0.01` (level 100 = 2x stats)
-- [ ] Wire into `resolve_combat_stats()`
-- [ ] `death_cleanup_system`: grant XP to killer (use `combat_targets` to find attacker)
-- [ ] Level-up → `CombatLog` event (LevelUp kind), rescale current HP proportionally to new max
-- [ ] `game_hud.rs` NPC inspector shows level/XP
+- [x] `level_from_xp(xp) -> i32` = `floor(sqrt(xp / 100))`, `level_multiplier = 1.0 + level * 0.01`
+- [x] Wire level multiplier into `resolve_combat_stats()`
+- [x] `xp_grant_system`: last-hit tracking via `DamageMsg.attacker` → `LastHitBy` component → grant 100 XP to killer on death
+- [x] Level-up → `CombatLog` event (LevelUp kind, cyan color), rescale current HP proportionally to new max
+- [x] `game_hud.rs` NPC inspector shows level, XP, XP-to-next-level
 
 Gameplay fixes (deferred from Stage 8 to avoid breaking "identical"):
-- [ ] Fix `starvation_system` speed: use resolver-derived speed instead of hardcoded 60.0 (currently Speed::default is 100, so starving speed should be 100*0.75=75, not 60)
-- [ ] Differentiate job base stats if desired (e.g., raider damage != guard damage) — Stage 8 must keep them identical
+- [x] Fix `starvation_system` speed: uses `CachedStats.speed * STARVING_SPEED_MULT` instead of hardcoded 60.0
+- [ ] Differentiate job base stats if desired (e.g., raider damage != guard damage)
+
+Not yet wired (deferred):
+- [ ] FarmerCap/GuardCap flat upgrades enforced in spawn cap checks
+- [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 
 **Stage 10: Town Policies**
 
@@ -344,144 +348,9 @@ Audio:
 
 ## Specs
 
-### Multi-Layer Equipment Rendering
-
-NPCs need visible equipment: armor, helmet, weapon, and carried items (food icon when raiding). Each layer is a separate sprite from the same atlas, drawn on top of the body sprite. Uses the same approach as Godot's stacked MultiMesh — one instanced draw call per layer, with Transparent2d sort keys controlling z-order.
-
-**Architecture: Multiple draw calls, one per layer (Factorio-style)**
-
-Current renderer does 1 batch entity → 1 instance buffer → 1 draw call for all 10K NPCs. Extend to N layers where each layer is an independent instanced draw call with its own instance buffer. Only NPCs that have equipment in that slot appear in that layer's buffer (a layer with 200 carried-item sprites = 200 instances, not 10K).
-
-Same pipeline, same shader (`npc_render.wgsl`), same `InstanceData` struct (48 bytes: position + sprite + color + health + flash + scale + atlas_id). Both character and world atlases are bound simultaneously — per-instance `atlas_id` selects which to sample.
-
-**Data model:**
-
-```
-NpcBufferWrites (main world, extracted to render world):
-  positions: Vec<f32>          ← existing (shared by all layers)
-  sprite_indices: Vec<f32>     ← existing (body layer)
-  colors: Vec<f32>             ← existing (body layer)
-  armor_sprites: Vec<f32>      ← NEW (4 floats/NPC: col, row, 0, 0. Use -1 sentinel for "no armor")
-  helmet_sprites: Vec<f32>     ← NEW (same layout)
-  weapon_sprites: Vec<f32>     ← NEW (same layout)
-  item_sprites: Vec<f32>       ← NEW (same layout, set when CarryingFood)
-```
-
-**Render world changes (`npc_render.rs`):**
-
-```
-NpcRenderBuffers:
-  vertex_buffer: Buffer              ← existing (shared static quad)
-  index_buffer: Buffer               ← existing (shared [0,1,2,0,2,3])
-  layers: Vec<LayerBuffer>           ← NEW (replaces single instance_buffer)
-
-LayerBuffer:
-  instance_buffer: RawBufferVec<InstanceData>
-  instance_count: u32
-```
-
-**Implementation steps:**
-
-- [x] Add equipment sprite fields to `NpcBufferWrites` (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`)
-- [x] Add ECS components: `EquippedArmor(col, row)`, `EquippedHelmet(col, row)`, `EquippedWeapon(col, row)` — sprite atlas coordinates
-- [x] Add equipment to spawn: guards get weapon+helmet, farmers get nothing, raiders get weapon
-- [x] Update `collect_gpu_updates` to write equipment sprites to `NpcBufferWrites` when equipment changes
-- [x] Refactor `NpcRenderBuffers`: replace single `instance_buffer`/`instance_count` with `Vec<LayerBuffer>`
-- [x] Refactor `prepare_npc_buffers`: build one `LayerBuffer` per layer, skipping NPCs with -1 sentinel in that slot
-- [x] Refactor `queue_npcs`: add one `Transparent2d` phase item per non-empty layer with incrementing sort keys
-- [x] Refactor `DrawNpcs`: read layer index from batch entity to select correct `LayerBuffer`
-- [x] Set `CarryingFood` → write food sprite to `item_sprites`, clear on delivery
-- [x] Set `Healing` → `sync_visual_sprites` writes HEAL_SPRITE to `healing_sprites` layer
-- [x] Set `Resting` → `sync_visual_sprites` writes SLEEP_SPRITE to `status_sprites` layer
-
-**Performance budget:**
-
-| Layer | Instances (typical) | Buffer size | Draw call |
-|-------|-------------------|-------------|-----------|
-| Body | 10,000 | 320 KB | 1 |
-| Armor | ~4,000 | 128 KB | 1 |
-| Helmet | ~3,000 | 96 KB | 1 |
-| Weapon | ~8,000 | 256 KB | 1 |
-| CarriedItem | ~500 | 16 KB | 1 |
-| **Total** | **~25,500** | **~816 KB** | **5** |
-
-5 instanced draw calls is trivial GPU overhead. Factorio benchmarks 25K sprites/frame as normal load. Buffer upload is <1MB/frame. Bottleneck is fill rate (overdraw from transparent layers), not draw calls.
-
-**Atlas and procedural notes:**
-
-Two issues from the Godot shaders that the implementer needs to handle:
-
-1. **Procedural effects vs sprite overlays.** The Godot `halo.gdshader` (golden healing halo, pulsing radial glow) and `sleep_icon.gdshader` (procedural "z" shape) were not atlas sprites — they were generated in the fragment shader. Options: (a) bake small icons into the character atlas and use the standard sprite pipeline, or (b) add a procedural shader path for overlay layers. Option (a) is simpler and keeps one shader for all layers.
-
-2. **World atlas for items.** ✓ Resolved — both atlases are now bound simultaneously (group 0, bindings 0-3). Per-instance `atlas_id` selects character (0.0) or world (1.0) atlas. Carried items use world sprites via atlas_id=1.0.
-
-**References:**
-- [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) — sprite batching, per-layer draw queues
-- [NSprites (Unity DOTS)](https://github.com/Antoshidza/NSprites) — one draw call per material, component-to-GPU sync
-- Current implementation: `npc_render.rs` (RenderCommand pattern), `npc_render.wgsl` (unchanged)
-- Architecture doc: [rendering.md](rendering.md)
-- Godot reference shaders (kept until WGSL parity): `halo.gdshader`, `sleep_icon.gdshader`, `loot_icon.gdshader`, `item_icon.gdshader`, `npc_sprite.gdshader`
-
 ### Stat Resolution & Upgrades
 
-All NPC stats are currently compile-time constants scattered across the codebase. Guards and raiders have identical `AttackStats::melee()`. `Personality::get_stat_multipliers()` computes damage/hp/speed/yield modifiers but nothing calls it. `HEAL_RATE`, `HEAL_RADIUS`, `Speed::default()` are all hardcoded. Upgrades, XP, traits, and policies are all the same thing — multipliers on base stats — so build one resolution system, not four.
-
-**Architecture: Cache with explicit invalidation**
-
-```
-final_stat = base[job_or_attack] * upgrade_mult[town][stat] * level_mult[npc] * trait_mult[npc]
-```
-
-Stats are resolved via `resolve_combat_stats()` and cached on the entity as a `CachedStats` component. The cache is invalidated (re-resolved) on the ~3 events that change inputs: spawn, upgrade purchased, level-up. This avoids both per-frame resolution cost (10K HashMap lookups + personality math every frame) and stale-data bugs (explicit invalidation on known mutation events).
-
-**Why cache, not derive-per-frame:** `attack_system` iterates all combatants every frame. At 10K NPCs, per-frame resolution means 10K HashMap lookups + 10K trait multiplier computations + 10K upgrade array reads. Caching reduces this to a component read. Invalidation events (upgrade click, XP grant) happen maybe 10 times/second total — negligible.
-
-**`Health` is state, `CachedStats.max_health` is the cap.** Store `Health { current: f32 }` on entities. `CachedStats.max_health` is the derived cap used by healing, HP bars, and damage clamp. When max_health changes (level up, upgrade purchased), the invalidation code rescales current HP proportionally: `health.0 = health.0 * new_max / old_max`.
-
-**Design constraint: job vs attack type.** These are two orthogonal axes:
-
-- **Job** determines identity stats: max_health, damage, speed
-- **Attack type** determines weapon shape: range, cooldown, projectile_speed, projectile_lifetime
-
-Currently guards/raiders both use `AttackStats::melee()` with identical values. A guard and a raider are the same combatant — only faction color differs. The config must preserve this: both jobs get `damage: 15.0` in Stage 8 to stay behavior-identical.
-
-**`CombatConfig` resource** (`resources.rs`):
-
-```rust
-#[derive(Resource)]
-pub struct CombatConfig {
-    pub jobs: HashMap<Job, JobStats>,
-    pub attacks: HashMap<BaseAttackType, AttackTypeStats>,
-    pub heal_rate: f32,          // replaces HEAL_RATE constant (5.0)
-    pub heal_radius: f32,        // replaces HEAL_RADIUS constant (150.0)
-}
-
-/// Per-job identity stats. Determines "what kind of NPC is this?"
-/// Farmers have no AttackStats/BaseAttackType — resolver is never called for them.
-/// Farmer entry exists for max_health/speed only (healing cap, starvation speed).
-pub struct JobStats {
-    pub max_health: f32,         // all jobs: 100.0 (matches current Health::default)
-    pub damage: f32,             // guard=15, raider=15 (matches current AttackStats::melee). farmer=0 (never used — farmers don't attack)
-    pub speed: f32,              // all jobs: 100.0 (matches current Speed::default)
-}
-
-/// Per-attack-type weapon stats. Determines "how does this NPC fight?"
-pub struct AttackTypeStats {
-    pub range: f32,              // melee=150, ranged=300
-    pub cooldown: f32,           // melee=1.0, ranged=1.5
-    pub projectile_speed: f32,   // melee=500, ranged=200
-    pub projectile_lifetime: f32,// melee=0.5, ranged=3.0
-}
-```
-
-**Stage 8 init values MUST match current hardcoded values exactly** — guard damage=15, raider damage=15, all speeds=100, all max_health=100. Any differentiation between jobs is a Stage 9+ gameplay change.
-
-**`BaseAttackType` component** (replaces `AttackStats` on entities):
-
-```rust
-#[derive(Component, Clone, Copy)]
-pub enum BaseAttackType { Melee, Ranged }
-```
+Stage 8 (completed) established `CombatConfig`, `CachedStats`, `BaseAttackType`, and `resolve_combat_stats()` — see [combat.md](combat.md), [resources.md](resources.md), and `systems/stats.rs`. What follows is the Stage 9-10 implementation plan.
 
 **`TownUpgrades` resource** (`resources.rs`):
 
@@ -532,92 +401,6 @@ const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
 
 Only combat-relevant upgrades flow through `resolve_combat_stats()`. Economy/spawn/healing upgrades are read by their owning systems directly from `TownUpgrades`.
 
-**`resolve_combat_stats()` function** (new file `systems/stats.rs` or in `resources.rs`):
-
-```rust
-/// Cached resolved stats on combatant entities. Replaces AttackStats + MaxHealth.
-/// Populated on spawn, re-resolved when upgrades/level change.
-#[derive(Component)]
-pub struct CachedStats {
-    pub damage: f32,
-    pub range: f32,
-    pub cooldown: f32,
-    pub projectile_speed: f32,
-    pub projectile_lifetime: f32,
-    pub max_health: f32,
-    pub speed: f32,
-}
-
-pub fn resolve_combat_stats(
-    job: Job,
-    attack_type: BaseAttackType,
-    town_idx: usize,
-    level: i32,
-    personality: &Personality,
-    config: &CombatConfig,
-    upgrades: &TownUpgrades,
-) -> CachedStats {
-    let job_base = &config.jobs[&job];
-    let atk_base = &config.attacks[&attack_type];
-    let (trait_damage, trait_hp, trait_speed, _trait_yield) = personality.get_stat_multipliers();
-    let level_mult = 1.0 + level as f32 * 0.01;
-    // unwrap_or ensures NPCs without a valid town_idx (neutral, world mobs) get zero upgrades
-    let town = upgrades.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT]);
-
-    // Job-gated upgrades: only apply to matching job
-    let upgrade_hp = match job {
-        Job::Guard => 1.0 + town[UpgradeType::GuardHealth as usize] as f32 * UPGRADE_PCT[0],
-        Job::Farmer => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
-        _ => 1.0,
-    };
-    let upgrade_dmg = match job {
-        Job::Guard => 1.0 + town[UpgradeType::GuardAttack as usize] as f32 * UPGRADE_PCT[1],
-        _ => 1.0,
-    };
-    let upgrade_range = match job {
-        Job::Guard => 1.0 + town[UpgradeType::GuardRange as usize] as f32 * UPGRADE_PCT[2],
-        _ => 1.0,
-    };
-
-    // Generic combat upgrades: apply to all combatants
-    let upgrade_speed = 1.0 + town[UpgradeType::MoveSpeed as usize] as f32 * UPGRADE_PCT[5];
-    let cooldown_mult = 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[4]);
-
-    CachedStats {
-        damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,
-        range: atk_base.range * upgrade_range,
-        cooldown: atk_base.cooldown * cooldown_mult,
-        projectile_speed: atk_base.projectile_speed,
-        projectile_lifetime: atk_base.projectile_lifetime,
-        max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult,
-        speed: job_base.speed * upgrade_speed * trait_speed,
-    }
-}
-```
-
-**Cache invalidation — when to re-resolve:**
-
-| Event | Where | Action |
-|-------|-------|--------|
-| NPC spawned | `spawn_npc_system` | Insert `CachedStats` from `resolve_combat_stats()` |
-| Upgrade purchased | `apply_upgrade()` | Re-resolve all NPCs in that town with matching job |
-| Level-up | `grant_xp()` | Re-resolve this NPC, rescale `health.0 = health.0 * new_max / old_max` |
-
-Upgrades are per-town, so purchasing one requires iterating NPCs in that town (use `NpcsByTownCache`). At typical town sizes (50-500 NPCs), this is sub-millisecond. Level-up is per-NPC, trivially cheap.
-
-**Stage 8 debug assertions** (remove in Stage 9):
-
-```rust
-// In spawn_npc_system, after resolving:
-#[cfg(debug_assertions)]
-{
-    let stats = resolve_combat_stats(job, attack_type, town_idx, 0, &Personality::default(), &config, &upgrades);
-    debug_assert!((stats.damage - 15.0).abs() < 0.01, "Stage 8 drift: damage {} != 15", stats.damage);
-    debug_assert!((stats.max_health - 100.0).abs() < 0.01, "Stage 8 drift: max_health {} != 100", stats.max_health);
-    debug_assert!((stats.speed - 100.0).abs() < 0.01, "Stage 8 drift: speed {} != 100", stats.speed);
-}
-```
-
 **XP formula:**
 
 ```
@@ -632,7 +415,7 @@ level = floor(sqrt(xp / 100))
 | 100 | 10000 | 10 | 1.10x |
 | 10000 | 1000000 | 100 | 2.00x |
 
-Grant 100 XP per kill. Use `combat_targets` in `death_cleanup_system` to identify the killer (the NPC whose `combat_target == dead_npc_index`).
+Grant 100 XP per kill. Last-hit tracking: `DamageMsg.attacker` → `LastHitBy` component on target → `xp_grant_system` reads on death (runs between `death_system` and `death_cleanup_system`).
 
 **`TownPolicies` resource** (`resources.rs`):
 
@@ -665,30 +448,23 @@ Mirrors existing `PolicyState` in `policies_panel.rs` (lines 10-24). Wire the UI
 
 **Files changed per stage:**
 
-Stage 8 (pure refactor — gameplay must be identical) — **DONE**:
-
-| File | Changes |
-|---|---|
-| `systems/stats.rs` (new) | `CombatConfig`, `TownUpgrades`, `UpgradeType`, `resolve_combat_stats()`, `JobStats`, `AttackTypeStats`. |
-| `components.rs` | Add `Hash` to `Job`, add `BaseAttackType` enum + `CachedStats` component. Remove `AttackStats` and `MaxHealth`. |
-| `systems/spawn.rs` | Read `CombatConfig` + `TownUpgrades`, insert `BaseAttackType` + `CachedStats` from resolver. `#[cfg(debug_assertions)]` parity checks. |
-| `systems/combat.rs` | `attack_system` reads `&CachedStats` instead of `&AttackStats`. |
-| `systems/health.rs` | `healing_system` reads `CombatConfig.heal_rate` / `CombatConfig.heal_radius`. Reads `CachedStats.max_health` (replaces `&MaxHealth` query). |
-| `ui/game_hud.rs`, `ui/roster_panel.rs`, `tests/healing.rs` | `&MaxHealth` → `&CachedStats` in queries. |
-| `lib.rs` | Register `CombatConfig` + `TownUpgrades` resources. |
-| `constants.rs` | Keep all constants as bootstrap for `CombatConfig::default()`. No system reads constants directly after Stage 8. |
-
 Stage 9 (upgrades + XP — new behavior):
 
 | File | Changes |
 |---|---|
-| `ui/upgrade_menu.rs` | Enable buttons. Click → `apply_upgrade()` → deduct food → increment `TownUpgrades`. Show level and cost. |
-| `systems/economy.rs` | `farm_growth_system` applies FarmYield upgrade multiplier from `TownUpgrades`. |
-| `systems/health.rs` | `healing_system` applies HealingRate + FountainRadius upgrades. |
-| `resources.rs` | `grant_xp()` function, level-up detection. |
-| `systems/combat.rs` | `death_cleanup_system` grants XP to killer. |
-| `ui/game_hud.rs` | NPC inspector shows level, XP, XP-to-next. |
-| `systems/economy.rs` | `starvation_system` uses resolver-derived speed. `farm_growth_system` applies FarmYield upgrade. |
+| `systems/stats.rs` | `UpgradeQueue`, `level_from_xp()`, `upgrade_cost()`, `process_upgrades_system`, `xp_grant_system` |
+| `messages.rs` | `DamageMsg.attacker: i32` for last-hit tracking |
+| `components.rs` | `LastHitBy(i32)` component |
+| `resources.rs` | `CombatEventKind::LevelUp` variant |
+| `systems/combat.rs` | `attack_system` + `process_proj_hits` pass attacker index through `DamageMsg` |
+| `systems/health.rs` | `damage_system` inserts `LastHitBy`; `healing_system` applies per-town HealingRate + FountainRadius upgrades |
+| `systems/economy.rs` | `farm_growth_system` applies FarmYield upgrade; `starvation_system` uses `CachedStats.speed` |
+| `systems/spawn.rs` | Remove debug assertions; fix level passthrough; init `level: 0` |
+| `ui/upgrade_menu.rs` | Functional buttons: show level/cost, push to `UpgradeQueue`, disable when unaffordable |
+| `ui/combat_log.rs` | `LevelUp` filter + cyan color |
+| `ui/game_hud.rs` | NPC inspector shows XP / XP-to-next-level |
+| `ui/main_menu.rs` | DragValue widgets alongside sliders for typeable config inputs |
+| `lib.rs` | Register `UpgradeQueue`, wire `xp_grant_system` + `process_upgrades_system` |
 
 Stage 10 (policies — behavior config):
 
@@ -709,104 +485,18 @@ Stage 10 (policies — behavior config):
 
 **Verification per stage:**
 
-Stage 8: `cargo check` clean. `cargo run --release` — game plays identically (pure refactor). All tests pass. Specifically: guards and raiders still deal 15 damage, all NPCs move at speed 100, healing is 5 HP/s in 150px radius. Starvation speed is unchanged (still hardcoded 60 — fixed in Stage 9).
 Stage 9: Upgrade guard attack in UI. Guards should deal more damage (visible in combat log kill speed). Let a guard get kills — NPC inspector shows level > 1, combat log shows "Level up" events. Level-up rescales current HP proportionally to new max. Starving NPCs now slow to 75 (100*0.75) instead of 60.
 Stage 10: Change raider flee threshold slider to 80%. Raiders should flee much earlier. Change work schedule to "Day Only" — farmers idle at night.
 
 ### GPU Readback & Extract Optimization
 
-Two render bottlenecks dominate frame time: `readback_all` blocks 9ms with `device.poll(Wait)`, and `RenderExtractApp` clones 1.9MB of `NpcBufferWrites` at 18ms. Both are hand-rolled patterns that Bevy already solves.
+Steps 1-6 (completed) replaced hand-rolled staging buffers with Bevy's async `Readback` + `ReadbackComplete` pattern — see [gpu-compute.md](gpu-compute.md) and [messages.md](messages.md). What remains is reducing the ExtractResource clone cost.
 
-**Problem 1: Blocking GPU readback (9ms)**
-
-We manually create staging buffers, call `map_async`, then `device.poll(wait_indefinitely())` which blocks on ALL GPU work (not just our staging maps). Bevy 0.18 provides `Readback` + `ReadbackComplete` (`bevy::render::gpu_readback`) which handles async staging, mapping, and polling internally — zero blocking.
-
-**Problem 2: ExtractResource clone (18ms)**
+**Problem: ExtractResource clone (18ms)**
 
 `NpcBufferWrites` is 1.9MB (15 Vecs × 16384 slots) cloned every frame via `ExtractResourcePlugin`. Only ~460KB is compute upload data (positions, targets, speeds, factions, healths, arrivals). The remaining ~1.4MB is render-only visual data (sprite_indices, colors, flash_values, 6 equipment/status sprite arrays) written by `sync_visual_sprites` and read by `prepare_npc_buffers`.
 
-**Architecture: Bevy `Readback` for GPU→CPU, split struct for CPU→GPU**
-
-```
-BEFORE (hand-rolled):
-  Main World                          Render World
-  GPU_UPDATE_QUEUE (static Mutex)  →  populate_buffer_writes → NpcBufferWrites
-  NpcBufferWrites (1.9MB)          →  ExtractResource CLONE → write_npc_buffers
-                                      readback_all: map_async + device.poll(WAIT) → 9ms BLOCK
-                                      → GPU_READ_STATE (static Mutex)
-  sync_gpu_state_to_bevy           ←  GPU_READ_STATE (static Mutex)
-
-AFTER (Bevy-native):
-  Main World                          Render World
-  GPU_UPDATE_QUEUE (static Mutex)  →  populate_buffer_writes → NpcComputeWrites (~50KB)
-  NpcComputeWrites                 →  ExtractResource clone (tiny) → write_npc_buffers
-  NpcVisualData                    →  static swap buffer (no clone) → prepare_npc_buffers
-  ReadbackComplete observer        ←  Readback component (async, 0ms)
-  → GpuReadState (Bevy Resource)
-```
-
-**We read back 4 buffers from GPU:**
-
-| Buffer | Type | Size (700 NPCs) | Consumer |
-|---|---|---|---|
-| `positions` | `vec2<f32>` per NPC | 5.6 KB | ECS arrival detection + rendering |
-| `combat_targets` | `i32` per NPC | 2.8 KB | `attack_system` |
-| `proj_hits` | `[i32; 2]` per proj | varies | `process_proj_hits` |
-| `proj_positions` | `vec2<f32>` per proj | varies | projectile rendering |
-
-**Implementation steps:**
-
-Step 1 — Create readback `ShaderStorageBuffer` assets (readback targets, not replacing compute buffers):
-- [x] In `setup_readback_buffers` (Startup system), create 4 `ShaderStorageBuffer` assets via `Assets<ShaderStorageBuffer>`
-- [x] Set `buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC` on each
-- [x] Store handles in `ReadbackHandles` resource (derive `ExtractResource, Clone`)
-- [x] Register `ExtractResourcePlugin::<ReadbackHandles>`
-- [x] Sizes: npc_positions = `MAX_NPCS * 8` bytes, combat_targets = `MAX_NPCS * 4` bytes, proj_hits = `MAX_PROJECTILES * 8` bytes, proj_positions = `MAX_PROJECTILES * 8` bytes
-
-```rust
-#[derive(Resource, ExtractResource, Clone)]
-pub struct ReadbackHandles {
-    pub npc_positions: Handle<ShaderStorageBuffer>,
-    pub combat_targets: Handle<ShaderStorageBuffer>,
-    pub proj_hits: Handle<ShaderStorageBuffer>,
-    pub proj_positions: Handle<ShaderStorageBuffer>,
-}
-```
-
-Step 2 — Copy compute buffers to readback assets in compute nodes:
-- [x] `NpcComputeNode::run`: `copy_buffer_to_buffer` from compute positions/combat_targets → readback asset buffers (via `RenderAssets<GpuShaderStorageBuffer>`)
-- [x] `ProjectileComputeNode::run`: same for proj hits/positions
-- [x] Note: compute buffers stay in `NpcGpuBuffers`/`ProjGpuBuffers` — readback assets are separate copy targets, not replacements
-
-Step 3 — Spawn `Readback` entities:
-- [x] Spawn 4 persistent entities with `Readback::buffer(handle.clone())` — Bevy re-reads every frame while component exists
-- [x] Each entity gets an `.observe()` handler for `ReadbackComplete`
-
-Step 4 — Handle `ReadbackComplete` events:
-- [x] NPC positions observer: `to_shader_type::<Vec<f32>>()`, write to `Res<GpuReadState>` resource
-- [x] Combat targets observer: `to_shader_type::<Vec<i32>>()`, write to `Res<GpuReadState>.combat_targets`
-- [x] Proj hits observer: `to_shader_type::<Vec<[i32; 2]>>()`, write to `Res<ProjHitState>` Bevy Resource
-- [x] Proj positions observer: `to_shader_type::<Vec<f32>>()`, write to `Res<ProjPositionState>` Bevy Resource
-
-Step 5 — Delete hand-rolled readback code:
-- [x] Delete `StagingIndex` resource
-- [x] Delete `position_staging: [Buffer; 2]` and `combat_target_staging: [Buffer; 2]` from `NpcGpuBuffers`
-- [x] Delete `hit_staging: [Buffer; 2]` and `position_staging: [Buffer; 2]` from `ProjGpuBuffers`
-- [x] Delete all 8 staging buffer creations in `init_npc_compute_pipeline` and `init_proj_compute_pipeline`
-- [x] Delete the entire `readback_all` function (~140 lines)
-- [x] Delete system registration for `readback_all.in_set(RenderSystems::Cleanup)`
-- [x] Delete `GPU_READ_STATE` static Mutex from `messages.rs`
-- [x] Delete `PROJ_HIT_STATE` static Mutex from `messages.rs`
-- [x] Delete `PROJ_POSITION_STATE` static Mutex from `messages.rs`
-
-Step 6 — Update consumers of static Mutexes:
-- [x] `systems/sync.rs`: deleted entirely — `ReadbackComplete` observers write directly to `Res<GpuReadState>`
-- [x] `render.rs`: `click_to_select_system` reads `Res<GpuReadState>` directly
-- [x] `systems/combat.rs`: `process_proj_hits` reads `Res<ProjHitState>` instead of `PROJ_HIT_STATE.lock()`
-- [x] `npc_render.rs`: `prepare_npc_buffers` reads `Res<GpuReadState>` (extracted to render world)
-- [x] `npc_render.rs`: `prepare_proj_buffers` reads `Res<ProjPositionState>` (extracted to render world)
-
-Step 7 — Split `NpcBufferWrites` to reduce extract clone:
+**Step 7 — Split `NpcBufferWrites` to reduce extract clone:**
 - [ ] Create `NpcVisualData` struct with: `sprite_indices`, `colors`, `flash_values`, `armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`, `status_sprites`, `healing_sprites` (~1.4MB)
 - [ ] Create `static NPC_VISUAL_DATA: Mutex<NpcVisualData>` (same pattern as existing `GPU_READ_STATE`)
 - [ ] `sync_visual_sprites` writes to `NPC_VISUAL_DATA.lock()` instead of `NpcBufferWrites`
@@ -819,32 +509,8 @@ Step 7 — Split `NpcBufferWrites` to reduce extract clone:
 
 | File | Changes |
 |---|---|
-| `rust/src/gpu.rs` | ReadbackHandles resource, ShaderStorageBuffer creation, Readback entity spawning, ReadbackComplete observers, split NpcBufferWrites → NpcComputeWrites + NpcVisualData, delete staging buffers + readback_all + StagingIndex |
-| `rust/src/messages.rs` | Delete `GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE` statics. Add `ProjHitState`, `ProjPositionState` Bevy Resources. |
-| `rust/src/npc_render.rs` | `prepare_npc_buffers` reads visual data from `NPC_VISUAL_DATA` static, positions from `GpuReadState` resource |
-| `rust/src/systems/sync.rs` | `sync_gpu_state_to_bevy` reads `GpuReadState` resource directly (no static) |
-| `rust/src/systems/combat.rs` | `process_proj_hits` reads `ProjHitState` resource instead of static |
-| `rust/src/resources.rs` | `GpuReadState` stays as Bevy Resource (already is), add `ProjHitState`, `ProjPositionState` |
-
-**Verification:**
-
-1. `cargo check` — 0 errors, 0 warnings
-2. `cargo run --release` — NPCs move, patrol, combat works, projectiles hit
-3. `cargo run --release --features tracy`:
-   - `readback_all` span completely gone
-   - `RenderExtractApp` < 5ms (down from 18ms)
-   - No new blocking spans
-4. Debug tests: run all — vertical-slice, combat, projectiles, healing should pass
-5. Tracy: overall frame time should drop ~25ms (9ms readback + 13ms extract savings)
-
-**Key API references:**
-
-- `bevy::render::gpu_readback::{Readback, ReadbackComplete}` — [docs](https://docs.rs/bevy/latest/bevy/render/gpu_readback/enum.Readback.html)
-- `bevy::render::storage::{ShaderStorageBuffer, GpuShaderStorageBuffer}` — buffer assets
-- `bevy::render::render_asset::RenderAssets<GpuShaderStorageBuffer>` — access raw `Buffer` in render world
-- `Readback::buffer(handle)` — per-frame async readback
-- `ReadbackComplete::to_shader_type::<T>()` — typed deserialization from raw bytes
-- Bevy example: `examples/shader/gpu_readback.rs`
+| `rust/src/gpu.rs` | Split NpcBufferWrites → NpcComputeWrites + NpcVisualData |
+| `rust/src/npc_render.rs` | `prepare_npc_buffers` reads visual data from `NPC_VISUAL_DATA` static |
 
 ## Performance
 

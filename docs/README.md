@@ -64,7 +64,8 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Roster panel (R): NPC list with sort/filter/select/follow/reassign
     │   ├─ Combat log (L): global event feed (kills, spawns, raids, harvests)
     │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Destroy/Unlock/Turret toggle)
-    │   ├─ Upgrade menu (U), Policies (P): scaffolds
+    │   ├─ Upgrade menu (U): per-town upgrades (spend food → stat boost)
+│   ├─ Policies (P): scaffold
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
@@ -103,10 +104,10 @@ Frame execution order ───────────────────�
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
 | [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, separation physics, combat targeting, GPU→ECS readback | 9/10 |
 | [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, dual atlas, RenderCommand pipeline, camera controls, health bars, FPS overlay | 9/10 |
-| [combat.md](combat.md) | Attack → damage → death → cleanup, slot recycling | 7/10 |
+| [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
-| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, raider respawning | 7/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, raider respawning, FarmYield upgrade | 8/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
@@ -126,7 +127,7 @@ rust/
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, BaseAttackType, CachedStats, Activity/CombatState enums)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, GuardPostState, ReassignQueue, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
@@ -138,7 +139,7 @@ rust/
     roster_panel.rs     # NPC list with sort/filter/select/follow/reassign (R key)
     combat_log.rs       # Event feed with color-coded timestamps (L key)
     build_menu.rs       # Right-click context menu: build/destroy/unlock town slots, turret toggle
-    upgrade_menu.rs     # 14 upgrade rows scaffold (U key, disabled)
+    upgrade_menu.rs     # 14 upgrade rows with level/cost, spend food to purchase (U key)
     policies_panel.rs   # Faction behavior config scaffold (P key, disabled)
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
@@ -159,7 +160,7 @@ rust/
     heal_visual.rs      # Heal icon visual test (3 phases)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>), reassign_npc_system (Farmer↔Guard)
-    stats.rs            # CombatConfig, TownUpgrades, resolve_combat_stats(), CachedStats resolver
+    stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, resolve_combat_stats(), xp_grant_system, process_upgrades_system
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
     combat.rs           # Attack cooldown, targeting, guard post turret auto-attack

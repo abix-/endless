@@ -2,7 +2,7 @@
 
 ## Overview
 
-Six chained Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks, damage application, death detection, cleanup with slot recycling, and guard post turret auto-attack. All run sequentially in `Step::Combat`.
+Eight chained Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks, damage application, death detection, XP-on-kill grant, cleanup with slot recycling, and guard post turret auto-attack. All run sequentially in `Step::Combat`.
 
 ## Data Flow
 
@@ -26,11 +26,18 @@ DamageMsg (from process_proj_hits)             GPU movement
         ▼
   damage_system
   (apply to Health,
-   sync GPU health)
+   sync GPU health,
+   insert LastHitBy)
         │
         ▼
   death_system
   (health <= 0 → Dead)
+        │
+        ▼
+  xp_grant_system
+  (Dead + LastHitBy →
+   grant 100 XP to killer,
+   level-up → re-resolve stats)
         │
         ▼
   death_cleanup_system
@@ -54,6 +61,7 @@ attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or ap
 |-----------|------|---------|
 | Health | `f32` | Current HP (default 100.0) |
 | Dead | marker | Inserted when health <= 0 |
+| LastHitBy | `i32` | NPC slot index of last attacker (-1 = no attacker). Inserted by damage_system, read by xp_grant_system. |
 | Faction | `struct(i32)` | Faction ID (0=Villager, 1+=Raider camps). NPCs attack different factions. |
 | BaseAttackType | enum | `Melee` or `Ranged` — keys into `CombatConfig.attacks` HashMap |
 | CachedStats | struct | `damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed` — resolved from `CombatConfig` via `resolve_combat_stats()` |
@@ -83,12 +91,21 @@ Execution order is **chained** — each system completes before the next starts.
 - Subtracts damage: `health.0 = (health.0 - amount).max(0.0)`
 - Pushes `GpuUpdate::SetHealth` to sync GPU health buffer
 - Pushes `GpuUpdate::SetDamageFlash` (intensity 1.0) for visual hit feedback
+- If `DamageMsg.attacker >= 0`: inserts `LastHitBy(attacker)` on target entity (overwrites previous)
 
 ### 4. death_system (health.rs)
 - Queries all NPCs with Health but `Without<Dead>`
 - If `health.0 <= 0.0`: insert `Dead` marker component
 
-### 5. death_cleanup_system (health.rs)
+### 5. xp_grant_system (stats.rs)
+- Queries entities `With<Dead>` that have `Option<&LastHitBy>`
+- If `LastHitBy` present, looks up killer entity via `NpcEntityMap`
+- Grants 100 XP to killer's `NpcMetaCache` entry
+- Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`
+- On level-up: re-resolves `CachedStats`, updates `Speed` component, rescales HP proportionally (`hp * new_max / old_max`), sends `GpuUpdate::SetSpeed` and `GpuUpdate::SetHealth`, emits `CombatEventKind::LevelUp` to `CombatLog`
+- XP formula: `level = floor(sqrt(xp / 100))`, level multiplier = `1.0 + level * 0.01`
+
+### 6. death_cleanup_system (health.rs)
 - Queries all entities `With<Dead>`
 - For each dead entity:
   1. `commands.entity(entity).despawn()` — remove from Bevy ECS
@@ -104,7 +121,7 @@ Execution order is **chained** — each system completes before the next starts.
   7. Remove from `NpcsByTownCache`
   8. `SlotAllocator.free(idx)` — recycle slot for future spawns
 
-### 6. guard_post_attack_system (combat.rs)
+### 7. guard_post_attack_system (combat.rs)
 - Iterates `WorldData.guard_posts` with `GuardPostState` per-post timers and enabled flags
 - State length auto-syncs with guard post count (handles runtime building)
 - For each enabled post with cooldown ready: scans `GpuReadState.positions`+`factions` for nearest enemy (faction != 0) within `GUARD_POST_RANGE` (250px)
@@ -157,6 +174,6 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
 - **KillStats naming inverted**: `guard_kills` tracks raiders killed (by guards), `villager_kills` tracks villagers killed (by raiders). The names describe the victim, not the killer.
 
-## Rating: 7/10
+## Rating: 8/10
 
-Full combat loop: GPU targeting → attack_system fires projectiles → GPU projectile compute → hit readback → damage → death → cleanup. Chained execution guarantees safety. O(1) entity lookup via NpcEntityMap. death_cleanup_system is thorough (releases farm occupancy, clears raid queue, updates all stat resources). Projectile slot recycling handles both collisions and expired projectiles via sentinel.
+Full combat loop: GPU targeting → attack → damage (with last-hit tracking) → death → XP grant → cleanup. Chained execution guarantees safety. O(1) entity lookup via NpcEntityMap. XP-on-kill grants 100 XP to last attacker with level-up stat re-resolution and proportional HP rescale. death_cleanup_system is thorough (releases farm occupancy, clears raid queue, updates all stat resources). Projectile slot recycling handles both collisions and expired projectiles via sentinel.

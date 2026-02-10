@@ -94,7 +94,8 @@ pub fn game_hud_system(
                 let energy = data.energy_cache.0.get(idx).copied().unwrap_or(0.0);
 
                 ui.heading(format!("{}", meta.name));
-                ui.label(format!("{} Lv.{}", crate::job_name(meta.job), meta.level));
+                let next_level_xp = (meta.level + 1) * (meta.level + 1) * 100;
+                ui.label(format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, next_level_xp));
 
                 let trait_str = crate::trait_name(meta.trait_id);
                 if !trait_str.is_empty() {

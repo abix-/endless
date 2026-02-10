@@ -5,13 +5,14 @@ use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue, CombatLog, CombatEventKind, NpcMetaCache, GameTime};
-use crate::systems::stats::CombatConfig;
+use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, UPGRADE_PCT};
 use crate::systems::economy::*;
 use crate::world::{WorldData, FarmOccupancy, pos_to_key};
 
 /// Apply queued damage to Health component and sync to GPU.
 /// Uses NpcEntityMap for O(1) entity lookup instead of O(n) iteration.
 pub fn damage_system(
+    mut commands: Commands,
     mut events: MessageReader<DamageMsg>,
     npc_map: Res<NpcEntityMap>,
     mut query: Query<(&mut Health, &NpcIndex)>,
@@ -27,6 +28,10 @@ pub fn damage_system(
                 health.0 = (health.0 - event.amount).max(0.0);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: npc_idx.0, intensity: 1.0 }));
+                // Track last attacker for XP-on-kill
+                if event.attacker >= 0 {
+                    commands.entity(entity).insert(LastHitBy(event.attacker));
+                }
             }
         }
     }
@@ -152,10 +157,10 @@ pub fn healing_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<HealthDebug>,
     combat_config: Res<CombatConfig>,
+    upgrades: Res<TownUpgrades>,
 ) {
     let positions = &gpu_state.positions;
     let dt = time.delta_secs();
-    let heal_amount = combat_config.heal_rate * dt;
 
     // Debug tracking
     let mut npcs_checked = 0usize;
@@ -188,18 +193,25 @@ pub fn healing_system(
 
         // Find if NPC is in any same-faction town's healing aura
         let mut in_healing_zone = false;
-        for town in &world_data.towns {
+        let mut zone_heal_rate = combat_config.heal_rate;
+        for (town_idx, town) in world_data.towns.iter().enumerate() {
             // Check faction match
             if town.faction != faction.to_i32() {
                 continue;
             }
 
+            // Per-town healing upgrades
+            let heal_lvl = upgrades.levels.get(town_idx).map(|l| l[UpgradeType::HealingRate as usize]).unwrap_or(0);
+            let radius_lvl = upgrades.levels.get(town_idx).map(|l| l[UpgradeType::FountainRadius as usize]).unwrap_or(0);
+            let radius = combat_config.heal_radius + radius_lvl as f32 * 24.0;
+
             let dx = x - town.center.x;
             let dy = y - town.center.y;
             let dist = (dx * dx + dy * dy).sqrt();
 
-            if dist <= combat_config.heal_radius {
+            if dist <= radius {
                 in_healing_zone = true;
+                zone_heal_rate = combat_config.heal_rate * (1.0 + heal_lvl as f32 * UPGRADE_PCT[UpgradeType::HealingRate as usize]);
                 break;
             }
         }
@@ -208,6 +220,7 @@ pub fn healing_system(
             in_zone_count += 1;
 
             // Heal up to HP cap (50% if starving, 100% otherwise)
+            let heal_amount = zone_heal_rate * dt;
             if health.0 < hp_cap {
                 health.0 = (health.0 + heal_amount).min(hp_cap);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));

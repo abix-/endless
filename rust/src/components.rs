@@ -296,6 +296,10 @@ pub struct EquippedHelmet(pub f32, pub f32);
 #[derive(Component, Clone, Copy)]
 pub struct EquippedArmor(pub f32, pub f32);
 
+/// Tracks the NPC slot index of the last attacker (for XP on kill).
+#[derive(Component)]
+pub struct LastHitBy(pub i32);
+
 /// Marker: NPC is inside a healing aura (near own faction's town center).
 /// Used for visual feedback (halo effect).
 #[derive(Component)]

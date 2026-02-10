@@ -134,6 +134,7 @@ pub fn attack_system(
                     damage_events.write(DamageMsg {
                         npc_index: target_idx as usize,
                         amount: cached.damage,
+                        attacker: i as i32,
                     });
                 }
 
@@ -201,9 +202,15 @@ pub fn process_proj_hits(
             };
 
             if damage > 0.0 {
+                let shooter = if slot < proj_writes.shooters.len() {
+                    proj_writes.shooters[slot]
+                } else {
+                    -1
+                };
                 damage_events.write(DamageMsg {
                     npc_index: npc_idx as usize,
                     amount: damage,
+                    attacker: shooter,
                 });
             }
 

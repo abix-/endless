@@ -29,6 +29,7 @@ pub struct SpawnNpcMsg {
 pub struct DamageMsg {
     pub npc_index: usize,
     pub amount: f32,
+    pub attacker: i32,  // NPC slot index of last attacker (-1 = no attacker, e.g. guard post)
 }
 
 /// Reassign an NPC to a different job (Farmer <-> Guard).
