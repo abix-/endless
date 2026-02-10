@@ -8,11 +8,11 @@ use crate::gpu::NpcBufferWrites;
 use crate::resources::GpuReadState;
 
 /// Read positions from GPU and update Bevy Position components.
-/// Also detects arrivals: if NPC has HasTarget and is within ARRIVAL_THRESHOLD
+/// Also detects arrivals: if NPC is in a transit Activity and within ARRIVAL_THRESHOLD
 /// of their goal, add AtDestination marker for decision_system to handle.
 pub fn gpu_position_readback(
     mut commands: Commands,
-    mut query: Query<(Entity, &NpcIndex, &mut Position, Option<&HasTarget>, Option<&AtDestination>)>,
+    mut query: Query<(Entity, &NpcIndex, &mut Position, &Activity, Option<&AtDestination>)>,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<NpcBufferWrites>,
 ) {
@@ -22,7 +22,7 @@ pub fn gpu_position_readback(
 
     const EPSILON: f32 = 0.01;
 
-    for (entity, npc_idx, mut pos, has_target, at_dest) in query.iter_mut() {
+    for (entity, npc_idx, mut pos, activity, at_dest) in query.iter_mut() {
         let i = npc_idx.0;
         if i * 2 + 1 >= positions.len() {
             continue;
@@ -45,7 +45,7 @@ pub fn gpu_position_readback(
         }
 
         // CPU-side arrival detection: check if NPC reached their goal
-        if has_target.is_some() && at_dest.is_none() {
+        if activity.is_transit() && at_dest.is_none() {
             if i * 2 + 1 < targets.len() {
                 let goal_x = targets[i * 2];
                 let goal_y = targets[i * 2 + 1];
@@ -55,8 +55,7 @@ pub fn gpu_position_readback(
 
                 if dist_sq <= threshold_sq {
                     commands.entity(entity)
-                        .insert(AtDestination)
-                        .remove::<HasTarget>();
+                        .insert(AtDestination);
                 }
             }
         }

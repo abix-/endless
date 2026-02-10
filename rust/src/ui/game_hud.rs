@@ -9,7 +9,7 @@ use crate::gpu::NpcBufferWrites;
 use crate::resources::*;
 use crate::world::WorldData;
 
-/// Query bundle for NPC state marker components.
+/// Query bundle for NPC state display.
 #[derive(SystemParam)]
 pub struct NpcStateQuery<'w, 's> {
     states: Query<'w, 's, (
@@ -17,25 +17,11 @@ pub struct NpcStateQuery<'w, 's> {
         &'static Home,
         &'static Faction,
         &'static TownId,
-        Option<&'static InCombat>,
-        Option<&'static Working>,
-        Option<&'static OnDuty>,
-        Option<&'static Resting>,
-        Option<&'static Raiding>,
-        Option<&'static Returning>,
-        Option<&'static Patrolling>,
-        Option<&'static GoingToWork>,
-        Option<&'static GoingToRest>,
-        Option<&'static Wandering>,
-        Option<&'static HasTarget>,
-    ), Without<Dead>>,
-    extra: Query<'w, 's, (
-        &'static NpcIndex,
+        &'static Activity,
+        &'static CombatState,
         Option<&'static AtDestination>,
-        Option<&'static CarryingFood>,
         Option<&'static Starving>,
         Option<&'static Healing>,
-        Option<&'static CombatOrigin>,
     ), Without<Dead>>,
 }
 
@@ -152,7 +138,7 @@ pub fn game_hud_system(
 
                 ui.separator();
 
-                // Debug: position, target, home, faction, state components
+                // Debug: position, target, home, faction, state
                 let positions = &gpu_state.positions;
                 let targets = &buffer_writes.targets;
 
@@ -167,43 +153,33 @@ pub fn game_hud_system(
                     "?".into()
                 };
 
-                // Collect state flags from ECS queries
-                let mut flags: Vec<&str> = Vec::new();
+                // Collect state from Activity + CombatState enums
+                let mut state_str = String::new();
                 let mut home_str = String::new();
                 let mut faction_str = String::new();
 
-                if let Some((_, home, faction, town_id, in_combat, working, on_duty,
-                    resting, raiding, returning, patrolling, going_work, going_rest,
-                    wandering, has_target))
+                if let Some((_, home, faction, town_id, activity, combat, at_dest, starving, healing))
                     = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
                 {
                     home_str = format!("({:.0}, {:.0})", home.0.x, home.0.y);
                     faction_str = format!("{} (town {})", faction.0, town_id.0);
 
-                    if in_combat.is_some() { flags.push("InCombat"); }
-                    if working.is_some() { flags.push("Working"); }
-                    if on_duty.is_some() { flags.push("OnDuty"); }
-                    if resting.is_some() { flags.push("Resting"); }
-                    if raiding.is_some() { flags.push("Raiding"); }
-                    if returning.is_some() { flags.push("Returning"); }
-                    if patrolling.is_some() { flags.push("Patrolling"); }
-                    if going_work.is_some() { flags.push("GoingToWork"); }
-                    if going_rest.is_some() { flags.push("GoingToRest"); }
-                    if wandering.is_some() { flags.push("Wandering"); }
-                    if has_target.is_some() { flags.push("HasTarget"); }
-                }
+                    let mut parts: Vec<&str> = Vec::new();
 
-                if let Some((_, at_dest, carrying, starving, healing, combat_origin))
-                    = npc_states.extra.iter().find(|(ni, ..)| ni.0 == idx)
-                {
-                    if at_dest.is_some() { flags.push("AtDest"); }
-                    if carrying.is_some() { flags.push("CarryingFood"); }
-                    if starving.is_some() { flags.push("Starving"); }
-                    if healing.is_some() { flags.push("Healing"); }
-                    if combat_origin.is_some() { flags.push("CombatOrigin"); }
-                }
+                    // Combat state first (takes priority)
+                    let combat_name = combat.name();
+                    if !combat_name.is_empty() { parts.push(combat_name); }
 
-                let state_str = if flags.is_empty() { "Idle".into() } else { flags.join(", ") };
+                    // Activity
+                    parts.push(activity.name());
+
+                    // Status effects
+                    if at_dest.is_some() { parts.push("AtDest"); }
+                    if starving.is_some() { parts.push("Starving"); }
+                    if healing.is_some() { parts.push("Healing"); }
+
+                    state_str = parts.join(", ");
+                }
 
                 ui.label(format!("Pos: {}", pos));
                 ui.label(format!("Target: {}", target));

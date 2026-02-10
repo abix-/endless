@@ -4,25 +4,29 @@
 
 NPC decision-making and state transitions. All run in `Step::Behavior` after combat is resolved. For economy systems (farm growth, starvation, camp foraging, raider respawning, game time), see [economy.md](economy.md).
 
-**Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. The system uses **SystemParam bundles** to organize related parameters and stay within Bevy's 16-parameter limit:
+**Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal enum components (concurrent state machines pattern):
 
+- `Activity` enum: what the NPC is *doing* (Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, Wandering, Raiding, Returning)
+- `CombatState` enum: whether the NPC is *fighting* (None, Fighting, Fleeing)
+
+Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
+
+The system uses **SystemParam bundles** for farm and economy parameters:
 - `FarmParams`: farm states, occupancy tracking, world data
 - `EconomyParams`: food storage, food events, population stats
-- `CombatParams`: flee data, leash data queries
-- `NpcStateParams`: transit state queries, work positions, assigned farms, patrol routes
 
 Priority order (first match wins):
-0. AtDestination → Handle arrival transitions
-1. InCombat + should_flee? → Flee
-2. InCombat + should_leash? → Leash
-3. InCombat → Skip (attack_system handles)
-4. Recovering + healed? → Resume
+0. AtDestination → Handle arrival transitions (match on Activity variant)
+1. CombatState::Fighting + should_flee? → Flee
+2. CombatState::Fighting + should_leash? → Leash
+3. CombatState::Fighting → Skip (attack_system handles)
+4. Resting { recover_until: Some(t) } + HP >= t → Resume
 5. Working + tired? → Stop work
 6. OnDuty + time_to_patrol? → Patrol
 7. Resting + rested? → Wake up
 8. Idle → Score Eat/Rest/Work/Wander
 
-All checks are **component-driven, not job-driven**. Flee logic operates on any NPC with `FleeThreshold` + `InCombat`, regardless of whether it's a guard or raider.
+All checks are **enum-driven, not job-driven**. Flee logic operates on any NPC with `FleeThreshold` + `CombatState::Fighting`, regardless of whether it's a guard or raider.
 
 ## Utility AI (Weighted Random Decisions)
 
@@ -71,71 +75,78 @@ Same situation, different outcomes. That's emergent behavior.
 
 ## State Machine
 
+Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` (fighting status). Activity is preserved through combat.
+
 ```
     Guard:                Farmer:               Stealer (Raider):
     ┌──────────┐         ┌──────────┐          ┌──────────┐
-    │  OnDuty  │ spawn   │GoingToWork│ spawn   │  (idle)  │ spawns stateless
-    │ 60 ticks │         └────┬─────┘          └────┬─────┘
+    │  OnDuty  │ spawn   │GoingToWork│ spawn   │  Idle    │ spawns idle
+    │{ticks: 0}│         └────┬─────┘          └────┬─────┘
     └────┬─────┘              │ arrival              │ decision_system
          │ decision_system    ▼                      ▼
-         ▼                ┌──────────┐          ┌──────────┐
-    ┌──────────┐         │ Working  │          │  Raiding │ (walk to farm)
-    │Patrolling│         └────┬─────┘          └────┬─────┘
+         ▼                ┌──────────┐          ┌──────────────────┐
+    ┌──────────┐         │ Working  │          │ Raiding{target}  │
+    │Patrolling│         └────┬─────┘          └────┬─────────────┘
     └────┬─────┘              │                     │ arrival at farm
          │ arrival            │                     ▼
-         ▼                    │                ┌──────────┐
-    ┌──────────┐              │                │Returning │ (+CarryingFood)
-    │  OnDuty  │              │                │(to camp) │
-    │ 60 ticks │              │                └────┬─────┘
-    └────┬─────┘              │                     │ arrival at camp
-         └────────┬───────────┘                     ▼
-                  │ decision_system            deliver food, re-enter
-                  ▼ (weighted random)          decision_system
+         ▼                    │                ┌──────────────────┐
+    ┌──────────┐              │                │Returning{food:T} │
+    │  OnDuty  │              │                └────┬─────────────┘
+    │{ticks: 0}│              │                     │ proximity delivery
+    └────┬─────┘              │                     ▼
+         └────────┬───────────┘                deliver food, re-enter
+                  │ decision_system            decision_system
+                  ▼ (weighted random)
              ┌──────────┐
              │GoingToRest│
              └────┬─────┘
                   │ arrival
                   ▼
-             ┌──────────┐
-             │ Resting  │
-             └────┬─────┘
+             ┌─────────────────────┐
+             │ Resting{recover: _} │
+             └────┬────────────────┘
                   │ decision_system
                   ▼ (weighted random)
              back to previous cycle
 
-    Combat escape (any NPC with FleeThreshold/LeashRange):
-    ┌──────────┐                         ┌────────────┐
-    │ InCombat │──health < FleeThreshold─▶│ Returning  │
-    │          │──dist > LeashRange──────▶│ (go home)  │
-    └──────────┘                          └─────┬──────┘
-                                                │ arrival (wounded)
-                                                ▼
-                                          ┌────────────┐
-                                          │ Recovering │ (+Resting)
-                                          │ until 75%  │
-                                          └────────────┘
+    Combat (orthogonal CombatState, Activity preserved):
+    ┌─────────────────────┐                    ┌───────────────────┐
+    │ CombatState::       │                    │ CombatState::None │
+    │ Fighting{origin}    │──flee/leash───────▶│ Activity unchanged│
+    │ Activity: preserved │                    │ (or Returning if  │
+    └─────────────────────┘                    │  wounded)         │
+                                               └─────┬─────────────┘
+                                                     │ if wounded
+                                                     ▼
+                                               ┌───────────────────┐
+                                               │ Resting{recover:  │
+                                               │   Some(0.75)}     │
+                                               └───────────────────┘
 ```
 
 ## Components
+
+### State Enums (Concurrent State Machines)
+
+| Component | Variants | Purpose |
+|-----------|----------|---------|
+| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting{recover_until}, Wandering, Raiding{target}, Returning{has_food}` | What the NPC is *doing* — mutually exclusive |
+| CombatState | `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
+
+`Activity::is_transit()` returns true for Patrolling, GoingToWork, GoingToRest, Wandering, Raiding, Returning. Used by `gpu_position_readback` for arrival detection (replaces old `HasTarget` marker).
+
+`Resting { recover_until: Some(0.75) }` replaces old `Recovering` component — NPC rests until HP >= threshold, then resumes.
+
+`Returning { has_food: true }` replaces old `CarryingFood` marker — food carried state is part of the activity.
+
+### Data Components
 
 | Component | Type | Purpose |
 |-----------|------|---------|
 | TownId | `i32` | Town/camp identifier — every NPC belongs to one |
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
 | Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
-| Resting | marker | NPC is at home, recovering energy |
-| GoingToRest | marker | NPC is walking home to rest (`#[require(HasTarget)]`) |
-| Patrolling | marker | Guard is walking to next patrol post (`#[require(HasTarget)]`) |
-| OnDuty | `{ ticks: u32 }` | Guard is stationed at a post |
-| Working | marker | Farmer is at work position |
 | AssignedFarm | `Vec2` | Farm position farmer is working at (for occupancy tracking) |
-| GoingToWork | marker | Farmer is walking to work (`#[require(HasTarget)]`) |
-| Raiding | marker | NPC is walking to a farm to steal (`#[require(HasTarget)]`) |
-| Returning | marker | NPC is walking back to home base (`#[require(HasTarget)]`) |
-| CarryingFood | marker | NPC has stolen food |
-| *(removed)* | | CarriedItem replaced by `SetEquipSprite(Item, ...)` for visual rendering |
-| Recovering | `{ threshold: f32 }` | NPC is resting until HP >= threshold |
-| Wandering | marker | NPC is walking to a random nearby position (`#[require(HasTarget)]`) |
 | Starving | marker | NPC hasn't eaten in 24+ hours (50% HP cap, 75% speed) |
 | LastAteHour | `i32` | Game hour when NPC last ate (for starvation tracking) |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
@@ -143,10 +154,7 @@ Same situation, different outcomes. That's emergent behavior.
 | Home | `{ x, y }` | NPC's home/bed position |
 | WorkPosition | `{ x, y }` | Farmer's field position |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
-| AtDestination | marker | NPC arrived at destination, needs transition handling |
-| HasTarget | marker | NPC has an active movement target (auto-inserted via `#[require]` on transit components) |
-| InCombat | marker | Blocks behavior transitions |
-| CombatOrigin | `{ x, y }` | Position where combat started; leash measures from here |
+| AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
 | FleeThreshold | `{ pct: f32 }` | Flee combat below this HP % |
 | LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin |
@@ -155,36 +163,36 @@ Same situation, different outcomes. That's emergent behavior.
 ## Systems
 
 ### decision_system (Unified Priority Cascade)
-- Query: NPCs not in transit states (no Patrolling, GoingToWork, GoingToRest, Returning, Wandering, Dead)
-- Uses **SystemParam bundles** to organize 19+ parameters into 4 logical groups (see Overview)
-- Checks states via `Option<&Component>` and handles in priority order:
+- Query: NPCs with `&mut Activity`, `&mut CombatState`, skips NPCs in transit (`activity.is_transit()`)
+- Uses **SystemParam bundles** for farm and economy parameters (see Overview)
+- Matches on Activity and CombatState enums in priority order:
 
 **Priority 0: Arrival transitions**
-- If `AtDestination`: handle state-specific transitions
-  - `Patrolling` → `OnDuty { ticks: 0 }`
-  - `GoingToRest` → `Resting` (sleep icon derived by `sync_visual_sprites`)
-  - `GoingToWork` → `Working` + `AssignedFarm` + harvest if farm ready
-  - `Raiding` → steal if farm ready, else re-target another farm; `CarryingFood` + `Returning`
-  - `Wandering` → clear state
-  - Check `WoundedThreshold` for recovery mode
+- If `AtDestination`: match on Activity variant
+  - `Patrolling` → `Activity::OnDuty { ticks_waiting: 0 }`
+  - `GoingToRest` → `Activity::Resting { recover_until: None }` (sleep icon derived by `sync_visual_sprites`)
+  - `GoingToWork` → `Activity::Working` + `AssignedFarm` + harvest if farm ready
+  - `Raiding { .. }` → steal if farm ready, else re-target; `Activity::Returning { has_food: true }`
+  - `Wandering` → `Activity::Idle`
+  - Check `WoundedThreshold` for recovery mode (`Resting { recover_until: Some(0.75) }`)
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
-- If `InCombat` + has `FleeThreshold`: dynamic threat assessment (enemies vs allies within 200px, throttled every 30 frames), flee if HP < effective threshold
-- If `InCombat` + has `LeashRange`: check distance from `CombatOrigin`, disengage if > leash distance
-- If `InCombat`: skip (attack_system handles targeting)
+- If `CombatState::Fighting` + has `FleeThreshold`: dynamic threat assessment (enemies vs allies within 200px, throttled every 30 frames), flee if HP < effective threshold
+- If `CombatState::Fighting` + has `LeashRange`: check distance from `CombatState::Fighting { origin }`, disengage if > leash distance
+- If `CombatState::Fighting`: skip (attack_system handles targeting)
 
 **Priority 4: Recovery**
-- If `Recovering` + HP >= threshold: remove `Recovering` and `Resting`
+- If `Resting { recover_until: Some(t) }` + HP >= t: set `Activity::Idle`
 
 **Priority 5: Tired workers**
-- If `Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): remove `Working`, release `AssignedFarm`
+- If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release `AssignedFarm`
 
 **Priority 6: Patrol**
-- If `OnDuty` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, transition to `Patrolling`
+- If `Activity::OnDuty { ticks_waiting }` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, set `Activity::Patrolling`
 
 **Priority 7: Wake up**
-- If `Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): remove `Resting`, proceed to idle scoring
+- If `Activity::Resting { .. }` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
 **Priority 8: Idle scoring (Utility AI)**
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
@@ -193,19 +201,19 @@ Same situation, different outcomes. That's emergent behavior.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
 ### on_duty_tick_system
-- Query: NPCs with `OnDuty` (excluding `InCombat`)
+- Query: NPCs with `Activity::OnDuty { ticks_waiting }` where `CombatState` is not Fighting
 - Increments `ticks_waiting` each frame
-- Separated from decision_system to allow mutable `OnDuty` access while main query has immutable view
+- Separated from decision_system to allow mutable Activity access while main query has immutable view
 
 ### arrival_system (Proximity Checks)
-- **Proximity-based delivery** for Returning raiders: checks distance to home, delivers food within DELIVERY_RADIUS (150px)
+- **Proximity-based delivery** for Returning raiders: matches `Activity::Returning { .. }`, checks distance to home, delivers food within DELIVERY_RADIUS (150px), sets `Activity::Idle`
 - **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm
-- Arrival detection (`HasTarget` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs
+- Arrival detection (`is_transit()` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs
 - All state transitions handled by decision_system Priority 0 (central brain model)
 
 ### energy_system
-- NPCs with `Resting`: recover `ENERGY_RECOVER_RATE` per tick
-- NPCs without `Resting`: drain `ENERGY_DRAIN_RATE` per tick
+- NPCs with `Activity::Resting { .. }`: recover `ENERGY_RECOVER_RATE` per tick
+- All other NPCs: drain `ENERGY_DRAIN_RATE` per tick
 - Clamp to 0.0-100.0
 - **Note**: All state transitions (wake-up, stop working) are handled in decision_system to keep decisions centralized and avoid Bevy command sync races
 

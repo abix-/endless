@@ -1,5 +1,5 @@
 //! Combat Pipeline Test (6 phases)
-//! Validates: GPU targeting → InCombat → projectile/damage → health decreases → death → slot freed.
+//! Validates: GPU targeting → Fighting → projectile/damage → health decreases → death → slot freed.
 
 use bevy::prelude::*;
 use crate::components::*;
@@ -61,7 +61,7 @@ pub fn setup(
 
 pub fn tick(
     npc_query: Query<(), (With<NpcIndex>, Without<Dead>)>,
-    in_combat_query: Query<(), With<InCombat>>,
+    combat_state_query: Query<&CombatState, Without<Dead>>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
     slot_alloc: Res<SlotAllocator>,
@@ -72,7 +72,7 @@ pub fn tick(
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let alive = npc_query.iter().count();
-    let in_combat = in_combat_query.iter().count();
+    let in_combat = combat_state_query.iter().filter(|c| c.is_fighting()).count();
 
     match test.phase {
         // Phase 1: GPU targeting finds enemy
@@ -84,7 +84,7 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("targets_found=0 alive={}", alive));
             }
         }
-        // Phase 2: InCombat marker added
+        // Phase 2: CombatState::Fighting entered
         2 => {
             test.phase_name = format!("in_combat={}", in_combat);
             if in_combat > 0 {

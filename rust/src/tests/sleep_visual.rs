@@ -39,8 +39,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
 
 pub fn tick(
     farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
-    resting_query: Query<&NpcIndex, (With<Resting>, Without<Dead>)>,
-    not_resting_query: Query<&NpcIndex, (With<Farmer>, Without<Resting>, Without<Dead>)>,
+    npc_activity_query: Query<(&NpcIndex, &Activity), (With<Farmer>, Without<Dead>)>,
     mut energy_query: Query<&mut Energy, (With<Farmer>, Without<Dead>)>,
     buffer: Res<NpcBufferWrites>,
     time: Res<Time>,
@@ -69,16 +68,15 @@ pub fn tick(
         }
         // Phase 2: Farmer rests → status_sprites should show SLEEP_SPRITE
         2 => {
-            let resting_idx = resting_query.iter().next().map(|n| n.0);
-            test.phase_name = format!("e={:.0} resting={}", energy, resting_idx.is_some());
+            let resting = npc_activity_query.iter().find(|(_, a)| matches!(a, Activity::Resting { .. }));
+            test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());
 
-            if let Some(idx) = resting_idx {
-                let sprite_col = buffer.status_sprites.get(idx * 2).copied().unwrap_or(-1.0);
+            if let Some((idx, _)) = resting {
+                let sprite_col = buffer.status_sprites.get(idx.0 * 2).copied().unwrap_or(-1.0);
                 if sprite_col == SLEEP_SPRITE.0 {
-                    test.pass_phase(elapsed, format!("Sleep icon set (idx={}, col={:.0})", idx, sprite_col));
+                    test.pass_phase(elapsed, format!("Sleep icon set (idx={}, col={:.0})", idx.0, sprite_col));
                 } else {
-                    // Resting but no sleep icon — this is the expected RED failure
-                    test.fail_phase(elapsed, format!("Resting but status_sprites[{}]={:.1}, expected {:.0}", idx * 2, sprite_col, SLEEP_SPRITE.0));
+                    test.fail_phase(elapsed, format!("Resting but status_sprites[{}]={:.1}, expected {:.0}", idx.0 * 2, sprite_col, SLEEP_SPRITE.0));
                 }
             } else if elapsed > 45.0 {
                 test.fail_phase(elapsed, format!("energy={:.0} but never rested", energy));
@@ -87,17 +85,17 @@ pub fn tick(
         // Phase 3: Farmer wakes → status_sprites should be cleared (-1)
         3 => {
             // Look for a farmer that was resting (phase 2 passed) and is now awake
-            let awake_idx = not_resting_query.iter().next().map(|n| n.0);
-            test.phase_name = format!("e={:.0} awake={}", energy, awake_idx.is_some());
+            let awake = npc_activity_query.iter().find(|(_, a)| !matches!(a, Activity::Resting { .. }));
+            test.phase_name = format!("e={:.0} awake={}", energy, awake.is_some());
 
-            if let Some(idx) = awake_idx {
+            if let Some((idx, _)) = awake {
                 if energy >= 80.0 {
-                    let sprite_col = buffer.status_sprites.get(idx * 2).copied().unwrap_or(-1.0);
+                    let sprite_col = buffer.status_sprites.get(idx.0 * 2).copied().unwrap_or(-1.0);
                     if sprite_col == -1.0 {
-                        test.pass_phase(elapsed, format!("Sleep icon cleared (idx={}, energy={:.0})", idx, energy));
+                        test.pass_phase(elapsed, format!("Sleep icon cleared (idx={}, energy={:.0})", idx.0, energy));
                         test.complete(elapsed);
                     } else {
-                        test.fail_phase(elapsed, format!("Awake but status_sprites[{}]={:.1}, expected -1", idx * 2, sprite_col));
+                        test.fail_phase(elapsed, format!("Awake but status_sprites[{}]={:.1}, expected -1", idx.0 * 2, sprite_col));
                     }
                 }
             }

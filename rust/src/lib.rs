@@ -57,18 +57,15 @@ pub enum AppState {
 /// Derive NPC state name from ECS components.
 pub fn derive_npc_state(world: &World, entity: Entity) -> &'static str {
     if world.get::<Dead>(entity).is_some() { return "Dead"; }
-    if world.get::<InCombat>(entity).is_some() { return "Fighting"; }
-    if let Some(rest) = world.get::<Resting>(entity) {
-        return if rest.recover_until.is_some() { "Recovering" } else { "Resting" };
+    // Combat state takes priority for display
+    if let Some(combat) = world.get::<CombatState>(entity) {
+        let name = combat.name();
+        if !name.is_empty() { return name; }
     }
-    if world.get::<Working>(entity).is_some() { return "Working"; }
-    if world.get::<OnDuty>(entity).is_some() { return "On Duty"; }
-    if world.get::<Patrolling>(entity).is_some() { return "Patrolling"; }
-    if world.get::<GoingToRest>(entity).is_some() { return "Going to Rest"; }
-    if world.get::<GoingToWork>(entity).is_some() { return "Going to Work"; }
-    if world.get::<Raiding>(entity).is_some() { return "Raiding"; }
-    if world.get::<Returning>(entity).is_some() { return "Returning"; }
-    if world.get::<Wandering>(entity).is_some() { return "Wandering"; }
+    // Then activity
+    if let Some(activity) = world.get::<Activity>(entity) {
+        return activity.name();
+    }
     "Idle"
 }
 

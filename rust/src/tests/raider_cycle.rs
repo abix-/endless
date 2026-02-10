@@ -55,9 +55,7 @@ pub fn setup(
 }
 
 pub fn tick(
-    raiding_query: Query<(), (With<Raiding>, Without<Dead>)>,
-    returning_query: Query<(), (With<Returning>, Without<Dead>)>,
-    carrying_query: Query<(), (With<CarryingFood>, Without<Dead>)>,
+    activity_query: Query<&Activity, (With<Stealer>, Without<Dead>)>,
     npc_query: Query<(), (With<Stealer>, Without<Dead>)>,
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
@@ -67,13 +65,23 @@ pub fn tick(
     let alive = npc_query.iter().count();
     if !test.require_entity(alive, elapsed, "raider") { return; }
 
-    let raiding = raiding_query.iter().count();
-    let returning = returning_query.iter().count();
-    let carrying = carrying_query.iter().count();
+    let mut raiding = 0;
+    let mut returning = 0;
+    let mut carrying = 0;
+    for activity in activity_query.iter() {
+        match activity {
+            Activity::Raiding { .. } => raiding += 1,
+            Activity::Returning { has_food } => {
+                returning += 1;
+                if *has_food { carrying += 1; }
+            }
+            _ => {}
+        }
+    }
     let camp_food = food_storage.food.get(1).copied().unwrap_or(0);
 
     match test.phase {
-        // Phase 1: 3 raiders dispatched → Raiding marker
+        // Phase 1: 3 raiders dispatched → Raiding
         1 => {
             test.phase_name = format!("raiding={}/3 alive={}", raiding, alive);
             if raiding >= 3 {
@@ -82,9 +90,8 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("raiding={} alive={}", raiding, alive));
             }
         }
-        // Phase 2: Raiders arrive at farm (raiding count stays or transitions)
+        // Phase 2: Raiders arrive at farm (transitions to Returning with food)
         2 => {
-            // Track when any raider arrives (transitions to Returning with CarryingFood)
             test.phase_name = format!("raiding={} returning={} carrying={}", raiding, returning, carrying);
             if returning > 0 || carrying > 0 {
                 test.pass_phase(elapsed, format!("returning={} carrying={}", returning, carrying));
@@ -92,13 +99,12 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("raiding={} returning=0", raiding));
             }
         }
-        // Phase 3: Food stolen (farm food decreases is implicit — raider took it)
+        // Phase 3: Food stolen (raider has food)
         3 => {
             test.phase_name = format!("carrying={} returning={}", carrying, returning);
             if carrying > 0 {
                 test.pass_phase(elapsed, format!("carrying={}", carrying));
             } else if returning > 0 {
-                // Already returning without carry flag = already delivered
                 test.pass_phase(elapsed, format!("returning={} (already delivered?)", returning));
             } else if elapsed > 35.0 {
                 test.fail_phase(elapsed, format!("carrying=0 returning=0"));

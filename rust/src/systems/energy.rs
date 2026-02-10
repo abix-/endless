@@ -13,7 +13,7 @@ const ENERGY_DRAIN_PER_HOUR: f32 = 100.0 / 24.0;   // 24 hours to empty (active)
 /// Uses game time so it respects time_scale.
 /// State transitions (wake-up, stop working) are handled in decision_system.
 pub fn energy_system(
-    mut query: Query<(&mut Energy, Option<&Resting>)>,
+    mut query: Query<(&mut Energy, &Activity)>,
     time: Res<Time>,
     game_time: Res<GameTime>,
 ) {
@@ -24,8 +24,8 @@ pub fn energy_system(
     // Convert delta to game hours
     let hours_elapsed = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
 
-    for (mut energy, resting) in query.iter_mut() {
-        if resting.is_some() {
+    for (mut energy, activity) in query.iter_mut() {
+        if matches!(activity, Activity::Resting { .. }) {
             energy.0 = (energy.0 + ENERGY_RECOVER_PER_HOUR * hours_elapsed).min(100.0);
         } else {
             energy.0 = (energy.0 - ENERGY_DRAIN_PER_HOUR * hours_elapsed).max(0.0);

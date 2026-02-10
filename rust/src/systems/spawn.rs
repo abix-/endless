@@ -117,7 +117,7 @@ pub fn spawn_npc_system(
         let current_hour = game_time.total_hours();
         let mut ec = commands.spawn((
             NpcIndex(idx),
-            Position::new(msg.x, msg.y),  // Phase 11: Bevy owns position
+            Position::new(msg.x, msg.y),
             job,
             TownId(msg.town_idx),
             Speed::default(),
@@ -126,7 +126,9 @@ pub fn spawn_npc_system(
             Faction::from_i32(msg.faction),
             Home(Vec2::new(msg.home_x, msg.home_y)),
             personality,
-            LastAteHour(current_hour),  // Track when NPC last ate for starvation
+            LastAteHour(current_hour),
+            Activity::default(),
+            CombatState::default(),
         ));
 
         // Job template — determines component bundle
@@ -138,23 +140,19 @@ pub fn spawn_npc_system(
                 ec.insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)));
                 if msg.starting_post >= 0 {
                     let patrol_posts = build_patrol_route(&world_data, msg.town_idx as u32);
-                    ec.insert((
-                        PatrolRoute {
-                            posts: patrol_posts,
-                            current: msg.starting_post as usize,
-                        },
-                        OnDuty { ticks_waiting: 0 },
-                    ));
+                    ec.insert(PatrolRoute {
+                        posts: patrol_posts,
+                        current: msg.starting_post as usize,
+                    });
+                    ec.insert(Activity::OnDuty { ticks_waiting: 0 });
                 }
             }
             Job::Farmer => {
                 ec.insert(Energy::default());
                 ec.insert(Farmer);
                 if msg.work_x >= 0.0 {
-                    ec.insert((
-                        WorkPosition(Vec2::new(msg.work_x, msg.work_y)),
-                        GoingToWork,
-                    ));
+                    ec.insert(WorkPosition(Vec2::new(msg.work_x, msg.work_y)));
+                    ec.insert(Activity::GoingToWork);
                 }
             }
             Job::Raider => {

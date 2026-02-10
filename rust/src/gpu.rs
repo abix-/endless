@@ -25,7 +25,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::{NpcIndex, Faction, Job, Healing, Resting, CarryingFood, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
+use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::{HEAL_SPRITE, SLEEP_SPRITE, FOOD_SPRITE};
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, GPU_READ_STATE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, PROJ_HIT_STATE};
 use crate::resources::NpcCount;
@@ -265,9 +265,8 @@ impl NpcBufferWrites {
 pub fn sync_visual_sprites(
     mut buffer: ResMut<NpcBufferWrites>,
     all_npcs: Query<(
-        &NpcIndex, &Faction, &Job,
-        Option<&Healing>, Option<&Resting>,
-        Option<&CarryingFood>,
+        &NpcIndex, &Faction, &Job, &Activity,
+        Option<&Healing>,
         Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
     ), Without<Dead>>,
     npc_count: Res<NpcCount>,
@@ -311,7 +310,7 @@ pub fn sync_visual_sprites(
     }
 
     // Set from ECS
-    for (npc_idx, faction, job, healing, resting, carrying, weapon, helmet, armor) in all_npcs.iter() {
+    for (npc_idx, faction, job, activity, healing, weapon, helmet, armor) in all_npcs.iter() {
         let idx = npc_idx.0;
         let j = idx * 2;
 
@@ -349,8 +348,8 @@ pub fn sync_visual_sprites(
             }
         }
 
-        // Carried item (food)
-        if carrying.is_some() && j + 1 < buffer.item_sprites.len() {
+        // Carried item (food) — derived from Activity::Returning { has_food: true }
+        if matches!(activity, Activity::Returning { has_food: true }) && j + 1 < buffer.item_sprites.len() {
             buffer.item_sprites[j] = FOOD_SPRITE.0;
             buffer.item_sprites[j + 1] = FOOD_SPRITE.1;
         }
@@ -361,8 +360,8 @@ pub fn sync_visual_sprites(
             buffer.healing_sprites[j + 1] = HEAL_SPRITE.1;
         }
 
-        // Sleep indicator
-        if resting.is_some() && j + 1 < buffer.status_sprites.len() {
+        // Sleep indicator — derived from Activity::Resting
+        if matches!(activity, Activity::Resting { .. }) && j + 1 < buffer.status_sprites.len() {
             buffer.status_sprites[j] = SLEEP_SPRITE.0;
             buffer.status_sprites[j + 1] = SLEEP_SPRITE.1;
         }

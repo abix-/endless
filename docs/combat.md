@@ -52,8 +52,7 @@ DamageMsg (from Bevy MessageWriter)            GPU movement
 | Faction | `struct(i32)` | Faction ID (0=Villager, 1+=Raider camps). NPCs attack different factions. |
 | AttackStats | struct | `range, damage, cooldown, projectile_speed, projectile_lifetime` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
-| InCombat | marker | Prevents behavior systems from overriding chase target |
-| CombatOrigin | `{ x, y }` | Position where combat started; used for leash distance |
+| CombatState | enum | `None`, `Fighting { origin: Vec2 }`, `Fleeing` — orthogonal to Activity enum (see [behavior.md](behavior.md)) |
 
 ## System Pipeline
 
@@ -67,11 +66,10 @@ Execution order is **chained** — each system completes before the next starts.
 ### 2. attack_system (combat.rs)
 - Reads `GpuReadState.combat_targets` for each NPC with AttackStats
 - If target is valid (not -1) and in bounds:
-  - Marks `InCombat` + adds `CombatOrigin` (stores current position)
-  - **In range + cooldown ready**: resets `AttackTimer` (damage not yet dealt — TODO)
+  - Sets `CombatState::Fighting { origin }` (stores current position)
+  - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
   - **Out of range**: pushes `GpuUpdate::SetTarget` to chase
-- If no target: removes `InCombat` and `CombatOrigin` (keeps `Raiding` so decision_system can re-target farm)
-- **Note**: `GpuReadState.combat_targets` is currently empty — no GPU→CPU readback implemented
+- If no target: sets `CombatState::None` (Activity is preserved — e.g. Raiding NPC stays Raiding so decision_system can re-target farm)
 
 ### 3. damage_system (health.rs)
 - Drains `DamageMsg` events from Bevy MessageReader
@@ -94,7 +92,7 @@ Execution order is **chained** — each system completes before the next starts.
      - Target → (-9999, -9999) — prevents zombie movement
      - Arrival → 1 — stops GPU from computing movement
      - Health → 0 — ensures click detection skips slot
-  4. Release `AssignedFarm` occupancy if Working
+  4. Release `AssignedFarm` occupancy if `Activity::Working`
   5. Remove from `RaidQueue` if Raider
   6. Update stats: `PopulationStats` (dec_alive, inc_dead, dec_working), `FactionStats` (dec_alive, inc_dead), `KillStats`
   7. Remove from `NpcsByTownCache`
@@ -142,7 +140,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **No generational indices**: Stale references to recycled slots would silently alias. Currently safe due to chained execution, but would break if damage messages span frames.
 - **Two stat presets only**: AttackStats has `melee()` and `ranged()` constructors. Per-NPC stat variation beyond these presets would need spawn-time overrides.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
-- **InCombat blocks all behavior**: Once in combat, NPCs can't rest, patrol, or work until the target dies or leaves range.
+- **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
 - **KillStats naming inverted**: `guard_kills` tracks raiders killed (by guards), `villager_kills` tracks villagers killed (by raiders). The names describe the victim, not the killer.
 
 ## Rating: 4/10

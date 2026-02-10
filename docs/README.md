@@ -34,11 +34,11 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `vertical-slice` | 8 | Full core loop: spawn → work → raid → combat → death → respawn |
 | `spawning` | 4 | Spawn entities, kill via health=0, slot freed, slot reused |
 | `energy` | 3 | Energy starts at 100, drains over time, reaches ENERGY_HUNGRY |
-| `movement` | 3 | HasTarget added, GPU positions update, AtDestination on arrival |
+| `movement` | 3 | Transit activity set, GPU positions update, AtDestination on arrival |
 | `guard-patrol` | 5 | OnDuty → Patrolling → OnDuty → rest when tired → resume |
 | `farmer-cycle` | 5 | GoingToWork → Working → tired → rest → recover → return |
 | `raider-cycle` | 5 | Dispatch group → arrive at farm → steal → return → deliver |
-| `combat` | 6 | GPU targeting → InCombat → damage → health drop → death → slot freed |
+| `combat` | 6 | GPU targeting → Fighting → damage → health drop → death → slot freed |
 | `projectiles` | 4 | Ranged targeting → projectile spawn → hit + damage → slot freed |
 | `healing` | 3 | Damaged NPC near town → Healing marker → health recovers to max |
 | `economy` | 5 | Farm growing → ready → harvest → camp forage → raider respawn |
@@ -122,7 +122,7 @@ rust/
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning
   src/messages.rs       # Static queues (GpuUpdate), Message types
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, states)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, Activity/CombatState enums)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
   src/world.rs          # World data structs, world grid, procedural generation, tileset builder

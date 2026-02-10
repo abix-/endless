@@ -59,14 +59,14 @@ pub struct SlotAllocator {
 
 ## spawn_npc_system
 
-Base components (all NPCs): `NpcIndex`, `Position`, `Job`, `TownId`, `Speed(100)`, `Health(100)`, `MaxHealth(100)`, `Faction`, `Home`, `Personality`, `LastAteHour`
+Base components (all NPCs): `NpcIndex`, `Position`, `Job`, `TownId`, `Speed(100)`, `Health(100)`, `MaxHealth(100)`, `Faction`, `Home`, `Personality`, `LastAteHour`, `Activity::default()`, `CombatState::default()`
 
 Job-specific templates:
 
 | Job | Additional Components |
 |-----|----------------------|
-| Guard | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
-| Farmer | `Energy`, `Farmer`, `WorkPosition`, `GoingToWork` (HasTarget auto-inserted via `#[require]`) |
+| Guard | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
+| Farmer | `Energy`, `Farmer`, `WorkPosition`, `Activity::GoingToWork` |
 | Raider | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)`, `EquippedWeapon` |
 | Fighter | `AttackStats` (melee or ranged via attack_type), `AttackTimer(0)` |
 

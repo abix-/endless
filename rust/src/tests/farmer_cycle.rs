@@ -37,10 +37,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
 }
 
 pub fn tick(
-    going_work_query: Query<(), (With<GoingToWork>, With<Farmer>, Without<Dead>)>,
-    working_query: Query<(), (With<Working>, With<Farmer>, Without<Dead>)>,
-    going_rest_query: Query<(), (With<GoingToRest>, With<Farmer>, Without<Dead>)>,
-    resting_query: Query<(), (With<Resting>, With<Farmer>, Without<Dead>)>,
+    activity_query: Query<&Activity, (With<Farmer>, Without<Dead>)>,
     mut energy_query: Query<&mut Energy, (With<Farmer>, Without<Dead>)>,
     farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
     time: Res<Time>,
@@ -56,13 +53,13 @@ pub fn tick(
     }
 
     let energy = energy_query.iter().next().map(|e| e.0).unwrap_or(100.0);
-    let going_work = going_work_query.iter().count();
-    let working = working_query.iter().count();
-    let going_rest = going_rest_query.iter().count();
-    let resting = resting_query.iter().count();
+    let going_work = activity_query.iter().filter(|a| matches!(a, Activity::GoingToWork)).count();
+    let working = activity_query.iter().filter(|a| matches!(a, Activity::Working)).count();
+    let going_rest = activity_query.iter().filter(|a| matches!(a, Activity::GoingToRest)).count();
+    let resting = activity_query.iter().filter(|a| matches!(a, Activity::Resting { .. })).count();
 
     match test.phase {
-        // Phase 1: Farmer spawns with GoingToWork + HasTarget
+        // Phase 1: Farmer spawns with GoingToWork
         1 => {
             test.phase_name = format!("going_work={} working={}", going_work, working);
             if going_work > 0 || working > 0 {

@@ -1,5 +1,5 @@
 //! Movement & Arrival Test (3 phases)
-//! Validates: NPCs get HasTarget, GPU positions update, AtDestination on arrival.
+//! Validates: NPCs get transit Activity, GPU positions update, AtDestination on arrival.
 
 use bevy::prelude::*;
 use crate::components::*;
@@ -45,10 +45,8 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
 }
 
 pub fn tick(
-    has_target_query: Query<(), (With<HasTarget>, With<NpcIndex>, Without<Dead>)>,
-    going_to_work_query: Query<(), (With<GoingToWork>, With<NpcIndex>, Without<Dead>)>,
+    activity_query: Query<&Activity, (With<NpcIndex>, Without<Dead>)>,
     at_dest_query: Query<(), (With<AtDestination>, With<NpcIndex>, Without<Dead>)>,
-    working_query: Query<(), (With<Working>, With<NpcIndex>, Without<Dead>)>,
     gpu_state: Res<GpuReadState>,
     npc_count: Res<NpcCount>,
     time: Res<Time>,
@@ -57,24 +55,23 @@ pub fn tick(
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     match test.phase {
-        // Phase 1: 3 NPCs have HasTarget or GoingToWork (movement initiated)
+        // Phase 1: 3 NPCs in transit or working (movement initiated)
         1 => {
-            let has_target = has_target_query.iter().count();
-            let going_work = going_to_work_query.iter().count();
-            let moving = has_target + going_work;
-            test.phase_name = format!("moving={}/3 (target={} going_work={})", moving, has_target, going_work);
-            if moving >= 3 {
-                test.pass_phase(elapsed, format!("moving={}", moving));
+            let transit = activity_query.iter().filter(|a| a.is_transit()).count();
+            let working = activity_query.iter().filter(|a| matches!(a, Activity::Working)).count();
+            test.phase_name = format!("transit={}/3 working={}", transit, working);
+            if transit + working >= 3 {
+                test.pass_phase(elapsed, format!("transit={} working={}", transit, working));
             } else if npc_count.0 >= 3 && elapsed > 0.5 {
-                // Farmers with work_x get GoingToWork+HasTarget at spawn
+                // Farmers with work_x get GoingToWork at spawn
                 // If not seen, might have already arrived (unlikely at 150px)
-                let arrived = at_dest_query.iter().count() + working_query.iter().count();
-                if arrived + moving >= 3 {
-                    test.pass_phase(elapsed, format!("moving={} arrived={}", moving, arrived));
+                let at_dest = at_dest_query.iter().count();
+                if transit + working + at_dest >= 3 {
+                    test.pass_phase(elapsed, format!("transit={} working={} at_dest={}", transit, working, at_dest));
                 }
             }
             if elapsed > 5.0 {
-                test.fail_phase(elapsed, format!("moving={} npc_count={}", moving, npc_count.0));
+                test.fail_phase(elapsed, format!("transit={} working={} npc_count={}", transit, working, npc_count.0));
             }
         }
         // Phase 2: GPU positions have changed (not all at spawn Y)
@@ -101,17 +98,16 @@ pub fn tick(
         // Phase 3: NPCs arrive (AtDestination or Working — decision_system transitions AtDest→Working)
         3 => {
             let at_dest = at_dest_query.iter().count();
-            let working = working_query.iter().count();
+            let working = activity_query.iter().filter(|a| matches!(a, Activity::Working)).count();
             let arrived = at_dest + working;
             test.phase_name = format!("arrived={}/3 (at_dest={} working={})", arrived, at_dest, working);
             if arrived >= 1 {
                 test.pass_phase(elapsed, format!("arrived={} (at_dest={} working={})", arrived, at_dest, working));
                 test.complete(elapsed);
             } else if elapsed > 15.0 {
-                let has_target = has_target_query.iter().count();
-                let going_work = going_to_work_query.iter().count();
+                let transit = activity_query.iter().filter(|a| a.is_transit()).count();
                 test.fail_phase(elapsed, format!(
-                    "arrived=0 has_target={} going_work={}", has_target, going_work));
+                    "arrived=0 transit={}", transit));
             }
         }
         _ => {}

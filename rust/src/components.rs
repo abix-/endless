@@ -59,11 +59,6 @@ impl Job {
     }
 }
 
-/// Marker component: this NPC has an active target to move toward.
-/// Added when set_target() is called, could be removed when arrived.
-#[derive(Component, Default)]
-pub struct HasTarget;
-
 /// Movement speed in pixels per second.
 #[derive(Component, Clone, Copy)]
 pub struct Speed(pub f32);
@@ -128,46 +123,82 @@ pub struct PatrolRoute {
 pub struct WorkPosition(pub Vec2);
 
 // ============================================================================
-// STATE MARKERS (mutually exclusive)
+// NPC STATE — Two orthogonal enums (Activity × CombatState)
 // ============================================================================
 
-/// NPC is moving toward next patrol post.
-#[derive(Component)]
-#[require(HasTarget)]
-pub struct Patrolling;
-
-/// NPC is standing at a post, waiting before moving to next.
-#[derive(Component)]
-pub struct OnDuty {
-    pub ticks_waiting: u32,
+/// What the NPC is *doing*. Mutually exclusive — an NPC is in exactly one activity.
+/// Transit variants (Patrolling, GoingToWork, GoingToRest, Wandering, Raiding, Returning)
+/// mean the NPC is moving toward a destination; use `is_transit()` to check.
+#[derive(Component, Default, Clone, Debug, PartialEq)]
+pub enum Activity {
+    #[default]
+    Idle,
+    Working,
+    OnDuty { ticks_waiting: u32 },
+    Patrolling,
+    GoingToWork,
+    GoingToRest,
+    Resting { recover_until: Option<f32> },
+    Wandering,
+    Raiding { target: Vec2 },
+    Returning { has_food: bool },
 }
 
-/// NPC is at home/bed recovering energy. Optional HP threshold for wounded recovery.
-#[derive(Component, Default)]
-pub struct Resting {
-    /// None = normal energy rest, Some(0.75) = wounded rest (wait for HP too)
-    pub recover_until: Option<f32>,
+impl Activity {
+    /// Is this NPC moving toward a destination?
+    pub fn is_transit(&self) -> bool {
+        matches!(self, Self::Patrolling | Self::GoingToWork | Self::GoingToRest
+            | Self::Wandering | Self::Raiding { .. } | Self::Returning { .. })
+    }
+
+    /// Display name for UI/debug.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Idle => "Idle",
+            Self::Working => "Working",
+            Self::OnDuty { .. } => "On Duty",
+            Self::Patrolling => "Patrolling",
+            Self::GoingToWork => "Going to Work",
+            Self::GoingToRest => "Going to Rest",
+            Self::Resting { recover_until: Some(_) } => "Recovering",
+            Self::Resting { recover_until: None } => "Resting",
+            Self::Wandering => "Wandering",
+            Self::Raiding { .. } => "Raiding",
+            Self::Returning { has_food: true } => "Returning (food)",
+            Self::Returning { has_food: false } => "Returning",
+        }
+    }
 }
 
-/// NPC is walking home to rest.
-#[derive(Component)]
-#[require(HasTarget)]
-pub struct GoingToRest;
+/// Whether the NPC is in combat. Orthogonal to Activity — a Raiding NPC can be Fighting.
+/// Activity is preserved through combat so the NPC resumes what it was doing when combat ends.
+#[derive(Component, Default, Clone, Debug, PartialEq)]
+pub enum CombatState {
+    #[default]
+    None,
+    Fighting { origin: Vec2 },
+    Fleeing,
+}
 
-/// NPC is at work position, working.
-#[derive(Component)]
-pub struct Working;
+impl CombatState {
+    pub fn is_fighting(&self) -> bool {
+        matches!(self, Self::Fighting { .. })
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Fighting { .. } => "Fighting",
+            Self::Fleeing => "Fleeing",
+        }
+    }
+}
 
 /// Farmer's assigned farm position for occupancy tracking.
 /// Added when entering Working at a farm, removed when leaving.
 /// Stores position (not index) so buildings can be deleted without breaking refs.
 #[derive(Component)]
 pub struct AssignedFarm(pub Vec2);
-
-/// NPC is walking to work position.
-#[derive(Component)]
-#[require(HasTarget)]
-pub struct GoingToWork;
 
 /// NPC has arrived at destination and needs transition handling.
 /// Set by gpu_position_readback when within ARRIVAL_THRESHOLD; cleared by decision_system.
@@ -265,21 +296,8 @@ impl Default for AttackStats {
 #[derive(Component, Default)]
 pub struct AttackTimer(pub f32);
 
-/// Marker: NPC is actively fighting (has valid combat target).
-/// Behavior systems should skip NPCs with this component.
-#[derive(Component)]
-pub struct InCombat;
-
-/// Position where combat started. Used for leash distance calculation.
-/// Leash triggers if NPC moves too far from this point while chasing.
-#[derive(Component)]
-pub struct CombatOrigin {
-    pub x: f32,
-    pub y: f32,
-}
-
 // ============================================================================
-// STEALING / RAIDING COMPONENTS
+// STEALING / EQUIPMENT COMPONENTS
 // ============================================================================
 
 /// Marker: this NPC steals food from farms. Any NPC with this + Home
@@ -304,26 +322,6 @@ pub struct EquippedHelmet(pub f32, pub f32);
 /// Equipped armor sprite (col, row in atlas). Presence = has armor.
 #[derive(Component, Clone, Copy)]
 pub struct EquippedArmor(pub f32, pub f32);
-
-/// Marker for backwards compat - will be removed
-#[derive(Component)]
-pub struct CarryingFood;
-
-/// State: NPC is walking to a farm to steal food.
-#[derive(Component)]
-#[require(HasTarget)]
-pub struct Raiding;
-
-/// State: NPC is walking back to home base (with or without food).
-#[derive(Component)]
-#[require(HasTarget)]
-pub struct Returning;
-
-/// State: NPC is wandering to a random nearby position.
-#[derive(Component)]
-#[require(HasTarget)]
-pub struct Wandering;
-
 
 /// Marker: NPC is inside a healing aura (near own faction's town center).
 /// Used for visual feedback (halo effect).

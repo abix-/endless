@@ -1,6 +1,19 @@
 # Changelog
 
 ## 2026-02-10
+- **two-enum state machine: Activity + CombatState replace 13 marker components**
+  - add `Activity` enum (Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, Wandering, Raiding, Returning) — models what NPC is *doing*
+  - add `CombatState` enum (None, Fighting, Fleeing) — models whether NPC is *fighting*
+  - concurrent state machines pattern: Activity preserved through combat (Raiding NPC stays Raiding while Fighting)
+  - `Activity::is_transit()` replaces `HasTarget` marker — arrival detection derived from enum state
+  - `Returning { has_food }` replaces `CarryingFood` marker — food state folded into activity
+  - `Resting { recover_until: Some(t) }` replaces `Recovering` component — recovery folded into rest
+  - remove 13 components: HasTarget, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, Wandering, Raiding, Returning, InCombat, CombatOrigin, CarryingFood
+  - remove `NpcStateParams` and `CombatParams` SystemParam bundles (enum queries replace marker queries)
+  - update all 18 files: components, lib, 6 systems, gpu, ui, 8 tests
+  - fix Bevy B0001 query conflict: `Without<AssignedFarm>` on arrival_system returning query for disjointness
+  - cargo check: 0 errors, 0 warnings; cargo run --release: launches clean
+
 - **fix terrain z-ordering: AlphaMode2d::Opaque → Blend**
   - terrain was rendering over NPCs because Opaque2d phase executes after Transparent2d regardless of z-value
   - both tilemap layers now use AlphaMode2d::Blend in Transparent2d phase (terrain z=-1.0, buildings z=-0.5, NPCs sort_key=0.0)

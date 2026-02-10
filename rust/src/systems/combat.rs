@@ -35,10 +35,8 @@ pub fn cooldown_system(
 
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
-/// Note: Projectile firing will be handled by Bevy rendering in Phase 3.
 pub fn attack_system(
-    mut commands: Commands,
-    mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, Option<&InCombat>), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, &mut CombatState), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
@@ -60,7 +58,7 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (entity, npc_idx, stats, mut timer, faction, in_combat) in query.iter_mut() {
+    for (_entity, npc_idx, stats, mut timer, faction, mut combat_state) in query.iter_mut() {
         attackers += 1;
         let i = npc_idx.0;
 
@@ -70,12 +68,10 @@ pub fn attack_system(
             sample_target = target_idx;
         }
 
-        // No combat target - clear combat state, keep Raiding so decision_system re-targets farm
+        // No combat target - clear combat state, activity preserved so NPC resumes
         if target_idx < 0 {
-            if in_combat.is_some() {
-                commands.entity(entity)
-                    .remove::<InCombat>()
-                    .remove::<CombatOrigin>();
+            if combat_state.is_fighting() {
+                *combat_state = CombatState::None;
             }
             continue;
         }
@@ -91,10 +87,8 @@ pub fn attack_system(
 
         let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
 
-        if in_combat.is_none() {
-            commands.entity(entity)
-                .insert(InCombat)
-                .insert(CombatOrigin { x, y });  // Store where combat started
+        if !combat_state.is_fighting() {
+            *combat_state = CombatState::Fighting { origin: Vec2::new(x, y) };
             in_combat_added += 1;
         }
         let (tx, ty) = (positions[ti * 2], positions[ti * 2 + 1]);

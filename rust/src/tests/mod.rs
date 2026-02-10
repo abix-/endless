@@ -425,7 +425,7 @@ pub fn register_tests(app: &mut App) {
     // combat
     registry.tests.push(TestEntry {
         name: "combat".into(),
-        description: "GPU targeting → InCombat → damage → death → slot freed".into(),
+        description: "GPU targeting → Fighting → damage → death → slot freed".into(),
         phase_count: 6,
         time_scale: 1.0,
     });

@@ -42,10 +42,7 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    on_duty_query: Query<&OnDuty, (With<Guard>, Without<Dead>)>,
-    patrolling_query: Query<(), (With<Patrolling>, With<Guard>, Without<Dead>)>,
-    resting_query: Query<(), (With<Resting>, With<Guard>, Without<Dead>)>,
-    going_rest_query: Query<(), (With<GoingToRest>, With<Guard>, Without<Dead>)>,
+    activity_query: Query<&Activity, (With<Guard>, Without<Dead>)>,
     mut energy_query: Query<&mut Energy, (With<Guard>, Without<Dead>)>,
     guard_query: Query<(), (With<Guard>, Without<Dead>)>,
     mut last_ate_query: Query<&mut LastAteHour, Without<Dead>>,
@@ -64,10 +61,10 @@ pub fn tick(
     }
 
     let energy = energy_query.iter().next().map(|e| e.0).unwrap_or(100.0);
-    let on_duty = on_duty_query.iter().count();
-    let patrolling = patrolling_query.iter().count();
-    let resting = resting_query.iter().count();
-    let going_rest = going_rest_query.iter().count();
+    let on_duty = activity_query.iter().filter(|a| matches!(a, Activity::OnDuty { .. })).count();
+    let patrolling = activity_query.iter().filter(|a| matches!(a, Activity::Patrolling)).count();
+    let resting = activity_query.iter().filter(|a| matches!(a, Activity::Resting { .. })).count();
+    let going_rest = activity_query.iter().filter(|a| matches!(a, Activity::GoingToRest)).count();
 
     match test.phase {
         // Phase 1: Guard starts OnDuty at post 0
@@ -85,14 +82,15 @@ pub fn tick(
             if patrolling > 0 {
                 test.pass_phase(elapsed, format!("Patrolling (energy={:.0})", energy));
             } else if elapsed > 15.0 {
-                let ticks = on_duty_query.iter().next().map(|d| d.ticks_waiting).unwrap_or(0);
+                let ticks = activity_query.iter().find_map(|a| {
+                    if let Activity::OnDuty { ticks_waiting } = a { Some(*ticks_waiting) } else { None }
+                }).unwrap_or(0);
                 test.fail_phase(elapsed, format!("patrolling=0 ticks={}", ticks));
             }
         }
         // Phase 3: Arrives at next post → OnDuty again
         3 => {
             test.phase_name = format!("on_duty={} patrolling={} e={:.0}", on_duty, patrolling, energy);
-            // Must have been patrolling first (Phase 2 passed), now back to OnDuty
             if on_duty > 0 {
                 test.pass_phase(elapsed, format!("OnDuty again (energy={:.0})", energy));
             } else if elapsed > 20.0 {

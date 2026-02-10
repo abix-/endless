@@ -63,7 +63,7 @@ pub fn death_system(
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, Option<&Working>, Option<&AssignedFarm>), With<Dead>>,
+    query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, &Activity, Option<&AssignedFarm>), With<Dead>>,
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
     mut faction_stats: ResMut<FactionStats>,
@@ -76,13 +76,13 @@ pub fn death_cleanup_system(
     mut raid_queue: ResMut<RaidQueue>,
 ) {
     let mut despawn_count = 0;
-    for (entity, npc_idx, job, town_id, faction, working, assigned_farm) in query.iter() {
+    for (entity, npc_idx, job, town_id, faction, activity, assigned_farm) in query.iter() {
         let idx = npc_idx.0;
         commands.entity(entity).despawn();
         despawn_count += 1;
         pop_dec_alive(&mut pop_stats, *job, town_id.0);
         pop_inc_dead(&mut pop_stats, *job, town_id.0);
-        if working.is_some() {
+        if matches!(activity, Activity::Working) {
             pop_dec_working(&mut pop_stats, *job, town_id.0);
         }
 
