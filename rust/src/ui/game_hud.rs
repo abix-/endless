@@ -25,23 +25,30 @@ pub struct NpcStateQuery<'w, 's> {
     ), Without<Dead>>,
 }
 
+/// Bundled readonly resources for HUD display.
+#[derive(SystemParam)]
+pub struct HudData<'w> {
+    game_time: Res<'w, GameTime>,
+    npc_count: Res<'w, NpcCount>,
+    kill_stats: Res<'w, KillStats>,
+    food_storage: Res<'w, FoodStorage>,
+    faction_stats: Res<'w, FactionStats>,
+    meta_cache: Res<'w, NpcMetaCache>,
+    energy_cache: Res<'w, NpcEnergyCache>,
+    npc_logs: Res<'w, NpcLogCache>,
+}
+
 pub fn game_hud_system(
     mut contexts: EguiContexts,
-    game_time: Res<GameTime>,
-    npc_count: Res<NpcCount>,
-    kill_stats: Res<KillStats>,
-    food_storage: Res<FoodStorage>,
-    faction_stats: Res<FactionStats>,
+    data: HudData,
     selected: Res<SelectedNpc>,
-    meta_cache: Res<NpcMetaCache>,
-    energy_cache: Res<NpcEnergyCache>,
     world_data: Res<WorldData>,
-    health_query: Query<(&NpcIndex, &Health, &MaxHealth), Without<Dead>>,
+    health_query: Query<(&NpcIndex, &Health, &CachedStats), Without<Dead>>,
     npc_states: NpcStateQuery,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<NpcBufferWrites>,
-    npc_logs: Res<NpcLogCache>,
     mut ui_state: ResMut<UiState>,
+    mut follow: ResMut<FollowSelected>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     let mut copy_text: Option<String> = None;
@@ -51,30 +58,30 @@ pub fn game_hud_system(
         ui.separator();
 
         // Time
-        let period = if game_time.is_daytime() { "Day" } else { "Night" };
+        let period = if data.game_time.is_daytime() { "Day" } else { "Night" };
         ui.label(format!("Day {} - {:02}:{:02} ({})",
-            game_time.day(), game_time.hour(), game_time.minute(), period));
-        ui.label(format!("Speed: {:.0}x{}", game_time.time_scale,
-            if game_time.paused { " [PAUSED]" } else { "" }));
+            data.game_time.day(), data.game_time.hour(), data.game_time.minute(), period));
+        ui.label(format!("Speed: {:.0}x{}", data.game_time.time_scale,
+            if data.game_time.paused { " [PAUSED]" } else { "" }));
         ui.small("Space=pause  +/-=speed");
         ui.separator();
 
         // Population
-        ui.label(format!("NPCs alive: {}", npc_count.0));
-        if let Some(villagers) = faction_stats.stats.first() {
+        ui.label(format!("NPCs alive: {}", data.npc_count.0));
+        if let Some(villagers) = data.faction_stats.stats.first() {
             ui.label(format!("Villagers: {} alive, {} dead", villagers.alive, villagers.dead));
         }
-        let raider_alive: i32 = faction_stats.stats.iter().skip(1).map(|s| s.alive).sum();
-        let raider_dead: i32 = faction_stats.stats.iter().skip(1).map(|s| s.dead).sum();
+        let raider_alive: i32 = data.faction_stats.stats.iter().skip(1).map(|s| s.alive).sum();
+        let raider_dead: i32 = data.faction_stats.stats.iter().skip(1).map(|s| s.dead).sum();
         ui.label(format!("Raiders: {} alive, {} dead", raider_alive, raider_dead));
         ui.label(format!("Kills: guard {} | raider {}",
-            kill_stats.guard_kills, kill_stats.villager_kills));
+            data.kill_stats.guard_kills, data.kill_stats.villager_kills));
         ui.separator();
 
         // Food
         let num_villager_towns = world_data.towns.len() / 2;
-        let town_food: i32 = food_storage.food.iter().take(num_villager_towns).sum();
-        let camp_food: i32 = food_storage.food.iter().skip(num_villager_towns).sum();
+        let town_food: i32 = data.food_storage.food.iter().take(num_villager_towns).sum();
+        let camp_food: i32 = data.food_storage.food.iter().skip(num_villager_towns).sum();
         ui.label(format!("Food: town {} | camp {}", town_food, camp_food));
         ui.separator();
 
@@ -82,9 +89,9 @@ pub fn game_hud_system(
         let sel = selected.0;
         if sel >= 0 {
             let idx = sel as usize;
-            if idx < meta_cache.0.len() {
-                let meta = &meta_cache.0[idx];
-                let energy = energy_cache.0.get(idx).copied().unwrap_or(0.0);
+            if idx < data.meta_cache.0.len() {
+                let meta = &data.meta_cache.0[idx];
+                let energy = data.energy_cache.0.get(idx).copied().unwrap_or(0.0);
 
                 ui.heading(format!("{}", meta.name));
                 ui.label(format!("{} Lv.{}", crate::job_name(meta.job), meta.level));
@@ -97,10 +104,10 @@ pub fn game_hud_system(
                 // Find HP from query
                 let mut hp = 0.0f32;
                 let mut max_hp = 100.0f32;
-                for (npc_idx, health, max_health) in health_query.iter() {
+                for (npc_idx, health, cached) in health_query.iter() {
                     if npc_idx.0 == idx {
                         hp = health.0;
-                        max_hp = max_health.0;
+                        max_hp = cached.max_health;
                         break;
                     }
                 }
@@ -136,6 +143,13 @@ pub fn game_hud_system(
                         ui.label(format!("Town: {}", town.name));
                     }
                 }
+
+                // Follow toggle
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(follow.0, "Follow (F)").clicked() {
+                        follow.0 = !follow.0;
+                    }
+                });
 
                 ui.separator();
 
@@ -191,8 +205,8 @@ pub fn game_hud_system(
                 // Recent log entries
                 ui.separator();
                 ui.label("Log:");
-                if idx < npc_logs.0.len() {
-                    let log = &npc_logs.0[idx];
+                if idx < data.npc_logs.0.len() {
+                    let log = &data.npc_logs.0[idx];
                     let start = if log.len() > 8 { log.len() - 8 } else { 0 };
                     for entry in log.iter().skip(start) {
                         ui.small(format!("D{}:{:02}:{:02} {}",
@@ -223,13 +237,13 @@ pub fn game_hud_system(
                         home = home_str,
                         faction = faction_str,
                         state = state_str,
-                        day = game_time.day(),
-                        hour = game_time.hour(),
-                        min = game_time.minute(),
+                        day = data.game_time.day(),
+                        hour = data.game_time.hour(),
+                        min = data.game_time.minute(),
                     );
                     // Append recent log
-                    if idx < npc_logs.0.len() {
-                        for entry in npc_logs.0[idx].iter() {
+                    if idx < data.npc_logs.0.len() {
+                        for entry in data.npc_logs.0[idx].iter() {
                             info.push_str(&format!("D{}:{:02}:{:02} {}\n",
                                 entry.day, entry.hour, entry.minute, entry.message));
                         }
@@ -279,6 +293,81 @@ pub fn game_hud_system(
             Err(e) => error!("Clipboard: failed to open: {e}"),
         }
     }
+
+    Ok(())
+}
+
+/// Draw a target indicator line from selected NPC to its movement target.
+/// Uses egui painter on the background layer so it renders over the game viewport.
+pub fn target_overlay_system(
+    mut contexts: EguiContexts,
+    selected: Res<SelectedNpc>,
+    gpu_state: Res<GpuReadState>,
+    buffer_writes: Res<NpcBufferWrites>,
+    camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
+    windows: Query<&Window>,
+) -> Result {
+    if selected.0 < 0 { return Ok(()); }
+    let idx = selected.0 as usize;
+
+    let positions = &gpu_state.positions;
+    let targets = &buffer_writes.targets;
+    if idx * 2 + 1 >= positions.len() || idx * 2 + 1 >= targets.len() { return Ok(()); }
+
+    let npc_x = positions[idx * 2];
+    let npc_y = positions[idx * 2 + 1];
+    if npc_x < -9000.0 { return Ok(()); }
+
+    let tgt_x = targets[idx * 2];
+    let tgt_y = targets[idx * 2 + 1];
+
+    // Skip if target == position (stationary)
+    let dx = tgt_x - npc_x;
+    let dy = tgt_y - npc_y;
+    if dx * dx + dy * dy < 4.0 { return Ok(()); }
+
+    let Ok(window) = windows.single() else { return Ok(()); };
+    let Ok((transform, projection)) = camera_query.single() else { return Ok(()); };
+
+    let zoom = match projection {
+        Projection::Orthographic(ortho) => 1.0 / ortho.scale,
+        _ => 1.0,
+    };
+    let cam = transform.translation.truncate();
+    let viewport = egui::Vec2::new(window.width(), window.height());
+    let center = viewport * 0.5;
+
+    // World→screen conversion (flip Y)
+    let npc_screen = egui::Pos2::new(
+        center.x + (npc_x - cam.x) * zoom,
+        center.y - (npc_y - cam.y) * zoom,
+    );
+    let tgt_screen = egui::Pos2::new(
+        center.x + (tgt_x - cam.x) * zoom,
+        center.y - (tgt_y - cam.y) * zoom,
+    );
+
+    let ctx = contexts.ctx_mut()?;
+    let painter = ctx.layer_painter(egui::LayerId::background());
+
+    // Line from NPC to target
+    let line_color = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 140);
+    painter.line_segment([npc_screen, tgt_screen], egui::Stroke::new(1.5, line_color));
+
+    // Diamond marker at target
+    let s = 5.0;
+    let diamond = [
+        egui::Pos2::new(tgt_screen.x, tgt_screen.y - s),
+        egui::Pos2::new(tgt_screen.x + s, tgt_screen.y),
+        egui::Pos2::new(tgt_screen.x, tgt_screen.y + s),
+        egui::Pos2::new(tgt_screen.x - s, tgt_screen.y),
+    ];
+    let fill = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 200);
+    painter.add(egui::Shape::convex_polygon(diamond.to_vec(), fill, egui::Stroke::NONE));
+
+    // Small circle highlight on NPC
+    let npc_color = egui::Color32::from_rgba_unmultiplied(100, 200, 255, 160);
+    painter.circle_stroke(npc_screen, 8.0, egui::Stroke::new(1.5, npc_color));
 
     Ok(())
 }

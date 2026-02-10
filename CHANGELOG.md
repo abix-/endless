@@ -2,6 +2,28 @@
 
 ## 2026-02-10
 
+- **stage 8: data-driven stats**
+  - add `systems/stats.rs`: `CombatConfig` resource with per-job `JobStats` + per-attack-type `AttackTypeStats`, `TownUpgrades` resource stub, `resolve_combat_stats()` resolver
+  - add `CachedStats` component on all NPCs — resolved from config on spawn, replaces `AttackStats` + `MaxHealth`
+  - add `BaseAttackType` enum (Melee/Ranged) as ECS component, keys into `CombatConfig.attacks` HashMap
+  - remove `AttackStats` struct and `MaxHealth` struct — `CachedStats` is single source of truth
+  - add `Hash` derive to `Job` (needed as HashMap key in CombatConfig)
+  - wire `Personality::get_stat_multipliers()` into resolver (was defined but never called)
+  - `attack_system` reads `&CachedStats` instead of `&AttackStats` (same query shape, data-driven)
+  - `healing_system` reads `CombatConfig.heal_rate`/`heal_radius` instead of local constants, `&CachedStats` instead of `&MaxHealth`
+  - `spawn_npc_system` and `reassign_npc_system` use resolver for all stats
+  - UI queries (`game_hud.rs`, `roster_panel.rs`) and tests (`healing.rs`) migrated from `&MaxHealth` to `&CachedStats`
+  - `#[cfg(debug_assertions)]` parity checks: assert resolved stats match old hardcoded values
+  - formula: `final_stat = base[job] * upgrade_mult * trait_mult * level_mult` (upgrades/levels all 1.0 in Stage 8)
+  - init values match exactly: guard/raider damage=15, all speeds=100, all max_health=100, heal_rate=5, heal_radius=150
+
+- **camera follow + target indicator**
+  - add `FollowSelected(bool)` resource, `camera_follow_system` in `render.rs` — tracks selected NPC position
+  - F key toggles follow mode, WASD cancels follow (natural override)
+  - add "Follow (F)" selectable button in game HUD NPC inspector
+  - add `target_overlay_system` using egui painter on background layer — yellow line + diamond to NPC's movement target, blue circle on NPC
+  - bundle 8 readonly HUD resources into `HudData` SystemParam to stay under 16-param limit
+
 - **performance: render world entity leak fix + scale-up**
   - fix render world entity leak: `extract_npc_batch` and `extract_proj_batch` now despawn stale entities before spawning fresh ones — previously accumulated one entity per frame, causing `command_buffer_generation_tasks` to grow linearly over time
   - scale GPU spatial grid from 128×128×64px (8,192px coverage) to 256×256×128px (32,768px coverage) — fixes NPCs not colliding or targeting on worlds larger than ~250×250

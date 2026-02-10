@@ -38,7 +38,7 @@ pub fn cooldown_system(
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
-    mut query: Query<(Entity, &NpcIndex, &AttackStats, &mut AttackTimer, &Faction, &mut CombatState), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
@@ -60,7 +60,7 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (_entity, npc_idx, stats, mut timer, faction, mut combat_state) in query.iter_mut() {
+    for (_entity, npc_idx, cached, mut timer, faction, mut combat_state) in query.iter_mut() {
         attackers += 1;
         let i = npc_idx.0;
 
@@ -103,7 +103,7 @@ pub fn attack_system(
             sample_dist = dist;
         }
 
-        if dist <= stats.range {
+        if dist <= cached.range {
             in_range_count += 1;
             if in_range_count == 1 {
                 sample_timer = timer.0;
@@ -120,12 +120,12 @@ pub fn attack_system(
                             queue.push(ProjGpuUpdate::Spawn {
                                 idx: proj_slot,
                                 x, y,
-                                vx: dir_x * stats.projectile_speed,
-                                vy: dir_y * stats.projectile_speed,
-                                damage: stats.damage,
+                                vx: dir_x * cached.projectile_speed,
+                                vy: dir_y * cached.projectile_speed,
+                                damage: cached.damage,
                                 faction: faction.0,
                                 shooter: i as i32,
-                                lifetime: stats.projectile_lifetime,
+                                lifetime: cached.projectile_lifetime,
                             });
                         }
                     }
@@ -133,12 +133,12 @@ pub fn attack_system(
                     // Point blank — apply damage directly (no projectile needed)
                     damage_events.write(DamageMsg {
                         npc_index: target_idx as usize,
-                        amount: stats.damage,
+                        amount: cached.damage,
                     });
                 }
 
                 attacks += 1;
-                timer.0 = stats.cooldown;
+                timer.0 = cached.cooldown;
             }
         } else {
             // Out of range - chase target

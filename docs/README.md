@@ -126,7 +126,7 @@ rust/
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, Activity/CombatState enums)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, BaseAttackType, CachedStats, Activity/CombatState enums)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, GuardPostState, ReassignQueue, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
@@ -134,7 +134,7 @@ rust/
   src/ui/
     mod.rs              # register_ui(), game startup, cleanup, escape/time controls, keyboard toggles, slot right-click, slot indicators
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
-    game_hud.rs         # In-game HUD (population, time, food, NPC inspector, panel toggles)
+    game_hud.rs         # In-game HUD (population, time, food, NPC inspector, panel toggles, target overlay)
     roster_panel.rs     # NPC list with sort/filter/select/follow/reassign (R key)
     combat_log.rs       # Event feed with color-coded timestamps (L key)
     build_menu.rs       # Right-click context menu: build/destroy/unlock town slots, turret toggle
@@ -159,6 +159,7 @@ rust/
     heal_visual.rs      # Heal icon visual test (3 phases)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>), reassign_npc_system (Farmer↔Guard)
+    stats.rs            # CombatConfig, TownUpgrades, resolve_combat_stats(), CachedStats resolver
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
     combat.rs           # Attack cooldown, targeting, guard post turret auto-attack

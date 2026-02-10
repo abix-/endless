@@ -32,7 +32,7 @@ use resources::{
     ResetFlag, GpuReadState, GpuDispatchCount, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
-    ReassignQueue, GuardPostState,
+    ReassignQueue, GuardPostState, FollowSelected,
 };
 use systems::*;
 use components::*;
@@ -214,6 +214,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CombatDebug>()
        .init_resource::<KillStats>()
        .init_resource::<SelectedNpc>()
+       .init_resource::<FollowSelected>()
        .init_resource::<NpcMetaCache>()
        .init_resource::<NpcEnergyCache>()
        .init_resource::<NpcsByTownCache>()
@@ -240,6 +241,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<BuildMenuContext>()
        .init_resource::<ReassignQueue>()
        .init_resource::<GuardPostState>()
+       .init_resource::<systems::stats::CombatConfig>()
+       .init_resource::<systems::stats::TownUpgrades>()
        .init_resource::<settings::UserSettings>()
        // Plugins
        .add_plugins(bevy_egui::EguiPlugin::default())

@@ -18,7 +18,7 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut health_query: Query<(&mut Health, &MaxHealth, &NpcIndex), (With<Farmer>, Without<Dead>)>,
+    mut health_query: Query<(&mut Health, &CachedStats, &NpcIndex), (With<Farmer>, Without<Dead>)>,
     healing_query: Query<(), (With<Healing>, With<Farmer>, Without<Dead>)>,
     mut last_ate_query: Query<&mut LastAteHour, Without<Dead>>,
     game_time: Res<GameTime>,
@@ -28,14 +28,14 @@ pub fn tick(
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     keep_fed(&mut last_ate_query, &game_time);
 
-    let Some((mut health, max_health, _)) = health_query.iter_mut().next() else {
+    let Some((mut health, cached, _)) = health_query.iter_mut().next() else {
         if !test.require_entity(0, elapsed, "farmer") { return; }
         return;
     };
 
     let healing = healing_query.iter().count();
     let hp = health.0;
-    let max_hp = max_health.0;
+    let max_hp = cached.max_health;
 
     match test.phase {
         // Phase 1: Set NPC to 50 HP, wait for Healing marker

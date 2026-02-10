@@ -154,6 +154,10 @@ pub struct KillStats {
 #[derive(Resource, Default)]
 pub struct SelectedNpc(pub i32);
 
+/// Camera follow mode — when true, camera tracks the selected NPC.
+#[derive(Resource, Default)]
+pub struct FollowSelected(pub bool);
+
 // ============================================================================
 // DEBUG RESOURCES
 // ============================================================================

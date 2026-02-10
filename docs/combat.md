@@ -53,10 +53,10 @@ attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or ap
 | Component | Type | Purpose |
 |-----------|------|---------|
 | Health | `f32` | Current HP (default 100.0) |
-| MaxHealth | `f32` | Maximum HP (default 100.0, used by healing system) |
 | Dead | marker | Inserted when health <= 0 |
 | Faction | `struct(i32)` | Faction ID (0=Villager, 1+=Raider camps). NPCs attack different factions. |
-| AttackStats | struct | `range, damage, cooldown, projectile_speed, projectile_lifetime` |
+| BaseAttackType | enum | `Melee` or `Ranged` — keys into `CombatConfig.attacks` HashMap |
+| CachedStats | struct | `damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed` — resolved from `CombatConfig` via `resolve_combat_stats()` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
 | CombatState | enum | `None`, `Fighting { origin: Vec2 }`, `Fleeing` — orthogonal to Activity enum (see [behavior.md](behavior.md)) |
 
@@ -70,7 +70,7 @@ Execution order is **chained** — each system completes before the next starts.
 - Updates `CombatDebug` with sample timer and entity count
 
 ### 2. attack_system (combat.rs)
-- Reads `GpuReadState.combat_targets` for each NPC with AttackStats
+- Reads `GpuReadState.combat_targets` for each NPC with CachedStats + BaseAttackType
 - If target is valid (not -1) and in bounds:
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
@@ -153,7 +153,6 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 ## Known Issues / Limitations
 
 - **No generational indices**: Stale references to recycled slots would silently alias. Currently safe due to chained execution, but would break if damage messages span frames.
-- **Two stat presets only**: AttackStats has `melee()` and `ranged()` constructors. Per-NPC stat variation beyond these presets would need spawn-time overrides.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
 - **KillStats naming inverted**: `guard_kills` tracks raiders killed (by guards), `villager_kills` tracks villagers killed (by raiders). The names describe the victim, not the killer.

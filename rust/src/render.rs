@@ -85,6 +85,7 @@ impl Plugin for RenderPlugin {
             .add_systems(Update, (
                 camera_pan_system,
                 camera_zoom_system,
+                camera_follow_system,
                 click_to_select_system,
                 spawn_world_tilemap,
                 sync_building_tilemap,
@@ -216,6 +217,26 @@ fn camera_zoom_system(
     let new_position = world_pos - mouse_offset / new_zoom;
     transform.translation.x = new_position.x;
     transform.translation.y = new_position.y;
+}
+
+/// Track the camera to the selected NPC when follow mode is active.
+fn camera_follow_system(
+    selected: Res<SelectedNpc>,
+    follow: Res<crate::resources::FollowSelected>,
+    gpu_state: Res<crate::resources::GpuReadState>,
+    mut query: Query<&mut Transform, With<MainCamera>>,
+) {
+    if !follow.0 || selected.0 < 0 { return; }
+    let idx = selected.0 as usize;
+    let positions = &gpu_state.positions;
+    if idx * 2 + 1 >= positions.len() { return; }
+    let x = positions[idx * 2];
+    let y = positions[idx * 2 + 1];
+    if x < -9000.0 { return; } // dead/hidden
+    if let Ok(mut transform) = query.single_mut() {
+        transform.translation.x = x;
+        transform.translation.y = y;
+    }
 }
 
 /// Left click to select nearest NPC within 20px.

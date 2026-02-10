@@ -36,7 +36,7 @@ pub fn roster_panel_system(
     ui_state: Res<UiState>,
     mut selected: ResMut<SelectedNpc>,
     meta_cache: Res<NpcMetaCache>,
-    health_query: Query<(&NpcIndex, &Health, &MaxHealth, &Activity, &CombatState), Without<Dead>>,
+    health_query: Query<(&NpcIndex, &Health, &CachedStats, &Activity, &CombatState), Without<Dead>>,
     mut state: Local<RosterState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<GpuReadState>,
@@ -52,7 +52,7 @@ pub fn roster_panel_system(
     state.frame_counter += 1;
     if state.frame_counter % 30 == 1 || state.cached_rows.is_empty() {
         let mut rows = Vec::new();
-        for (npc_idx, health, max_health, activity, combat) in health_query.iter() {
+        for (npc_idx, health, cached, activity, combat) in health_query.iter() {
             let idx = npc_idx.0;
             let meta = &meta_cache.0[idx];
 
@@ -73,7 +73,7 @@ pub fn roster_panel_system(
                 job: meta.job,
                 level: meta.level,
                 hp: health.0,
-                max_hp: max_health.0,
+                max_hp: cached.max_health,
                 state: state_str,
                 trait_name: crate::trait_name(meta.trait_id).to_string(),
             });

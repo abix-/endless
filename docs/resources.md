@@ -148,11 +148,23 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 `GpuReadState` is populated each frame by staging buffer readback. Used by combat systems, position sync, and test assertions.
 
+## Stats & Upgrades
+
+| Resource | Data | Defined In | Purpose |
+|----------|------|------------|---------|
+| CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats — resolved via `resolve_combat_stats()` |
+| TownUpgrades | `Vec<[u8; 14]>` per town | `systems/stats.rs` | Per-town upgrade levels (all zeros until Stage 9) |
+
+`CombatConfig::default()` initializes from hardcoded values (guard/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150). `resolve_combat_stats()` combines job base × upgrade mult × trait mult × level mult → `CachedStats` component.
+
+`TownUpgrades` is indexed by town, each entry is a fixed-size array of 14 upgrade levels (`UpgradeType` enum). Stage 8 keeps all at 0. Stage 9 enables the upgrade menu.
+
 ## Selection
 
 | Resource | Data | Purpose |
 |----------|------|---------|
 | SelectedNpc | `i32` (-1 = none) | Currently selected NPC for inspector panel |
+| FollowSelected | `bool` (default false) | When true, camera tracks selected NPC position each frame |
 
 ## Test Framework
 

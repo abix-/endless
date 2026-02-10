@@ -5,13 +5,9 @@ use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue, CombatLog, CombatEventKind, NpcMetaCache, GameTime};
+use crate::systems::stats::CombatConfig;
 use crate::systems::economy::*;
 use crate::world::{WorldData, FarmOccupancy, pos_to_key};
-
-/// Heal rate in HP per second when inside healing aura.
-const HEAL_RATE: f32 = 5.0;
-/// Radius of healing aura around town center in pixels.
-const HEAL_RADIUS: f32 = 150.0;
 
 /// Apply queued damage to Health component and sync to GPU.
 /// Uses NpcEntityMap for O(1) entity lookup instead of O(n) iteration.
@@ -149,31 +145,32 @@ pub fn death_cleanup_system(
 /// Starving NPCs are capped at 50% HP.
 pub fn healing_system(
     mut commands: Commands,
-    mut query: Query<(Entity, &NpcIndex, &mut Health, &MaxHealth, &Faction, &TownId, Option<&Healing>, Option<&Starving>), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &mut Health, &CachedStats, &Faction, &TownId, Option<&Healing>, Option<&Starving>), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
     time: Res<Time>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<HealthDebug>,
+    combat_config: Res<CombatConfig>,
 ) {
     let positions = &gpu_state.positions;
     let dt = time.delta_secs();
-    let heal_amount = HEAL_RATE * dt;
+    let heal_amount = combat_config.heal_rate * dt;
 
     // Debug tracking
     let mut npcs_checked = 0usize;
     let mut in_zone_count = 0usize;
     let mut healed_count = 0usize;
 
-    for (entity, npc_idx, mut health, max_health, faction, _town_id, healing_marker, starving) in query.iter_mut() {
+    for (entity, npc_idx, mut health, cached, faction, _town_id, healing_marker, starving) in query.iter_mut() {
         let idx = npc_idx.0;
         npcs_checked += 1;
 
         // Calculate effective HP cap (50% if starving)
         let hp_cap = if starving.is_some() {
-            max_health.0 * STARVING_HP_CAP
+            cached.max_health * STARVING_HP_CAP
         } else {
-            max_health.0
+            cached.max_health
         };
 
         // If starving and HP > cap, drain to cap
@@ -201,7 +198,7 @@ pub fn healing_system(
             let dy = y - town.center.y;
             let dist = (dx * dx + dy * dy).sqrt();
 
-            if dist <= HEAL_RADIUS {
+            if dist <= combat_config.heal_radius {
                 in_healing_zone = true;
                 break;
             }

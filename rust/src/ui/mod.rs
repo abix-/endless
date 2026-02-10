@@ -27,9 +27,11 @@ pub fn register_ui(app: &mut App) {
     // Game startup (world gen + NPC spawn)
     app.add_systems(OnEnter(AppState::Playing), game_startup_system);
 
-    // In-game HUD
-    app.add_systems(EguiPrimaryContextPass,
-        game_hud::game_hud_system.run_if(in_state(AppState::Playing)));
+    // In-game HUD + target overlay
+    app.add_systems(EguiPrimaryContextPass, (
+        game_hud::game_hud_system,
+        game_hud::target_overlay_system,
+    ).run_if(in_state(AppState::Playing)));
 
     // Gameplay panels (egui, gated on Playing)
     app.add_systems(EguiPrimaryContextPass, (
@@ -63,6 +65,7 @@ pub fn register_ui(app: &mut App) {
 fn ui_toggle_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<UiState>,
+    mut follow: ResMut<FollowSelected>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
         ui_state.roster_open = !ui_state.roster_open;
@@ -78,6 +81,14 @@ fn ui_toggle_system(
     }
     if keys.just_pressed(KeyCode::KeyP) {
         ui_state.policies_open = !ui_state.policies_open;
+    }
+    if keys.just_pressed(KeyCode::KeyF) {
+        follow.0 = !follow.0;
+    }
+    // WASD cancels follow — user wants manual control
+    if follow.0 && (keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::KeyA)
+        || keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::KeyD)) {
+        follow.0 = false;
     }
 }
 

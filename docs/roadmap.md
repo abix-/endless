@@ -134,6 +134,8 @@ Rules:
 - [x] Camera uniform buffer (replaces hardcoded CAMERA_POS/VIEWPORT in npc_render.wgsl)
 - [x] Camera pan (WASD) and zoom (scroll wheel toward cursor)
 - [x] Click-to-select NPC wired to camera transform
+- [x] Camera follow selected NPC (F key toggle, WASD cancels follow)
+- [x] Target indicator overlay (yellow line + diamond marker to NPC's movement target, blue circle on NPC)
 - [x] Multi-layer equipment rendering (see [spec](#multi-layer-equipment-rendering))
 - [x] Guards spawn with weapon + helmet layers, raiders with weapon layer
 - [x] Projectile instanced pipeline (same RenderCommand pattern as NPC renderer)
@@ -182,6 +184,19 @@ Rules:
 - [x] `farm-visual` — Farm Ready Marker (3 phases): Growing → Ready spawns marker → harvest despawns
 - [x] `heal-visual` — Heal Icon (3 phases): damaged → Healing shows HEAL_SPRITE → healed clears
 
+### Data-Driven Stats
+- [x] `CombatConfig` resource with per-job `JobStats` + per-attack-type `AttackTypeStats`
+- [x] `systems/stats.rs` with `resolve_combat_stats()` function
+- [x] `CachedStats` component on all NPCs — populated on spawn, invalidated on upgrade/level-up
+- [x] `BaseAttackType` component (Melee/Ranged) replaces `AttackStats` on entities
+- [x] `TownUpgrades` resource stub (all zeros — Stage 9 activates)
+- [x] `attack_system` reads `&CachedStats` instead of `&AttackStats`
+- [x] `healing_system` reads `CombatConfig.heal_rate`/`heal_radius` instead of local constants
+- [x] `MaxHealth` component removed — `CachedStats.max_health` is single source of truth
+- [x] `Personality::get_stat_multipliers()` wired into resolver (previously defined but never called)
+- [x] Init values match hardcoded values: guard/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150
+- [x] `#[cfg(debug_assertions)]` parity checks assert resolved stats match old hardcoded values
+
 ### Architecture
 - [x] Bevy Messages (MessageWriter/MessageReader) for all inter-system communication
 - [x] All state as Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
@@ -225,23 +240,11 @@ Rules:
 - [x] Guard post auto-attack (turret behavior, fires projectiles at enemies within 250px)
 - [x] Guard post turret toggle (enable/disable via right-click build menu)
 
-**Stage 8: Data-Driven Stats** (see [spec](#stat-resolution--upgrades))
+**Stage 8: Data-Driven Stats** ✓ (see [spec](#stat-resolution--upgrades))
 
 *Done when: all NPC stats resolve from `CombatConfig` resource via `resolve_combat_stats()`. Game plays identically — pure refactor, no behavior change. All existing tests pass.*
 
 **Architecture: cache with explicit invalidation.** Stats resolve from config via `resolve_combat_stats()`. Resolved stats are cached on the entity as a `CachedStats` component and invalidated on the ~3 events that change them (spawn, upgrade purchased, level-up). This avoids both stale-data bugs (explicit invalidation) and per-frame resolution cost (10K HashMap lookups/frame). See spec for full struct definitions, formulas, and file change table.
-
-- [ ] `CombatConfig` resource with per-job `JobStats` + per-attack-type `AttackTypeStats` (see spec for structs)
-- [ ] `systems/stats.rs` with `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades) -> CachedStats`
-- [ ] `CachedStats` component on combatant entities — populated on spawn, invalidated on upgrade/level-up
-- [ ] Replace `AttackStats::melee()` / `AttackStats::ranged()` in `spawn_npc_system` — spawn with `BaseAttackType` + `CachedStats` from resolver
-- [ ] `attack_system` reads `&CachedStats` instead of `&AttackStats` (same query pattern, different component)
-- [ ] Replace `HEAL_RATE` / `HEAL_RADIUS` constants in `healing_system` with `CombatConfig` fields
-- [ ] Replace `MaxHealth` component with `CachedStats.max_health` — single source of truth for HP cap (healing, HP bars, damage clamp)
-- [ ] Wire existing `Personality::get_stat_multipliers()` into `resolve_combat_stats()` (currently defined but never called)
-- [ ] Init values MUST match current hardcoded values: guard/raider damage=15, all speeds=100, all max_health=100, heal_rate=5, heal_radius=150
-- [ ] `constants.rs` remains but only as bootstrap for `CombatConfig::default()` — no system may read constants directly after this stage
-- [ ] `#[cfg(debug_assertions)]` parity checks: assert resolved stats match old hardcoded values (remove in Stage 9)
 
 **Stage 9: Upgrades & XP** (see [spec](#stat-resolution--upgrades))
 
@@ -662,17 +665,18 @@ Mirrors existing `PolicyState` in `policies_panel.rs` (lines 10-24). Wire the UI
 
 **Files changed per stage:**
 
-Stage 8 (pure refactor — gameplay must be identical):
+Stage 8 (pure refactor — gameplay must be identical) — **DONE**:
 
 | File | Changes |
 |---|---|
-| `resources.rs` | Add `CombatConfig`, `TownUpgrades` (initialized to all zeros), `UpgradeType`. |
-| `components.rs` | Add `BaseAttackType` enum + `CachedStats` component. Remove `AttackStats` and `MaxHealth` after migration verified. |
-| `systems/stats.rs` (new) | `resolve_combat_stats()` function + `invalidate_town_stats()` helper. |
-| `systems/spawn.rs` | Read `CombatConfig`, insert `BaseAttackType` + `CachedStats` from resolver. `#[cfg(debug_assertions)]` parity checks. |
-| `systems/combat.rs` | `attack_system` reads `&CachedStats` instead of `&AttackStats` (same query pattern, different component). |
+| `systems/stats.rs` (new) | `CombatConfig`, `TownUpgrades`, `UpgradeType`, `resolve_combat_stats()`, `JobStats`, `AttackTypeStats`. |
+| `components.rs` | Add `Hash` to `Job`, add `BaseAttackType` enum + `CachedStats` component. Remove `AttackStats` and `MaxHealth`. |
+| `systems/spawn.rs` | Read `CombatConfig` + `TownUpgrades`, insert `BaseAttackType` + `CachedStats` from resolver. `#[cfg(debug_assertions)]` parity checks. |
+| `systems/combat.rs` | `attack_system` reads `&CachedStats` instead of `&AttackStats`. |
 | `systems/health.rs` | `healing_system` reads `CombatConfig.heal_rate` / `CombatConfig.heal_radius`. Reads `CachedStats.max_health` (replaces `&MaxHealth` query). |
-| `constants.rs` | Keep all constants as bootstrap for `CombatConfig::default()`. No system reads constants directly after Stage 8 — all reads go through config/resolver. |
+| `ui/game_hud.rs`, `ui/roster_panel.rs`, `tests/healing.rs` | `&MaxHealth` → `&CachedStats` in queries. |
+| `lib.rs` | Register `CombatConfig` + `TownUpgrades` resources. |
+| `constants.rs` | Keep all constants as bootstrap for `CombatConfig::default()`. No system reads constants directly after Stage 8. |
 
 Stage 9 (upgrades + XP — new behavior):
 

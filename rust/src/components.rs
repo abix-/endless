@@ -29,7 +29,7 @@ impl Position {
 /// - Farmer (green): works at farms, avoids combat
 /// - Guard (blue): patrols and fights raiders
 /// - Raider (red): attacks guards, steals from farms
-#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Job {
     Farmer,
     Guard,
@@ -223,14 +223,25 @@ impl Default for Health {
     }
 }
 
-/// NPC maximum health. Used for healing cap and HP bar display.
-#[derive(Component)]
-pub struct MaxHealth(pub f32);
+/// Whether this NPC uses melee or ranged attacks.
+/// Used as key into CombatConfig.attacks and stored on entity for re-resolution.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum BaseAttackType {
+    Melee,
+    Ranged,
+}
 
-impl Default for MaxHealth {
-    fn default() -> Self {
-        Self(100.0)
-    }
+/// Cached resolved combat stats. Populated on spawn from resolve_combat_stats().
+/// Re-resolved on upgrade purchase or level-up (Stage 9+).
+#[derive(Component, Clone, Debug)]
+pub struct CachedStats {
+    pub damage: f32,
+    pub range: f32,
+    pub cooldown: f32,
+    pub projectile_speed: f32,
+    pub projectile_lifetime: f32,
+    pub max_health: f32,
+    pub speed: f32,
 }
 
 // ============================================================================
@@ -253,44 +264,6 @@ impl Faction {
     }
 }
 
-/// Combat stats for NPCs that can fight.
-/// Both melee and ranged attacks use projectiles — melee is just a fast, short-range projectile.
-#[derive(Component)]
-pub struct AttackStats {
-    pub range: f32,              // Attack range in pixels
-    pub damage: f32,             // Damage per hit
-    pub cooldown: f32,           // Seconds between attacks
-    pub projectile_speed: f32,   // Projectile travel speed (9999 = instant melee)
-    pub projectile_lifetime: f32, // Projectile lifetime in seconds
-}
-
-impl AttackStats {
-    pub fn melee() -> Self {
-        Self {
-            range: 150.0,
-            damage: 15.0,
-            cooldown: 1.0,
-            projectile_speed: 500.0,
-            projectile_lifetime: 0.5,
-        }
-    }
-
-    pub fn ranged() -> Self {
-        Self {
-            range: 300.0,
-            damage: 10.0,
-            cooldown: 1.5,
-            projectile_speed: 200.0,
-            projectile_lifetime: 3.0,
-        }
-    }
-}
-
-impl Default for AttackStats {
-    fn default() -> Self {
-        Self::melee()
-    }
-}
 
 /// Cooldown timer for attacks. When > 0, NPC can't attack.
 #[derive(Component, Default)]

@@ -9,6 +9,7 @@ use crate::resources::{
     NpcCount, NpcEntityMap, PopulationStats, GpuDispatchCount, NpcMetaCache, NpcMeta,
     NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind, ReassignQueue,
 };
+use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
 use crate::systems::economy::*;
 use crate::world::{WorldData, FarmOccupancy, LocationKind, find_nearest_location, pos_to_key};
 
@@ -77,6 +78,8 @@ pub fn spawn_npc_system(
     mut npcs_by_town: ResMut<NpcsByTownCache>,
     mut gpu_dispatch: ResMut<GpuDispatchCount>,
     mut combat_log: ResMut<CombatLog>,
+    combat_config: Res<CombatConfig>,
+    upgrades: Res<TownUpgrades>,
 ) {
     let mut max_slot = 0usize;
     let mut had_spawns = false;
@@ -89,14 +92,36 @@ pub fn spawn_npc_system(
         }
         let job = Job::from_i32(msg.job);
 
+        // Determine attack type (farmers default to Melee — stats exist but unused)
+        let attack_type = if msg.attack_type == 1 { BaseAttackType::Ranged } else { BaseAttackType::Melee };
+
+        // Generate personality for this NPC
+        let personality = generate_personality(idx);
+
+        // Resolve stats from config
+        let cached = resolve_combat_stats(
+            job, attack_type, msg.town_idx, 0, &personality, &combat_config, &upgrades,
+        );
+
+        // Debug parity checks — verify base stats match old hardcoded values
+        #[cfg(debug_assertions)]
+        {
+            let base = resolve_combat_stats(
+                job, attack_type, msg.town_idx, 0, &Personality::default(), &combat_config, &upgrades,
+            );
+            if job == Job::Guard || job == Job::Raider {
+                debug_assert!((base.damage - 15.0).abs() < 0.01, "Stage 8 drift: damage {} != 15", base.damage);
+            }
+            debug_assert!((base.max_health - 100.0).abs() < 0.01, "Stage 8 drift: max_health {} != 100", base.max_health);
+            debug_assert!((base.speed - 100.0).abs() < 0.01, "Stage 8 drift: speed {} != 100", base.speed);
+        }
+
         // GPU writes via messages — collected at end of frame
-        // Target defaults to spawn position; overridden below for jobs with initial destinations
         let (target_x, target_y) = if job == Job::Farmer && msg.work_x >= 0.0 {
             (msg.work_x, msg.work_y)
         } else {
             (msg.x, msg.y)
         };
-        // Get sprite frame for this job
         let (sprite_col, sprite_row) = match job {
             Job::Farmer => SPRITE_FARMER,
             Job::Guard => SPRITE_GUARD,
@@ -106,13 +131,10 @@ pub fn spawn_npc_system(
 
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target_x, y: target_y }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: 100.0 }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx, faction: msg.faction }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 100.0 }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: cached.max_health }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row }));
-
-        // Generate personality for this NPC
-        let personality = generate_personality(idx);
 
         // Base entity (all NPCs get these)
         let current_hour = game_time.total_hours();
@@ -121,9 +143,10 @@ pub fn spawn_npc_system(
             Position::new(msg.x, msg.y),
             job,
             TownId(msg.town_idx),
-            Speed::default(),
-            Health::default(),
-            MaxHealth::default(),
+            Speed(cached.speed),
+            Health(cached.max_health),
+            cached,
+            attack_type,
             Faction::from_i32(msg.faction),
             Home(Vec2::new(msg.home_x, msg.home_y)),
             personality,
@@ -136,7 +159,7 @@ pub fn spawn_npc_system(
         match job {
             Job::Guard => {
                 ec.insert(Energy::default());
-                ec.insert((AttackStats::melee(), AttackTimer(0.0)));
+                ec.insert(AttackTimer(0.0));
                 ec.insert(Guard);
                 ec.insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)));
                 if msg.starting_post >= 0 {
@@ -158,7 +181,7 @@ pub fn spawn_npc_system(
             }
             Job::Raider => {
                 ec.insert(Energy::default());
-                ec.insert((AttackStats::melee(), AttackTimer(0.0)));
+                ec.insert(AttackTimer(0.0));
                 ec.insert(Stealer);
                 ec.insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
                 ec.insert(FleeThreshold { pct: 0.50 });
@@ -166,8 +189,7 @@ pub fn spawn_npc_system(
                 ec.insert(WoundedThreshold { pct: 0.25 });
             }
             Job::Fighter => {
-                let stats = if msg.attack_type == 1 { AttackStats::ranged() } else { AttackStats::melee() };
-                ec.insert((stats, AttackTimer(0.0)));
+                ec.insert(AttackTimer(0.0));
             }
         }
 
@@ -240,11 +262,13 @@ pub fn reassign_npc_system(
     mut farm_occupancy: ResMut<FarmOccupancy>,
     game_time: Res<GameTime>,
     mut combat_log: ResMut<CombatLog>,
-    query: Query<(&Job, &TownId, &NpcIndex, &Position, Option<&AssignedFarm>), Without<Dead>>,
+    combat_config: Res<CombatConfig>,
+    upgrades: Res<TownUpgrades>,
+    query: Query<(&Job, &TownId, &NpcIndex, &Position, &Personality, Option<&AssignedFarm>), Without<Dead>>,
 ) {
     for (slot, new_job) in queue.0.drain(..) {
         let Some(&entity) = npc_map.0.get(&slot) else { continue };
-        let Ok((job, town_id, npc_idx, position, assigned_farm)) = query.get(entity) else { continue };
+        let Ok((job, town_id, npc_idx, position, personality, assigned_farm)) = query.get(entity) else { continue };
 
         let idx = npc_idx.0;
         let town = town_id.0;
@@ -262,6 +286,11 @@ pub fn reassign_npc_system(
                     }
                 }
 
+                // Resolve new stats as guard
+                let cached = resolve_combat_stats(
+                    Job::Guard, BaseAttackType::Melee, town, 0, personality, &combat_config, &upgrades,
+                );
+
                 // Remove farmer components, insert guard components
                 commands.entity(entity)
                     .remove::<Farmer>()
@@ -269,7 +298,9 @@ pub fn reassign_npc_system(
                     .remove::<AssignedFarm>()
                     .insert(Guard)
                     .insert(Job::Guard)
-                    .insert((AttackStats::melee(), AttackTimer(0.0)))
+                    .insert(BaseAttackType::Melee)
+                    .insert(cached)
+                    .insert(AttackTimer(0.0))
                     .insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)))
                     .insert(CombatState::None);
 
@@ -303,16 +334,21 @@ pub fn reassign_npc_system(
             }
             (Job::Guard, 0) => {
                 // Guard → Farmer
+                // Resolve new stats as farmer
+                let cached = resolve_combat_stats(
+                    Job::Farmer, BaseAttackType::Melee, town, 0, personality, &combat_config, &upgrades,
+                );
+
                 // Remove guard components, insert farmer
                 commands.entity(entity)
                     .remove::<Guard>()
-                    .remove::<AttackStats>()
                     .remove::<AttackTimer>()
                     .remove::<EquippedWeapon>()
                     .remove::<EquippedHelmet>()
                     .remove::<PatrolRoute>()
                     .insert(Farmer)
                     .insert(Job::Farmer)
+                    .insert(cached)
                     .insert(CombatState::None);
 
                 // Find nearest farm for work assignment

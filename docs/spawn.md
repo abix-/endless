@@ -59,16 +59,18 @@ pub struct SlotAllocator {
 
 ## spawn_npc_system
 
-Base components (all NPCs): `NpcIndex`, `Position`, `Job`, `TownId`, `Speed(100)`, `Health(100)`, `MaxHealth(100)`, `Faction`, `Home`, `Personality`, `LastAteHour`, `Activity::default()`, `CombatState::default()`
+Base components (all NPCs): `NpcIndex`, `Position`, `Job`, `TownId`, `Speed(resolved)`, `Health(resolved max_health)`, `CachedStats` (from `resolve_combat_stats()`), `Faction`, `Home`, `Personality`, `LastAteHour`, `Activity::default()`, `CombatState::default()`
+
+Stats are resolved from `CombatConfig` resource via `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades)`. The resolver applies job base stats × upgrade multipliers × trait multipliers × level multipliers. See `systems/stats.rs`.
 
 Job-specific templates:
 
 | Job | Additional Components |
 |-----|----------------------|
-| Guard | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
+| Guard | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
 | Farmer | `Energy`, `Farmer`, `WorkPosition`, `Activity::GoingToWork` |
-| Raider | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)`, `EquippedWeapon` |
-| Fighter | `AttackStats` (melee or ranged via attack_type), `AttackTimer(0)` |
+| Raider | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)`, `EquippedWeapon` |
+| Fighter | `BaseAttackType` (Melee or Ranged via attack_type), `AttackTimer(0)` |
 
 GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs). Colors and equipment sprites are derived from ECS components by `sync_visual_sprites` (not sent as messages).
 
@@ -90,9 +92,9 @@ Checks `ResetFlag`. If set, clears `NpcCount`, `NpcEntityMap`, `PopulationStats`
 
 Processes role reassignment requests (Farmer ↔ Guard) from `ReassignQueue` resource. The UI roster panel pushes `(slot, new_job)` tuples; this system drains the queue each frame.
 
-**Farmer → Guard**: removes `Farmer`, `WorkPosition`, `AssignedFarm` (releases farm occupancy), inserts `Guard`, `AttackStats::melee()`, `AttackTimer(0)`, `EquippedWeapon`, `EquippedHelmet`, builds `PatrolRoute` via `build_patrol_route()`, sets `Activity::OnDuty`. GPU: `SetSpriteFrame(SPRITE_GUARD)`.
+**Farmer → Guard**: removes `Farmer`, `WorkPosition`, `AssignedFarm` (releases farm occupancy), inserts `Guard`, `BaseAttackType::Melee`, `AttackTimer(0)`, `EquippedWeapon`, `EquippedHelmet`, builds `PatrolRoute` via `build_patrol_route()`, sets `Activity::OnDuty`. Re-resolves `CachedStats` via `resolve_combat_stats()`. GPU: `SetSpriteFrame(SPRITE_GUARD)`.
 
-**Guard → Farmer**: removes `Guard`, `AttackStats`, `AttackTimer`, `EquippedWeapon`, `EquippedHelmet`, `PatrolRoute`, inserts `Farmer`, finds nearest farm via `find_nearest_location()`, inserts `WorkPosition` + `Activity::GoingToWork`. GPU: `SetSpriteFrame(SPRITE_FARMER)`.
+**Guard → Farmer**: removes `Guard`, `BaseAttackType`, `AttackTimer`, `EquippedWeapon`, `EquippedHelmet`, `PatrolRoute`, inserts `Farmer`, finds nearest farm via `find_nearest_location()`, inserts `WorkPosition` + `Activity::GoingToWork`. Re-resolves `CachedStats` for new job. GPU: `SetSpriteFrame(SPRITE_FARMER)`.
 
 Both paths update `PopulationStats` (dec old job, inc new job), `NpcMetaCache.job`, and log to `CombatLog`.
 
