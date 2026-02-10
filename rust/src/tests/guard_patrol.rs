@@ -4,9 +4,8 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{ENERGY_HUNGRY, ENERGY_WAKE_THRESHOLD};
-use crate::resources::*;
 
-use super::{TestState, TestSetupParams, keep_fed};
+use super::{TestState, TestSetupParams};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("GuardTown");
@@ -45,13 +44,10 @@ pub fn tick(
     activity_query: Query<&Activity, (With<Guard>, Without<Dead>)>,
     mut energy_query: Query<&mut Energy, (With<Guard>, Without<Dead>)>,
     guard_query: Query<(), (With<Guard>, Without<Dead>)>,
-    mut last_ate_query: Query<&mut LastAteHour, Without<Dead>>,
-    game_time: Res<GameTime>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    keep_fed(&mut last_ate_query, &game_time);
     if !test.require_entity(guard_query.iter().count(), elapsed, "guard") { return; }
 
     // Start energy near tired threshold so rest triggers within 30s

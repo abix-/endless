@@ -6,7 +6,6 @@ use crate::components::*;
 use crate::constants::ENERGY_HUNGRY;
 
 use super::{TestState, TestSetupParams};
-use crate::resources::GameTime;
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("TestTown");
@@ -28,20 +27,18 @@ pub fn setup(mut params: TestSetupParams) {
 }
 
 pub fn tick(
-    mut query: Query<(&mut Energy, &NpcIndex, &mut LastAteHour), (With<Farmer>, Without<Dead>)>,
-    game_time: Res<GameTime>,
+    mut query: Query<(&mut Energy, &NpcIndex), (With<Farmer>, Without<Dead>)>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     if !test.require_entity(query.iter().count(), elapsed, "farmer") { return; }
-    let Some((mut energy, _, mut last_ate)) = query.iter_mut().next() else { return; };
+    let Some((mut energy, _)) = query.iter_mut().next() else { return; };
 
     // Start energy near threshold so drain completes within 30s at time_scale=1
     if !test.get_flag("energy_set") {
         energy.0 = 55.0;
-        last_ate.0 = game_time.hour();
         test.set_flag("energy_set", true);
     }
 

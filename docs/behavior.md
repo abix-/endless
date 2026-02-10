@@ -54,7 +54,7 @@ Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
 | Work | `40.0 * hp_mult` | has job, HP > 50% |
 | Wander | `10.0` | always |
 
-**Eat action**: Instantly consumes 1 food from town storage and restores `ENERGY_FROM_EATING` (30) energy. No travel required — NPCs eat at current location.
+**Eat action**: Instantly consumes 1 food from town storage and restores energy to 100. No travel required — NPCs eat at current location.
 
 **HP-based work score**: `hp_mult = 0` if HP < 50%, otherwise `(hp_pct - 0.5) * 2`. This prevents wounded NPCs (especially raiders) from working/raiding when they should rest.
 
@@ -147,8 +147,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
 | Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
 | AssignedFarm | `Vec2` | Farm position farmer is working at (for occupancy tracking) |
-| Starving | marker | NPC hasn't eaten in 24+ hours (50% HP cap, 75% speed) |
-| LastAteHour | `i32` | Game hour when NPC last ate (for starvation tracking) |
+| Starving | marker | NPC energy at zero (50% HP cap, 50% speed) |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
 | Home | `{ x, y }` | NPC's home/bed position |
@@ -241,8 +240,6 @@ Energy uses game time (respects time_scale and pause):
 | ENERGY_DRAIN_PER_HOUR | 100/24 (~4.2) | Drain while active (24 hours to empty) |
 | ENERGY_WAKE_THRESHOLD | 90.0 | Wake from Resting when energy reaches this |
 | ENERGY_TIRED_THRESHOLD | 30.0 | Stop working and seek rest below this |
-| ENERGY_FROM_EATING | 30.0 | Energy restored per food consumed |
-
 With utility AI, there are no fixed thresholds for decisions. Low energy increases Rest/Eat scores, but NPCs might still choose Work if their Focused trait outweighs tiredness. NPCs automatically wake from `Resting` at 90% energy (handled in decision_system for proper command sync).
 
 ## Patrol Cycle

@@ -21,7 +21,7 @@ game_time_system (every frame)
     │   └─ Camps with food + population room → spawn raider
     │
     ├─ starvation_system (hourly)
-    │   └─ NPCs who haven't eaten in 24h → Starving marker
+    │   └─ NPCs with zero energy → Starving marker
     │
     └─ farm_visual_system (every frame)
         └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
@@ -58,9 +58,9 @@ game_time_system (every frame)
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
-- NPCs with `LastAteHour` older than `STARVATION_HOURS` (24) get `Starving` marker
-- Starving NPCs: speed set to `CachedStats.speed * STARVING_SPEED_MULT` (0.75) via `GpuUpdate::SetSpeed`
-- When NPCs eat (decision_system Eat action): `LastAteHour` updated, `Starving` removed, speed restored to `CachedStats.speed`
+- NPCs with `energy <= 0` get `Starving` marker
+- Starving NPCs: speed set to `CachedStats.speed * STARVING_SPEED_MULT` (0.5) via `GpuUpdate::SetSpeed`
+- When energy rises above 0 (eating or resting): `Starving` removed, speed restored to `CachedStats.speed`
 
 ## Farm Growth
 
@@ -96,30 +96,32 @@ Farms have a growth cycle instead of infinite food:
 
 ## Starvation
 
-NPCs must eat periodically or suffer starvation debuffs:
+Energy is the single survival resource. When energy hits zero, the NPC is starving:
 
 ```
-LastAteHour tracks when NPC last ate
+energy_system drains energy while active
         │
         ▼  starvation_system (hourly)
-hours_since_ate >= 24?
+energy <= 0?
         │
     YES ▼
 ┌────────────┐
 │  Starving  │  - HP capped at 50%
-│   marker   │  - Speed reduced to 75%
+│   marker   │  - Speed reduced to 50%
 └────┬───────┘
-     │ NPC eats (decision_system)
+     │ energy > 0 (eating or resting)
      ▼
-LastAteHour = current_hour
 Starving marker removed
 Speed restored to CachedStats.speed
 ```
 
+**Recovery paths:**
+- **Eat**: consumes 1 food from town storage, instantly restores energy to 100. No travel required.
+- **Rest**: walk home to bed, recover energy slowly (6 hours 0→100). Works even when starving.
+
 **Constants:**
-- `STARVATION_HOURS`: 24 (1 game day without eating)
 - `STARVING_HP_CAP`: 0.5 (50% of MaxHealth)
-- `STARVING_SPEED_MULT`: 0.75 (75% of normal speed)
+- `STARVING_SPEED_MULT`: 0.5 (50% of normal speed)
 
 Starvation applies to **both villagers and raiders**. If raiders can't steal food and their camp runs out, they'll starve and become easier to kill.
 
@@ -189,9 +191,8 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | CAMP_FORAGE_RATE | 1 food/hour | Passive raider food income |
 | RAIDER_SPAWN_COST | 5 food | Cost to respawn a raider |
 | CAMP_MAX_POP | 10 | Max raiders per camp |
-| STARVATION_HOURS | 24 | Hours without food before starving |
 | STARVING_HP_CAP | 0.5 | 50% MaxHealth cap while starving |
-| STARVING_SPEED_MULT | 0.75 | 75% speed while starving |
+| STARVING_SPEED_MULT | 0.5 | 50% speed while starving |
 | RAID_GROUP_SIZE | 5 | Min raiders to form a raid group |
 
 ## Known Issues

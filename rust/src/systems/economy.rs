@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::resources::*;
-use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, STARVATION_HOURS, STARVING_SPEED_MULT};
+use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, STARVING_SPEED_MULT};
 use crate::world::{WorldData, FarmOccupancy, pos_to_key};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
@@ -231,37 +231,30 @@ pub fn raider_respawn_system(
 // STARVATION SYSTEM
 // ============================================================================
 
-/// Starvation check: NPCs who haven't eaten in 24+ hours become Starving.
+/// Starvation check: NPCs with zero energy become Starving.
 /// Only runs when game_time.hour_ticked is true.
-/// Starving NPCs have 75% speed.
+/// Starving NPCs have 50% speed.
 pub fn starvation_system(
     mut commands: Commands,
     game_time: Res<GameTime>,
-    query: Query<(Entity, &NpcIndex, &LastAteHour, &CachedStats, Option<&Starving>), Without<Dead>>,
+    query: Query<(Entity, &NpcIndex, &Energy, &CachedStats, Option<&Starving>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     if !game_time.hour_ticked {
         return;
     }
 
-    let current_hour = game_time.total_hours();
-
-    for (entity, npc_idx, last_ate, cached, starving) in query.iter() {
+    for (entity, npc_idx, energy, cached, starving) in query.iter() {
         let idx = npc_idx.0;
-        let hours_since_ate = current_hour - last_ate.0;
 
-        if hours_since_ate >= STARVATION_HOURS as i32 {
-            // Should be starving
+        if energy.0 <= 0.0 {
             if starving.is_none() {
                 commands.entity(entity).insert(Starving);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed * STARVING_SPEED_MULT }));
             }
-        } else {
-            // Not starving - remove marker if present
-            if starving.is_some() {
-                commands.entity(entity).remove::<Starving>();
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed }));
-            }
+        } else if starving.is_some() {
+            commands.entity(entity).remove::<Starving>();
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed }));
         }
     }
 }

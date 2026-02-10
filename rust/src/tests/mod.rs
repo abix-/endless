@@ -24,7 +24,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use std::collections::HashMap;
 
-use crate::components::{NpcIndex, FarmReadyMarker, Dead, LastAteHour};
+use crate::components::{NpcIndex, FarmReadyMarker};
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::world;
@@ -119,14 +119,6 @@ impl TestSetupParams<'_> {
 // ============================================================================
 // TEST HELPERS
 // ============================================================================
-
-/// Keep all alive NPCs fed (prevents starvation from interfering with tests).
-pub fn keep_fed(query: &mut Query<&mut LastAteHour, Without<Dead>>, game_time: &GameTime) {
-    let hour = game_time.total_hours();
-    for mut last_ate in query.iter_mut() {
-        last_ate.0 = hour;
-    }
-}
 
 use crate::AppState;
 

@@ -20,7 +20,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 - `TestSetupParams`: SystemParam bundle for test setup (slot alloc, spawn, world data, food, factions, game time, test state)
 - `test_is("name")` run condition gates per-test setup/tick systems
 - Each test exports `setup` (OnEnter Running) + `tick` (Update after Behavior)
-- Helpers: `tick_elapsed()`, `require_entity()`, `keep_fed()` reduce boilerplate
+- Helpers: `tick_elapsed()`, `require_entity()` reduce boilerplate
 - Cleanup on OnExit(Running): despawn all NPC + FarmReadyMarker entities, reset all resources
 - Run All: sequential execution via `RunAllState` queue (auto-advances after 1.5s)
 - Single tests stay running after pass/fail — user clicks Back in HUD to return

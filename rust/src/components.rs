@@ -305,8 +305,8 @@ pub struct LastHitBy(pub i32);
 #[derive(Component)]
 pub struct Healing;
 
-/// Marker: NPC is starving (hasn't eaten in 24+ hours).
-/// Debuffs: HP capped at 50%, speed reduced 25%.
+/// Marker: NPC is starving (energy reached 0).
+/// Debuffs: HP capped at 50%, speed reduced 50%.
 #[derive(Component)]
 pub struct Starving;
 
@@ -315,11 +315,6 @@ pub struct Starving;
 pub struct FarmReadyMarker {
     pub farm_idx: usize,
 }
-
-/// Tracks when NPC last ate (total game hours).
-/// Used to determine starvation.
-#[derive(Component)]
-pub struct LastAteHour(pub i32);
 
 // ============================================================================
 // BEHAVIOR CONFIG COMPONENTS (generic, attach to any NPC)

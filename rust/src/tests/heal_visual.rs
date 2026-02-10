@@ -5,9 +5,8 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::HEAL_SPRITE;
 use crate::gpu::NpcBufferWrites;
-use crate::resources::GameTime;
 
-use super::{TestState, TestSetupParams, keep_fed};
+use super::{TestState, TestSetupParams};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("HealVisTown");
@@ -28,13 +27,10 @@ pub fn tick(
     healing_query: Query<&NpcIndex, (With<Healing>, Without<Dead>)>,
     not_healing_query: Query<&NpcIndex, (With<Farmer>, Without<Healing>, Without<Dead>)>,
     buffer: Res<NpcBufferWrites>,
-    mut last_ate_query: Query<&mut LastAteHour, Without<Dead>>,
-    game_time: Res<GameTime>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    keep_fed(&mut last_ate_query, &game_time);
 
     let Some((mut health, npc_idx)) = health_query.iter_mut().next() else {
         if !test.require_entity(0, elapsed, "farmer") { return; }

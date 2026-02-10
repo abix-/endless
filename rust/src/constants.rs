@@ -98,9 +98,6 @@ pub const SCORE_REST_MULT: f32 = 1.0;
 /// Multiplier for flee score (hp-based).
 pub const SCORE_FLEE_MULT: f32 = 1.0;
 
-/// Energy restored when eating one food.
-pub const ENERGY_FROM_EATING: f32 = 30.0;
-
 // ============================================================================
 // FARM GROWTH CONSTANTS
 // ============================================================================
@@ -160,14 +157,11 @@ pub const VILLAGERS_PER_CAMP: i32 = 20;
 // STARVATION CONSTANTS
 // ============================================================================
 
-/// Hours without eating before starvation debuff.
-pub const STARVATION_HOURS: f32 = 24.0;
-
 /// Max HP multiplier when starving (50% of normal).
 pub const STARVING_HP_CAP: f32 = 0.5;
 
-/// Speed multiplier when starving (75% of normal).
-pub const STARVING_SPEED_MULT: f32 = 0.75;
+/// Speed multiplier when starving (50% of normal).
+pub const STARVING_SPEED_MULT: f32 = 0.5;
 
 // ============================================================================
 // BUILDING SYSTEM CONSTANTS

@@ -2,6 +2,15 @@
 
 ## 2026-02-10
 
+- **energy-driven starvation**
+  - remove `LastAteHour` component — energy is now the single survival resource
+  - starvation triggers at energy=0 instead of 24h without eating
+  - eating restores energy to 100 instantly (was +30)
+  - starving speed penalty increased: 50% (was 75%)
+  - starving HP cap unchanged at 50%
+  - rest still works when starving (slow recovery, must walk home)
+  - remove `keep_fed()` test helper and `STARVATION_HOURS`/`ENERGY_FROM_EATING` constants
+
 - **stage 10: town policies**
   - add `TownPolicies` resource with `PolicySet` per town: flee thresholds, work schedule, off-duty behavior, healing priority
   - add `WorkSchedule` enum (Both/DayOnly/NightOnly) — gates work scoring in `decision_system` based on `GameTime.is_daytime()`
