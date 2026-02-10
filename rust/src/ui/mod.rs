@@ -10,7 +10,7 @@ pub mod policies_panel;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy_egui::EguiPrimaryContextPass;
+use bevy_egui::{EguiPrimaryContextPass, egui};
 
 use crate::AppState;
 use crate::components::*;
@@ -46,9 +46,13 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(Update,
         ui_toggle_system.run_if(in_state(AppState::Playing)));
 
-    // ESC to leave game
+    // ESC toggles pause menu
     app.add_systems(Update,
         game_escape_system.run_if(in_state(AppState::Playing)));
+
+    // Pause menu (egui overlay)
+    app.add_systems(EguiPrimaryContextPass,
+        pause_menu_system.run_if(in_state(AppState::Playing)));
 
     // Building slot click detection + visual indicators
     app.add_systems(Update, (
@@ -247,24 +251,100 @@ fn game_startup_system(
 // GAME EXIT
 // ============================================================================
 
-/// ESC returns to main menu. Space/+/- control time.
+/// ESC toggles pause menu. Space/+/- control time (only when menu closed).
 fn game_escape_system(
     keys: Res<ButtonInput<KeyCode>>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut ui_state: ResMut<UiState>,
     mut game_time: ResMut<GameTime>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
-        next_state.set(AppState::MainMenu);
+        ui_state.pause_menu_open = !ui_state.pause_menu_open;
+        // Auto-pause when opening, unpause when closing
+        game_time.paused = ui_state.pause_menu_open;
     }
-    if keys.just_pressed(KeyCode::Space) {
-        game_time.paused = !game_time.paused;
+    // Time controls only when pause menu is closed
+    if !ui_state.pause_menu_open {
+        if keys.just_pressed(KeyCode::Space) {
+            game_time.paused = !game_time.paused;
+        }
+        if keys.just_pressed(KeyCode::Equal) {
+            game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
+        }
+        if keys.just_pressed(KeyCode::Minus) {
+            game_time.time_scale = (game_time.time_scale / 2.0).max(0.25);
+        }
     }
-    if keys.just_pressed(KeyCode::Equal) {
-        game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
-    }
-    if keys.just_pressed(KeyCode::Minus) {
-        game_time.time_scale = (game_time.time_scale / 2.0).max(0.25);
-    }
+}
+
+/// Pause menu overlay — Resume, Settings, Exit to Main Menu.
+fn pause_menu_system(
+    mut contexts: bevy_egui::EguiContexts,
+    mut ui_state: ResMut<UiState>,
+    mut game_time: ResMut<GameTime>,
+    mut next_state: ResMut<NextState<AppState>>,
+    mut settings: ResMut<crate::settings::UserSettings>,
+) -> Result {
+    if !ui_state.pause_menu_open { return Ok(()); }
+
+    let ctx = contexts.ctx_mut()?;
+
+    // Dim background
+    let screen = ctx.content_rect();
+    egui::Area::new(egui::Id::new("pause_dim"))
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let (response, painter) = ui.allocate_painter(screen.size(), egui::Sense::click());
+            painter.rect_filled(response.rect, 0.0, egui::Color32::from_black_alpha(120));
+        });
+
+    // Centered window
+    egui::Window::new("Paused")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .min_width(280.0)
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                if ui.button("Resume").clicked() {
+                    ui_state.pause_menu_open = false;
+                    game_time.paused = false;
+                    crate::settings::save_settings(&settings);
+                }
+                ui.add_space(4.0);
+            });
+
+            ui.separator();
+
+            // Settings section
+            egui::CollapsingHeader::new("Settings")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0)
+                        .text("Scroll Speed"));
+
+                    ui.add_space(4.0);
+                    ui.label("Combat Log Filters:");
+                    ui.checkbox(&mut settings.log_kills, "Kills");
+                    ui.checkbox(&mut settings.log_spawns, "Spawns");
+                    ui.checkbox(&mut settings.log_raids, "Raids");
+                    ui.checkbox(&mut settings.log_harvests, "Harvests");
+                    ui.checkbox(&mut settings.log_levelups, "Level Ups");
+                });
+
+            ui.separator();
+            ui.vertical_centered(|ui| {
+                ui.add_space(4.0);
+                if ui.button("Exit to Main Menu").clicked() {
+                    ui_state.pause_menu_open = false;
+                    crate::settings::save_settings(&settings);
+                    next_state.set(AppState::MainMenu);
+                }
+                ui.add_space(8.0);
+            });
+        });
+
+    Ok(())
 }
 
 // ============================================================================

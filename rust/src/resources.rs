@@ -571,6 +571,7 @@ pub struct UiState {
     pub build_menu_open: bool,
     pub upgrade_menu_open: bool,
     pub policies_open: bool,
+    pub pause_menu_open: bool,
 }
 
 impl Default for UiState {
@@ -581,6 +582,7 @@ impl Default for UiState {
             build_menu_open: false,
             upgrade_menu_open: false,
             policies_open: false,
+            pause_menu_open: false,
         }
     }
 }
