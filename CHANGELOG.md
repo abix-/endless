@@ -2,6 +2,19 @@
 
 ## 2026-02-10
 
+- **building system playtesting fixes**
+  - fix coordinate misalignment: TOWN_GRID_SPACING 34→32px (matches WorldGrid cell size), remove -0.5 offset from `town_grid_to_world` so slot (0,0) = town center
+  - rewrite `place_town_buildings` to use town grid (row,col) coordinates instead of float offsets
+  - fix right-click unresponsive for ~30s: remove `is_pointer_over_area()` guard (too aggressive near any egui panel), keep only `wants_pointer_input()`
+  - widen slot click radius from 0.45 to 0.7 of TOWN_GRID_SPACING
+  - fix crash on second game start: add bounds check `if raider_idx >= world_data.towns.len()` in spawn loop
+  - replace gizmo slot indicators with Sprite entities (`SlotIndicator` marker) at z=-0.3 — gizmos render in separate pass after all Transparent2d items, can't be z-sorted with buildings/NPCs
+  - green "+" crosshairs for empty unlocked slots, dim bracket corners for adjacent locked slots
+  - NPC sort_key 0.0→0.5 (above indicators, below projectiles)
+  - lower all building costs to 1 for testing
+  - change defaults: 2 guards/town, 0 raiders/camp for peaceful testing
+  - add Stage 8 spec: stat resolution, upgrades, XP, policies (4-phase plan)
+
 - **building system: right-click context menu with per-tile slot unlock**
   - add `TownGrid`/`TownGrids` per-town slot tracking with `HashSet<(i32,i32)>` unlock system
   - add `BuildMenuContext` resource for right-click context menu state

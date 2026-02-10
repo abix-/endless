@@ -615,7 +615,7 @@ fn queue_npcs(
                 entity: (view_entity, MainEntity::from(batch_entity)),
                 draw_function,
                 pipeline: pipeline_id,
-                sort_key: FloatOrd(0.0),
+                sort_key: FloatOrd(0.5), // Above gizmos (0.0), below projectiles (1.0)
                 batch_range: 0..1,
                 extra_index: PhaseItemExtraIndex::None,
                 extracted_index: usize::MAX,

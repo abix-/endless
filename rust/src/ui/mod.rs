@@ -129,8 +129,11 @@ fn game_startup_system(
     // Spawn NPCs per town (mirrors main.gd._spawn_npcs)
     let mut total = 0;
     for town_idx in 0..config.num_towns {
-        let _villager_town = &world_data.towns[town_idx * 2]; // even indices = villager towns
-        let raider_town = &world_data.towns[town_idx * 2 + 1]; // odd indices = raider camps
+        let villager_idx = town_idx * 2;
+        let raider_idx = town_idx * 2 + 1;
+        if raider_idx >= world_data.towns.len() { break; }
+        let _villager_town = &world_data.towns[villager_idx];
+        let raider_town = &world_data.towns[raider_idx];
 
         // Collect beds and farms for this town
         let beds: Vec<_> = world_data.beds.iter()
@@ -292,9 +295,9 @@ fn slot_right_click_system(
 ) {
     if !mouse.just_pressed(MouseButton::Right) { return; }
 
-    // Don't steal clicks from egui
+    // Don't steal clicks from egui — but only block on left panel, not the whole screen
     if let Ok(ctx) = egui_contexts.ctx_mut() {
-        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() { return; }
+        if ctx.wants_pointer_input() { return; }
     }
 
     let Ok(window) = windows.single() else { return };
@@ -340,85 +343,102 @@ fn slot_right_click_system(
 /// TODO: Bevy lacks native double-click — needs Local<f64> timer. Using right-click menu for now.
 fn slot_double_click_system() {}
 
-/// Draw visual indicators on town grid slots using Bevy gizmos.
-/// Green "+" on empty unlocked slots, dim brackets on adjacent locked slots,
-/// gold ring around town expanding to farthest unlocked slot.
+/// Marker component for slot indicator sprite entities.
+#[derive(Component)]
+struct SlotIndicator;
+
+/// Spawn/rebuild slot indicator sprites when the town grid or world grid changes.
+/// Uses actual Sprite entities at z=-0.3 so they render between buildings and NPCs.
 fn draw_slot_indicators(
-    mut gizmos: Gizmos,
+    mut commands: Commands,
+    existing: Query<Entity, With<SlotIndicator>>,
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
     grid: Res<world::WorldGrid>,
 ) {
-    let player_town = 0usize; // First villager town is player-controlled
+    // Only rebuild when grid state changes
+    if !town_grids.is_changed() && !grid.is_changed() { return; }
 
+    // Despawn old indicators
+    for entity in existing.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    let player_town = 0usize;
     let Some(town_grid) = town_grids.grids.get(player_town) else { return };
     let town_data_idx = player_town * 2;
     let Some(town) = world_data.towns.get(town_data_idx) else { return };
     let center = town.center;
 
-    let green = Color::srgba(0.5, 0.8, 0.5, 0.6);
-    let locked_color = Color::srgba(0.6, 0.6, 0.6, 0.4);
-    let gold = Color::srgba(1.0, 0.85, 0.3, 0.8);
-    let size = 6.0;
+    let green = Color::srgba(0.3, 0.7, 0.3, 0.5);
+    let locked_color = Color::srgba(0.5, 0.5, 0.5, 0.3);
+    let indicator_z = -0.3;
+    let line_w = 2.0;
+    let line_len = 10.0;
+    let bracket_len = 5.0;
     let half_slot = crate::constants::TOWN_GRID_SPACING * 0.4;
-    let corner = 4.0;
 
-    // Track farthest unlocked slot for gold ring
-    let mut max_dist: f32 = 60.0;
-
-    // Draw green "+" on empty unlocked slots
+    // Green "+" on empty unlocked slots
     for &(row, col) in &town_grid.unlocked {
-        // Skip fountain
         if row == 0 && col == 0 { continue; }
 
-        let slot_pos = world::town_grid_to_world(center, row, col);
-        let dist = center.distance(slot_pos) + crate::constants::TOWN_GRID_SPACING;
-        if dist > max_dist { max_dist = dist; }
+        let raw_pos = world::town_grid_to_world(center, row, col);
+        let (gc, gr) = grid.world_to_grid(raw_pos);
+        let slot_pos = grid.grid_to_world(gc, gr);
 
-        // Check if slot has a building
-        let (gc, gr) = grid.world_to_grid(slot_pos);
         let has_building = grid.cell(gc, gr)
             .map(|c| c.building.is_some())
             .unwrap_or(false);
 
         if !has_building {
-            // Green "+"
-            let p = Vec3::new(slot_pos.x, slot_pos.y, 0.5);
-            gizmos.line_2d(
-                Vec2::new(p.x - size, p.y),
-                Vec2::new(p.x + size, p.y),
-                green,
-            );
-            gizmos.line_2d(
-                Vec2::new(p.x, p.y - size),
-                Vec2::new(p.x, p.y + size),
-                green,
-            );
+            // Horizontal bar
+            commands.spawn((
+                Sprite { color: green, custom_size: Some(Vec2::new(line_len, line_w)), ..default() },
+                Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
+                SlotIndicator,
+            ));
+            // Vertical bar
+            commands.spawn((
+                Sprite { color: green, custom_size: Some(Vec2::new(line_w, line_len)), ..default() },
+                Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
+                SlotIndicator,
+            ));
         }
     }
 
-    // Draw dim brackets on adjacent locked slots
+    // Dim bracket corners on adjacent locked slots
     let adjacent = world::get_adjacent_locked_slots(town_grid);
     for (row, col) in adjacent {
-        let sp = world::town_grid_to_world(center, row, col);
+        let raw = world::town_grid_to_world(center, row, col);
+        let (gc, gr) = grid.world_to_grid(raw);
+        let sp = grid.grid_to_world(gc, gr);
 
-        // Top-left bracket
-        gizmos.line_2d(Vec2::new(sp.x - half_slot, sp.y - half_slot), Vec2::new(sp.x - half_slot + corner, sp.y - half_slot), locked_color);
-        gizmos.line_2d(Vec2::new(sp.x - half_slot, sp.y - half_slot), Vec2::new(sp.x - half_slot, sp.y - half_slot + corner), locked_color);
-        // Top-right bracket
-        gizmos.line_2d(Vec2::new(sp.x + half_slot, sp.y - half_slot), Vec2::new(sp.x + half_slot - corner, sp.y - half_slot), locked_color);
-        gizmos.line_2d(Vec2::new(sp.x + half_slot, sp.y - half_slot), Vec2::new(sp.x + half_slot, sp.y - half_slot + corner), locked_color);
-        // Bottom-left bracket
-        gizmos.line_2d(Vec2::new(sp.x - half_slot, sp.y + half_slot), Vec2::new(sp.x - half_slot + corner, sp.y + half_slot), locked_color);
-        gizmos.line_2d(Vec2::new(sp.x - half_slot, sp.y + half_slot), Vec2::new(sp.x - half_slot, sp.y + half_slot - corner), locked_color);
-        // Bottom-right bracket
-        gizmos.line_2d(Vec2::new(sp.x + half_slot, sp.y + half_slot), Vec2::new(sp.x + half_slot - corner, sp.y + half_slot), locked_color);
-        gizmos.line_2d(Vec2::new(sp.x + half_slot, sp.y + half_slot), Vec2::new(sp.x + half_slot, sp.y + half_slot - corner), locked_color);
+        // Each corner: one horizontal + one vertical bar
+        let corners = [
+            (sp.x - half_slot, sp.y + half_slot),  // top-left
+            (sp.x + half_slot, sp.y + half_slot),  // top-right
+            (sp.x - half_slot, sp.y - half_slot),  // bottom-left
+            (sp.x + half_slot, sp.y - half_slot),  // bottom-right
+        ];
+        let h_dirs = [1.0, -1.0, 1.0, -1.0]; // horizontal bar direction from corner
+        let v_dirs = [-1.0, -1.0, 1.0, 1.0];  // vertical bar direction from corner
+
+        for i in 0..4 {
+            let (cx, cy) = corners[i];
+            // Horizontal bracket segment
+            commands.spawn((
+                Sprite { color: locked_color, custom_size: Some(Vec2::new(bracket_len, line_w)), ..default() },
+                Transform::from_xyz(cx + h_dirs[i] * bracket_len * 0.5, cy, indicator_z),
+                SlotIndicator,
+            ));
+            // Vertical bracket segment
+            commands.spawn((
+                Sprite { color: locked_color, custom_size: Some(Vec2::new(line_w, bracket_len)), ..default() },
+                Transform::from_xyz(cx, cy + v_dirs[i] * bracket_len * 0.5, indicator_z),
+                SlotIndicator,
+            ));
+        }
     }
-
-    // Gold ring around town
-    let fountain_pos = world::town_grid_to_world(center, 0, 0);
-    gizmos.circle_2d(Isometry2d::from_translation(fountain_pos), max_dist, gold);
 }
 
 // ============================================================================
@@ -460,6 +480,7 @@ fn game_cleanup_system(
     mut commands: Commands,
     npc_query: Query<Entity, With<NpcIndex>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
+    indicator_query: Query<Entity, With<SlotIndicator>>,
     tilemap_query: Query<Entity, With<bevy::sprite_render::TilemapChunk>>,
     mut world: CleanupWorld,
     mut debug: CleanupDebug,
@@ -471,6 +492,9 @@ fn game_cleanup_system(
         commands.entity(entity).despawn();
     }
     for entity in marker_query.iter() {
+        commands.entity(entity).despawn();
+    }
+    for entity in indicator_query.iter() {
         commands.entity(entity).despawn();
     }
     for entity in tilemap_query.iter() {

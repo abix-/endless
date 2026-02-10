@@ -186,19 +186,19 @@ pub const STARVING_SPEED_MULT: f32 = 0.75;
 // ============================================================================
 
 /// Food cost to build a farm.
-pub const FARM_BUILD_COST: i32 = 50;
+pub const FARM_BUILD_COST: i32 = 1;
 
 /// Food cost to build a bed.
-pub const BED_BUILD_COST: i32 = 10;
+pub const BED_BUILD_COST: i32 = 1;
 
 /// Food cost to build a guard post.
-pub const GUARD_POST_BUILD_COST: i32 = 25;
+pub const GUARD_POST_BUILD_COST: i32 = 1;
 
 /// Food cost to unlock one adjacent grid slot.
-pub const SLOT_UNLOCK_COST: i32 = 25;
+pub const SLOT_UNLOCK_COST: i32 = 1;
 
-/// Town building grid spacing in pixels (matches Godot TOWN_GRID_SPACING).
-pub const TOWN_GRID_SPACING: f32 = 34.0;
+/// Town building grid spacing in pixels (matches WorldGrid cell_size for 1:1 alignment).
+pub const TOWN_GRID_SPACING: f32 = 32.0;
 
 /// Base grid extent: rows/cols from -2 to +3 = 6x6 starting area.
 pub const BASE_GRID_MIN: i32 = -2;

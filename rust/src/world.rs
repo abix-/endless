@@ -99,19 +99,18 @@ pub struct TownGrids {
 }
 
 /// Convert town-relative grid coords to world position.
-/// Same formula as Godot _calculate_grid_positions:
-///   world_pos = center + Vec2((col - 0.5) * spacing, (row - 0.5) * spacing)
+/// Slot (0,0) = town center. Each slot = one WorldGrid cell (32px).
 pub fn town_grid_to_world(center: Vec2, row: i32, col: i32) -> Vec2 {
     Vec2::new(
-        center.x + (col as f32 - 0.5) * TOWN_GRID_SPACING,
-        center.y + (row as f32 - 0.5) * TOWN_GRID_SPACING,
+        center.x + col as f32 * TOWN_GRID_SPACING,
+        center.y + row as f32 * TOWN_GRID_SPACING,
     )
 }
 
 /// Convert world position to nearest town grid coords (row, col).
 pub fn world_to_town_grid(center: Vec2, world_pos: Vec2) -> (i32, i32) {
-    let col = ((world_pos.x - center.x) / TOWN_GRID_SPACING + 0.5).round() as i32;
-    let row = ((world_pos.y - center.y) / TOWN_GRID_SPACING + 0.5).round() as i32;
+    let col = ((world_pos.x - center.x) / TOWN_GRID_SPACING).round() as i32;
+    let row = ((world_pos.y - center.y) / TOWN_GRID_SPACING).round() as i32;
     (row, col)
 }
 
@@ -152,7 +151,7 @@ pub fn find_town_slot(
 
         // Check click is within reasonable range of this grid's slots
         let slot_pos = town_grid_to_world(town.center, row, col);
-        let click_radius = TOWN_GRID_SPACING * 0.45;
+        let click_radius = TOWN_GRID_SPACING * 0.7;
         if world_pos.distance(slot_pos) > click_radius { continue; }
 
         if town_grid.unlocked.contains(&(row, col)) {
@@ -590,8 +589,8 @@ impl Default for WorldGenConfig {
             grid_spacing: 34.0,
             camp_distance: 1100.0,
             farmers_per_town: 2,
-            guards_per_town: 500,
-            raiders_per_camp: 500,
+            guards_per_town: 2,
+            raiders_per_camp: 0,
             town_names: vec![
                 "Miami".into(), "Orlando".into(), "Tampa".into(), "Jacksonville".into(),
                 "Tallahassee".into(), "Gainesville".into(), "Pensacola".into(), "Sarasota".into(),
@@ -713,24 +712,14 @@ fn place_town_buildings(
     farm_states: &mut FarmStates,
     center: Vec2,
     town_idx: u32,
-    config: &WorldGenConfig,
+    _config: &WorldGenConfig,
 ) {
-    let s = config.grid_spacing;
-    let cs = grid.cell_size;
-
-    // Fountain at center
-    let (fc, fr) = grid.world_to_grid(center);
-    let fountain_pos = grid.grid_to_world(fc, fr);
-    if let Some(cell) = grid.cell_mut(fc, fr) {
-        cell.building = Some(Building::Fountain { town_idx });
-    }
-
-    // Helper: place building at offset from center, return world position
-    let mut place = |dx: f32, dy: f32, building: Building| -> Vec2 {
-        let world_pos = Vec2::new(center.x + dx * s, center.y + dy * s);
-        let (col, row) = grid.world_to_grid(world_pos);
-        let snapped_pos = grid.grid_to_world(col, row);
-        if let Some(cell) = grid.cell_mut(col, row) {
+    // Helper: place building at town grid (row, col), return snapped world position
+    let mut place = |row: i32, col: i32, building: Building| -> Vec2 {
+        let world_pos = town_grid_to_world(center, row, col);
+        let (gc, gr) = grid.world_to_grid(world_pos);
+        let snapped_pos = grid.grid_to_world(gc, gr);
+        if let Some(cell) = grid.cell_mut(gc, gr) {
             if cell.building.is_none() {
                 cell.building = Some(building);
             }
@@ -738,33 +727,34 @@ fn place_town_buildings(
         snapped_pos
     };
 
-    // 2 farms: left and right of center
-    let farm0_pos = place(0.0, -1.0, Building::Farm { town_idx });
-    let farm1_pos = place(0.0, 1.0, Building::Farm { town_idx });
+    // Fountain at (0, 0) = town center
+    place(0, 0, Building::Fountain { town_idx });
+
+    // 2 farms: above and below center
+    let farm0_pos = place(-1, 0, Building::Farm { town_idx });
+    let farm1_pos = place(1, 0, Building::Farm { town_idx });
     world_data.farms.push(Farm { position: farm0_pos, town_idx });
     world_data.farms.push(Farm { position: farm1_pos, town_idx });
     farm_states.push_farm();
     farm_states.push_farm();
 
     // 4 beds: inner corners
-    let bed_offsets = [(-1.0, -1.0), (-1.0, 2.0), (2.0, -1.0), (2.0, 2.0)];
-    for &(dx, dy) in &bed_offsets {
-        let bed_pos = place(dx, dy, Building::Bed { town_idx });
+    let bed_slots = [(-1, -1), (-1, 2), (2, -1), (2, 2)];
+    for &(row, col) in &bed_slots {
+        let bed_pos = place(row, col, Building::Bed { town_idx });
         world_data.beds.push(Bed { position: bed_pos, town_idx });
     }
 
     // 4 guard posts: outer corners (clockwise patrol)
-    let post_offsets = [(-2.0, -2.0), (-2.0, 3.0), (2.0 + 1.0, 3.0), (2.0 + 1.0, -2.0)];
-    for (order, &(dx, dy)) in post_offsets.iter().enumerate() {
-        let post_pos = place(dx, dy, Building::GuardPost { town_idx, patrol_order: order as u32 });
+    let post_slots = [(-2, -2), (-2, 3), (3, 3), (3, -2)];
+    for (order, &(row, col)) in post_slots.iter().enumerate() {
+        let post_pos = place(row, col, Building::GuardPost { town_idx, patrol_order: order as u32 });
         world_data.guard_posts.push(GuardPost {
             position: post_pos,
             town_idx,
             patrol_order: order as u32,
         });
     }
-
-    let _ = (fountain_pos, cs); // suppress unused warnings
 }
 
 /// Find camp position for a town: try 16 directions, pick furthest from all towns.
