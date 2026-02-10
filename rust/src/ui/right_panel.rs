@@ -112,34 +112,42 @@ pub fn right_panel_system(
     mut upgrade: UpgradeParams,
     mut roster_state: Local<RosterState>,
 ) -> Result {
-    if !ui_state.right_panel_open { return Ok(()); }
-
     let ctx = contexts.ctx_mut()?;
-    let mut tab = ui_state.right_panel_tab;
 
-    egui::SidePanel::right("right_panel").default_width(480.0).show(ctx, |ui| {
-        // Tab bar
-        ui.horizontal(|ui| {
-            if ui.selectable_label(tab == RightPanelTab::Roster, "Roster").clicked() {
-                tab = RightPanelTab::Roster;
-            }
-            if ui.selectable_label(tab == RightPanelTab::Upgrades, "Upgrades").clicked() {
-                tab = RightPanelTab::Upgrades;
-            }
-            if ui.selectable_label(tab == RightPanelTab::Policies, "Policies").clicked() {
-                tab = RightPanelTab::Policies;
+    // Panel width: narrow for just tabs, wide when content is open
+    let width = if ui_state.right_panel_open { 480.0 } else { 80.0 };
+
+    egui::SidePanel::right("right_panel")
+        .exact_width(width)
+        .show(ctx, |ui| {
+            // Tab bar — always visible
+            let open = ui_state.right_panel_open;
+            let tab = ui_state.right_panel_tab;
+
+            ui.horizontal(|ui| {
+                for (label, variant) in [
+                    ("Roster", RightPanelTab::Roster),
+                    ("Upgrades", RightPanelTab::Upgrades),
+                    ("Policies", RightPanelTab::Policies),
+                ] {
+                    let active = open && tab == variant;
+                    if ui.selectable_label(active, label).clicked() {
+                        ui_state.toggle_right_tab(variant);
+                    }
+                }
+            });
+
+            if !ui_state.right_panel_open { return; }
+
+            ui.separator();
+
+            match ui_state.right_panel_tab {
+                RightPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state),
+                RightPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
+                RightPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
             }
         });
-        ui.separator();
 
-        match tab {
-            RightPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state),
-            RightPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
-            RightPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
-        }
-    });
-
-    ui_state.right_panel_tab = tab;
     Ok(())
 }
 
