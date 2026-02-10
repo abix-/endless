@@ -375,7 +375,13 @@ AI & coordination:
 - [ ] get_raider_group_center() for coordinated movement
 - [ ] find_nearest_raider() for regrouping
 
-Performance:
+Performance — GPU readback + extract optimization (see [spec](#gpu-readback--extract-optimization)):
+- [ ] Replace hand-rolled readback with Bevy's `Readback` + `ReadbackComplete` (eliminates 9ms blocking `device.poll`)
+- [ ] Eliminate `GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE` static Mutexes (replaced by `ReadbackComplete` events → Bevy Resources)
+- [ ] Split `NpcBufferWrites` (1.9MB) to reduce ExtractResource clone cost (18ms → <5ms)
+- [ ] Convert 4 readback compute buffers to `ShaderStorageBuffer` assets with `COPY_SRC`
+
+Performance — entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
 - [ ] awake/sleep_timers per NPC, ACTIVE_RADIUS check
 - [ ] Combat/raiding states force awake
@@ -462,6 +468,142 @@ Two issues from the Godot shaders that the implementer needs to handle:
 - Current implementation: `npc_render.rs` (RenderCommand pattern), `npc_render.wgsl` (unchanged)
 - Architecture doc: [rendering.md](rendering.md)
 - Godot reference shaders (kept until WGSL parity): `halo.gdshader`, `sleep_icon.gdshader`, `loot_icon.gdshader`, `item_icon.gdshader`, `npc_sprite.gdshader`
+
+### GPU Readback & Extract Optimization
+
+Two render bottlenecks dominate frame time: `readback_all` blocks 9ms with `device.poll(Wait)`, and `RenderExtractApp` clones 1.9MB of `NpcBufferWrites` at 18ms. Both are hand-rolled patterns that Bevy already solves.
+
+**Problem 1: Blocking GPU readback (9ms)**
+
+We manually create staging buffers, call `map_async`, then `device.poll(wait_indefinitely())` which blocks on ALL GPU work (not just our staging maps). Bevy 0.18 provides `Readback` + `ReadbackComplete` (`bevy::render::gpu_readback`) which handles async staging, mapping, and polling internally — zero blocking.
+
+**Problem 2: ExtractResource clone (18ms)**
+
+`NpcBufferWrites` is 1.9MB (15 Vecs × 16384 slots) cloned every frame via `ExtractResourcePlugin`. Only ~460KB is compute upload data (positions, targets, speeds, factions, healths, arrivals). The remaining ~1.4MB is render-only visual data (sprite_indices, colors, flash_values, 6 equipment/status sprite arrays) written by `sync_visual_sprites` and read by `prepare_npc_buffers`.
+
+**Architecture: Bevy `Readback` for GPU→CPU, split struct for CPU→GPU**
+
+```
+BEFORE (hand-rolled):
+  Main World                          Render World
+  GPU_UPDATE_QUEUE (static Mutex)  →  populate_buffer_writes → NpcBufferWrites
+  NpcBufferWrites (1.9MB)          →  ExtractResource CLONE → write_npc_buffers
+                                      readback_all: map_async + device.poll(WAIT) → 9ms BLOCK
+                                      → GPU_READ_STATE (static Mutex)
+  sync_gpu_state_to_bevy           ←  GPU_READ_STATE (static Mutex)
+
+AFTER (Bevy-native):
+  Main World                          Render World
+  GPU_UPDATE_QUEUE (static Mutex)  →  populate_buffer_writes → NpcComputeWrites (~50KB)
+  NpcComputeWrites                 →  ExtractResource clone (tiny) → write_npc_buffers
+  NpcVisualData                    →  static swap buffer (no clone) → prepare_npc_buffers
+  ReadbackComplete observer        ←  Readback component (async, 0ms)
+  → GpuReadState (Bevy Resource)
+```
+
+**We read back 4 buffers from GPU:**
+
+| Buffer | Type | Size (700 NPCs) | Consumer |
+|---|---|---|---|
+| `positions` | `vec2<f32>` per NPC | 5.6 KB | ECS arrival detection + rendering |
+| `combat_targets` | `i32` per NPC | 2.8 KB | `attack_system` |
+| `proj_hits` | `[i32; 2]` per proj | varies | `process_proj_hits` |
+| `proj_positions` | `vec2<f32>` per proj | varies | projectile rendering |
+
+**Implementation steps:**
+
+Step 1 — Convert readback buffers to `ShaderStorageBuffer` assets:
+- [ ] In `GpuComputePlugin::build` (main world Startup), create 4 `ShaderBuffer` assets via `Assets<ShaderBuffer>`
+- [ ] Set `buffer_description.usage |= BufferUsages::STORAGE | BufferUsages::COPY_SRC` on each
+- [ ] Store handles in `ReadbackHandles` resource (derive `ExtractResource, Clone`)
+- [ ] Register `ExtractResourcePlugin::<ReadbackHandles>`
+- [ ] Sizes: npc_positions = `MAX_NPCS * 8` bytes, combat_targets = `MAX_NPCS * 4` bytes, proj_hits = `MAX_PROJECTILES * 8` bytes, proj_positions = `MAX_PROJECTILES * 8` bytes
+
+```rust
+#[derive(Resource, ExtractResource, Clone)]
+struct ReadbackHandles {
+    npc_positions: Handle<ShaderBuffer>,
+    combat_targets: Handle<ShaderBuffer>,
+    proj_hits: Handle<ShaderBuffer>,
+    proj_positions: Handle<ShaderBuffer>,
+}
+```
+
+Step 2 — Use ShaderBuffer in compute bind groups:
+- [ ] In `prepare_npc_bind_groups`, access `Res<RenderAssets<GpuShaderBuffer>>` + `Res<ReadbackHandles>`
+- [ ] Get raw `Buffer` via `render_assets.get(&handles.npc_positions).unwrap().buffer`
+- [ ] Use `.as_entire_buffer_binding()` in bind group entries for positions (binding 0) and combat_targets (binding 9)
+- [ ] Same pattern in `prepare_proj_bind_groups` for proj_hits (binding 7) and proj_positions (binding 0)
+- [ ] Remove these buffers from `NpcGpuBuffers` and `ProjGpuBuffers` structs (they come from assets now)
+
+Step 3 — Spawn `Readback` entities:
+- [ ] Spawn 4 persistent entities with `Readback::buffer(handle.clone())` — Bevy re-reads every frame while component exists
+- [ ] Each entity gets an `.observe()` handler for `ReadbackComplete`
+
+Step 4 — Handle `ReadbackComplete` events:
+- [ ] NPC positions observer: deserialize `Vec<f32>`, write positions + arrival detection to `GpuReadState` resource
+- [ ] Combat targets observer: deserialize `Vec<i32>`, write to `GpuReadState.combat_targets`
+- [ ] Proj hits observer: deserialize `Vec<[i32; 2]>`, write to a `ProjHitState` Bevy Resource (replaces `PROJ_HIT_STATE` static)
+- [ ] Proj positions observer: deserialize `Vec<f32>`, write to a `ProjPositionState` Bevy Resource (replaces `PROJ_POSITION_STATE` static)
+- [ ] Note: `ReadbackComplete` gives raw `Vec<u8>`, use `bytemuck::cast_slice` or `event.to_shader_type::<Vec<f32>>()`
+
+Step 5 — Delete hand-rolled readback code:
+- [ ] Delete `StagingIndex` resource
+- [ ] Delete `position_staging: [Buffer; 2]` and `combat_target_staging: [Buffer; 2]` from `NpcGpuBuffers`
+- [ ] Delete `hit_staging: [Buffer; 2]` and `position_staging: [Buffer; 2]` from `ProjGpuBuffers`
+- [ ] Delete all 8 staging buffer creations in `init_npc_compute_pipeline` and `init_proj_compute_pipeline`
+- [ ] Delete `copy_buffer_to_buffer` calls in `NpcComputeNode::run` and `ProjectileComputeNode::run` (Bevy's Readback handles the copy internally)
+- [ ] Delete the entire `readback_all` function (~110 lines)
+- [ ] Delete system registration for `readback_all.in_set(RenderSystems::Cleanup)`
+- [ ] Delete `GPU_READ_STATE` static Mutex from `messages.rs`
+- [ ] Delete `PROJ_HIT_STATE` static Mutex from `messages.rs`
+- [ ] Delete `PROJ_POSITION_STATE` static Mutex from `messages.rs`
+
+Step 6 — Update consumers of static Mutexes:
+- [ ] `systems/sync.rs`: `sync_gpu_state_to_bevy` — now reads from `Res<GpuReadState>` directly (it's populated by observer, no static needed)
+- [ ] `systems/combat.rs`: `process_proj_hits` — read from `Res<ProjHitState>` instead of `PROJ_HIT_STATE.lock()`
+- [ ] `npc_render.rs`: `prepare_npc_buffers` — read NPC positions from `Res<GpuReadState>` (already extracted) or from the `ShaderBuffer` asset directly via `RenderAssets`
+- [ ] `npc_render.rs`: `prepare_proj_buffers` — read proj positions from `Res<ProjPositionState>` instead of `PROJ_POSITION_STATE.lock()`
+
+Step 7 — Split `NpcBufferWrites` to reduce extract clone:
+- [ ] Create `NpcVisualData` struct with: `sprite_indices`, `colors`, `flash_values`, `armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`, `status_sprites`, `healing_sprites` (~1.4MB)
+- [ ] Create `static NPC_VISUAL_DATA: Mutex<NpcVisualData>` (same pattern as existing `GPU_READ_STATE`)
+- [ ] `sync_visual_sprites` writes to `NPC_VISUAL_DATA.lock()` instead of `NpcBufferWrites`
+- [ ] `prepare_npc_buffers` (render world) reads from `NPC_VISUAL_DATA.lock()` instead of extracted `NpcBufferWrites`
+- [ ] Remaining `NpcComputeWrites` keeps: positions, targets, speeds, factions, healths, arrivals + dirty indices (~50KB with sparse dirty data)
+- [ ] Change `ExtractResourcePlugin::<NpcBufferWrites>` to `ExtractResourcePlugin::<NpcComputeWrites>`
+- [ ] Update `write_npc_buffers` to read from `Res<NpcComputeWrites>`
+
+**Files changed:**
+
+| File | Changes |
+|---|---|
+| `rust/src/gpu.rs` | ReadbackHandles resource, ShaderBuffer creation, Readback entity spawning, ReadbackComplete observers, split NpcBufferWrites → NpcComputeWrites + NpcVisualData, delete staging buffers + readback_all + StagingIndex |
+| `rust/src/messages.rs` | Delete `GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE` statics. Add `ProjHitState`, `ProjPositionState` Bevy Resources. |
+| `rust/src/npc_render.rs` | `prepare_npc_buffers` reads visual data from `NPC_VISUAL_DATA` static, positions from `GpuReadState` resource |
+| `rust/src/systems/sync.rs` | `sync_gpu_state_to_bevy` reads `GpuReadState` resource directly (no static) |
+| `rust/src/systems/combat.rs` | `process_proj_hits` reads `ProjHitState` resource instead of static |
+| `rust/src/resources.rs` | `GpuReadState` stays as Bevy Resource (already is), add `ProjHitState`, `ProjPositionState` |
+
+**Verification:**
+
+1. `cargo check` — 0 errors, 0 warnings
+2. `cargo run --release` — NPCs move, patrol, combat works, projectiles hit
+3. `cargo run --release --features tracy`:
+   - `readback_all` span completely gone
+   - `RenderExtractApp` < 5ms (down from 18ms)
+   - No new blocking spans
+4. Debug tests: run all — vertical-slice, combat, projectiles, healing should pass
+5. Tracy: overall frame time should drop ~25ms (9ms readback + 13ms extract savings)
+
+**Key API references:**
+
+- `bevy::render::gpu_readback::{Readback, ReadbackComplete}` — [docs](https://docs.rs/bevy/latest/bevy/render/gpu_readback/enum.Readback.html)
+- `bevy::render::storage::{ShaderBuffer, GpuShaderBuffer}` — buffer assets
+- `bevy::render::render_asset::RenderAssets<GpuShaderBuffer>` — access raw `Buffer` in render world
+- `Readback::buffer(handle)` — per-frame async readback
+- `ReadbackComplete::to_shader_type::<T>()` — typed deserialization from raw bytes
+- Bevy example: `examples/shader/gpu_readback.rs`
 
 ## Performance
 

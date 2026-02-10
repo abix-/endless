@@ -269,47 +269,9 @@ pub fn sync_visual_sprites(
         Option<&Healing>,
         Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
     ), Without<Dead>>,
-    npc_count: Res<NpcCount>,
 ) {
-    let count = npc_count.0 as usize;
-
-    // Clear all visual layers up to npc_count
-    for i in 0..count {
-        let j = i * 2;
-        if j + 1 < buffer.healing_sprites.len() {
-            buffer.healing_sprites[j] = -1.0;
-            buffer.healing_sprites[j + 1] = 0.0;
-        }
-        if j + 1 < buffer.status_sprites.len() {
-            buffer.status_sprites[j] = -1.0;
-            buffer.status_sprites[j + 1] = 0.0;
-        }
-        if j + 1 < buffer.item_sprites.len() {
-            buffer.item_sprites[j] = -1.0;
-            buffer.item_sprites[j + 1] = 0.0;
-        }
-        if j + 1 < buffer.weapon_sprites.len() {
-            buffer.weapon_sprites[j] = -1.0;
-            buffer.weapon_sprites[j + 1] = 0.0;
-        }
-        if j + 1 < buffer.helmet_sprites.len() {
-            buffer.helmet_sprites[j] = -1.0;
-            buffer.helmet_sprites[j + 1] = 0.0;
-        }
-        if j + 1 < buffer.armor_sprites.len() {
-            buffer.armor_sprites[j] = -1.0;
-            buffer.armor_sprites[j + 1] = 0.0;
-        }
-        let c = i * 4;
-        if c + 3 < buffer.colors.len() {
-            buffer.colors[c] = 1.0;
-            buffer.colors[c + 1] = 1.0;
-            buffer.colors[c + 2] = 1.0;
-            buffer.colors[c + 3] = 1.0;
-        }
-    }
-
-    // Set from ECS
+    // Single pass: write ALL visual fields per alive NPC (defaults where no component).
+    // Dead NPCs are skipped by the renderer (x < -9000), so stale data is harmless.
     for (npc_idx, faction, job, activity, healing, weapon, helmet, armor) in all_npcs.iter() {
         let idx = npc_idx.0;
         let j = idx * 2;
@@ -328,43 +290,43 @@ pub fn sync_visual_sprites(
             buffer.colors[c + 3] = a;
         }
 
-        // Equipment
-        if let Some(w) = weapon {
-            if j + 1 < buffer.weapon_sprites.len() {
-                buffer.weapon_sprites[j] = w.0;
-                buffer.weapon_sprites[j + 1] = w.1;
-            }
-        }
-        if let Some(h) = helmet {
-            if j + 1 < buffer.helmet_sprites.len() {
-                buffer.helmet_sprites[j] = h.0;
-                buffer.helmet_sprites[j + 1] = h.1;
-            }
-        }
-        if let Some(a) = armor {
-            if j + 1 < buffer.armor_sprites.len() {
-                buffer.armor_sprites[j] = a.0;
-                buffer.armor_sprites[j + 1] = a.1;
-            }
-        }
+        if j + 1 >= buffer.weapon_sprites.len() { continue; }
 
-        // Carried item (food) — derived from Activity::Returning { has_food: true }
-        if matches!(activity, Activity::Returning { has_food: true }) && j + 1 < buffer.item_sprites.len() {
-            buffer.item_sprites[j] = FOOD_SPRITE.0;
-            buffer.item_sprites[j + 1] = FOOD_SPRITE.1;
-        }
+        // Equipment (write -1.0 sentinel when unequipped)
+        let (wc, wr) = weapon.map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
+        buffer.weapon_sprites[j] = wc;
+        buffer.weapon_sprites[j + 1] = wr;
+
+        let (hc, hr) = helmet.map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
+        buffer.helmet_sprites[j] = hc;
+        buffer.helmet_sprites[j + 1] = hr;
+
+        let (ac, ar) = armor.map(|a| (a.0, a.1)).unwrap_or((-1.0, 0.0));
+        buffer.armor_sprites[j] = ac;
+        buffer.armor_sprites[j + 1] = ar;
+
+        // Carried item (food)
+        let (ic, ir) = if matches!(activity, Activity::Returning { has_food: true }) {
+            (FOOD_SPRITE.0, FOOD_SPRITE.1)
+        } else {
+            (-1.0, 0.0)
+        };
+        buffer.item_sprites[j] = ic;
+        buffer.item_sprites[j + 1] = ir;
 
         // Healing indicator
-        if healing.is_some() && j + 1 < buffer.healing_sprites.len() {
-            buffer.healing_sprites[j] = HEAL_SPRITE.0;
-            buffer.healing_sprites[j + 1] = HEAL_SPRITE.1;
-        }
+        let (hlc, hlr) = if healing.is_some() { (HEAL_SPRITE.0, HEAL_SPRITE.1) } else { (-1.0, 0.0) };
+        buffer.healing_sprites[j] = hlc;
+        buffer.healing_sprites[j + 1] = hlr;
 
-        // Sleep indicator — derived from Activity::Resting
-        if matches!(activity, Activity::Resting { .. }) && j + 1 < buffer.status_sprites.len() {
-            buffer.status_sprites[j] = SLEEP_SPRITE.0;
-            buffer.status_sprites[j + 1] = SLEEP_SPRITE.1;
-        }
+        // Sleep indicator
+        let (sc, sr) = if matches!(activity, Activity::Resting { .. }) {
+            (SLEEP_SPRITE.0, SLEEP_SPRITE.1)
+        } else {
+            (-1.0, 0.0)
+        };
+        buffer.status_sprites[j] = sc;
+        buffer.status_sprites[j + 1] = sr;
     }
 
     buffer.dirty = true;
@@ -372,7 +334,7 @@ pub fn sync_visual_sprites(
 
 /// Drain GPU_UPDATE_QUEUE and apply updates to NpcBufferWrites.
 /// Runs in main world each frame before extraction.
-pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: Res<Time>) {
+pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: Res<Time>, npc_count: Res<NpcCount>) {
     // Reset dirty flags - will be set if any updates applied
     buffer_writes.dirty = false;
     buffer_writes.position_dirty_indices.clear();
@@ -392,7 +354,8 @@ pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: 
     let dt = time.delta_secs();
     const FLASH_DECAY_RATE: f32 = 5.0;
     let mut any_flash = false;
-    for flash in buffer_writes.flash_values.iter_mut() {
+    let active = npc_count.0.min(buffer_writes.flash_values.len());
+    for flash in buffer_writes.flash_values[..active].iter_mut() {
         if *flash > 0.0 {
             *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
             any_flash = true;

@@ -101,7 +101,7 @@ Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terr
 - Same position as body (from readback)
 - Sprite from `status_sprites` (sleep icon) / `healing_sprites` (heal glow) (stride 2, col/row per NPC)
 - Sentinel: col < 0 means inactive → skip
-- Written by `GpuUpdate::SetSleeping` (behavior.rs Resting insert/remove) and `GpuUpdate::SetHealing` (health.rs healing aura)
+- Derived by `sync_visual_sprites` from `Activity::Resting` and `Healing` ECS components each frame
 - Independent layers: NPC can show sleep AND healing simultaneously
 
 **Projectiles**: health set to 1.0 (no health bar), flash set to 0.0

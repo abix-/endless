@@ -53,9 +53,10 @@ ECS → GPU (upload):
     → write_npc_buffers (per-index uploads, only changed slots)
 
   sync_visual_sprites (after Step::Behavior):
-    Derives colors, equipment, indicators from ECS components
+    Single-pass: writes ALL visual fields per alive NPC (defaults where absent)
     → writes directly to NpcBufferWrites (colors, *_sprites arrays)
     Single source of truth — replaces deferred SetColor/SetEquipSprite/SetHealing/SetSleeping messages
+    Dead NPCs skipped by renderer (x < -9000), stale visual data is harmless
 
 GPU → ECS (readback, double-buffered ping-pong):
   NpcComputeNode: dispatch compute + copy positions → staging[current]

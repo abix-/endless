@@ -1,6 +1,11 @@
 # Changelog
 
 ## 2026-02-10
+- **optimize per-frame visual sync and flash decay**
+  - `sync_visual_sprites`: merged two-pass (clear all + set all) into single pass that writes defaults inline where components are absent, eliminating ~8K redundant array writes per frame at 500 NPCs
+  - `populate_buffer_writes`: flash decay loop now iterates only active NPCs (npc_count) instead of all 16,384 MAX_NPCS slots
+  - ~10% FPS improvement at 700+ NPCs (90 → 100 FPS)
+
 - **fix projectile slot leak (9 FPS → 33+ FPS death spiral fix)**
   - expired projectiles now write `proj_hits[i] = (-2, 0)` sentinel in WGSL shader
   - `process_proj_hits` handles expired sentinel: frees slot + sends Deactivate
