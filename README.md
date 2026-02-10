@@ -2,7 +2,7 @@
 
 A game about fighting entropy. Raiders steal your food. Guards die in combat. Farms lie fallow. Everything tends toward chaos and collapse. Can you build something that lasts?
 
-Built with Bevy 0.18 ECS and GPU compute shaders (WGSL). Data-oriented design with Factorio-style optimizations — 16K NPCs via GPU instanced rendering in a single draw call.
+Built with Bevy 0.18 ECS and GPU compute shaders (WGSL). Data-oriented design with Factorio-style optimizations — 50K NPCs via GPU instanced rendering in a single draw call.
 
 ## Getting Started
 
@@ -22,7 +22,7 @@ cargo run --release
 4. **Expand** - Claim neutral towns. More territory, more production, more to defend.
 5. **Endure** - Entropy never stops. Neither can you.
 
-## Controls (Planned)
+## Controls
 
 | Key | Action |
 |-----|--------|
@@ -30,11 +30,14 @@ cargo run --release
 | Mouse Wheel | Zoom (centers on cursor) |
 | Left Click (NPC) | Select and inspect |
 | Left Click (Farm) | Show farm occupancy |
-| Right Click (slot) | Build menu / unlock slot |
+| Right Click (slot) | Build menu / unlock slot / turret toggle |
 | + / = | Speed up time (2x) |
 | - | Slow down time (0.5x) |
 | SPACE | Pause/unpause |
 | R | Roster panel (view all guards/farmers) |
+| L | Combat log (kills, spawns, raids, harvests) |
+| B | Build menu panel |
+| U | Upgrade menu |
 | P | Policies panel (faction settings) |
 | ESC | Settings menu |
 
