@@ -213,8 +213,8 @@ The render pipeline runs in Bevy's render world after extract:
 
 | Phase | System | Purpose |
 |-------|--------|---------|
-| Extract | `extract_npc_batch` | Clone NpcBatch entity to render world |
-| Extract | `extract_proj_batch` | Clone ProjBatch entity to render world |
+| Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
+| Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | PrepareResources | `prepare_npc_buffers` | Build 7 layer buffers (body + 4 equipment + 2 indicators) |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
@@ -312,7 +312,7 @@ Current equipment assignments:
 
 ## World Tilemap (Terrain + Buildings)
 
-Both terrain and buildings are rendered via Bevy's built-in `TilemapChunk` — two separate layer entities on the same 250×250 grid. Each layer is a single quad mesh where a fragment shader does per-pixel tile lookup from a `texture_2d_array` tileset. This gives O(1) draw cost regardless of grid size (62,500 cells, 2 draw calls, zero per-frame CPU cost).
+Both terrain and buildings are rendered via Bevy's built-in `TilemapChunk` — two separate layer entities on the same grid (default 250×250, up to 1000×1000). Each layer is a single quad mesh where a fragment shader does per-pixel tile lookup from a `texture_2d_array` tileset. Currently one chunk per layer — a future optimization (see roadmap: Chunked Tilemap spec) will split into 32×32 chunks for off-screen culling.
 
 | Layer | Z | Alpha | Content | Tileset |
 |-------|---|-------|---------|---------|
@@ -343,6 +343,7 @@ Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase a
 - **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
 - **Equipment sprite placeholders**: Current equipment sprites (sword, helmet, food) use placeholder atlas coordinates — need tuning with sprite browser.
 - **Single sort key for all layers**: All 7 NPC layers share sort_key=0.5 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but layers can't interleave with other phase items.
+- **Single tilemap chunk per layer**: At 1000×1000 (1M tiles), `command_buffer_generation_tasks` costs ~10ms because Bevy processes all tiles even when most are off-screen. Splitting into 32×32 chunks enables off-screen culling (see roadmap spec).
 
 ## Rating: 9/10
 

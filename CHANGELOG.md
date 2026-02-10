@@ -2,6 +2,13 @@
 
 ## 2026-02-10
 
+- **performance: render world entity leak fix + scale-up**
+  - fix render world entity leak: `extract_npc_batch` and `extract_proj_batch` now despawn stale entities before spawning fresh ones — previously accumulated one entity per frame, causing `command_buffer_generation_tasks` to grow linearly over time
+  - scale GPU spatial grid from 128×128×64px (8,192px coverage) to 256×256×128px (32,768px coverage) — fixes NPCs not colliding or targeting on worlds larger than ~250×250
+  - raise max NPC count from 10K to 50K (both CPU `MAX_NPC_COUNT` and GPU `MAX_NPCS`)
+  - remove dead CPU-side spatial grid constants from `constants.rs` (GRID_WIDTH/HEIGHT/CELLS, CELL_SIZE, MAX_PER_CELL — unused since GPU compute)
+  - add chunked tilemap spec to roadmap (32×32 tile chunks for off-screen culling, not yet implemented)
+
 - **stage 7: playable game features**
   - add `settings.rs`: `UserSettings` resource with serde JSON save/load to `endless_settings.json` next to executable
   - main menu loads saved settings on init (world size, towns, farmers, guards, raiders), saves on Play click

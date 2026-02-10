@@ -41,10 +41,11 @@ use crate::resources::{NpcCount, GpuReadState, ProjHitState, ProjPositionState};
 const SHADER_ASSET_PATH: &str = "shaders/npc_compute.wgsl";
 const PROJ_SHADER_ASSET_PATH: &str = "shaders/projectile_compute.wgsl";
 const WORKGROUP_SIZE: u32 = 64;
-const MAX_NPCS: u32 = 16384;
+const MAX_NPCS: u32 = 50000;
 const MAX_PROJECTILES: u32 = 50_000;
-const GRID_WIDTH: u32 = 128;
-const GRID_HEIGHT: u32 = 128;
+/// 256×256 cells × 128px = 32,768px — covers max 1000×1000 world (32,000px).
+const GRID_WIDTH: u32 = 256;
+const GRID_HEIGHT: u32 = 256;
 const MAX_PER_CELL: u32 = 48;
 const HIT_RADIUS: f32 = 10.0;
 
@@ -96,7 +97,7 @@ impl Default for NpcComputeParams {
             delta: 0.016,
             grid_width: GRID_WIDTH,
             grid_height: GRID_HEIGHT,
-            cell_size: 64.0,
+            cell_size: 128.0,
             max_per_cell: MAX_PER_CELL,
             arrival_threshold: 8.0,
             mode: 0,
@@ -410,7 +411,7 @@ impl Default for ProjComputeParams {
             hit_radius: HIT_RADIUS,
             grid_width: GRID_WIDTH,
             grid_height: GRID_HEIGHT,
-            cell_size: 64.0,
+            cell_size: 128.0,
             max_per_cell: MAX_PER_CELL,
         }
     }

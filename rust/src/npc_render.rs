@@ -354,11 +354,15 @@ fn spawn_npc_batch(mut commands: Commands) {
 // EXTRACT
 // =============================================================================
 
-/// Extract NPC batch entity to render world.
+/// Extract NPC batch entity to render world. Despawns stale copies first to prevent leak.
 fn extract_npc_batch(
     mut commands: Commands,
     query: Extract<Query<Entity, With<NpcBatch>>>,
+    stale: Query<Entity, With<NpcBatch>>,
 ) {
+    for entity in &stale {
+        commands.entity(entity).despawn();
+    }
     for entity in &query {
         commands.spawn((NpcBatch, MainEntity::from(entity)));
     }
@@ -787,10 +791,15 @@ fn spawn_proj_batch(mut commands: Commands) {
     info!("Projectile batch entity spawned");
 }
 
+/// Extract projectile batch entity to render world. Despawns stale copies first.
 fn extract_proj_batch(
     mut commands: Commands,
     query: Extract<Query<Entity, With<ProjBatch>>>,
+    stale: Query<Entity, With<ProjBatch>>,
 ) {
+    for entity in &stale {
+        commands.entity(entity).despawn();
+    }
     for entity in &query {
         commands.spawn((ProjBatch, MainEntity::from(entity)));
     }

@@ -1,21 +1,9 @@
 //! Constants - Tuning parameters for the NPC system
 
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
-pub const MAX_NPC_COUNT: usize = 10000;
+pub const MAX_NPC_COUNT: usize = 50000;
 
-/// Spatial grid dimensions. The world is divided into GRID_WIDTH × GRID_HEIGHT cells.
-/// With CELL_SIZE=100 and 8000px world, we need 80x80 grid.
-pub const GRID_WIDTH: usize = 80;
-pub const GRID_HEIGHT: usize = 80;
-pub const GRID_CELLS: usize = GRID_WIDTH * GRID_HEIGHT;
-
-/// Maximum NPCs per grid cell. Increased for larger cells.
-pub const MAX_PER_CELL: usize = 64;
-
-/// Size of each grid cell in pixels.
-/// Must be >= detect_range / 3 to ensure 3x3 neighbor search covers full range.
-/// With detect_range=300px, cell_size=100px covers 300px (3 cells × 100px).
-pub const CELL_SIZE: f32 = 100.0;
+// Spatial grid lives on GPU only — see gpu.rs (256×256 cells × 128px = 32,768px coverage).
 
 /// Minimum distance NPCs try to maintain from each other.
 pub const SEPARATION_RADIUS: f32 = 20.0;

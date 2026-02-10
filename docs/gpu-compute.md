@@ -141,9 +141,9 @@ Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; spri
 | separation_radius | 20.0 | Minimum distance NPCs try to maintain |
 | separation_strength | 100.0 | Repulsion force multiplier |
 | delta | 0.016 | Frame delta time |
-| grid_width | 128 | Spatial grid columns |
-| grid_height | 128 | Spatial grid rows |
-| cell_size | 64.0 | Pixels per grid cell |
+| grid_width | 256 | Spatial grid columns |
+| grid_height | 256 | Spatial grid rows |
+| cell_size | 128.0 | Pixels per grid cell |
 | max_per_cell | 48 | Max NPCs per cell |
 | arrival_threshold | 8.0 | Distance to mark as arrived |
 | mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=separation+movement+targeting) |
@@ -153,11 +153,11 @@ Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; spri
 
 Built on GPU each frame via 3-mode dispatch with atomic operations:
 
-- **Cell size**: 64px
-- **Grid dimensions**: 128x128 (covers 8192x8192 world)
+- **Cell size**: 128px
+- **Grid dimensions**: 256x256 (covers 32,768×32,768 world — supports up to 1000×1000 grid at 32px cells)
 - **Max per cell**: 48
-- **Total cells**: 16,384
-- **Memory**: grid_counts = 64KB, grid_data = 3MB
+- **Total cells**: 65,536
+- **Memory**: grid_counts = 256KB, grid_data = 12MB
 
 NPCs are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode 1 inserts NPCs via `atomicAdd`, mode 2 uses 3x3 neighborhood for separation/dodge forces and `combat_range / cell_size + 1` radius for combat targeting.
 
@@ -171,9 +171,9 @@ The render shader (`shaders/npc_render.wgsl`) expands each quad by `SPRITE_SIZE`
 
 ```rust
 const WORKGROUP_SIZE: u32 = 64;
-const MAX_NPCS: u32 = 16384;
-const GRID_WIDTH: u32 = 128;
-const GRID_HEIGHT: u32 = 128;
+const MAX_NPCS: u32 = 50000;
+const GRID_WIDTH: u32 = 256;
+const GRID_HEIGHT: u32 = 256;
 const MAX_PER_CELL: u32 = 48;
 ```
 
