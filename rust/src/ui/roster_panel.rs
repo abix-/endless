@@ -40,6 +40,7 @@ pub fn roster_panel_system(
     mut state: Local<RosterState>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<GpuReadState>,
+    mut reassign_queue: ResMut<ReassignQueue>,
 ) -> Result {
     if !ui_state.roster_open {
         return Ok(());
@@ -169,6 +170,7 @@ pub fn roster_panel_system(
             let selected_idx = selected.0;
             let mut new_selected: Option<i32> = None;
             let mut follow_idx: Option<usize> = None;
+            let mut reassigns: Vec<(usize, i32)> = Vec::new();
 
             for row in &state.cached_rows {
                 let is_selected = selected_idx == row.slot as i32;
@@ -223,6 +225,21 @@ pub fn roster_panel_system(
                         new_selected = Some(row.slot as i32);
                         follow_idx = Some(row.slot);
                     }
+
+                    // Reassign button: Farmer↔Guard only
+                    match row.job {
+                        0 => {
+                            if ui.small_button("→G").on_hover_text("Reassign to Guard").clicked() {
+                                reassigns.push((row.slot, 1));
+                            }
+                        }
+                        1 => {
+                            if ui.small_button("→F").on_hover_text("Reassign to Farmer").clicked() {
+                                reassigns.push((row.slot, 0));
+                            }
+                        }
+                        _ => {} // Raiders can't be reassigned
+                    }
                 });
 
                 // Click anywhere on row to select
@@ -245,6 +262,12 @@ pub fn roster_panel_system(
                         transform.translation.y = y;
                     }
                 }
+            }
+
+            // Push reassign requests (deferred to avoid borrow conflict with cached_rows loop)
+            if !reassigns.is_empty() {
+                reassign_queue.0.extend(reassigns);
+                state.frame_counter = 0; // force roster refresh
             }
         });
     });

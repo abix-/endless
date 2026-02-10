@@ -654,4 +654,27 @@ impl CombatLog {
     }
 }
 
+// ============================================================================
+// GUARD POST TURRET STATE
+// ============================================================================
+
+/// Per-guard-post turret state. Length auto-syncs with WorldData.guard_posts.
+#[derive(Resource, Default)]
+pub struct GuardPostState {
+    /// Cooldown timer per post (seconds remaining).
+    pub timers: Vec<f32>,
+    /// Whether auto-attack is enabled per post.
+    pub attack_enabled: Vec<bool>,
+}
+
+// ============================================================================
+// REASSIGN QUEUE (UI → ECS bridge)
+// ============================================================================
+
+/// Queue of role reassignment requests from UI.
+/// UI pushes here because EguiPrimaryContextPass can't use MessageWriter.
+/// Drained each frame by reassign_npc_system.
+#[derive(Resource, Default)]
+pub struct ReassignQueue(pub Vec<(usize, i32)>); // (npc_slot, new_job: 0=Farmer, 1=Guard)
+
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

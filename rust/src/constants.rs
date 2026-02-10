@@ -206,3 +206,22 @@ pub const BASE_GRID_MAX: i32 = 3;
 
 /// Maximum grid extent (rows/cols -49 to +50 = 100x100).
 pub const MAX_GRID_EXTENT: i32 = 49;
+
+// ============================================================================
+// GUARD POST TURRET CONSTANTS
+// ============================================================================
+
+/// Detection range for guard post auto-attack.
+pub const GUARD_POST_RANGE: f32 = 250.0;
+
+/// Damage per turret projectile.
+pub const GUARD_POST_DAMAGE: f32 = 8.0;
+
+/// Seconds between turret shots.
+pub const GUARD_POST_COOLDOWN: f32 = 3.0;
+
+/// Turret projectile speed (pixels/sec).
+pub const GUARD_POST_PROJ_SPEED: f32 = 300.0;
+
+/// Turret projectile lifetime (seconds).
+pub const GUARD_POST_PROJ_LIFETIME: f32 = 1.5;

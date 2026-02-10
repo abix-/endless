@@ -2,7 +2,7 @@
 
 ## Overview
 
-Five chained Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks, damage application, death detection, and cleanup with slot recycling. All run sequentially in `Step::Combat`.
+Six chained Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks, damage application, death detection, cleanup with slot recycling, and guard post turret auto-attack. All run sequentially in `Step::Combat`.
 
 ## Data Flow
 
@@ -39,6 +39,11 @@ DamageMsg (from process_proj_hits)             GPU movement
   ├─ Release AssignedFarm, clear RaidQueue
   ├─ Update FactionStats, KillStats, PopulationStats
   └─ SlotAllocator.free(idx)
+        │
+        ▼
+  guard_post_attack_system
+  (scan enemies near posts,
+   fire projectiles)
 ```
 
 attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or applies point-blank damage for melee. The projectile system ([projectiles.md](projectiles.md)) handles movement, collision detection, hit readback, and slot recycling.
@@ -99,6 +104,14 @@ Execution order is **chained** — each system completes before the next starts.
   7. Remove from `NpcsByTownCache`
   8. `SlotAllocator.free(idx)` — recycle slot for future spawns
 
+### 6. guard_post_attack_system (combat.rs)
+- Iterates `WorldData.guard_posts` with `GuardPostState` per-post timers and enabled flags
+- State length auto-syncs with guard post count (handles runtime building)
+- For each enabled post with cooldown ready: scans `GpuReadState.positions`+`factions` for nearest enemy (faction != 0) within `GUARD_POST_RANGE` (250px)
+- Fires projectile via `PROJ_GPU_UPDATE_QUEUE` with `shooter: -1` (building, not NPC) and `faction: 0`
+- Constants: range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s
+- Turret toggle: `GuardPostState.attack_enabled[i]` toggled via build menu UI
+
 ## Slot Recycling
 
 ```
@@ -123,7 +136,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Health sync | `GpuUpdate::SetHealth` after damage |
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
-| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` |
+| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + guard_post_attack_system) |
 
 ## Debug
 

@@ -9,6 +9,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 
 use crate::gpu::NpcSpriteTexture;
 use crate::resources::SelectedNpc;
+use crate::settings::UserSettings;
 use crate::world::{WorldGrid, build_tileset, TERRAIN_TILES, BUILDING_TILES};
 
 // =============================================================================
@@ -66,7 +67,6 @@ pub struct CameraState {
     pub viewport: Vec2,
 }
 
-const CAMERA_PAN_SPEED: f32 = 400.0;
 const CAMERA_ZOOM_SPEED: f32 = 0.1;
 const CAMERA_MIN_ZOOM: f32 = 0.1;
 const CAMERA_MAX_ZOOM: f32 = 4.0;
@@ -161,6 +161,7 @@ fn camera_pan_system(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
+    user_settings: Res<UserSettings>,
 ) {
     let Ok((mut transform, projection)) = query.single_mut() else { return };
 
@@ -171,7 +172,7 @@ fn camera_pan_system(
     if keys.pressed(KeyCode::KeyD) { dir.x += 1.0; }
 
     if dir != Vec2::ZERO {
-        let speed = CAMERA_PAN_SPEED / ortho_zoom(projection);
+        let speed = user_settings.scroll_speed / ortho_zoom(projection);
         let delta = dir.normalize() * speed * time.delta_secs();
         transform.translation.x += delta.x;
         transform.translation.y += delta.y;

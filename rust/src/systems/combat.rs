@@ -2,9 +2,11 @@
 
 use bevy::prelude::*;
 use crate::components::*;
+use crate::constants::{GUARD_POST_RANGE, GUARD_POST_DAMAGE, GUARD_POST_COOLDOWN, GUARD_POST_PROJ_SPEED, GUARD_POST_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState};
 use crate::gpu::ProjBufferWrites;
+use crate::world::WorldData;
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
@@ -218,4 +220,89 @@ pub fn process_proj_hits(
         }
     }
     hit_state.0.clear();
+}
+
+/// Guard post turret auto-attack: scans for nearest enemy within range, fires projectile.
+/// State length auto-syncs with WorldData.guard_posts (handles runtime building).
+pub fn guard_post_attack_system(
+    time: Res<Time>,
+    gpu_state: Res<GpuReadState>,
+    world_data: Res<WorldData>,
+    mut gp_state: ResMut<GuardPostState>,
+    mut proj_alloc: ResMut<ProjSlotAllocator>,
+) {
+    let dt = time.delta_secs();
+    let positions = &gpu_state.positions;
+    let factions = &gpu_state.factions;
+    let npc_count = positions.len() / 2;
+
+    // Sync state length with guard post count (handles new builds)
+    while gp_state.timers.len() < world_data.guard_posts.len() {
+        gp_state.timers.push(0.0);
+        gp_state.attack_enabled.push(true);
+    }
+
+    let range_sq = GUARD_POST_RANGE * GUARD_POST_RANGE;
+
+    for (i, post) in world_data.guard_posts.iter().enumerate() {
+        if i >= gp_state.timers.len() { break; }
+        if !gp_state.attack_enabled[i] { continue; }
+
+        // Decrement cooldown
+        if gp_state.timers[i] > 0.0 {
+            gp_state.timers[i] = (gp_state.timers[i] - dt).max(0.0);
+            if gp_state.timers[i] > 0.0 { continue; }
+        }
+
+        // Find nearest enemy within range
+        let px = post.position.x;
+        let py = post.position.y;
+        let mut best_dist_sq = range_sq;
+        let mut best_idx: Option<usize> = None;
+
+        for n in 0..npc_count {
+            if n >= factions.len() { continue; }
+            if factions[n] == 0 { continue; } // Don't shoot friendlies
+            let nx = positions[n * 2];
+            let ny = positions[n * 2 + 1];
+            if nx < -9000.0 { continue; } // Hidden/dead
+
+            let dx = nx - px;
+            let dy = ny - py;
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq < best_dist_sq {
+                best_dist_sq = dist_sq;
+                best_idx = Some(n);
+            }
+        }
+
+        // Fire projectile at target
+        if let Some(target) = best_idx {
+            let tx = positions[target * 2];
+            let ty = positions[target * 2 + 1];
+            let dx = tx - px;
+            let dy = ty - py;
+            let dist = best_dist_sq.sqrt();
+
+            if dist > 1.0 {
+                if let Some(proj_slot) = proj_alloc.alloc() {
+                    let dir_x = dx / dist;
+                    let dir_y = dy / dist;
+                    if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                        queue.push(ProjGpuUpdate::Spawn {
+                            idx: proj_slot,
+                            x: px, y: py,
+                            vx: dir_x * GUARD_POST_PROJ_SPEED,
+                            vy: dir_y * GUARD_POST_PROJ_SPEED,
+                            damage: GUARD_POST_DAMAGE,
+                            faction: 0,
+                            shooter: -1, // Building, not NPC
+                            lifetime: GUARD_POST_PROJ_LIFETIME,
+                        });
+                    }
+                }
+            }
+            gp_state.timers[i] = GUARD_POST_COOLDOWN;
+        }
+    }
 }

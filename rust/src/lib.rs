@@ -12,6 +12,7 @@ pub mod messages;
 pub mod npc_render;
 pub mod render;
 pub mod resources;
+pub mod settings;
 pub mod systems;
 pub mod tests;
 pub mod ui;
@@ -31,6 +32,7 @@ use resources::{
     ResetFlag, GpuReadState, GpuDispatchCount, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
+    ReassignQueue, GuardPostState,
 };
 use systems::*;
 use components::*;
@@ -236,6 +238,9 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CombatLog>()
        .init_resource::<world::TownGrids>()
        .init_resource::<BuildMenuContext>()
+       .init_resource::<ReassignQueue>()
+       .init_resource::<GuardPostState>()
+       .init_resource::<settings::UserSettings>()
        // Plugins
        .add_plugins(bevy_egui::EguiPlugin::default())
        .add_plugins(gpu::GpuComputePlugin)
@@ -266,6 +271,7 @@ pub fn build_app(app: &mut App) {
            damage_system,
            death_system,
            death_cleanup_system,
+           guard_post_attack_system,
        ).chain().in_set(Step::Combat))
        // Behavior
        .add_systems(Update, (
@@ -280,6 +286,7 @@ pub fn build_app(app: &mut App) {
            starvation_system,
            decision_system,
            farm_visual_system,
+           reassign_npc_system,
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))

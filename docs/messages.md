@@ -53,6 +53,7 @@ Three message types used for intra-ECS communication:
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
 | DamageMsg | npc_index, amount | MessageWriter → MessageReader |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → collect_gpu_updates |
+| ReassignMsg | npc_index, new_job | Defined but unused — UI uses `ReassignQueue` resource instead (EguiPrimaryContextPass can't use MessageWriter) |
 
 ## GPU Update Messages
 
@@ -67,7 +68,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | SetSpeed | idx, speed | spawn_npc_system |
 | ApplyDamage | idx, amount | damage_system |
 | HideNpc | idx | death_cleanup_system |
-| SetSpriteFrame | idx, col, row | spawn_npc_system |
+| SetSpriteFrame | idx, col, row | spawn_npc_system, reassign_npc_system |
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_buffer_writes) |
 
 **Removed (replaced by `sync_visual_sprites`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame (see [gpu-compute.md](gpu-compute.md)).
@@ -79,7 +80,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | GPU_UPDATE_QUEUE | `Mutex<Vec<GpuUpdate>>` | collect_gpu_updates | populate_buffer_writes |
 | GPU_DISPATCH_COUNT | `Mutex<usize>` | spawn_npc_system | (legacy, used for dispatch count) |
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
-| PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | attack_system | populate_proj_buffer_writes |
+| PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | attack_system, guard_post_attack_system | populate_proj_buffer_writes |
 | FREE_PROJ_SLOTS | `Mutex<Vec<usize>>` | (unused) | (unused) |
 | PERF_STATS | `Mutex<PerfStats>` | bevy_timer_end | (debug display) |
 

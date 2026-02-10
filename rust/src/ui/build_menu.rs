@@ -19,6 +19,7 @@ pub fn build_menu_system(
     mut town_grids: ResMut<world::TownGrids>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
+    mut gp_state: ResMut<GuardPostState>,
 ) -> Result {
     if !ui_state.build_menu_open {
         return Ok(());
@@ -92,6 +93,34 @@ pub fn build_menu_system(
             } else if build_ctx.is_fountain {
                 ui.label("Fountain (indestructible)");
             } else if build_ctx.has_building {
+                // Guard post turret toggle
+                let (gc, gr) = grid.world_to_grid(build_ctx.slot_world_pos);
+                let is_guard_post = grid.cell(gc, gr)
+                    .and_then(|c| c.building.as_ref())
+                    .map(|b| matches!(b, Building::GuardPost { .. }))
+                    .unwrap_or(false);
+
+                if is_guard_post {
+                    // Find this guard post's index by position
+                    let snapped = grid.grid_to_world(gc, gr);
+                    if let Some(gp_idx) = world_data.guard_posts.iter().position(|g| {
+                        (g.position - snapped).length() < 1.0
+                    }) {
+                        // Sync state length
+                        while gp_state.attack_enabled.len() <= gp_idx {
+                            gp_state.timers.push(0.0);
+                            gp_state.attack_enabled.push(true);
+                        }
+
+                        let enabled = gp_state.attack_enabled[gp_idx];
+                        let label = if enabled { "Disable Turret" } else { "Enable Turret" };
+                        if ui.button(label).clicked() {
+                            gp_state.attack_enabled[gp_idx] = !enabled;
+                        }
+                    }
+                    ui.separator();
+                }
+
                 // Occupied slot: show destroy button
                 if ui.button("Destroy Building").clicked() {
                     match world::remove_building(

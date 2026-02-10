@@ -2,6 +2,21 @@
 
 ## 2026-02-10
 
+- **stage 7: playable game features**
+  - add `settings.rs`: `UserSettings` resource with serde JSON save/load to `endless_settings.json` next to executable
+  - main menu loads saved settings on init (world size, towns, farmers, guards, raiders), saves on Play click
+  - `camera_pan_system` reads `UserSettings.scroll_speed` instead of hardcoded constant
+  - add `reassign_npc_system` in `systems/spawn.rs`: Farmer↔Guard role swap via component add/remove
+  - roster panel gets `→G` (farmer→guard) and `→F` (guard→farmer) buttons per NPC row
+  - `ReassignQueue` resource bridges UI (EguiPrimaryContextPass) to ECS (Update schedule) since MessageWriter unavailable in egui schedule
+  - reassignment swaps: job marker, equipment (sword/helmet), patrol route, work position, activity, sprite frame, population stats
+  - equipment visuals update automatically via `sync_visual_sprites` (no manual GPU equipment update needed)
+  - add `guard_post_attack_system` in `systems/combat.rs`: turret auto-attack fires projectiles at nearest enemy within 250px
+  - `GuardPostState` resource with per-post cooldown timers and attack_enabled flags, auto-syncs length with WorldData.guard_posts
+  - add turret toggle in build menu: right-click guard post shows "Disable/Enable Turret" button
+  - add guard post turret constants: range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s
+  - add `ReassignMsg` to messages.rs (defined but unused — `ReassignQueue` resource used instead)
+
 - **building system playtesting fixes**
   - fix coordinate misalignment: TOWN_GRID_SPACING 34→32px (matches WorldGrid cell size), remove -0.5 offset from `town_grid_to_world` so slot (0,0) = town center
   - rewrite `place_town_buildings` to use town grid (row,col) coordinates instead of float offsets

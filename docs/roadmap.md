@@ -216,32 +216,32 @@ Rules:
 - [ ] Farm growth state visible (Growing → Ready sprite change + progress bar on tile)
 - [ ] Healing glow effect (pulsing green tint + radial halo — needs TIME uniform in shader)
 
-**Stage 7: Playable Game**
+**Stage 7: Playable Game** ✓
 
 *Done when: someone who isn't you can open it, understand what's happening, and make decisions that affect the outcome.*
 
-- [ ] Visible world border with corner markers
-- [ ] User settings persistence (serde JSON)
-- [ ] Villager role assignment
-- [ ] Train guards from population
-- [ ] Guard post auto-attack (turret behavior, fires at enemies)
-- [ ] Guard post upgrades (attack_enabled, range_level, damage_level)
+- [x] User settings persistence (serde JSON, scroll speed + world gen sliders)
+- [x] Villager role assignment (Farmer↔Guard via roster panel)
+- [x] Guard post auto-attack (turret behavior, fires projectiles at enemies within 250px)
+- [x] Guard post turret toggle (enable/disable via right-click build menu)
 
 **Stage 8: Data-Driven Stats** (see [spec](#stat-resolution--upgrades))
 
 *Done when: all NPC stats resolve from `CombatConfig` resource via `resolve_combat_stats()`. Game plays identically — pure refactor, no behavior change. All existing tests pass.*
 
-**Architecture: derive, don't store.** All NPC stats are computed at point-of-use from `base_stat[job] * upgrade_mult[town] * level_mult[npc] * trait_mult[npc]`. No computed stats stored on entities. See spec for full struct definitions, formulas, and file change table.
+**Architecture: cache with explicit invalidation.** Stats resolve from config via `resolve_combat_stats()`. Resolved stats are cached on the entity as a `CachedStats` component and invalidated on the ~3 events that change them (spawn, upgrade purchased, level-up). This avoids both stale-data bugs (explicit invalidation) and per-frame resolution cost (10K HashMap lookups/frame). See spec for full struct definitions, formulas, and file change table.
 
 - [ ] `CombatConfig` resource with per-job `JobStats` + per-attack-type `AttackTypeStats` (see spec for structs)
-- [ ] `systems/stats.rs` with `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades) -> ResolvedStats`
-- [ ] Replace `AttackStats::melee()` / `AttackStats::ranged()` in `spawn_npc_system` — spawn with `BaseAttackType` component instead
-- [ ] `attack_system` calls `resolve_combat_stats()` instead of reading stored `AttackStats`
+- [ ] `systems/stats.rs` with `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades) -> CachedStats`
+- [ ] `CachedStats` component on combatant entities — populated on spawn, invalidated on upgrade/level-up
+- [ ] Replace `AttackStats::melee()` / `AttackStats::ranged()` in `spawn_npc_system` — spawn with `BaseAttackType` + `CachedStats` from resolver
+- [ ] `attack_system` reads `&CachedStats` instead of `&AttackStats` (same query pattern, different component)
 - [ ] Replace `HEAL_RATE` / `HEAL_RADIUS` constants in `healing_system` with `CombatConfig` fields
-- [ ] Remove `MaxHealth` component — derive max_health via resolver at point-of-use (healing cap, HP bars, damage clamp)
+- [ ] Replace `MaxHealth` component with `CachedStats.max_health` — single source of truth for HP cap (healing, HP bars, damage clamp)
 - [ ] Wire existing `Personality::get_stat_multipliers()` into `resolve_combat_stats()` (currently defined but never called)
 - [ ] Init values MUST match current hardcoded values: guard/raider damage=15, all speeds=100, all max_health=100, heal_rate=5, heal_radius=150
 - [ ] `constants.rs` remains but only as bootstrap for `CombatConfig::default()` — no system may read constants directly after this stage
+- [ ] `#[cfg(debug_assertions)]` parity checks: assert resolved stats match old hardcoded values (remove in Stage 9)
 
 **Stage 9: Upgrades & XP** (see [spec](#stat-resolution--upgrades))
 
@@ -417,15 +417,17 @@ Two issues from the Godot shaders that the implementer needs to handle:
 
 All NPC stats are currently compile-time constants scattered across the codebase. Guards and raiders have identical `AttackStats::melee()`. `Personality::get_stat_multipliers()` computes damage/hp/speed/yield modifiers but nothing calls it. `HEAL_RATE`, `HEAL_RADIUS`, `Speed::default()` are all hardcoded. Upgrades, XP, traits, and policies are all the same thing — multipliers on base stats — so build one resolution system, not four.
 
-**Architecture: Derive at point-of-use**
+**Architecture: Cache with explicit invalidation**
 
 ```
 final_stat = base[job_or_attack] * upgrade_mult[town][stat] * level_mult[npc] * trait_mult[npc]
 ```
 
-Never store computed stats on entities. Store `BaseAttackType(Melee | Ranged)` on the entity, resolve to full stats when needed. This avoids ordering bugs (which system writes last?), stale data, and debugging hell.
+Stats are resolved via `resolve_combat_stats()` and cached on the entity as a `CachedStats` component. The cache is invalidated (re-resolved) on the ~3 events that change inputs: spawn, upgrade purchased, level-up. This avoids both per-frame resolution cost (10K HashMap lookups + personality math every frame) and stale-data bugs (explicit invalidation on known mutation events).
 
-**Important: `Health` is state, not a derived stat.** Store `Health { current: f32 }` on entities. Derive `max_health` via the resolver at point-of-use (healing cap, HP bars, damage clamp). Do NOT store `MaxHealth` as a component — it becomes stale when level/upgrades change, reintroducing the exact problem this architecture solves. If max_health changes (level up, upgrade purchased), scale current HP proportionally once at that moment.
+**Why cache, not derive-per-frame:** `attack_system` iterates all combatants every frame. At 10K NPCs, per-frame resolution means 10K HashMap lookups + 10K trait multiplier computations + 10K upgrade array reads. Caching reduces this to a component read. Invalidation events (upgrade click, XP grant) happen maybe 10 times/second total — negligible.
+
+**`Health` is state, `CachedStats.max_health` is the cap.** Store `Health { current: f32 }` on entities. `CachedStats.max_health` is the derived cap used by healing, HP bars, and damage clamp. When max_health changes (level up, upgrade purchased), the invalidation code rescales current HP proportionally: `health.0 = health.0 * new_max / old_max`.
 
 **Design constraint: job vs attack type.** These are two orthogonal axes:
 
@@ -524,7 +526,10 @@ Only combat-relevant upgrades flow through `resolve_combat_stats()`. Economy/spa
 **`resolve_combat_stats()` function** (new file `systems/stats.rs` or in `resources.rs`):
 
 ```rust
-pub struct ResolvedStats {
+/// Cached resolved stats on combatant entities. Replaces AttackStats + MaxHealth.
+/// Populated on spawn, re-resolved when upgrades/level change.
+#[derive(Component)]
+pub struct CachedStats {
     pub damage: f32,
     pub range: f32,
     pub cooldown: f32,
@@ -542,7 +547,7 @@ pub fn resolve_combat_stats(
     personality: &Personality,
     config: &CombatConfig,
     upgrades: &TownUpgrades,
-) -> ResolvedStats {
+) -> CachedStats {
     let job_base = &config.jobs[&job];
     let atk_base = &config.attacks[&attack_type];
     let (trait_damage, trait_hp, trait_speed, _trait_yield) = personality.get_stat_multipliers();
@@ -569,7 +574,7 @@ pub fn resolve_combat_stats(
     let upgrade_speed = 1.0 + town[UpgradeType::MoveSpeed as usize] as f32 * UPGRADE_PCT[5];
     let cooldown_mult = 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[4]);
 
-    ResolvedStats {
+    CachedStats {
         damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,
         range: atk_base.range * upgrade_range,
         cooldown: atk_base.cooldown * cooldown_mult,
@@ -578,6 +583,29 @@ pub fn resolve_combat_stats(
         max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult,
         speed: job_base.speed * upgrade_speed * trait_speed,
     }
+}
+```
+
+**Cache invalidation — when to re-resolve:**
+
+| Event | Where | Action |
+|-------|-------|--------|
+| NPC spawned | `spawn_npc_system` | Insert `CachedStats` from `resolve_combat_stats()` |
+| Upgrade purchased | `apply_upgrade()` | Re-resolve all NPCs in that town with matching job |
+| Level-up | `grant_xp()` | Re-resolve this NPC, rescale `health.0 = health.0 * new_max / old_max` |
+
+Upgrades are per-town, so purchasing one requires iterating NPCs in that town (use `NpcsByTownCache`). At typical town sizes (50-500 NPCs), this is sub-millisecond. Level-up is per-NPC, trivially cheap.
+
+**Stage 8 debug assertions** (remove in Stage 9):
+
+```rust
+// In spawn_npc_system, after resolving:
+#[cfg(debug_assertions)]
+{
+    let stats = resolve_combat_stats(job, attack_type, town_idx, 0, &Personality::default(), &config, &upgrades);
+    debug_assert!((stats.damage - 15.0).abs() < 0.01, "Stage 8 drift: damage {} != 15", stats.damage);
+    debug_assert!((stats.max_health - 100.0).abs() < 0.01, "Stage 8 drift: max_health {} != 100", stats.max_health);
+    debug_assert!((stats.speed - 100.0).abs() < 0.01, "Stage 8 drift: speed {} != 100", stats.speed);
 }
 ```
 
@@ -632,7 +660,7 @@ Stage 8 (pure refactor — gameplay must be identical):
 
 | File | Changes |
 |---|---|
-| `resources.rs` | Add `CombatConfig`, `TownUpgrades` (initialized to all zeros), `ResolvedStats`, `UpgradeType`. |
+| `resources.rs` | Add `CombatConfig`, `TownUpgrades` (initialized to all zeros), `CachedStats`, `UpgradeType`. |
 | `components.rs` | Add `BaseAttackType` enum. Remove `AttackStats` after migration verified. Remove `MaxHealth` — derive via resolver. |
 | `systems/stats.rs` (new) | `resolve_combat_stats()` function. |
 | `systems/spawn.rs` | Read `CombatConfig`, insert `BaseAttackType` instead of `AttackStats::melee()`. Set `Health` from job_base.max_health (same value: 100.0). |

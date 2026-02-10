@@ -61,9 +61,9 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Main menu: world config sliders + Play / Debug Tests
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
     │   ├─ In-game HUD: population, time, food, NPC inspector, panel toggles
-    │   ├─ Roster panel (R): NPC list with sort/filter/select/follow
+    │   ├─ Roster panel (R): NPC list with sort/filter/select/follow/reassign
     │   ├─ Combat log (L): global event feed (kills, spawns, raids, harvests)
-    │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Destroy/Unlock)
+    │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Destroy/Unlock/Turret toggle)
     │   ├─ Upgrade menu (U), Policies (P): scaffolds
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
@@ -127,16 +127,17 @@ rust/
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, Activity/CombatState enums)
-  src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
-  src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
+  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret)
+  src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, GuardPostState, ReassignQueue, etc.)
+  src/settings.rs       # UserSettings persistence (serde JSON save/load)
   src/world.rs          # World data structs, world grid, procedural generation, tileset builder, town grid, building placement/removal
   src/ui/
     mod.rs              # register_ui(), game startup, cleanup, escape/time controls, keyboard toggles, slot right-click, slot indicators
-    main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons
+    main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
     game_hud.rs         # In-game HUD (population, time, food, NPC inspector, panel toggles)
-    roster_panel.rs     # NPC list with sort/filter/select/follow (R key)
+    roster_panel.rs     # NPC list with sort/filter/select/follow/reassign (R key)
     combat_log.rs       # Event feed with color-coded timestamps (L key)
-    build_menu.rs       # Right-click context menu: build/destroy/unlock town slots
+    build_menu.rs       # Right-click context menu: build/destroy/unlock town slots, turret toggle
     upgrade_menu.rs     # 14 upgrade rows scaffold (U key, disabled)
     policies_panel.rs   # Faction behavior config scaffold (P key, disabled)
   src/tests/
@@ -157,10 +158,10 @@ rust/
     farm_visual.rs      # Farm ready marker visual test (3 phases)
     heal_visual.rs      # Heal icon visual test (3 phases)
   src/systems/
-    spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
+    spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>), reassign_npc_system (Farmer↔Guard)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
-    combat.rs           # Attack cooldown, targeting
+    combat.rs           # Attack cooldown, targeting, guard post turret auto-attack
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, respawning

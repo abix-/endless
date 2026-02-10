@@ -31,6 +31,13 @@ pub struct DamageMsg {
     pub amount: f32,
 }
 
+/// Reassign an NPC to a different job (Farmer <-> Guard).
+#[derive(Message, Clone)]
+pub struct ReassignMsg {
+    pub npc_index: usize,
+    pub new_job: i32, // 0=Farmer, 1=Guard
+}
+
 
 // ============================================================================
 // GPU DISPATCH COUNT

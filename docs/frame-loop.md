@@ -24,13 +24,13 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │
 ├─ Step::Combat (chained)
 │     cooldown_system → attack_system → damage_system →
-│     death_system → death_cleanup_system
+│     death_system → death_cleanup_system → guard_post_attack_system
 │
 ├─ Step::Behavior
 │     arrival_system, energy_system, healing_system,
 │     on_duty_tick_system, game_time_system, farm_growth_system,
 │     camp_forage_system, raider_respawn_system, starvation_system,
-│     decision_system
+│     decision_system, farm_visual_system, reassign_npc_system
 │
 ├─ collect_gpu_updates (after Step::Behavior)
 │     GpuUpdateMsg events → GPU_UPDATE_QUEUE (single mutex lock)
