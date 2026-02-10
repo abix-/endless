@@ -120,7 +120,7 @@ Rules:
 - [x] build_menu.rs (right-click context menu: Farm/Bed/GuardPost build, Destroy, Unlock)
 - [x] combat_log.rs (event feed with color-coded timestamps, Kill/Spawn/Raid/Harvest)
 - [x] upgrade_menu.rs (14 upgrade rows with level/cost, spend food to purchase)
-- [x] policies_panel.rs (behavior config scaffold, disabled until Stage 10 backend)
+- [x] policies_panel.rs (behavior config with live policy controls wired to TownPolicies resource)
 - [x] Keyboard toggles: R=roster, L=log, B=build, U=upgrades, P=policies
 
 ### Building System
@@ -226,6 +226,17 @@ Rules:
 - [x] `game_hud.rs` NPC inspector shows level, XP, XP-to-next-level
 - [x] Fix `starvation_system` speed: uses `CachedStats.speed * STARVING_SPEED_MULT` instead of hardcoded 60.0
 
+### Town Policies
+- [x] `TownPolicies` resource with `PolicySet` per town (eat_food, flee thresholds, work schedule, off-duty behavior)
+- [x] `WorkSchedule` enum (Both, DayOnly, NightOnly) gates work scoring in decision_system
+- [x] `OffDutyBehavior` enum (GoToBed, StayAtFountain, WanderTown) drives idle behavior off-schedule
+- [x] `policies_panel.rs` wired to `ResMut<TownPolicies>` — sliders/checkboxes directly mutate resource
+- [x] Policy-driven flee: guards use `guard_flee_hp`, farmers use `farmer_flee_hp`, raiders hardcoded 0.50
+- [x] `guard_aggressive` disables guard flee, `farmer_fight_back` disables farmer flee
+- [x] `guard_leash` policy controls whether guards return to post after combat
+- [x] `prioritize_healing` sends wounded NPCs to fountain before resuming work
+- [x] Removed hardcoded `FleeThreshold`/`WoundedThreshold` from raider spawn — thresholds policy-driven
+
 ### Architecture
 - [x] Bevy Messages (MessageWriter/MessageReader) for all inter-system communication
 - [x] All state as Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
@@ -277,20 +288,47 @@ Remaining:
 - [ ] FarmerCap/GuardCap flat upgrades enforced in spawn cap checks
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 
-**Stage 10: Town Policies**
+**Stage 10: Town Policies** ✓
 
 *Done when: changing a policy slider immediately alters NPC behavior — raiders flee at the configured HP%, farmers sleep during night shift, off-duty guards wander to the fountain.*
 
-- [ ] `TownPolicies` Bevy resource: per-town policy values (mirrors existing `PolicyState` scaffold in `policies_panel.rs`)
-- [ ] Wire `policies_panel.rs` controls to read/write `TownPolicies` instead of `Local<PolicyState>`
-- [ ] `decision_system` reads `TownPolicies` for: flee thresholds, work schedule, off-duty behavior, prioritize healing
-- [ ] Remove hardcoded `FleeThreshold { pct: 0.50 }` from raider spawn — derive from policies
-- [ ] Work schedule: `decision_system` checks `GameTime.hour()` against day/night policy before assigning work
-- [ ] Off-duty behavior: idle NPCs choose bed/fountain/wander based on policy
-- [ ] Fountain healing zone radius reads from `CombatConfig` + upgrade bonus
-- [ ] Camp healing zone: raiders heal at camp center (same logic as town fountain, faction-matched)
+- [x] `TownPolicies` Bevy resource: per-town policy values (mirrors existing `PolicyState` scaffold in `policies_panel.rs`)
+- [x] Wire `policies_panel.rs` controls to read/write `TownPolicies` instead of `Local<PolicyState>`
+- [x] `decision_system` reads `TownPolicies` for: flee thresholds, work schedule, off-duty behavior, prioritize healing
+- [x] Remove hardcoded `FleeThreshold { pct: 0.50 }` from raider spawn — derive from policies
+- [x] Work schedule: `decision_system` checks `GameTime.hour()` against day/night policy before assigning work
+- [x] Off-duty behavior: idle NPCs choose bed/fountain/wander based on policy
+- [x] Fountain healing zone radius reads from `CombatConfig` + upgrade bonus (already implemented in Stage 9 healing_system)
+- [x] Camp healing zone: raiders heal at camp center (already works — camps are in WorldData.towns with faction match)
 
-**Stage 11: Combat & Economy Depth**
+**Stage 11: Building Spawners** (see [spec](#building-spawners))
+
+*Done when: each Hut supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Huts/Barracks to grow population. Menu sliders for farmers/guards removed.*
+
+Buildings:
+- [ ] `Building::Hut { town_idx }` and `Building::Barracks { town_idx }` variants in `world.rs`
+- [ ] `Hut`/`Barracks` structs in `WorldData`, `BUILDING_TILES` extended 5→7
+- [ ] Wire `place_building()`/`remove_building()` for Hut/Barracks (same tombstone pattern)
+- [ ] World gen: `place_town_buildings()` adds 1 Hut + 1 Barracks per villager town
+
+Spawner state:
+- [ ] `SpawnerEntry` struct: `building_kind`, `town_idx`, `position`, `npc_slot` (-1=none), `respawn_timer`
+- [ ] `SpawnerState` resource: `Vec<SpawnerEntry>` — one entry per Hut/Barracks
+- [ ] `spawner_respawn_system` in `systems/economy.rs` (Step::Behavior, hourly): detects dead NPC via `NpcEntityMap`, starts 12h timer, spawns replacement when timer expires
+
+UI:
+- [ ] Hut + Barracks buttons in `build_menu.rs` (push `SpawnerEntry` on build)
+- [ ] Remove `farmers`/`guards` sliders from `main_menu.rs`, `UserSettings`, `WorldGenConfig`, `GameConfig`
+- [ ] HUD shows spawner counts: `Huts: 2 (1 alive, 1 in 8h)` / `Barracks: 3 (3 alive)`
+
+Startup:
+- [ ] `game_startup_system` builds `SpawnerState` from world gen Huts/Barracks, spawns 1 NPC per entry (instant, no timer)
+- [ ] Remove bulk farmer/guard spawn loops — keep raider spawn loop
+
+Registration:
+- [ ] `.init_resource::<SpawnerState>()`, add `spawner_respawn_system` to Step::Behavior
+
+**Stage 12: Combat & Economy Depth**
 
 *Done when: emergent gameplay happens — raids succeed or fail based on guard upgrades, economy collapses if farms aren't defended, raiders starve if they can't steal.*
 
@@ -310,7 +348,7 @@ Economy depth:
 - [ ] Multiple resources (wood, iron, gold)
 - [ ] Production buildings (lumber mill, mine, blacksmith)
 
-**Stage 12: Endgame**
+**Stage 13: Endgame**
 
 *Done when: AI factions compete autonomously, armies clash over territory, and the simulation runs efficiently at scale.*
 
@@ -483,6 +521,125 @@ Stage 10 (policies — behavior config):
 
 Stage 9 (done): Upgrade guard attack in UI → guards deal more damage. Guards get kills → inspector shows level > 1, combat log shows "Level up" (cyan). Level-up rescales HP proportionally. Starving NPCs slow to `cached.speed * 0.75`.
 Stage 10: Change raider flee threshold slider to 80%. Raiders should flee much earlier. Change work schedule to "Day Only" — farmers idle at night.
+Stage 11: Game starts with 1 farmer + 1 guard per town. Build Hut → farmer spawns within 1 game hour. Kill farmer → new farmer spawns after 12h. Destroy Hut → NPC survives but won't respawn. Menu has no farmer/guard sliders. HUD shows spawner counts with timers.
+
+### Building Spawners
+
+Villager population is building-driven: each **Hut** supports 1 farmer, each **Barracks** supports 1 guard. Buildings track their linked NPC and respawn replacements after a cooldown. Menu sliders for farmers/guards are removed.
+
+**New building types** (`world.rs`):
+
+```rust
+pub enum Building {
+    // ... existing variants ...
+    Hut { town_idx: u32 },       // spawns 1 farmer
+    Barracks { town_idx: u32 },   // spawns 1 guard
+}
+```
+
+Add `Hut`/`Barracks` structs (same shape as `Farm`/`Bed`: `position: Vec2, town_idx: u32`). Add to `WorldData.huts`/`WorldData.barracks` Vecs. Extend `BUILDING_TILES` from 5→7 (pick 2 sprites from roguelike atlas — e.g. house (13,2) and castle (14,2)). Wire `place_building()`/`remove_building()` using same tombstone deletion pattern as Farm/Bed.
+
+**`SpawnerState` resource** (`resources.rs`):
+
+```rust
+#[derive(Clone, Default)]
+pub struct SpawnerEntry {
+    pub building_kind: i32,     // 0=Hut (farmer), 1=Barracks (guard)
+    pub town_idx: i32,          // villager town data index
+    pub position: Vec2,         // building world position
+    pub npc_slot: i32,          // linked NPC slot (-1 = no NPC alive)
+    pub respawn_timer: f32,     // hours remaining until respawn (-1 = not respawning)
+}
+
+#[derive(Resource, Default)]
+pub struct SpawnerState(pub Vec<SpawnerEntry>);
+```
+
+Each Hut/Barracks gets one entry. `npc_slot` links to the NPC's slot index. When NPC dies, the spawner detects it and starts a respawn timer.
+
+**World gen** (`world.rs:place_town_buildings()`):
+
+Add 1 Hut at grid (0, -1) and 1 Barracks at (0, 1) — flanking the fountain. Push to `WorldData.huts`/`barracks`.
+
+**Game startup** (`ui/mod.rs:game_startup_system()`):
+
+- Build `SpawnerState` entries from `WorldData.huts` (kind=0) + `WorldData.barracks` (kind=1)
+- Remove bulk farmer/guard spawn loops
+- Iterate `SpawnerState.0`: for each entry, alloc slot, emit `SpawnNpcMsg`, set `entry.npc_slot`
+  - Hut → job=0 (Farmer), faction=0, home=nearest bed, work=nearest farm
+  - Barracks → job=1 (Guard), faction=0, home=nearest bed, starting_post=guard post index
+- Keep raider spawn loop unchanged
+
+**`spawner_respawn_system`** (`systems/economy.rs`, Step::Behavior):
+
+Runs when `game_time.hour_ticked`. For each `SpawnerEntry`:
+
+```
+skip if tombstoned (position.x < -9000)
+
+if npc_slot >= 0:
+    if !npc_map.0.contains_key(&(npc_slot as usize)):
+        // NPC died — start respawn timer
+        npc_slot = -1
+        respawn_timer = SPAWNER_RESPAWN_HOURS  // 12.0
+
+if respawn_timer > 0:
+    respawn_timer -= 1.0  // decrement each game hour
+    if respawn_timer <= 0:
+        alloc slot via SlotAllocator
+        emit SpawnNpcMsg (job from building_kind, position, nearest bed/farm/post)
+        npc_slot = allocated slot
+        respawn_timer = -1.0
+        log to CombatLog: "Farmer respawned from Hut" / "Guard respawned from Barracks"
+```
+
+**Build menu** (`ui/build_menu.rs`):
+
+Add Hut and Barracks to empty-slot build options (same pattern as Farm/Bed/GuardPost):
+- Hut: `HUT_BUILD_COST` food, tooltip "Supports 1 farmer. Respawns after 12h if killed."
+- Barracks: `BARRACKS_BUILD_COST` food, tooltip "Supports 1 guard. Respawns after 12h if killed."
+- After `place_building()` succeeds: push `SpawnerEntry { building_kind, town_idx, position, npc_slot: -1, respawn_timer: 0.0 }` — triggers spawn next hourly tick
+
+**Building destruction** (`world.rs:remove_building()`):
+
+Tombstone `WorldData.huts`/`barracks` entry. Find matching `SpawnerState` entry by position and tombstone it (`position.x = -99999`). NPC survives (orphaned — won't respawn if killed later).
+
+**Menu changes** (`ui/main_menu.rs`, `settings.rs`):
+
+Remove `farmers`/`guards` sliders and DragValues from main menu. Remove from `MenuState`, `UserSettings`, `WorldGenConfig`. Remove `farmers_per_town`/`guards_per_town` from `GameConfig`. Keep `raiders` slider.
+
+**HUD** (`ui/game_hud.rs`):
+
+Add spawner summary below population stats:
+```
+Huts: 2 (1 alive, 1 in 8h)
+Barracks: 3 (3 alive)
+```
+
+Count alive = entries where `npc_slot >= 0`, respawning = entries where `respawn_timer > 0`.
+
+**Constants** (`constants.rs`):
+
+```rust
+pub const HUT_BUILD_COST: i32 = 3;
+pub const BARRACKS_BUILD_COST: i32 = 5;
+pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;
+```
+
+**Files changed:**
+
+| File | Changes |
+|---|---|
+| `world.rs` | `Hut`/`Barracks` structs + `Building` variants, `BUILDING_TILES` +2, place/remove, world gen 1 each per town |
+| `resources.rs` | `SpawnerEntry`, `SpawnerState` resource |
+| `constants.rs` | `HUT_BUILD_COST`, `BARRACKS_BUILD_COST`, `SPAWNER_RESPAWN_HOURS` |
+| `ui/build_menu.rs` | Hut/Barracks build buttons, push SpawnerEntry on build |
+| `ui/main_menu.rs` | Remove farmers/guards sliders |
+| `ui/game_hud.rs` | Spawner counts in HUD |
+| `settings.rs` | Remove farmers/guards from UserSettings |
+| `systems/economy.rs` | `spawner_respawn_system` |
+| `ui/mod.rs` | Rewrite startup — spawn from SpawnerState, remove bulk farmer/guard loops |
+| `lib.rs` | Register SpawnerState, add spawner_respawn_system to Step::Behavior |
 
 ### GPU Readback & Extract Optimization
 
