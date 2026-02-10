@@ -26,5 +26,12 @@ fn main() {
     // Wire up ECS systems
     endless::build_app(&mut app);
 
+    // Maximize window on startup
+    app.add_systems(Startup, |mut windows: Query<&mut Window>| {
+        if let Ok(mut window) = windows.single_mut() {
+            window.set_maximized(true);
+        }
+    });
+
     app.run();
 }
