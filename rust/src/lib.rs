@@ -14,6 +14,7 @@ pub mod render;
 pub mod resources;
 pub mod systems;
 pub mod tests;
+pub mod ui;
 pub mod world;
 
 // ============================================================================
@@ -33,7 +34,21 @@ use resources::{
 };
 use systems::*;
 use components::*;
-use tests::AppState;
+
+// ============================================================================
+// APP STATE
+// ============================================================================
+
+/// Application state machine.
+/// MainMenu → Playing (real game) or TestMenu → Running (debug tests).
+#[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AppState {
+    #[default]
+    MainMenu,
+    Playing,
+    TestMenu,
+    Running,
+}
 
 // ============================================================================
 // HELPERS
@@ -175,9 +190,12 @@ fn bevy_timer_end(timer: Res<BevyFrameTimer>) {
 
 /// Build the Bevy application.
 pub fn build_app(app: &mut App) {
-    let running = in_state(AppState::Running);
+    // Game systems run during both real game and debug tests
+    let game_active = in_state(AppState::Playing).or(in_state(AppState::Running));
 
     app
+       // State
+       .init_state::<AppState>()
        // Events
        .add_message::<SpawnNpcMsg>()
        .add_message::<DamageMsg>()
@@ -224,9 +242,9 @@ pub fn build_app(app: &mut App) {
        .add_systems(Startup, startup_system)
        // System sets — game systems only run during AppState::Running
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain()
-           .run_if(running.clone()))
-       .add_systems(Update, bevy_timer_start.before(Step::Drain).run_if(running.clone()))
-       .add_systems(Update, ApplyDeferred.after(Step::Spawn).before(Step::Combat).run_if(running.clone()))
+           .run_if(game_active.clone()))
+       .add_systems(Update, bevy_timer_start.before(Step::Drain).run_if(game_active.clone()))
+       .add_systems(Update, ApplyDeferred.after(Step::Spawn).before(Step::Combat).run_if(game_active.clone()))
        // Drain
        .add_systems(Update, (
            reset_bevy_system,
@@ -234,7 +252,7 @@ pub fn build_app(app: &mut App) {
            sync_gpu_state_to_bevy,
        ).in_set(Step::Drain))
        // GPU→ECS position readback
-       .add_systems(Update, gpu_position_readback.after(Step::Drain).before(Step::Spawn).run_if(running.clone()))
+       .add_systems(Update, gpu_position_readback.after(Step::Drain).before(Step::Spawn).run_if(game_active.clone()))
        // Spawn
        .add_systems(Update,
            spawn_npc_system.in_set(Step::Spawn))
@@ -261,12 +279,15 @@ pub fn build_app(app: &mut App) {
            decision_system,
            farm_visual_system,
        ).in_set(Step::Behavior))
-       .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(running.clone()))
-       .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(running.clone()))
-       .add_systems(Update, bevy_timer_end.after(collect_gpu_updates).run_if(running.clone()))
+       .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
+       .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))
+       .add_systems(Update, bevy_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))
        // Debug (F1=readback, F2=combat, F3=spawns, F4=behavior)
-       .add_systems(Update, (debug_toggle_system, debug_tick_system).run_if(running));
+       .add_systems(Update, (debug_toggle_system, debug_tick_system).run_if(game_active.clone()));
 
-    // Test framework (registers AppState, TestState, menu UI, all tests)
+    // Test framework (registers TestState, menu UI, all tests)
     tests::register_tests(app);
+
+    // UI (main menu, game startup, in-game HUD)
+    ui::register_ui(app);
 }

@@ -128,17 +128,7 @@ pub fn keep_fed(query: &mut Query<&mut LastAteHour, Without<Dead>>, game_time: &
     }
 }
 
-// ============================================================================
-// APP STATE
-// ============================================================================
-
-/// Two-state machine: menu or running a test.
-#[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum AppState {
-    #[default]
-    TestMenu,
-    Running,
-}
+use crate::AppState;
 
 // ============================================================================
 // TEST STATE
@@ -305,8 +295,7 @@ pub struct RunAllState {
 pub fn register_tests(app: &mut App) {
     use crate::Step;
 
-    // Resources
-    app.init_state::<AppState>();
+    // Resources (AppState is registered in build_app)
     app.init_resource::<TestState>();
     app.init_resource::<TestRegistry>();
     app.init_resource::<RunAllState>();
@@ -609,17 +598,25 @@ fn test_menu_system(
         ui.separator();
 
         // Run All button
-        if ui.button("Run All").clicked() {
-            run_all.active = true;
-            run_all.results.clear();
-            run_all.queue = registry.tests.iter().map(|t| t.name.clone()).collect();
-            // Start first test
-            if let Some(first) = run_all.queue.pop_front() {
-                let entry = registry.tests.iter().find(|t| t.name == first).unwrap();
-                start_test(&first, entry.phase_count, entry.time_scale,
-                    &mut test_state, &mut next_state);
+        ui.horizontal(|ui| {
+            if ui.button("Run All").clicked() {
+                run_all.active = true;
+                run_all.results.clear();
+                run_all.queue = registry.tests.iter().map(|t| t.name.clone()).collect();
+                // Start first test
+                if let Some(first) = run_all.queue.pop_front() {
+                    let entry = registry.tests.iter().find(|t| t.name == first).unwrap();
+                    start_test(&first, entry.phase_count, entry.time_scale,
+                        &mut test_state, &mut next_state);
+                }
             }
-        }
+
+            ui.add_space(20.0);
+
+            if ui.button("Back to Menu").clicked() {
+                next_state.set(AppState::MainMenu);
+            }
+        });
     });
     Ok(())
 }

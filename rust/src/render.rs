@@ -80,6 +80,7 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpriteAssets>()
+            .init_resource::<TilemapSpawned>()
             .add_systems(Startup, (setup_camera, load_sprites))
             .add_systems(Update, (
                 camera_pan_system,
@@ -295,6 +296,10 @@ fn spawn_chunk(
     ));
 }
 
+/// Tracks whether the tilemap has been spawned. Resource (not Local) so cleanup can reset it.
+#[derive(Resource, Default)]
+pub struct TilemapSpawned(pub bool);
+
 /// Spawn terrain + building TilemapChunk layers. Runs once when WorldGrid is populated
 /// and the world atlas image is loaded.
 fn spawn_world_tilemap(
@@ -302,9 +307,9 @@ fn spawn_world_tilemap(
     grid: Res<WorldGrid>,
     assets: Res<SpriteAssets>,
     mut images: ResMut<Assets<Image>>,
-    mut spawned: Local<bool>,
+    mut spawned: ResMut<TilemapSpawned>,
 ) {
-    if *spawned || grid.width == 0 { return; }
+    if spawned.0 || grid.width == 0 { return; }
     let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
 
     // Terrain layer: every cell filled, opaque
@@ -312,7 +317,7 @@ fn spawn_world_tilemap(
     let terrain_tiles: Vec<Option<TileData>> = grid.cells.iter().enumerate()
         .map(|(i, cell)| Some(TileData::from_tileset_index(cell.terrain.tileset_index(i))))
         .collect();
-    spawn_chunk(&mut commands, &grid, terrain_tileset, terrain_tiles, -1.0, AlphaMode2d::Opaque);
+    spawn_chunk(&mut commands, &grid, terrain_tileset, terrain_tiles, -100.0, AlphaMode2d::Opaque);
 
     // Building layer: None for empty cells, building tile where placed
     let building_tileset = build_tileset(&atlas, &BUILDING_TILES, &mut images);
@@ -320,8 +325,8 @@ fn spawn_world_tilemap(
         .map(|cell| cell.building.as_ref().map(|b| TileData::from_tileset_index(b.tileset_index())))
         .collect();
     let building_count = building_tiles.iter().filter(|t| t.is_some()).count();
-    spawn_chunk(&mut commands, &grid, building_tileset, building_tiles, -0.5, AlphaMode2d::Blend);
+    spawn_chunk(&mut commands, &grid, building_tileset, building_tiles, -99.0, AlphaMode2d::Blend);
 
     info!("World tilemap spawned: {}x{} grid, {} buildings", grid.width, grid.height, building_count);
-    *spawned = true;
+    spawned.0 = true;
 }

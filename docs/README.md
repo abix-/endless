@@ -12,7 +12,7 @@ These docs are the **source of truth** for system architecture. When building ne
 
 ## Test Framework
 
-UI-selectable integration tests run inside the full Bevy app via a bevy_egui menu. `AppState::TestMenu` shows the test list; clicking a test transitions to `AppState::Running` where game systems execute normally. Tests use **phased assertions** — each phase checks one pipeline layer and fails fast with diagnostic values.
+UI-selectable integration tests run inside the full Bevy app via a bevy_egui menu. From `AppState::MainMenu`, click "Debug Tests" to enter `AppState::TestMenu` which shows the test list; clicking a test transitions to `AppState::Running` where game systems execute normally. "Back to Menu" returns to MainMenu. Tests use **phased assertions** — each phase checks one pipeline layer and fails fast with diagnostic values.
 
 **Architecture** (`rust/src/tests/`):
 - `TestState` resource: shared phase tracking, counters, flags, results
@@ -55,6 +55,14 @@ Pure Bevy App (main.rs)
     ▼
 Bevy ECS (lib.rs build_app)
     │
+    ├─ AppState: MainMenu → Playing | TestMenu → Running
+    │
+    ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, startup, cleanup
+    │   ├─ Main menu: world config sliders + Play / Debug Tests
+    │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
+    │   ├─ In-game HUD: population, time, food, NPC inspector
+    │   └─ Game cleanup: despawn + reset (OnExit Playing)
+    │
     ├─ Messages (static queues) ───────────▶ [messages.md]
     │
     ├─ GPU Compute (gpu.rs) ───────────────▶ [gpu-compute.md]
@@ -70,7 +78,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ 2D camera, texture atlases
     │   └─ Character + world sprite sheets
     │
-    ├─ Bevy Systems (gated on AppState::Running)
+    ├─ Bevy Systems (gated on AppState::Playing | Running)
     │   ├─ Spawn systems ──────────────────▶ [spawn.md]
     │   ├─ Combat pipeline ────────────────▶ [combat.md]
     │   ├─ Behavior systems ───────────────▶ [behavior.md]
@@ -109,7 +117,7 @@ Ratings reflect system quality, not doc accuracy.
 rust/
   Cargo.toml            # Pure Bevy 0.18 + bevy_egui + bytemuck + rand + noise
   src/main.rs           # Bevy App entry point, asset root = project root
-  src/lib.rs            # build_app(), system scheduling, helpers
+  src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning
@@ -118,8 +126,12 @@ rust/
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
   src/world.rs          # World data structs, world grid, procedural generation, tileset builder
+  src/ui/
+    mod.rs              # register_ui(), game startup, cleanup, escape/time controls
+    main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons
+    game_hud.rs         # In-game HUD (population, time, food, NPC inspector)
   src/tests/
-    mod.rs              # Test framework (AppState, TestState, menu UI, HUD, cleanup)
+    mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)
     spawning.rs         # Spawn + slot reuse test (4 phases)
     energy.rs           # Energy drain test (3 phases)

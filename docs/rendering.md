@@ -316,14 +316,16 @@ Both terrain and buildings are rendered via Bevy's built-in `TilemapChunk` — t
 
 | Layer | Z | Alpha | Content | Tileset |
 |-------|---|-------|---------|---------|
-| Terrain | -1.0 | Opaque | Every cell filled (biome tiles) | 11 tiles (`TERRAIN_TILES`) |
-| Buildings | -0.5 | Blend | `None` for empty, building tile where placed | 5 tiles (`BUILDING_TILES`) |
+| Terrain | -100.0 | Opaque | Every cell filled (biome tiles) | 11 tiles (`TERRAIN_TILES`) |
+| Buildings | -99.0 | Blend | `None` for empty, building tile where placed | 5 tiles (`BUILDING_TILES`) |
 
 **`build_tileset(atlas, tiles, images)`** (`world.rs`): Generic function that extracts 16×16 tiles from the world atlas at specified (col, row) positions and builds a `texture_2d_array`. Called twice — once with `TERRAIN_TILES` (11 tiles: 2 grass, 6 forest, water, rock, dirt) and once with `BUILDING_TILES` (5 tiles: fountain, bed, guard post, farm, camp).
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
 **`Building::tileset_index()`**: Maps building variant to building tileset array index (0-4). Fountain=0, Bed=1, GuardPost=2, Farm=3, Camp=4.
+
+**`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 
 **`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Uses the shared `spawn_chunk()` helper to spawn both layers. Terrain layer has all cells filled (opaque). Building layer has `None` for empty cells — the alpha blend mode makes empty cells transparent so terrain shows through.
 

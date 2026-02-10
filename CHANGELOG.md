@@ -1,6 +1,18 @@
 # Changelog
 
 ## 2026-02-09
+- **main game mode: menu → world gen → play → HUD → cleanup cycle**
+  - add `AppState` to `lib.rs` with 4 states: MainMenu (default), Playing, TestMenu, Running
+  - game systems gated on `Playing | Running` via `.or()` run condition (shared between real game and debug tests)
+  - add `ui/main_menu.rs`: egui main menu with world config sliders (size, towns, farmers, guards, raiders) + Play / Debug Tests buttons
+  - add `ui/game_hud.rs`: egui side panel HUD with game time, population stats, food, kill stats, NPC inspector (HP/energy bars, job, trait, town)
+  - add `ui/mod.rs`: game startup (OnEnter Playing) generates world + spawns NPCs per town, game cleanup (OnExit Playing) despawns all entities + resets resources, ESC/Space/+/- controls
+  - add `TilemapSpawned` Resource (replaces `Local<bool>`) so cleanup can reset it for re-entry
+  - change tilemap z-ordering: terrain -1.0→-100.0, buildings -0.5→-99.0 (NPCs were rendering under terrain)
+  - add "Back to Menu" button in test menu alongside "Run All"
+  - `CleanupWorld` + `CleanupDebug` SystemParam bundles keep cleanup system under 16-param limit
+  - known issue: NPCs still render under terrain despite z-ordering change (needs further investigation)
+
 - **sync_visual_sprites: derive visual state from ECS, remove redundant GPU messages**
   - add `sync_visual_sprites` system (gpu.rs): derives colors, equipment, indicators from ECS components each frame
   - remove 4 GpuUpdate variants: SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state no longer deferred via messages
