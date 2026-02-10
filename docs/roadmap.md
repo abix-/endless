@@ -233,13 +233,15 @@ Rules:
 
 **Architecture: derive, don't store.** All NPC stats are computed at point-of-use from `base_stat[job] * upgrade_mult[town] * level_mult[npc] * trait_mult[npc]`. No computed stats stored on entities. See spec for full struct definitions, formulas, and file change table.
 
-- [ ] `CombatConfig` Bevy resource with per-job base stats (see spec for struct)
-- [ ] `resolve_combat_stats(job, town_idx, level, personality, &config, &upgrades) -> ResolvedStats` function
+- [ ] `CombatConfig` resource with per-job `JobStats` + per-attack-type `AttackTypeStats` (see spec for structs)
+- [ ] `systems/stats.rs` with `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades) -> ResolvedStats`
 - [ ] Replace `AttackStats::melee()` / `AttackStats::ranged()` in `spawn_npc_system` — spawn with `BaseAttackType` component instead
 - [ ] `attack_system` calls `resolve_combat_stats()` instead of reading stored `AttackStats`
 - [ ] Replace `HEAL_RATE` / `HEAL_RADIUS` constants in `healing_system` with `CombatConfig` fields
+- [ ] Remove `MaxHealth` component — derive max_health via resolver at point-of-use (healing cap, HP bars, damage clamp)
 - [ ] Wire existing `Personality::get_stat_multipliers()` into `resolve_combat_stats()` (currently defined but never called)
-- [ ] Fix `starvation_system` speed inconsistency (hardcoded 60.0 vs `Speed::default()` 100.0)
+- [ ] Fix `starvation_system` speed: use `CombatConfig.jobs[job].speed` instead of hardcoded 60.0
+- [ ] Init values MUST match current hardcoded values: guard/raider damage=15, all speeds=100, all max_health=100, heal_rate=5, heal_radius=150
 
 **Stage 9: Upgrades & XP** (see [spec](#stat-resolution--upgrades))
 
@@ -413,10 +415,19 @@ All NPC stats are currently compile-time constants scattered across the codebase
 **Architecture: Derive at point-of-use**
 
 ```
-final_stat = base_stat[job] * upgrade_mult[town][stat] * level_mult[npc] * trait_mult[npc]
+final_stat = base[job_or_attack] * upgrade_mult[town][stat] * level_mult[npc] * trait_mult[npc]
 ```
 
 Never store computed stats on entities. Store `BaseAttackType(Melee | Ranged)` on the entity, resolve to full stats when needed. This avoids ordering bugs (which system writes last?), stale data, and debugging hell.
+
+**Important: `Health` is state, not a derived stat.** Store `Health { current: f32 }` on entities. Derive `max_health` via the resolver at point-of-use (healing cap, HP bars, damage clamp). Do NOT store `MaxHealth` as a component — it becomes stale when level/upgrades change, reintroducing the exact problem this architecture solves. If max_health changes (level up, upgrade purchased), scale current HP proportionally once at that moment.
+
+**Design constraint: job vs attack type.** These are two orthogonal axes:
+
+- **Job** determines identity stats: max_health, damage, speed
+- **Attack type** determines weapon shape: range, cooldown, projectile_speed, projectile_lifetime
+
+Currently guards/raiders both use `AttackStats::melee()` with identical values. A guard and a raider are the same combatant — only faction color differs. The config must preserve this: both jobs get `damage: 15.0` in Stage 8 to stay behavior-identical.
 
 **`CombatConfig` resource** (`resources.rs`):
 
@@ -424,23 +435,28 @@ Never store computed stats on entities. Store `BaseAttackType(Melee | Ranged)` o
 #[derive(Resource)]
 pub struct CombatConfig {
     pub jobs: HashMap<Job, JobStats>,
+    pub attacks: HashMap<BaseAttackType, AttackTypeStats>,
     pub heal_rate: f32,          // replaces HEAL_RATE constant (5.0)
     pub heal_radius: f32,        // replaces HEAL_RADIUS constant (150.0)
-    pub base_speed: f32,         // replaces Speed::default() (100.0)
 }
 
+/// Per-job identity stats. Determines "what kind of NPC is this?"
 pub struct JobStats {
-    pub max_health: f32,         // 100.0
-    pub damage: f32,             // guard=15, raider=10, farmer=5
-    pub attack_range: f32,       // melee=150, ranged=300
-    pub attack_cooldown: f32,    // melee=1.0, ranged=1.5
+    pub max_health: f32,         // all jobs: 100.0 (matches current Health::default)
+    pub damage: f32,             // guard=15, raider=15, farmer=0 (matches current AttackStats::melee)
+    pub speed: f32,              // all jobs: 100.0 (matches current Speed::default)
+}
+
+/// Per-attack-type weapon stats. Determines "how does this NPC fight?"
+pub struct AttackTypeStats {
+    pub range: f32,              // melee=150, ranged=300
+    pub cooldown: f32,           // melee=1.0, ranged=1.5
     pub projectile_speed: f32,   // melee=500, ranged=200
     pub projectile_lifetime: f32,// melee=0.5, ranged=3.0
-    pub speed: f32,              // guard=100, raider=110, farmer=80
 }
 ```
 
-Initialize with current hardcoded values so Phase 1 is a pure refactor (no behavior change).
+**Stage 8 init values MUST match current hardcoded values exactly** — guard damage=15, raider damage=15, all speeds=100, all max_health=100. Any differentiation between jobs is a Stage 9+ gameplay change.
 
 **`BaseAttackType` component** (replaces `AttackStats` on entities):
 
@@ -469,14 +485,34 @@ pub enum UpgradeType {
 }
 
 // Cost: base_cost * 2^level (doubles each level)
-// Effect: 1.0 + level * pct_per_level (linear scaling)
+// Multiplicative upgrades: multiplier = 1.0 + level * pct_per_level
+// Flat upgrades (FarmerCap, GuardCap, FountainRadius): use separate formulas in their owning systems
 const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
     0.10, 0.10, 0.05, 0.05,  // guard: health, attack, range, size
-    0.08, 0.05, 0.10,         // attack speed (negative), move speed, alert radius
-    0.15, 0.20, 0.0, 0.0,    // farm yield, farmer HP, farmer cap (+2 flat), guard cap (+10 flat)
-    0.20, 0.10, 0.0,          // healing rate, food efficiency (10% per level), fountain radius (+24px flat)
+    0.08, 0.05, 0.10,         // cooldown reduction, move speed, alert radius
+    0.15, 0.20, 0.0, 0.0,    // farm yield, farmer HP | farmer cap (+2 flat), guard cap (+10 flat)
+    0.20, 0.10, 0.0,          // healing rate, food efficiency | fountain radius (+24px flat)
 ];
 ```
+
+**Flat upgrades** (FarmerCap, GuardCap, FountainRadius) have `0.0` in `UPGRADE_PCT` because they're not multiplicative. Their owning systems compute them directly:
+- FarmerCap: `base_cap + level * 2`
+- GuardCap: `base_cap + level * 10`
+- FountainRadius: `base_radius + level * 24.0`
+
+**Upgrade applicability by job** — not all upgrades apply to all NPCs:
+
+| Upgrade | Applies to | Rationale |
+|---------|-----------|-----------|
+| GuardHealth, GuardAttack, GuardRange, GuardSize, AlertRadius | Guard only | Town defense investment |
+| AttackSpeed, MoveSpeed | All combatants (Guard, Raider, Fighter) | Generic combat upgrades |
+| FarmerHp | Farmer only | Farmer survivability |
+| FarmYield | Economy system (not combat resolver) | `farm_growth_system` reads this directly |
+| FarmerCap, GuardCap | Spawn system (not combat resolver) | Population caps, not per-NPC stats |
+| HealingRate, FountainRadius | `healing_system` (not combat resolver) | Town infrastructure |
+| FoodEfficiency | `decision_system` eat logic (not combat resolver) | Economy, not combat |
+
+Only combat-relevant upgrades flow through `resolve_combat_stats()`. Economy/spawn/healing upgrades are read by their owning systems directly from `TownUpgrades`.
 
 **`resolve_combat_stats()` function** (new file `systems/stats.rs` or in `resources.rs`):
 
@@ -500,25 +536,39 @@ pub fn resolve_combat_stats(
     config: &CombatConfig,
     upgrades: &TownUpgrades,
 ) -> ResolvedStats {
-    let base = &config.jobs[&job];
+    let job_base = &config.jobs[&job];
+    let atk_base = &config.attacks[&attack_type];
     let (trait_damage, trait_hp, trait_speed, _trait_yield) = personality.get_stat_multipliers();
     let level_mult = 1.0 + level as f32 * 0.01;
     let town = upgrades.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT]);
 
-    let upgrade_hp = 1.0 + town[UpgradeType::GuardHealth as usize] as f32 * UPGRADE_PCT[0];
-    let upgrade_dmg = 1.0 + town[UpgradeType::GuardAttack as usize] as f32 * UPGRADE_PCT[1];
-    let upgrade_range = 1.0 + town[UpgradeType::GuardRange as usize] as f32 * UPGRADE_PCT[2];
+    // Job-gated upgrades: only apply to matching job
+    let upgrade_hp = match job {
+        Job::Guard => 1.0 + town[UpgradeType::GuardHealth as usize] as f32 * UPGRADE_PCT[0],
+        Job::Farmer => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
+        _ => 1.0,
+    };
+    let upgrade_dmg = match job {
+        Job::Guard => 1.0 + town[UpgradeType::GuardAttack as usize] as f32 * UPGRADE_PCT[1],
+        _ => 1.0,
+    };
+    let upgrade_range = match job {
+        Job::Guard => 1.0 + town[UpgradeType::GuardRange as usize] as f32 * UPGRADE_PCT[2],
+        _ => 1.0,
+    };
+
+    // Generic combat upgrades: apply to all combatants
     let upgrade_speed = 1.0 + town[UpgradeType::MoveSpeed as usize] as f32 * UPGRADE_PCT[5];
-    let cooldown_reduction = 1.0 - town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[4];
+    let cooldown_mult = 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[4]);
 
     ResolvedStats {
-        damage: base.damage * upgrade_dmg * trait_damage * level_mult,
-        range: base.attack_range * upgrade_range,
-        cooldown: base.attack_cooldown * cooldown_reduction.max(0.1),
-        projectile_speed: base.projectile_speed,
-        projectile_lifetime: base.projectile_lifetime,
-        max_health: base.max_health * upgrade_hp * trait_hp * level_mult,
-        speed: base.speed * upgrade_speed * trait_speed,
+        damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,
+        range: atk_base.range * upgrade_range,
+        cooldown: atk_base.cooldown * cooldown_mult,
+        projectile_speed: atk_base.projectile_speed,
+        projectile_lifetime: atk_base.projectile_lifetime,
+        max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult,
+        speed: job_base.speed * upgrade_speed * trait_speed,
     }
 }
 ```
@@ -529,7 +579,7 @@ pub fn resolve_combat_stats(
 level = floor(sqrt(xp / 100))
 ```
 
-| Kills (1 XP each) | XP | Level | Stat mult |
+| Kills (100 XP each) | XP | Level | Stat mult |
 |----|-----|-------|-----------|
 | 1 | 100 | 1 | 1.01x |
 | 4 | 400 | 2 | 1.02x |
@@ -568,35 +618,53 @@ pub struct PolicySet {
 
 Mirrors existing `PolicyState` in `policies_panel.rs` (lines 10-24). Wire the UI to write `TownPolicies` instead of `Local<PolicyState>`.
 
-**Files changed:**
+**Files changed per stage:**
+
+Stage 8 (pure refactor — gameplay must be identical):
 
 | File | Changes |
 |---|---|
-| `resources.rs` | Add `CombatConfig`, `TownUpgrades`, `TownPolicies`, `UpgradeType`, `ResolvedStats`. Remove nothing (backward compatible). |
-| `components.rs` | Add `BaseAttackType` enum. `AttackStats` kept temporarily for migration, removed after Phase 1 verified. |
-| `systems/spawn.rs` | `spawn_npc_system` reads `CombatConfig`, inserts `BaseAttackType` instead of `AttackStats::melee()`. Sets `MaxHealth` from resolved stats. |
-| `systems/combat.rs` | `attack_system` takes `Res<CombatConfig>`, `Res<TownUpgrades>`, `Res<NpcMetaCache>` params. Calls `resolve_combat_stats()` per-attacker instead of reading `&AttackStats`. |
-| `systems/health.rs` | `healing_system` reads `CombatConfig.heal_rate` / `CombatConfig.heal_radius` instead of constants. Applies healing rate upgrade. |
-| `systems/economy.rs` | `farm_growth_system` applies farm yield upgrade multiplier. `starvation_system` uses `CombatConfig.base_speed` instead of hardcoded 60.0. |
-| `systems/behavior.rs` | `decision_system` reads `Res<TownPolicies>` for flee thresholds, work schedule, off-duty. Replaces `FleeThreshold` / `WoundedThreshold` component reads with policy lookups. |
-| `ui/upgrade_menu.rs` | Enable buttons. Click → `apply_upgrade()` → deduct food → increment `TownUpgrades` level. Show current level and cost. |
-| `ui/policies_panel.rs` | Replace `Local<PolicyState>` with `Res<TownPolicies>` read + `ResMut<TownPolicies>` write. Remove `ui.disable()`. |
+| `resources.rs` | Add `CombatConfig`, `TownUpgrades` (initialized to all zeros), `ResolvedStats`, `UpgradeType`. |
+| `components.rs` | Add `BaseAttackType` enum. Remove `AttackStats` after migration verified. Remove `MaxHealth` — derive via resolver. |
+| `systems/stats.rs` (new) | `resolve_combat_stats()` function. |
+| `systems/spawn.rs` | Read `CombatConfig`, insert `BaseAttackType` instead of `AttackStats::melee()`. Set `Health` from job_base.max_health (same value: 100.0). |
+| `systems/combat.rs` | `attack_system` calls `resolve_combat_stats()` instead of reading `&AttackStats`. |
+| `systems/health.rs` | `healing_system` reads `CombatConfig.heal_rate` / `CombatConfig.heal_radius`. Derive max_health via resolver (replaces `&MaxHealth` query). |
+| `systems/economy.rs` | `starvation_system` uses `CombatConfig.jobs[job].speed` instead of hardcoded 60.0. |
+| `constants.rs` | Keep all constants — `CombatConfig` default values reference them. |
+
+Stage 9 (upgrades + XP — new behavior):
+
+| File | Changes |
+|---|---|
+| `ui/upgrade_menu.rs` | Enable buttons. Click → `apply_upgrade()` → deduct food → increment `TownUpgrades`. Show level and cost. |
+| `systems/economy.rs` | `farm_growth_system` applies FarmYield upgrade multiplier from `TownUpgrades`. |
+| `systems/health.rs` | `healing_system` applies HealingRate + FountainRadius upgrades. |
+| `resources.rs` | `grant_xp()` function, level-up detection. |
+| `systems/combat.rs` | `death_cleanup_system` grants XP to killer. |
 | `ui/game_hud.rs` | NPC inspector shows level, XP, XP-to-next. |
-| `constants.rs` | Remove `HEAL_RATE`-equivalent if any constants moved to `CombatConfig`. Keep grid/buffer constants unchanged. |
+
+Stage 10 (policies — behavior config):
+
+| File | Changes |
+|---|---|
+| `resources.rs` | Add `TownPolicies`, `PolicySet`, `WorkSchedule`, `OffDutyBehavior`. |
+| `ui/policies_panel.rs` | Replace `Local<PolicyState>` with `ResMut<TownPolicies>`. Remove `ui.disable()`. |
+| `systems/behavior.rs` | `decision_system` reads `Res<TownPolicies>` for flee thresholds, work schedule, off-duty. |
 
 **Critical existing code to reuse:**
 
 - `Personality::get_stat_multipliers()` (`components.rs:436`) — already computes `(damage, hp, speed, yield)` but nothing calls it. Wire into `resolve_combat_stats()`.
 - `Personality::get_multipliers()` (`components.rs:402`) — already used by `decision_system` (behavior.rs:544) for utility AI scoring. No changes needed.
-- `NpcMeta.level` / `NpcMeta.xp` (`resources.rs:261-262`) — already exist, set to 1/0 at spawn, never updated. Phase 3 activates these.
+- `NpcMeta.level` / `NpcMeta.xp` (`resources.rs:261-262`) — already exist, set to 1/0 at spawn, never updated. Stage 9 activates these.
 - `UPGRADES` array (`upgrade_menu.rs:17-32`) — 14 upgrade definitions with labels, tooltips, categories. Indices must match `UpgradeType` enum.
 - `PolicyState` (`policies_panel.rs:10-24`) — exact field list for `TownPolicies::PolicySet`.
-- `FleeThreshold`, `LeashRange`, `WoundedThreshold` (`components.rs:352-368`) — Phase 4 replaces these entity components with per-town policy lookups. Keep components for NPCs that need per-entity overrides (e.g., boss NPCs), but standard NPCs derive from policies.
+- `FleeThreshold`, `LeashRange`, `WoundedThreshold` (`components.rs:352-368`) — Stage 10 replaces these entity components with per-town policy lookups. Keep components for NPCs that need per-entity overrides (e.g., boss NPCs), but standard NPCs derive from policies.
 
-**Verification per phase:**
+**Verification per stage:**
 
-Stage 8: `cargo check` clean. `cargo run --release` — game plays identically (pure refactor). All tests pass.
-Stage 9: Upgrade guard attack in UI. Spawn new guards. They should deal more damage (visible in combat log kill speed). Let a guard get kills — NPC inspector shows level > 1, combat log shows "Level up" events.
+Stage 8: `cargo check` clean. `cargo run --release` — game plays identically (pure refactor). All tests pass. Specifically: guards and raiders still deal 15 damage, all NPCs move at speed 100, healing is 5 HP/s in 150px radius.
+Stage 9: Upgrade guard attack in UI. Guards should deal more damage (visible in combat log kill speed). Let a guard get kills — NPC inspector shows level > 1, combat log shows "Level up" events.
 Stage 10: Change raider flee threshold slider to 80%. Raiders should flee much earlier. Change work schedule to "Day Only" — farmers idle at night.
 
 ### GPU Readback & Extract Optimization
