@@ -32,7 +32,7 @@ Rules:
 - [x] npc_compute.wgsl compute shader (3-mode dispatch: clear grid, build grid, movement+targeting)
 - [x] wgpu compute pipeline via Bevy render graph
 - [x] ECS→GPU buffer writes (NpcBufferWrites + per-field dirty flags)
-- [x] GPU→ECS readback (positions + combat targets via staging buffer)
+- [x] GPU→ECS readback (positions + combat targets via Bevy async Readback + ReadbackComplete)
 - [x] projectile_compute.wgsl compute shader
 - [x] Multi-dispatch NpcComputeNode with 3 bind groups
 - [x] atomicAdd for thread-safe grid cell insertion
@@ -43,6 +43,8 @@ Rules:
 - [x] Sprite texture sampling with alpha discard and color tinting
 - [x] TilemapChunk terrain + buildings (two layers on 250x250 grid, zero per-frame CPU cost)
 - [x] FPS counter overlay (egui, bottom-left, EMA-smoothed)
+- [x] Sleep indicator (SLEEP_SPRITE on status layer via sync_visual_sprites)
+- [x] Healing indicator (HEAL_SPRITE on healing layer via sync_visual_sprites)
 
 ### Movement & Physics
 - [x] GPU compute shader for movement toward targets
@@ -106,8 +108,10 @@ Rules:
 - [x] NpcEnergyCache resource (energy per NPC)
 - [x] NpcsByTownCache resource (per-town NPC lists)
 - [x] PopulationStats, KillStats, SelectedNpc resources
-
-*Note: inspector panel, roster panel, and population stats display were Godot UI — not yet ported. They live in Stage 7.*
+- [x] bevy_egui start menu with world config sliders (ui/main_menu.rs)
+- [x] Game HUD: population, time, food, kill stats, NPC inspector (ui/game_hud.rs)
+- [x] Time controls: Space=pause, +/-=speed, ESC=menu (ui/mod.rs)
+- [x] GameConfig + WorldGenConfig Bevy resources (replaces Godot config.gd)
 
 ### Testing & Debug
 - [x] Test harness with phased PASS/FAIL assertions
@@ -248,11 +252,12 @@ Projectile rendering:
 - [x] Separate InstanceData buffer for active projectiles
 
 Visual state indicators:
-- [ ] Farm growth state visible (Growing → Ready sprite change + progress bar)
+- [ ] Farm growth state visible (Growing → Ready sprite change + progress bar on tile)
 - [x] Health bars (3-color: green/yellow/red, show-when-damaged mode in fragment shader)
 - [x] Damage flash in npc_render.wgsl (white overlay on hit, fade out over ~0.2s via CPU-side decay)
 - [ ] Healing glow effect (pulsing green tint + radial halo — needs TIME uniform in shader)
-- [ ] Sleep indicator on resting NPCs (z icon overlay)
+- [x] Sleep indicator on resting NPCs (SLEEP_SPRITE on status layer via sync_visual_sprites)
+- [x] Healing indicator on healing NPCs (HEAL_SPRITE on healing layer via sync_visual_sprites)
 - [x] Carried item icon (food sprite on returning raiders)
 
 Visual indicator tests (green phase — dedicated render layers wired):
@@ -283,20 +288,22 @@ World setup:
 - [x] WorldGenConfig resource (world size, town count, spacing, NPC counts)
 - [ ] Building grid expansion (6x6 start, expandable to 100x100)
 - [ ] Visible world border with corner markers
-- [ ] Port config.gd → Bevy Resource
-- [ ] Port user_settings.gd → serde JSON
+- [x] GameConfig + WorldGenConfig Bevy resources (replaces config.gd)
+- [ ] User settings persistence (serde JSON)
 
 UI:
-- [ ] bevy_egui start menu (new game, settings)
-- [ ] left_panel.rs (stats, perf, inspector)
-- [ ] roster_panel.rs, build_menu.rs, combat_log.rs
+- [x] bevy_egui start menu with world config sliders (ui/main_menu.rs)
+- [x] Game HUD: population, time, food, kill stats, NPC inspector (ui/game_hud.rs)
+- [ ] roster_panel.rs (NPC list with sorting/filtering)
+- [ ] build_menu.rs (building placement UI)
+- [ ] combat_log.rs (event feed)
 - [ ] upgrade_menu.rs, policies_panel.rs
 
 Input:
 - [ ] Click-to-build and click-to-destroy buildings
 - [ ] Villager role assignment
 - [ ] Train guards from population
-- [ ] Time controls (pause, speed)
+- [x] Time controls: Space=pause, +/-=speed (ui/mod.rs), ESC=back to menu
 
 Building system:
 - [ ] Runtime add/remove farm/bed/guard_post
