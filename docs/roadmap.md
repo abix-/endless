@@ -119,7 +119,7 @@ Rules:
 - [x] roster_panel.rs (NPC list with sorting/filtering, select/follow)
 - [x] build_menu.rs (right-click context menu: Farm/Bed/GuardPost build, Destroy, Unlock)
 - [x] combat_log.rs (event feed with color-coded timestamps, Kill/Spawn/Raid/Harvest)
-- [x] upgrade_menu.rs (14 upgrade rows scaffold, disabled until Stage 9 backend)
+- [x] upgrade_menu.rs (14 upgrade rows with level/cost, spend food to purchase)
 - [x] policies_panel.rs (behavior config scaffold, disabled until Stage 10 backend)
 - [x] Keyboard toggles: R=roster, L=log, B=build, U=upgrades, P=policies
 
@@ -189,13 +189,42 @@ Rules:
 - [x] `systems/stats.rs` with `resolve_combat_stats()` function
 - [x] `CachedStats` component on all NPCs — populated on spawn, invalidated on upgrade/level-up
 - [x] `BaseAttackType` component (Melee/Ranged) replaces `AttackStats` on entities
-- [x] `TownUpgrades` resource stub (all zeros — Stage 9 activates)
+- [x] `TownUpgrades` resource with per-town upgrade levels (activated in Stage 9)
 - [x] `attack_system` reads `&CachedStats` instead of `&AttackStats`
 - [x] `healing_system` reads `CombatConfig.heal_rate`/`heal_radius` instead of local constants
 - [x] `MaxHealth` component removed — `CachedStats.max_health` is single source of truth
 - [x] `Personality::get_stat_multipliers()` wired into resolver (previously defined but never called)
 - [x] Init values match hardcoded values: guard/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150
-- [x] `#[cfg(debug_assertions)]` parity checks assert resolved stats match old hardcoded values
+- [x] Stage 8 parity checks verified stats matched hardcoded values (removed in Stage 9)
+
+### Settings & Config
+- [x] User settings persistence (serde JSON, scroll speed + world gen sliders)
+- [x] Main menu DragValue widgets alongside sliders for typeable config inputs
+
+### Role Assignment & Reassignment
+- [x] Villager role assignment (Farmer↔Guard via roster panel)
+
+### Guard Post Turrets
+- [x] Guard post auto-attack (turret behavior, fires projectiles at enemies within 250px)
+- [x] Guard post turret toggle (enable/disable via right-click build menu)
+
+### Upgrades & XP
+- [x] `UpgradeQueue` resource + `process_upgrades_system`: drains queue, validates food cost, increments `TownUpgrades`, re-resolves `CachedStats` for affected NPCs
+- [x] `upgrade_cost(level) -> i32` = `10 * 2^level` (doubles each level, capped at 20)
+- [x] Wire upgrade multipliers into `resolve_combat_stats()` via `UPGRADE_PCT` array
+- [x] Enable `upgrade_menu.rs` buttons: click → push to `UpgradeQueue` → deduct food → increment level
+- [x] Guard upgrades: health (+10%), attack (+10%), range (+5%), size (+5%), attack speed (-8%), move speed (+5%), alert radius (+10%)
+- [x] Farm upgrades: yield (+15%), farmer HP (+20%), farmer cap (+2 flat)
+- [x] Town upgrades: guard cap (+10 flat), healing rate (+20%), food efficiency (10%), fountain radius (+24px flat)
+- [x] AttackSpeed upgrade uses reciprocal cooldown scaling: `1/(1+level*pct)` — asymptotic, never reaches zero
+- [x] `farm_growth_system` applies FarmYield upgrade per-town via `TownUpgrades`
+- [x] `healing_system` applies HealingRate + FountainRadius upgrades per-town
+- [x] `level_from_xp(xp) -> i32` = `floor(sqrt(xp / 100))`, `level_multiplier = 1.0 + level * 0.01`
+- [x] Wire level multiplier into `resolve_combat_stats()`
+- [x] `xp_grant_system`: last-hit tracking via `DamageMsg.attacker` → `LastHitBy` component → grant 100 XP to killer on death
+- [x] Level-up → `CombatLog` event (LevelUp kind, cyan color), rescale current HP proportionally to new max
+- [x] `game_hud.rs` NPC inspector shows level, XP, XP-to-next-level
+- [x] Fix `starvation_system` speed: uses `CachedStats.speed * STARVING_SPEED_MULT` instead of hardcoded 60.0
 
 ### Architecture
 - [x] Bevy Messages (MessageWriter/MessageReader) for all inter-system communication
@@ -235,45 +264,16 @@ Rules:
 
 *Done when: someone who isn't you can open it, understand what's happening, and make decisions that affect the outcome.*
 
-- [x] User settings persistence (serde JSON, scroll speed + world gen sliders)
-- [x] Villager role assignment (Farmer↔Guard via roster panel)
-- [x] Guard post auto-attack (turret behavior, fires projectiles at enemies within 250px)
-- [x] Guard post turret toggle (enable/disable via right-click build menu)
-
 **Stage 8: Data-Driven Stats** ✓ (see [spec](#stat-resolution--upgrades))
 
 *Done when: all NPC stats resolve from `CombatConfig` resource via `resolve_combat_stats()`. Game plays identically — pure refactor, no behavior change. All existing tests pass.*
 
-**Architecture: cache with explicit invalidation.** Stats resolve from config via `resolve_combat_stats()`. Resolved stats are cached on the entity as a `CachedStats` component and invalidated on the ~3 events that change them (spawn, upgrade purchased, level-up). See [combat.md](combat.md) and [resources.md](resources.md) for implementation detail.
-
-**Stage 9: Upgrades & XP** (see [spec](#stat-resolution--upgrades))
+**Stage 9: Upgrades & XP** ✓ (see [spec](#stat-resolution--upgrades))
 
 *Done when: player can spend food on upgrades in the UI, guards with upgrades visibly outperform unupgraded ones, and NPCs gain levels from kills.*
 
-Upgrades:
-- [x] `UpgradeQueue` resource + `process_upgrades_system`: drains queue, validates food cost, increments `TownUpgrades`, re-resolves `CachedStats` for affected NPCs
-- [x] `upgrade_cost(level) -> i32` = `10 * 2^level` (doubles each level, capped at 20)
-- [x] Wire upgrade multipliers into `resolve_combat_stats()` via `UPGRADE_PCT` array
-- [x] Enable `upgrade_menu.rs` buttons: click → push to `UpgradeQueue` → deduct food → increment level
-- [x] Guard upgrades: health (+10%), attack (+10%), range (+5%), size (+5%), attack speed (-8%), move speed (+5%), alert radius (+10%)
-- [x] Farm upgrades: yield (+15%), farmer HP (+20%), farmer cap (+2 flat)
-- [x] Town upgrades: guard cap (+10 flat), healing rate (+20%), food efficiency (10%), fountain radius (+24px flat)
-- [x] AttackSpeed upgrade uses reciprocal cooldown scaling: `1/(1+level*pct)` — asymptotic, never reaches zero
-- [x] `farm_growth_system` applies FarmYield upgrade per-town via `TownUpgrades`
-- [x] `healing_system` applies HealingRate + FountainRadius upgrades per-town
-
-XP & leveling:
-- [x] `level_from_xp(xp) -> i32` = `floor(sqrt(xp / 100))`, `level_multiplier = 1.0 + level * 0.01`
-- [x] Wire level multiplier into `resolve_combat_stats()`
-- [x] `xp_grant_system`: last-hit tracking via `DamageMsg.attacker` → `LastHitBy` component → grant 100 XP to killer on death
-- [x] Level-up → `CombatLog` event (LevelUp kind, cyan color), rescale current HP proportionally to new max
-- [x] `game_hud.rs` NPC inspector shows level, XP, XP-to-next-level
-
-Gameplay fixes (deferred from Stage 8 to avoid breaking "identical"):
-- [x] Fix `starvation_system` speed: uses `CachedStats.speed * STARVING_SPEED_MULT` instead of hardcoded 60.0
+Remaining:
 - [ ] Differentiate job base stats if desired (e.g., raider damage != guard damage)
-
-Not yet wired (deferred):
 - [ ] FarmerCap/GuardCap flat upgrades enforced in spawn cap checks
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 
@@ -474,18 +474,14 @@ Stage 10 (policies — behavior config):
 | `ui/policies_panel.rs` | Replace `Local<PolicyState>` with `ResMut<TownPolicies>`. Remove `ui.disable()`. |
 | `systems/behavior.rs` | `decision_system` reads `Res<TownPolicies>` for flee thresholds, work schedule, off-duty. |
 
-**Critical existing code to reuse:**
+**Critical existing code to reuse (Stage 10):**
 
-- `Personality::get_stat_multipliers()` (`components.rs:436`) — already computes `(damage, hp, speed, yield)` but nothing calls it. Wire into `resolve_combat_stats()`.
-- `Personality::get_multipliers()` (`components.rs:402`) — already used by `decision_system` (behavior.rs:544) for utility AI scoring. No changes needed.
-- `NpcMeta.level` / `NpcMeta.xp` (`resources.rs:261-262`) — already exist, set to 1/0 at spawn, never updated. Stage 9 activates these.
-- `UPGRADES` array (`upgrade_menu.rs:17-32`) — 14 upgrade definitions with labels, tooltips, categories. Indices must match `UpgradeType` enum.
 - `PolicyState` (`policies_panel.rs:10-24`) — exact field list for `TownPolicies::PolicySet`.
 - `FleeThreshold`, `LeashRange`, `WoundedThreshold` (`components.rs:352-368`) — Stage 10 replaces these entity components with per-town policy lookups. Keep components for NPCs that need per-entity overrides (e.g., boss NPCs), but standard NPCs derive from policies.
 
-**Verification per stage:**
+**Verification:**
 
-Stage 9: Upgrade guard attack in UI. Guards should deal more damage (visible in combat log kill speed). Let a guard get kills — NPC inspector shows level > 1, combat log shows "Level up" events. Level-up rescales current HP proportionally to new max. Starving NPCs now slow to 75 (100*0.75) instead of 60.
+Stage 9 (done): Upgrade guard attack in UI → guards deal more damage. Guards get kills → inspector shows level > 1, combat log shows "Level up" (cyan). Level-up rescales HP proportionally. Starving NPCs slow to `cached.speed * 0.75`.
 Stage 10: Change raider flee threshold slider to 80%. Raiders should flee much earlier. Change work schedule to "Day Only" — farmers idle at night.
 
 ### GPU Readback & Extract Optimization
