@@ -1,6 +1,38 @@
 # Changelog
 
 ## 2026-02-10
+- **fix projectile slot leak (9 FPS → 33+ FPS death spiral fix)**
+  - expired projectiles now write `proj_hits[i] = (-2, 0)` sentinel in WGSL shader
+  - `process_proj_hits` handles expired sentinel: frees slot + sends Deactivate
+  - fixes death spiral where `ProjSlotAllocator.next` grew forever (never freed expired projectiles)
+  - `command_buffer_generation_tasks` 24ms → 9.8ms, `RenderExtractApp` 40ms → 18ms
+
+- **double-buffered ping-pong staging + unified readback**
+  - `NpcGpuBuffers` and `ProjGpuBuffers` staging buffers changed from `Buffer` to `[Buffer; 2]`
+  - `StagingIndex` resource tracks current/previous frame, flips each frame
+  - compute nodes copy to `staging[current]`, readback reads `staging[1-current]`
+  - unified `readback_all` replaces separate `readback_npc_positions` + `readback_proj_data`
+  - single `device.poll()` maps all staging buffers (up to 4) in one call
+
+- **per-index GPU uploads replace full-array uploads**
+  - `NpcBufferWrites`: per-field boolean dirty flags → `Vec<usize>` dirty indices
+  - `write_npc_buffers`: per-index `write_buffer` calls (8-byte writes instead of 128KB bulk)
+  - `ProjBufferWrites`: per-slot `spawn_dirty_indices` and `deactivate_dirty_indices`
+  - `write_proj_buffers`: spawn writes all fields per slot, deactivate writes only active+hits
+
+- **equipment tinted with job color**
+  - equipment layers (armor, helmet, weapon, item) now use job RGBA tint instead of white
+  - guards' equipment renders blue, raiders' red — visually distinct at a glance
+
+- **brighter job colors for tint-based rendering**
+  - all job colors brightened (e.g. farmer 0.2,0.8,0.2 → 0.4,1.0,0.4)
+  - raider faction palette raised (10 colors, min component ~0.4 instead of ~0.1)
+  - tint-multiplication on white sprites needs brighter base colors to look vivid
+
+- **add tracy profiling feature**
+  - `tracy = ["bevy/trace_tracy"]` feature flag in Cargo.toml
+  - build with `--features tracy` to enable Tracy instrumented spans
+
 - **two-enum state machine: Activity + CombatState replace 13 marker components**
   - add `Activity` enum (Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, Wandering, Raiding, Returning) — models what NPC is *doing*
   - add `CombatState` enum (None, Fighting, Fleeing) — models whether NPC is *fighting*

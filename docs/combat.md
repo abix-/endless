@@ -7,20 +7,21 @@ Five chained Bevy systems handle the complete combat loop: cooldown management, 
 ## Data Flow
 
 ```
-GPU combat_target_buffer (not yet populated)
+GPU combat_target_buffer (from compute shader)
         │
         ▼
   attack_system
   (range check,
    cooldown check,
-   count attacks)         ← no projectiles fired yet (TODO)
+   fire projectile or
+   point-blank damage)
         │
-        ├── In range + cooldown ready → reset timer (damage TODO)
+        ├── In range + cooldown ready → fire projectile → GPU projectile system
         │
         └── Out of range → SetTarget (chase) → GPU_UPDATE_QUEUE
                                                       │
                                                       ▼
-DamageMsg (from Bevy MessageWriter)            GPU movement
+DamageMsg (from process_proj_hits)             GPU movement
         │
         ▼
   damage_system
@@ -40,7 +41,7 @@ DamageMsg (from Bevy MessageWriter)            GPU movement
   └─ SlotAllocator.free(idx)
 ```
 
-**Note**: attack_system currently has a `// TODO: Fire projectile via Bevy rendering (Phase 3)`. It resets attack timers and counts hits but does not fire projectiles or deal damage. The projectile system ([projectiles.md](projectiles.md)) runs on the GPU separately but has no hit readback yet.
+attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or applies point-blank damage for melee. The projectile system ([projectiles.md](projectiles.md)) handles movement, collision detection, hit readback, and slot recycling.
 
 ## Components
 
@@ -116,11 +117,13 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 
 | Direction | What | How |
 |-----------|------|-----|
-| GPU → CPU | Combat targets | `GpuReadState.combat_targets[]` — **not populated** (empty vec) |
-| GPU → CPU | Positions | `GpuReadState.positions[]` — **not populated** (empty vec) |
+| GPU → CPU | Combat targets | `GpuReadState.combat_targets[]` — populated via `readback_all` ping-pong staging |
+| GPU → CPU | Positions | `GpuReadState.positions[]` — populated via `readback_all` ping-pong staging |
+| GPU → CPU | Projectile hits | `PROJ_HIT_STATE` — populated via `readback_all`, includes expired sentinel (-2) |
 | CPU → GPU | Health sync | `GpuUpdate::SetHealth` after damage |
-| CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health + `SetEquipSprite` clears all 4 equipment layers |
+| CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
+| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` |
 
 ## Debug
 
@@ -136,13 +139,12 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 
 ## Known Issues / Limitations
 
-- **Combat is non-functional end-to-end**: GpuReadState is empty (no readback), so attack_system never finds targets. Even if it did, it doesn't fire projectiles or deal damage (TODO comment). The pipeline compiles and runs but produces no combat.
 - **No generational indices**: Stale references to recycled slots would silently alias. Currently safe due to chained execution, but would break if damage messages span frames.
 - **Two stat presets only**: AttackStats has `melee()` and `ranged()` constructors. Per-NPC stat variation beyond these presets would need spawn-time overrides.
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
 - **KillStats naming inverted**: `guard_kills` tracks raiders killed (by guards), `villager_kills` tracks villagers killed (by raiders). The names describe the victim, not the killer.
 
-## Rating: 4/10
+## Rating: 7/10
 
-Pipeline structure is correct with chained execution guaranteeing safety. O(1) entity lookup via NpcEntityMap is good. death_cleanup_system is thorough (releases farm occupancy, clears raid queue, updates all stat resources). However: combat is completely non-functional — GpuReadState is empty, attack_system has a TODO for projectile firing, and no damage is dealt. The pipeline exists but does nothing.
+Full combat loop: GPU targeting → attack_system fires projectiles → GPU projectile compute → hit readback → damage → death → cleanup. Chained execution guarantees safety. O(1) entity lookup via NpcEntityMap. death_cleanup_system is thorough (releases farm occupancy, clears raid queue, updates all stat resources). Projectile slot recycling handles both collisions and expired projectiles via sentinel.

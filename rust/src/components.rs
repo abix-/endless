@@ -51,10 +51,10 @@ impl Job {
     /// RGBA color for this job type. Alpha=1.0 means "has target" on GPU.
     pub fn color(&self) -> (f32, f32, f32, f32) {
         match self {
-            Job::Farmer => (0.2, 0.8, 0.2, 1.0),  // Green
-            Job::Guard => (0.2, 0.4, 0.9, 1.0),   // Blue
-            Job::Raider => (0.9, 0.2, 0.2, 1.0),  // Red
-            Job::Fighter => (0.8, 0.8, 0.2, 1.0), // Yellow
+            Job::Farmer => (0.4, 1.0, 0.4, 1.0),  // Green tint
+            Job::Guard => (0.3, 0.4, 1.0, 1.0),   // Blue tint
+            Job::Raider => (1.0, 0.4, 0.4, 1.0),  // Red tint
+            Job::Fighter => (1.0, 1.0, 0.4, 1.0), // Yellow tint
         }
     }
 }

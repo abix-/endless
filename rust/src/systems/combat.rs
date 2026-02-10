@@ -182,8 +182,8 @@ pub fn process_proj_hits(
             let npc_idx = hit[0];
             let processed = hit[1];
 
-            // hit[0] >= 0 means a collision was detected, hit[1] == 0 means not yet processed
             if npc_idx >= 0 && processed == 0 {
+                // Collision detected — apply damage and recycle slot
                 let damage = if slot < proj_writes.damages.len() {
                     proj_writes.damages[slot]
                 } else {
@@ -197,7 +197,12 @@ pub fn process_proj_hits(
                     });
                 }
 
-                // Recycle projectile slot and tell GPU to deactivate
+                proj_alloc.free(slot);
+                if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                    queue.push(ProjGpuUpdate::Deactivate { idx: slot });
+                }
+            } else if npc_idx == -2 {
+                // Expired projectile (lifetime ran out) — recycle slot
                 proj_alloc.free(slot);
                 if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
                     queue.push(ProjGpuUpdate::Deactivate { idx: slot });

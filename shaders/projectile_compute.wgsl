@@ -49,9 +49,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     proj_lifetimes[i] = lifetime;
 
     if (lifetime <= 0.0) {
-        // Expired — deactivate and hide
+        // Expired — deactivate, hide, and signal CPU for slot recycling
         proj_active[i] = 0;
         proj_positions[i] = vec2<f32>(-9999.0, -9999.0);
+        proj_hits[i] = vec2<i32>(-2, 0);  // -2 = expired sentinel
         return;
     }
 

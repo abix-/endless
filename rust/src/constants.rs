@@ -50,16 +50,16 @@ pub const HEAL_SPRITE: (f32, f32) = (23.0, 0.0);
 
 // Distinct colors for raider factions (warm/aggressive palette)
 pub const RAIDER_COLORS: [(f32, f32, f32); 10] = [
-    (0.9, 0.2, 0.2),   // Red
-    (0.9, 0.5, 0.1),   // Orange
-    (0.8, 0.2, 0.6),   // Magenta
-    (0.6, 0.2, 0.8),   // Purple
-    (0.9, 0.8, 0.1),   // Yellow
-    (0.7, 0.3, 0.2),   // Brown
-    (0.9, 0.3, 0.5),   // Pink
-    (0.5, 0.1, 0.1),   // Dark red
-    (0.8, 0.6, 0.2),   // Gold
-    (0.6, 0.1, 0.4),   // Dark magenta
+    (1.0, 0.5, 0.5),   // Red tint
+    (1.0, 0.7, 0.4),   // Orange tint
+    (1.0, 0.5, 0.7),   // Magenta tint
+    (0.8, 0.5, 1.0),   // Purple tint
+    (1.0, 0.9, 0.4),   // Yellow tint
+    (0.9, 0.6, 0.5),   // Brown tint
+    (1.0, 0.6, 0.7),   // Pink tint
+    (0.8, 0.4, 0.4),   // Dark red tint
+    (1.0, 0.8, 0.5),   // Gold tint
+    (0.8, 0.4, 0.6),   // Dark magenta tint
 ];
 
 /// Get RGBA color for a raider faction (cycles through palette).
@@ -160,7 +160,7 @@ pub const RAIDER_SPAWN_COST: i32 = 5;
 pub const RAIDER_RESPAWN_HOURS: f32 = 2.0;
 
 /// Maximum raiders per camp.
-pub const CAMP_MAX_POP: i32 = 5;
+pub const CAMP_MAX_POP: i32 = 500;
 
 /// Minimum raiders needed to form a raid group.
 pub const RAID_GROUP_SIZE: i32 = 3;

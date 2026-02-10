@@ -463,13 +463,14 @@ fn prepare_npc_buffers(
         });
 
         // Layers 1-4: Equipment (only if sprite col >= 0, i.e. equipped)
+        // Tint with same job color so guards (blue) and raiders (red) are visually distinct
         for (layer_idx, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
             let (ecol, erow) = get_sprite(&writes, i);
             if ecol >= 0.0 {
                 layer_instances[layer_idx + 1].push(InstanceData {
                     position: [px, py],
                     sprite: [ecol, erow],
-                    color: [1.0, 1.0, 1.0, 1.0],
+                    color: [cr, cg, cb, 1.0],
                     health: 1.0,
                     flash,
                     scale: 16.0,

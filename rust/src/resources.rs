@@ -74,9 +74,9 @@ pub struct GameConfig {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
-            farmers_per_town: 10,
-            guards_per_town: 30,
-            raiders_per_camp: 15,
+            farmers_per_town: 2,
+            guards_per_town: 500,
+            raiders_per_camp: 500,
             spawn_interval_hours: 4,
             food_per_work_hour: 1,
         }

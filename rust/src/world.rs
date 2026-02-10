@@ -344,9 +344,9 @@ impl Default for WorldGenConfig {
             min_town_distance: 1200.0,
             grid_spacing: 34.0,
             camp_distance: 1100.0,
-            farmers_per_town: 5,
-            guards_per_town: 2,
-            raiders_per_camp: 5,
+            farmers_per_town: 2,
+            guards_per_town: 500,
+            raiders_per_camp: 500,
             town_names: vec![
                 "Miami".into(), "Orlando".into(), "Tampa".into(), "Jacksonville".into(),
                 "Tallahassee".into(), "Gainesville".into(), "Pensacola".into(), "Sarasota".into(),

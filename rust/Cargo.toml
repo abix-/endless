@@ -8,6 +8,9 @@ rust-version = "1.93"
 name = "endless"
 path = "src/main.rs"
 
+[features]
+tracy = ["bevy/trace_tracy"]
+
 [dependencies]
 bevy = "0.18"
 bevy_egui = "0.39"

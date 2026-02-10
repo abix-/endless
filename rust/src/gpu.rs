@@ -135,13 +135,13 @@ pub struct NpcBufferWrites {
     pub healing_sprites: Vec<f32>,
     /// Whether any data changed this frame (skip upload if false)
     pub dirty: bool,
-    /// Per-field dirty flags to avoid overwriting GPU-computed positions
-    pub positions_dirty: bool,
-    pub targets_dirty: bool,
-    pub speeds_dirty: bool,
-    pub factions_dirty: bool,
-    pub healths_dirty: bool,
-    pub arrivals_dirty: bool,
+    /// Per-field dirty indices — only these NPC slots get uploaded to GPU
+    pub position_dirty_indices: Vec<usize>,
+    pub target_dirty_indices: Vec<usize>,
+    pub speed_dirty_indices: Vec<usize>,
+    pub faction_dirty_indices: Vec<usize>,
+    pub health_dirty_indices: Vec<usize>,
+    pub arrival_dirty_indices: Vec<usize>,
 }
 
 impl Default for NpcBufferWrites {
@@ -165,12 +165,12 @@ impl Default for NpcBufferWrites {
             status_sprites: vec![-1.0; max * 2],
             healing_sprites: vec![-1.0; max * 2],
             dirty: false,
-            positions_dirty: false,
-            targets_dirty: false,
-            speeds_dirty: false,
-            factions_dirty: false,
-            healths_dirty: false,
-            arrivals_dirty: false,
+            position_dirty_indices: Vec::new(),
+            target_dirty_indices: Vec::new(),
+            speed_dirty_indices: Vec::new(),
+            faction_dirty_indices: Vec::new(),
+            health_dirty_indices: Vec::new(),
+            arrival_dirty_indices: Vec::new(),
         }
     }
 }
@@ -185,7 +185,7 @@ impl NpcBufferWrites {
                     self.positions[i] = *x;
                     self.positions[i + 1] = *y;
                     self.dirty = true;
-                    self.positions_dirty = true;
+                    self.position_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetTarget { idx, x, y } => {
@@ -194,40 +194,40 @@ impl NpcBufferWrites {
                     self.targets[i] = *x;
                     self.targets[i + 1] = *y;
                     self.dirty = true;
-                    self.targets_dirty = true;
+                    self.target_dirty_indices.push(*idx);
                 }
                 // Reset arrival flag so GPU resumes movement toward new target
                 if *idx < self.arrivals.len() {
                     self.arrivals[*idx] = 0;
-                    self.arrivals_dirty = true;
+                    self.arrival_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetSpeed { idx, speed } => {
                 if *idx < self.speeds.len() {
                     self.speeds[*idx] = *speed;
                     self.dirty = true;
-                    self.speeds_dirty = true;
+                    self.speed_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetFaction { idx, faction } => {
                 if *idx < self.factions.len() {
                     self.factions[*idx] = *faction;
                     self.dirty = true;
-                    self.factions_dirty = true;
+                    self.faction_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetHealth { idx, health } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = *health;
                     self.dirty = true;
-                    self.healths_dirty = true;
+                    self.health_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::ApplyDamage { idx, amount } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = (self.healths[*idx] - amount).max(0.0);
                     self.dirty = true;
-                    self.healths_dirty = true;
+                    self.health_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::HideNpc { idx } => {
@@ -237,7 +237,7 @@ impl NpcBufferWrites {
                     self.positions[i] = -9999.0;
                     self.positions[i + 1] = -9999.0;
                     self.dirty = true;
-                    self.positions_dirty = true;
+                    self.position_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetSpriteFrame { idx, col, row } => {
@@ -375,12 +375,12 @@ pub fn sync_visual_sprites(
 pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: Res<Time>) {
     // Reset dirty flags - will be set if any updates applied
     buffer_writes.dirty = false;
-    buffer_writes.positions_dirty = false;
-    buffer_writes.targets_dirty = false;
-    buffer_writes.speeds_dirty = false;
-    buffer_writes.factions_dirty = false;
-    buffer_writes.healths_dirty = false;
-    buffer_writes.arrivals_dirty = false;
+    buffer_writes.position_dirty_indices.clear();
+    buffer_writes.target_dirty_indices.clear();
+    buffer_writes.speed_dirty_indices.clear();
+    buffer_writes.faction_dirty_indices.clear();
+    buffer_writes.health_dirty_indices.clear();
+    buffer_writes.arrival_dirty_indices.clear();
 
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for update in queue.drain(..) {
@@ -461,6 +461,9 @@ pub struct ProjBufferWrites {
     pub active: Vec<i32>,
     pub hits: Vec<i32>,        // [npc_idx, processed] per proj
     pub dirty: bool,
+    /// Per-slot dirty tracking: Spawn writes all fields, Deactivate writes active+hits
+    pub spawn_dirty_indices: Vec<usize>,
+    pub deactivate_dirty_indices: Vec<usize>,
 }
 
 impl Default for ProjBufferWrites {
@@ -475,7 +478,9 @@ impl Default for ProjBufferWrites {
             lifetimes: vec![0.0; max],
             active: vec![0; max],
             hits: vec![-1; max * 2],   // -1 = no hit
-            dirty: true,  // Force first-frame upload so GPU gets -1 hit initialization
+            dirty: false,
+            spawn_dirty_indices: Vec::new(),
+            deactivate_dirty_indices: Vec::new(),
         }
     }
 }
@@ -498,6 +503,7 @@ impl ProjBufferWrites {
                     self.hits[i2] = -1;
                     self.hits[i2 + 1] = 0;
                     self.dirty = true;
+                    self.spawn_dirty_indices.push(*idx);
                 }
             }
             ProjGpuUpdate::Deactivate { idx } => {
@@ -510,6 +516,7 @@ impl ProjBufferWrites {
                         self.hits[i2 + 1] = 0;
                     }
                     self.dirty = true;
+                    self.deactivate_dirty_indices.push(*idx);
                 }
             }
         }
@@ -519,6 +526,8 @@ impl ProjBufferWrites {
 /// Drain PROJ_GPU_UPDATE_QUEUE and apply updates to ProjBufferWrites.
 pub fn populate_proj_buffer_writes(mut writes: ResMut<ProjBufferWrites>) {
     writes.dirty = false;
+    writes.spawn_dirty_indices.clear();
+    writes.deactivate_dirty_indices.clear();
     if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
         for update in queue.drain(..) {
             writes.apply(&update);
@@ -579,7 +588,7 @@ impl Plugin for GpuComputePlugin {
                 (
                     (write_npc_buffers, write_proj_buffers).in_set(RenderSystems::PrepareResources),
                     (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
-                    (readback_npc_positions, readback_proj_data).in_set(RenderSystems::Cleanup),
+                    readback_all.in_set(RenderSystems::Cleanup),
                 ),
             );
 
@@ -617,6 +626,14 @@ fn update_gpu_data(
 // RENDER WORLD RESOURCES
 // =============================================================================
 
+/// Ping-pong index for double-buffered staging readback.
+/// Frame N writes to staging[current], readback reads staging[1-current] (previous frame's data).
+#[derive(Resource, Default)]
+struct StagingIndex {
+    current: usize,  // 0 or 1
+    has_previous: bool,  // false on first frame (no previous data to read)
+}
+
 /// GPU buffers for NPC compute and rendering.
 #[derive(Resource)]
 pub struct NpcGpuBuffers {
@@ -631,10 +648,10 @@ pub struct NpcGpuBuffers {
     pub factions: Buffer,
     pub healths: Buffer,
     pub combat_targets: Buffer,
-    /// Staging buffer for CPU readback of positions (MAP_READ | COPY_DST)
-    pub position_staging: Buffer,
-    /// Staging buffer for CPU readback of combat targets (MAP_READ | COPY_DST)
-    pub combat_target_staging: Buffer,
+    /// Double-buffered staging for CPU readback of positions (MAP_READ | COPY_DST)
+    pub position_staging: [Buffer; 2],
+    /// Double-buffered staging for CPU readback of combat targets (MAP_READ | COPY_DST)
+    pub combat_target_staging: [Buffer; 2],
 }
 
 /// Bind groups for compute passes (one per mode, different uniform buffer).
@@ -671,10 +688,10 @@ pub struct ProjGpuBuffers {
     pub lifetimes: Buffer,
     pub active: Buffer,
     pub hits: Buffer,
-    /// Staging buffer for CPU readback of hit results (MAP_READ | COPY_DST)
-    pub hit_staging: Buffer,
-    /// Staging buffer for CPU readback of projectile positions (MAP_READ | COPY_DST)
-    pub position_staging: Buffer,
+    /// Double-buffered staging for CPU readback of hit results (MAP_READ | COPY_DST)
+    pub hit_staging: [Buffer; 2],
+    /// Double-buffered staging for CPU readback of projectile positions (MAP_READ | COPY_DST)
+    pub position_staging: [Buffer; 2],
 }
 
 /// Bind groups for projectile compute pass.
@@ -765,21 +782,38 @@ fn init_npc_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
-        position_staging: render_device.create_buffer(&BufferDescriptor {
-            label: Some("npc_position_staging"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 2]>()) as u64,
-            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
-        combat_target_staging: render_device.create_buffer(&BufferDescriptor {
-            label: Some("npc_combat_target_staging"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
-            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
+        position_staging: [
+            render_device.create_buffer(&BufferDescriptor {
+                label: Some("npc_position_staging_0"),
+                size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 2]>()) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            render_device.create_buffer(&BufferDescriptor {
+                label: Some("npc_position_staging_1"),
+                size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 2]>()) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+        ],
+        combat_target_staging: [
+            render_device.create_buffer(&BufferDescriptor {
+                label: Some("npc_combat_target_staging_0"),
+                size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            render_device.create_buffer(&BufferDescriptor {
+                label: Some("npc_combat_target_staging_1"),
+                size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+        ],
     };
 
     commands.insert_resource(buffers);
+    commands.insert_resource(StagingIndex::default());
 
     // Define bind group layout (all storage buffers are read_write for simplicity)
     let bind_group_layout = BindGroupLayoutDescriptor::new(
@@ -951,94 +985,168 @@ fn write_npc_buffers(
         }
     }
 
-    // Only upload fields that actually changed — avoids overwriting GPU-computed positions
-    if writes.positions_dirty {
-        render_queue.write_buffer(
-            &buffers.positions,
-            0,
-            bytemuck::cast_slice(&writes.positions),
-        );
+    // Per-index uploads — only write the NPC slots that actually changed
+    for &idx in &writes.position_dirty_indices {
+        let start = idx * 2;
+        if start + 2 <= writes.positions.len() {
+            let byte_offset = (start * std::mem::size_of::<f32>()) as u64;
+            render_queue.write_buffer(
+                &buffers.positions, byte_offset,
+                bytemuck::cast_slice(&writes.positions[start..start + 2]),
+            );
+        }
     }
 
-    if writes.targets_dirty {
-        render_queue.write_buffer(
-            &buffers.targets,
-            0,
-            bytemuck::cast_slice(&writes.targets),
-        );
+    for &idx in &writes.target_dirty_indices {
+        let start = idx * 2;
+        if start + 2 <= writes.targets.len() {
+            let byte_offset = (start * std::mem::size_of::<f32>()) as u64;
+            render_queue.write_buffer(
+                &buffers.targets, byte_offset,
+                bytemuck::cast_slice(&writes.targets[start..start + 2]),
+            );
+        }
     }
 
-    if writes.speeds_dirty {
-        render_queue.write_buffer(
-            &buffers.speeds,
-            0,
-            bytemuck::cast_slice(&writes.speeds),
-        );
+    for &idx in &writes.speed_dirty_indices {
+        if idx < writes.speeds.len() {
+            let byte_offset = (idx * std::mem::size_of::<f32>()) as u64;
+            render_queue.write_buffer(
+                &buffers.speeds, byte_offset,
+                bytemuck::cast_slice(&writes.speeds[idx..idx + 1]),
+            );
+        }
     }
 
-    if writes.factions_dirty {
-        render_queue.write_buffer(
-            &buffers.factions,
-            0,
-            bytemuck::cast_slice(&writes.factions),
-        );
+    for &idx in &writes.faction_dirty_indices {
+        if idx < writes.factions.len() {
+            let byte_offset = (idx * std::mem::size_of::<i32>()) as u64;
+            render_queue.write_buffer(
+                &buffers.factions, byte_offset,
+                bytemuck::cast_slice(&writes.factions[idx..idx + 1]),
+            );
+        }
     }
 
-    if writes.healths_dirty {
-        render_queue.write_buffer(
-            &buffers.healths,
-            0,
-            bytemuck::cast_slice(&writes.healths),
-        );
+    for &idx in &writes.health_dirty_indices {
+        if idx < writes.healths.len() {
+            let byte_offset = (idx * std::mem::size_of::<f32>()) as u64;
+            render_queue.write_buffer(
+                &buffers.healths, byte_offset,
+                bytemuck::cast_slice(&writes.healths[idx..idx + 1]),
+            );
+        }
     }
 
-    if writes.arrivals_dirty {
-        render_queue.write_buffer(
-            &buffers.arrivals,
-            0,
-            bytemuck::cast_slice(&writes.arrivals),
-        );
+    for &idx in &writes.arrival_dirty_indices {
+        if idx < writes.arrivals.len() {
+            let byte_offset = (idx * std::mem::size_of::<i32>()) as u64;
+            render_queue.write_buffer(
+                &buffers.arrivals, byte_offset,
+                bytemuck::cast_slice(&writes.arrivals[idx..idx + 1]),
+            );
+        }
     }
 
 }
 
-/// Read back NPC positions from GPU staging buffer to CPU.
-/// Runs in render world after command submission (Cleanup phase).
-fn readback_npc_positions(
-    buffers: Option<Res<NpcGpuBuffers>>,
+/// Double-buffered readback: read PREVIOUS frame's staging data, single poll for all buffers.
+/// Compute nodes copy to staging[current] this frame; we read staging[1-current] (already done).
+/// The poll returns near-instantly since GPU finished last frame's copy before this frame started.
+fn readback_all(
+    npc_buffers: Option<Res<NpcGpuBuffers>>,
     gpu_data: Option<Res<NpcGpuData>>,
+    proj_buffers: Option<Res<ProjGpuBuffers>>,
+    proj_data: Option<Res<ProjGpuData>>,
+    mut staging_index: ResMut<StagingIndex>,
     render_device: Res<RenderDevice>,
 ) {
-    let Some(buffers) = buffers else { return };
-    let Some(gpu_data) = gpu_data else { return };
+    let read_idx = 1 - staging_index.current;
 
-    let npc_count = gpu_data.npc_count as usize;
-    if npc_count == 0 {
+    // Skip first frame — no previous data to read yet
+    if !staging_index.has_previous {
+        staging_index.has_previous = true;
+        staging_index.current = 1 - staging_index.current;
         return;
     }
 
-    // Map both staging buffers (positions + combat targets)
-    let pos_size = npc_count * std::mem::size_of::<[f32; 2]>();
-    let ct_size = npc_count * std::mem::size_of::<i32>();
+    // Map all staging buffers from the PREVIOUS frame (up to 4 maps, single poll)
+    let (tx_all, rx_all) = std::sync::mpsc::sync_channel(4);
 
-    let pos_slice = buffers.position_staging.slice(..pos_size as u64);
-    let ct_slice = buffers.combat_target_staging.slice(..ct_size as u64);
+    // NPC staging maps
+    let npc_count = gpu_data.as_ref().map(|d| d.npc_count as usize).unwrap_or(0);
+    let has_npc = npc_count > 0 && npc_buffers.is_some();
+    let npc_pos_slice;
+    let npc_ct_slice;
+    if has_npc {
+        let buffers = npc_buffers.as_ref().unwrap();
+        let pos_size = npc_count * std::mem::size_of::<[f32; 2]>();
+        let ct_size = npc_count * std::mem::size_of::<i32>();
+        npc_pos_slice = Some(buffers.position_staging[read_idx].slice(..pos_size as u64));
+        npc_ct_slice = Some(buffers.combat_target_staging[read_idx].slice(..ct_size as u64));
 
-    let (tx1, rx1) = std::sync::mpsc::sync_channel(1);
-    let (tx2, rx2) = std::sync::mpsc::sync_channel(1);
+        let tx = tx_all.clone();
+        npc_pos_slice.as_ref().unwrap().map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(("npc_pos", r)); });
+        let tx = tx_all.clone();
+        npc_ct_slice.as_ref().unwrap().map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(("npc_ct", r)); });
+    } else {
+        npc_pos_slice = None;
+        npc_ct_slice = None;
+    }
 
-    pos_slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx1.send(r); });
-    ct_slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx2.send(r); });
+    // Projectile staging maps
+    let proj_count = proj_data.as_ref().map(|d| d.proj_count as usize).unwrap_or(0);
+    let has_proj = proj_count > 0 && proj_buffers.is_some();
+    let proj_hit_slice;
+    let proj_pos_slice;
+    if has_proj {
+        let buffers = proj_buffers.as_ref().unwrap();
+        let hit_size = proj_count * std::mem::size_of::<[i32; 2]>();
+        let pos_size = proj_count * std::mem::size_of::<[f32; 2]>();
+        proj_hit_slice = Some(buffers.hit_staging[read_idx].slice(..hit_size as u64));
+        proj_pos_slice = Some(buffers.position_staging[read_idx].slice(..pos_size as u64));
 
-    // Single poll flushes both maps
+        let tx = tx_all.clone();
+        proj_hit_slice.as_ref().unwrap().map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(("proj_hit", r)); });
+        let tx = tx_all.clone();
+        proj_pos_slice.as_ref().unwrap().map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(("proj_pos", r)); });
+    } else {
+        proj_hit_slice = None;
+        proj_pos_slice = None;
+    }
+    drop(tx_all);
+
+    let expected = (if has_npc { 2 } else { 0 }) + (if has_proj { 2 } else { 0 });
+    if expected == 0 {
+        staging_index.current = 1 - staging_index.current;
+        return;
+    }
+
+    // Single poll flushes all pending map_async calls
     let _ = render_device.poll(wgpu::PollType::wait_indefinitely());
 
-    let pos_ok = rx1.recv().map_or(false, |r| r.is_ok());
-    let ct_ok = rx2.recv().map_or(false, |r| r.is_ok());
+    // Collect results
+    let mut npc_pos_ok = false;
+    let mut npc_ct_ok = false;
+    let mut proj_hit_ok = false;
+    let mut proj_pos_ok = false;
+    for _ in 0..expected {
+        if let Ok((tag, result)) = rx_all.recv() {
+            let ok = result.is_ok();
+            match tag {
+                "npc_pos" => npc_pos_ok = ok,
+                "npc_ct" => npc_ct_ok = ok,
+                "proj_hit" => proj_hit_ok = ok,
+                "proj_pos" => proj_pos_ok = ok,
+                _ => {}
+            }
+        }
+    }
 
-    if pos_ok && ct_ok {
-        let pos_data = pos_slice.get_mapped_range();
-        let ct_data = ct_slice.get_mapped_range();
+    // Process NPC readback
+    if npc_pos_ok && npc_ct_ok {
+        let pos_data = npc_pos_slice.as_ref().unwrap().get_mapped_range();
+        let ct_data = npc_ct_slice.as_ref().unwrap().get_mapped_range();
         let positions: &[f32] = bytemuck::cast_slice(&pos_data);
         let combat_targets: &[i32] = bytemuck::cast_slice(&ct_data);
 
@@ -1053,61 +1161,39 @@ fn readback_npc_positions(
         drop(pos_data);
         drop(ct_data);
     }
+    if has_npc {
+        let buffers = npc_buffers.as_ref().unwrap();
+        if npc_pos_ok { buffers.position_staging[read_idx].unmap(); }
+        if npc_ct_ok { buffers.combat_target_staging[read_idx].unmap(); }
+    }
 
-    // Always unmap what was successfully mapped
-    if pos_ok { buffers.position_staging.unmap(); }
-    if ct_ok { buffers.combat_target_staging.unmap(); }
-}
-
-/// Read back projectile hit results from GPU → PROJ_HIT_STATE static.
-/// Read back projectile hits AND positions from GPU staging buffers.
-/// Single poll for both maps (same pattern as NPC readback).
-fn readback_proj_data(
-    proj_buffers: Option<Res<ProjGpuBuffers>>,
-    proj_data: Option<Res<ProjGpuData>>,
-    render_device: Res<RenderDevice>,
-) {
-    let Some(buffers) = proj_buffers else { return };
-    let Some(data) = proj_data else { return };
-
-    let proj_count = data.proj_count as usize;
-    if proj_count == 0 { return; }
-
-    let hit_size = proj_count * std::mem::size_of::<[i32; 2]>();
-    let pos_size = proj_count * std::mem::size_of::<[f32; 2]>();
-
-    let hit_slice = buffers.hit_staging.slice(..hit_size as u64);
-    let pos_slice = buffers.position_staging.slice(..pos_size as u64);
-
-    let (tx1, rx1) = std::sync::mpsc::sync_channel(1);
-    let (tx2, rx2) = std::sync::mpsc::sync_channel(1);
-    hit_slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx1.send(r); });
-    pos_slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx2.send(r); });
-
-    // Single poll flushes both maps
-    let _ = render_device.poll(wgpu::PollType::wait_indefinitely());
-
-    if let Ok(Ok(())) = rx1.recv() {
-        let mapped = hit_slice.get_mapped_range();
+    // Process projectile readback
+    if proj_hit_ok {
+        let mapped = proj_hit_slice.as_ref().unwrap().get_mapped_range();
         let hits: &[[i32; 2]] = bytemuck::cast_slice(&mapped);
         if let Ok(mut state) = PROJ_HIT_STATE.lock() {
             state.clear();
             state.extend_from_slice(&hits[..proj_count]);
         }
         drop(mapped);
-        buffers.hit_staging.unmap();
     }
-
-    if let Ok(Ok(())) = rx2.recv() {
-        let mapped = pos_slice.get_mapped_range();
+    if proj_pos_ok {
+        let mapped = proj_pos_slice.as_ref().unwrap().get_mapped_range();
         let positions: &[f32] = bytemuck::cast_slice(&mapped);
         if let Ok(mut state) = crate::messages::PROJ_POSITION_STATE.lock() {
             state.clear();
             state.extend_from_slice(&positions[..proj_count * 2]);
         }
         drop(mapped);
-        buffers.position_staging.unmap();
     }
+    if has_proj {
+        let buffers = proj_buffers.as_ref().unwrap();
+        if proj_hit_ok { buffers.hit_staging[read_idx].unmap(); }
+        if proj_pos_ok { buffers.position_staging[read_idx].unmap(); }
+    }
+
+    // Flip staging index for next frame
+    staging_index.current = 1 - staging_index.current;
 }
 
 // =============================================================================
@@ -1220,16 +1306,17 @@ impl render_graph::Node for NpcComputeNode {
             pass.dispatch_workgroups(npc_wg, 1, 1);
         }
 
-        // Copy positions + combat_targets → staging buffers for CPU readback
+        // Copy positions + combat_targets → staging[current] for CPU readback next frame
         let buffers = world.resource::<NpcGpuBuffers>();
+        let si = world.resource::<StagingIndex>().current;
         let pos_copy_size = (npc_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
         let ct_copy_size = (npc_count as u64) * std::mem::size_of::<i32>() as u64;
 
         render_context.command_encoder().copy_buffer_to_buffer(
-            &buffers.positions, 0, &buffers.position_staging, 0, pos_copy_size,
+            &buffers.positions, 0, &buffers.position_staging[si], 0, pos_copy_size,
         );
         render_context.command_encoder().copy_buffer_to_buffer(
-            &buffers.combat_targets, 0, &buffers.combat_target_staging, 0, ct_copy_size,
+            &buffers.combat_targets, 0, &buffers.combat_target_staging[si], 0, ct_copy_size,
         );
 
         Ok(())
@@ -1316,18 +1403,34 @@ fn init_proj_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
-        hit_staging: render_device.create_buffer(&BufferDescriptor {
-            label: Some("proj_hit_staging"),
-            size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
-            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
-        position_staging: render_device.create_buffer(&BufferDescriptor {
-            label: Some("proj_position_staging"),
-            size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
-            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
+        hit_staging: [
+            render_device.create_buffer(&BufferDescriptor {
+                label: Some("proj_hit_staging_0"),
+                size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            render_device.create_buffer(&BufferDescriptor {
+                label: Some("proj_hit_staging_1"),
+                size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+        ],
+        position_staging: [
+            render_device.create_buffer(&BufferDescriptor {
+                label: Some("proj_position_staging_0"),
+                size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            render_device.create_buffer(&BufferDescriptor {
+                label: Some("proj_position_staging_1"),
+                size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+        ],
     };
 
     commands.insert_resource(buffers);
@@ -1436,14 +1539,41 @@ fn write_proj_buffers(
         return;
     }
 
-    render_queue.write_buffer(&buffers.positions, 0, bytemuck::cast_slice(&writes.positions));
-    render_queue.write_buffer(&buffers.velocities, 0, bytemuck::cast_slice(&writes.velocities));
-    render_queue.write_buffer(&buffers.damages, 0, bytemuck::cast_slice(&writes.damages));
-    render_queue.write_buffer(&buffers.factions, 0, bytemuck::cast_slice(&writes.factions));
-    render_queue.write_buffer(&buffers.shooters, 0, bytemuck::cast_slice(&writes.shooters));
-    render_queue.write_buffer(&buffers.lifetimes, 0, bytemuck::cast_slice(&writes.lifetimes));
-    render_queue.write_buffer(&buffers.active, 0, bytemuck::cast_slice(&writes.active));
-    render_queue.write_buffer(&buffers.hits, 0, bytemuck::cast_slice(&writes.hits));
+    // Spawn: write all fields for each new projectile slot
+    for &idx in &writes.spawn_dirty_indices {
+        let i2 = idx * 2;
+        if i2 + 2 <= writes.positions.len() {
+            let byte2 = (i2 * std::mem::size_of::<f32>()) as u64;
+            render_queue.write_buffer(&buffers.positions, byte2, bytemuck::cast_slice(&writes.positions[i2..i2 + 2]));
+            render_queue.write_buffer(&buffers.velocities, byte2, bytemuck::cast_slice(&writes.velocities[i2..i2 + 2]));
+        }
+        if idx < writes.damages.len() {
+            let byte1f = (idx * std::mem::size_of::<f32>()) as u64;
+            let byte1i = (idx * std::mem::size_of::<i32>()) as u64;
+            render_queue.write_buffer(&buffers.damages, byte1f, bytemuck::cast_slice(&writes.damages[idx..idx + 1]));
+            render_queue.write_buffer(&buffers.factions, byte1i, bytemuck::cast_slice(&writes.factions[idx..idx + 1]));
+            render_queue.write_buffer(&buffers.shooters, byte1i, bytemuck::cast_slice(&writes.shooters[idx..idx + 1]));
+            render_queue.write_buffer(&buffers.lifetimes, byte1f, bytemuck::cast_slice(&writes.lifetimes[idx..idx + 1]));
+            render_queue.write_buffer(&buffers.active, byte1i, bytemuck::cast_slice(&writes.active[idx..idx + 1]));
+        }
+        if i2 + 2 <= writes.hits.len() {
+            let byte2i = (i2 * std::mem::size_of::<i32>()) as u64;
+            render_queue.write_buffer(&buffers.hits, byte2i, bytemuck::cast_slice(&writes.hits[i2..i2 + 2]));
+        }
+    }
+
+    // Deactivate: write only active flag + hit reset
+    for &idx in &writes.deactivate_dirty_indices {
+        if idx < writes.active.len() {
+            let byte1i = (idx * std::mem::size_of::<i32>()) as u64;
+            render_queue.write_buffer(&buffers.active, byte1i, bytemuck::cast_slice(&writes.active[idx..idx + 1]));
+        }
+        let i2 = idx * 2;
+        if i2 + 2 <= writes.hits.len() {
+            let byte2i = (i2 * std::mem::size_of::<i32>()) as u64;
+            render_queue.write_buffer(&buffers.hits, byte2i, bytemuck::cast_slice(&writes.hits[i2..i2 + 2]));
+        }
+    }
 }
 
 enum ProjComputeState {
@@ -1530,15 +1660,16 @@ impl render_graph::Node for ProjectileComputeNode {
             );
         }
 
-        // Copy hits + positions → staging buffers for CPU readback
+        // Copy hits + positions → staging[current] for CPU readback next frame
         let proj_buffers = world.resource::<ProjGpuBuffers>();
+        let si = world.resource::<StagingIndex>().current;
         let hit_copy_size = (proj_count as u64) * std::mem::size_of::<[i32; 2]>() as u64;
         render_context.command_encoder().copy_buffer_to_buffer(
-            &proj_buffers.hits, 0, &proj_buffers.hit_staging, 0, hit_copy_size,
+            &proj_buffers.hits, 0, &proj_buffers.hit_staging[si], 0, hit_copy_size,
         );
         let pos_copy_size = (proj_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
         render_context.command_encoder().copy_buffer_to_buffer(
-            &proj_buffers.positions, 0, &proj_buffers.position_staging, 0, pos_copy_size,
+            &proj_buffers.positions, 0, &proj_buffers.position_staging[si], 0, pos_copy_size,
         );
 
         Ok(())

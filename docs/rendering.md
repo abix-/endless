@@ -93,7 +93,7 @@ Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terr
 - Same position as body (from readback)
 - Sprite from `armor_sprites`/`helmet_sprites`/`weapon_sprites`/`item_sprites` (stride 2, col/row per NPC)
 - Sentinel: col < 0 means unequipped → skip
-- Color: white (1,1,1,1) — natural sprite colors
+- Color: job color tint (same RGBA as body) — guards' equipment renders blue, raiders' red
 - Health: 1.0 (no health bar; shader discards bottom pixels for health >= 0.99)
 - Flash: inherited from body (equipment flashes on hit)
 

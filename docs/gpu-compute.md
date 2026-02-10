@@ -15,10 +15,10 @@ Main World (ECS)                       Render World (GPU)
 ├─ NpcSpriteTexture ─────────────────▶
 │                                      │
 │                                      ├─ init_npc_compute_pipeline (RenderStartup)
-│                                      │   └─ Create GPU buffers + staging buffer
+│                                      │   └─ Create GPU buffers + 2x staging buffers (ping-pong)
 │                                      │
 │                                      ├─ write_npc_buffers (PrepareResources)
-│                                      │   └─ Upload only dirty fields (per-field flags)
+│                                      │   └─ Per-index uploads (only changed NPC slots)
 │                                      │
 │                                      ├─ prepare_npc_bind_groups (PrepareBindGroups)
 │                                      │   └─ 3 bind groups (one per mode, different uniform)
@@ -27,10 +27,13 @@ Main World (ECS)                       Render World (GPU)
 │                                      │   ├─ Mode 0: clear grid (atomicStore 0)
 │                                      │   ├─ Mode 1: build grid (atomicAdd NPC indices)
 │                                      │   ├─ Mode 2: separation + movement + combat targeting
-│                                      │   └─ copy positions + combat_targets → staging
+│                                      │   └─ copy positions + combat_targets → staging[current]
 │                                      │
-│                                      └─ readback_npc_positions (Cleanup)
-│                                          └─ map staging (positions + combat_targets) → GPU_READ_STATE
+│                                      └─ readback_all (Cleanup)
+│                                          ├─ map NPC staging[1-current] → GPU_READ_STATE
+│                                          ├─ map proj staging[1-current] → PROJ_HIT_STATE + PROJ_POSITION_STATE
+│                                          ├─ single device.poll() for all maps
+│                                          └─ flip StagingIndex for next frame
 │
 ├─ sync_gpu_state_to_bevy (Step::Drain)
 │     GPU_READ_STATE → GpuReadState resource
@@ -45,21 +48,22 @@ Main World (ECS)                       Render World (GPU)
 ```
 ECS → GPU (upload):
   GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
-    → populate_buffer_writes → NpcBufferWrites (per-field dirty flags)
+    → populate_buffer_writes → NpcBufferWrites (per-field dirty indices)
     → ExtractResource clone
-    → write_npc_buffers (only uploads dirty fields)
+    → write_npc_buffers (per-index uploads, only changed slots)
 
   sync_visual_sprites (after Step::Behavior):
     Derives colors, equipment, indicators from ECS components
     → writes directly to NpcBufferWrites (colors, *_sprites arrays)
     Single source of truth — replaces deferred SetColor/SetEquipSprite/SetHealing/SetSleeping messages
 
-GPU → ECS (readback):
-  NpcComputeNode: dispatch compute + copy positions → staging buffer
-    → readback_npc_positions: map staging, write to GPU_READ_STATE
+GPU → ECS (readback, double-buffered ping-pong):
+  NpcComputeNode: dispatch compute + copy positions → staging[current]
+    → readback_all (Cleanup): map staging[1-current], single poll, write to GPU_READ_STATE + PROJ_HIT_STATE
     → sync_gpu_state_to_bevy: GPU_READ_STATE → GpuReadState resource
     → gpu_position_readback: GpuReadState → ECS Position components
       + arrival detection: if HasTarget && dist(pos, goal) < ARRIVAL_THRESHOLD → AtDestination
+  Data is 1 frame old (~1.6px drift at 100px/s). ARRIVAL_THRESHOLD=8px >> drift.
 
 GPU → Render:
   prepare_npc_buffers: reads GPU_READ_STATE for positions (falls back to
@@ -93,7 +97,7 @@ One thread per NPC. Four phases per thread:
 
 ### Compute Buffers (gpu.rs NpcGpuBuffers)
 
-Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`. A staging buffer (`position_staging`) is created with `MAP_READ | COPY_DST` for GPU→CPU readback.
+Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`. Double-buffered staging buffers (`position_staging: [Buffer; 2]`, `combat_target_staging: [Buffer; 2]`) are created with `MAP_READ | COPY_DST` for ping-pong GPU→CPU readback.
 
 | Binding | Name | Type | Per-NPC Size | Uploaded From | Purpose |
 |---------|------|------|-------------|---------------|---------|
@@ -170,8 +174,8 @@ const MAX_PER_CELL: u32 = 48;
 
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
 - **sprite_indices/colors not uploaded to compute**: These fields exist in NpcBufferWrites for the render pipeline only. The compute shader has no access to them.
-- **Synchronous readback blocks render thread**: `device.poll(Wait)` blocks until staging buffer mapping completes. For 128KB this is sub-millisecond, but could be upgraded to async double-buffered readback if needed.
+- **Blocking readback poll**: `device.poll(wait_indefinitely())` blocks on ALL GPU work (this frame's render), not just the staging buffers. Ping-pong staging is structurally ready but the blocking poll negates the latency benefit. Fix: change to non-blocking `poll(Poll)` + `try_recv()`.
 
 ## Rating: 9/10
 
-3-mode compute dispatch with spatial grid, separation physics (boids-style + TCP dodge + backoff), combat targeting, and full GPU→ECS readback. Per-field dirty flags prevent stale data from overwriting GPU output. Arrival flag reset on SetTarget ensures NPCs resume movement.
+3-mode compute dispatch with spatial grid, separation physics (boids-style + TCP dodge + backoff), combat targeting, and full GPU→ECS readback. Per-index dirty tracking uploads only changed NPC slots. Double-buffered ping-pong staging with unified `readback_all` for NPC + projectile readback. Arrival flag reset on SetTarget ensures NPCs resume movement.

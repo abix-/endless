@@ -33,7 +33,7 @@ Projectiles originate from Bevy's `attack_system`. The flow:
 1. `attack_system` pushes `ProjGpuUpdate::Spawn` to `PROJ_GPU_UPDATE_QUEUE`
 2. `populate_proj_buffer_writes` (PostUpdate) drains queue into `ProjBufferWrites` flat arrays
 3. `ExtractResource` clones to render world
-4. `write_proj_buffers` uploads all buffers to GPU
+4. `write_proj_buffers` uploads per-slot (spawn writes all fields, deactivate writes active+hits only)
 5. `ProjectileComputeNode` dispatches shader
 
 Spawn data includes: position, velocity, damage, faction, shooter index, lifetime.
@@ -46,7 +46,7 @@ Spawn data includes: position, velocity, damage, faction, shooter index, lifetim
 `projectile_compute.wgsl` — 64 threads per workgroup, `ceil(proj_count / 64)` dispatches.
 
 For each active projectile:
-1. **Lifetime**: `lifetime -= delta`. If <= 0, deactivate and hide at (-9999, -9999).
+1. **Lifetime**: `lifetime -= delta`. If <= 0, deactivate, hide at (-9999, -9999), and write `proj_hits[i] = (-2, 0)` (expired sentinel for CPU slot recycling).
 2. **Movement**: `pos += velocity * delta`
 3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood:
    - Skip same faction (no friendly fire)
@@ -55,13 +55,17 @@ For each active projectile:
 
 ## Hit Processing
 
-`readback_proj_data` reads both hit results and positions from GPU staging buffers to CPU statics (`PROJ_HIT_STATE`, `PROJ_POSITION_STATE`) via a single `device.poll()`. `process_proj_hits` then converts hits to damage:
+`readback_all` (unified NPC + projectile readback) reads hit results and positions from double-buffered GPU staging buffers to CPU statics (`PROJ_HIT_STATE`, `PROJ_POSITION_STATE`) via a single `device.poll()`. `process_proj_hits` then handles two cases:
 
 ```
-for each projectile with hit.x >= 0 and hit.y == 0 (unprocessed):
-    push DamageMsg { npc_index: hit.x, amount: damage }
-    recycle slot via ProjSlotAllocator
-    send ProjGpuUpdate::Deactivate to GPU
+for each projectile slot:
+    if hit.x >= 0 and hit.y == 0 (collision):
+        push DamageMsg { npc_index: hit.x, amount: damage }
+        recycle slot via ProjSlotAllocator
+        send ProjGpuUpdate::Deactivate to GPU
+    if hit.x == -2 (expired sentinel):
+        recycle slot via ProjSlotAllocator
+        send ProjGpuUpdate::Deactivate to GPU
 ```
 
 ## GPU Buffers
@@ -129,10 +133,10 @@ PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
 
 ## Known Issues
 
-- **proj_count never shrinks**: High-water mark. Slot recycling exists in `ProjSlotAllocator` but freed slots don't reduce dispatch count.
+- **proj_count never shrinks**: High-water mark (`ProjSlotAllocator.next`). Freed slots are recycled via LIFO free list but don't reduce dispatch count.
 - **No projectile-projectile collision**: Projectiles pass through each other.
 - **Hit buffer must init to -1**: GPU default of 0 would falsely indicate "hit NPC 0".
 
 ## Rating: 7/10
 
-Full end-to-end pipeline: compute shader moves projectiles, spatial grid collision detects hits, readback sends damage to ECS, instanced rendering draws faction-colored projectiles. Hit readback and position readback share a single `device.poll()` via `readback_proj_data`. Rendering reuses the NPC pipeline (same shader, quad, bind groups) with a separate instance buffer. Projectiles render above NPCs via sort key.
+Full end-to-end pipeline: compute shader moves projectiles, spatial grid collision detects hits, readback sends damage to ECS, instanced rendering draws faction-colored projectiles. Unified `readback_all` handles NPC + projectile readback with double-buffered ping-pong staging and a single `device.poll()`. Expired projectiles signal CPU via `-2` sentinel for slot recycling. Per-slot dirty tracking minimizes GPU uploads. Rendering reuses the NPC pipeline (same shader, quad, bind groups) with a separate instance buffer. Projectiles render above NPCs via sort key.
