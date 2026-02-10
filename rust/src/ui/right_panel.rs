@@ -115,7 +115,7 @@ pub fn right_panel_system(
     let ctx = contexts.ctx_mut()?;
 
     // Panel width: narrow for just tabs, wide when content is open
-    let width = if ui_state.right_panel_open { 480.0 } else { 200.0 };
+    let width = if ui_state.right_panel_open { 340.0 } else { 200.0 };
 
     egui::SidePanel::right("right_panel")
         .exact_width(width)
@@ -126,9 +126,9 @@ pub fn right_panel_system(
 
             ui.horizontal(|ui| {
                 for (label, variant) in [
-                    ("Roster", RightPanelTab::Roster),
-                    ("Upgrades", RightPanelTab::Upgrades),
-                    ("Policies", RightPanelTab::Policies),
+                    ("Roster (R)", RightPanelTab::Roster),
+                    ("Upgrades (U)", RightPanelTab::Upgrades),
+                    ("Policies (P)", RightPanelTab::Policies),
                 ] {
                     let active = open && tab == variant;
                     if ui.selectable_label(active, label).clicked() {

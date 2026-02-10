@@ -256,28 +256,14 @@ pub fn game_hud_system(
             ui.label("Click an NPC to inspect");
         }
 
-        // Panel toggle buttons
+        // Panel toggle buttons (only non-right-panel items)
         ui.separator();
         ui.horizontal_wrapped(|ui| {
-            let roster_active = ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Roster;
-            if ui.selectable_label(roster_active, "Roster (R)").clicked() {
-                ui_state.toggle_right_tab(RightPanelTab::Roster);
-            }
             if ui.selectable_label(ui_state.combat_log_open, "Log (L)").clicked() {
                 ui_state.combat_log_open = !ui_state.combat_log_open;
             }
-        });
-        ui.horizontal_wrapped(|ui| {
             if ui.selectable_label(ui_state.build_menu_open, "Build (B)").clicked() {
                 ui_state.build_menu_open = !ui_state.build_menu_open;
-            }
-            let upgrades_active = ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Upgrades;
-            if ui.selectable_label(upgrades_active, "Upgrades (U)").clicked() {
-                ui_state.toggle_right_tab(RightPanelTab::Upgrades);
-            }
-            let policies_active = ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Policies;
-            if ui.selectable_label(policies_active, "Policies (P)").clicked() {
-                ui_state.toggle_right_tab(RightPanelTab::Policies);
             }
         });
 
