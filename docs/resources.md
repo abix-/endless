@@ -195,15 +195,15 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| UiState | roster_open, combat_log_open, build_menu_open, upgrade_menu_open, policies_open | ui_toggle_system (keyboard), game_hud (buttons) | All panel systems |
+| UiState | combat_log_open, build_menu_open, pause_menu_open, right_panel_open, right_panel_tab (RightPanelTab enum) | ui_toggle_system (keyboard), game_hud (buttons), right_panel tabs, pause_menu | All panel systems |
 | CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system, reassign_npc_system | combat_log panel |
 | BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, screen_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
-| ReassignQueue | `Vec<(usize, i32)>` — (npc_slot, new_job) | roster_panel (UI) | reassign_npc_system |
-| UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | upgrade_menu (UI) | process_upgrades_system |
+| ReassignQueue | `Vec<(usize, i32)>` — (npc_slot, new_job) | right_panel roster (UI) | reassign_npc_system |
+| UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | right_panel upgrades (UI) | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
-| UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups | main_menu (save on Play), combat_log (save on filter change) | main_menu (load on init), combat_log (load on init), camera_pan_system |
+| UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups | main_menu (save on Play), combat_log (save on filter change), pause_menu (save on close) | main_menu (load on init), combat_log (load on init), pause_menu settings, camera_pan_system |
 
-`UiState` tracks which panels are open. `combat_log_open` defaults to true, all others false. Reset on game cleanup.
+`UiState` tracks which panels are open. `combat_log_open` defaults to true, all others false. `RightPanelTab` enum: Roster (default), Upgrades, Policies. `toggle_right_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 
 `CombatLog` is a ring buffer of global events with 5 kinds: Kill, Spawn, Raid, Harvest, LevelUp. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
 

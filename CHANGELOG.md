@@ -2,6 +2,15 @@
 
 ## 2026-02-10
 
+- **escape menu, tabbed right panel, maximized window**
+  - ESC opens pause menu overlay (Resume, Settings, Exit to Main Menu) instead of instantly quitting — game stays in Playing state, auto-pauses when menu opens
+  - pause menu settings: scroll speed slider + combat log filter checkboxes, saved to UserSettings on close
+  - consolidated Roster, Upgrades, Policies into a single tabbed right SidePanel (`right_panel.rs`) — always-visible tab bar (200px collapsed), expands to 340px on tab click, re-click active tab to collapse
+  - removed Roster/Upgrades/Policies toggle buttons from left HUD (now accessed via right panel tabs or R/U/P keys)
+  - fixed combat log layout shift caused by non-deterministic egui system ordering — all egui systems now `.chain()` in one `add_systems` call: HUD (left) → right panel → bottom panel → pause overlay
+  - window starts maximized via `set_maximized(true)` startup system
+  - old panel files (roster_panel.rs, upgrade_menu.rs, policies_panel.rs) no longer compiled, replaced by right_panel.rs
+
 - **fix starving wounded oscillation + UI polish**
   - fix decision system oscillation: starving wounded NPCs looped between "Resting" and "Wounded → Fountain" every frame because fountain healing can't exceed the 50% starvation HP cap — skip wounded→fountain redirect when energy=0 so NPCs rest for energy first
   - fix arrival wounded check: if NPC is already Resting when wounded check fires, stamp `recover_until` threshold on existing state instead of redirecting to GoingToRest (prevents redirect loop at destination)

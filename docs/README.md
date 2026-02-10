@@ -60,12 +60,11 @@ Bevy ECS (lib.rs build_app)
     ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, panels, startup, cleanup
     │   ├─ Main menu: world config sliders + Play / Debug Tests
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
-    │   ├─ In-game HUD: population, time, food, NPC inspector, panel toggles
-    │   ├─ Roster panel (R): NPC list with sort/filter/select/follow/reassign
+    │   ├─ In-game HUD: population, time, food, NPC inspector, Log/Build toggles
+    │   ├─ Right panel (always visible): tabbed SidePanel with Roster (R) / Upgrades (U) / Policies (P)
     │   ├─ Combat log (L): global event feed (kills, spawns, raids, harvests)
     │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Destroy/Unlock/Turret toggle)
-    │   ├─ Upgrade menu (U): per-town upgrades (spend food → stat boost)
-│   ├─ Policies (P): per-town behavior config (flee thresholds, work schedule, off-duty)
+    │   ├─ Pause menu (ESC): Resume, Settings (scroll speed + log filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
@@ -121,7 +120,7 @@ Ratings reflect system quality, not doc accuracy.
 ```
 rust/
   Cargo.toml            # Pure Bevy 0.18 + bevy_egui + bytemuck + rand + noise
-  src/main.rs           # Bevy App entry point, asset root = project root
+  src/main.rs           # Bevy App entry point, asset root = project root, maximize window on startup
   src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
@@ -133,14 +132,12 @@ rust/
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
   src/world.rs          # World data structs, world grid, procedural generation, tileset builder, town grid, building placement/removal
   src/ui/
-    mod.rs              # register_ui(), game startup, cleanup, escape/time controls, keyboard toggles, slot right-click, slot indicators
+    mod.rs              # register_ui(), game startup, cleanup, pause menu, escape/time controls, keyboard toggles, slot right-click, slot indicators
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
-    game_hud.rs         # In-game HUD (population, time, food, NPC inspector, panel toggles, target overlay)
-    roster_panel.rs     # NPC list with sort/filter/select/follow/reassign (R key)
+    game_hud.rs         # In-game HUD (population, time, food, NPC inspector, Log/Build toggles, target overlay)
+    right_panel.rs      # Tabbed right SidePanel: Roster (R) / Upgrades (U) / Policies (P) — always visible tabs, expand on click
     combat_log.rs       # Event feed with color-coded timestamps (L key)
     build_menu.rs       # Right-click context menu: build/destroy/unlock town slots, turret toggle
-    upgrade_menu.rs     # 14 upgrade rows with level/cost, spend food to purchase (U key)
-    policies_panel.rs   # Per-town behavior config (P key, wired to TownPolicies resource)
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)
