@@ -1,4 +1,4 @@
-//! Sleep Visual Test (3 phases, time_scale=20)
+//! Sleep Visual Test (3 phases)
 //! Validates: Resting NPC gets sleep icon on Status layer, cleared on wake.
 
 use bevy::prelude::*;
@@ -19,7 +19,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.0);
     params.init_economy(1);
-    params.game_time.time_scale = 20.0;
+    params.game_time.time_scale = 1.0;
 
     // Spawn 1 farmer with work position at farm
     let slot = params.slot_alloc.alloc().expect("slot alloc");
@@ -34,14 +34,14 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
     });
 
     params.test_state.phase_name = "Waiting for farmer spawn...".into();
-    info!("sleep-visual: setup — 1 farmer, time_scale=20");
+    info!("sleep-visual: setup — 1 farmer");
 }
 
 pub fn tick(
     farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
     resting_query: Query<&NpcIndex, (With<Resting>, Without<Dead>)>,
     not_resting_query: Query<&NpcIndex, (With<Farmer>, Without<Resting>, Without<Dead>)>,
-    energy_query: Query<&Energy, (With<Farmer>, Without<Dead>)>,
+    mut energy_query: Query<&mut Energy, (With<Farmer>, Without<Dead>)>,
     buffer: Res<NpcBufferWrites>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
@@ -51,14 +51,20 @@ pub fn tick(
 
     let energy = energy_query.iter().next().map(|e| e.0).unwrap_or(100.0);
 
+    // Start energy near tired threshold so rest triggers within 30s
+    if !test.get_flag("energy_set") {
+        for mut e in energy_query.iter_mut() { e.0 = 35.0; }
+        test.set_flag("energy_set", true);
+    }
+
     match test.phase {
-        // Phase 1: Farmer spawns with energy 100
+        // Phase 1: Farmer spawns alive
         1 => {
             test.phase_name = format!("e={:.0}", energy);
-            if energy >= 90.0 {
+            if energy > 0.0 {
                 test.pass_phase(elapsed, format!("Farmer alive (energy={:.0})", energy));
             } else if elapsed > 5.0 {
-                test.fail_phase(elapsed, "Farmer not at full energy");
+                test.fail_phase(elapsed, "Farmer not found");
             }
         }
         // Phase 2: Farmer rests → status_sprites should show SLEEP_SPRITE

@@ -15,7 +15,6 @@ pub fn setup(
     mut world_data: ResMut<world::WorldData>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut flags: ResMut<DebugFlags>,
     mut test_state: ResMut<TestState>,
 ) {
     // Two opposing towns
@@ -56,7 +55,6 @@ pub fn setup(
         attack_type: 0,
     });
 
-    flags.combat = true;
     test_state.phase_name = "Waiting for spawns...".into();
     info!("combat: setup — 1 guard vs 1 raider, 20px apart");
 }

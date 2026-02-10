@@ -25,9 +25,10 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use crate::components::EquipLayer;
-use crate::constants::{HEAL_SPRITE, SLEEP_SPRITE};
+use crate::components::{NpcIndex, Faction, Job, Healing, Resting, CarryingFood, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
+use crate::constants::{HEAL_SPRITE, SLEEP_SPRITE, FOOD_SPRITE};
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, GPU_READ_STATE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, PROJ_HIT_STATE};
+use crate::resources::NpcCount;
 
 // =============================================================================
 // CONSTANTS
@@ -239,16 +240,6 @@ impl NpcBufferWrites {
                     self.positions_dirty = true;
                 }
             }
-            GpuUpdate::SetColor { idx, r, g, b, a } => {
-                let i = *idx * 4;
-                if i + 3 < self.colors.len() {
-                    self.colors[i] = *r;
-                    self.colors[i + 1] = *g;
-                    self.colors[i + 2] = *b;
-                    self.colors[i + 3] = *a;
-                    self.dirty = true;
-                }
-            }
             GpuUpdate::SetSpriteFrame { idx, col, row } => {
                 let i = *idx * 4;
                 if i + 3 < self.sprite_indices.len() {
@@ -264,40 +255,120 @@ impl NpcBufferWrites {
                     self.dirty = true;
                 }
             }
-            GpuUpdate::SetEquipSprite { idx, layer, col, row } => {
-                let vec = match layer {
-                    EquipLayer::Armor => &mut self.armor_sprites,
-                    EquipLayer::Helmet => &mut self.helmet_sprites,
-                    EquipLayer::Weapon => &mut self.weapon_sprites,
-                    EquipLayer::Item => &mut self.item_sprites,
-                    EquipLayer::Status => &mut self.status_sprites,
-                    EquipLayer::Healing => &mut self.healing_sprites,
-                };
-                let i = *idx * 2;
-                if i + 1 < vec.len() {
-                    vec[i] = *col;
-                    vec[i + 1] = *row;
-                    self.dirty = true;
-                }
-            }
-            GpuUpdate::SetHealing { idx, healing } => {
-                let i = *idx * 2;
-                if i + 1 < self.healing_sprites.len() {
-                    self.healing_sprites[i] = if *healing { HEAL_SPRITE.0 } else { -1.0 };
-                    self.healing_sprites[i + 1] = if *healing { HEAL_SPRITE.1 } else { 0.0 };
-                    self.dirty = true;
-                }
-            }
-            GpuUpdate::SetSleeping { idx, sleeping } => {
-                let i = *idx * 2;
-                if i + 1 < self.status_sprites.len() {
-                    self.status_sprites[i] = if *sleeping { SLEEP_SPRITE.0 } else { -1.0 };
-                    self.status_sprites[i + 1] = if *sleeping { SLEEP_SPRITE.1 } else { 0.0 };
-                    self.dirty = true;
-                }
-            }
         }
     }
+}
+
+/// Derive visual sprite state (colors, equipment, indicators) from ECS components.
+/// Single source of truth — replaces deferred SetColor/SetEquipSprite/SetHealing/SetSleeping messages.
+/// Runs in Update after Step::Behavior so the buffer is in sync when tests read it.
+pub fn sync_visual_sprites(
+    mut buffer: ResMut<NpcBufferWrites>,
+    all_npcs: Query<(
+        &NpcIndex, &Faction, &Job,
+        Option<&Healing>, Option<&Resting>,
+        Option<&CarryingFood>,
+        Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
+    ), Without<Dead>>,
+    npc_count: Res<NpcCount>,
+) {
+    let count = npc_count.0 as usize;
+
+    // Clear all visual layers up to npc_count
+    for i in 0..count {
+        let j = i * 2;
+        if j + 1 < buffer.healing_sprites.len() {
+            buffer.healing_sprites[j] = -1.0;
+            buffer.healing_sprites[j + 1] = 0.0;
+        }
+        if j + 1 < buffer.status_sprites.len() {
+            buffer.status_sprites[j] = -1.0;
+            buffer.status_sprites[j + 1] = 0.0;
+        }
+        if j + 1 < buffer.item_sprites.len() {
+            buffer.item_sprites[j] = -1.0;
+            buffer.item_sprites[j + 1] = 0.0;
+        }
+        if j + 1 < buffer.weapon_sprites.len() {
+            buffer.weapon_sprites[j] = -1.0;
+            buffer.weapon_sprites[j + 1] = 0.0;
+        }
+        if j + 1 < buffer.helmet_sprites.len() {
+            buffer.helmet_sprites[j] = -1.0;
+            buffer.helmet_sprites[j + 1] = 0.0;
+        }
+        if j + 1 < buffer.armor_sprites.len() {
+            buffer.armor_sprites[j] = -1.0;
+            buffer.armor_sprites[j + 1] = 0.0;
+        }
+        let c = i * 4;
+        if c + 3 < buffer.colors.len() {
+            buffer.colors[c] = 1.0;
+            buffer.colors[c + 1] = 1.0;
+            buffer.colors[c + 2] = 1.0;
+            buffer.colors[c + 3] = 1.0;
+        }
+    }
+
+    // Set from ECS
+    for (npc_idx, faction, job, healing, resting, carrying, weapon, helmet, armor) in all_npcs.iter() {
+        let idx = npc_idx.0;
+        let j = idx * 2;
+
+        // Color: raiders use faction palette, others use job color
+        let c = idx * 4;
+        if c + 3 < buffer.colors.len() {
+            let (r, g, b, a) = if *job == Job::Raider {
+                crate::constants::raider_faction_color(faction.0)
+            } else {
+                job.color()
+            };
+            buffer.colors[c] = r;
+            buffer.colors[c + 1] = g;
+            buffer.colors[c + 2] = b;
+            buffer.colors[c + 3] = a;
+        }
+
+        // Equipment
+        if let Some(w) = weapon {
+            if j + 1 < buffer.weapon_sprites.len() {
+                buffer.weapon_sprites[j] = w.0;
+                buffer.weapon_sprites[j + 1] = w.1;
+            }
+        }
+        if let Some(h) = helmet {
+            if j + 1 < buffer.helmet_sprites.len() {
+                buffer.helmet_sprites[j] = h.0;
+                buffer.helmet_sprites[j + 1] = h.1;
+            }
+        }
+        if let Some(a) = armor {
+            if j + 1 < buffer.armor_sprites.len() {
+                buffer.armor_sprites[j] = a.0;
+                buffer.armor_sprites[j + 1] = a.1;
+            }
+        }
+
+        // Carried item (food)
+        if carrying.is_some() && j + 1 < buffer.item_sprites.len() {
+            buffer.item_sprites[j] = FOOD_SPRITE.0;
+            buffer.item_sprites[j + 1] = FOOD_SPRITE.1;
+        }
+
+        // Healing indicator
+        if healing.is_some() && j + 1 < buffer.healing_sprites.len() {
+            buffer.healing_sprites[j] = HEAL_SPRITE.0;
+            buffer.healing_sprites[j + 1] = HEAL_SPRITE.1;
+        }
+
+        // Sleep indicator
+        if resting.is_some() && j + 1 < buffer.status_sprites.len() {
+            buffer.status_sprites[j] = SLEEP_SPRITE.0;
+            buffer.status_sprites[j + 1] = SLEEP_SPRITE.1;
+        }
+    }
+
+    buffer.dirty = true;
 }
 
 /// Drain GPU_UPDATE_QUEUE and apply updates to NpcBufferWrites.

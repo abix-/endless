@@ -1,25 +1,26 @@
-//! Healing Visual Test (3 phases, time_scale=20)
+//! Healing Visual Test (3 phases)
 //! Validates: Healing NPC gets heal icon on Healing layer, cleared when healed.
 
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::HEAL_SPRITE;
 use crate::gpu::NpcBufferWrites;
+use crate::resources::GameTime;
 
-use super::{TestState, TestSetupParams};
+use super::{TestState, TestSetupParams, keep_fed};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("HealVisTown");
     params.add_bed(400.0, 410.0);
     params.init_economy(1);
     params.food_storage.food[0] = 10; // enough food to prevent starvation
-    params.game_time.time_scale = 20.0;
+    params.game_time.time_scale = 1.0;
 
     // Spawn farmer at town center (inside healing radius)
     params.spawn_npc(0, 400.0, 400.0, 400.0, 410.0);
 
     params.test_state.phase_name = "Waiting for spawn...".into();
-    info!("heal-visual: setup — 1 farmer at town center, time_scale=20");
+    info!("heal-visual: setup — 1 farmer at town center");
 }
 
 pub fn tick(
@@ -27,10 +28,13 @@ pub fn tick(
     healing_query: Query<&NpcIndex, (With<Healing>, Without<Dead>)>,
     not_healing_query: Query<&NpcIndex, (With<Farmer>, Without<Healing>, Without<Dead>)>,
     buffer: Res<NpcBufferWrites>,
+    mut last_ate_query: Query<&mut LastAteHour, Without<Dead>>,
+    game_time: Res<GameTime>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
+    keep_fed(&mut last_ate_query, &game_time);
 
     let Some((mut health, npc_idx)) = health_query.iter_mut().next() else {
         if !test.require_entity(0, elapsed, "farmer") { return; }

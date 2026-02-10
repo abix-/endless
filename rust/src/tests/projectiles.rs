@@ -15,7 +15,6 @@ pub fn setup(
     mut world_data: ResMut<world::WorldData>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut flags: ResMut<DebugFlags>,
     mut test_state: ResMut<TestState>,
 ) {
     world_data.towns.push(world::Town {
@@ -55,7 +54,6 @@ pub fn setup(
         attack_type: 1, // ranged
     });
 
-    flags.combat = true;
     test_state.phase_name = "Waiting for spawns...".into();
     info!("projectiles: setup — 2 ranged fighters, 100px apart");
 }

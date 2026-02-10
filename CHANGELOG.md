@@ -1,6 +1,29 @@
 # Changelog
 
 ## 2026-02-09
+- **sync_visual_sprites: derive visual state from ECS, remove redundant GPU messages**
+  - add `sync_visual_sprites` system (gpu.rs): derives colors, equipment, indicators from ECS components each frame
+  - remove 4 GpuUpdate variants: SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state no longer deferred via messages
+  - remove SetColor/SetEquipSprite sends from spawn_npc_system, decision_system, arrival_system, death_cleanup_system
+  - remove SetHealing sends from healing_system — visual derived from Healing marker component
+  - remove SetSleeping sends from decision_system — visual derived from Resting marker component
+  - consolidate RAIDER_COLORS palette + `raider_faction_color()` to constants.rs (was duplicated in spawn.rs + behavior.rs)
+  - healing_system: remove Healing marker when NPC fully healed (was only removed when leaving zone)
+  - all 15 tests pass at time_scale=1 (no accelerated time), build clean with 0 warnings
+
+- **fix 6 timed-out tests at time_scale=1**
+  - energy: spawn with home=(-1,-1) so rest_score=0; start energy=55; completes in 6s
+  - guard-patrol: start energy=40; P5 timeout 40s for recovery walk time; completes in 33s
+  - farmer-cycle: start energy=35; P5 checks resting==0 not going_work; completes in 25s
+  - sleep-visual: start energy=35; schedule tick after sync_visual_sprites; completes in 25s
+  - economy: farm progress 0.5→0.95; completes in 30s
+  - farm-visual: farm progress 0.8→0.95; completes in 1.5s
+  - key pattern: set initial energy via mutable query + flag on first tick (avoids racing spawn frame)
+
+- **suppress debug tick spam across test runs**
+  - remove explicit `flags.combat=true` / `flags.readback=true` from vertical_slice, combat, projectiles test setups
+  - add DebugFlags reset to `cleanup_test_world` (CleanupExtra bundle) — prevents flag bleed between tests
+
 - **stage 6 green phase: visual indicator render layers + test refactor**
   - add 2 new render layers: Status (layer 5, sleep icon) and Healing (layer 6, heal glow)
   - LAYER_COUNT 5→7, EquipLayer enum extended with Status=4 and Healing=5

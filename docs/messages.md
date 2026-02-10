@@ -42,7 +42,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | **Render-Only** (used by instance buffer, never in compute shader) ||||
 | Sprite indices | Render | CPU → Render | Atlas col/row per NPC; in NpcBufferWrites, not uploaded to compute |
 | Colors | Render | CPU → Render | RGBA tint; in NpcBufferWrites, not uploaded to compute |
-| Equipment sprites | Render | CPU → Render | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive |
+| Equipment sprites | Render | CPU → Render | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Derived by `sync_visual_sprites` from ECS components each frame. |
 
 ## Bevy Messages
 
@@ -65,14 +65,12 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | SetFaction | idx, faction | spawn_npc_system |
 | SetPosition | idx, x, y | spawn_npc_system |
 | SetSpeed | idx, speed | spawn_npc_system |
-| SetColor | idx, r, g, b, a | spawn_npc_system, behavior systems |
 | ApplyDamage | idx, amount | damage_system |
 | HideNpc | idx | death_cleanup_system |
 | SetSpriteFrame | idx, col, row | spawn_npc_system |
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_buffer_writes) |
-| SetHealing | idx, healing | healing_system (writes HEAL_SPRITE to healing_sprites buffer) |
-| SetSleeping | idx, sleeping | decision_system (writes SLEEP_SPRITE to status_sprites buffer on Resting insert/remove) |
-| SetEquipSprite | idx, layer, col, row | spawn_npc_system, death_cleanup_system, behavior (steal/deliver food) |
+
+**Removed (replaced by `sync_visual_sprites`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame (see [gpu-compute.md](gpu-compute.md)).
 
 ## Static Queues
 
@@ -139,4 +137,4 @@ GOING_TO_REST=11, GOING_TO_WORK=12
 
 ## Rating: 7/10
 
-MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Authority model is explicit — GPU owns positions/targeting, CPU owns health/behavior, render owns visuals. Staleness budget documented (1 frame, 1.6px drift). Static queues are minimal — only used where Bevy's scheduler can't reach. SetEquipSprite routes to 6 overlay sprite vecs via EquipLayer enum. SetHealing and SetSleeping write dedicated indicator sprites to independent layers. Main weakness: synchronous readback blocking.
+MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Authority model is explicit — GPU owns positions/targeting, CPU owns health/behavior, render owns visuals. Staleness budget documented (1 frame, 1.6px drift). Static queues are minimal — only used where Bevy's scheduler can't reach. Visual state (colors, equipment, indicators) derived from ECS by `sync_visual_sprites` — no deferred messages needed. Main weakness: synchronous readback blocking.

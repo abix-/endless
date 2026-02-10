@@ -46,7 +46,28 @@ pub const FOOD_SPRITE: (f32, f32) = (6.0, 8.0);
 
 // Visual indicator sprites (column, row) — placeholder coordinates, verify against atlas
 pub const SLEEP_SPRITE: (f32, f32) = (51.0, 0.0);
-pub const HEAL_SPRITE: (f32, f32) = (35.0, 6.0);
+pub const HEAL_SPRITE: (f32, f32) = (23.0, 0.0);
+
+// Distinct colors for raider factions (warm/aggressive palette)
+pub const RAIDER_COLORS: [(f32, f32, f32); 10] = [
+    (0.9, 0.2, 0.2),   // Red
+    (0.9, 0.5, 0.1),   // Orange
+    (0.8, 0.2, 0.6),   // Magenta
+    (0.6, 0.2, 0.8),   // Purple
+    (0.9, 0.8, 0.1),   // Yellow
+    (0.7, 0.3, 0.2),   // Brown
+    (0.9, 0.3, 0.5),   // Pink
+    (0.5, 0.1, 0.1),   // Dark red
+    (0.8, 0.6, 0.2),   // Gold
+    (0.6, 0.1, 0.4),   // Dark magenta
+];
+
+/// Get RGBA color for a raider faction (cycles through palette).
+pub fn raider_faction_color(faction: i32) -> (f32, f32, f32, f32) {
+    let idx = ((faction - 1).max(0) as usize) % RAIDER_COLORS.len();
+    let (r, g, b) = RAIDER_COLORS[idx];
+    (r, g, b, 1.0)
+}
 
 // ============================================================================
 // BEHAVIOR CONSTANTS

@@ -1,4 +1,4 @@
-//! Healing Aura Test (3 phases, time_scale=20)
+//! Healing Aura Test (3 phases)
 //! Validates: damaged NPC near town → Healing marker → health increases → healing stops at max.
 
 use bevy::prelude::*;
@@ -11,10 +11,10 @@ pub fn setup(mut params: TestSetupParams) {
     params.add_town("HealTown");
     params.add_bed(400.0, 410.0);
     params.init_economy(1);
-    params.game_time.time_scale = 20.0;
+    params.game_time.time_scale = 1.0;
     params.spawn_npc(0, 400.0, 400.0, 400.0, 410.0);
     params.test_state.phase_name = "Waiting for spawn...".into();
-    info!("healing: setup — 1 farmer at town center, time_scale=20");
+    info!("healing: setup — 1 farmer at town center");
 }
 
 pub fn tick(

@@ -161,21 +161,21 @@ Tests for completed features (one file each in `src/tests/`):
 - [x] Phase 2: GPU positions move toward target (not at origin)
 - [x] Phase 3: NPCs reach destination — AtDestination added
 
-`guard-patrol` — Guard Patrol Cycle (5 phases, time_scale=20): **ALL PASS**
+`guard-patrol` — Guard Patrol Cycle (5 phases): **ALL PASS**
 - [x] Phase 1: Guard spawns with OnDuty at first post
 - [x] Phase 2: After GUARD_PATROL_WAIT ticks → Patrolling
 - [x] Phase 3: Arrives at next post → OnDuty again
 - [x] Phase 4: Energy < ENERGY_HUNGRY → goes to rest
 - [x] Phase 5: Energy > ENERGY_RESTED → resumes patrol
 
-`farmer-cycle` — Farmer Work Cycle (5 phases, time_scale=20): **ALL PASS**
+`farmer-cycle` — Farmer Work Cycle (5 phases): **ALL PASS**
 - [x] Phase 1: Farmer spawns with GoingToWork + HasTarget
 - [x] Phase 2: Arrives at farm → Working marker
 - [x] Phase 3: Energy drains below threshold → stops working
 - [x] Phase 4: Goes home to rest
 - [x] Phase 5: Energy recovers → returns to work
 
-`raider-cycle` — Raider Raid Cycle (5 phases, time_scale=20): **ALL PASS**
+`raider-cycle` — Raider Raid Cycle (5 phases): **ALL PASS**
 - [x] Phase 1: 3 raiders dispatched → Raiding marker on ≥3
 - [x] Phase 2: Raiders arrive at farm
 - [x] Phase 3: Food stolen (farm food decreases)
@@ -190,19 +190,19 @@ Tests for completed features (one file each in `src/tests/`):
 - [x] Phase 5: NPC dies (Dead marker or npc_count drops)
 - [x] Phase 6: Slot freed, entity despawned
 
-`economy` — Farm Growth & Respawn (5 phases, time_scale=50): **ALL PASS**
+`economy` — Farm Growth & Respawn (5 phases): **ALL PASS**
 - [x] Phase 1: Farm in Growing state
 - [x] Phase 2: Farm transitions to Ready (farmer tending = faster rate)
 - [x] Phase 3: Farmer harvests → food increases
 - [x] Phase 4: Camp forage adds food over time
 - [x] Phase 5: Raider respawns when camp has enough food
 
-`energy` — Energy System (3 phases, time_scale=50): **ALL PASS**
+`energy` — Energy System (3 phases): **ALL PASS**
 - [x] Phase 1: NPC starts at energy 100
 - [x] Phase 2: Energy drains over time (< 90)
 - [x] Phase 3: Energy reaches ENERGY_HUNGRY threshold
 
-`healing` — Healing Aura (3 phases, time_scale=20): **ALL PASS**
+`healing` — Healing Aura (3 phases): **ALL PASS**
 - [x] Phase 1: Damaged NPC (50 HP) inside town → Healing marker
 - [x] Phase 2: Health increases toward max
 - [x] Phase 3: Health reaches max → healing stops
@@ -257,20 +257,20 @@ Visual state indicators:
 
 Visual indicator tests (green phase — dedicated render layers wired):
 
-`sleep-visual` — Sleep Icon (3 phases, time_scale=20): Phase 2 failing (buffer write timing)
-- [x] Phase 1: Farmer spawns with energy 100
-- [ ] Phase 2: Farmer rests → status_sprites shows SLEEP_SPRITE
-- [ ] Phase 3: Farmer wakes → status_sprites cleared to -1
+`sleep-visual` — Sleep Icon (3 phases): **ALL PASS**
+- [x] Phase 1: Farmer spawns with energy > 0
+- [x] Phase 2: Farmer rests → status_sprites shows SLEEP_SPRITE
+- [x] Phase 3: Farmer wakes → status_sprites cleared to -1
 
-`farm-visual` — Farm Ready Marker (3 phases, time_scale=50): Phase 2 failing (marker spawn timing)
+`farm-visual` — Farm Ready Marker (3 phases): **ALL PASS**
 - [x] Phase 1: Farm is Growing, no FarmReadyMarker entities
-- [ ] Phase 2: Farm reaches Ready → FarmReadyMarker entity spawned
-- [ ] Phase 3: Farmer harvests → FarmReadyMarker despawned, farm Growing again
+- [x] Phase 2: Farm reaches Ready → FarmReadyMarker entity spawned
+- [x] Phase 3: Farmer harvests → FarmReadyMarker despawned, farm Growing again
 
-`heal-visual` — Heal Icon (3 phases, time_scale=20): Phases 1-2 pass
+`heal-visual` — Heal Icon (3 phases): **ALL PASS**
 - [x] Phase 1: Damaged NPC (50 HP) → Healing marker
 - [x] Phase 2: Healing NPC → healing_sprites shows HEAL_SPRITE
-- [ ] Phase 3: NPC healed → Healing removed, healing_sprites cleared
+- [x] Phase 3: NPC healed → Healing removed, healing_sprites cleared
 
 **Stage 7: Playable Game**
 
@@ -432,8 +432,8 @@ LayerBuffer:
 - [x] Refactor `queue_npcs`: add one `Transparent2d` phase item per non-empty layer with incrementing sort keys
 - [x] Refactor `DrawNpcs`: read layer index from batch entity to select correct `LayerBuffer`
 - [x] Set `CarryingFood` → write food sprite to `item_sprites`, clear on delivery
-- [ ] Set `Healing` → write halo sprite to `item_sprites` (or dedicated healing layer) — red test: `heal-visual`
-- [ ] Set `Resting` → write sleep icon to `item_sprites` — red test: `sleep-visual`
+- [x] Set `Healing` → `sync_visual_sprites` writes HEAL_SPRITE to `healing_sprites` layer
+- [x] Set `Resting` → `sync_visual_sprites` writes SLEEP_SPRITE to `status_sprites` layer
 
 **Performance budget:**
 

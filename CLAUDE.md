@@ -14,6 +14,10 @@ Colony sim: pure Bevy 0.18 ECS with GPU compute for 16K NPCs via instanced rende
 - Run: `cd /c/code/endless/rust && cargo run --release 2>&1`
 - Check: `cd /c/code/endless/rust && cargo check 2>&1`
 
+## Rules
+
+- **NEVER use the Task tool to launch agents.** Do all work manually with direct tool calls (Read, Edit, Grep, Glob, Bash). If you think an agent would help, ask first — the answer will be no.
+
 ## Lessons Learned
 
 - **PowerShell error suppression**: Don't use `2>$null` - it causes parse errors. Use `-ErrorAction SilentlyContinue` instead.

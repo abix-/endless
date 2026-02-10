@@ -1,4 +1,4 @@
-//! Raider Raid Cycle Test (5 phases, time_scale=20)
+//! Raider Raid Cycle Test (5 phases)
 //! Validates: raiders dispatched → arrive at farm → steal food → returning → deliver to camp.
 
 use bevy::prelude::*;
@@ -34,7 +34,7 @@ pub fn setup(
     params.food_storage.food[0] = 10; // villager food
     params.food_storage.food[1] = 0;  // raider camp starts empty
     camp_state.init(1, 5);
-    params.game_time.time_scale = 20.0;
+    params.game_time.time_scale = 1.0;
 
     // Spawn 3 raiders (minimum for RAID_GROUP_SIZE)
     for i in 0..3 {
@@ -51,7 +51,7 @@ pub fn setup(
     }
 
     params.test_state.phase_name = "Waiting for raiders...".into();
-    info!("raider-cycle: setup — 3 raiders, 3 ready farms, time_scale=20");
+    info!("raider-cycle: setup — 3 raiders, 3 ready farms");
 }
 
 pub fn tick(

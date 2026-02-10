@@ -262,6 +262,7 @@ pub fn build_app(app: &mut App) {
            farm_visual_system,
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(running.clone()))
+       .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(running.clone()))
        .add_systems(Update, bevy_timer_end.after(collect_gpu_updates).run_if(running.clone()))
        // Debug (F1=readback, F2=combat, F3=spawns, F4=behavior)
        .add_systems(Update, (debug_toggle_system, debug_tick_system).run_if(running));

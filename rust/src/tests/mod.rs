@@ -56,6 +56,7 @@ pub struct CleanupExtra<'w> {
     pub raid_queue: ResMut<'w, crate::resources::RaidQueue>,
     pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
     pub world_grid: ResMut<'w, crate::world::WorldGrid>,
+    pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
 }
 
 // ============================================================================
@@ -332,7 +333,7 @@ pub fn register_tests(app: &mut App) {
         name: "vertical-slice".into(),
         description: "Full core loop: spawn → work → raid → combat → death → respawn".into(),
         phase_count: 8,
-        time_scale: 10.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         vertical_slice::setup.run_if(test_is("vertical-slice")));
@@ -362,7 +363,7 @@ pub fn register_tests(app: &mut App) {
         name: "energy".into(),
         description: "Energy starts at 100, drains, reaches hungry threshold".into(),
         phase_count: 3,
-        time_scale: 50.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         energy::setup.run_if(test_is("energy")));
@@ -392,7 +393,7 @@ pub fn register_tests(app: &mut App) {
         name: "guard-patrol".into(),
         description: "Guard: OnDuty → Patrol → OnDuty → rest → resume".into(),
         phase_count: 5,
-        time_scale: 20.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         guard_patrol::setup.run_if(test_is("guard-patrol")));
@@ -407,7 +408,7 @@ pub fn register_tests(app: &mut App) {
         name: "farmer-cycle".into(),
         description: "Farmer: work → tired → rest → recover → return".into(),
         phase_count: 5,
-        time_scale: 20.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         farmer_cycle::setup.run_if(test_is("farmer-cycle")));
@@ -422,7 +423,7 @@ pub fn register_tests(app: &mut App) {
         name: "raider-cycle".into(),
         description: "Raiders: dispatch → steal → return → deliver food".into(),
         phase_count: 5,
-        time_scale: 20.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         raider_cycle::setup.run_if(test_is("raider-cycle")));
@@ -467,7 +468,7 @@ pub fn register_tests(app: &mut App) {
         name: "healing".into(),
         description: "Damaged NPC near town → Healing → health recovers".into(),
         phase_count: 3,
-        time_scale: 20.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         healing::setup.run_if(test_is("healing")));
@@ -482,7 +483,7 @@ pub fn register_tests(app: &mut App) {
         name: "economy".into(),
         description: "Farm growth → harvest → camp forage → raider respawn".into(),
         phase_count: 5,
-        time_scale: 50.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         economy::setup.run_if(test_is("economy")));
@@ -512,7 +513,7 @@ pub fn register_tests(app: &mut App) {
         name: "sleep-visual".into(),
         description: "Resting NPC gets sleep icon, cleared on wake".into(),
         phase_count: 3,
-        time_scale: 20.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         sleep_visual::setup.run_if(test_is("sleep-visual")));
@@ -520,14 +521,14 @@ pub fn register_tests(app: &mut App) {
         sleep_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("sleep-visual"))
-            .after(Step::Behavior));
+            .after(crate::gpu::sync_visual_sprites));
 
     // farm-visual
     registry.tests.push(TestEntry {
         name: "farm-visual".into(),
         description: "Ready farm spawns FarmReadyMarker, removed on harvest".into(),
         phase_count: 3,
-        time_scale: 50.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         farm_visual::setup.run_if(test_is("farm-visual")));
@@ -542,7 +543,7 @@ pub fn register_tests(app: &mut App) {
         name: "heal-visual".into(),
         description: "Healing NPC gets heal icon, cleared when healed".into(),
         phase_count: 3,
-        time_scale: 20.0,
+        time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
         heal_visual::setup.run_if(test_is("heal-visual")));
@@ -550,7 +551,7 @@ pub fn register_tests(app: &mut App) {
         heal_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("heal-visual"))
-            .after(Step::Behavior));
+            .after(crate::gpu::sync_visual_sprites));
 
     app.insert_resource(registry);
 }
@@ -809,6 +810,7 @@ fn cleanup_test_world(
     *extra.raid_queue = Default::default();
     *extra.proj_alloc = Default::default();
     *extra.world_grid = Default::default();
+    *extra.debug_flags = Default::default();
 
     info!("Test cleanup: despawned {} NPCs, reset resources", count);
 }

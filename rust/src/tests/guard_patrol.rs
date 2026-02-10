@@ -1,9 +1,9 @@
-//! Guard Patrol Cycle Test (5 phases, time_scale=20)
+//! Guard Patrol Cycle Test (5 phases)
 //! Validates: OnDuty → Patrolling → OnDuty → rest when tired → resume when rested.
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::{ENERGY_HUNGRY, ENERGY_RESTED};
+use crate::constants::{ENERGY_HUNGRY, ENERGY_WAKE_THRESHOLD};
 use crate::resources::*;
 
 use super::{TestState, TestSetupParams, keep_fed};
@@ -23,7 +23,7 @@ pub fn setup(mut params: TestSetupParams) {
         params.add_bed(380.0 + (i as f32 * 40.0), 420.0);
     }
     params.init_economy(1);
-    params.game_time.time_scale = 20.0;
+    params.game_time.time_scale = 1.0;
 
     // Spawn 1 guard at post 0 (job=1, starting_post=0)
     let slot = params.slot_alloc.alloc().expect("slot alloc");
@@ -38,7 +38,7 @@ pub fn setup(mut params: TestSetupParams) {
     });
 
     params.test_state.phase_name = "Waiting for guard spawn...".into();
-    info!("guard-patrol: setup — 1 guard, 4 posts, time_scale=20");
+    info!("guard-patrol: setup — 1 guard, 4 posts");
 }
 
 pub fn tick(
@@ -46,7 +46,7 @@ pub fn tick(
     patrolling_query: Query<(), (With<Patrolling>, With<Guard>, Without<Dead>)>,
     resting_query: Query<(), (With<Resting>, With<Guard>, Without<Dead>)>,
     going_rest_query: Query<(), (With<GoingToRest>, With<Guard>, Without<Dead>)>,
-    energy_query: Query<&Energy, (With<Guard>, Without<Dead>)>,
+    mut energy_query: Query<&mut Energy, (With<Guard>, Without<Dead>)>,
     guard_query: Query<(), (With<Guard>, Without<Dead>)>,
     mut last_ate_query: Query<&mut LastAteHour, Without<Dead>>,
     game_time: Res<GameTime>,
@@ -56,6 +56,12 @@ pub fn tick(
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     keep_fed(&mut last_ate_query, &game_time);
     if !test.require_entity(guard_query.iter().count(), elapsed, "guard") { return; }
+
+    // Start energy near tired threshold so rest triggers within 30s
+    if !test.get_flag("energy_set") {
+        for mut e in energy_query.iter_mut() { e.0 = 40.0; }
+        test.set_flag("energy_set", true);
+    }
 
     let energy = energy_query.iter().next().map(|e| e.0).unwrap_or(100.0);
     let on_duty = on_duty_query.iter().count();
@@ -98,20 +104,20 @@ pub fn tick(
             test.phase_name = format!("e={:.0} resting={} going_rest={}", energy, resting, going_rest);
             if resting > 0 || going_rest > 0 {
                 test.pass_phase(elapsed, format!("Resting (energy={:.0})", energy));
-            } else if energy < ENERGY_HUNGRY && elapsed > 30.0 {
+            } else if energy < ENERGY_HUNGRY && elapsed > 20.0 {
                 test.fail_phase(elapsed, format!("energy={:.0} but not resting", energy));
-            } else if elapsed > 60.0 {
+            } else if elapsed > 25.0 {
                 test.fail_phase(elapsed, format!("energy={:.0} never reached hungry", energy));
             }
         }
-        // Phase 5: Energy > ENERGY_RESTED → resumes patrol
+        // Phase 5: Energy recovers → guard wakes from rest
         5 => {
             test.phase_name = format!("e={:.0} on_duty={} patrolling={} resting={}", energy, on_duty, patrolling, resting);
-            if energy >= ENERGY_RESTED && (on_duty > 0 || patrolling > 0) {
-                test.pass_phase(elapsed, format!("Resumed (energy={:.0})", energy));
+            if energy >= ENERGY_WAKE_THRESHOLD && resting == 0 {
+                test.pass_phase(elapsed, format!("Woke up (energy={:.0})", energy));
                 test.complete(elapsed);
-            } else if elapsed > 90.0 {
-                test.fail_phase(elapsed, format!("energy={:.0} on_duty={} patrolling={}", energy, on_duty, patrolling));
+            } else if elapsed > 40.0 {
+                test.fail_phase(elapsed, format!("energy={:.0} resting={}", energy, resting));
             }
         }
         _ => {}

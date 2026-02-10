@@ -1,4 +1,4 @@
-//! Economy Test (5 phases, time_scale=50)
+//! Economy Test (5 phases)
 //! Validates: farm growing → ready → harvest → camp forage → raider respawn.
 
 use bevy::prelude::*;
@@ -27,13 +27,13 @@ pub fn setup(
         town_idx: 0,
     });
     farm_states.states.push(FarmGrowthState::Growing);
-    farm_states.progress.push(0.5); // halfway grown
+    farm_states.progress.push(0.95); // near ready so transition happens within 30s
     params.add_bed(400.0, 450.0);
 
     params.init_economy(2);
     params.food_storage.food[1] = 10; // camp has enough food for respawn
     camp_state.init(1, 5); // 1 camp, max 5 raiders
-    params.game_time.time_scale = 50.0;
+    params.game_time.time_scale = 1.0;
 
     // Spawn 1 farmer to tend the farm (speeds growth)
     let slot = params.slot_alloc.alloc().expect("slot alloc");
@@ -48,7 +48,7 @@ pub fn setup(
     });
 
     params.test_state.phase_name = "Waiting for farmer...".into();
-    info!("economy: setup — 1 farmer, 1 farm at 50%, camp with 10 food, time_scale=50");
+    info!("economy: setup — 1 farmer, 1 farm at 95%, camp with 10 food");
 }
 
 pub fn tick(

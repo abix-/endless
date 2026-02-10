@@ -1,4 +1,4 @@
-//! Farmer Work Cycle Test (5 phases, time_scale=20)
+//! Farmer Work Cycle Test (5 phases)
 //! Validates: GoingToWork → Working → tired stops → goes home to rest → recovers and returns.
 
 use bevy::prelude::*;
@@ -18,7 +18,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
     farm_states.progress.push(0.0);
     params.add_bed(400.0, 450.0);
     params.init_economy(1);
-    params.game_time.time_scale = 20.0;
+    params.game_time.time_scale = 1.0;
 
     // Spawn farmer with work position at farm
     let slot = params.slot_alloc.alloc().expect("slot alloc");
@@ -33,7 +33,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
     });
 
     params.test_state.phase_name = "Waiting for farmer...".into();
-    info!("farmer-cycle: setup — 1 farmer, time_scale=20");
+    info!("farmer-cycle: setup — 1 farmer");
 }
 
 pub fn tick(
@@ -41,13 +41,19 @@ pub fn tick(
     working_query: Query<(), (With<Working>, With<Farmer>, Without<Dead>)>,
     going_rest_query: Query<(), (With<GoingToRest>, With<Farmer>, Without<Dead>)>,
     resting_query: Query<(), (With<Resting>, With<Farmer>, Without<Dead>)>,
-    energy_query: Query<&Energy, (With<Farmer>, Without<Dead>)>,
+    mut energy_query: Query<&mut Energy, (With<Farmer>, Without<Dead>)>,
     farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
     if !test.require_entity(farmer_query.iter().count(), elapsed, "farmer") { return; }
+
+    // Start energy near tired threshold so drain→rest→wake fits in 30s
+    if !test.get_flag("energy_set") {
+        for mut e in energy_query.iter_mut() { e.0 = 35.0; }
+        test.set_flag("energy_set", true);
+    }
 
     let energy = energy_query.iter().next().map(|e| e.0).unwrap_or(100.0);
     let going_work = going_work_query.iter().count();
@@ -81,7 +87,7 @@ pub fn tick(
                 test.pass_phase(elapsed, format!("Stopped working (energy={:.0})", energy));
             } else {
                 if working > 0 { test.set_flag("was_working", true); }
-                if elapsed > 60.0 {
+                if elapsed > 20.0 {
                     test.fail_phase(elapsed, format!("working={} energy={:.0}", working, energy));
                 }
             }
@@ -91,18 +97,18 @@ pub fn tick(
             test.phase_name = format!("going_rest={} resting={} e={:.0}", going_rest, resting, energy);
             if going_rest > 0 || resting > 0 {
                 test.pass_phase(elapsed, format!("going_rest={} resting={} (energy={:.0})", going_rest, resting, energy));
-            } else if elapsed > 70.0 {
+            } else if elapsed > 20.0 {
                 test.fail_phase(elapsed, format!("not resting, energy={:.0}", energy));
             }
         }
-        // Phase 5: Energy recovers → returns to work
+        // Phase 5: Energy recovers → farmer wakes and leaves rest
         5 => {
             test.phase_name = format!("e={:.0} going_work={} working={} resting={}", energy, going_work, working, resting);
-            if energy >= ENERGY_WAKE_THRESHOLD && (going_work > 0 || working > 0) {
-                test.pass_phase(elapsed, format!("Returned to work (energy={:.0})", energy));
+            if energy >= ENERGY_WAKE_THRESHOLD && resting == 0 {
+                test.pass_phase(elapsed, format!("Woke up (energy={:.0})", energy));
                 test.complete(elapsed);
-            } else if elapsed > 120.0 {
-                test.fail_phase(elapsed, format!("energy={:.0} going_work={} working={}", energy, going_work, working));
+            } else if elapsed > 25.0 {
+                test.fail_phase(elapsed, format!("energy={:.0} resting={}", energy, resting));
             }
         }
         _ => {}

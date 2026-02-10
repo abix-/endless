@@ -49,6 +49,11 @@ ECS → GPU (upload):
     → ExtractResource clone
     → write_npc_buffers (only uploads dirty fields)
 
+  sync_visual_sprites (after Step::Behavior):
+    Derives colors, equipment, indicators from ECS components
+    → writes directly to NpcBufferWrites (colors, *_sprites arrays)
+    Single source of truth — replaces deferred SetColor/SetEquipSprite/SetHealing/SetSleeping messages
+
 GPU → ECS (readback):
   NpcComputeNode: dispatch compute + copy positions → staging buffer
     → readback_npc_positions: map staging, write to GPU_READ_STATE
@@ -61,7 +66,7 @@ GPU → Render:
     NpcBufferWrites on first frame), reads sprite_indices/colors from NpcBufferWrites
 ```
 
-Note: `sprite_indices`, `colors`, and equipment sprite fields (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`) are in NpcBufferWrites but are not uploaded to GPU storage buffers. They're only consumed by the render pipeline's instance buffer, not the compute shader. Positions for rendering come from GPU readback, not NpcBufferWrites.
+Note: `sprite_indices`, `colors`, and equipment sprite fields (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`, `status_sprites`, `healing_sprites`) are in NpcBufferWrites but are not uploaded to GPU storage buffers. They're only consumed by the render pipeline's instance buffer, not the compute shader. Positions for rendering come from GPU readback, not NpcBufferWrites. Colors and equipment are derived from ECS components by `sync_visual_sprites` each frame.
 
 ## NPC Compute Shader (npc_compute.wgsl)
 

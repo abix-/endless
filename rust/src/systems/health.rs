@@ -123,10 +123,6 @@ pub fn death_cleanup_system(
 
         // Hide NPC visually via message
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx }));
-        // Clear all equipment layers (prevents stale data on slot reuse)
-        for layer in [EquipLayer::Armor, EquipLayer::Helmet, EquipLayer::Weapon, EquipLayer::Item] {
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer, col: -1.0, row: 0.0 }));
-        }
 
         // Return slot to free pool
         slots.free(idx);
@@ -206,18 +202,19 @@ pub fn healing_system(
                 health.0 = (health.0 + heal_amount).min(hp_cap);
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
                 healed_count += 1;
-            }
 
-            // Add marker if not present, send visual update
-            if healing_marker.is_none() {
-                commands.entity(entity).insert(Healing);
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealing { idx, healing: true }));
+                // Add marker if not present (visual derived by sync_visual_sprites)
+                if healing_marker.is_none() {
+                    commands.entity(entity).insert(Healing);
+                }
+            } else if healing_marker.is_some() {
+                // Fully healed — remove marker
+                commands.entity(entity).remove::<Healing>();
             }
         } else {
-            // Remove marker if present, send visual update
+            // Remove marker if present
             if healing_marker.is_some() {
                 commands.entity(entity).remove::<Healing>();
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealing { idx, healing: false }));
             }
         }
     }

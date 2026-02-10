@@ -12,7 +12,7 @@ SpawnNpcMsg (via MessageWriter)
     ▼ (Step::Spawn)
 spawn_npc_system
     │
-    ├─ Emit GPU updates: SetPosition, SetTarget, SetColor,
+    ├─ Emit GPU updates: SetPosition, SetTarget,
     │   SetSpeed, SetFaction, SetHealth, SetSpriteFrame
     │
     ├─ Update GPU_DISPATCH_COUNT (max slot + 1)
@@ -70,7 +70,7 @@ Job-specific templates:
 | Raider | `Energy`, `AttackStats::melee()`, `AttackTimer(0)`, `Stealer`, `FleeThreshold(0.50)`, `LeashRange(400)`, `WoundedThreshold(0.25)`, `EquippedWeapon` |
 | Fighter | `AttackStats` (melee or ranged via attack_type), `AttackTimer(0)` |
 
-GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetColor` (job-based; raiders get per-faction color from 10-color palette), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetEquipSprite` × 4 (clear all equipment layers to -1.0), then job-specific equipment: Guards get weapon (0,8) + helmet (7,9), Raiders get weapon (0,8)
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs). Colors and equipment sprites are derived from ECS components by `sync_visual_sprites` (not sent as messages).
 
 Sprite assignments: Farmer=(1,6), Guard=(0,11), Raider=(0,6), Fighter=(7,0)
 

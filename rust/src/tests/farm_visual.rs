@@ -1,4 +1,4 @@
-//! Farm Growth Visual Test (3 phases, time_scale=50)
+//! Farm Growth Visual Test (3 phases)
 //! Validates: Growing farm has no marker → Ready farm spawns FarmReadyMarker → harvest removes it.
 
 use bevy::prelude::*;
@@ -14,10 +14,10 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
         town_idx: 0,
     });
     farm_states.states.push(FarmGrowthState::Growing);
-    farm_states.progress.push(0.8); // almost ready
+    farm_states.progress.push(0.95); // near ready so transition happens within 30s
     params.add_bed(400.0, 450.0);
     params.init_economy(1);
-    params.game_time.time_scale = 50.0;
+    params.game_time.time_scale = 1.0;
 
     // Spawn 1 farmer to tend the farm (speeds growth to Ready)
     let slot = params.slot_alloc.alloc().expect("slot alloc");
@@ -32,7 +32,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
     });
 
     params.test_state.phase_name = "Waiting for farm growth...".into();
-    info!("farm-visual: setup — 1 farm (progress=0.8), 1 farmer, time_scale=50");
+    info!("farm-visual: setup — 1 farm (progress=0.95), 1 farmer");
 }
 
 pub fn tick(

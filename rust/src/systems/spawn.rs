@@ -18,26 +18,6 @@ const FARMER_NOUNS: &[&str] = &["Tiller", "Sower", "Reaper", "Plower", "Grower"]
 const GUARD_NOUNS: &[&str] = &["Shield", "Sword", "Watcher", "Sentinel", "Defender"];
 const RAIDER_NOUNS: &[&str] = &["Blade", "Fang", "Shadow", "Claw", "Storm"];
 
-// Distinct colors for raider factions (warm/aggressive palette)
-const RAIDER_COLORS: [(f32, f32, f32); 10] = [
-    (0.9, 0.2, 0.2),   // Red
-    (0.9, 0.5, 0.1),   // Orange
-    (0.8, 0.2, 0.6),   // Magenta
-    (0.6, 0.2, 0.8),   // Purple
-    (0.9, 0.8, 0.1),   // Yellow
-    (0.7, 0.3, 0.2),   // Brown
-    (0.9, 0.3, 0.5),   // Pink
-    (0.5, 0.1, 0.1),   // Dark red
-    (0.8, 0.6, 0.2),   // Gold
-    (0.6, 0.1, 0.4),   // Dark magenta
-];
-
-/// Get color for a raider faction (cycles through palette)
-fn raider_faction_color(faction: i32) -> (f32, f32, f32, f32) {
-    let idx = ((faction - 1).max(0) as usize) % RAIDER_COLORS.len();
-    let (r, g, b) = RAIDER_COLORS[idx];
-    (r, g, b, 1.0)
-}
 
 fn generate_name(job: Job, slot: usize) -> String {
     let adj = ADJECTIVES[slot % ADJECTIVES.len()];
@@ -107,11 +87,6 @@ pub fn spawn_npc_system(
             max_slot = idx + 1;
         }
         let job = Job::from_i32(msg.job);
-        let (r, g, b, a) = if job == Job::Raider {
-            raider_faction_color(msg.faction)
-        } else {
-            job.color()
-        };
 
         // GPU writes via messages — collected at end of frame
         // Target defaults to spawn position; overridden below for jobs with initial destinations
@@ -130,28 +105,10 @@ pub fn spawn_npc_system(
 
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target_x, y: target_y }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: 100.0 }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx, faction: msg.faction }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 100.0 }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row }));
-
-        // Clear all equipment layers (defense against stale slot data on recycled slots)
-        for layer in [EquipLayer::Armor, EquipLayer::Helmet, EquipLayer::Weapon, EquipLayer::Item] {
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer, col: -1.0, row: 0.0 }));
-        }
-
-        // Equip job-specific gear
-        match job {
-            Job::Guard => {
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Weapon, col: EQUIP_SWORD.0, row: EQUIP_SWORD.1 }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Helmet, col: EQUIP_HELMET.0, row: EQUIP_HELMET.1 }));
-            }
-            Job::Raider => {
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Weapon, col: EQUIP_SWORD.0, row: EQUIP_SWORD.1 }));
-            }
-            _ => {}
-        }
 
         // Generate personality for this NPC
         let personality = generate_personality(idx);

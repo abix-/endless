@@ -17,7 +17,6 @@ const FARMS: [(f32, f32); 5] = [
 pub fn setup(
     mut params: TestSetupParams,
     mut farm_states: ResMut<FarmStates>,
-    mut flags: ResMut<DebugFlags>,
 ) {
     // World data: 2 towns
     params.add_town("Harvest");
@@ -55,7 +54,7 @@ pub fn setup(
     // Resources
     params.init_economy(2);
     params.food_storage.food[1] = 10;
-    params.game_time.time_scale = 10.0;
+    params.game_time.time_scale = 1.0;
 
     // Spawn 5 farmers
     for (i, &(fx, fy)) in FARMS.iter().enumerate() {
@@ -99,8 +98,7 @@ pub fn setup(
         });
     }
 
-    flags.combat = true;
-    flags.readback = true;
+    // Debug flags off by default — press F1-F4 to toggle during manual runs
 
     params.test_state.phase_name = "Waiting for spawns...".into();
     info!("vertical-slice: setup complete — 5 farmers, 2 guards, 5 raiders");

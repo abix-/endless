@@ -162,7 +162,7 @@ Same situation, different outcomes. That's emergent behavior.
 **Priority 0: Arrival transitions**
 - If `AtDestination`: handle state-specific transitions
   - `Patrolling` → `OnDuty { ticks: 0 }`
-  - `GoingToRest` → `Resting` + `SetSleeping(true)`
+  - `GoingToRest` → `Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToWork` → `Working` + `AssignedFarm` + harvest if farm ready
   - `Raiding` → steal if farm ready, else re-target another farm; `CarryingFood` + `Returning`
   - `Wandering` → clear state
@@ -184,7 +184,7 @@ Same situation, different outcomes. That's emergent behavior.
 - If `OnDuty` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, transition to `Patrolling`
 
 **Priority 7: Wake up**
-- If `Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): remove `Resting` + `SetSleeping(false)`, proceed to idle scoring
+- If `Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): remove `Resting`, proceed to idle scoring
 
 **Priority 8: Idle scoring (Utility AI)**
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
@@ -215,8 +215,7 @@ Same situation, different outcomes. That's emergent behavior.
 - All settlements (villager and raider) are Town entries with faction (unified town model)
 - If NPC within `HEAL_RADIUS` (150px) of same-faction town center: heal `HEAL_RATE` (5 HP/sec)
 - **Starvation HP cap**: Starving NPCs have HP capped at 50% of MaxHealth (can't heal above this)
-- Adds/removes `Healing` marker component for visual feedback
-- Sends `GpuUpdate::SetHealing` which writes HEAL_SPRITE to `healing_sprites` buffer (dedicated render layer 6)
+- Adds/removes `Healing` marker component for visual feedback (heal icon derived by `sync_visual_sprites`)
 - Debug: `get_health_debug()` returns healing_in_zone_count and healing_healed_count
 
 *Economy systems (game_time, farm_growth, camp_forage, raider_respawn, starvation) documented in [economy.md](economy.md).*

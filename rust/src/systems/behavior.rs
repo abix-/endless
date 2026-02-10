@@ -67,26 +67,6 @@ pub struct NpcStateParams<'w, 's> {
     pub patrols: Query<'w, 's, &'static mut PatrolRoute>,
 }
 
-// Distinct colors for raider factions (must match spawn.rs)
-const RAIDER_COLORS: [(f32, f32, f32); 10] = [
-    (0.9, 0.2, 0.2),   // Red
-    (0.9, 0.5, 0.1),   // Orange
-    (0.8, 0.2, 0.6),   // Magenta
-    (0.6, 0.2, 0.8),   // Purple
-    (0.9, 0.8, 0.1),   // Yellow
-    (0.7, 0.3, 0.2),   // Brown
-    (0.9, 0.3, 0.5),   // Pink
-    (0.5, 0.1, 0.1),   // Dark red
-    (0.8, 0.6, 0.2),   // Gold
-    (0.6, 0.1, 0.4),   // Dark magenta
-];
-
-fn raider_faction_color(faction: &Faction) -> (f32, f32, f32, f32) {
-    let idx = ((faction.0 - 1).max(0) as usize) % RAIDER_COLORS.len();
-    let (r, g, b) = RAIDER_COLORS[idx];
-    (r, g, b, 1.0)
-}
-
 /// Arrival system: proximity checks for returning raiders and working farmers.
 ///
 /// Responsibilities:
@@ -118,7 +98,7 @@ pub fn arrival_system(
     // ========================================================================
     // 1. Proximity-based delivery for Returning raiders
     // ========================================================================
-    for (entity, npc_idx, town, home, faction, carrying) in returning_query.iter() {
+    for (entity, npc_idx, town, home, _faction, carrying) in returning_query.iter() {
         let idx = npc_idx.0;
         if idx * 2 + 1 >= positions.len() { continue; }
 
@@ -134,9 +114,6 @@ pub fn arrival_system(
 
             if carrying.is_some() {
                 cmds.remove::<CarryingFood>();
-                let (r, g, b, a) = raider_faction_color(faction);
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Item, col: -1.0, row: 0.0 }));
                 let camp_idx = town.0 as usize;
                 if camp_idx < food_storage.food.len() {
                     food_storage.food[camp_idx] += 1;
@@ -350,7 +327,6 @@ pub fn decision_system(
                 commands.entity(entity)
                     .remove::<GoingToRest>()
                     .insert(Resting::default());
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSleeping { idx, sleeping: true }));
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
             } else if going_work.is_some() {
                 // Farmers: find farm at WorkPosition and start working
@@ -438,7 +414,6 @@ pub fn decision_system(
                             .remove::<Raiding>()
                             .insert(CarryingFood)
                             .insert(Returning);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Item, col: FOOD_SPRITE.0, row: FOOD_SPRITE.1 }));
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning".into());
                     } else {
@@ -465,7 +440,6 @@ pub fn decision_system(
                 if health_pct < w.pct {
                     commands.entity(entity)
                         .insert(Resting { recover_until: Some(0.75) });
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSleeping { idx, sleeping: true }));
                 }
             }
 
@@ -502,9 +476,6 @@ pub fn decision_system(
                     cmds.remove::<InCombat>().remove::<CombatOrigin>().remove::<Raiding>().insert(Returning);
                     if carrying.is_some() {
                         cmds.remove::<CarryingFood>();
-                        let (r, g, b, a) = raider_faction_color(faction);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetColor { idx, r, g, b, a }));
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetEquipSprite { idx, layer: EquipLayer::Item, col: -1.0, row: 0.0 }));
                     }
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Fled combat".into());
@@ -545,7 +516,6 @@ pub fn decision_system(
             // Normal wake: energy must reach threshold
             if energy.0 >= ENERGY_WAKE_THRESHOLD {
                 commands.entity(entity).remove::<Resting>();
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSleeping { idx, sleeping: false }));
                 let msg = if rest.recover_until.is_some() { "Recovered" } else { "Woke up" };
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), msg.into());
                 // Fall through to make a decision

@@ -77,16 +77,8 @@ pub enum GpuUpdate {
     SetPosition { idx: usize, x: f32, y: f32 },
     /// Set speed
     SetSpeed { idx: usize, speed: f32 },
-    /// Set color
-    SetColor { idx: usize, r: f32, g: f32, b: f32, a: f32 },
     /// Set sprite frame (column, row in sprite sheet)
     SetSpriteFrame { idx: usize, col: f32, row: f32 },
-    /// Set healing aura flag (visual only)
-    SetHealing { idx: usize, healing: bool },
-    /// Set sleeping visual flag (status layer)
-    SetSleeping { idx: usize, sleeping: bool },
-    /// Set equipment sprite for a layer (-1.0 col = unequipped)
-    SetEquipSprite { idx: usize, layer: crate::components::EquipLayer, col: f32, row: f32 },
     /// Set damage flash intensity (1.0 = full white, decays to 0.0)
     SetDamageFlash { idx: usize, intensity: f32 },
 }
