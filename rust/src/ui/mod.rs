@@ -48,6 +48,13 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(Update,
         game_escape_system.run_if(in_state(AppState::Playing)));
 
+    // Building slot click detection + visual indicators
+    app.add_systems(Update, (
+        slot_right_click_system,
+        slot_double_click_system,
+        draw_slot_indicators,
+    ).run_if(in_state(AppState::Playing)));
+
     // Cleanup when leaving Playing
     app.add_systems(OnExit(AppState::Playing), game_cleanup_system);
 }
@@ -92,11 +99,18 @@ fn game_startup_system(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut game_time: ResMut<GameTime>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+    mut town_grids: ResMut<world::TownGrids>,
 ) {
     info!("Game startup: generating world...");
 
     // Generate world (populates grid + world_data + farm_states)
     world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states);
+
+    // Init town building grids (one per villager town)
+    town_grids.grids.clear();
+    for _ in 0..config.num_towns {
+        town_grids.grids.push(world::TownGrid::new_base());
+    }
 
     // Init economy resources
     let num_towns = world_data.towns.len();
@@ -239,6 +253,178 @@ fn game_escape_system(
     }
 }
 
+// ============================================================================
+// BUILDING SLOT CLICK SYSTEMS
+// ============================================================================
+
+/// Convert screen cursor position to world coordinates (same math as click_to_select_system).
+fn screen_to_world(
+    cursor_pos: Vec2,
+    transform: &Transform,
+    projection: &Projection,
+    window: &Window,
+) -> Vec2 {
+    let zoom = match projection {
+        Projection::Orthographic(ortho) => 1.0 / ortho.scale,
+        _ => 1.0,
+    };
+    let position = transform.translation.truncate();
+    let viewport = Vec2::new(window.width(), window.height());
+    let screen_center = viewport / 2.0;
+    let mouse_offset = Vec2::new(
+        cursor_pos.x - screen_center.x,
+        screen_center.y - cursor_pos.y,
+    );
+    position + mouse_offset / zoom
+}
+
+/// Right-click on a town grid slot opens the build menu with appropriate options.
+fn slot_right_click_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
+    mut egui_contexts: bevy_egui::EguiContexts,
+    world_data: Res<world::WorldData>,
+    town_grids: Res<world::TownGrids>,
+    grid: Res<world::WorldGrid>,
+    mut build_ctx: ResMut<BuildMenuContext>,
+    mut ui_state: ResMut<UiState>,
+) {
+    if !mouse.just_pressed(MouseButton::Right) { return; }
+
+    // Don't steal clicks from egui
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() { return; }
+    }
+
+    let Ok(window) = windows.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+    let Ok((transform, projection)) = camera_query.single() else { return };
+
+    let world_pos = screen_to_world(cursor_pos, transform, projection, window);
+
+    // Find which town slot was clicked
+    let Some(info) = world::find_town_slot(world_pos, &world_data.towns, &town_grids) else {
+        return;
+    };
+
+    let slot_world_pos = world::town_grid_to_world(
+        world_data.towns[info.town_data_idx].center,
+        info.row, info.col,
+    );
+
+    // Check if slot has a building
+    let (gc, gr) = grid.world_to_grid(slot_world_pos);
+    let has_building = grid.cell(gc, gr)
+        .map(|c| c.building.is_some())
+        .unwrap_or(false);
+    let is_fountain = grid.cell(gc, gr)
+        .and_then(|c| c.building.as_ref())
+        .map(|b| matches!(b, world::Building::Fountain { .. }))
+        .unwrap_or(false);
+
+    // Populate context and open build menu
+    *build_ctx = BuildMenuContext {
+        grid_idx: Some(info.grid_idx),
+        town_data_idx: Some(info.town_data_idx),
+        slot: Some((info.row, info.col)),
+        slot_world_pos,
+        is_locked: info.slot_state == world::SlotState::Locked,
+        has_building,
+        is_fountain,
+    };
+    ui_state.build_menu_open = true;
+}
+
+/// Double-click on a locked adjacent slot to instantly unlock it.
+/// TODO: Bevy lacks native double-click — needs Local<f64> timer. Using right-click menu for now.
+fn slot_double_click_system() {}
+
+/// Draw visual indicators on town grid slots using Bevy gizmos.
+/// Green "+" on empty unlocked slots, dim brackets on adjacent locked slots,
+/// gold ring around town expanding to farthest unlocked slot.
+fn draw_slot_indicators(
+    mut gizmos: Gizmos,
+    world_data: Res<world::WorldData>,
+    town_grids: Res<world::TownGrids>,
+    grid: Res<world::WorldGrid>,
+) {
+    let player_town = 0usize; // First villager town is player-controlled
+
+    let Some(town_grid) = town_grids.grids.get(player_town) else { return };
+    let town_data_idx = player_town * 2;
+    let Some(town) = world_data.towns.get(town_data_idx) else { return };
+    let center = town.center;
+
+    let green = Color::srgba(0.5, 0.8, 0.5, 0.6);
+    let locked_color = Color::srgba(0.6, 0.6, 0.6, 0.4);
+    let gold = Color::srgba(1.0, 0.85, 0.3, 0.8);
+    let size = 6.0;
+    let half_slot = crate::constants::TOWN_GRID_SPACING * 0.4;
+    let corner = 4.0;
+
+    // Track farthest unlocked slot for gold ring
+    let mut max_dist: f32 = 60.0;
+
+    // Draw green "+" on empty unlocked slots
+    for &(row, col) in &town_grid.unlocked {
+        // Skip fountain
+        if row == 0 && col == 0 { continue; }
+
+        let slot_pos = world::town_grid_to_world(center, row, col);
+        let dist = center.distance(slot_pos) + crate::constants::TOWN_GRID_SPACING;
+        if dist > max_dist { max_dist = dist; }
+
+        // Check if slot has a building
+        let (gc, gr) = grid.world_to_grid(slot_pos);
+        let has_building = grid.cell(gc, gr)
+            .map(|c| c.building.is_some())
+            .unwrap_or(false);
+
+        if !has_building {
+            // Green "+"
+            let p = Vec3::new(slot_pos.x, slot_pos.y, 0.5);
+            gizmos.line_2d(
+                Vec2::new(p.x - size, p.y),
+                Vec2::new(p.x + size, p.y),
+                green,
+            );
+            gizmos.line_2d(
+                Vec2::new(p.x, p.y - size),
+                Vec2::new(p.x, p.y + size),
+                green,
+            );
+        }
+    }
+
+    // Draw dim brackets on adjacent locked slots
+    let adjacent = world::get_adjacent_locked_slots(town_grid);
+    for (row, col) in adjacent {
+        let sp = world::town_grid_to_world(center, row, col);
+
+        // Top-left bracket
+        gizmos.line_2d(Vec2::new(sp.x - half_slot, sp.y - half_slot), Vec2::new(sp.x - half_slot + corner, sp.y - half_slot), locked_color);
+        gizmos.line_2d(Vec2::new(sp.x - half_slot, sp.y - half_slot), Vec2::new(sp.x - half_slot, sp.y - half_slot + corner), locked_color);
+        // Top-right bracket
+        gizmos.line_2d(Vec2::new(sp.x + half_slot, sp.y - half_slot), Vec2::new(sp.x + half_slot - corner, sp.y - half_slot), locked_color);
+        gizmos.line_2d(Vec2::new(sp.x + half_slot, sp.y - half_slot), Vec2::new(sp.x + half_slot, sp.y - half_slot + corner), locked_color);
+        // Bottom-left bracket
+        gizmos.line_2d(Vec2::new(sp.x - half_slot, sp.y + half_slot), Vec2::new(sp.x - half_slot + corner, sp.y + half_slot), locked_color);
+        gizmos.line_2d(Vec2::new(sp.x - half_slot, sp.y + half_slot), Vec2::new(sp.x - half_slot, sp.y + half_slot - corner), locked_color);
+        // Bottom-right bracket
+        gizmos.line_2d(Vec2::new(sp.x + half_slot, sp.y + half_slot), Vec2::new(sp.x + half_slot - corner, sp.y + half_slot), locked_color);
+        gizmos.line_2d(Vec2::new(sp.x + half_slot, sp.y + half_slot), Vec2::new(sp.x + half_slot, sp.y + half_slot - corner), locked_color);
+    }
+
+    // Gold ring around town
+    let fountain_pos = world::town_grid_to_world(center, 0, 0);
+    gizmos.circle_2d(Isometry2d::from_translation(fountain_pos), max_dist, gold);
+}
+
+// ============================================================================
+// GAME CLEANUP
+// ============================================================================
+
 // SystemParam bundles to keep cleanup under 16-param limit
 #[derive(SystemParam)]
 struct CleanupWorld<'w> {
@@ -252,6 +438,8 @@ struct CleanupWorld<'w> {
     game_time: ResMut<'w, GameTime>,
     grid: ResMut<'w, world::WorldGrid>,
     tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
+    town_grids: ResMut<'w, world::TownGrids>,
+    build_menu_ctx: ResMut<'w, BuildMenuContext>,
 }
 
 #[derive(SystemParam)]
@@ -300,6 +488,8 @@ fn game_cleanup_system(
     *world.game_time = Default::default();
     *world.grid = Default::default();
     world.tilemap_spawned.0 = false;
+    *world.town_grids = Default::default();
+    *world.build_menu_ctx = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();

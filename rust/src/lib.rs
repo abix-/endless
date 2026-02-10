@@ -30,7 +30,7 @@ use resources::{
     NpcMetaCache, NpcEnergyCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, GpuDispatchCount, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
-    DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog,
+    DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
 };
 use systems::*;
 use components::*;
@@ -234,6 +234,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<world::WorldGenConfig>()
        .init_resource::<UiState>()
        .init_resource::<CombatLog>()
+       .init_resource::<world::TownGrids>()
+       .init_resource::<BuildMenuContext>()
        // Plugins
        .add_plugins(bevy_egui::EguiPlugin::default())
        .add_plugins(gpu::GpuComputePlugin)

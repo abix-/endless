@@ -180,3 +180,29 @@ pub const STARVING_HP_CAP: f32 = 0.5;
 
 /// Speed multiplier when starving (75% of normal).
 pub const STARVING_SPEED_MULT: f32 = 0.75;
+
+// ============================================================================
+// BUILDING SYSTEM CONSTANTS
+// ============================================================================
+
+/// Food cost to build a farm.
+pub const FARM_BUILD_COST: i32 = 50;
+
+/// Food cost to build a bed.
+pub const BED_BUILD_COST: i32 = 10;
+
+/// Food cost to build a guard post.
+pub const GUARD_POST_BUILD_COST: i32 = 25;
+
+/// Food cost to unlock one adjacent grid slot.
+pub const SLOT_UNLOCK_COST: i32 = 25;
+
+/// Town building grid spacing in pixels (matches Godot TOWN_GRID_SPACING).
+pub const TOWN_GRID_SPACING: f32 = 34.0;
+
+/// Base grid extent: rows/cols from -2 to +3 = 6x6 starting area.
+pub const BASE_GRID_MIN: i32 = -2;
+pub const BASE_GRID_MAX: i32 = 3;
+
+/// Maximum grid extent (rows/cols -49 to +50 = 100x100).
+pub const MAX_GRID_EXTENT: i32 = 49;

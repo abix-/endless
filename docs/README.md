@@ -63,7 +63,8 @@ Bevy ECS (lib.rs build_app)
     │   ├─ In-game HUD: population, time, food, NPC inspector, panel toggles
     │   ├─ Roster panel (R): NPC list with sort/filter/select/follow
     │   ├─ Combat log (L): global event feed (kills, spawns, raids, harvests)
-    │   ├─ Build menu (B), Upgrade menu (U), Policies (P): scaffolds
+    │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Destroy/Unlock)
+    │   ├─ Upgrade menu (U), Policies (P): scaffolds
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
@@ -123,19 +124,19 @@ rust/
   src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
-  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning
+  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, Activity/CombatState enums)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates)
   src/resources.rs      # Bevy resources (NpcCount, GameTime, FactionStats, etc.)
-  src/world.rs          # World data structs, world grid, procedural generation, tileset builder
+  src/world.rs          # World data structs, world grid, procedural generation, tileset builder, town grid, building placement/removal
   src/ui/
-    mod.rs              # register_ui(), game startup, cleanup, escape/time controls, keyboard toggles
+    mod.rs              # register_ui(), game startup, cleanup, escape/time controls, keyboard toggles, slot right-click, slot indicators
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons
     game_hud.rs         # In-game HUD (population, time, food, NPC inspector, panel toggles)
     roster_panel.rs     # NPC list with sort/filter/select/follow (R key)
     combat_log.rs       # Event feed with color-coded timestamps (L key)
-    build_menu.rs       # Building placement scaffold (B key, disabled)
+    build_menu.rs       # Right-click context menu: build/destroy/unlock town slots
     upgrade_menu.rs     # 14 upgrade rows scaffold (U key, disabled)
     policies_panel.rs   # Faction behavior config scaffold (P key, disabled)
   src/tests/

@@ -592,6 +592,29 @@ impl Default for UiState {
 }
 
 // ============================================================================
+// BUILD MENU STATE
+// ============================================================================
+
+/// Context for the build menu popup — populated by slot_right_click_system.
+#[derive(Resource, Default)]
+pub struct BuildMenuContext {
+    /// Which villager town grid (index into TownGrids.grids).
+    pub grid_idx: Option<usize>,
+    /// Which town in WorldData.towns.
+    pub town_data_idx: Option<usize>,
+    /// Grid slot (row, col) relative to town center.
+    pub slot: Option<(i32, i32)>,
+    /// World position of the slot center.
+    pub slot_world_pos: Vec2,
+    /// True if the slot is locked (show Unlock button).
+    pub is_locked: bool,
+    /// True if the slot already has a building.
+    pub has_building: bool,
+    /// True if the slot is the fountain (indestructible).
+    pub is_fountain: bool,
+}
+
+// ============================================================================
 // COMBAT LOG
 // ============================================================================
 

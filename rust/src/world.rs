@@ -4,8 +4,9 @@
 
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
 use crate::resources::FarmStates;
 
 // ============================================================================
@@ -58,13 +59,257 @@ pub struct GuardPost {
 // WORLD RESOURCES
 // ============================================================================
 
-/// Contains all world layout data (immutable after init).
+/// Contains all world layout data. Mutated at runtime when buildings are placed/destroyed.
 #[derive(Resource, Default)]
 pub struct WorldData {
     pub towns: Vec<Town>,
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub guard_posts: Vec<GuardPost>,
+}
+
+// ============================================================================
+// TOWN BUILDING GRID
+// ============================================================================
+
+/// Per-villager-town building grid. Tracks which slots are unlocked.
+/// Grid uses (row, col) relative to town center with TOWN_GRID_SPACING.
+/// Base grid: (-2,-2) to (3,3) = 6x6, expandable by unlocking adjacent slots.
+pub struct TownGrid {
+    pub unlocked: HashSet<(i32, i32)>,
+}
+
+impl TownGrid {
+    /// Create with base 6x6 grid unlocked.
+    pub fn new_base() -> Self {
+        let mut unlocked = HashSet::new();
+        for row in BASE_GRID_MIN..=BASE_GRID_MAX {
+            for col in BASE_GRID_MIN..=BASE_GRID_MAX {
+                unlocked.insert((row, col));
+            }
+        }
+        Self { unlocked }
+    }
+}
+
+/// All town building grids. One per villager town (not raider camps).
+#[derive(Resource, Default)]
+pub struct TownGrids {
+    pub grids: Vec<TownGrid>,
+}
+
+/// Convert town-relative grid coords to world position.
+/// Same formula as Godot _calculate_grid_positions:
+///   world_pos = center + Vec2((col - 0.5) * spacing, (row - 0.5) * spacing)
+pub fn town_grid_to_world(center: Vec2, row: i32, col: i32) -> Vec2 {
+    Vec2::new(
+        center.x + (col as f32 - 0.5) * TOWN_GRID_SPACING,
+        center.y + (row as f32 - 0.5) * TOWN_GRID_SPACING,
+    )
+}
+
+/// Convert world position to nearest town grid coords (row, col).
+pub fn world_to_town_grid(center: Vec2, world_pos: Vec2) -> (i32, i32) {
+    let col = ((world_pos.x - center.x) / TOWN_GRID_SPACING + 0.5).round() as i32;
+    let row = ((world_pos.y - center.y) / TOWN_GRID_SPACING + 0.5).round() as i32;
+    (row, col)
+}
+
+/// Get all locked slots orthogonally adjacent to any unlocked slot.
+/// These are the slots the player can unlock next.
+pub fn get_adjacent_locked_slots(grid: &TownGrid) -> Vec<(i32, i32)> {
+    let mut adjacent = HashSet::new();
+    for &(row, col) in &grid.unlocked {
+        for &(dr, dc) in &[(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            let nr = row + dr;
+            let nc = col + dc;
+            if nr < -MAX_GRID_EXTENT || nr > MAX_GRID_EXTENT + 1 { continue; }
+            if nc < -MAX_GRID_EXTENT || nc > MAX_GRID_EXTENT + 1 { continue; }
+            if !grid.unlocked.contains(&(nr, nc)) {
+                adjacent.insert((nr, nc));
+            }
+        }
+    }
+    adjacent.into_iter().collect()
+}
+
+/// Find which villager town (if any) has a slot matching the given grid coords.
+/// Returns the villager town index (0-based, indexing into TownGrids.grids)
+/// and whether the slot is unlocked, adjacent-locked, or out of range.
+pub fn find_town_slot(
+    world_pos: Vec2,
+    towns: &[Town],
+    grids: &TownGrids,
+) -> Option<TownSlotInfo> {
+    for (grid_idx, town_grid) in grids.grids.iter().enumerate() {
+        // Villager towns are at even indices in WorldData.towns (0, 2, 4, ...)
+        let town_data_idx = grid_idx * 2;
+        if town_data_idx >= towns.len() { continue; }
+        let town = &towns[town_data_idx];
+        if town.faction != 0 { continue; } // Skip non-villager
+
+        let (row, col) = world_to_town_grid(town.center, world_pos);
+
+        // Check click is within reasonable range of this grid's slots
+        let slot_pos = town_grid_to_world(town.center, row, col);
+        let click_radius = TOWN_GRID_SPACING * 0.45;
+        if world_pos.distance(slot_pos) > click_radius { continue; }
+
+        if town_grid.unlocked.contains(&(row, col)) {
+            return Some(TownSlotInfo {
+                grid_idx,
+                town_data_idx,
+                row, col,
+                slot_state: SlotState::Unlocked,
+            });
+        }
+
+        // Check if it's an adjacent locked slot
+        let adjacent = get_adjacent_locked_slots(town_grid);
+        if adjacent.contains(&(row, col)) {
+            return Some(TownSlotInfo {
+                grid_idx,
+                town_data_idx,
+                row, col,
+                slot_state: SlotState::Locked,
+            });
+        }
+    }
+    None
+}
+
+/// Info about a clicked town grid slot.
+pub struct TownSlotInfo {
+    pub grid_idx: usize,       // Index into TownGrids.grids
+    pub town_data_idx: usize,  // Index into WorldData.towns (villager town)
+    pub row: i32,
+    pub col: i32,
+    pub slot_state: SlotState,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SlotState {
+    Unlocked,
+    Locked,
+}
+
+// ============================================================================
+// BUILDING PLACEMENT / REMOVAL
+// ============================================================================
+
+/// Place a building on the world grid and register it in WorldData.
+/// Returns Ok(()) on success, Err with reason on failure.
+pub fn place_building(
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    farm_states: &mut FarmStates,
+    building: Building,
+    row: i32,
+    col: i32,
+    town_center: Vec2,
+) -> Result<(), &'static str> {
+    let world_pos = town_grid_to_world(town_center, row, col);
+    let (gc, gr) = grid.world_to_grid(world_pos);
+    let snapped_pos = grid.grid_to_world(gc, gr);
+
+    // Validate cell is empty
+    if let Some(cell) = grid.cell(gc, gr) {
+        if cell.building.is_some() {
+            return Err("cell already has a building");
+        }
+    } else {
+        return Err("cell out of bounds");
+    }
+
+    // Place on grid
+    if let Some(cell) = grid.cell_mut(gc, gr) {
+        cell.building = Some(building);
+    }
+
+    // Register in WorldData
+    match building {
+        Building::Farm { town_idx } => {
+            world_data.farms.push(Farm { position: snapped_pos, town_idx });
+            farm_states.push_farm();
+        }
+        Building::Bed { town_idx } => {
+            world_data.beds.push(Bed { position: snapped_pos, town_idx });
+        }
+        Building::GuardPost { town_idx, patrol_order } => {
+            world_data.guard_posts.push(GuardPost {
+                position: snapped_pos,
+                town_idx,
+                patrol_order,
+            });
+        }
+        _ => {} // Fountain and Camp not player-placeable
+    }
+
+    Ok(())
+}
+
+/// Remove a building from the world grid. Tombstones in WorldData (position = -99999).
+pub fn remove_building(
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    _farm_states: &mut FarmStates,
+    row: i32,
+    col: i32,
+    town_center: Vec2,
+) -> Result<(), &'static str> {
+    let world_pos = town_grid_to_world(town_center, row, col);
+    let (gc, gr) = grid.world_to_grid(world_pos);
+    let snapped_pos = grid.grid_to_world(gc, gr);
+
+    let building = match grid.cell(gc, gr) {
+        Some(cell) => match &cell.building {
+            Some(b) => *b,
+            None => return Err("no building to remove"),
+        },
+        None => return Err("cell out of bounds"),
+    };
+
+    // Don't allow removing fountains or camps
+    match building {
+        Building::Fountain { .. } => return Err("cannot remove fountain"),
+        Building::Camp { .. } => return Err("cannot remove camp"),
+        _ => {}
+    }
+
+    // Clear grid cell
+    if let Some(cell) = grid.cell_mut(gc, gr) {
+        cell.building = None;
+    }
+
+    // Tombstone in WorldData (set position to far offscreen so spatial queries skip it)
+    let tombstone = Vec2::new(-99999.0, -99999.0);
+    match building {
+        Building::Farm { .. } => {
+            if let Some(farm) = world_data.farms.iter_mut().find(|f| {
+                (f.position - snapped_pos).length() < 1.0
+            }) {
+                farm.position = tombstone;
+            }
+            // FarmStates entry stays but is inert (farm at -99999 won't be tended)
+        }
+        Building::Bed { .. } => {
+            if let Some(bed) = world_data.beds.iter_mut().find(|b| {
+                (b.position - snapped_pos).length() < 1.0
+            }) {
+                bed.position = tombstone;
+            }
+        }
+        Building::GuardPost { .. } => {
+            if let Some(post) = world_data.guard_posts.iter_mut().find(|g| {
+                (g.position - snapped_pos).length() < 1.0
+            }) {
+                post.position = tombstone;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
 /// Location types for find_nearest_location.

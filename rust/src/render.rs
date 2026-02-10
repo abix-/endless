@@ -87,6 +87,7 @@ impl Plugin for RenderPlugin {
                 camera_zoom_system,
                 click_to_select_system,
                 spawn_world_tilemap,
+                sync_building_tilemap,
             ));
     }
 }
@@ -306,6 +307,10 @@ fn spawn_chunk(
 #[derive(Resource, Default)]
 pub struct TilemapSpawned(pub bool);
 
+/// Marker component on the building TilemapChunk layer for runtime tile updates.
+#[derive(Component)]
+pub struct BuildingChunk;
+
 /// Spawn terrain + building TilemapChunk layers. Runs once when WorldGrid is populated
 /// and the world atlas image is loaded.
 fn spawn_world_tilemap(
@@ -325,14 +330,44 @@ fn spawn_world_tilemap(
         .collect();
     spawn_chunk(&mut commands, &grid, terrain_tileset, terrain_tiles, -1.0, AlphaMode2d::Blend);
 
-    // Building layer: None for empty cells, building tile where placed
+    // Building layer: None for empty cells, building tile where placed.
+    // Spawned with BuildingChunk marker for runtime tile updates.
     let building_tileset = build_tileset(&atlas, &BUILDING_TILES, &mut images);
     let building_tiles: Vec<Option<TileData>> = grid.cells.iter()
         .map(|cell| cell.building.as_ref().map(|b| TileData::from_tileset_index(b.tileset_index())))
         .collect();
     let building_count = building_tiles.iter().filter(|t| t.is_some()).count();
-    spawn_chunk(&mut commands, &grid, building_tileset, building_tiles, -0.5, AlphaMode2d::Blend);
+    let world_w = grid.width as f32 * grid.cell_size;
+    let world_h = grid.height as f32 * grid.cell_size;
+    commands.spawn((
+        TilemapChunk {
+            chunk_size: UVec2::new(grid.width as u32, grid.height as u32),
+            tile_display_size: UVec2::new(grid.cell_size as u32, grid.cell_size as u32),
+            tileset: building_tileset,
+            alpha_mode: AlphaMode2d::Blend,
+        },
+        TilemapChunkTileData(building_tiles),
+        Transform::from_xyz(world_w / 2.0, world_h / 2.0, -0.5),
+        BuildingChunk,
+    ));
 
     info!("World tilemap spawned: {}x{} grid, {} buildings", grid.width, grid.height, building_count);
     spawned.0 = true;
+}
+
+/// Sync building tilemap tiles when WorldGrid changes at runtime (building placed/destroyed).
+fn sync_building_tilemap(
+    grid: Res<WorldGrid>,
+    mut chunks: Query<&mut TilemapChunkTileData, With<BuildingChunk>>,
+) {
+    if !grid.is_changed() || grid.width == 0 { return; }
+
+    for mut tile_data in chunks.iter_mut() {
+        // Rebuild tile data from current grid cells
+        for (i, cell) in grid.cells.iter().enumerate() {
+            if i >= tile_data.0.len() { break; }
+            tile_data.0[i] = cell.building.as_ref()
+                .map(|b| TileData::from_tileset_index(b.tileset_index()));
+        }
+    }
 }

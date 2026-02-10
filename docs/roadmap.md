@@ -286,7 +286,7 @@ World setup:
 - [x] Named towns from pool of Florida cities
 - [x] WorldGrid (250x250 cells, 32px each, terrain biome + building per cell)
 - [x] WorldGenConfig resource (world size, town count, spacing, NPC counts)
-- [ ] Building grid expansion (6x6 start, expandable to 100x100)
+- [x] Building grid expansion (6x6 start, expandable to 100x100 via per-tile unlock)
 - [ ] Visible world border with corner markers
 - [x] GameConfig + WorldGenConfig Bevy resources (replaces config.gd)
 - [ ] User settings persistence (serde JSON)
@@ -295,23 +295,23 @@ UI:
 - [x] bevy_egui start menu with world config sliders (ui/main_menu.rs)
 - [x] Game HUD: population, time, food, kill stats, NPC inspector (ui/game_hud.rs)
 - [x] roster_panel.rs (NPC list with sorting/filtering, select/follow)
-- [x] build_menu.rs (building placement scaffold, disabled until Stage 7 backend)
+- [x] build_menu.rs (right-click context menu: Farm/Bed/GuardPost build, Destroy, Unlock)
 - [x] combat_log.rs (event feed with color-coded timestamps, Kill/Spawn/Raid/Harvest)
 - [x] upgrade_menu.rs (14 upgrade rows scaffold, disabled until Stage 8 backend)
 - [x] policies_panel.rs (behavior config scaffold, disabled until Stage 8 backend)
 - [x] Keyboard toggles: R=roster, L=log, B=build, U=upgrades, P=policies
 
 Input:
-- [ ] Click-to-build and click-to-destroy buildings
+- [x] Right-click to build and destroy buildings (context menu)
 - [ ] Villager role assignment
 - [ ] Train guards from population
 - [x] Time controls: Space=pause, +/-=speed (ui/mod.rs), ESC=back to menu
 
 Building system:
-- [ ] Runtime add/remove farm/bed/guard_post
-- [ ] Slot unlock system (spend food to unlock grid slots)
-- [ ] Town circle indicator expands with building range
-- [ ] NPCs claim and use new buildings
+- [x] Runtime add/remove farm/bed/guard_post (place_building/remove_building with tombstone deletion)
+- [x] Slot unlock system (spend food to unlock adjacent grid slots)
+- [x] Slot indicators (green "+" empty, dim brackets locked, gold ring town center)
+- [x] NPCs claim new buildings (existing decision system finds nearest bed/farm)
 - [ ] Guard post auto-attack (turret behavior, fires at enemies)
 - [ ] Guard post upgrades (attack_enabled, range_level, damage_level)
 

@@ -329,9 +329,11 @@ Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase a
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 
-**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Uses the shared `spawn_chunk()` helper to spawn both layers. Terrain layer has all cells filled (opaque). Building layer has `None` for empty cells — the alpha blend mode makes empty cells transparent so terrain shows through.
+**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Uses the shared `spawn_chunk()` helper for terrain. Building layer is spawned inline with a `BuildingChunk` marker component for runtime queries. Terrain layer has all cells filled (opaque). Building layer has `None` for empty cells — the alpha blend mode makes empty cells transparent so terrain shows through.
 
-Dynamic updates supported: mutate `TilemapChunkTileData`, Bevy detects `Changed<>` and re-uploads.
+**`BuildingChunk`** marker component (`render.rs`): Attached to the building TilemapChunk entity so `sync_building_tilemap` can query it.
+
+**`sync_building_tilemap`** system (`render.rs`, Update schedule): Runs when `WorldGrid.is_changed()`. Rebuilds `TilemapChunkTileData` from current grid cells, so buildings placed or destroyed at runtime appear/disappear on the tilemap immediately. Bevy detects `Changed<TilemapChunkTileData>` and re-uploads to GPU.
 
 ## Known Issues
 

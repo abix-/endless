@@ -52,6 +52,7 @@ Static world data, immutable after initialization.
 | BedOccupancy | `HashMap<(i32,i32), i32>` — bed position → NPC index (-1 = free) | Bed assignment |
 | FarmOccupancy | `HashMap<(i32,i32), i32>` — farm position → worker count | Farm assignment |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
+| TownGrids | `Vec<TownGrid>` — one per villager town | Per-town building slot unlock tracking |
 
 ### WorldData Structs
 
@@ -82,6 +83,24 @@ Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `f
 **WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 34px grid spacing, 1100px camp distance, 5 farmers / 2 guards / 5 raiders per town.
 
 **`generate_world()`**: Pure function that takes config and populates both WorldGrid and WorldData. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 beds, 4 guard posts at grid corners).
+
+### Town Building Grid
+
+Per-town slot tracking for the building system. Each villager town has a `TownGrid` with a `HashSet<(i32, i32)>` of unlocked (row, col) slots. Initial base grid is 6x6 (rows/cols -2 to +3), expandable to 100x100 by unlocking adjacent slots.
+
+| Struct | Fields |
+|--------|--------|
+| TownGrid | unlocked: `HashSet<(i32, i32)>` |
+| TownGrids | grids: `Vec<TownGrid>` (one per villager town) |
+| TownSlotInfo | grid_idx, town_data_idx, row, col, slot_state |
+| SlotState | Unlocked, Locked |
+| BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, is_locked, has_building, is_fountain |
+
+Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `get_adjacent_locked_slots(grid)`, `find_town_slot(world_pos, towns, grids)`.
+
+Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. Tombstone deletion preserves parallel Vec indices (FarmStates). Fountains and camps cannot be removed.
+
+Building costs (from constants.rs): Farm=50 food, Bed=10 food, GuardPost=25 food, SlotUnlock=25 food.
 
 ## Food & Economy
 
@@ -151,7 +170,8 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
 | UiState | roster_open, combat_log_open, build_menu_open, upgrade_menu_open, policies_open | ui_toggle_system (keyboard), game_hud (buttons) | All panel systems |
-| CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system | combat_log panel |
+| CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system | combat_log panel |
+| BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
 
 `UiState` tracks which panels are open. `combat_log_open` defaults to true, all others false. Reset on game cleanup.
 

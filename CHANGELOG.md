@@ -2,6 +2,20 @@
 
 ## 2026-02-10
 
+- **building system: right-click context menu with per-tile slot unlock**
+  - add `TownGrid`/`TownGrids` per-town slot tracking with `HashSet<(i32,i32)>` unlock system
+  - add `BuildMenuContext` resource for right-click context menu state
+  - add `place_building()` / `remove_building()` in world.rs with tombstone deletion (-99999 position)
+  - add `find_town_slot()`, `get_adjacent_locked_slots()`, coordinate helpers (town_grid_to_world, world_to_town_grid)
+  - add `BuildingChunk` marker + `sync_building_tilemap` system for runtime tilemap updates when WorldGrid changes
+  - add `slot_right_click_system`: right-click town slot → populate context → open build menu
+  - rewrite `build_menu_system` as context-driven menu: Farm/Bed/GuardPost build, Destroy, Unlock buttons with food costs
+  - add `draw_slot_indicators` gizmo overlay: green "+" empty slots, dim brackets locked adjacent, gold ring town center
+  - add building cost constants: Farm=50, Bed=10, GuardPost=25, SlotUnlock=25 food
+  - add grid constants: TOWN_GRID_SPACING=34px, base grid 6x6 (-2..3), expandable to 100x100
+  - guard posts get auto-incrementing patrol_order based on existing post count
+  - ported from Godot's per-town grid system (scenes/main.gd, ui/build_menu.gd)
+
 - **5 UI panels: roster, combat log, build menu, upgrades, policies**
   - `roster_panel.rs`: right side panel (R key) — NPC list with job filter (All/Farmers/Guards/Raiders), sortable column headers (Name/Job/Lv/HP/State/Trait with ▼/▲ arrows), click-to-select, follow button moves camera to NPC, cached rows rebuild every 30 frames
   - `combat_log.rs`: bottom panel (L key) — event feed with color-coded timestamps (red=Kill, green=Spawn, orange=Raid, yellow=Harvest), filter checkboxes, auto-scroll, 200-entry ring buffer
