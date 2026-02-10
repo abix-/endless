@@ -78,7 +78,7 @@ pub fn main_menu_system(
             // Towns
             ui.horizontal(|ui| {
                 ui.label("Towns:");
-                ui.add(egui::Slider::new(&mut state.towns, 1.0..=7.0)
+                ui.add(egui::Slider::new(&mut state.towns, 1.0..=50.0)
                     .step_by(1.0)
                     .show_value(false));
                 let t = state.towns as i32;
@@ -101,7 +101,7 @@ pub fn main_menu_system(
             // Guards per town
             ui.horizontal(|ui| {
                 ui.label("Guards:");
-                ui.add(egui::Slider::new(&mut state.guards, 0.0..=50.0)
+                ui.add(egui::Slider::new(&mut state.guards, 0.0..=1000.0)
                     .step_by(1.0)
                     .show_value(false));
                 ui.label(format!("{} per town", state.guards as i32));
@@ -112,7 +112,7 @@ pub fn main_menu_system(
             // Raiders per camp
             ui.horizontal(|ui| {
                 ui.label("Raiders:");
-                ui.add(egui::Slider::new(&mut state.raiders, 0.0..=50.0)
+                ui.add(egui::Slider::new(&mut state.raiders, 0.0..=1000.0)
                     .step_by(1.0)
                     .show_value(false));
                 ui.label(format!("{} per camp", state.raiders as i32));
