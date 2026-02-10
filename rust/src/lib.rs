@@ -30,7 +30,7 @@ use resources::{
     NpcMetaCache, NpcEnergyCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, GpuDispatchCount, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
-    DebugFlags,
+    DebugFlags, ProjHitState, ProjPositionState,
 };
 use systems::*;
 use components::*;
@@ -220,6 +220,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<DebugFlags>()
        .init_resource::<ResetFlag>()
        .init_resource::<GpuReadState>()
+       .init_resource::<ProjHitState>()
+       .init_resource::<ProjPositionState>()
        .init_resource::<GpuDispatchCount>()
        .init_resource::<SlotAllocator>()
        .init_resource::<ProjSlotAllocator>()
@@ -246,7 +248,6 @@ pub fn build_app(app: &mut App) {
        .add_systems(Update, (
            reset_bevy_system,
            drain_game_config,
-           sync_gpu_state_to_bevy,
        ).in_set(Step::Drain))
        // GPU→ECS position readback
        .add_systems(Update, gpu_position_readback.after(Step::Drain).before(Step::Spawn).run_if(game_active.clone()))

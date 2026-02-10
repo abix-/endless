@@ -10,15 +10,19 @@
 //! - Render: write_npc_buffers uploads data to GPU
 
 use bevy::{
+    asset::RenderAssetUsages,
     prelude::*,
     render::{
         extract_resource::{ExtractResource, ExtractResourcePlugin},
+        gpu_readback::{Readback, ReadbackComplete},
+        render_asset::RenderAssets,
         render_graph::{self, RenderGraph, RenderLabel},
         render_resource::{
             binding_types::{storage_buffer, storage_buffer_read_only, uniform_buffer},
             *,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
+        storage::{GpuShaderStorageBuffer, ShaderStorageBuffer},
         Render, RenderApp, RenderStartup, RenderSystems,
     },
     shader::PipelineCacheError,
@@ -27,8 +31,8 @@ use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::{HEAL_SPRITE, SLEEP_SPRITE, FOOD_SPRITE};
-use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, GPU_READ_STATE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, PROJ_HIT_STATE};
-use crate::resources::NpcCount;
+use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
+use crate::resources::{NpcCount, GpuReadState, ProjHitState, ProjPositionState};
 
 // =============================================================================
 // CONSTANTS
@@ -499,6 +503,82 @@ pub fn populate_proj_buffer_writes(mut writes: ResMut<ProjBufferWrites>) {
 }
 
 // =============================================================================
+// READBACK (Bevy async GPU→CPU via ShaderStorageBuffer assets)
+// =============================================================================
+
+/// Handles to ShaderStorageBuffer assets used as readback targets.
+/// Extracted to render world so compute nodes can copy into them.
+#[derive(Resource, ExtractResource, Clone)]
+pub struct ReadbackHandles {
+    pub npc_positions: Handle<ShaderStorageBuffer>,
+    pub combat_targets: Handle<ShaderStorageBuffer>,
+    pub proj_hits: Handle<ShaderStorageBuffer>,
+    pub proj_positions: Handle<ShaderStorageBuffer>,
+}
+
+/// Create ShaderStorageBuffer readback targets and spawn Readback entities with observers.
+fn setup_readback_buffers(
+    mut commands: Commands,
+    mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
+) {
+    // Create readback target buffers (COPY_DST for compute→copy, COPY_SRC for Readback to map)
+    let npc_pos_buf = {
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPCS as usize * 8], RenderAssetUsages::RENDER_WORLD);
+        buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
+        buffers.add(buf)
+    };
+    let combat_target_buf = {
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPCS as usize * 4], RenderAssetUsages::RENDER_WORLD);
+        buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
+        buffers.add(buf)
+    };
+    let proj_hit_buf = {
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_PROJECTILES as usize * 8], RenderAssetUsages::RENDER_WORLD);
+        buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
+        buffers.add(buf)
+    };
+    let proj_pos_buf = {
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_PROJECTILES as usize * 8], RenderAssetUsages::RENDER_WORLD);
+        buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
+        buffers.add(buf)
+    };
+
+    let handles = ReadbackHandles {
+        npc_positions: npc_pos_buf.clone(),
+        combat_targets: combat_target_buf.clone(),
+        proj_hits: proj_hit_buf.clone(),
+        proj_positions: proj_pos_buf.clone(),
+    };
+    commands.insert_resource(handles);
+
+    // Spawn Readback entities — Bevy async-reads each frame, triggers ReadbackComplete
+    commands.spawn(Readback::buffer(npc_pos_buf))
+        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
+            let data: Vec<f32> = event.to_shader_type();
+            state.npc_count = data.len() / 2;
+            state.positions = data;
+        });
+
+    commands.spawn(Readback::buffer(combat_target_buf))
+        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
+            let data: Vec<i32> = event.to_shader_type();
+            state.combat_targets = data;
+        });
+
+    commands.spawn(Readback::buffer(proj_hit_buf))
+        .observe(|event: On<ReadbackComplete>, mut state: ResMut<ProjHitState>| {
+            let data: Vec<[i32; 2]> = event.to_shader_type();
+            state.0 = data;
+        });
+
+    commands.spawn(Readback::buffer(proj_pos_buf))
+        .observe(|event: On<ReadbackComplete>, mut state: ResMut<ProjPositionState>| {
+            let data: Vec<f32> = event.to_shader_type();
+            state.0 = data;
+        });
+}
+
+// =============================================================================
 // PLUGIN
 // =============================================================================
 
@@ -524,6 +604,9 @@ impl Plugin for GpuComputePlugin {
             .add_systems(Update, update_proj_gpu_data)
             .add_systems(PostUpdate, populate_proj_buffer_writes);
 
+        // Async readback: create ShaderStorageBuffer assets + Readback entities
+        app.add_systems(Startup, setup_readback_buffers);
+
         // Extract resources to render world
         app.add_plugins((
             ExtractResourcePlugin::<NpcGpuData>::default(),
@@ -533,6 +616,9 @@ impl Plugin for GpuComputePlugin {
             ExtractResourcePlugin::<ProjGpuData>::default(),
             ExtractResourcePlugin::<ProjComputeParams>::default(),
             ExtractResourcePlugin::<ProjBufferWrites>::default(),
+            ExtractResourcePlugin::<ReadbackHandles>::default(),
+            ExtractResourcePlugin::<GpuReadState>::default(),
+            ExtractResourcePlugin::<ProjPositionState>::default(),
         ));
 
         // Set up render world systems
@@ -551,7 +637,6 @@ impl Plugin for GpuComputePlugin {
                 (
                     (write_npc_buffers, write_proj_buffers).in_set(RenderSystems::PrepareResources),
                     (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
-                    readback_all.in_set(RenderSystems::Cleanup),
                 ),
             );
 
@@ -589,14 +674,6 @@ fn update_gpu_data(
 // RENDER WORLD RESOURCES
 // =============================================================================
 
-/// Ping-pong index for double-buffered staging readback.
-/// Frame N writes to staging[current], readback reads staging[1-current] (previous frame's data).
-#[derive(Resource, Default)]
-struct StagingIndex {
-    current: usize,  // 0 or 1
-    has_previous: bool,  // false on first frame (no previous data to read)
-}
-
 /// GPU buffers for NPC compute and rendering.
 #[derive(Resource)]
 pub struct NpcGpuBuffers {
@@ -611,10 +688,6 @@ pub struct NpcGpuBuffers {
     pub factions: Buffer,
     pub healths: Buffer,
     pub combat_targets: Buffer,
-    /// Double-buffered staging for CPU readback of positions (MAP_READ | COPY_DST)
-    pub position_staging: [Buffer; 2],
-    /// Double-buffered staging for CPU readback of combat targets (MAP_READ | COPY_DST)
-    pub combat_target_staging: [Buffer; 2],
 }
 
 /// Bind groups for compute passes (one per mode, different uniform buffer).
@@ -651,10 +724,6 @@ pub struct ProjGpuBuffers {
     pub lifetimes: Buffer,
     pub active: Buffer,
     pub hits: Buffer,
-    /// Double-buffered staging for CPU readback of hit results (MAP_READ | COPY_DST)
-    pub hit_staging: [Buffer; 2],
-    /// Double-buffered staging for CPU readback of projectile positions (MAP_READ | COPY_DST)
-    pub position_staging: [Buffer; 2],
 }
 
 /// Bind groups for projectile compute pass.
@@ -745,38 +814,9 @@ fn init_npc_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
-        position_staging: [
-            render_device.create_buffer(&BufferDescriptor {
-                label: Some("npc_position_staging_0"),
-                size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 2]>()) as u64,
-                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            render_device.create_buffer(&BufferDescriptor {
-                label: Some("npc_position_staging_1"),
-                size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 2]>()) as u64,
-                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-        ],
-        combat_target_staging: [
-            render_device.create_buffer(&BufferDescriptor {
-                label: Some("npc_combat_target_staging_0"),
-                size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
-                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            render_device.create_buffer(&BufferDescriptor {
-                label: Some("npc_combat_target_staging_1"),
-                size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
-                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-        ],
     };
 
     commands.insert_resource(buffers);
-    commands.insert_resource(StagingIndex::default());
 
     // Define bind group layout (all storage buffers are read_write for simplicity)
     let bind_group_layout = BindGroupLayoutDescriptor::new(
@@ -1013,152 +1053,6 @@ fn write_npc_buffers(
 
 }
 
-/// Double-buffered readback: read PREVIOUS frame's staging data, single poll for all buffers.
-/// Compute nodes copy to staging[current] this frame; we read staging[1-current] (already done).
-/// The poll returns near-instantly since GPU finished last frame's copy before this frame started.
-fn readback_all(
-    npc_buffers: Option<Res<NpcGpuBuffers>>,
-    gpu_data: Option<Res<NpcGpuData>>,
-    proj_buffers: Option<Res<ProjGpuBuffers>>,
-    proj_data: Option<Res<ProjGpuData>>,
-    mut staging_index: ResMut<StagingIndex>,
-    render_device: Res<RenderDevice>,
-) {
-    let read_idx = 1 - staging_index.current;
-
-    // Skip first frame — no previous data to read yet
-    if !staging_index.has_previous {
-        staging_index.has_previous = true;
-        staging_index.current = 1 - staging_index.current;
-        return;
-    }
-
-    // Map all staging buffers from the PREVIOUS frame (up to 4 maps, single poll)
-    let (tx_all, rx_all) = std::sync::mpsc::sync_channel(4);
-
-    // NPC staging maps
-    let npc_count = gpu_data.as_ref().map(|d| d.npc_count as usize).unwrap_or(0);
-    let has_npc = npc_count > 0 && npc_buffers.is_some();
-    let npc_pos_slice;
-    let npc_ct_slice;
-    if has_npc {
-        let buffers = npc_buffers.as_ref().unwrap();
-        let pos_size = npc_count * std::mem::size_of::<[f32; 2]>();
-        let ct_size = npc_count * std::mem::size_of::<i32>();
-        npc_pos_slice = Some(buffers.position_staging[read_idx].slice(..pos_size as u64));
-        npc_ct_slice = Some(buffers.combat_target_staging[read_idx].slice(..ct_size as u64));
-
-        let tx = tx_all.clone();
-        npc_pos_slice.as_ref().unwrap().map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(("npc_pos", r)); });
-        let tx = tx_all.clone();
-        npc_ct_slice.as_ref().unwrap().map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(("npc_ct", r)); });
-    } else {
-        npc_pos_slice = None;
-        npc_ct_slice = None;
-    }
-
-    // Projectile staging maps
-    let proj_count = proj_data.as_ref().map(|d| d.proj_count as usize).unwrap_or(0);
-    let has_proj = proj_count > 0 && proj_buffers.is_some();
-    let proj_hit_slice;
-    let proj_pos_slice;
-    if has_proj {
-        let buffers = proj_buffers.as_ref().unwrap();
-        let hit_size = proj_count * std::mem::size_of::<[i32; 2]>();
-        let pos_size = proj_count * std::mem::size_of::<[f32; 2]>();
-        proj_hit_slice = Some(buffers.hit_staging[read_idx].slice(..hit_size as u64));
-        proj_pos_slice = Some(buffers.position_staging[read_idx].slice(..pos_size as u64));
-
-        let tx = tx_all.clone();
-        proj_hit_slice.as_ref().unwrap().map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(("proj_hit", r)); });
-        let tx = tx_all.clone();
-        proj_pos_slice.as_ref().unwrap().map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(("proj_pos", r)); });
-    } else {
-        proj_hit_slice = None;
-        proj_pos_slice = None;
-    }
-    drop(tx_all);
-
-    let expected = (if has_npc { 2 } else { 0 }) + (if has_proj { 2 } else { 0 });
-    if expected == 0 {
-        staging_index.current = 1 - staging_index.current;
-        return;
-    }
-
-    // Single poll flushes all pending map_async calls
-    let _ = render_device.poll(wgpu::PollType::wait_indefinitely());
-
-    // Collect results
-    let mut npc_pos_ok = false;
-    let mut npc_ct_ok = false;
-    let mut proj_hit_ok = false;
-    let mut proj_pos_ok = false;
-    for _ in 0..expected {
-        if let Ok((tag, result)) = rx_all.recv() {
-            let ok = result.is_ok();
-            match tag {
-                "npc_pos" => npc_pos_ok = ok,
-                "npc_ct" => npc_ct_ok = ok,
-                "proj_hit" => proj_hit_ok = ok,
-                "proj_pos" => proj_pos_ok = ok,
-                _ => {}
-            }
-        }
-    }
-
-    // Process NPC readback
-    if npc_pos_ok && npc_ct_ok {
-        let pos_data = npc_pos_slice.as_ref().unwrap().get_mapped_range();
-        let ct_data = npc_ct_slice.as_ref().unwrap().get_mapped_range();
-        let positions: &[f32] = bytemuck::cast_slice(&pos_data);
-        let combat_targets: &[i32] = bytemuck::cast_slice(&ct_data);
-
-        if let Ok(mut state) = GPU_READ_STATE.lock() {
-            state.positions.clear();
-            state.positions.extend_from_slice(&positions[..npc_count * 2]);
-            state.combat_targets.clear();
-            state.combat_targets.extend_from_slice(&combat_targets[..npc_count]);
-            state.npc_count = npc_count;
-        }
-
-        drop(pos_data);
-        drop(ct_data);
-    }
-    if has_npc {
-        let buffers = npc_buffers.as_ref().unwrap();
-        if npc_pos_ok { buffers.position_staging[read_idx].unmap(); }
-        if npc_ct_ok { buffers.combat_target_staging[read_idx].unmap(); }
-    }
-
-    // Process projectile readback
-    if proj_hit_ok {
-        let mapped = proj_hit_slice.as_ref().unwrap().get_mapped_range();
-        let hits: &[[i32; 2]] = bytemuck::cast_slice(&mapped);
-        if let Ok(mut state) = PROJ_HIT_STATE.lock() {
-            state.clear();
-            state.extend_from_slice(&hits[..proj_count]);
-        }
-        drop(mapped);
-    }
-    if proj_pos_ok {
-        let mapped = proj_pos_slice.as_ref().unwrap().get_mapped_range();
-        let positions: &[f32] = bytemuck::cast_slice(&mapped);
-        if let Ok(mut state) = crate::messages::PROJ_POSITION_STATE.lock() {
-            state.clear();
-            state.extend_from_slice(&positions[..proj_count * 2]);
-        }
-        drop(mapped);
-    }
-    if has_proj {
-        let buffers = proj_buffers.as_ref().unwrap();
-        if proj_hit_ok { buffers.hit_staging[read_idx].unmap(); }
-        if proj_pos_ok { buffers.position_staging[read_idx].unmap(); }
-    }
-
-    // Flip staging index for next frame
-    staging_index.current = 1 - staging_index.current;
-}
-
 // =============================================================================
 // RENDER GRAPH NODE
 // =============================================================================
@@ -1269,18 +1163,25 @@ impl render_graph::Node for NpcComputeNode {
             pass.dispatch_workgroups(npc_wg, 1, 1);
         }
 
-        // Copy positions + combat_targets → staging[current] for CPU readback next frame
+        // Copy positions + combat_targets → readback ShaderStorageBuffer assets
+        // Bevy's Readback component will async-read these and fire ReadbackComplete
         let buffers = world.resource::<NpcGpuBuffers>();
-        let si = world.resource::<StagingIndex>().current;
+        let handles = world.resource::<ReadbackHandles>();
+        let render_assets = world.resource::<RenderAssets<GpuShaderStorageBuffer>>();
+
         let pos_copy_size = (npc_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
         let ct_copy_size = (npc_count as u64) * std::mem::size_of::<i32>() as u64;
 
-        render_context.command_encoder().copy_buffer_to_buffer(
-            &buffers.positions, 0, &buffers.position_staging[si], 0, pos_copy_size,
-        );
-        render_context.command_encoder().copy_buffer_to_buffer(
-            &buffers.combat_targets, 0, &buffers.combat_target_staging[si], 0, ct_copy_size,
-        );
+        if let Some(rb_pos) = render_assets.get(&handles.npc_positions) {
+            render_context.command_encoder().copy_buffer_to_buffer(
+                &buffers.positions, 0, &rb_pos.buffer, 0, pos_copy_size,
+            );
+        }
+        if let Some(rb_ct) = render_assets.get(&handles.combat_targets) {
+            render_context.command_encoder().copy_buffer_to_buffer(
+                &buffers.combat_targets, 0, &rb_ct.buffer, 0, ct_copy_size,
+            );
+        }
 
         Ok(())
     }
@@ -1366,34 +1267,6 @@ fn init_proj_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
-        hit_staging: [
-            render_device.create_buffer(&BufferDescriptor {
-                label: Some("proj_hit_staging_0"),
-                size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
-                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            render_device.create_buffer(&BufferDescriptor {
-                label: Some("proj_hit_staging_1"),
-                size: (max * std::mem::size_of::<[i32; 2]>()) as u64,
-                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-        ],
-        position_staging: [
-            render_device.create_buffer(&BufferDescriptor {
-                label: Some("proj_position_staging_0"),
-                size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
-                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            render_device.create_buffer(&BufferDescriptor {
-                label: Some("proj_position_staging_1"),
-                size: (max * std::mem::size_of::<[f32; 2]>()) as u64,
-                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-        ],
     };
 
     commands.insert_resource(buffers);
@@ -1623,17 +1496,23 @@ impl render_graph::Node for ProjectileComputeNode {
             );
         }
 
-        // Copy hits + positions → staging[current] for CPU readback next frame
+        // Copy hits + positions → readback ShaderStorageBuffer assets
         let proj_buffers = world.resource::<ProjGpuBuffers>();
-        let si = world.resource::<StagingIndex>().current;
+        let handles = world.resource::<ReadbackHandles>();
+        let render_assets = world.resource::<RenderAssets<GpuShaderStorageBuffer>>();
+
         let hit_copy_size = (proj_count as u64) * std::mem::size_of::<[i32; 2]>() as u64;
-        render_context.command_encoder().copy_buffer_to_buffer(
-            &proj_buffers.hits, 0, &proj_buffers.hit_staging[si], 0, hit_copy_size,
-        );
+        if let Some(rb_hits) = render_assets.get(&handles.proj_hits) {
+            render_context.command_encoder().copy_buffer_to_buffer(
+                &proj_buffers.hits, 0, &rb_hits.buffer, 0, hit_copy_size,
+            );
+        }
         let pos_copy_size = (proj_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
-        render_context.command_encoder().copy_buffer_to_buffer(
-            &proj_buffers.positions, 0, &proj_buffers.position_staging[si], 0, pos_copy_size,
-        );
+        if let Some(rb_pos) = render_assets.get(&handles.proj_positions) {
+            render_context.command_encoder().copy_buffer_to_buffer(
+                &proj_buffers.positions, 0, &rb_pos.buffer, 0, pos_copy_size,
+            );
+        }
 
         Ok(())
     }

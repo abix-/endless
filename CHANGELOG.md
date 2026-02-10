@@ -1,6 +1,15 @@
 # Changelog
 
 ## 2026-02-10
+
+- **async GPU readback via Bevy `Readback` + `ReadbackComplete`**
+  - replaces hand-rolled ping-pong staging buffers + blocking `device.poll(Wait)` (~9ms/frame)
+  - 4 `ShaderStorageBuffer` assets as async readback targets (npc positions, combat targets, proj hits, proj positions)
+  - `ReadbackComplete` observers write directly to `Res<GpuReadState>`, `Res<ProjHitState>`, `Res<ProjPositionState>`
+  - deleted: `readback_all` (~140 lines), `StagingIndex`, 8 staging buffers, 3 static Mutexes
+  - deleted: `sync_gpu_state_to_bevy` system + `systems/sync.rs` module
+  - `GpuReadState` + `ProjPositionState` extracted to render world for instanced rendering
+
 - **optimize per-frame visual sync and flash decay**
   - `sync_visual_sprites`: merged two-pass (clear all + set all) into single pass that writes defaults inline where components are absent, eliminating ~8K redundant array writes per frame at 500 NPCs
   - `populate_buffer_writes`: flash decay loop now iterates only active NPCs (npc_count) instead of all 16,384 MAX_NPCS slots

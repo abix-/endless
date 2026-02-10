@@ -108,28 +108,9 @@ pub enum ProjGpuUpdate {
 
 pub static PROJ_GPU_UPDATE_QUEUE: Mutex<Vec<ProjGpuUpdate>> = Mutex::new(Vec::new());
 
-/// GPU→CPU readback of projectile hit results. Each entry is [npc_idx, processed].
-/// Written by render world (readback_proj_hits), read by main world (process_proj_hits).
-pub static PROJ_HIT_STATE: Mutex<Vec<[i32; 2]>> = Mutex::new(Vec::new());
-
-/// GPU→CPU readback of projectile positions. [x0, y0, x1, y1, ...] flattened.
-/// Written by render world (readback_proj_data), read by render world (prepare_proj_buffers).
-pub static PROJ_POSITION_STATE: Mutex<Vec<f32>> = Mutex::new(Vec::new());
-
-// ============================================================================
-// GPU-FIRST: Single Read State (GPU -> Bevy)
-// Static for cross-thread access. Struct defined in resources.rs.
-// ============================================================================
-
-use crate::resources::GpuReadState;
-
-pub static GPU_READ_STATE: Mutex<GpuReadState> = Mutex::new(GpuReadState {
-    positions: Vec::new(),
-    combat_targets: Vec::new(),
-    health: Vec::new(),
-    factions: Vec::new(),
-    npc_count: 0,
-});
+// GPU→CPU readback now uses Bevy's async Readback + ReadbackComplete observers.
+// Static Mutexes (GPU_READ_STATE, PROJ_HIT_STATE, PROJ_POSITION_STATE) deleted.
+// See gpu.rs setup_readback_buffers() and resources.rs (GpuReadState, ProjHitState, ProjPositionState).
 
 // ============================================================================
 // GAME CONFIG (write-once from GDScript, drained into Res<GameConfig>)

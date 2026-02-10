@@ -224,6 +224,7 @@ fn click_to_select_system(
     camera_query: Query<(&Transform, &Projection), With<MainCamera>>,
     mut selected: ResMut<SelectedNpc>,
     mut egui_contexts: bevy_egui::EguiContexts,
+    gpu_state: Res<crate::resources::GpuReadState>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
 
@@ -249,11 +250,7 @@ fn click_to_select_system(
     let world_pos = position + mouse_offset / zoom;
 
     // Find nearest NPC within 20px radius using GPU readback positions
-    let positions = crate::messages::GPU_READ_STATE
-        .lock()
-        .ok()
-        .map(|s| s.positions.clone())
-        .unwrap_or_default();
+    let positions = &gpu_state.positions;
 
     let select_radius = 20.0_f32;
     let mut best_dist = select_radius;

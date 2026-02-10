@@ -408,6 +408,7 @@ fn prepare_npc_buffers(
     buffer_writes: Option<Res<NpcBufferWrites>>,
     gpu_data: Option<Res<NpcGpuData>>,
     existing_buffers: Option<ResMut<NpcRenderBuffers>>,
+    gpu_state: Option<Res<crate::resources::GpuReadState>>,
 ) {
     let Some(writes) = buffer_writes else { return };
 
@@ -416,9 +417,7 @@ fn prepare_npc_buffers(
 
     // Use GPU readback positions if available (compute shader moves NPCs),
     // fall back to NpcBufferWrites for first frame before readback starts
-    let readback_positions = crate::messages::GPU_READ_STATE
-        .lock()
-        .ok()
+    let readback_positions = gpu_state
         .filter(|s| s.positions.len() >= npc_count * 2)
         .map(|s| s.positions.clone());
 
@@ -805,6 +804,7 @@ fn prepare_proj_buffers(
     buffer_writes: Option<Res<ProjBufferWrites>>,
     proj_data: Option<Res<ProjGpuData>>,
     existing_buffers: Option<ResMut<ProjRenderBuffers>>,
+    proj_pos_state: Option<Res<crate::resources::ProjPositionState>>,
 ) {
     let Some(writes) = buffer_writes else { return };
     let Some(data) = proj_data else { return };
@@ -812,11 +812,9 @@ fn prepare_proj_buffers(
     let proj_count = data.proj_count as usize;
 
     // Use GPU readback positions (compute shader moves projectiles each frame)
-    let readback_positions = crate::messages::PROJ_POSITION_STATE
-        .lock()
-        .ok()
-        .filter(|s| s.len() >= proj_count * 2)
-        .map(|s| s.clone());
+    let readback_positions = proj_pos_state
+        .filter(|s| s.0.len() >= proj_count * 2)
+        .map(|s| s.0.clone());
 
     let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
     for i in 0..proj_count {

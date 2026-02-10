@@ -1,6 +1,7 @@
 //! ECS Resources - Shared state accessible by all systems
 
 use bevy::prelude::*;
+use bevy::render::extract_resource::ExtractResource;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use crate::constants::MAX_NPC_COUNT;
@@ -405,9 +406,9 @@ pub struct ResetFlag(pub bool);
 #[derive(Resource, Default)]
 pub struct GpuDispatchCount(pub usize);
 
-/// GPU readback state. Replaces GPU_READ_STATE static.
-/// Populated by lib.rs after GPU readback, read by Bevy systems.
-#[derive(Resource)]
+/// GPU readback state. Populated by ReadbackComplete observers, read by Bevy systems.
+/// Clone + ExtractResource so render world can access positions for instanced rendering.
+#[derive(Resource, Clone, ExtractResource)]
 pub struct GpuReadState {
     pub positions: Vec<f32>,       // [x0, y0, x1, y1, ...]
     pub combat_targets: Vec<i32>,  // target index per NPC (-1 = none)
@@ -427,6 +428,16 @@ impl Default for GpuReadState {
         }
     }
 }
+
+/// GPU→CPU readback of projectile hit results. Each entry is [npc_idx, processed].
+/// Populated by ReadbackComplete observer, read by process_proj_hits.
+#[derive(Resource, Default)]
+pub struct ProjHitState(pub Vec<[i32; 2]>);
+
+/// GPU→CPU readback of projectile positions. [x0, y0, x1, y1, ...] flattened.
+/// Populated by ReadbackComplete observer, read by prepare_proj_buffers (render world).
+#[derive(Resource, Default, Clone, ExtractResource)]
+pub struct ProjPositionState(pub Vec<f32>);
 
 /// Food storage per location. Replaces FOOD_STORAGE static.
 #[derive(Resource, Default)]

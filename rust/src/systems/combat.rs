@@ -2,8 +2,8 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE, PROJ_HIT_STATE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState};
 use crate::gpu::ProjBufferWrites;
 
 /// Decrement attack cooldown timers each frame.
@@ -176,39 +176,38 @@ pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
+    mut hit_state: ResMut<ProjHitState>,
 ) {
-    if let Ok(mut hits) = PROJ_HIT_STATE.lock() {
-        for (slot, hit) in hits.iter().enumerate() {
-            let npc_idx = hit[0];
-            let processed = hit[1];
+    for (slot, hit) in hit_state.0.iter().enumerate() {
+        let npc_idx = hit[0];
+        let processed = hit[1];
 
-            if npc_idx >= 0 && processed == 0 {
-                // Collision detected — apply damage and recycle slot
-                let damage = if slot < proj_writes.damages.len() {
-                    proj_writes.damages[slot]
-                } else {
-                    0.0
-                };
+        if npc_idx >= 0 && processed == 0 {
+            // Collision detected — apply damage and recycle slot
+            let damage = if slot < proj_writes.damages.len() {
+                proj_writes.damages[slot]
+            } else {
+                0.0
+            };
 
-                if damage > 0.0 {
-                    damage_events.write(DamageMsg {
-                        npc_index: npc_idx as usize,
-                        amount: damage,
-                    });
-                }
+            if damage > 0.0 {
+                damage_events.write(DamageMsg {
+                    npc_index: npc_idx as usize,
+                    amount: damage,
+                });
+            }
 
-                proj_alloc.free(slot);
-                if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                    queue.push(ProjGpuUpdate::Deactivate { idx: slot });
-                }
-            } else if npc_idx == -2 {
-                // Expired projectile (lifetime ran out) — recycle slot
-                proj_alloc.free(slot);
-                if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                    queue.push(ProjGpuUpdate::Deactivate { idx: slot });
-                }
+            proj_alloc.free(slot);
+            if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                queue.push(ProjGpuUpdate::Deactivate { idx: slot });
+            }
+        } else if npc_idx == -2 {
+            // Expired projectile (lifetime ran out) — recycle slot
+            proj_alloc.free(slot);
+            if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                queue.push(ProjGpuUpdate::Deactivate { idx: slot });
             }
         }
-        hits.clear();
     }
+    hit_state.0.clear();
 }
