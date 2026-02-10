@@ -256,11 +256,12 @@ pub fn game_hud_system(
             ui.label("Click an NPC to inspect");
         }
 
-        // Panel toggle buttons (mirrors left_panel.gd's TownButtons)
+        // Panel toggle buttons
         ui.separator();
         ui.horizontal_wrapped(|ui| {
-            if ui.selectable_label(ui_state.roster_open, "Roster (R)").clicked() {
-                ui_state.roster_open = !ui_state.roster_open;
+            let roster_active = ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Roster;
+            if ui.selectable_label(roster_active, "Roster (R)").clicked() {
+                ui_state.toggle_right_tab(RightPanelTab::Roster);
             }
             if ui.selectable_label(ui_state.combat_log_open, "Log (L)").clicked() {
                 ui_state.combat_log_open = !ui_state.combat_log_open;
@@ -270,11 +271,13 @@ pub fn game_hud_system(
             if ui.selectable_label(ui_state.build_menu_open, "Build (B)").clicked() {
                 ui_state.build_menu_open = !ui_state.build_menu_open;
             }
-            if ui.selectable_label(ui_state.upgrade_menu_open, "Upgrades (U)").clicked() {
-                ui_state.upgrade_menu_open = !ui_state.upgrade_menu_open;
+            let upgrades_active = ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Upgrades;
+            if ui.selectable_label(upgrades_active, "Upgrades (U)").clicked() {
+                ui_state.toggle_right_tab(RightPanelTab::Upgrades);
             }
-            if ui.selectable_label(ui_state.policies_open, "Policies (P)").clicked() {
-                ui_state.policies_open = !ui_state.policies_open;
+            let policies_active = ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Policies;
+            if ui.selectable_label(policies_active, "Policies (P)").clicked() {
+                ui_state.toggle_right_tab(RightPanelTab::Policies);
             }
         });
 

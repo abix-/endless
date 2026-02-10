@@ -2,11 +2,9 @@
 
 pub mod main_menu;
 pub mod game_hud;
-pub mod roster_panel;
 pub mod combat_log;
 pub mod build_menu;
-pub mod upgrade_menu;
-pub mod policies_panel;
+pub mod right_panel;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -27,17 +25,12 @@ pub fn register_ui(app: &mut App) {
     // Game startup (world gen + NPC spawn)
     app.add_systems(OnEnter(AppState::Playing), game_startup_system);
 
-    // Egui panels — ordered so side panel claims width before bottom panel.
-    // HUD (SidePanel::left) → gameplay panels (bottom + windows) → pause overlay.
+    // Egui panels — ordered so side panels claim width before bottom panel.
+    // HUD (left) → right panel → bottom + windows → pause overlay.
     app.add_systems(EguiPrimaryContextPass, (
         (game_hud::game_hud_system, game_hud::target_overlay_system),
-        (
-            roster_panel::roster_panel_system,
-            combat_log::combat_log_system,
-            build_menu::build_menu_system,
-            upgrade_menu::upgrade_menu_system,
-            policies_panel::policies_panel_system,
-        ),
+        right_panel::right_panel_system,
+        (combat_log::combat_log_system, build_menu::build_menu_system),
         pause_menu_system,
     ).chain().run_if(in_state(AppState::Playing)));
 
@@ -65,7 +58,7 @@ fn ui_toggle_system(
     mut follow: ResMut<FollowSelected>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
-        ui_state.roster_open = !ui_state.roster_open;
+        ui_state.toggle_right_tab(RightPanelTab::Roster);
     }
     if keys.just_pressed(KeyCode::KeyL) {
         ui_state.combat_log_open = !ui_state.combat_log_open;
@@ -74,10 +67,10 @@ fn ui_toggle_system(
         ui_state.build_menu_open = !ui_state.build_menu_open;
     }
     if keys.just_pressed(KeyCode::KeyU) {
-        ui_state.upgrade_menu_open = !ui_state.upgrade_menu_open;
+        ui_state.toggle_right_tab(RightPanelTab::Upgrades);
     }
     if keys.just_pressed(KeyCode::KeyP) {
-        ui_state.policies_open = !ui_state.policies_open;
+        ui_state.toggle_right_tab(RightPanelTab::Policies);
     }
     if keys.just_pressed(KeyCode::KeyF) {
         follow.0 = !follow.0;

@@ -563,26 +563,45 @@ impl FactionStats {
 // UI STATE
 // ============================================================================
 
+/// Active tab in the right panel.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum RightPanelTab {
+    #[default]
+    Roster,
+    Upgrades,
+    Policies,
+}
+
 /// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
 #[derive(Resource)]
 pub struct UiState {
-    pub roster_open: bool,
     pub combat_log_open: bool,
     pub build_menu_open: bool,
-    pub upgrade_menu_open: bool,
-    pub policies_open: bool,
     pub pause_menu_open: bool,
+    pub right_panel_open: bool,
+    pub right_panel_tab: RightPanelTab,
 }
 
 impl Default for UiState {
     fn default() -> Self {
         Self {
-            roster_open: false,
             combat_log_open: true,
             build_menu_open: false,
-            upgrade_menu_open: false,
-            policies_open: false,
             pause_menu_open: false,
+            right_panel_open: false,
+            right_panel_tab: RightPanelTab::default(),
+        }
+    }
+}
+
+impl UiState {
+    /// Toggle right panel to a specific tab, or close if already showing that tab.
+    pub fn toggle_right_tab(&mut self, tab: RightPanelTab) {
+        if self.right_panel_open && self.right_panel_tab == tab {
+            self.right_panel_open = false;
+        } else {
+            self.right_panel_open = true;
+            self.right_panel_tab = tab;
         }
     }
 }
