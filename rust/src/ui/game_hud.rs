@@ -279,7 +279,7 @@ pub fn game_hud_system(
         });
 
         ui.separator();
-        ui.small("ESC = back to menu");
+        ui.small("ESC = pause menu");
     });
 
     if let Some(text) = copy_text {

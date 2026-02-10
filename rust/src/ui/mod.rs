@@ -27,32 +27,25 @@ pub fn register_ui(app: &mut App) {
     // Game startup (world gen + NPC spawn)
     app.add_systems(OnEnter(AppState::Playing), game_startup_system);
 
-    // In-game HUD + target overlay
+    // Egui panels — ordered so side panel claims width before bottom panel.
+    // HUD (SidePanel::left) → gameplay panels (bottom + windows) → pause overlay.
     app.add_systems(EguiPrimaryContextPass, (
-        game_hud::game_hud_system,
-        game_hud::target_overlay_system,
+        (game_hud::game_hud_system, game_hud::target_overlay_system),
+        (
+            roster_panel::roster_panel_system,
+            combat_log::combat_log_system,
+            build_menu::build_menu_system,
+            upgrade_menu::upgrade_menu_system,
+            policies_panel::policies_panel_system,
+        ),
+        pause_menu_system,
+    ).chain().run_if(in_state(AppState::Playing)));
+
+    // Panel toggle keyboard shortcuts + ESC
+    app.add_systems(Update, (
+        ui_toggle_system,
+        game_escape_system,
     ).run_if(in_state(AppState::Playing)));
-
-    // Gameplay panels (egui, gated on Playing)
-    app.add_systems(EguiPrimaryContextPass, (
-        roster_panel::roster_panel_system,
-        combat_log::combat_log_system,
-        build_menu::build_menu_system,
-        upgrade_menu::upgrade_menu_system,
-        policies_panel::policies_panel_system,
-    ).run_if(in_state(AppState::Playing)));
-
-    // Panel toggle keyboard shortcuts
-    app.add_systems(Update,
-        ui_toggle_system.run_if(in_state(AppState::Playing)));
-
-    // ESC toggles pause menu
-    app.add_systems(Update,
-        game_escape_system.run_if(in_state(AppState::Playing)));
-
-    // Pause menu (egui overlay)
-    app.add_systems(EguiPrimaryContextPass,
-        pause_menu_system.run_if(in_state(AppState::Playing)));
 
     // Building slot click detection + visual indicators
     app.add_systems(Update, (
