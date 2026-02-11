@@ -611,13 +611,15 @@ pub fn decision_system(
             }
         }
 
-        if food_available {
-            let eat_score = (100.0 - en) * SCORE_EAT_MULT * eat_m;
-            if eat_score > 0.0 { scores.push((Action::Eat, eat_score)); }
+        if food_available && en < ENERGY_EAT_THRESHOLD {
+            let eat_score = (ENERGY_EAT_THRESHOLD - en) * SCORE_EAT_MULT * eat_m;
+            scores.push((Action::Eat, eat_score));
         }
 
-        let rest_score = (100.0 - en) * SCORE_REST_MULT * rest_m;
-        if rest_score > 0.0 && home.is_valid() { scores.push((Action::Rest, rest_score)); }
+        if en < ENERGY_HUNGRY && home.is_valid() {
+            let rest_score = (ENERGY_HUNGRY - en) * SCORE_REST_MULT * rest_m;
+            scores.push((Action::Rest, rest_score));
+        }
 
         // Work schedule gate: check if current time allows work
         let work_allowed = match policy.map(|p| p.work_schedule).unwrap_or(WorkSchedule::Both) {
@@ -744,8 +746,8 @@ pub fn decision_system(
                                 }));
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farms to raid".into());
                             }
-                        } else {
-                            // Not enough raiders yet - wander near camp while waiting
+                        } else if !already_in_queue {
+                            // Just joined queue, not enough raiders yet - wander near camp
                             let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
                             let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
                             *activity = Activity::Wandering;
@@ -753,6 +755,7 @@ pub fn decision_system(
                                 idx, x: home.0.x + offset_x, y: home.0.y + offset_y
                             }));
                         }
+                        // else: already queued, waiting — stay idle, natural Wander handles movement
                     }
                     Job::Fighter => {}
                 }

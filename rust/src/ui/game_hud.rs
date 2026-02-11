@@ -1,4 +1,4 @@
-//! In-game HUD — population stats, time, food, selected NPC debug inspector.
+//! In-game HUD — top resource bar, bottom panel (inspector + combat log), target overlay.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -7,7 +7,97 @@ use bevy_egui::{EguiContexts, egui};
 use crate::components::*;
 use crate::gpu::NpcBufferWrites;
 use crate::resources::*;
+use crate::settings::{self, UserSettings};
 use crate::world::WorldData;
+
+// ============================================================================
+// TOP RESOURCE BAR
+// ============================================================================
+
+/// Full-width opaque top bar (WC3 style): buttons left, town name center, stats right.
+pub fn top_bar_system(
+    mut contexts: EguiContexts,
+    game_time: Res<GameTime>,
+    pop_stats: Res<PopulationStats>,
+    food_storage: Res<FoodStorage>,
+    faction_stats: Res<FactionStats>,
+    kill_stats: Res<KillStats>,
+    npc_count: Res<NpcCount>,
+    world_data: Res<WorldData>,
+    settings: Res<UserSettings>,
+    mut ui_state: ResMut<UiState>,
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
+
+    let frame = egui::Frame::new()
+        .fill(egui::Color32::from_rgb(30, 30, 35))
+        .inner_margin(egui::Margin::symmetric(8, 4));
+
+    egui::TopBottomPanel::top("resource_bar")
+        .frame(frame)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                // LEFT: panel toggle buttons
+                if ui.selectable_label(ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Roster, "Roster").clicked() {
+                    ui_state.toggle_right_tab(RightPanelTab::Roster);
+                }
+                if ui.selectable_label(ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Upgrades, "Upgrades").clicked() {
+                    ui_state.toggle_right_tab(RightPanelTab::Upgrades);
+                }
+                if ui.selectable_label(ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Policies, "Policies").clicked() {
+                    ui_state.toggle_right_tab(RightPanelTab::Policies);
+                }
+
+                ui.separator();
+
+                // CENTER: town name + time
+                let town_name = world_data.towns.first()
+                    .map(|t| t.name.as_str())
+                    .unwrap_or("Unknown");
+                let period = if game_time.is_daytime() { "Day" } else { "Night" };
+                ui.label(format!("{}  -  Day {} {:02}:{:02} ({}) {:.0}x{}",
+                    town_name,
+                    game_time.day(), game_time.hour(), game_time.minute(), period,
+                    game_time.time_scale,
+                    if game_time.paused { " [PAUSED]" } else { "" }));
+
+                // RIGHT: stats pushed to the right edge
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Debug: enemy info (rightmost)
+                    if settings.debug_enemy_info {
+                        let num_villager_towns = world_data.towns.len() / 2;
+                        let camp_food: i32 = food_storage.food.iter().skip(num_villager_towns).sum();
+                        ui.label(format!("Camp: {}", camp_food));
+                        ui.label(format!("Kills: g{} r{}",
+                            kill_stats.guard_kills, kill_stats.villager_kills));
+                        let raider_alive: i32 = faction_stats.stats.iter().skip(1).map(|s| s.alive).sum();
+                        let raider_dead: i32 = faction_stats.stats.iter().skip(1).map(|s| s.dead).sum();
+                        ui.label(format!("Raiders: {}/{}", raider_alive, raider_dead));
+                        ui.label(format!("Total: {}", npc_count.0));
+                        ui.separator();
+                    }
+
+                    // Player stats (right-aligned)
+                    let num_villager_towns = world_data.towns.len() / 2;
+                    let town_food: i32 = food_storage.food.iter().take(num_villager_towns).sum();
+                    ui.label(format!("Food: {}", town_food));
+
+                    let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
+                    let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
+                    ui.label(format!("Guards: {}", guards));
+                    ui.label(format!("Farmers: {}", farmers));
+                });
+            });
+        });
+
+    Ok(())
+}
+
+// ============================================================================
+// BOTTOM PANEL (INSPECTOR + COMBAT LOG)
+// ============================================================================
+
+const INSPECTOR_WIDTH: f32 = 260.0;
 
 /// Query bundle for NPC state display.
 #[derive(SystemParam)]
@@ -25,252 +115,156 @@ pub struct NpcStateQuery<'w, 's> {
     ), Without<Dead>>,
 }
 
-/// Bundled readonly resources for HUD display.
+/// Bundled readonly resources for bottom panel.
 #[derive(SystemParam)]
-pub struct HudData<'w> {
+pub struct BottomPanelData<'w> {
     game_time: Res<'w, GameTime>,
-    npc_count: Res<'w, NpcCount>,
-    kill_stats: Res<'w, KillStats>,
-    food_storage: Res<'w, FoodStorage>,
-    faction_stats: Res<'w, FactionStats>,
     meta_cache: Res<'w, NpcMetaCache>,
     npc_logs: Res<'w, NpcLogCache>,
+    selected: Res<'w, SelectedNpc>,
+    combat_log: Res<'w, CombatLog>,
 }
 
-pub fn game_hud_system(
+#[derive(Default)]
+pub struct LogFilterState {
+    pub show_kills: bool,
+    pub show_spawns: bool,
+    pub show_raids: bool,
+    pub show_harvests: bool,
+    pub show_levelups: bool,
+    pub show_npc_activity: bool,
+    pub initialized: bool,
+}
+
+/// Bottom panel: inspector (left, always visible) + combat log (right).
+pub fn bottom_panel_system(
     mut contexts: EguiContexts,
-    data: HudData,
-    selected: Res<SelectedNpc>,
+    data: BottomPanelData,
     world_data: Res<WorldData>,
     health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
     npc_states: NpcStateQuery,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<NpcBufferWrites>,
-    mut ui_state: ResMut<UiState>,
     mut follow: ResMut<FollowSelected>,
+    mut settings: ResMut<UserSettings>,
+    mut filter_state: Local<LogFilterState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
+
+    // Init filter state from saved settings
+    if !filter_state.initialized {
+        filter_state.show_kills = settings.log_kills;
+        filter_state.show_spawns = settings.log_spawns;
+        filter_state.show_raids = settings.log_raids;
+        filter_state.show_harvests = settings.log_harvests;
+        filter_state.show_levelups = settings.log_levelups;
+        filter_state.show_npc_activity = settings.log_npc_activity;
+        filter_state.initialized = true;
+    }
+
+    let prev_filters = (
+        filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
+        filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
+    );
+
     let mut copy_text: Option<String> = None;
 
-    egui::SidePanel::left("game_hud").default_width(260.0).show(ctx, |ui| {
-        ui.heading("Endless");
-        ui.separator();
-
-        // Time
-        let period = if data.game_time.is_daytime() { "Day" } else { "Night" };
-        ui.label(format!("Day {} - {:02}:{:02} ({})",
-            data.game_time.day(), data.game_time.hour(), data.game_time.minute(), period));
-        ui.label(format!("Speed: {:.0}x{}", data.game_time.time_scale,
-            if data.game_time.paused { " [PAUSED]" } else { "" }));
-        ui.small("Space=pause  +/-=speed");
-        ui.separator();
-
-        // Population
-        ui.label(format!("NPCs alive: {}", data.npc_count.0));
-        if let Some(villagers) = data.faction_stats.stats.first() {
-            ui.label(format!("Villagers: {} alive, {} dead", villagers.alive, villagers.dead));
-        }
-        let raider_alive: i32 = data.faction_stats.stats.iter().skip(1).map(|s| s.alive).sum();
-        let raider_dead: i32 = data.faction_stats.stats.iter().skip(1).map(|s| s.dead).sum();
-        ui.label(format!("Raiders: {} alive, {} dead", raider_alive, raider_dead));
-        ui.label(format!("Kills: guard {} | raider {}",
-            data.kill_stats.guard_kills, data.kill_stats.villager_kills));
-        ui.separator();
-
-        // Food
-        let num_villager_towns = world_data.towns.len() / 2;
-        let town_food: i32 = data.food_storage.food.iter().take(num_villager_towns).sum();
-        let camp_food: i32 = data.food_storage.food.iter().skip(num_villager_towns).sum();
-        ui.label(format!("Food: town {} | camp {}", town_food, camp_food));
-        ui.separator();
-
-        // Selected NPC inspector
-        let sel = selected.0;
-        if sel >= 0 {
-            let idx = sel as usize;
-            if idx < data.meta_cache.0.len() {
-                let meta = &data.meta_cache.0[idx];
-
-                ui.heading(format!("{}", meta.name));
-                let next_level_xp = (meta.level + 1) * (meta.level + 1) * 100;
-                ui.label(format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, next_level_xp));
-
-                let trait_str = crate::trait_name(meta.trait_id);
-                if !trait_str.is_empty() {
-                    ui.label(format!("Trait: {}", trait_str));
-                }
-
-                // Find HP + energy from query
-                let mut hp = 0.0f32;
-                let mut max_hp = 100.0f32;
-                let mut energy = 0.0f32;
-                for (npc_idx, health, cached, npc_energy) in health_query.iter() {
-                    if npc_idx.0 == idx {
-                        hp = health.0;
-                        max_hp = cached.max_health;
-                        energy = npc_energy.0;
-                        break;
-                    }
-                }
-
-                // HP bar
-                let hp_frac = if max_hp > 0.0 { (hp / max_hp).clamp(0.0, 1.0) } else { 0.0 };
-                let hp_color = if hp_frac > 0.6 {
-                    egui::Color32::from_rgb(80, 200, 80)
-                } else if hp_frac > 0.3 {
-                    egui::Color32::from_rgb(200, 200, 40)
-                } else {
-                    egui::Color32::from_rgb(200, 60, 60)
-                };
-                ui.horizontal(|ui| {
-                    ui.label("HP:");
-                    ui.add(egui::ProgressBar::new(hp_frac)
-                        .text(format!("{:.0}/{:.0}", hp, max_hp))
-                        .fill(hp_color));
-                });
-
-                // Energy bar
-                let energy_frac = (energy / 100.0).clamp(0.0, 1.0);
-                ui.horizontal(|ui| {
-                    ui.label("EN:");
-                    ui.add(egui::ProgressBar::new(energy_frac)
-                        .text(format!("{:.0}", energy))
-                        .fill(egui::Color32::from_rgb(60, 120, 200)));
-                });
-
-                // Town name
-                if meta.town_id >= 0 {
-                    if let Some(town) = world_data.towns.get(meta.town_id as usize) {
-                        ui.label(format!("Town: {}", town.name));
-                    }
-                }
-
-                // Follow toggle
-                ui.horizontal(|ui| {
-                    if ui.selectable_label(follow.0, "Follow (F)").clicked() {
-                        follow.0 = !follow.0;
-                    }
-                });
-
-                ui.separator();
-
-                // Debug: position, target, home, faction, state
-                let positions = &gpu_state.positions;
-                let targets = &buffer_writes.targets;
-
-                let pos = if idx * 2 + 1 < positions.len() {
-                    format!("({:.0}, {:.0})", positions[idx * 2], positions[idx * 2 + 1])
-                } else {
-                    "?".into()
-                };
-                let target = if idx * 2 + 1 < targets.len() {
-                    format!("({:.0}, {:.0})", targets[idx * 2], targets[idx * 2 + 1])
-                } else {
-                    "?".into()
-                };
-
-                // Collect state from Activity + CombatState enums
-                let mut state_str = String::new();
-                let mut home_str = String::new();
-                let mut faction_str = String::new();
-
-                if let Some((_, home, faction, town_id, activity, combat, at_dest, starving, healing))
-                    = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
-                {
-                    home_str = format!("({:.0}, {:.0})", home.0.x, home.0.y);
-                    faction_str = format!("{} (town {})", faction.0, town_id.0);
-
-                    let mut parts: Vec<&str> = Vec::new();
-
-                    // Combat state first (takes priority)
-                    let combat_name = combat.name();
-                    if !combat_name.is_empty() { parts.push(combat_name); }
-
-                    // Activity
-                    parts.push(activity.name());
-
-                    // Status effects
-                    if at_dest.is_some() { parts.push("AtDest"); }
-                    if starving.is_some() { parts.push("Starving"); }
-                    if healing.is_some() { parts.push("Healing"); }
-
-                    state_str = parts.join(", ");
-                }
-
-                ui.label(format!("Pos: {}", pos));
-                ui.label(format!("Target: {}", target));
-                ui.label(format!("Home: {}", home_str));
-                ui.label(format!("Faction: {}", faction_str));
-                ui.label(format!("State: {}", state_str));
-
-                // Recent log entries
-                ui.separator();
-                ui.label("Log:");
-                if idx < data.npc_logs.0.len() {
-                    let log = &data.npc_logs.0[idx];
-                    let start = if log.len() > 8 { log.len() - 8 } else { 0 };
-                    for entry in log.iter().skip(start) {
-                        ui.small(format!("D{}:{:02}:{:02} {}",
-                            entry.day, entry.hour, entry.minute, entry.message));
-                    }
-                }
-
-                // Copy debug info button
-                ui.separator();
-                if ui.button("Copy Debug Info").clicked() {
-                    let mut info = format!(
-                        "NPC #{idx} \"{name}\" {job} Lv.{level}\n\
-                         HP: {hp:.0}/{max_hp:.0}  EN: {energy:.0}\n\
-                         Pos: {pos}  Target: {target}\n\
-                         Home: {home}  Faction: {faction}\n\
-                         State: {state}\n\
-                         Day {day} {hour:02}:{min:02}\n\
-                         ---\n",
-                        idx = idx,
-                        name = meta.name,
-                        job = crate::job_name(meta.job),
-                        level = meta.level,
-                        hp = hp,
-                        max_hp = max_hp,
-                        energy = energy,
-                        pos = pos,
-                        target = target,
-                        home = home_str,
-                        faction = faction_str,
-                        state = state_str,
-                        day = data.game_time.day(),
-                        hour = data.game_time.hour(),
-                        min = data.game_time.minute(),
+    egui::TopBottomPanel::bottom("bottom_panel")
+        .default_height(160.0)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                // LEFT: Inspector (fixed width)
+                ui.vertical(|ui| {
+                    ui.set_width(INSPECTOR_WIDTH);
+                    inspector_content(
+                        ui, &data, &world_data, &health_query, &npc_states,
+                        &gpu_state, &buffer_writes, &mut follow, &settings, &mut copy_text,
                     );
-                    // Append recent log
-                    if idx < data.npc_logs.0.len() {
-                        for entry in data.npc_logs.0[idx].iter() {
-                            info.push_str(&format!("D{}:{:02}:{:02} {}\n",
-                                entry.day, entry.hour, entry.minute, entry.message));
-                        }
-                    }
-                    copy_text = Some(info);
-                }
-            }
-        } else {
-            ui.label("Click an NPC to inspect");
-        }
+                });
 
-        // Panel toggle buttons (only non-right-panel items)
-        ui.separator();
-        ui.horizontal_wrapped(|ui| {
-            if ui.selectable_label(ui_state.combat_log_open, "Log (L)").clicked() {
-                ui_state.combat_log_open = !ui_state.combat_log_open;
-            }
-            if ui.selectable_label(ui_state.build_menu_open, "Build (B)").clicked() {
-                ui_state.build_menu_open = !ui_state.build_menu_open;
-            }
+                ui.separator();
+
+                // RIGHT: Combat log (fills remaining width)
+                ui.vertical(|ui| {
+                    // Filter checkboxes
+                    ui.horizontal_wrapped(|ui| {
+                        ui.checkbox(&mut filter_state.show_kills, "Deaths");
+                        ui.checkbox(&mut filter_state.show_spawns, "Spawns");
+                        ui.checkbox(&mut filter_state.show_raids, "Raids");
+                        ui.checkbox(&mut filter_state.show_harvests, "Harvests");
+                        ui.checkbox(&mut filter_state.show_levelups, "Levels");
+                        ui.checkbox(&mut filter_state.show_npc_activity, "NPC");
+                    });
+
+                    ui.separator();
+
+                    // Scrollable log
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            // Combat events
+                            for entry in &data.combat_log.entries {
+                                let show = match entry.kind {
+                                    CombatEventKind::Kill => filter_state.show_kills,
+                                    CombatEventKind::Spawn => filter_state.show_spawns,
+                                    CombatEventKind::Raid => filter_state.show_raids,
+                                    CombatEventKind::Harvest => filter_state.show_harvests,
+                                    CombatEventKind::LevelUp => filter_state.show_levelups,
+                                };
+                                if !show { continue; }
+
+                                let color = match entry.kind {
+                                    CombatEventKind::Kill => egui::Color32::from_rgb(220, 80, 80),
+                                    CombatEventKind::Spawn => egui::Color32::from_rgb(80, 200, 80),
+                                    CombatEventKind::Raid => egui::Color32::from_rgb(220, 160, 40),
+                                    CombatEventKind::Harvest => egui::Color32::from_rgb(200, 200, 60),
+                                    CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
+                                };
+
+                                let timestamp = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
+                                ui.horizontal(|ui| {
+                                    ui.small(&timestamp);
+                                    ui.colored_label(color, &entry.message);
+                                });
+                            }
+
+                            // Selected NPC activity log entries
+                            if filter_state.show_npc_activity && data.selected.0 >= 0 {
+                                let idx = data.selected.0 as usize;
+                                if idx < data.npc_logs.0.len() {
+                                    let log = &data.npc_logs.0[idx];
+                                    let npc_color = egui::Color32::from_rgb(180, 180, 220);
+                                    for entry in log.iter() {
+                                        let timestamp = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
+                                        ui.horizontal(|ui| {
+                                            ui.small(&timestamp);
+                                            ui.colored_label(npc_color, &entry.message);
+                                        });
+                                    }
+                                }
+                            }
+                        });
+                });
+            });
         });
 
-        ui.separator();
-        ui.small("ESC = pause menu");
-    });
+    // Persist filter changes
+    let curr_filters = (
+        filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
+        filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
+    );
+    if curr_filters != prev_filters {
+        settings.log_kills = filter_state.show_kills;
+        settings.log_spawns = filter_state.show_spawns;
+        settings.log_raids = filter_state.show_raids;
+        settings.log_harvests = filter_state.show_harvests;
+        settings.log_levelups = filter_state.show_levelups;
+        settings.log_npc_activity = filter_state.show_npc_activity;
+        settings::save_settings(&settings);
+    }
 
+    // Handle clipboard copy (must be outside egui closure)
     if let Some(text) = copy_text {
         info!("Copy button clicked, {} bytes", text.len());
         match arboard::Clipboard::new() {
@@ -286,6 +280,176 @@ pub fn game_hud_system(
 
     Ok(())
 }
+
+/// Render inspector content into a ui region (left side of bottom panel).
+fn inspector_content(
+    ui: &mut egui::Ui,
+    data: &BottomPanelData,
+    world_data: &WorldData,
+    health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
+    npc_states: &NpcStateQuery,
+    gpu_state: &GpuReadState,
+    buffer_writes: &NpcBufferWrites,
+    follow: &mut FollowSelected,
+    settings: &UserSettings,
+    copy_text: &mut Option<String>,
+) {
+    let sel = data.selected.0;
+    if sel < 0 {
+        ui.label("Click an NPC to inspect");
+        return;
+    }
+    let idx = sel as usize;
+    if idx >= data.meta_cache.0.len() { return; }
+
+    let meta = &data.meta_cache.0[idx];
+
+    ui.strong(format!("{}", meta.name));
+    let next_level_xp = (meta.level + 1) * (meta.level + 1) * 100;
+    ui.label(format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, next_level_xp));
+
+    let trait_str = crate::trait_name(meta.trait_id);
+    if !trait_str.is_empty() {
+        ui.label(format!("Trait: {}", trait_str));
+    }
+
+    // Find HP + energy from query
+    let mut hp = 0.0f32;
+    let mut max_hp = 100.0f32;
+    let mut energy = 0.0f32;
+    for (npc_idx, health, cached, npc_energy) in health_query.iter() {
+        if npc_idx.0 == idx {
+            hp = health.0;
+            max_hp = cached.max_health;
+            energy = npc_energy.0;
+            break;
+        }
+    }
+
+    // HP bar
+    let hp_frac = if max_hp > 0.0 { (hp / max_hp).clamp(0.0, 1.0) } else { 0.0 };
+    let hp_color = if hp_frac > 0.6 {
+        egui::Color32::from_rgb(80, 200, 80)
+    } else if hp_frac > 0.3 {
+        egui::Color32::from_rgb(200, 200, 40)
+    } else {
+        egui::Color32::from_rgb(200, 60, 60)
+    };
+    ui.horizontal(|ui| {
+        ui.label("HP:");
+        ui.add(egui::ProgressBar::new(hp_frac)
+            .text(format!("{:.0}/{:.0}", hp, max_hp))
+            .fill(hp_color));
+    });
+
+    // Energy bar
+    let energy_frac = (energy / 100.0).clamp(0.0, 1.0);
+    ui.horizontal(|ui| {
+        ui.label("EN:");
+        ui.add(egui::ProgressBar::new(energy_frac)
+            .text(format!("{:.0}", energy))
+            .fill(egui::Color32::from_rgb(60, 120, 200)));
+    });
+
+    // Town name
+    if meta.town_id >= 0 {
+        if let Some(town) = world_data.towns.get(meta.town_id as usize) {
+            ui.label(format!("Town: {}", town.name));
+        }
+    }
+
+    // State
+    let mut state_str = String::new();
+    let mut home_str = String::new();
+    let mut faction_str = String::new();
+
+    if let Some((_, home, faction, town_id, activity, combat, at_dest, starving, healing))
+        = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
+    {
+        home_str = format!("({:.0}, {:.0})", home.0.x, home.0.y);
+        faction_str = format!("{} (town {})", faction.0, town_id.0);
+
+        let mut parts: Vec<&str> = Vec::new();
+        let combat_name = combat.name();
+        if !combat_name.is_empty() { parts.push(combat_name); }
+        parts.push(activity.name());
+        if at_dest.is_some() { parts.push("AtDest"); }
+        if starving.is_some() { parts.push("Starving"); }
+        if healing.is_some() { parts.push("Healing"); }
+        state_str = parts.join(", ");
+    }
+
+    ui.label(format!("State: {}", state_str));
+
+    // Follow toggle
+    ui.horizontal(|ui| {
+        if ui.selectable_label(follow.0, "Follow (F)").clicked() {
+            follow.0 = !follow.0;
+        }
+    });
+
+    // Debug: coordinates, faction, copy button
+    if settings.debug_coordinates {
+        ui.separator();
+
+        let positions = &gpu_state.positions;
+        let targets = &buffer_writes.targets;
+
+        let pos = if idx * 2 + 1 < positions.len() {
+            format!("({:.0}, {:.0})", positions[idx * 2], positions[idx * 2 + 1])
+        } else {
+            "?".into()
+        };
+        let target = if idx * 2 + 1 < targets.len() {
+            format!("({:.0}, {:.0})", targets[idx * 2], targets[idx * 2 + 1])
+        } else {
+            "?".into()
+        };
+
+        ui.label(format!("Pos: {}", pos));
+        ui.label(format!("Target: {}", target));
+        ui.label(format!("Home: {}", home_str));
+        ui.label(format!("Faction: {}", faction_str));
+
+        if ui.button("Copy Debug Info").clicked() {
+            let mut info = format!(
+                "NPC #{idx} \"{name}\" {job} Lv.{level}\n\
+                 HP: {hp:.0}/{max_hp:.0}  EN: {energy:.0}\n\
+                 Pos: {pos}  Target: {target}\n\
+                 Home: {home}  Faction: {faction}\n\
+                 State: {state}\n\
+                 Day {day} {hour:02}:{min:02}\n\
+                 ---\n",
+                idx = idx,
+                name = meta.name,
+                job = crate::job_name(meta.job),
+                level = meta.level,
+                hp = hp,
+                max_hp = max_hp,
+                energy = energy,
+                pos = pos,
+                target = target,
+                home = home_str,
+                faction = faction_str,
+                state = state_str,
+                day = data.game_time.day(),
+                hour = data.game_time.hour(),
+                min = data.game_time.minute(),
+            );
+            if idx < data.npc_logs.0.len() {
+                for entry in data.npc_logs.0[idx].iter() {
+                    info.push_str(&format!("D{}:{:02}:{:02} {}\n",
+                        entry.day, entry.hour, entry.minute, entry.message));
+                }
+            }
+            *copy_text = Some(info);
+        }
+    }
+}
+
+// ============================================================================
+// TARGET OVERLAY
+// ============================================================================
 
 /// Draw a target indicator line from selected NPC to its movement target.
 /// Uses egui painter on the background layer so it renders over the game viewport.
@@ -327,7 +491,7 @@ pub fn target_overlay_system(
     let viewport = egui::Vec2::new(window.width(), window.height());
     let center = viewport * 0.5;
 
-    // World→screen conversion (flip Y)
+    // World->screen conversion (flip Y)
     let npc_screen = egui::Pos2::new(
         center.x + (npc_x - cam.x) * zoom,
         center.y - (npc_y - cam.y) * zoom,
@@ -358,6 +522,35 @@ pub fn target_overlay_system(
     // Small circle highlight on NPC
     let npc_color = egui::Color32::from_rgba_unmultiplied(100, 200, 255, 160);
     painter.circle_stroke(npc_screen, 8.0, egui::Stroke::new(1.5, npc_color));
+
+    Ok(())
+}
+
+// ============================================================================
+// FPS DISPLAY
+// ============================================================================
+
+/// Always-visible FPS counter at bottom-right. Smoothed with exponential moving average.
+pub fn fps_display_system(
+    mut contexts: EguiContexts,
+    time: Res<Time>,
+    mut avg_fps: Local<f32>,
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
+    let dt = time.delta_secs();
+    if dt > 0.0 {
+        let fps = 1.0 / dt;
+        // EMA smoothing: 5% weight on new sample
+        *avg_fps = if *avg_fps == 0.0 { fps } else { *avg_fps * 0.95 + fps * 0.05 };
+    }
+
+    egui::Area::new(egui::Id::new("fps_display"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, [-8.0, -8.0])
+        .show(ctx, |ui| {
+            ui.label(egui::RichText::new(format!("FPS: {:.0}", *avg_fps))
+                .size(14.0)
+                .color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 180)));
+        });
 
     Ok(())
 }

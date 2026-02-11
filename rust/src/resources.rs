@@ -575,7 +575,6 @@ pub enum RightPanelTab {
 /// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
 #[derive(Resource)]
 pub struct UiState {
-    pub combat_log_open: bool,
     pub build_menu_open: bool,
     pub pause_menu_open: bool,
     pub right_panel_open: bool,
@@ -585,7 +584,6 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
-            combat_log_open: true,
             build_menu_open: false,
             pause_menu_open: false,
             right_panel_open: false,
@@ -699,7 +697,7 @@ pub struct ReassignQueue(pub Vec<(usize, i32)>); // (npc_slot, new_job: 0=Farmer
 // TOWN POLICIES
 // ============================================================================
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum WorkSchedule {
     #[default]
     Both,
@@ -707,7 +705,7 @@ pub enum WorkSchedule {
     NightOnly,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum OffDutyBehavior {
     #[default]
     GoToBed,
@@ -716,7 +714,7 @@ pub enum OffDutyBehavior {
 }
 
 /// Per-town behavior configuration. Controls flee thresholds, work schedules, off-duty behavior.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PolicySet {
     pub eat_food: bool,
     pub guard_aggressive: bool,

@@ -6,6 +6,7 @@ use bevy_egui::egui;
 
 use crate::components::*;
 use crate::resources::*;
+use crate::settings::{self, UserSettings};
 use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, upgrade_cost};
 use crate::world::WorldData;
 
@@ -105,48 +106,51 @@ pub struct UpgradeParams<'w> {
 
 pub fn right_panel_system(
     mut contexts: bevy_egui::EguiContexts,
-    mut ui_state: ResMut<UiState>,
+    ui_state: Res<UiState>,
     world_data: Res<WorldData>,
     mut policies: ResMut<TownPolicies>,
     mut roster: RosterParams,
     mut upgrade: UpgradeParams,
     mut roster_state: Local<RosterState>,
+    settings: Res<UserSettings>,
+    mut prev_tab: Local<RightPanelTab>,
 ) -> Result {
+    if !ui_state.right_panel_open { return Ok(()); }
+
     let ctx = contexts.ctx_mut()?;
+    let debug_all = settings.debug_all_npcs;
 
-    // Panel width: narrow for just tabs, wide when content is open
-    let width = if ui_state.right_panel_open { 340.0 } else { 200.0 };
-
-    egui::SidePanel::right("right_panel")
-        .exact_width(width)
+    egui::SidePanel::left("left_panel")
+        .exact_width(340.0)
         .show(ctx, |ui| {
-            // Tab bar — always visible
-            let open = ui_state.right_panel_open;
-            let tab = ui_state.right_panel_tab;
-
-            ui.horizontal(|ui| {
-                for (label, variant) in [
-                    ("Roster (R)", RightPanelTab::Roster),
-                    ("Upgrades (U)", RightPanelTab::Upgrades),
-                    ("Policies (P)", RightPanelTab::Policies),
-                ] {
-                    let active = open && tab == variant;
-                    if ui.selectable_label(active, label).clicked() {
-                        ui_state.toggle_right_tab(variant);
-                    }
-                }
-            });
-
-            if !ui_state.right_panel_open { return; }
-
+            // Tab heading
+            let tab_name = match ui_state.right_panel_tab {
+                RightPanelTab::Roster => "Roster",
+                RightPanelTab::Upgrades => "Upgrades",
+                RightPanelTab::Policies => "Policies",
+            };
+            ui.heading(tab_name);
             ui.separator();
 
             match ui_state.right_panel_tab {
-                RightPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state),
+                RightPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 RightPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
                 RightPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
             }
         });
+
+    // Save policies when leaving Policies tab or closing panel
+    let was_policies = *prev_tab == RightPanelTab::Policies;
+    let is_policies = ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Policies;
+    if was_policies && !is_policies {
+        let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+        if town_idx < policies.policies.len() {
+            let mut saved = settings::load_settings();
+            saved.policy = policies.policies[town_idx].clone();
+            settings::save_settings(&saved);
+        }
+    }
+    *prev_tab = if ui_state.right_panel_open { ui_state.right_panel_tab } else { RightPanelTab::Roster };
 
     Ok(())
 }
@@ -155,7 +159,7 @@ pub fn right_panel_system(
 // ROSTER CONTENT
 // ============================================================================
 
-fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut RosterState) {
+fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut RosterState, debug_all: bool) {
     // Rebuild cache every 30 frames
     state.frame_counter += 1;
     if state.frame_counter % 30 == 1 || state.cached_rows.is_empty() {
@@ -163,6 +167,8 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
         for (npc_idx, health, cached, activity, combat) in roster.health_query.iter() {
             let idx = npc_idx.0;
             let meta = &roster.meta_cache.0[idx];
+            // Hide raiders unless debug mode
+            if !debug_all && meta.job == 2 { continue; }
             if state.job_filter >= 0 && meta.job != state.job_filter {
                 continue;
             }
@@ -215,9 +221,11 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
             state.job_filter = 1;
             state.frame_counter = 0;
         }
-        if ui.selectable_label(state.job_filter == 2, "Raiders").clicked() {
-            state.job_filter = 2;
-            state.frame_counter = 0;
+        if debug_all {
+            if ui.selectable_label(state.job_filter == 2, "Raiders").clicked() {
+                state.job_filter = 2;
+                state.frame_counter = 0;
+            }
         }
     });
 

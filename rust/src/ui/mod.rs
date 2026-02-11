@@ -2,7 +2,6 @@
 
 pub mod main_menu;
 pub mod game_hud;
-pub mod combat_log;
 pub mod build_menu;
 pub mod right_panel;
 
@@ -18,6 +17,9 @@ use crate::world::{self, WorldGenConfig};
 
 /// Register all UI systems.
 pub fn register_ui(app: &mut App) {
+    // Global overlays (all states)
+    app.add_systems(EguiPrimaryContextPass, game_hud::fps_display_system);
+
     // Main menu (egui)
     app.add_systems(EguiPrimaryContextPass,
         main_menu::main_menu_system.run_if(in_state(AppState::MainMenu)));
@@ -25,12 +27,13 @@ pub fn register_ui(app: &mut App) {
     // Game startup (world gen + NPC spawn)
     app.add_systems(OnEnter(AppState::Playing), game_startup_system);
 
-    // Egui panels — ordered so side panels claim width before bottom panel.
-    // HUD (left) → right panel → bottom + windows → pause overlay.
+    // Egui panels — ordered so top bar claims height first, then side panels, then bottom.
+    // Top bar → left panel → bottom panel (inspector+log) + overlay → windows → pause overlay.
     app.add_systems(EguiPrimaryContextPass, (
-        (game_hud::game_hud_system, game_hud::target_overlay_system),
+        game_hud::top_bar_system,
         right_panel::right_panel_system,
-        (combat_log::combat_log_system, build_menu::build_menu_system),
+        (game_hud::bottom_panel_system, game_hud::target_overlay_system),
+        build_menu::build_menu_system,
         pause_menu_system,
     ).chain().run_if(in_state(AppState::Playing)));
 
@@ -59,9 +62,6 @@ fn ui_toggle_system(
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
         ui_state.toggle_right_tab(RightPanelTab::Roster);
-    }
-    if keys.just_pressed(KeyCode::KeyL) {
-        ui_state.combat_log_open = !ui_state.combat_log_open;
     }
     if keys.just_pressed(KeyCode::KeyB) {
         ui_state.build_menu_open = !ui_state.build_menu_open;
@@ -101,11 +101,19 @@ fn game_startup_system(
     mut game_time: ResMut<GameTime>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut town_grids: ResMut<world::TownGrids>,
+    mut policies: ResMut<TownPolicies>,
 ) {
     info!("Game startup: generating world...");
 
     // Generate world (populates grid + world_data + farm_states)
     world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states);
+
+    // Load saved policies for player's town
+    let saved = crate::settings::load_settings();
+    let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+    if town_idx < policies.policies.len() {
+        policies.policies[town_idx] = saved.policy;
+    }
 
     // Init town building grids (one per villager town)
     town_grids.grids.clear();
@@ -316,6 +324,13 @@ fn pause_menu_system(
                     ui.checkbox(&mut settings.log_raids, "Raids");
                     ui.checkbox(&mut settings.log_harvests, "Harvests");
                     ui.checkbox(&mut settings.log_levelups, "Level Ups");
+                    ui.checkbox(&mut settings.log_npc_activity, "NPC Activity");
+
+                    ui.add_space(4.0);
+                    ui.label("Debug:");
+                    ui.checkbox(&mut settings.debug_enemy_info, "Enemy Info");
+                    ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
+                    ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
                 });
 
             ui.separator();

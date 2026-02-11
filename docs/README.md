@@ -60,11 +60,12 @@ Bevy ECS (lib.rs build_app)
     ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, panels, startup, cleanup
     │   ├─ Main menu: world config sliders + Play / Debug Tests
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
-    │   ├─ In-game HUD: population, time, food, NPC inspector, Log/Build toggles
-    │   ├─ Right panel (always visible): tabbed SidePanel with Roster (R) / Upgrades (U) / Policies (P)
-    │   ├─ Combat log (L): global event feed (kills, spawns, raids, harvests)
+    │   ├─ Top bar: panel toggles left, town name + time center, stats right
+    │   ├─ Bottom panel: NPC inspector (left) + combat log with filters (right)
+    │   ├─ Left panel: tabbed SidePanel with Roster (R) / Upgrades (U) / Policies (P)
+    │   ├─ FPS overlay: bottom-right corner, EMA-smoothed, always visible (all states)
     │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Destroy/Unlock/Turret toggle)
-    │   ├─ Pause menu (ESC): Resume, Settings (scroll speed + log filters), Exit to Main Menu
+    │   ├─ Pause menu (ESC): Resume, Settings (scroll speed + log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
@@ -132,11 +133,10 @@ rust/
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
   src/world.rs          # World data structs, world grid, procedural generation, tileset builder, town grid, building placement/removal
   src/ui/
-    mod.rs              # register_ui(), game startup, cleanup, pause menu, escape/time controls, keyboard toggles, slot right-click, slot indicators
+    mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings), escape/time controls, keyboard toggles, slot right-click, slot indicators
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
-    game_hud.rs         # In-game HUD (population, time, food, NPC inspector, Log/Build toggles, target overlay)
-    right_panel.rs      # Tabbed right SidePanel: Roster (R) / Upgrades (U) / Policies (P) — always visible tabs, expand on click
-    combat_log.rs       # Event feed with color-coded timestamps (L key)
+    game_hud.rs         # Top bar, bottom panel (inspector + combat log), target overlay, FPS counter
+    right_panel.rs      # Tabbed left SidePanel: Roster (R) / Upgrades (U) / Policies (P) — policy persistence on tab leave
     build_menu.rs       # Right-click context menu: build/destroy/unlock town slots, turret toggle
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)

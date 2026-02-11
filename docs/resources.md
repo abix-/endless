@@ -173,6 +173,8 @@ Defaults: eat_food=true, guard_aggressive=false, guard_leash=true, farmer_fight_
 
 Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard NPCs. Raiders use hardcoded flee threshold (0.50). Per-entity overrides still possible via `FleeThreshold` component (e.g., boss NPCs).
 
+`PolicySet`, `WorkSchedule`, and `OffDutyBehavior` all derive `serde::Serialize + Deserialize`. Settings path: `Documents\Endless\settings.json`.
+
 ## Selection
 
 | Resource | Data | Purpose |
@@ -195,17 +197,19 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| UiState | combat_log_open, build_menu_open, pause_menu_open, right_panel_open, right_panel_tab (RightPanelTab enum) | ui_toggle_system (keyboard), game_hud (buttons), right_panel tabs, pause_menu | All panel systems |
-| CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system, reassign_npc_system | combat_log panel |
+| UiState | build_menu_open, pause_menu_open, right_panel_open, right_panel_tab (RightPanelTab enum) | ui_toggle_system (keyboard), top_bar (buttons), right_panel tabs, pause_menu | All panel systems |
+| CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system, reassign_npc_system | bottom_panel_system |
 | BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, screen_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
 | ReassignQueue | `Vec<(usize, i32)>` — (npc_slot, new_job) | right_panel roster (UI) | reassign_npc_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | right_panel upgrades (UI) | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
-| UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups | main_menu (save on Play), combat_log (save on filter change), pause_menu (save on close) | main_menu (load on init), combat_log (load on init), pause_menu settings, camera_pan_system |
+| UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system |
 
-`UiState` tracks which panels are open. `combat_log_open` defaults to true, all others false. `RightPanelTab` enum: Roster (default), Upgrades, Policies. `toggle_right_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
+`UiState` tracks which panels are open. All default to false. `RightPanelTab` enum: Roster (default), Upgrades, Policies. `toggle_right_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 
 `CombatLog` is a ring buffer of global events with 5 kinds: Kill, Spawn, Raid, Harvest, LevelUp. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
+
+`PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicies` on game startup, saved when leaving the Policies tab in the right panel.
 
 ## Debug Resources
 

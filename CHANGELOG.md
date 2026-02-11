@@ -2,6 +2,25 @@
 
 ## 2026-02-10
 
+- **UI overhaul: top bar, bottom panel, policy persistence, FPS overlay**
+  - replace left HUD panel with full-width top bar (panel toggles left, town name + time center, stats right) and bottom panel (inspector left, combat log with filter checkboxes right)
+  - merge combat_log.rs into game_hud.rs bottom panel — remove standalone combat_log module
+  - right panel renamed to left panel (SidePanel::left), simplified to heading + content (no inline tab bar)
+  - move FPS counter from tests/mod.rs to ui/game_hud.rs, anchor bottom-right, register globally (visible on all screens)
+  - persist town policies to settings.json (PolicySet + WorkSchedule + OffDutyBehavior now serde Serialize/Deserialize)
+  - load saved policies on game startup, save on leaving Policies tab
+  - settings file moved from executable directory to `Documents\Endless\settings.json`
+  - add debug settings to pause menu (Enemy Info, NPC Coordinates, All NPCs in Roster)
+  - add NPC Activity filter to combat log
+  - roster hides raiders unless "All NPCs" debug setting enabled
+  - remove `combat_log_open` from UiState (combat log now always visible in bottom panel)
+
+- **behavior: tighten eat/rest thresholds, fix raider queue**
+  - eat only scored when energy < ENERGY_EAT_THRESHOLD (10) — emergency only, NPCs prefer rest
+  - rest only scored when energy < ENERGY_HUNGRY (50) — prevents unnecessary rest at high energy
+  - fix raiders re-wandering every frame while already queued for raid — only wander on initial queue join
+  - initialize GPU combat target buffer to -1 (prevents zeroed memory misread as "target NPC 0")
+
 - **escape menu, tabbed right panel, maximized window**
   - ESC opens pause menu overlay (Resume, Settings, Exit to Main Menu) instead of instantly quitting — game stays in Playing state, auto-pauses when menu opens
   - pause menu settings: scroll speed slider + combat log filter checkboxes, saved to UserSettings on close

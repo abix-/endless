@@ -76,6 +76,9 @@ pub const ENERGY_WAKE_THRESHOLD: f32 = 90.0;
 /// Energy threshold to stop working and seek rest.
 pub const ENERGY_TIRED_THRESHOLD: f32 = 30.0;
 
+/// Energy threshold below which NPCs consider eating (emergency only).
+pub const ENERGY_EAT_THRESHOLD: f32 = 10.0;
+
 // ============================================================================
 // UTILITY AI ACTION SCORES
 // ============================================================================

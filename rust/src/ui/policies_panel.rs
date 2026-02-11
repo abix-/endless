@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::resources::*;
+use crate::settings;
 use crate::world::WorldData;
 
 const SCHEDULE_OPTIONS: &[&str] = &["Both Shifts", "Day Only", "Night Only"];
@@ -136,6 +137,10 @@ pub fn policies_panel_system(
 
     if !open {
         ui_state.policies_open = false;
+        // Save policies when window closes
+        let mut saved = settings::load_settings();
+        saved.policy = policies.policies[town_idx].clone();
+        settings::save_settings(&saved);
     }
 
     Ok(())

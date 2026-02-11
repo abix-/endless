@@ -529,7 +529,9 @@ fn setup_readback_buffers(
         buffers.add(buf)
     };
     let combat_target_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPCS as usize * 4], RenderAssetUsages::RENDER_WORLD);
+        // Initialize with -1 per slot so zeroed memory isn't misread as "target NPC 0"
+        let init_targets: Vec<i32> = vec![-1; MAX_NPCS as usize];
+        let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_targets), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
