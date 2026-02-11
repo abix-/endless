@@ -29,12 +29,14 @@ Main World (ECS)                       Render World (GPU)
 │                                      │   ├─ Mode 0: clear grid (atomicStore 0)
 │                                      │   ├─ Mode 1: build grid (atomicAdd NPC indices)
 │                                      │   ├─ Mode 2: separation + movement + combat targeting
-│                                      │   └─ copy positions + combat_targets → ReadbackHandles assets
+│                                      │   └─ copy positions + combat_targets + factions + healths → ReadbackHandles assets
 │                                      │
 │                                      └─ Bevy Readback (async, managed by Bevy)
 │                                          ReadbackComplete observers fire when GPU data ready:
 │                                          ├─ npc_positions → GpuReadState.positions
 │                                          ├─ combat_targets → GpuReadState.combat_targets
+│                                          ├─ npc_factions → GpuReadState.factions
+│                                          ├─ npc_health → GpuReadState.health
 │                                          ├─ proj_hits → ProjHitState.0
 │                                          └─ proj_positions → ProjPositionState.0
 │
@@ -59,11 +61,13 @@ ECS → GPU (upload):
     Dead NPCs skipped by renderer (x < -9000), stale visual data is harmless
 
 GPU → ECS (readback, Bevy async Readback):
-  NpcComputeNode: dispatch compute + copy positions/combat_targets → ReadbackHandles ShaderStorageBuffer assets
+  NpcComputeNode: dispatch compute + copy positions/combat_targets/factions/healths → ReadbackHandles ShaderStorageBuffer assets
   ProjectileComputeNode: copy hits/positions → ReadbackHandles ShaderStorageBuffer assets
     → Bevy Readback entities async-read buffers, fire ReadbackComplete observers:
       npc_positions → GpuReadState.positions
       combat_targets → GpuReadState.combat_targets
+      npc_factions → GpuReadState.factions
+      npc_health → GpuReadState.health
       proj_hits → ProjHitState.0
       proj_positions → ProjPositionState.0
     → gpu_position_readback: GpuReadState → ECS Position components
@@ -115,9 +119,9 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 4 | grid_data | i32[] | — | Not uploaded | NPC indices per cell (written by mode 1) |
 | 5 | arrivals | i32 | 4B | NpcBufferWrites.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
 | 6 | backoff | i32 | 4B | Not uploaded | TCP-style collision backoff counter (read/written by mode 2) |
-| 7 | factions | i32 | 4B | NpcBufferWrites.factions | 0=Villager, 1+=Raider camps |
-| 8 | healths | f32 | 4B | NpcBufferWrites.healths | Current HP |
-| 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader) |
+| 7 | factions | i32 | 4B | NpcBufferWrites.factions | 0=Villager, 1+=Raider camps (COPY_SRC for readback) |
+| 8 | healths | f32 | 4B | NpcBufferWrites.healths | Current HP (COPY_SRC for readback) |
+| 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader, init -1) |
 | 10 | params | Params (uniform) | — | NpcComputeParams | Count, delta, grid config, thresholds |
 
 ### Render Instance Data (npc_render.rs)

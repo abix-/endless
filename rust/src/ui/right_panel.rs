@@ -106,7 +106,7 @@ pub struct UpgradeParams<'w> {
 
 pub fn right_panel_system(
     mut contexts: bevy_egui::EguiContexts,
-    ui_state: Res<UiState>,
+    mut ui_state: ResMut<UiState>,
     world_data: Res<WorldData>,
     mut policies: ResMut<TownPolicies>,
     mut roster: RosterParams,
@@ -115,29 +115,37 @@ pub fn right_panel_system(
     settings: Res<UserSettings>,
     mut prev_tab: Local<RightPanelTab>,
 ) -> Result {
-    if !ui_state.right_panel_open { return Ok(()); }
+    if !ui_state.right_panel_open {
+        *prev_tab = RightPanelTab::Roster;
+        return Ok(());
+    }
 
     let ctx = contexts.ctx_mut()?;
     let debug_all = settings.debug_all_npcs;
 
-    egui::SidePanel::left("left_panel")
-        .exact_width(340.0)
-        .show(ctx, |ui| {
-            // Tab heading
-            let tab_name = match ui_state.right_panel_tab {
-                RightPanelTab::Roster => "Roster",
-                RightPanelTab::Upgrades => "Upgrades",
-                RightPanelTab::Policies => "Policies",
-            };
-            ui.heading(tab_name);
-            ui.separator();
+    let tab_name = match ui_state.right_panel_tab {
+        RightPanelTab::Roster => "Roster",
+        RightPanelTab::Upgrades => "Upgrades",
+        RightPanelTab::Policies => "Policies",
+    };
 
+    let mut open = ui_state.right_panel_open;
+    egui::Window::new(tab_name)
+        .open(&mut open)
+        .resizable(false)
+        .default_width(340.0)
+        .anchor(egui::Align2::LEFT_TOP, [4.0, 30.0])
+        .show(ctx, |ui| {
             match ui_state.right_panel_tab {
                 RightPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 RightPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
                 RightPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
             }
         });
+
+    if !open {
+        ui_state.right_panel_open = false;
+    }
 
     // Save policies when leaving Policies tab or closing panel
     let was_policies = *prev_tab == RightPanelTab::Policies;

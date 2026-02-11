@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-02-11
+
+- **fix: GPU readback for factions and health**
+  - add factions + health readback buffers (COPY_SRC on GPU buffers, ReadbackComplete observers, render node copy)
+  - enables `count_nearby_factions()` for flee threat assessment and guard post turret targeting
+  - initialize combat_target readback buffer to -1 (prevents zeroed memory misread as "target NPC 0" causing instant kills on frame 1)
+  - initialize factions readback buffer to -1 (prevents unspawned slots being treated as faction 0)
+
+- **fix: guard patrol cross-town bug**
+  - `build_patrol_route()` now converts NPC WorldData index (0, 2, 4...) to building pair index (0, 1, 2...) via `/ 2`
+  - guards from town 1+ were patrolling wrong town's guard posts due to index convention mismatch
+
+- **UI: left panel changed from SidePanel to floating Window**
+  - roster/upgrades/policies panel now an anchored egui::Window with close button
+  - changed Res<UiState> to ResMut<UiState> to support window close
+
 ## 2026-02-10
 
 - **UI overhaul: top bar, bottom panel, policy persistence, FPS overlay**

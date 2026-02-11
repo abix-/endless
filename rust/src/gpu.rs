@@ -513,6 +513,8 @@ pub fn populate_proj_buffer_writes(mut writes: ResMut<ProjBufferWrites>) {
 pub struct ReadbackHandles {
     pub npc_positions: Handle<ShaderStorageBuffer>,
     pub combat_targets: Handle<ShaderStorageBuffer>,
+    pub npc_factions: Handle<ShaderStorageBuffer>,
+    pub npc_health: Handle<ShaderStorageBuffer>,
     pub proj_hits: Handle<ShaderStorageBuffer>,
     pub proj_positions: Handle<ShaderStorageBuffer>,
 }
@@ -535,6 +537,18 @@ fn setup_readback_buffers(
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
+    let npc_faction_buf = {
+        // Initialize with -1 so unspawned slots aren't misread as faction 0 (player)
+        let init_factions: Vec<i32> = vec![-1; MAX_NPCS as usize];
+        let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_factions), RenderAssetUsages::RENDER_WORLD);
+        buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
+        buffers.add(buf)
+    };
+    let npc_health_buf = {
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPCS as usize * 4], RenderAssetUsages::RENDER_WORLD);
+        buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
+        buffers.add(buf)
+    };
     let proj_hit_buf = {
         // Initialize with [-1, 0] per slot so zeroed memory isn't misread as "hit NPC 0"
         let init_hits: Vec<[i32; 2]> = vec![[-1, 0]; MAX_PROJECTILES as usize];
@@ -551,6 +565,8 @@ fn setup_readback_buffers(
     let handles = ReadbackHandles {
         npc_positions: npc_pos_buf.clone(),
         combat_targets: combat_target_buf.clone(),
+        npc_factions: npc_faction_buf.clone(),
+        npc_health: npc_health_buf.clone(),
         proj_hits: proj_hit_buf.clone(),
         proj_positions: proj_pos_buf.clone(),
     };
@@ -568,6 +584,18 @@ fn setup_readback_buffers(
         .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
             let data: Vec<i32> = event.to_shader_type();
             state.combat_targets = data;
+        });
+
+    commands.spawn(Readback::buffer(npc_faction_buf))
+        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
+            let data: Vec<i32> = event.to_shader_type();
+            state.factions = data;
+        });
+
+    commands.spawn(Readback::buffer(npc_health_buf))
+        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
+            let data: Vec<f32> = event.to_shader_type();
+            state.health = data;
         });
 
     commands.spawn(Readback::buffer(proj_hit_buf))
@@ -804,13 +832,13 @@ fn init_npc_compute_pipeline(
         factions: render_device.create_buffer(&BufferDescriptor {
             label: Some("factions"),
             size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
         healths: render_device.create_buffer(&BufferDescriptor {
             label: Some("healths"),
             size: (MAX_NPCS as usize * std::mem::size_of::<f32>()) as u64,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
         combat_targets: render_device.create_buffer(&BufferDescriptor {
@@ -1185,6 +1213,20 @@ impl render_graph::Node for NpcComputeNode {
         if let Some(rb_ct) = render_assets.get(&handles.combat_targets) {
             render_context.command_encoder().copy_buffer_to_buffer(
                 &buffers.combat_targets, 0, &rb_ct.buffer, 0, ct_copy_size,
+            );
+        }
+
+        let i32_copy_size = (npc_count as u64) * std::mem::size_of::<i32>() as u64;
+        let f32_copy_size = (npc_count as u64) * std::mem::size_of::<f32>() as u64;
+
+        if let Some(rb_fac) = render_assets.get(&handles.npc_factions) {
+            render_context.command_encoder().copy_buffer_to_buffer(
+                &buffers.factions, 0, &rb_fac.buffer, 0, i32_copy_size,
+            );
+        }
+        if let Some(rb_hp) = render_assets.get(&handles.npc_health) {
+            render_context.command_encoder().copy_buffer_to_buffer(
+                &buffers.healths, 0, &rb_hp.buffer, 0, f32_copy_size,
             );
         }
 

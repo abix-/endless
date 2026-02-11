@@ -177,7 +177,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
-- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — guards use `guard_flee_hp`, farmers use `farmer_flee_hp`, raiders hardcoded 0.50. `guard_aggressive` disables guard flee, `farmer_fight_back` disables farmer flee. Dynamic threat assessment (enemies vs allies within 200px, throttled every 30 frames)
+- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — guards use `guard_flee_hp`, farmers use `farmer_flee_hp`, raiders hardcoded 0.50. `guard_aggressive` disables guard flee, `farmer_fight_back` disables farmer flee. Dynamic threat assessment via `count_nearby_factions()` (enemies vs allies within 200px, throttled every 30 frames) — reads `GpuReadState.factions` and `GpuReadState.health` from GPU readback
 - If `CombatState::Fighting` + should leash: guards check `guard_leash` policy (if disabled, guards chase freely), raiders use per-entity `LeashRange` component
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
 
