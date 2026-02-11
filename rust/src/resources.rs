@@ -698,16 +698,6 @@ pub struct SpawnerEntry {
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 
 // ============================================================================
-// REASSIGN QUEUE (UI → ECS bridge)
-// ============================================================================
-
-/// Queue of role reassignment requests from UI.
-/// UI pushes here because EguiPrimaryContextPass can't use MessageWriter.
-/// Drained each frame by reassign_npc_system.
-#[derive(Resource, Default)]
-pub struct ReassignQueue(pub Vec<(usize, i32)>); // (npc_slot, new_job: 0=Farmer, 1=Guard)
-
-// ============================================================================
 // TOWN POLICIES
 // ============================================================================
 

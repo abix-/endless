@@ -129,7 +129,7 @@ rust/
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret)
-  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, ReassignQueue, etc.)
+  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
   src/world.rs          # World data structs, world grid, procedural generation, tileset builder, town grid, building placement/removal
   src/ui/
@@ -156,7 +156,7 @@ rust/
     farm_visual.rs      # Farm ready marker visual test (3 phases)
     heal_visual.rs      # Heal icon visual test (3 phases)
   src/systems/
-    spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>), reassign_npc_system (Farmer↔Guard)
+    spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
     stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, resolve_combat_stats(), xp_grant_system, process_upgrades_system
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection

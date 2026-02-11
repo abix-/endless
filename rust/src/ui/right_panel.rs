@@ -89,7 +89,6 @@ pub struct RosterParams<'w, 's> {
     ), Without<Dead>>,
     camera_query: Query<'w, 's, &'static mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<'w, GpuReadState>,
-    reassign_queue: ResMut<'w, ReassignQueue>,
 }
 
 #[derive(SystemParam)]
@@ -283,7 +282,6 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
         let selected_idx = roster.selected.0;
         let mut new_selected: Option<i32> = None;
         let mut follow_idx: Option<usize> = None;
-        let mut reassigns: Vec<(usize, i32)> = Vec::new();
 
         for row in &state.cached_rows {
             let is_selected = selected_idx == row.slot as i32;
@@ -328,19 +326,6 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
                     follow_idx = Some(row.slot);
                 }
 
-                match row.job {
-                    0 => {
-                        if ui.small_button("→G").on_hover_text("Reassign to Guard").clicked() {
-                            reassigns.push((row.slot, 1));
-                        }
-                    }
-                    1 => {
-                        if ui.small_button("→F").on_hover_text("Reassign to Farmer").clicked() {
-                            reassigns.push((row.slot, 0));
-                        }
-                    }
-                    _ => {}
-                }
             });
 
             if response.response.clicked() {
@@ -363,10 +348,6 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
             }
         }
 
-        if !reassigns.is_empty() {
-            roster.reassign_queue.0.extend(reassigns);
-            state.frame_counter = 0;
-        }
     });
 }
 

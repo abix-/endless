@@ -31,8 +31,7 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │     arrival_system, energy_system, healing_system,
 │     on_duty_tick_system, game_time_system, farm_growth_system,
 │     camp_forage_system, raider_respawn_system, starvation_system,
-│     decision_system, farm_visual_system, reassign_npc_system,
-│     process_upgrades_system
+│     decision_system, farm_visual_system, process_upgrades_system
 │
 ├─ collect_gpu_updates (after Step::Behavior)
 │     GpuUpdateMsg events → GPU_UPDATE_QUEUE (single mutex lock)

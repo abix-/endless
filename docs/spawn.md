@@ -86,21 +86,7 @@ Deterministic: adjective + job noun. Adjective cycles through a 10-word list, no
 
 Checks `ResetFlag`. If set, clears `NpcEntityMap`, `PopulationStats`, and resets `SlotAllocator`.
 
-## reassign_npc_system (Step::Behavior)
-
-Processes role reassignment requests (Farmer ↔ Guard) from `ReassignQueue` resource. The UI roster panel pushes `(slot, new_job)` tuples; this system drains the queue each frame.
-
-**Farmer → Guard**: removes `Farmer`, `WorkPosition`, `AssignedFarm` (releases farm occupancy), inserts `Guard`, `BaseAttackType::Melee`, `AttackTimer(0)`, `EquippedWeapon`, `EquippedHelmet`, builds `PatrolRoute` via `build_patrol_route()`, sets `Activity::OnDuty`. Re-resolves `CachedStats` via `resolve_combat_stats()` using actual NPC level from `NpcMetaCache`. GPU: `SetSpriteFrame(SPRITE_GUARD)`.
-
 **Town index convention**: NPCs store `TownId` as the WorldData index (0, 2, 4... for villagers; 1, 3, 5... for raiders). Buildings (farms, beds, guard posts) store `town_idx` as the pair index (0, 1, 2...). `build_patrol_route()` converts by dividing by 2: `npc_town_idx / 2` → pair index for guard post lookup.
-
-**Guard → Farmer**: removes `Guard`, `BaseAttackType`, `AttackTimer`, `EquippedWeapon`, `EquippedHelmet`, `PatrolRoute`, inserts `Farmer`, finds nearest farm via `find_nearest_location()`, inserts `WorkPosition` + `Activity::GoingToWork`. Re-resolves `CachedStats` for new job using actual NPC level. GPU: `SetSpriteFrame(SPRITE_FARMER)`.
-
-Both paths update `PopulationStats` (dec old job, inc new job), `NpcMetaCache.job`, and log to `CombatLog`.
-
-Equipment visuals update automatically — `sync_visual_sprites` reads `EquippedWeapon`/`EquippedHelmet` ECS components each frame.
-
-`ReassignQueue` is a plain `Resource` (not a Bevy Message) because the roster panel runs in `EguiPrimaryContextPass`, a separate schedule from `Update` where `MessageWriter` is unavailable.
 
 ## Building Spawners (Stage 11)
 

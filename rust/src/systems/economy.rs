@@ -305,6 +305,7 @@ pub fn spawner_respawn_system(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
     mut combat_log: ResMut<CombatLog>,
+    farm_occupancy: Res<FarmOccupancy>,
 ) {
     if !game_time.hour_ticked {
         return;
@@ -334,9 +335,9 @@ pub fn spawner_respawn_system(
 
                 let (job, work_x, work_y, starting_post, attack_type, job_name) =
                     if entry.building_kind == 0 {
-                        // Hut → Farmer
-                        let farm = world::find_nearest_location(
-                            entry.position, &world_data, world::LocationKind::Farm,
+                        // Hut → Farmer: find nearest FREE farm
+                        let farm = world::find_nearest_free_farm(
+                            entry.position, &world_data, &farm_occupancy,
                         ).unwrap_or(entry.position);
                         (0, farm.x, farm.y, -1, 0, "Farmer")
                     } else {

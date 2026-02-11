@@ -7,11 +7,11 @@ use crate::constants::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta,
-    NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind, ReassignQueue,
+    NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind,
 };
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
 use crate::systems::economy::*;
-use crate::world::{WorldData, FarmOccupancy, LocationKind, find_nearest_location, pos_to_key};
+use crate::world::WorldData;
 
 // Name generation word lists
 const ADJECTIVES: &[&str] = &["Swift", "Brave", "Calm", "Bold", "Sharp", "Quick", "Stern", "Wise", "Keen", "Strong"];
@@ -215,138 +215,3 @@ fn build_patrol_route(world: &WorldData, npc_town_idx: u32) -> Vec<Vec2> {
     posts.into_iter().map(|(_, pos)| pos).collect()
 }
 
-/// Process role reassignment requests (Farmer <-> Guard).
-/// Drains ReassignQueue, swaps job components, updates GPU sprite + population stats.
-pub fn reassign_npc_system(
-    mut commands: Commands,
-    mut queue: ResMut<ReassignQueue>,
-    npc_map: Res<NpcEntityMap>,
-    mut pop_stats: ResMut<PopulationStats>,
-    mut npc_meta: ResMut<NpcMetaCache>,
-    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    world_data: Res<WorldData>,
-    mut farm_occupancy: ResMut<FarmOccupancy>,
-    game_time: Res<GameTime>,
-    mut combat_log: ResMut<CombatLog>,
-    combat_config: Res<CombatConfig>,
-    upgrades: Res<TownUpgrades>,
-    query: Query<(&Job, &TownId, &NpcIndex, &Position, &Personality, Option<&AssignedFarm>), Without<Dead>>,
-) {
-    for (slot, new_job) in queue.0.drain(..) {
-        let Some(&entity) = npc_map.0.get(&slot) else { continue };
-        let Ok((job, town_id, npc_idx, position, personality, assigned_farm)) = query.get(entity) else { continue };
-
-        let idx = npc_idx.0;
-        let town = town_id.0;
-        let old_job = *job;
-        let pos = Vec2::new(position.x, position.y);
-
-        match (old_job, new_job) {
-            (Job::Farmer, 1) => {
-                // Farmer → Guard
-                // Release farm occupancy
-                if let Some(farm) = assigned_farm {
-                    let key = pos_to_key(farm.0);
-                    if let Some(count) = farm_occupancy.occupants.get_mut(&key) {
-                        *count = (*count - 1).max(0);
-                    }
-                }
-
-                // Resolve new stats as guard (use actual NPC level)
-                let level = npc_meta.0[slot].level;
-                let cached = resolve_combat_stats(
-                    Job::Guard, BaseAttackType::Melee, town, level, personality, &combat_config, &upgrades,
-                );
-
-                // Remove farmer components, insert guard components
-                commands.entity(entity)
-                    .remove::<Farmer>()
-                    .remove::<WorkPosition>()
-                    .remove::<AssignedFarm>()
-                    .insert(Guard)
-                    .insert(Job::Guard)
-                    .insert(BaseAttackType::Melee)
-                    .insert(cached)
-                    .insert(AttackTimer(0.0))
-                    .insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)))
-                    .insert(CombatState::None);
-
-                // Build patrol route and set activity
-                let patrol = build_patrol_route(&world_data, town as u32);
-                if !patrol.is_empty() {
-                    commands.entity(entity)
-                        .insert(PatrolRoute { posts: patrol, current: 0 })
-                        .insert(Activity::OnDuty { ticks_waiting: 0 });
-                } else {
-                    commands.entity(entity).insert(Activity::Idle);
-                }
-
-                // GPU sprite
-                let (col, row) = SPRITE_GUARD;
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col, row }));
-
-                // Population stats
-                pop_dec_alive(&mut pop_stats, Job::Farmer, town);
-                pop_inc_alive(&mut pop_stats, Job::Guard, town);
-
-                // Meta cache
-                if idx < npc_meta.0.len() {
-                    npc_meta.0[idx].job = 1;
-                }
-
-                let name = npc_meta.0[idx].name.clone();
-                combat_log.push(CombatEventKind::Spawn,
-                    game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("{} reassigned: Farmer → Guard", name));
-            }
-            (Job::Guard, 0) => {
-                // Guard → Farmer
-                // Resolve new stats as farmer (use actual NPC level)
-                let level = npc_meta.0[slot].level;
-                let cached = resolve_combat_stats(
-                    Job::Farmer, BaseAttackType::Melee, town, level, personality, &combat_config, &upgrades,
-                );
-
-                // Remove guard components, insert farmer
-                commands.entity(entity)
-                    .remove::<Guard>()
-                    .remove::<AttackTimer>()
-                    .remove::<EquippedWeapon>()
-                    .remove::<EquippedHelmet>()
-                    .remove::<PatrolRoute>()
-                    .insert(Farmer)
-                    .insert(Job::Farmer)
-                    .insert(cached)
-                    .insert(CombatState::None);
-
-                // Find nearest farm for work assignment
-                if let Some(farm_pos) = find_nearest_location(pos, &world_data, LocationKind::Farm) {
-                    commands.entity(entity)
-                        .insert(WorkPosition(farm_pos))
-                        .insert(Activity::GoingToWork);
-                } else {
-                    commands.entity(entity).insert(Activity::Idle);
-                }
-
-                // GPU sprite
-                let (col, row) = SPRITE_FARMER;
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col, row }));
-
-                // Population stats
-                pop_dec_alive(&mut pop_stats, Job::Guard, town);
-                pop_inc_alive(&mut pop_stats, Job::Farmer, town);
-
-                // Meta cache
-                if idx < npc_meta.0.len() {
-                    npc_meta.0[idx].job = 0;
-                }
-
-                let name = npc_meta.0[idx].name.clone();
-                combat_log.push(CombatEventKind::Spawn,
-                    game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("{} reassigned: Guard → Farmer", name));
-            }
-            _ => {} // Invalid reassignment — skip
-        }
-    }
-}

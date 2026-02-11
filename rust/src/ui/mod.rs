@@ -103,6 +103,7 @@ fn game_startup_system(
     mut town_grids: ResMut<world::TownGrids>,
     mut policies: ResMut<TownPolicies>,
     mut spawner_state: ResMut<SpawnerState>,
+    mut farm_occupancy: ResMut<world::FarmOccupancy>,
 ) {
     info!("Game startup: generating world...");
 
@@ -157,6 +158,9 @@ fn game_startup_system(
         });
     }
 
+    // Reset farm occupancy for fresh game
+    farm_occupancy.occupants.clear();
+
     // Spawn 1 NPC per building spawner (instant, no timer)
     let mut total = 0;
     for entry in spawner_state.0.iter_mut() {
@@ -164,10 +168,13 @@ fn game_startup_system(
         let town_data_idx = (entry.town_idx as usize) * 2;
 
         let (job, work_x, work_y, starting_post, attack_type) = if entry.building_kind == 0 {
-            // Hut → Farmer: find nearest farm
-            let farm = world::find_nearest_location(
-                entry.position, &world_data, world::LocationKind::Farm,
+            // Hut → Farmer: find nearest FREE farm (skip occupied ones)
+            let farm = world::find_nearest_free_farm(
+                entry.position, &world_data, &farm_occupancy,
             ).unwrap_or(entry.position);
+            // Pre-populate occupancy so next farmer picks a different farm
+            let key = world::pos_to_key(farm);
+            *farm_occupancy.occupants.entry(key).or_insert(0) += 1;
             (0, farm.x, farm.y, -1, 0)
         } else {
             // Barracks → Guard: find nearest guard post

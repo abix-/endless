@@ -198,9 +198,8 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
 | UiState | build_menu_open, pause_menu_open, right_panel_open, right_panel_tab (RightPanelTab enum) | ui_toggle_system (keyboard), top_bar (buttons), right_panel tabs, pause_menu | All panel systems |
-| CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system, reassign_npc_system | bottom_panel_system |
+| CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system | bottom_panel_system |
 | BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, screen_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
-| ReassignQueue | `Vec<(usize, i32)>` — (npc_slot, new_job) | right_panel roster (UI) | reassign_npc_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | right_panel upgrades (UI) | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind, town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |

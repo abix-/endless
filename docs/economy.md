@@ -66,7 +66,7 @@ game_time_system (every frame)
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Hut → Farmer (nearest farm as work target, home = building position), Barracks → Guard (nearest guard post, home = building position)
+- Hut → Farmer (nearest **free** farm via `find_nearest_free_farm` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position)
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -189,7 +189,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | FoodStorage | `Vec<i32>` — food count per town/camp | harvest, steal, forage, respawn |
 | FoodEvents | delivered/consumed event logs | arrival_system, decision_system |
 | FarmStates | Growing/Ready state + progress per farm | farm_growth_system, harvest/steal |
-| FarmOccupancy | `HashMap<pos, count>` — workers per farm | decision_system, death_cleanup |
+| FarmOccupancy | `HashMap<pos, count>` — workers per farm (max 1 enforced) | decision_system, death_cleanup, game_startup, spawner_respawn |
 | CampState | max_pop, respawn_timers, forage_timers | camp_forage_system, raider_respawn |
 | RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | decision_system, death_cleanup |
 | SpawnerState | `Vec<SpawnerEntry>` — building→NPC links + respawn timers | spawner_respawn_system, game_startup |

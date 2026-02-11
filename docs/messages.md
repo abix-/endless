@@ -53,7 +53,7 @@ Three message types used for intra-ECS communication:
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
 | DamageMsg | npc_index, amount, attacker (i32, -1=no attacker) | MessageWriter → MessageReader |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → collect_gpu_updates |
-| ReassignMsg | npc_index, new_job | Defined but unused — UI uses `ReassignQueue` resource instead (EguiPrimaryContextPass can't use MessageWriter) |
+| ReassignMsg | npc_index, new_job | Defined but unused (placeholder for future role reassignment) |
 
 ## GPU Update Messages
 
@@ -68,7 +68,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | SetSpeed | idx, speed | spawn_npc_system |
 | ApplyDamage | idx, amount | damage_system |
 | HideNpc | idx | death_cleanup_system |
-| SetSpriteFrame | idx, col, row | spawn_npc_system, reassign_npc_system |
+| SetSpriteFrame | idx, col, row | spawn_npc_system |
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_buffer_writes) |
 
 **Removed (replaced by `sync_visual_sprites`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame (see [gpu-compute.md](gpu-compute.md)).

@@ -431,7 +431,7 @@ pub struct BedOccupancy {
 }
 ```
 
-Used in: `WorldData`, `BedOccupancy`, `FarmOccupancy` resources
+Used in: `WorldData`, `FarmOccupancy` resources
 
 ---
 

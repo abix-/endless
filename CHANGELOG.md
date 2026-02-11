@@ -2,6 +2,8 @@
 
 ## 2026-02-10
 
+- **fix: enforce 1 farmer per farm** — `find_nearest_free_farm()` helper skips occupied farms; farm claiming gated on `FarmOccupancy` at arrival, spawn, and respawn; farmers redirect to free farm or idle when all occupied
+- **remove role reassignment** — `reassign_npc_system`, `ReassignQueue` resource, and roster panel reassign buttons removed (building spawners replaced this workflow)
 - **roadmap: stage 14 tower defense** — Wintermaul Wars-inspired TD mechanics: maze building with path validation, elemental rock-paper-scissors (6 elements), income/interest economy, competitive creep sending via guards, tiered tower upgrades, branching tower evolution
 - **fix: guard post patrol order** — reorder post_slots so guards patrol clockwise (TL → TR → BR → BL) instead of arbitrary order
 - **fix: newly-built spawner timing** — change spawner timer check from `> 0.0` to `>= 0.0` so newly-built Huts/Barracks (timer=0.0) spawn their NPC on the next hourly tick

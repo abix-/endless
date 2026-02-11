@@ -32,7 +32,7 @@ use resources::{
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
-    ReassignQueue, GuardPostState, FollowSelected, TownPolicies, SpawnerState,
+    GuardPostState, FollowSelected, TownPolicies, SpawnerState,
 };
 use systems::*;
 use components::*;
@@ -235,7 +235,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CombatLog>()
        .init_resource::<world::TownGrids>()
        .init_resource::<BuildMenuContext>()
-       .init_resource::<ReassignQueue>()
        .init_resource::<GuardPostState>()
        .init_resource::<SpawnerState>()
        .init_resource::<systems::stats::CombatConfig>()
@@ -290,7 +289,6 @@ pub fn build_app(app: &mut App) {
            starvation_system,
            decision_system,
            farm_visual_system,
-           reassign_npc_system,
            process_upgrades_system,
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))

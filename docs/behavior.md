@@ -168,7 +168,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `AtDestination`: match on Activity variant
   - `Patrolling` → `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting { recover_until: None }` (sleep icon derived by `sync_visual_sprites`)
-  - `GoingToWork` → `Activity::Working` + `AssignedFarm` + harvest if farm ready
+  - `GoingToWork` → check `FarmOccupancy`: if farm occupied, redirect to nearest free farm (or idle if none); else claim farm via `AssignedFarm` + harvest if ready
   - `Raiding { .. }` → steal if farm ready, else re-target; `Activity::Returning { has_food: true }`
   - `Wandering` → `Activity::Idle`
   - Wounded check (skipped if starving — HP capped at 50% by starvation, fountain can't heal past it, NPC must rest for energy first): if `prioritize_healing` policy enabled and HP < `recovery_hp` threshold:

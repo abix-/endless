@@ -20,7 +20,7 @@ use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
 use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior};
 use crate::systems::economy::*;
-use crate::world::{WorldData, LocationKind, find_nearest_location, find_location_within_radius, FarmOccupancy, find_farm_index_by_pos, pos_to_key};
+use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free_farm, find_location_within_radius, FarmOccupancy, find_farm_index_by_pos, pos_to_key};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -320,38 +320,51 @@ pub fn decision_system(
 
                         if let Some((farm_idx, farm_pos)) = find_location_within_radius(search_pos, &farms.world, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
                             let farm_key = pos_to_key(farm_pos);
-                            *farms.occupancy.occupants.entry(farm_key).or_insert(0) += 1;
+                            let occupied = farms.occupancy.occupants.get(&farm_key).copied().unwrap_or(0) >= 1;
 
-                            *activity = Activity::Working;
-                            commands.entity(entity).insert(AssignedFarm(farm_pos));
-                            pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
-
-                            // Check if farm is ready to harvest
-                            if farm_idx < farms.states.states.len()
-                                && farms.states.states[farm_idx] == FarmGrowthState::Ready
-                            {
-                                let town_idx = town_id.0 as usize;
-                                if town_idx < economy.food_storage.food.len() {
-                                    economy.food_storage.food[town_idx] += 1;
-                                    economy.food_events.consumed.push(FoodConsumed {
-                                        location_idx: farm_idx as u32,
-                                        is_camp: false,
-                                    });
+                            if occupied {
+                                // Farm already has a farmer — find a free one
+                                if let Some(free_pos) = find_nearest_free_farm(search_pos, &farms.world, &farms.occupancy) {
+                                    *activity = Activity::GoingToWork;
+                                    commands.entity(entity).insert(WorkPosition(free_pos));
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: free_pos.x, y: free_pos.y }));
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm occupied, going to free farm".into());
+                                } else {
+                                    *activity = Activity::Idle;
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied → Idle".into());
                                 }
-                                farms.states.states[farm_idx] = FarmGrowthState::Growing;
-                                farms.states.progress[farm_idx] = 0.0;
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working".into());
-                                combat_log.push(CombatEventKind::Harvest, game_time.day(), game_time.hour(), game_time.minute(),
-                                    format!("Farm #{} harvested", farm_idx));
                             } else {
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
+                                *farms.occupancy.occupants.entry(farm_key).or_insert(0) += 1;
+
+                                *activity = Activity::Working;
+                                commands.entity(entity).insert(AssignedFarm(farm_pos));
+                                pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
+
+                                // Check if farm is ready to harvest
+                                if farm_idx < farms.states.states.len()
+                                    && farms.states.states[farm_idx] == FarmGrowthState::Ready
+                                {
+                                    let town_idx = town_id.0 as usize;
+                                    if town_idx < economy.food_storage.food.len() {
+                                        economy.food_storage.food[town_idx] += 1;
+                                        economy.food_events.consumed.push(FoodConsumed {
+                                            location_idx: farm_idx as u32,
+                                            is_camp: false,
+                                        });
+                                    }
+                                    farms.states.states[farm_idx] = FarmGrowthState::Growing;
+                                    farms.states.progress[farm_idx] = 0.0;
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working".into());
+                                    combat_log.push(CombatEventKind::Harvest, game_time.day(), game_time.hour(), game_time.minute(),
+                                        format!("Farm #{} harvested", farm_idx));
+                                } else {
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)".into());
+                                }
                             }
                         } else {
-                            *activity = Activity::Working;
-                            pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: search_pos.x, y: search_pos.y }));
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (no farm)".into());
+                            *activity = Activity::Idle;
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farm nearby → Idle".into());
                         }
                     } else {
                         let current_pos = if idx * 2 + 1 < positions.len() {

@@ -400,6 +400,20 @@ pub struct FarmOccupancy {
     pub occupants: HashMap<(i32, i32), i32>,
 }
 
+/// Find nearest farm that has no farmer working it (occupancy == 0).
+pub fn find_nearest_free_farm(from: Vec2, world: &WorldData, occupancy: &FarmOccupancy) -> Option<Vec2> {
+    let mut best: Option<(f32, Vec2)> = None;
+    for farm in &world.farms {
+        let key = pos_to_key(farm.position);
+        if occupancy.occupants.get(&key).copied().unwrap_or(0) >= 1 { continue; }
+        let dist = from.distance(farm.position);
+        if best.is_none() || dist < best.unwrap().0 {
+            best = Some((dist, farm.position));
+        }
+    }
+    best.map(|(_, pos)| pos)
+}
+
 /// Find farm index by position (for FarmStates lookup which is still Vec-indexed).
 pub fn find_farm_index_by_pos(farms: &[Farm], pos: Vec2) -> Option<usize> {
     let key = pos_to_key(pos);

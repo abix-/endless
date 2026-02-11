@@ -201,9 +201,6 @@ Rules:
 - [x] User settings persistence (serde JSON, scroll speed + world gen sliders)
 - [x] Main menu DragValue widgets alongside sliders for typeable config inputs
 
-### Role Assignment & Reassignment
-- [x] Villager role assignment (Farmer↔Guard via roster panel)
-
 ### Guard Post Turrets
 - [x] Guard post auto-attack (turret behavior, fires projectiles at enemies within 250px)
 - [x] Guard post turret toggle (enable/disable via right-click build menu)
