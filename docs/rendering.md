@@ -31,7 +31,7 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                             prepare_npc_texture_bind_group
-                            (dual atlas: char + world)
+                            (triple atlas: char + world + heal)
                             prepare_npc_camera_bind_group
                                       │
                                       ▼
@@ -75,7 +75,7 @@ pub struct InstanceData {
     pub health: f32,         // normalized 0.0-1.0 (4 bytes)
     pub flash: f32,          // damage flash 0.0-1.0 (4 bytes)
     pub scale: f32,          // world-space quad size (4 bytes)
-    pub atlas_id: f32,       // 0.0=character, 1.0=world atlas (4 bytes)
+    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal halo (4 bytes)
 }
 ```
 
@@ -102,9 +102,10 @@ Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terr
 
 **Layers 5-6 (visual indicators: status, healing):**
 - Same position as body (from readback)
-- Sprite from `status_sprites` (sleep icon) / `healing_sprites` (heal glow) (stride 3: col, row, atlas_id per NPC)
+- Sprite from `status_sprites` (sleep icon) / `healing_sprites` (heal halo) (stride 3: col, row, atlas_id per NPC)
 - Sentinel: col < 0 means inactive → skip
-- Atlas: per-sprite atlas_id (currently all 0.0 = character sheet)
+- Atlas: status uses 0.0 (character sheet); healing uses 2.0 (heal.png single-sprite texture)
+- Healing layer: scale=20.0 (larger than 16px body), yellow color tint [1.0, 0.9, 0.2], atlas_id=2.0 triggers heal_texture sampling
 - Derived by `sync_visual_sprites` from `Activity::Resting` and `Healing` ECS components each frame
 - Independent layers: NPC can show sleep AND healing simultaneously
 
@@ -146,17 +147,21 @@ Two vertex buffer slots with different step modes:
 
 ## Sprite Atlases
 
-Both atlases are bound simultaneously at group 0 (bindings 0-3). Per-instance `atlas_id` selects which to sample.
+Three textures are bound simultaneously at group 0 (bindings 0-5). Per-instance `atlas_id` selects which to sample.
 
 | Atlas | Bindings | File | Size | Grid | Used By |
 |-------|----------|------|------|------|---------|
 | Character | 0-1 | `roguelikeChar_transparent.png` | 918×203 | 54×12 | NPCs, equipment, projectiles |
 | World | 2-3 | `roguelikeSheet_transparent.png` | 968×526 | 57×31 | Terrain, buildings |
+| Heal halo | 4-5 | `heal.png` | 16×16 | 1×1 | Healing halo overlay |
 
-Both use 16px sprites with 1px margin (17px cells). The vertex shader selects atlas constants based on `atlas_id`:
+Character and world atlases use 16px sprites with 1px margin (17px cells). The heal texture is a single 16×16 sprite (UV = quad_uv directly). The vertex shader selects atlas constants based on `atlas_id`:
 
 ```wgsl
-if in.atlas_id < 0.5 {
+if in.atlas_id >= 1.5 {
+    // Heal halo: single-sprite texture, UV = quad_uv
+    out.uv = in.quad_uv;
+} else if in.atlas_id < 0.5 {
     // Character atlas: 918×203
     out.uv = compute_uv(in.sprite_cell, CHAR_CELL, CHAR_SPRITE, CHAR_TEX_W, CHAR_TEX_H);
 } else {
@@ -165,7 +170,7 @@ if in.atlas_id < 0.5 {
 }
 ```
 
-The fragment shader samples from the correct texture based on `atlas_id`. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`).
+The fragment shader samples from the correct texture based on `atlas_id`. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). The heal halo early-returns after texture sampling with color tint applied.
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
@@ -222,7 +227,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | PrepareResources | `prepare_npc_buffers` | Build 7 layer buffers (body + 4 equipment + 2 indicators) |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
-| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create dual atlas bind group from NpcSpriteTexture (char + world) |
+| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create triple atlas bind group from NpcSpriteTexture (char + world + heal) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
 | Queue | `queue_npcs` | Add NpcBatch to Transparent2d (sort_key=0.5) |
 | Queue | `queue_projs` | Add ProjBatch to Transparent2d (sort_key=1.0, above NPCs) |
@@ -285,14 +290,15 @@ let ndc = offset / (camera.viewport * 0.5);
 
 ## Texture Loading
 
-`render.rs` loads both sprite sheets at startup and shares the character texture with the instanced pipeline:
+`render.rs` loads all sprite sheets at startup and shares texture handles with the instanced pipeline:
 
 | Sheet | File | Size | Grid | Used By |
 |-------|------|------|------|---------|
 | Characters | `roguelikeChar_transparent.png` | 918×203 | 54×12 (16px + 1px margin) | NPC instanced rendering |
 | World | `roguelikeSheet_transparent.png` | 968×526 | 57×31 (16px + 1px margin) | Building/terrain sprites |
+| Heal halo | `heal.png` | 16×16 | 1×1 (single sprite) | Healing overlay |
 
-Both texture handles are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas), extracted to render world for dual bind group creation.
+Texture handles are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo), extracted to render world for triple bind group creation.
 
 ## Equipment Layers
 

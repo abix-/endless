@@ -1,9 +1,8 @@
 //! Healing Visual Test (3 phases)
-//! Validates: Healing NPC gets heal icon on Healing layer, cleared when healed.
+//! Validates: Healing NPC gets halo on Healing layer (atlas_id=2.0), cleared when healed.
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::HEAL_SPRITE;
 use crate::gpu::NpcBufferWrites;
 
 use super::{TestState, TestSetupParams};
@@ -57,18 +56,19 @@ pub fn tick(
                 }
             }
         }
-        // Phase 2: Healing NPC → healing_sprites should show HEAL_SPRITE
+        // Phase 2: Healing NPC → healing_sprites should signal halo (col=0.0, atlas=2.0)
         2 => {
             let healing_idx = healing_query.iter().next().map(|n| n.0);
             test.phase_name = format!("hp={:.0} healing_idx={:?}", hp, healing_idx);
 
             if let Some(idx) = healing_idx {
-                let sprite_col = buffer.healing_sprites.get(idx * 2).copied().unwrap_or(-1.0);
-                if sprite_col == HEAL_SPRITE.0 {
-                    test.pass_phase(elapsed, format!("Heal icon set (idx={}, col={:.0})", idx, sprite_col));
+                let j = idx * 3;
+                let sprite_col = buffer.healing_sprites.get(j).copied().unwrap_or(-1.0);
+                let atlas = buffer.healing_sprites.get(j + 2).copied().unwrap_or(0.0);
+                if sprite_col >= 0.0 && atlas == 2.0 {
+                    test.pass_phase(elapsed, format!("Halo active (idx={}, atlas={:.0})", idx, atlas));
                 } else {
-                    // Healing but no icon — this is the expected RED failure
-                    test.fail_phase(elapsed, format!("Healing but healing_sprites[{}]={:.1}, expected {:.0}", idx * 2, sprite_col, HEAL_SPRITE.0));
+                    test.fail_phase(elapsed, format!("Healing but col={:.1} atlas={:.1}, expected col>=0 atlas=2", sprite_col, atlas));
                 }
             } else if elapsed > 15.0 {
                 test.fail_phase(elapsed, format!("Lost Healing marker (hp={:.0})", hp));
@@ -81,12 +81,12 @@ pub fn tick(
 
             if let Some(idx) = not_healing_idx {
                 if hp >= 90.0 {
-                    let sprite_col = buffer.healing_sprites.get(idx * 2).copied().unwrap_or(-1.0);
+                    let sprite_col = buffer.healing_sprites.get(idx * 3).copied().unwrap_or(-1.0);
                     if sprite_col == -1.0 {
-                        test.pass_phase(elapsed, format!("Heal icon cleared (hp={:.0})", hp));
+                        test.pass_phase(elapsed, format!("Halo cleared (hp={:.0})", hp));
                         test.complete(elapsed);
                     } else {
-                        test.fail_phase(elapsed, format!("Healed but healing_sprites[{}]={:.1}, expected -1", idx * 2, sprite_col));
+                        test.fail_phase(elapsed, format!("Healed but healing_sprites[{}]={:.1}, expected -1", idx * 3, sprite_col));
                     }
                 }
             }

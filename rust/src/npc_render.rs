@@ -474,13 +474,19 @@ fn prepare_npc_buffers(
         for (layer_idx, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
             let (ecol, erow, eatlas) = get_sprite(&writes, i);
             if ecol >= 0.0 {
+                // Procedural halo: larger quad, yellow color
+                let (lscale, lcolor) = if eatlas >= 1.5 {
+                    (20.0, [1.0, 0.9, 0.2, 1.0])
+                } else {
+                    (16.0, [cr, cg, cb, 1.0])
+                };
                 layer_instances[layer_idx + 1].push(InstanceData {
                     position: [px, py],
                     sprite: [ecol, erow],
-                    color: [cr, cg, cb, 1.0],
+                    color: lcolor,
                     health: 1.0,
                     flash,
-                    scale: 16.0,
+                    scale: lscale,
                     atlas_id: eatlas,
                 });
             }
@@ -534,8 +540,10 @@ fn prepare_npc_texture_bind_group(
     let Some(sprite_texture) = sprite_texture else { return };
     let Some(char_handle) = &sprite_texture.handle else { return };
     let Some(world_handle) = &sprite_texture.world_handle else { return };
+    let Some(heal_handle) = &sprite_texture.heal_handle else { return };
     let Some(char_image) = gpu_images.get(char_handle) else { return };
     let Some(world_image) = gpu_images.get(world_handle) else { return };
+    let Some(heal_image) = gpu_images.get(heal_handle) else { return };
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.texture_bind_group_layout);
 
@@ -547,6 +555,8 @@ fn prepare_npc_texture_bind_group(
             &char_image.sampler,
             &world_image.texture_view,
             &world_image.sampler,
+            &heal_image.texture_view,
+            &heal_image.sampler,
         )),
     );
 
@@ -760,6 +770,9 @@ impl FromWorld for NpcPipeline {
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                     // Bindings 2-3: World atlas
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    // Bindings 4-5: Heal halo sprite
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                 ),

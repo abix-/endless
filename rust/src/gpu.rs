@@ -30,7 +30,7 @@ use bevy::{
 use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
-use crate::constants::{HEAL_SPRITE, SLEEP_SPRITE, FOOD_SPRITE};
+use crate::constants::{SLEEP_SPRITE, FOOD_SPRITE};
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
 use crate::resources::{GpuReadState, ProjHitState, ProjPositionState, SlotAllocator};
 
@@ -323,11 +323,11 @@ pub fn sync_visual_sprites(
         buffer.item_sprites[j + 1] = ir;
         buffer.item_sprites[j + 2] = ia;
 
-        // Healing indicator (character sheet)
-        let (hlc, hlr) = if healing.is_some() { (HEAL_SPRITE.0, HEAL_SPRITE.1) } else { (-1.0, 0.0) };
+        // Healing halo (atlas_id=2.0 triggers procedural ring in shader)
+        let (hlc, hla) = if healing.is_some() { (0.0, 2.0) } else { (-1.0, 0.0) };
         buffer.healing_sprites[j] = hlc;
-        buffer.healing_sprites[j + 1] = hlr;
-        buffer.healing_sprites[j + 2] = 0.0;
+        buffer.healing_sprites[j + 1] = 0.0;
+        buffer.healing_sprites[j + 2] = hla;
 
         // Sleep indicator (character sheet)
         let (sc, sr) = if matches!(activity, Activity::Resting { .. }) {
@@ -750,6 +750,7 @@ struct NpcComputePipeline {
 pub struct NpcSpriteTexture {
     pub handle: Option<Handle<Image>>,
     pub world_handle: Option<Handle<Image>>,
+    pub heal_handle: Option<Handle<Image>>,
 }
 
 /// GPU buffers for projectile compute.

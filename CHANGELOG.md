@@ -2,6 +2,8 @@
 
 ## 2026-02-11
 
+- **healing halo** — healing NPCs show a yellow halo ring sprite (`heal.png`) instead of a small icon overlay; third texture atlas bound at group 0 bindings 4-5 (`atlas_id=2.0`); healing layer renders at scale 20 with yellow tint; heal_visual test updated for new signal format (stride fix: `idx*2` → `idx*3`)
+- **color tuning** — guard blue tint slightly darker (0.4→0.3 green), raider base red more saturated (0.5→0.3)
 - **npc-visuals test scene** — new test in Debug Tests that spawns all 4 NPC types (Guard/Farmer/Raider/Fighter) in a labeled 4×7 grid showing each render layer individually (body, weapon, helmet, item, sleep, heal, full); egui labels at world positions with sprite coordinates; stays on screen for visual review
 - **sprite coordinate updates** — Guard (0,0), Fighter (1,9), sword (45,6), helmet (28,0), sleep icon (24,7), food (24,9 on world atlas)
 - **per-sprite atlas_id** — equipment/overlay buffers expanded from stride 2 (col, row) to stride 3 (col, row, atlas); body layer reads atlas from sprite_indices[2]; `SetSpriteFrame` gains `atlas` field; food carried item renders from world atlas; body layer skips rendering when sprite col < 0

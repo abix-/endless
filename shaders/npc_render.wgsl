@@ -13,7 +13,7 @@ struct VertexInput {
     @location(5) health: f32,            // 0.0-1.0 normalized
     @location(6) flash: f32,             // 0.0-1.0 damage flash intensity
     @location(7) scale: f32,             // world-space quad size (16=NPC, 32=terrain)
-    @location(8) atlas_id: f32,          // 0=character atlas, 1=world atlas
+    @location(8) atlas_id: f32,          // 0=character atlas, 1=world atlas, 2=heal halo
 };
 
 struct VertexOutput {
@@ -33,6 +33,10 @@ struct VertexOutput {
 // World atlas (bind group 0, bindings 2-3)
 @group(0) @binding(2) var world_texture: texture_2d<f32>;
 @group(0) @binding(3) var world_sampler: sampler;
+
+// Heal halo sprite (bind group 0, bindings 4-5)
+@group(0) @binding(4) var heal_texture: texture_2d<f32>;
+@group(0) @binding(5) var heal_sampler: sampler;
 
 // Camera uniform (bind group 1)
 struct Camera {
@@ -68,7 +72,10 @@ fn vertex(in: VertexInput) -> VertexOutput {
     out.clip_position = vec4<f32>(ndc.x, ndc.y, 0.0, 1.0);
 
     // Calculate UV based on which atlas to use
-    if in.atlas_id < 0.5 {
+    if in.atlas_id >= 1.5 {
+        // Heal halo: single-sprite texture, UV = quad_uv directly
+        out.uv = in.quad_uv;
+    } else if in.atlas_id < 0.5 {
         // Character atlas
         let pixel_x = in.sprite_cell.x * CHAR_CELL + in.quad_uv.x * CHAR_SPRITE;
         let pixel_y = in.sprite_cell.y * CHAR_CELL + in.quad_uv.y * CHAR_SPRITE;
@@ -91,6 +98,13 @@ fn vertex(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Heal halo sprite (atlas_id >= 2): sample from heal_texture
+    if in.atlas_id >= 1.5 {
+        let tex_color = textureSample(heal_texture, heal_sampler, in.uv);
+        if tex_color.a < 0.1 { discard; }
+        return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+    }
+
     // Health bar in bottom 15% of sprite (quad_uv.y > 0.85 = bottom rows)
     // Only show when damaged (health < 99%) and on character atlas sprites
     let show_hp_bar = in.health < 0.99 && in.atlas_id < 0.5;
