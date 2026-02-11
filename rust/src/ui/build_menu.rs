@@ -20,6 +20,7 @@ pub fn build_menu_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut gp_state: ResMut<GuardPostState>,
+    mut spawner_state: ResMut<SpawnerState>,
 ) -> Result {
     if !ui_state.build_menu_open {
         return Ok(());
@@ -132,6 +133,15 @@ pub fn build_menu_system(
                         row, col, town_center,
                     ) {
                         Ok(()) => {
+                            // Tombstone matching spawner entry (Hut/Barracks)
+                            let destroy_pos = world::town_grid_to_world(town_center, row, col);
+                            let (dgc, dgr) = grid.world_to_grid(destroy_pos);
+                            let snapped = grid.grid_to_world(dgc, dgr);
+                            if let Some(se) = spawner_state.0.iter_mut().find(|s| {
+                                (s.position - snapped).length() < 1.0
+                            }) {
+                                se.position = Vec2::new(-99999.0, -99999.0);
+                            }
                             combat_log.push(
                                 CombatEventKind::Harvest,
                                 game_time.day(), game_time.hour(), game_time.minute(),
@@ -216,6 +226,72 @@ pub fn build_menu_system(
                             CombatEventKind::Harvest,
                             game_time.day(), game_time.hour(), game_time.minute(),
                             format!("Built guard post at ({},{}) in {}", row, col, town_name),
+                        );
+                    }
+                    action_taken = true;
+                }
+
+                // Hut
+                let can_hut = food >= HUT_BUILD_COST;
+                if ui.add_enabled(can_hut, egui::Button::new(
+                    format!("Hut ({} food)", HUT_BUILD_COST)
+                )).on_hover_text("Supports 1 farmer. Respawns after 12h if killed.")
+                .clicked() {
+                    let building = Building::Hut { town_idx };
+                    if let Ok(()) = world::place_building(
+                        &mut grid, &mut world_data, &mut farm_states,
+                        building, row, col, town_center,
+                    ) {
+                        if let Some(f) = food_storage.food.get_mut(town_data_idx) {
+                            *f -= HUT_BUILD_COST;
+                        }
+                        let pos = world::town_grid_to_world(town_center, row, col);
+                        let (gc, gr) = grid.world_to_grid(pos);
+                        let snapped = grid.grid_to_world(gc, gr);
+                        spawner_state.0.push(SpawnerEntry {
+                            building_kind: 0,
+                            town_idx: grid_idx as i32,
+                            position: snapped,
+                            npc_slot: -1,
+                            respawn_timer: 0.0,
+                        });
+                        combat_log.push(
+                            CombatEventKind::Harvest,
+                            game_time.day(), game_time.hour(), game_time.minute(),
+                            format!("Built hut at ({},{}) in {}", row, col, town_name),
+                        );
+                    }
+                    action_taken = true;
+                }
+
+                // Barracks
+                let can_barracks = food >= BARRACKS_BUILD_COST;
+                if ui.add_enabled(can_barracks, egui::Button::new(
+                    format!("Barracks ({} food)", BARRACKS_BUILD_COST)
+                )).on_hover_text("Supports 1 guard. Respawns after 12h if killed.")
+                .clicked() {
+                    let building = Building::Barracks { town_idx };
+                    if let Ok(()) = world::place_building(
+                        &mut grid, &mut world_data, &mut farm_states,
+                        building, row, col, town_center,
+                    ) {
+                        if let Some(f) = food_storage.food.get_mut(town_data_idx) {
+                            *f -= BARRACKS_BUILD_COST;
+                        }
+                        let pos = world::town_grid_to_world(town_center, row, col);
+                        let (gc, gr) = grid.world_to_grid(pos);
+                        let snapped = grid.grid_to_world(gc, gr);
+                        spawner_state.0.push(SpawnerEntry {
+                            building_kind: 1,
+                            town_idx: grid_idx as i32,
+                            position: snapped,
+                            npc_slot: -1,
+                            respawn_timer: 0.0,
+                        });
+                        combat_log.push(
+                            CombatEventKind::Harvest,
+                            game_time.day(), game_time.hour(), game_time.minute(),
+                            format!("Built barracks at ({},{}) in {}", row, col, town_name),
                         );
                     }
                     action_taken = true;

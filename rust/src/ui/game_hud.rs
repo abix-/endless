@@ -26,6 +26,7 @@ pub fn top_bar_system(
     world_data: Res<WorldData>,
     settings: Res<UserSettings>,
     mut ui_state: ResMut<UiState>,
+    spawner_state: Res<SpawnerState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -91,6 +92,24 @@ pub fn top_bar_system(
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
                     ui.label(format!("Guards: {}", guards));
                     ui.label(format!("Farmers: {}", farmers));
+
+                    // Spawner counts
+                    let hut_total = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.position.x > -9000.0).count();
+                    let hut_alive = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.position.x > -9000.0 && s.npc_slot >= 0).count();
+                    let barracks_total = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.position.x > -9000.0).count();
+                    let barracks_alive = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.position.x > -9000.0 && s.npc_slot >= 0).count();
+                    let hut_respawning = hut_total - hut_alive;
+                    let barracks_respawning = barracks_total - barracks_alive;
+                    if hut_respawning > 0 {
+                        ui.label(format!("Huts: {} ({} respawning)", hut_total, hut_respawning));
+                    } else {
+                        ui.label(format!("Huts: {}", hut_total));
+                    }
+                    if barracks_respawning > 0 {
+                        ui.label(format!("Barr: {} ({} respawning)", barracks_total, barracks_respawning));
+                    } else {
+                        ui.label(format!("Barr: {}", barracks_total));
+                    }
                 });
             });
         });
@@ -203,12 +222,14 @@ pub fn bottom_panel_system(
 
                     ui.separator();
 
-                    // Scrollable log
+                    // Scrollable log — merge combat + NPC logs chronologically
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
-                            // Combat events
+                            // Collect visible entries: (sort_key, color, timestamp, message)
+                            let mut merged: Vec<(i64, egui::Color32, String, &str)> = Vec::new();
+
                             for entry in &data.combat_log.entries {
                                 let show = match entry.kind {
                                     CombatEventKind::Kill => filter_state.show_kills,
@@ -227,27 +248,31 @@ pub fn bottom_panel_system(
                                     CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
                                 };
 
-                                let timestamp = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
-                                ui.horizontal(|ui| {
-                                    ui.small(&timestamp);
-                                    ui.colored_label(color, &entry.message);
-                                });
+                                let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
+                                let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
+                                merged.push((key, color, ts, &entry.message));
                             }
 
                             // Selected NPC activity log entries
                             if filter_state.show_npc_activity && data.selected.0 >= 0 {
                                 let idx = data.selected.0 as usize;
                                 if idx < data.npc_logs.0.len() {
-                                    let log = &data.npc_logs.0[idx];
                                     let npc_color = egui::Color32::from_rgb(180, 180, 220);
-                                    for entry in log.iter() {
-                                        let timestamp = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
-                                        ui.horizontal(|ui| {
-                                            ui.small(&timestamp);
-                                            ui.colored_label(npc_color, &entry.message);
-                                        });
+                                    for entry in data.npc_logs.0[idx].iter() {
+                                        let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
+                                        let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
+                                        merged.push((key, npc_color, ts, &entry.message));
                                     }
                                 }
+                            }
+
+                            merged.sort_by_key(|(key, ..)| *key);
+
+                            for (_, color, ts, msg) in &merged {
+                                ui.horizontal(|ui| {
+                                    ui.small(ts);
+                                    ui.colored_label(*color, *msg);
+                                });
                             }
                         });
                 });

@@ -182,6 +182,15 @@ pub const GUARD_POST_BUILD_COST: i32 = 1;
 /// Food cost to unlock one adjacent grid slot.
 pub const SLOT_UNLOCK_COST: i32 = 1;
 
+/// Food cost to build a hut (supports 1 farmer).
+pub const HUT_BUILD_COST: i32 = 3;
+
+/// Food cost to build a barracks (supports 1 guard).
+pub const BARRACKS_BUILD_COST: i32 = 5;
+
+/// Game hours before a dead NPC respawns from its building.
+pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;
+
 /// Town building grid spacing in pixels (matches WorldGrid cell_size for 1:1 alignment).
 pub const TOWN_GRID_SPACING: f32 = 32.0;
 

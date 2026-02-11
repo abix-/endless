@@ -2,6 +2,16 @@
 
 ## 2026-02-11
 
+- **stage 11: building spawners — population driven by Hut/Barracks buildings**
+  - add `Hut`/`Barracks` building types with `Building` enum variants, tile sprites, place/remove/tombstone support
+  - `SpawnerState` resource tracks building→NPC links; each entry has building_kind, position, npc_slot, respawn_timer
+  - `spawner_respawn_system` (hourly): detects dead NPCs via `NpcEntityMap`, counts down 12h timer, spawns replacement via `SlotAllocator` + `SpawnNpcMsg`
+  - `game_startup_system` builds `SpawnerState` from world gen Huts/Barracks, spawns 1 NPC per building (replaces bulk farmer/guard loops)
+  - `place_town_buildings` places N Huts + N Barracks from config sliders (sliders renamed to Huts/Barracks)
+  - build menu: Hut (3 food) and Barracks (5 food) buttons with spawner entry on build, spawner tombstone on destroy
+  - HUD top bar shows spawner counts (Huts: N, Barr: N, with respawning count)
+  - cleanup resets `SpawnerState` on game exit
+
 - **fix: ghost NPC rendering — replace NpcCount with SlotAllocator**
   - remove `NpcCount` resource (running total, never decremented on death — caused GPU to dispatch uninitialized slots)
   - remove `GpuDispatchCount` resource and `GPU_DISPATCH_COUNT` static (redundant with SlotAllocator)

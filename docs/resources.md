@@ -45,7 +45,8 @@ Static world data, immutable after initialization.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| WorldData | towns, farms, beds, guard_posts | All building positions and metadata |
+| WorldData | towns, farms, beds, guard_posts, huts, barracks | All building positions and metadata |
+| SpawnerState | `Vec<SpawnerEntry>` — one per Hut/Barracks | Building→NPC links + respawn timers |
 | BedOccupancy | `HashMap<(i32,i32), i32>` — bed position → NPC index (-1 = free) | Bed assignment |
 | FarmOccupancy | `HashMap<(i32,i32), i32>` — farm position → worker count | Farm assignment |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
@@ -59,6 +60,8 @@ Static world data, immutable after initialization.
 | Farm | position (Vec2), town_idx |
 | Bed | position (Vec2), town_idx |
 | GuardPost | position (Vec2), town_idx, patrol_order |
+| Hut | position (Vec2), town_idx |
+| Barracks | position (Vec2), town_idx |
 
 Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `find_farm_index_by_pos()`.
 
@@ -73,13 +76,13 @@ Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `f
 
 **WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<Building>`.
 
-**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `GuardPost { town_idx, patrol_order }`, `Camp { town_idx }`.
+**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `GuardPost { town_idx, patrol_order }`, `Camp { town_idx }`, `Hut { town_idx }`, `Barracks { town_idx }`.
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
 **WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 1100px camp distance, 2 farmers / 2 guards / 0 raiders per town (testing defaults).
 
-**`generate_world()`**: Pure function that takes config and populates both WorldGrid and WorldData. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 beds, 4 guard posts at grid corners).
+**`generate_world()`**: Pure function that takes config and populates both WorldGrid and WorldData. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 beds, 4 guard posts at grid corners, N Huts + N Barracks from config sliders).
 
 ### Town Building Grid
 
@@ -97,7 +100,7 @@ Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(
 
 Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. Tombstone deletion preserves parallel Vec indices (FarmStates). Fountains and camps cannot be removed.
 
-Building costs (from constants.rs): Farm=1, Bed=1, GuardPost=1, SlotUnlock=1 food (lowered for testing; real costs TBD).
+Building costs (from constants.rs): Farm=1, Bed=1, GuardPost=1, Hut=3, Barracks=5, SlotUnlock=1 food.
 
 ## Food & Economy
 
@@ -201,6 +204,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | ReassignQueue | `Vec<(usize, i32)>` — (npc_slot, new_job) | right_panel roster (UI) | reassign_npc_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | right_panel upgrades (UI) | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
+| SpawnerState | `Vec<SpawnerEntry>` — building_kind, town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system |
 
 `UiState` tracks which panels are open. All default to false. `RightPanelTab` enum: Roster (default), Upgrades, Policies. `toggle_right_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.

@@ -4,8 +4,8 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::resources::*;
-use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, STARVING_SPEED_MULT};
-use crate::world::{WorldData, FarmOccupancy, pos_to_key};
+use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS};
+use crate::world::{self, WorldData, FarmOccupancy, pos_to_key};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
 
@@ -287,5 +287,94 @@ pub fn farm_visual_system(
             }
         }
         prev_states[farm_idx] = *state;
+    }
+}
+
+// ============================================================================
+// BUILDING SPAWNER SYSTEM
+// ============================================================================
+
+/// Detects dead NPCs linked to Hut/Barracks buildings, counts down respawn timers,
+/// and spawns replacements via SlotAllocator + SpawnNpcMsg.
+/// Only runs when game_time.hour_ticked is true.
+pub fn spawner_respawn_system(
+    game_time: Res<GameTime>,
+    mut spawner_state: ResMut<SpawnerState>,
+    npc_map: Res<NpcEntityMap>,
+    mut slots: ResMut<SlotAllocator>,
+    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
+    world_data: Res<WorldData>,
+    mut combat_log: ResMut<CombatLog>,
+) {
+    if !game_time.hour_ticked {
+        return;
+    }
+
+    for entry in spawner_state.0.iter_mut() {
+        // Skip tombstoned entries (building was destroyed)
+        if entry.position.x < -9000.0 {
+            continue;
+        }
+
+        // Check if linked NPC died
+        if entry.npc_slot >= 0 {
+            if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
+                entry.npc_slot = -1;
+                entry.respawn_timer = SPAWNER_RESPAWN_HOURS;
+            }
+        }
+
+        // Count down respawn timer
+        if entry.respawn_timer > 0.0 {
+            entry.respawn_timer -= 1.0;
+            if entry.respawn_timer <= 0.0 {
+                // Spawn replacement NPC
+                let Some(slot) = slots.alloc() else { continue };
+                let town_data_idx = (entry.town_idx as usize) * 2;
+
+                let (job, work_x, work_y, starting_post, attack_type, job_name) =
+                    if entry.building_kind == 0 {
+                        // Hut → Farmer
+                        let farm = world::find_nearest_location(
+                            entry.position, &world_data, world::LocationKind::Farm,
+                        ).unwrap_or(entry.position);
+                        (0, farm.x, farm.y, -1, 0, "Farmer")
+                    } else {
+                        // Barracks → Guard
+                        let post_idx = world::find_location_within_radius(
+                            entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
+                        ).map(|(idx, _)| idx as i32).unwrap_or(-1);
+                        (1, -1.0, -1.0, post_idx, 1, "Guard")
+                    };
+
+                let home = world::find_nearest_location(
+                    entry.position, &world_data, world::LocationKind::Bed,
+                ).unwrap_or(entry.position);
+
+                spawn_writer.write(SpawnNpcMsg {
+                    slot_idx: slot,
+                    x: entry.position.x,
+                    y: entry.position.y,
+                    job,
+                    faction: 0,
+                    town_idx: town_data_idx as i32,
+                    home_x: home.x,
+                    home_y: home.y,
+                    work_x,
+                    work_y,
+                    starting_post,
+                    attack_type,
+                });
+                entry.npc_slot = slot as i32;
+                entry.respawn_timer = -1.0;
+
+                let building_name = if entry.building_kind == 0 { "Hut" } else { "Barracks" };
+                combat_log.push(
+                    CombatEventKind::Spawn,
+                    game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("{} respawned from {}", job_name, building_name),
+                );
+            }
+        }
     }
 }

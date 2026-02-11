@@ -102,10 +102,11 @@ fn game_startup_system(
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut town_grids: ResMut<world::TownGrids>,
     mut policies: ResMut<TownPolicies>,
+    mut spawner_state: ResMut<SpawnerState>,
 ) {
     info!("Game startup: generating world...");
 
-    // Generate world (populates grid + world_data + farm_states)
+    // Generate world (populates grid + world_data + farm_states + huts/barracks)
     world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states);
 
     // Load saved policies for player's town
@@ -135,78 +136,70 @@ fn game_startup_system(
     // Reset game time
     *game_time = GameTime::default();
 
-    // Spawn NPCs per town (mirrors main.gd._spawn_npcs)
+    // Build SpawnerState from world gen Huts + Barracks
+    spawner_state.0.clear();
+    for hut in world_data.huts.iter() {
+        spawner_state.0.push(SpawnerEntry {
+            building_kind: 0,
+            town_idx: hut.town_idx as i32,
+            position: hut.position,
+            npc_slot: -1,
+            respawn_timer: -1.0,
+        });
+    }
+    for barracks in world_data.barracks.iter() {
+        spawner_state.0.push(SpawnerEntry {
+            building_kind: 1,
+            town_idx: barracks.town_idx as i32,
+            position: barracks.position,
+            npc_slot: -1,
+            respawn_timer: -1.0,
+        });
+    }
+
+    // Spawn 1 NPC per building spawner (instant, no timer)
     let mut total = 0;
+    for entry in spawner_state.0.iter_mut() {
+        let Some(slot) = slots.alloc() else { break };
+        let town_data_idx = (entry.town_idx as usize) * 2;
+
+        let (job, work_x, work_y, starting_post, attack_type) = if entry.building_kind == 0 {
+            // Hut → Farmer: find nearest farm
+            let farm = world::find_nearest_location(
+                entry.position, &world_data, world::LocationKind::Farm,
+            ).unwrap_or(entry.position);
+            (0, farm.x, farm.y, -1, 0)
+        } else {
+            // Barracks → Guard: find nearest guard post
+            let post_idx = world::find_location_within_radius(
+                entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
+            ).map(|(idx, _)| idx as i32).unwrap_or(-1);
+            (1, -1.0, -1.0, post_idx, 1)
+        };
+
+        spawn_writer.write(SpawnNpcMsg {
+            slot_idx: slot,
+            x: entry.position.x,
+            y: entry.position.y,
+            job,
+            faction: 0,
+            town_idx: town_data_idx as i32,
+            home_x: entry.position.x,
+            home_y: entry.position.y,
+            work_x,
+            work_y,
+            starting_post,
+            attack_type,
+        });
+        entry.npc_slot = slot as i32;
+        total += 1;
+    }
+
+    // Raiders (unchanged — bulk spawn from camp)
     for town_idx in 0..config.num_towns {
-        let villager_idx = town_idx * 2;
         let raider_idx = town_idx * 2 + 1;
         if raider_idx >= world_data.towns.len() { break; }
-        let _villager_town = &world_data.towns[villager_idx];
         let raider_town = &world_data.towns[raider_idx];
-
-        // Collect beds and farms for this town
-        let beds: Vec<_> = world_data.beds.iter()
-            .filter(|b| b.town_idx == town_idx as u32)
-            .map(|b| b.position)
-            .collect();
-        let farms: Vec<_> = world_data.farms.iter()
-            .filter(|f| f.town_idx == town_idx as u32)
-            .map(|f| f.position)
-            .collect();
-        let posts: Vec<_> = world_data.guard_posts.iter()
-            .filter(|g| g.town_idx == town_idx as u32)
-            .collect();
-
-        if beds.is_empty() || farms.is_empty() {
-            warn!("Town {} has no beds or farms, skipping NPC spawn", town_idx);
-            continue;
-        }
-
-        // Farmers
-        for i in 0..config.farmers_per_town {
-            let Some(slot) = slots.alloc() else { break };
-            let bed = beds[i % beds.len()];
-            let farm = farms[i % farms.len()];
-            spawn_writer.write(SpawnNpcMsg {
-                slot_idx: slot,
-                x: bed.x + (i as f32 * 3.0 % 30.0) - 15.0,
-                y: bed.y + (i as f32 * 7.0 % 30.0) - 15.0,
-                job: 0,
-                faction: 0,
-                town_idx: (town_idx * 2) as i32,
-                home_x: bed.x,
-                home_y: bed.y,
-                work_x: farm.x,
-                work_y: farm.y,
-                starting_post: -1,
-                attack_type: 0,
-            });
-            total += 1;
-        }
-
-        // Guards
-        let post_count = posts.len().max(1);
-        for i in 0..config.guards_per_town {
-            let Some(slot) = slots.alloc() else { break };
-            let bed = beds[i % beds.len()];
-            spawn_writer.write(SpawnNpcMsg {
-                slot_idx: slot,
-                x: bed.x + (i as f32 * 5.0 % 30.0) - 15.0,
-                y: bed.y + (i as f32 * 11.0 % 30.0) - 15.0,
-                job: 1,
-                faction: 0,
-                town_idx: (town_idx * 2) as i32,
-                home_x: bed.x,
-                home_y: bed.y,
-                work_x: -1.0,
-                work_y: -1.0,
-                starting_post: (i % post_count) as i32,
-                attack_type: 1,
-            });
-            total += 1;
-        }
-
-        // Raiders
         let camp_pos = raider_town.center;
         let raider_town_idx = (town_idx * 2 + 1) as i32;
         for i in 0..config.raiders_per_camp {
@@ -552,6 +545,7 @@ struct CleanupWorld<'w> {
     tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     town_grids: ResMut<'w, world::TownGrids>,
     build_menu_ctx: ResMut<'w, BuildMenuContext>,
+    spawner_state: ResMut<'w, SpawnerState>,
 }
 
 #[derive(SystemParam)]
@@ -605,6 +599,7 @@ fn game_cleanup_system(
     world.tilemap_spawned.0 = false;
     *world.town_grids = Default::default();
     *world.build_menu_ctx = Default::default();
+    *world.spawner_state = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();

@@ -20,6 +20,9 @@ game_time_system (every frame)
     ├─ raider_respawn_system (hourly)
     │   └─ Camps with food + population room → spawn raider
     │
+    ├─ spawner_respawn_system (hourly)
+    │   └─ Detects dead NPCs linked to Hut/Barracks, counts down 12h timer, spawns replacement
+    │
     ├─ starvation_system (hourly)
     │   └─ NPCs with zero energy → Starving marker
     │
@@ -55,6 +58,14 @@ game_time_system (every frame)
 - Camps with food >= `RAIDER_SPAWN_COST` (5) and population < `CAMP_MAX_POP` (10) spawn a new raider
 - Spawns at camp center via `SpawnNpcMsg`
 - Subtracts food cost after spawning
+
+### spawner_respawn_system
+- Runs when `game_time.hour_ticked` is true
+- Each `SpawnerEntry` in `SpawnerState` links a Hut (farmer) or Barracks (guard) to an NPC slot
+- If `npc_slot >= 0` and NPC is dead (not in `NpcEntityMap`): starts 12h respawn timer
+- Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
+- Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
+- Hut → Farmer (nearest farm as work target), Barracks → Guard (nearest guard post)
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -180,6 +191,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | FarmOccupancy | `HashMap<pos, count>` — workers per farm | decision_system, death_cleanup |
 | CampState | max_pop, respawn_timers, forage_timers | camp_forage_system, raider_respawn |
 | RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | decision_system, death_cleanup |
+| SpawnerState | `Vec<SpawnerEntry>` — building→NPC links + respawn timers | spawner_respawn_system, game_startup |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 
 ## Constants
@@ -194,6 +206,9 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | STARVING_HP_CAP | 0.5 | 50% MaxHealth cap while starving |
 | STARVING_SPEED_MULT | 0.5 | 50% speed while starving |
 | RAID_GROUP_SIZE | 5 | Min raiders to form a raid group |
+| HUT_BUILD_COST | 3 | Food cost to build a Hut |
+| BARRACKS_BUILD_COST | 5 | Food cost to build a Barracks |
+| SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
 
 ## Known Issues
 

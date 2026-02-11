@@ -64,7 +64,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Bottom panel: NPC inspector (left) + combat log with filters (right)
     │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P)
     │   ├─ FPS overlay: bottom-right corner, EMA-smoothed, always visible (all states)
-    │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Destroy/Unlock/Turret toggle)
+    │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Hut/Barracks/Destroy/Unlock/Turret toggle)
     │   ├─ Pause menu (ESC): Resume, Settings (scroll speed + log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
@@ -107,7 +107,7 @@ Frame execution order ───────────────────�
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
-| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, raider respawning, FarmYield upgrade | 8/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, raider respawning, building spawners, FarmYield upgrade | 8/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 8/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
@@ -163,7 +163,7 @@ rust/
     combat.rs           # Attack cooldown, targeting, guard post turret auto-attack
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
-    economy.rs          # Game time, farm growth, respawning
+    economy.rs          # Game time, farm growth, respawning, building spawners
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 

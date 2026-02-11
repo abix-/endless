@@ -32,7 +32,7 @@ use resources::{
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
-    ReassignQueue, GuardPostState, FollowSelected, TownPolicies,
+    ReassignQueue, GuardPostState, FollowSelected, TownPolicies, SpawnerState,
 };
 use systems::*;
 use components::*;
@@ -238,6 +238,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<BuildMenuContext>()
        .init_resource::<ReassignQueue>()
        .init_resource::<GuardPostState>()
+       .init_resource::<SpawnerState>()
        .init_resource::<systems::stats::CombatConfig>()
        .init_resource::<systems::stats::TownUpgrades>()
        .init_resource::<systems::stats::UpgradeQueue>()
@@ -286,6 +287,7 @@ pub fn build_app(app: &mut App) {
            farm_growth_system,
            camp_forage_system,
            raider_respawn_system,
+           spawner_respawn_system,
            starvation_system,
            decision_system,
            farm_visual_system,

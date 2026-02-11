@@ -55,6 +55,20 @@ pub struct GuardPost {
     pub patrol_order: u32,
 }
 
+/// A hut that supports 1 farmer (building spawner).
+#[derive(Clone, Debug)]
+pub struct Hut {
+    pub position: Vec2,
+    pub town_idx: u32,
+}
+
+/// A barracks that supports 1 guard (building spawner).
+#[derive(Clone, Debug)]
+pub struct Barracks {
+    pub position: Vec2,
+    pub town_idx: u32,
+}
+
 // ============================================================================
 // WORLD RESOURCES
 // ============================================================================
@@ -66,6 +80,8 @@ pub struct WorldData {
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub guard_posts: Vec<GuardPost>,
+    pub huts: Vec<Hut>,
+    pub barracks: Vec<Barracks>,
 }
 
 // ============================================================================
@@ -241,6 +257,12 @@ pub fn place_building(
                 patrol_order,
             });
         }
+        Building::Hut { town_idx } => {
+            world_data.huts.push(Hut { position: snapped_pos, town_idx });
+        }
+        Building::Barracks { town_idx } => {
+            world_data.barracks.push(Barracks { position: snapped_pos, town_idx });
+        }
         _ => {} // Fountain and Camp not player-placeable
     }
 
@@ -303,6 +325,20 @@ pub fn remove_building(
                 (g.position - snapped_pos).length() < 1.0
             }) {
                 post.position = tombstone;
+            }
+        }
+        Building::Hut { .. } => {
+            if let Some(hut) = world_data.huts.iter_mut().find(|h| {
+                (h.position - snapped_pos).length() < 1.0
+            }) {
+                hut.position = tombstone;
+            }
+        }
+        Building::Barracks { .. } => {
+            if let Some(b) = world_data.barracks.iter_mut().find(|b| {
+                (b.position - snapped_pos).length() < 1.0
+            }) {
+                b.position = tombstone;
             }
         }
         _ => {}
@@ -423,17 +459,19 @@ pub const TERRAIN_TILES: [(u32, u32); 11] = [
 ];
 
 /// Atlas (col, row) positions for the 5 building tiles used in the building TilemapChunk layer.
-pub const BUILDING_TILES: [(u32, u32); 5] = [
+pub const BUILDING_TILES: [(u32, u32); 7] = [
     (50, 9),  // 0: Fountain
     (15, 2),  // 1: Bed
     (20, 20), // 2: Guard Post
     (2, 15),  // 3: Farm
     (48, 10), // 4: Camp/Tent
+    (13, 2),  // 5: Hut (house)
+    (14, 2),  // 6: Barracks (castle)
 ];
 
 /// Extract tiles from the world atlas and build a texture_2d_array for TilemapChunk.
 /// Each tile is 16x16 pixels. The atlas has 1px margins (17px cells).
-/// Called with TERRAIN_TILES (11 tiles) or BUILDING_TILES (5 tiles).
+/// Called with TERRAIN_TILES (11 tiles) or BUILDING_TILES (7 tiles).
 pub fn build_tileset(atlas: &Image, tiles: &[(u32, u32)], images: &mut Assets<Image>) -> Handle<Image> {
     let tile_size = SPRITE_SIZE as u32; // 16
     let cell_size = CELL as u32;        // 17
@@ -481,6 +519,8 @@ pub enum Building {
     Bed { town_idx: u32 },
     GuardPost { town_idx: u32, patrol_order: u32 },
     Camp { town_idx: u32 },
+    Hut { town_idx: u32 },
+    Barracks { town_idx: u32 },
 }
 
 impl Building {
@@ -492,6 +532,8 @@ impl Building {
             Building::GuardPost { .. } => 2,
             Building::Farm { .. } => 3,
             Building::Camp { .. } => 4,
+            Building::Hut { .. } => 5,
+            Building::Barracks { .. } => 6,
         }
     }
 }
@@ -704,7 +746,7 @@ pub fn generate_world(
         actual_towns, camp_positions.len(), w, h);
 }
 
-/// Place buildings for one town on the grid: fountain, 2 farms, 4 beds, 4 guard posts.
+/// Place buildings for one town on the grid: fountain, farms, beds, guard posts, huts, barracks.
 /// Uses grid-relative offsets from center, snapped to grid cells.
 fn place_town_buildings(
     grid: &mut WorldGrid,
@@ -712,7 +754,7 @@ fn place_town_buildings(
     farm_states: &mut FarmStates,
     center: Vec2,
     town_idx: u32,
-    _config: &WorldGenConfig,
+    config: &WorldGenConfig,
 ) {
     // Helper: place building at town grid (row, col), return snapped world position
     let mut place = |row: i32, col: i32, building: Building| -> Vec2 {
@@ -754,6 +796,26 @@ fn place_town_buildings(
             town_idx,
             patrol_order: order as u32,
         });
+    }
+
+    // Huts and barracks: available inner grid slots not used by other buildings
+    // Huts first, then barracks, drawing from pool in order
+    let spawner_slots: [(i32, i32); 12] = [
+        (0, -1), (0, 1), (1, -1), (1, 1), (-1, 1), (2, 0),
+        (2, 1), (1, -2), (1, 2), (0, -2), (0, 2), (-1, -2),
+    ];
+    let mut slot_iter = spawner_slots.iter();
+
+    for _ in 0..config.farmers_per_town {
+        let Some(&(row, col)) = slot_iter.next() else { break };
+        let pos = place(row, col, Building::Hut { town_idx });
+        world_data.huts.push(Hut { position: pos, town_idx });
+    }
+
+    for _ in 0..config.guards_per_town {
+        let Some(&(row, col)) = slot_iter.next() else { break };
+        let pos = place(row, col, Building::Barracks { town_idx });
+        world_data.barracks.push(Barracks { position: pos, town_idx });
     }
 }
 

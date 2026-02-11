@@ -306,31 +306,40 @@ Remaining:
 *Done when: each Hut supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Huts/Barracks to grow population. Menu sliders for farmers/guards removed.*
 
 Buildings:
-- [ ] `Building::Hut { town_idx }` and `Building::Barracks { town_idx }` variants in `world.rs`
-- [ ] `Hut`/`Barracks` structs in `WorldData`, `BUILDING_TILES` extended 5→7
-- [ ] Wire `place_building()`/`remove_building()` for Hut/Barracks (same tombstone pattern)
-- [ ] World gen: `place_town_buildings()` adds 1 Hut + 1 Barracks per villager town
+- [x] `Building::Hut { town_idx }` and `Building::Barracks { town_idx }` variants in `world.rs`
+- [x] `Hut`/`Barracks` structs in `WorldData`, `BUILDING_TILES` extended 5→7
+- [x] Wire `place_building()`/`remove_building()` for Hut/Barracks (same tombstone pattern)
+- [x] World gen: `place_town_buildings()` places N Huts + N Barracks from config sliders
 
 Spawner state:
-- [ ] `SpawnerEntry` struct: `building_kind`, `town_idx`, `position`, `npc_slot` (-1=none), `respawn_timer`
-- [ ] `SpawnerState` resource: `Vec<SpawnerEntry>` — one entry per Hut/Barracks
-- [ ] `spawner_respawn_system` in `systems/economy.rs` (Step::Behavior, hourly): detects dead NPC via `NpcEntityMap`, starts 12h timer, spawns replacement when timer expires
+- [x] `SpawnerEntry` struct: `building_kind`, `town_idx`, `position`, `npc_slot` (-1=none), `respawn_timer`
+- [x] `SpawnerState` resource: `Vec<SpawnerEntry>` — one entry per Hut/Barracks
+- [x] `spawner_respawn_system` in `systems/economy.rs` (Step::Behavior, hourly): detects dead NPC via `NpcEntityMap`, starts 12h timer, spawns replacement when timer expires
 
 UI:
-- [ ] Hut + Barracks buttons in `build_menu.rs` (push `SpawnerEntry` on build)
-- [ ] Remove `farmers`/`guards` sliders from `main_menu.rs`, `UserSettings`, `WorldGenConfig`, `GameConfig`
-- [ ] HUD shows spawner counts: `Huts: 2 (1 alive, 1 in 8h)` / `Barracks: 3 (3 alive)`
+- [x] Hut + Barracks buttons in `build_menu.rs` (push `SpawnerEntry` on build)
+- [x] Sliders renamed to Huts/Barracks (kept for testing, control world gen building count)
+- [x] HUD shows spawner counts: `Huts: 2 (1 respawning)` / `Barr: 3`
 
 Startup:
-- [ ] `game_startup_system` builds `SpawnerState` from world gen Huts/Barracks, spawns 1 NPC per entry (instant, no timer)
-- [ ] Remove bulk farmer/guard spawn loops — keep raider spawn loop
+- [x] `game_startup_system` builds `SpawnerState` from world gen Huts/Barracks, spawns 1 NPC per entry (instant, no timer)
+- [x] Replaced bulk farmer/guard spawn loops with spawner-based spawn — raider spawn loop kept
 
 Registration:
-- [ ] `.init_resource::<SpawnerState>()`, add `spawner_respawn_system` to Step::Behavior
+- [x] `.init_resource::<SpawnerState>()`, add `spawner_respawn_system` to Step::Behavior
+
+Remaining:
+- [ ] Remove beds — NPCs rest at their spawner building (Hut/Barracks) instead of separate beds. Home = spawner position. Remove beds from world gen, build menu, and `BedOccupancy` resource. Keep `Bed` struct + `add_bed()` for test compat. See plan file `~/.claude/plans/replicated-wandering-seahorse.md` for full spec.
 
 **Stage 12: Combat & Economy Depth**
 
 *Done when: emergent gameplay happens — raids succeed or fail based on guard upgrades, economy collapses if farms aren't defended, raiders starve if they can't steal.*
+
+World generation (see [spec](#continent-world-generation)):
+- [ ] `WorldGenStyle` enum: Classic (current) / Continents (multi-layer noise with land/ocean)
+- [ ] Continents mode: continental shelf noise + edge falloff + biome noise on land only
+- [ ] Town placement constrained to land cells in Continents mode
+- [ ] Main menu combo box to select generation style, persisted in UserSettings
 
 Combat depth:
 - [ ] Target switching (prefer non-fleeing enemies over fleeing)
@@ -783,6 +792,204 @@ Cleanup (`ui/mod.rs:500`): already queries `Entity, With<TilemapChunk>` and desp
 3. Zoom out fully — all chunks visible, slight FPS drop expected vs close zoom
 4. Tracy: `command_buffer_generation_tasks` should drop from ~10ms to ~1ms at default zoom
 5. New game / restart — chunks despawn and respawn correctly
+
+### Continent World Generation
+
+Add a selectable world generation style: **Classic** (current single-noise behavior) and **Continents** (multi-layer noise producing landmasses surrounded by ocean). Both styles available from the main menu, persisted in settings.
+
+**`WorldGenStyle` enum** (`world.rs`):
+
+```rust
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorldGenStyle {
+    #[default]
+    Classic,
+    Continents,
+}
+```
+
+Add `pub gen_style: WorldGenStyle` to `WorldGenConfig`. Default = Classic (no behavior change for existing players).
+
+**`generate_world()` branching** (`world.rs`):
+
+Classic mode (existing flow, unchanged):
+1. Init grid
+2. Place town centers (random with min distance)
+3. Find camp positions
+4. `generate_terrain()` — single Simplex noise + Dirt near towns/camps
+5. Place buildings
+
+Continents mode (new flow):
+1. Init grid
+2. `generate_terrain_continents()` — multi-layer noise, no Dirt yet
+3. Place town centers — **constrained to land cells** (reject Water positions)
+4. Find camp positions — also constrained to land
+5. `stamp_dirt()` — overwrite terrain near towns/camps with Dirt
+6. Place buildings
+
+**`generate_terrain_continents()`** (`world.rs`, new function):
+
+Uses two Simplex noise layers with different seeds + an edge distance falloff.
+
+```rust
+fn generate_terrain_continents(grid: &mut WorldGrid) {
+    use noise::{NoiseFn, Simplex};
+
+    let continental = Simplex::new(rand::random::<u32>());
+    let biome_noise = Simplex::new(rand::random::<u32>());
+
+    let cont_freq: f64 = 0.0008;  // very low — big blobs
+    let biome_freq: f64 = 0.004;  // medium — biome regions
+    let world_w = grid.width as f32 * grid.cell_size;
+    let world_h = grid.height as f32 * grid.cell_size;
+
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let world_pos = grid.grid_to_world(col, row);
+
+            // Edge falloff: 0.0 at center, 1.0 at edges
+            let dx = (world_pos.x / world_w - 0.5) * 2.0; // [-1, 1]
+            let dy = (world_pos.y / world_h - 0.5) * 2.0;
+            let edge = dx.abs().max(dy.abs()); // square falloff
+            // smoothstep: 0 below 0.6, ramps to 1 at 1.0
+            let t = ((edge - 0.6) / 0.4).clamp(0.0, 1.0);
+            let falloff = t * t * (3.0 - 2.0 * t);
+
+            // Continental shelf value
+            let c = continental.get([
+                world_pos.x as f64 * cont_freq,
+                world_pos.y as f64 * cont_freq,
+            ]);
+            let c = c as f32 - falloff * 1.5; // push edges to ocean
+
+            let biome = if c < -0.05 {
+                Biome::Water
+            } else {
+                let n = biome_noise.get([
+                    world_pos.x as f64 * biome_freq,
+                    world_pos.y as f64 * biome_freq,
+                ]) as f32;
+                if n < -0.2 {
+                    Biome::Grass
+                } else if n < 0.25 {
+                    Biome::Forest
+                } else {
+                    Biome::Rock
+                }
+            };
+
+            grid.cells[row * grid.width + col].terrain = biome;
+        }
+    }
+}
+```
+
+Key parameters to tune visually:
+- `cont_freq` (0.0008): lower = bigger continents, higher = more fragmented islands
+- `biome_freq` (0.004): lower = bigger biome regions ("countries"), higher = more varied
+- ocean threshold (-0.05): lower = more land, higher = more ocean
+- falloff start (0.6): lower = ocean starts further from edges, higher = more center land
+- falloff strength (1.5): higher = stronger push to ocean at edges
+
+**`stamp_dirt()`** (`world.rs`, new function):
+
+Extracted from existing `generate_terrain()` Dirt override logic. Both modes call this after town placement.
+
+```rust
+fn stamp_dirt(
+    grid: &mut WorldGrid,
+    town_positions: &[Vec2],
+    camp_positions: &[Vec2],
+) {
+    let town_clear_radius = 6.0 * grid.cell_size;
+    let camp_clear_radius = 5.0 * grid.cell_size;
+
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let world_pos = grid.grid_to_world(col, row);
+            let near_town = town_positions.iter().any(|tc| world_pos.distance(*tc) < town_clear_radius);
+            let near_camp = camp_positions.iter().any(|cp| world_pos.distance(*cp) < camp_clear_radius);
+            if near_town || near_camp {
+                grid.cells[row * grid.width + col].terrain = Biome::Dirt;
+            }
+        }
+    }
+}
+```
+
+**Town placement land constraint** (Continents mode only):
+
+In the town placement loop, after generating a random position, check terrain:
+
+```rust
+// Inside the while loop that places towns
+let (gc, gr) = grid.world_to_grid(pos);
+if let Some(cell) = grid.cell(gc, gr) {
+    if cell.terrain == Biome::Water {
+        continue; // reject, try again
+    }
+}
+```
+
+Same constraint for camp positions — `find_camp_position()` should also reject Water cells. Add an optional `&WorldGrid` parameter (or make it a separate Continents-mode camp finder).
+
+Increase `max_attempts` for Continents mode (e.g., 5000) since many random positions will land in ocean.
+
+**Main menu** (`ui/main_menu.rs`):
+
+Add `gen_style: i32` to `MenuState` (0=Classic, 1=Continents). Add a combo box:
+
+```rust
+ui.horizontal(|ui| {
+    ui.label("World gen:");
+    egui::ComboBox::from_id_salt("gen_style")
+        .selected_text(match state.gen_style {
+            1 => "Continents",
+            _ => "Classic",
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut state.gen_style, 0, "Classic");
+            ui.selectable_value(&mut state.gen_style, 1, "Continents");
+        });
+});
+```
+
+On Play: `wg_config.gen_style = if state.gen_style == 1 { WorldGenStyle::Continents } else { WorldGenStyle::Classic };`
+
+**Settings** (`settings.rs`):
+
+Add `#[serde(default)] pub gen_style: u8` to `UserSettings`. Map 0↔Classic, 1↔Continents. The `serde(default)` ensures old settings files still load (defaults to 0 = Classic).
+
+**Existing `generate_terrain()` — no changes.** Classic mode calls it exactly as before. It stays the default path.
+
+**Tests** (`tests/world_gen.rs`):
+
+No changes needed. Test uses default `WorldGenConfig` which defaults to Classic mode. All 6 phases (grid dims, town count, spacing, buildings, terrain=Dirt near towns, camps) pass unchanged.
+
+Optional: add a 2nd test `world-gen-continents` that sets `gen_style = Continents` and validates:
+- Phase 1: grid dimensions (same)
+- Phase 2: town count (same)
+- Phase 3: town centers are on land (terrain != Water at town center)
+- Phase 4: buildings (same)
+- Phase 5: terrain at town center is Dirt (same — stamp_dirt runs)
+- Phase 6: ocean exists (count Water cells > 10% of total)
+
+**Files changed:**
+
+| File | Changes |
+|---|---|
+| `world.rs` | `WorldGenStyle` enum, add to `WorldGenConfig`, branch in `generate_world()`, new `generate_terrain_continents()`, new `stamp_dirt()`, land constraint in town placement |
+| `settings.rs` | `gen_style: u8` field in `UserSettings` |
+| `ui/main_menu.rs` | `gen_style` in `MenuState`, combo box UI, write to config + settings |
+
+**Verification:**
+
+1. `cargo check` — compiles
+2. `cargo run --release` → select "Classic" → identical to current behavior
+3. `cargo run --release` → select "Continents" → ocean at edges, continent blobs in center, biome variety on land, towns on land with Dirt clearings
+4. Debug Tests → `world-gen` test passes (Classic mode, 6 phases)
+5. Try small world (4000) and large world (32000) with Continents — land/ocean ratio looks reasonable
+6. Verify towns never spawn in ocean (if world is mostly ocean and town placement fails, `warn!` fires but game still runs)
 
 ## References
 

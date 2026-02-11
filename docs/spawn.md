@@ -102,6 +102,14 @@ Equipment visuals update automatically — `sync_visual_sprites` reads `Equipped
 
 `ReassignQueue` is a plain `Resource` (not a Bevy Message) because the roster panel runs in `EguiPrimaryContextPass`, a separate schedule from `Update` where `MessageWriter` is unavailable.
 
+## Building Spawners (Stage 11)
+
+Villager population is building-driven: each **Hut** supports 1 farmer, each **Barracks** supports 1 guard. At game startup, `game_startup_system` builds `SpawnerState` from `WorldData.huts` + `WorldData.barracks` and spawns 1 NPC per entry via `SlotAllocator` + `SpawnNpcMsg`. Menu sliders control how many Huts/Barracks world gen places.
+
+When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building Huts/Barracks at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick.
+
+Destroying a Hut/Barracks tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
+
 ## Known Issues
 
 - **No spawn validation**: Doesn't verify town_idx is valid or that guard posts exist. Bad input silently creates a guard with no patrol route.

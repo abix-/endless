@@ -114,6 +114,7 @@ pub fn tick(
                             if (*town_idx as usize) < num_vill { posts[*town_idx as usize] += 1; }
                         }
                         world::Building::Camp { .. } => {}
+                        world::Building::Hut { .. } | world::Building::Barracks { .. } => {}
                     }
                 }
             }

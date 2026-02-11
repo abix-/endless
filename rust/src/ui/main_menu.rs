@@ -95,9 +95,9 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Farmers per town
+            // Huts per town (each supports 1 farmer)
             ui.horizontal(|ui| {
-                ui.label("Farmers:");
+                ui.label("Huts:");
                 ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
                     .step_by(1.0)
                     .show_value(false));
@@ -109,9 +109,9 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Guards per town
+            // Barracks per town (each supports 1 guard)
             ui.horizontal(|ui| {
-                ui.label("Guards:");
+                ui.label("Barracks:");
                 ui.add(egui::Slider::new(&mut state.guards, 0.0..=1000.0)
                     .step_by(1.0)
                     .show_value(false));
