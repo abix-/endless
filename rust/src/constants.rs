@@ -179,8 +179,8 @@ pub const GUARD_POST_BUILD_COST: i32 = 1;
 /// Food cost to unlock one adjacent grid slot.
 pub const SLOT_UNLOCK_COST: i32 = 1;
 
-/// Food cost to build a hut (supports 1 farmer).
-pub const HUT_BUILD_COST: i32 = 1;
+/// Food cost to build a house (supports 1 farmer).
+pub const HOUSE_BUILD_COST: i32 = 1;
 
 /// Food cost to build a barracks (supports 1 guard).
 pub const BARRACKS_BUILD_COST: i32 = 1;

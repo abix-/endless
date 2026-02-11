@@ -51,12 +51,12 @@ Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
 |--------|-----------|-----------|
 | Eat | `(ENERGY_EAT_THRESHOLD - energy) * 1.5` | town has food AND energy < 10 |
 | Rest | `(ENERGY_HUNGRY - energy) * 1.0` | home valid AND energy < ENERGY_HUNGRY |
-| Work | `40.0 * hp_mult` | has job, HP > 50% |
+| Work | `40.0 * hp_mult` | has job, HP > 30% |
 | Wander | `10.0` | always |
 
 **Eat action**: Instantly consumes 1 food from town storage and restores energy to 100. No travel required — NPCs eat at current location. Only available as emergency option when energy < `ENERGY_EAT_THRESHOLD` (10) — NPCs prefer resting over eating.
 
-**HP-based work score**: `hp_mult = 0` if HP < 50%, otherwise `(hp_pct - 0.5) * 2`. This prevents wounded NPCs (especially raiders) from working/raiding when they should rest.
+**HP-based work score**: `hp_mult = 0` if HP < 30%, otherwise `(hp_pct - 0.3) / 0.7`. This prevents critically wounded NPCs from working/raiding while still allowing starving NPCs (HP capped at 50%) to join raid queues at reduced priority.
 
 **Note**: The code defines `Action::Fight` and `Action::Flee` in the enum, but these are not scored in decision_system. Fight/flee behavior is handled by combat systems (attack_system, flee_system) instead.
 
@@ -169,8 +169,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `Patrolling` → `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting { recover_until: None }` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
-  - `Raiding { .. }` → steal if farm ready, else re-target; `Activity::Returning { has_food: true }`
-  - `Wandering` → `Activity::Idle`
+  - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
+  - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
   - Wounded check (skipped if starving — HP capped at 50% by starvation, fountain can't heal past it, NPC must rest for energy first): if `prioritize_healing` policy enabled and HP < `recovery_hp` threshold:
     - If already `Resting`: stamp `recover_until: Some(recovery_hp)` on existing state (avoids redirect loop when NPC is already at destination)
     - Else: set `GoingToRest` targeting town fountain

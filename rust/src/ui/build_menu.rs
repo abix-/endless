@@ -133,7 +133,7 @@ pub fn build_menu_system(
                         row, col, town_center,
                     ) {
                         Ok(()) => {
-                            // Tombstone matching spawner entry (Hut/Barracks)
+                            // Tombstone matching spawner entry (House/Barracks)
                             let destroy_pos = world::town_grid_to_world(town_center, row, col);
                             let (dgc, dgr) = grid.world_to_grid(destroy_pos);
                             let snapped = grid.grid_to_world(dgc, dgr);
@@ -197,7 +197,7 @@ pub fn build_menu_system(
                         ui.small("Not enough food");
                     }
                 } else {
-                    // Villager town: Farm, Guard Post, Hut, Barracks
+                    // Villager town: Farm, Guard Post, House, Barracks
                     let can_farm = food >= FARM_BUILD_COST;
                     if ui.add_enabled(can_farm, egui::Button::new(
                         format!("Farm ({} food)", FARM_BUILD_COST)
@@ -245,18 +245,18 @@ pub fn build_menu_system(
                         action_taken = true;
                     }
 
-                    let can_hut = food >= HUT_BUILD_COST;
-                    if ui.add_enabled(can_hut, egui::Button::new(
-                        format!("Hut ({} food)", HUT_BUILD_COST)
+                    let can_house = food >= HOUSE_BUILD_COST;
+                    if ui.add_enabled(can_house, egui::Button::new(
+                        format!("House ({} food)", HOUSE_BUILD_COST)
                     )).on_hover_text("Supports 1 farmer. Respawns after 12h if killed.")
                     .clicked() {
-                        let building = Building::Hut { town_idx };
+                        let building = Building::House { town_idx };
                         if let Ok(()) = world::place_building(
                             &mut grid, &mut world_data, &mut farm_states,
                             building, row, col, town_center,
                         ) {
                             if let Some(f) = food_storage.food.get_mut(town_data_idx) {
-                                *f -= HUT_BUILD_COST;
+                                *f -= HOUSE_BUILD_COST;
                             }
                             let pos = world::town_grid_to_world(town_center, row, col);
                             let (gc, gr) = grid.world_to_grid(pos);
@@ -271,7 +271,7 @@ pub fn build_menu_system(
                             combat_log.push(
                                 CombatEventKind::Harvest,
                                 game_time.day(), game_time.hour(), game_time.minute(),
-                                format!("Built hut at ({},{}) in {}", row, col, town_name),
+                                format!("Built house at ({},{}) in {}", row, col, town_name),
                             );
                         }
                         action_taken = true;

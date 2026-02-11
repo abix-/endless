@@ -2,6 +2,13 @@
 
 ## 2026-02-11
 
+- **fix: raider wander drift** — `Action::Wander` now offsets from home position instead of current position, preventing unbounded random walk off the map; farm-seeking on raid arrival excludes current farm position and filters tombstoned farms, falls back to returning home if no other farm found; HP work gate lowered from 50% to 30% so starving raiders (HP capped at 50%) can still join raid queues
+- **rename: Hut → House** — `Building::Hut` → `Building::House`, `WorldData.huts` → `WorldData.houses`, `HUT_BUILD_COST` → `HOUSE_BUILD_COST`, UI labels updated throughout
+- **farms per town slider** — separate "Farms" slider in main menu (persisted in settings); farms placed first in spiral, then houses, then barracks
+- **guard posts on corners** — guard posts placed at outer corners of all buildings (TL/TR/BR/BL) instead of spiral, ensuring perimeter coverage regardless of building count
+- **fix: camera zoom over UI** — scroll wheel zoom disabled when pointer is over egui panels (combat log, etc.)
+- **HUD: total population** — top bar shows `Pop: alive/total_spawners`
+- **slider range increase** — barracks and tents sliders now go up to 5000
 - **raider tent spawners** — raiders now spawn from individual Tent buildings instead of bulk camp spawns; `Building::Tent` variant + `WorldData.tents` + `BUILDING_TILES[7]`; `raider_respawn_system` removed, unified into `spawner_respawn_system` (building_kind 2=Tent → Raider with camp center as home)
 - **camp TownGrids** — raider camps get expandable building grids like villager towns; `TownGrid` gains `town_data_idx` field replacing fragile `grid_idx * 2` mapping; `find_town_slot()` iterates all grids using stored index; `place_camp_buildings()` places Camp center + N Tents via spiral
 - **build menu: camp support** — right-clicking camp grid slots shows Tent build option; villager-only buildings (Farm/GuardPost/Hut/Barracks) gated to faction==0 grids

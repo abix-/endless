@@ -306,33 +306,33 @@ Remaining:
 
 **Stage 11: Building Spawners** ✓ (see [spec](#building-spawners))
 
-*Done when: each Hut supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Huts/Barracks to grow population. Menu sliders for farmers/guards removed.*
+*Done when: each House supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Houses/Barracks to grow population. Menu sliders for farmers/guards removed.*
 
 Buildings:
-- [x] `Building::Hut { town_idx }` and `Building::Barracks { town_idx }` variants in `world.rs`
-- [x] `Hut`/`Barracks` structs in `WorldData`, `BUILDING_TILES` extended 5→7
-- [x] Wire `place_building()`/`remove_building()` for Hut/Barracks (same tombstone pattern)
-- [x] World gen: `place_town_buildings()` places N Huts + N Barracks from config sliders
+- [x] `Building::House { town_idx }` and `Building::Barracks { town_idx }` variants in `world.rs`
+- [x] `House`/`Barracks` structs in `WorldData`, `BUILDING_TILES` extended 5→7
+- [x] Wire `place_building()`/`remove_building()` for House/Barracks (same tombstone pattern)
+- [x] World gen: `place_town_buildings()` places N Houses + N Barracks from config sliders
 
 Spawner state:
 - [x] `SpawnerEntry` struct: `building_kind`, `town_idx`, `position`, `npc_slot` (-1=none), `respawn_timer`
-- [x] `SpawnerState` resource: `Vec<SpawnerEntry>` — one entry per Hut/Barracks
+- [x] `SpawnerState` resource: `Vec<SpawnerEntry>` — one entry per House/Barracks
 - [x] `spawner_respawn_system` in `systems/economy.rs` (Step::Behavior, hourly): detects dead NPC via `NpcEntityMap`, starts 12h timer, spawns replacement when timer expires
 
 UI:
-- [x] Hut + Barracks buttons in `build_menu.rs` (push `SpawnerEntry` on build)
-- [x] Sliders renamed to Huts/Barracks (kept for testing, control world gen building count)
-- [x] HUD shows spawner counts: `Huts: 2 (1 respawning)` / `Barr: 3`
+- [x] House + Barracks buttons in `build_menu.rs` (push `SpawnerEntry` on build)
+- [x] Sliders renamed to Houses/Barracks (kept for testing, control world gen building count)
+- [x] HUD shows spawner counts: `Farmers: alive/houses` / `Guards: alive/barracks`
 
 Startup:
-- [x] `game_startup_system` builds `SpawnerState` from world gen Huts/Barracks, spawns 1 NPC per entry (instant, no timer)
+- [x] `game_startup_system` builds `SpawnerState` from world gen Houses/Barracks, spawns 1 NPC per entry (instant, no timer)
 - [x] Replaced bulk farmer/guard spawn loops with spawner-based spawn — raider spawn loop kept
 
 Registration:
 - [x] `.init_resource::<SpawnerState>()`, add `spawner_respawn_system` to Step::Behavior
 
 Beds removed:
-- [x] Remove beds — NPCs rest at their spawner building (Hut/Barracks) instead of separate beds. Home = spawner position. Removed beds from world gen, build menu, `BedOccupancy` resource, `LocationKind::Bed`. Kept `Bed` struct + `add_bed()` for test compat.
+- [x] Remove beds — NPCs rest at their spawner building (House/Barracks) instead of separate beds. Home = spawner position. Removed beds from world gen, build menu, `BedOccupancy` resource, `LocationKind::Bed`. Kept `Bed` struct + `add_bed()` for test compat.
 
 **Stage 12: Combat & Economy Depth**
 

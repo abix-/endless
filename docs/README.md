@@ -64,7 +64,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Bottom panel: NPC/building inspector (left) + combat log with filters (right)
     │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T)
     │   ├─ FPS overlay: bottom-right corner, EMA-smoothed, always visible (all states)
-    │   ├─ Build menu: right-click context menu (Farm/GuardPost/Hut/Barracks for towns, Tent for camps, Destroy/Unlock/Turret toggle)
+    │   ├─ Build menu: right-click context menu (Farm/GuardPost/House/Barracks for towns, Tent for camps, Destroy/Unlock/Turret toggle)
     │   ├─ Pause menu (ESC): Resume, Settings (scroll speed + log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
@@ -107,7 +107,7 @@ Frame execution order ───────────────────�
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
-| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (Hut/Barracks/Tent), FarmYield upgrade | 8/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (House/Barracks/Tent), FarmYield upgrade | 8/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 8/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |

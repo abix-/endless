@@ -55,9 +55,9 @@ pub struct GuardPost {
     pub patrol_order: u32,
 }
 
-/// A hut that supports 1 farmer (building spawner).
+/// A house that supports 1 farmer (building spawner).
 #[derive(Clone, Debug)]
-pub struct Hut {
+pub struct House {
     pub position: Vec2,
     pub town_idx: u32,
 }
@@ -87,7 +87,7 @@ pub struct WorldData {
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub guard_posts: Vec<GuardPost>,
-    pub huts: Vec<Hut>,
+    pub houses: Vec<House>,
     pub barracks: Vec<Barracks>,
     pub tents: Vec<Tent>,
 }
@@ -263,8 +263,8 @@ pub fn place_building(
                 patrol_order,
             });
         }
-        Building::Hut { town_idx } => {
-            world_data.huts.push(Hut { position: snapped_pos, town_idx });
+        Building::House { town_idx } => {
+            world_data.houses.push(House { position: snapped_pos, town_idx });
         }
         Building::Barracks { town_idx } => {
             world_data.barracks.push(Barracks { position: snapped_pos, town_idx });
@@ -336,11 +336,11 @@ pub fn remove_building(
                 post.position = tombstone;
             }
         }
-        Building::Hut { .. } => {
-            if let Some(hut) = world_data.huts.iter_mut().find(|h| {
+        Building::House { .. } => {
+            if let Some(house) = world_data.houses.iter_mut().find(|h| {
                 (h.position - snapped_pos).length() < 1.0
             }) {
-                hut.position = tombstone;
+                house.position = tombstone;
             }
         }
         Building::Barracks { .. } => {
@@ -543,7 +543,7 @@ pub const BUILDING_TILES: [(u32, u32); 8] = [
     (20, 20), // 2: Guard Post
     (2, 15),  // 3: Farm
     (48, 10), // 4: Camp (center)
-    (13, 2),  // 5: Hut (house)
+    (13, 2),  // 5: House
     (14, 2),  // 6: Barracks (castle)
     (49, 10), // 7: Tent (raider spawner)
 ];
@@ -598,7 +598,7 @@ pub enum Building {
     Bed { town_idx: u32 },
     GuardPost { town_idx: u32, patrol_order: u32 },
     Camp { town_idx: u32 },
-    Hut { town_idx: u32 },
+    House { town_idx: u32 },
     Barracks { town_idx: u32 },
     Tent { town_idx: u32 },
 }
@@ -612,7 +612,7 @@ impl Building {
             Building::GuardPost { .. } => 2,
             Building::Farm { .. } => 3,
             Building::Camp { .. } => 4,
-            Building::Hut { .. } => 5,
+            Building::House { .. } => 5,
             Building::Barracks { .. } => 6,
             Building::Tent { .. } => 7,
         }
@@ -695,6 +695,7 @@ pub struct WorldGenConfig {
     pub min_town_distance: f32,
     pub grid_spacing: f32,
     pub camp_distance: f32,
+    pub farms_per_town: usize,
     pub farmers_per_town: usize,
     pub guards_per_town: usize,
     pub raiders_per_camp: usize,
@@ -711,6 +712,7 @@ impl Default for WorldGenConfig {
             min_town_distance: 1200.0,
             grid_spacing: 34.0,
             camp_distance: 3500.0,
+            farms_per_town: 2,
             farmers_per_town: 2,
             guards_per_town: 2,
             raiders_per_camp: 0,
@@ -830,7 +832,7 @@ pub fn generate_world(
         actual_towns, camp_positions.len(), w, h);
 }
 
-/// Place buildings for one town on the grid: fountain, farms, beds, guard posts, huts, barracks.
+/// Place buildings for one town on the grid: fountain, farms, houses, barracks, guard posts.
 /// Uses grid-relative offsets from center, snapped to grid cells.
 fn place_town_buildings(
     grid: &mut WorldGrid,
@@ -862,23 +864,22 @@ fn place_town_buildings(
     // Fountain at (0, 0) = town center
     place(0, 0, Building::Fountain { town_idx }, &mut occupied, town_grid);
 
-    // 2 farms: above and below center
-    let farm0_pos = place(-1, 0, Building::Farm { town_idx }, &mut occupied, town_grid);
-    let farm1_pos = place(1, 0, Building::Farm { town_idx }, &mut occupied, town_grid);
-    world_data.farms.push(Farm { position: farm0_pos, town_idx });
-    world_data.farms.push(Farm { position: farm1_pos, town_idx });
-    farm_states.push_farm();
-    farm_states.push_farm();
-
-    // Spawner buildings first (spiral outward from center)
-    let needed = config.farmers_per_town + config.guards_per_town;
+    // All buildings spiral outward from center: farms first (closest), then houses, then barracks
+    let needed = config.farms_per_town + config.farmers_per_town + config.guards_per_town;
     let slots = spiral_slots(&occupied, needed);
     let mut slot_iter = slots.into_iter();
 
+    for _ in 0..config.farms_per_town {
+        let Some((row, col)) = slot_iter.next() else { break };
+        let pos = place(row, col, Building::Farm { town_idx }, &mut occupied, town_grid);
+        world_data.farms.push(Farm { position: pos, town_idx });
+        farm_states.push_farm();
+    }
+
     for _ in 0..config.farmers_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::Hut { town_idx }, &mut occupied, town_grid);
-        world_data.huts.push(Hut { position: pos, town_idx });
+        let pos = place(row, col, Building::House { town_idx }, &mut occupied, town_grid);
+        world_data.houses.push(House { position: pos, town_idx });
     }
 
     for _ in 0..config.guards_per_town {
@@ -887,9 +888,19 @@ fn place_town_buildings(
         world_data.barracks.push(Barracks { position: pos, town_idx });
     }
 
-    // 4 guard posts: outside all spawner buildings (clockwise patrol: TL → TR → BR → BL)
-    let post_positions = spiral_slots(&occupied, 4);
-    for (order, (row, col)) in post_positions.into_iter().enumerate() {
+    // 4 guard posts: at the outer corners of all placed buildings (clockwise patrol: TL → TR → BR → BL)
+    let (min_row, max_row, min_col, max_col) = occupied.iter().fold(
+        (i32::MAX, i32::MIN, i32::MAX, i32::MIN),
+        |(rmin, rmax, cmin, cmax), &(r, c)| (rmin.min(r), rmax.max(r), cmin.min(c), cmax.max(c)),
+    );
+    // Bevy 2D: Y-up, so max_row = top on screen, min_row = bottom
+    let corners = [
+        (max_row + 1, min_col - 1), // TL (top-left)
+        (max_row + 1, max_col + 1), // TR (top-right)
+        (min_row - 1, max_col + 1), // BR (bottom-right)
+        (min_row - 1, min_col - 1), // BL (bottom-left)
+    ];
+    for (order, (row, col)) in corners.into_iter().enumerate() {
         let post_pos = place(row, col, Building::GuardPost { town_idx, patrol_order: order as u32 }, &mut occupied, town_grid);
         world_data.guard_posts.push(GuardPost {
             position: post_pos,

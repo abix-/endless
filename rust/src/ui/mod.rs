@@ -110,7 +110,7 @@ fn game_startup_system(
 ) {
     info!("Game startup: generating world...");
 
-    // Generate world (populates grid + world_data + farm_states + huts/barracks + town_grids)
+    // Generate world (populates grid + world_data + farm_states + houses/barracks + town_grids)
     town_grids.grids.clear();
     world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states, &mut town_grids);
 
@@ -135,13 +135,13 @@ fn game_startup_system(
     // Reset game time
     *game_time = GameTime::default();
 
-    // Build SpawnerState from world gen Huts + Barracks + Tents
+    // Build SpawnerState from world gen Houses + Barracks + Tents
     spawner_state.0.clear();
-    for hut in world_data.huts.iter() {
+    for house in world_data.houses.iter() {
         spawner_state.0.push(SpawnerEntry {
             building_kind: 0,
-            town_idx: hut.town_idx as i32,
-            position: hut.position,
+            town_idx: house.town_idx as i32,
+            position: house.position,
             npc_slot: -1,
             respawn_timer: -1.0,
         });
@@ -180,7 +180,7 @@ fn game_startup_system(
 
         let (job, faction, work_x, work_y, starting_post, attack_type) = match entry.building_kind {
             0 => {
-                // Hut -> Farmer: find nearest FREE farm in own town
+                // House -> Farmer: find nearest FREE farm in own town
                 let farm = world::find_nearest_free(
                     entry.position, &world_data.farms, &startup_claimed, Some(entry.town_idx as u32),
                 ).unwrap_or(entry.position);

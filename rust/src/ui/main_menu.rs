@@ -12,6 +12,7 @@ use crate::world::WorldGenConfig;
 pub struct MenuState {
     pub world_size: f32,
     pub towns: f32,
+    pub farms: f32,
     pub farmers: f32,
     pub guards: f32,
     pub raiders: f32,
@@ -45,6 +46,7 @@ pub fn main_menu_system(
         let saved = settings::load_settings();
         state.world_size = saved.world_size;
         state.towns = saved.towns as f32;
+        state.farms = saved.farms as f32;
         state.farmers = saved.farmers as f32;
         state.guards = saved.guards as f32;
         state.raiders = saved.raiders as f32;
@@ -95,9 +97,23 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Huts per town (each supports 1 farmer)
+            // Farms per town
             ui.horizontal(|ui| {
-                ui.label("Huts:");
+                ui.label("Farms:");
+                ui.add(egui::Slider::new(&mut state.farms, 0.0..=50.0)
+                    .step_by(1.0)
+                    .show_value(false));
+                let mut fm = state.farms as i32;
+                if ui.add(egui::DragValue::new(&mut fm).range(0..=50).suffix(" /town")).changed() {
+                    state.farms = fm as f32;
+                }
+            });
+
+            ui.add_space(4.0);
+
+            // Houses per town (each supports 1 farmer)
+            ui.horizontal(|ui| {
+                ui.label("Houses:");
                 ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
                     .step_by(1.0)
                     .show_value(false));
@@ -112,11 +128,11 @@ pub fn main_menu_system(
             // Barracks per town (each supports 1 guard)
             ui.horizontal(|ui| {
                 ui.label("Barracks:");
-                ui.add(egui::Slider::new(&mut state.guards, 0.0..=1000.0)
+                ui.add(egui::Slider::new(&mut state.guards, 0.0..=5000.0)
                     .step_by(1.0)
                     .show_value(false));
                 let mut g = state.guards as i32;
-                if ui.add(egui::DragValue::new(&mut g).range(0..=1000).suffix(" /town")).changed() {
+                if ui.add(egui::DragValue::new(&mut g).range(0..=5000).suffix(" /town")).changed() {
                     state.guards = g as f32;
                 }
             });
@@ -126,11 +142,11 @@ pub fn main_menu_system(
             // Tents per camp (1 raider per tent)
             ui.horizontal(|ui| {
                 ui.label("Tents:");
-                ui.add(egui::Slider::new(&mut state.raiders, 0.0..=1000.0)
+                ui.add(egui::Slider::new(&mut state.raiders, 0.0..=5000.0)
                     .step_by(1.0)
                     .show_value(false));
                 let mut r = state.raiders as i32;
-                if ui.add(egui::DragValue::new(&mut r).range(0..=1000).suffix(" /camp")).changed() {
+                if ui.add(egui::DragValue::new(&mut r).range(0..=5000).suffix(" /camp")).changed() {
                     state.raiders = r as f32;
                 }
             });
@@ -153,6 +169,7 @@ pub fn main_menu_system(
                     wg_config.world_width = state.world_size;
                     wg_config.world_height = state.world_size;
                     wg_config.num_towns = state.towns as usize;
+                    wg_config.farms_per_town = state.farms as usize;
                     wg_config.farmers_per_town = state.farmers as usize;
                     wg_config.guards_per_town = state.guards as usize;
                     wg_config.raiders_per_camp = state.raiders as usize;
@@ -161,6 +178,7 @@ pub fn main_menu_system(
                     let mut saved = settings::load_settings();
                     saved.world_size = state.world_size;
                     saved.towns = state.towns as usize;
+                    saved.farms = state.farms as usize;
                     saved.farmers = state.farmers as usize;
                     saved.guards = state.guards as usize;
                     saved.raiders = state.raiders as usize;

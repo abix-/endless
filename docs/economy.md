@@ -18,7 +18,7 @@ game_time_system (every frame)
     │   └─ Each raider camp gains CAMP_FORAGE_RATE food
     │
     ├─ spawner_respawn_system (hourly)
-    │   └─ Detects dead NPCs linked to Hut/Barracks/Tent, counts down 12h timer, spawns replacement
+    │   └─ Detects dead NPCs linked to House/Barracks/Tent, counts down 12h timer, spawns replacement
     │
     ├─ starvation_system (hourly)
     │   └─ NPCs with zero energy → Starving marker
@@ -52,12 +52,12 @@ game_time_system (every frame)
 
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Each `SpawnerEntry` in `SpawnerState` links a Hut (farmer), Barracks (guard), or Tent (raider) to an NPC slot
+- Each `SpawnerEntry` in `SpawnerState` links a House (farmer), Barracks (guard), or Tent (raider) to an NPC slot
 - If `npc_slot >= 0` and NPC is dead (not in `NpcEntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Hut → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position), Tent → Raider (faction from town data, home = camp center)
+- House → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position), Tent → Raider (faction from town data, home = camp center)
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -92,8 +92,8 @@ Farms have a growth cycle instead of infinite food:
 **Raider steal** (decision_system, Raiding arrival):
 - Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS
 - Only steals if farm is Ready — reset farm to Growing, set CarryingFood + Returning
-- If farm not ready: re-target another farm via `find_nearest_location()`
-- Logs "Stole food → Returning" vs "Farm not ready, seeking another"
+- If farm not ready: find a different farm (excludes current position, skips tombstoned); if no other farm found, return home
+- Logs "Stole food → Returning" vs "Farm not ready, seeking another" vs "No other farms, returning"
 
 **Visual feedback**: `farm_visual_system` watches `FarmStates` for state transitions and spawns/despawns `FarmReadyMarker` entities. Uses `Local<Vec<FarmGrowthState>>` to detect transitions without extra resources. Growing→Ready spawns a marker; Ready→Growing (harvest) despawns it.
 
@@ -120,7 +120,7 @@ Speed restored to CachedStats.speed
 
 **Recovery paths:**
 - **Eat**: consumes 1 food from town storage, instantly restores energy to 100. No travel required.
-- **Rest**: walk home to spawner building (Hut/Barracks), recover energy slowly (6 hours 0→100). Works even when starving.
+- **Rest**: walk home to spawner building (House/Barracks), recover energy slowly (6 hours 0→100). Works even when starving.
 
 **Constants:**
 - `STARVING_HP_CAP`: 0.5 (50% of MaxHealth)
@@ -197,7 +197,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | STARVING_HP_CAP | 0.5 | 50% MaxHealth cap while starving |
 | STARVING_SPEED_MULT | 0.5 | 50% speed while starving |
 | RAID_GROUP_SIZE | 5 | Min raiders to form a raid group |
-| HUT_BUILD_COST | 1 | Food cost to build a Hut |
+| HOUSE_BUILD_COST | 1 | Food cost to build a House |
 | BARRACKS_BUILD_COST | 1 | Food cost to build a Barracks |
 | SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
 

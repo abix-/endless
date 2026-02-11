@@ -396,15 +396,23 @@ pub fn decision_system(
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning".into());
                         } else {
-                            // Farm not ready - find another
-                            if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
-                                *activity = Activity::Raiding { target: farm_pos };
-                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
+                            // Farm not ready - find a different farm (exclude current one)
+                            let other_farm = farms.world.farms.iter()
+                                .filter(|f| f.position.x > -9000.0) // skip tombstoned
+                                .filter(|f| f.position.distance(pos) > FARM_ARRIVAL_RADIUS)
+                                .min_by(|a, b| {
+                                    a.position.distance_squared(pos)
+                                        .partial_cmp(&b.position.distance_squared(pos))
+                                        .unwrap_or(std::cmp::Ordering::Equal)
+                                });
+                            if let Some(farm) = other_farm {
+                                *activity = Activity::Raiding { target: farm.position };
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm.position.x, y: farm.position.y }));
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another".into());
                             } else {
                                 *activity = Activity::Returning { has_food: false };
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farms, returning home".into());
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No other farms, returning".into());
                             }
                         }
                     }
@@ -648,7 +656,7 @@ pub fn decision_system(
         };
         if can_work {
             let hp_pct = health.0 / 100.0;
-            let hp_mult = if hp_pct < 0.5 { 0.0 } else { (hp_pct - 0.5) * 2.0 };
+            let hp_mult = if hp_pct < 0.3 { 0.0 } else { (hp_pct - 0.3) * (1.0 / 0.7) };
             let work_score = SCORE_WORK_BASE * work_m * hp_mult;
             if work_score > 0.0 { scores.push((Action::Work, work_score)); }
         }
@@ -773,14 +781,18 @@ pub fn decision_system(
                 }
             }
             Action::Wander => {
-                if idx * 2 + 1 < positions.len() {
-                    let x = positions[idx * 2];
-                    let y = positions[idx * 2 + 1];
-                    let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
-                    let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
-                    *activity = Activity::Wandering;
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: x + offset_x, y: y + offset_y }));
-                }
+                // Wander near home to prevent unbounded drift off the map
+                let (base_x, base_y) = if home.is_valid() {
+                    (home.0.x, home.0.y)
+                } else if idx * 2 + 1 < positions.len() {
+                    (positions[idx * 2], positions[idx * 2 + 1])
+                } else {
+                    continue;
+                };
+                let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
+                let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 200.0;
+                *activity = Activity::Wandering;
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: base_x + offset_x, y: base_y + offset_y }));
             }
             Action::Fight | Action::Flee => {}
         }

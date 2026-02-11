@@ -225,7 +225,7 @@ pub fn farm_visual_system(
 // BUILDING SPAWNER SYSTEM
 // ============================================================================
 
-/// Detects dead NPCs linked to Hut/Barracks/Tent buildings, counts down respawn timers,
+/// Detects dead NPCs linked to House/Barracks/Tent buildings, counts down respawn timers,
 /// and spawns replacements via SlotAllocator + SpawnNpcMsg.
 /// Only runs when game_time.hour_ticked is true.
 pub fn spawner_respawn_system(
@@ -267,11 +267,11 @@ pub fn spawner_respawn_system(
                 let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
                     match entry.building_kind {
                         0 => {
-                            // Hut -> Farmer: find nearest FREE farm in own town
+                            // House -> Farmer: find nearest FREE farm in own town
                             let farm = world::find_nearest_free(
                                 entry.position, &world_data.farms, &farm_occupancy, Some(entry.town_idx as u32),
                             ).unwrap_or(entry.position);
-                            (0, 0, farm.x, farm.y, -1, 0, "Farmer", "Hut")
+                            (0, 0, farm.x, farm.y, -1, 0, "Farmer", "House")
                         }
                         1 => {
                             // Barracks -> Guard

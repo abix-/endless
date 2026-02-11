@@ -185,7 +185,12 @@ fn camera_zoom_system(
     accumulated_scroll: Res<AccumulatedMouseScroll>,
     windows: Query<&Window>,
     mut query: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
+    mut egui_contexts: bevy_egui::EguiContexts,
 ) {
+    // Don't zoom when scrolling over UI panels (combat log, etc.)
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() { return; }
+    }
     let scroll = accumulated_scroll.delta.y;
     if scroll == 0.0 { return; }
 

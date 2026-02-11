@@ -93,14 +93,17 @@ pub fn top_bar_system(
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
-                    let huts = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.town_idx == 0 && s.position.x > -9000.0).count();
+                    let houses = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.town_idx == 0 && s.position.x > -9000.0).count();
                     let barracks = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.town_idx == 0 && s.position.x > -9000.0).count();
                     // Raider camp is town_data_idx 1 (first odd index)
                     let raiders = pop_stats.0.get(&(2, 1)).map(|s| s.alive).unwrap_or(0);
                     let tents = spawner_state.0.iter().filter(|s| s.building_kind == 2 && s.town_idx == 1 && s.position.x > -9000.0).count();
                     ui.label(format!("Guards: {}/{}", guards, barracks));
-                    ui.label(format!("Farmers: {}/{}", farmers, huts));
+                    ui.label(format!("Farmers: {}/{}", farmers, houses));
                     ui.label(format!("Raiders: {}/{}", raiders, tents));
+                    let total_alive = slots.alive();
+                    let total_spawners = spawner_state.0.iter().filter(|s| s.position.x > -9000.0).count();
+                    ui.label(format!("Pop: {}/{}", total_alive, total_spawners));
                 });
             });
         });
@@ -499,7 +502,7 @@ fn building_name(building: &Building) -> &'static str {
         Building::Bed { .. } => "Bed",
         Building::GuardPost { .. } => "Guard Post",
         Building::Camp { .. } => "Camp",
-        Building::Hut { .. } => "Hut",
+        Building::House { .. } => "House",
         Building::Barracks { .. } => "Barracks",
         Building::Tent { .. } => "Tent",
     }
@@ -512,7 +515,7 @@ fn building_town_idx(building: &Building) -> u32 {
         | Building::Bed { town_idx }
         | Building::GuardPost { town_idx, .. }
         | Building::Camp { town_idx }
-        | Building::Hut { town_idx }
+        | Building::House { town_idx }
         | Building::Barracks { town_idx }
         | Building::Tent { town_idx } => *town_idx,
     }
@@ -576,9 +579,9 @@ fn building_inspector_content(
             }
         }
 
-        Building::Hut { .. } | Building::Barracks { .. } | Building::Tent { .. } => {
+        Building::House { .. } | Building::Barracks { .. } | Building::Tent { .. } => {
             let (kind, spawns_label) = match building {
-                Building::Hut { .. } => (0, "Farmer"),
+                Building::House { .. } => (0, "Farmer"),
                 Building::Barracks { .. } => (1, "Guard"),
                 _ => (2, "Raider"),
             };

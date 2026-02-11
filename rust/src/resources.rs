@@ -692,17 +692,17 @@ pub struct GuardPostState {
 // BUILDING SPAWNERS
 // ============================================================================
 
-/// Tracks one building spawner (Hut, Barracks, or Tent) and its linked NPC.
+/// Tracks one building spawner (House, Barracks, or Tent) and its linked NPC.
 #[derive(Clone, Default)]
 pub struct SpawnerEntry {
-    pub building_kind: i32,   // 0=Hut (farmer), 1=Barracks (guard), 2=Tent (raider)
+    pub building_kind: i32,   // 0=House (farmer), 1=Barracks (guard), 2=Tent (raider)
     pub town_idx: i32,        // town data index (villager or raider camp)
     pub position: Vec2,       // building world position
     pub npc_slot: i32,        // linked NPC slot (-1 = no NPC alive)
     pub respawn_timer: f32,   // game hours remaining (-1 = not respawning)
 }
 
-/// All building spawners in the world. Each Hut/Barracks gets one entry.
+/// All building spawners in the world. Each House/Barracks gets one entry.
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 

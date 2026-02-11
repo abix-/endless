@@ -12,6 +12,8 @@ pub struct UserSettings {
     // World gen (main menu sliders)
     pub world_size: f32,
     pub towns: usize,
+    #[serde(default = "default_farms")]
+    pub farms: usize,
     pub farmers: usize,
     pub guards: usize,
     pub raiders: usize,
@@ -43,12 +45,14 @@ pub struct UserSettings {
 }
 
 fn default_true() -> bool { true }
+fn default_farms() -> usize { 2 }
 
 impl Default for UserSettings {
     fn default() -> Self {
         Self {
             world_size: 8000.0,
             towns: 2,
+            farms: 2,
             farmers: 2,
             guards: 2,
             raiders: 0,
