@@ -1,4 +1,4 @@
-//! Right panel — tabbed container for Roster, Upgrades, and Policies.
+//! Left panel — tabbed container for Roster, Upgrades, Policies, and Patrols.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -103,52 +103,54 @@ pub struct UpgradeParams<'w> {
 // MAIN SYSTEM
 // ============================================================================
 
-pub fn right_panel_system(
+pub fn left_panel_system(
     mut contexts: bevy_egui::EguiContexts,
     mut ui_state: ResMut<UiState>,
-    world_data: Res<WorldData>,
+    mut world_data: ResMut<WorldData>,
     mut policies: ResMut<TownPolicies>,
     mut roster: RosterParams,
     mut upgrade: UpgradeParams,
     mut roster_state: Local<RosterState>,
     settings: Res<UserSettings>,
-    mut prev_tab: Local<RightPanelTab>,
+    mut prev_tab: Local<LeftPanelTab>,
 ) -> Result {
-    if !ui_state.right_panel_open {
-        *prev_tab = RightPanelTab::Roster;
+    if !ui_state.left_panel_open {
+        *prev_tab = LeftPanelTab::Roster;
         return Ok(());
     }
 
     let ctx = contexts.ctx_mut()?;
     let debug_all = settings.debug_all_npcs;
 
-    let tab_name = match ui_state.right_panel_tab {
-        RightPanelTab::Roster => "Roster",
-        RightPanelTab::Upgrades => "Upgrades",
-        RightPanelTab::Policies => "Policies",
+    let tab_name = match ui_state.left_panel_tab {
+        LeftPanelTab::Roster => "Roster",
+        LeftPanelTab::Upgrades => "Upgrades",
+        LeftPanelTab::Policies => "Policies",
+        LeftPanelTab::Patrols => "Patrols",
     };
 
-    let mut open = ui_state.right_panel_open;
+    let mut open = ui_state.left_panel_open;
     egui::Window::new(tab_name)
         .open(&mut open)
         .resizable(false)
         .default_width(340.0)
         .anchor(egui::Align2::LEFT_TOP, [4.0, 30.0])
         .show(ctx, |ui| {
-            match ui_state.right_panel_tab {
-                RightPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
-                RightPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
-                RightPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
+            match ui_state.left_panel_tab {
+                LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
+                LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
+                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
+                LeftPanelTab::Patrols => patrols_content(ui, &mut world_data),
             }
         });
 
     if !open {
-        ui_state.right_panel_open = false;
+        ui_state.left_panel_open = false;
     }
 
     // Save policies when leaving Policies tab or closing panel
-    let was_policies = *prev_tab == RightPanelTab::Policies;
-    let is_policies = ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Policies;
+    let was_policies = *prev_tab == LeftPanelTab::Policies;
+    let is_policies = ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies;
     if was_policies && !is_policies {
         let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
         if town_idx < policies.policies.len() {
@@ -157,7 +159,7 @@ pub fn right_panel_system(
             settings::save_settings(&saved);
         }
     }
-    *prev_tab = if ui_state.right_panel_open { ui_state.right_panel_tab } else { RightPanelTab::Roster };
+    *prev_tab = if ui_state.left_panel_open { ui_state.left_panel_tab } else { LeftPanelTab::Roster };
 
     Ok(())
 }
@@ -500,4 +502,57 @@ fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: 
         2 => OffDutyBehavior::WanderTown,
         _ => OffDutyBehavior::GoToBed,
     };
+}
+
+// ============================================================================
+// PATROLS CONTENT
+// ============================================================================
+
+fn patrols_content(ui: &mut egui::Ui, world_data: &mut WorldData) {
+    let town_pair_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as u32;
+
+    if let Some(town) = world_data.towns.get(town_pair_idx as usize) {
+        ui.small(format!("Town: {}", town.name));
+    }
+
+    // Collect non-tombstoned posts for this town, sorted by patrol_order
+    let mut posts: Vec<(usize, u32, Vec2)> = world_data.guard_posts.iter().enumerate()
+        .filter(|(_, p)| p.town_idx == town_pair_idx && p.position.x > -9000.0)
+        .map(|(i, p)| (i, p.patrol_order, p.position))
+        .collect();
+    posts.sort_by_key(|(_, order, _)| *order);
+
+    ui.label(format!("{} guard posts", posts.len()));
+    ui.separator();
+
+    let mut swap: Option<(usize, usize)> = None;
+
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        for (list_idx, &(data_idx, order, pos)) in posts.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(format!("#{}", order));
+                ui.label(format!("({:.0}, {:.0})", pos.x, pos.y));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if list_idx + 1 < posts.len() {
+                        if ui.small_button("\u{25BC}").on_hover_text("Move down").clicked() {
+                            swap = Some((data_idx, posts[list_idx + 1].0));
+                        }
+                    }
+                    if list_idx > 0 {
+                        if ui.small_button("\u{25B2}").on_hover_text("Move up").clicked() {
+                            swap = Some((data_idx, posts[list_idx - 1].0));
+                        }
+                    }
+                });
+            });
+        }
+    });
+
+    // Apply swap — mutates WorldData which triggers rebuild_patrol_routes_system
+    if let Some((a, b)) = swap {
+        let order_a = world_data.guard_posts[a].patrol_order;
+        let order_b = world_data.guard_posts[b].patrol_order;
+        world_data.guard_posts[a].patrol_order = order_b;
+        world_data.guard_posts[b].patrol_order = order_a;
+    }
 }

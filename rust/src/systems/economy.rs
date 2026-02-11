@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::*;
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS};
-use crate::world::{self, WorldData, FarmOccupancy, pos_to_key};
+use crate::world::{self, WorldData, BuildingOccupancy};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
 
@@ -87,7 +87,7 @@ pub fn farm_growth_system(
     game_time: Res<GameTime>,
     mut farm_states: ResMut<FarmStates>,
     world_data: Res<WorldData>,
-    farm_occupancy: Res<FarmOccupancy>,
+    farm_occupancy: Res<BuildingOccupancy>,
     upgrades: Res<TownUpgrades>,
 ) {
     if game_time.paused {
@@ -109,8 +109,7 @@ pub fn farm_growth_system(
         }
 
         // Determine growth rate based on whether a farmer is working this farm
-        let farm_key = pos_to_key(farm.position);
-        let is_tended = farm_occupancy.occupants.get(&farm_key).copied().unwrap_or(0) > 0;
+        let is_tended = farm_occupancy.is_occupied(farm.position);
 
         let base_rate = if is_tended {
             FARM_TENDED_GROWTH_RATE
@@ -305,7 +304,7 @@ pub fn spawner_respawn_system(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     world_data: Res<WorldData>,
     mut combat_log: ResMut<CombatLog>,
-    farm_occupancy: Res<FarmOccupancy>,
+    farm_occupancy: Res<BuildingOccupancy>,
 ) {
     if !game_time.hour_ticked {
         return;
@@ -331,13 +330,13 @@ pub fn spawner_respawn_system(
             if entry.respawn_timer <= 0.0 {
                 // Spawn replacement NPC
                 let Some(slot) = slots.alloc() else { continue };
-                let town_data_idx = (entry.town_idx as usize) * 2;
+                let town_data_idx = entry.town_idx as usize;
 
                 let (job, work_x, work_y, starting_post, attack_type, job_name) =
                     if entry.building_kind == 0 {
-                        // Hut → Farmer: find nearest FREE farm
-                        let farm = world::find_nearest_free_farm(
-                            entry.position, &world_data, &farm_occupancy,
+                        // Hut → Farmer: find nearest FREE farm in own town
+                        let farm = world::find_nearest_free(
+                            entry.position, &world_data.farms, &farm_occupancy, Some(entry.town_idx as u32),
                         ).unwrap_or(entry.position);
                         (0, farm.x, farm.y, -1, 0, "Farmer")
                     } else {

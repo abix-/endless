@@ -2,6 +2,17 @@
 
 ## 2026-02-10
 
+- **refactor: FarmOccupancy → BuildingOccupancy** — generic `Worksite` trait + `find_nearest_free()`/`find_within_radius()`/`find_by_pos()` replace farm-specific helpers; private field with claim/release/is_occupied/count API prevents double-increment bugs
+- **fix: town index convention** — remove `÷2` pair-index conversion; NPCs and buildings both use direct WorldData indices (villagers at even, raiders at odd); fixes build menu spawner town_idx, spawner_respawn, and `build_patrol_route` (now `pub(crate)`)
+- **UI: building inspector** — click buildings to inspect; shows per-type details (farm growth/occupancy, spawner NPC status/respawn timer, guard post patrol order/turret, fountain heal radius/food, camp food); `SelectedBuilding` resource with grid col/row
+- **UI: Patrols tab (T)** — left panel tab to view and reorder guard post patrol routes; swap buttons mutate `WorldData` which triggers `rebuild_patrol_routes_system`
+- **rename: right_panel → left_panel** — `RightPanelTab` → `LeftPanelTab`, `right_panel_open` → `left_panel_open`, module renamed
+- **GPU: merged dodge/separation scan** — single 3x3 grid loop computes both separation and dodge forces; same-faction 1.5x push boost; avoidance clamped to `speed * 1.5`; lateral steering replaces backoff slowdown (routes around obstacles at 60% speed instead of jamming); backoff cap reduced from 200 to 30
+- **HUD: per-town spawner counts** — top bar filters spawners by player's town_idx instead of showing global totals; format changed to `Farmers: alive/huts`, `Guards: alive/barracks`
+- **rebuild_patrol_routes_system** — new system in `Step::Behavior` rebuilds all guards' patrol routes when `WorldData` changes (guard post added/removed/reordered)
+
+## 2026-02-10
+
 - **fix: enforce 1 farmer per farm** — `find_nearest_free_farm()` helper skips occupied farms; farm claiming gated on `FarmOccupancy` at arrival, spawn, and respawn; farmers redirect to free farm or idle when all occupied
 - **remove role reassignment** — `reassign_npc_system`, `ReassignQueue` resource, and roster panel reassign buttons removed (building spawners replaced this workflow)
 - **roadmap: stage 14 tower defense** — Wintermaul Wars-inspired TD mechanics: maze building with path validation, elemental rock-paper-scissors (6 elements), income/interest economy, competitive creep sending via guards, tiered tower upgrades, branching tower evolution

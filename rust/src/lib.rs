@@ -32,7 +32,7 @@ use resources::{
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
-    GuardPostState, FollowSelected, TownPolicies, SpawnerState,
+    GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
 };
 use systems::*;
 use components::*;
@@ -206,12 +206,13 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GameTime>()
        .init_resource::<RespawnTimers>()
        .init_resource::<world::WorldData>()
-       .init_resource::<world::FarmOccupancy>()
+       .init_resource::<world::BuildingOccupancy>()
        .init_resource::<FarmStates>()
        .init_resource::<HealthDebug>()
        .init_resource::<CombatDebug>()
        .init_resource::<KillStats>()
        .init_resource::<SelectedNpc>()
+       .init_resource::<SelectedBuilding>()
        .init_resource::<FollowSelected>()
        .init_resource::<NpcMetaCache>()
        .init_resource::<NpcsByTownCache>()
@@ -290,6 +291,7 @@ pub fn build_app(app: &mut App) {
            decision_system,
            farm_visual_system,
            process_upgrades_system,
+           rebuild_patrol_routes_system,
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))

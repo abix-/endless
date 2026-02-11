@@ -394,30 +394,86 @@ pub fn pos_to_key(pos: Vec2) -> (i32, i32) {
     (pos.x.round() as i32, pos.y.round() as i32)
 }
 
-/// Tracks how many NPCs are working at each farm. Key = farm position, Value = count.
+/// Tracks how many NPCs are working at each building. Key = position, Value = count.
+/// Private field — all access goes through methods to prevent double-increment bugs.
 #[derive(Resource, Default)]
-pub struct FarmOccupancy {
-    pub occupants: HashMap<(i32, i32), i32>,
+pub struct BuildingOccupancy {
+    occupants: HashMap<(i32, i32), i32>,
 }
 
-/// Find nearest farm that has no farmer working it (occupancy == 0).
-pub fn find_nearest_free_farm(from: Vec2, world: &WorldData, occupancy: &FarmOccupancy) -> Option<Vec2> {
+impl BuildingOccupancy {
+    pub fn claim(&mut self, pos: Vec2) {
+        *self.occupants.entry(pos_to_key(pos)).or_insert(0) += 1;
+    }
+    pub fn release(&mut self, pos: Vec2) {
+        let key = pos_to_key(pos);
+        if let Some(count) = self.occupants.get_mut(&key) {
+            *count = count.saturating_sub(1);
+        }
+    }
+    pub fn is_occupied(&self, pos: Vec2) -> bool {
+        self.occupants.get(&pos_to_key(pos)).copied().unwrap_or(0) >= 1
+    }
+    pub fn count(&self, pos: Vec2) -> i32 {
+        self.occupants.get(&pos_to_key(pos)).copied().unwrap_or(0)
+    }
+    pub fn clear(&mut self) { self.occupants.clear(); }
+}
+
+/// Any building with a position and town affiliation. Used by generic find functions.
+pub trait Worksite {
+    fn position(&self) -> Vec2;
+    fn town_idx(&self) -> u32;
+}
+
+impl Worksite for Farm {
+    fn position(&self) -> Vec2 { self.position }
+    fn town_idx(&self) -> u32 { self.town_idx }
+}
+
+/// Find nearest unoccupied worksite, optionally filtered by town.
+pub fn find_nearest_free<W: Worksite>(
+    from: Vec2,
+    sites: &[W],
+    occupancy: &BuildingOccupancy,
+    town_idx: Option<u32>,
+) -> Option<Vec2> {
     let mut best: Option<(f32, Vec2)> = None;
-    for farm in &world.farms {
-        let key = pos_to_key(farm.position);
-        if occupancy.occupants.get(&key).copied().unwrap_or(0) >= 1 { continue; }
-        let dist = from.distance(farm.position);
+    for site in sites {
+        if let Some(tid) = town_idx {
+            if site.town_idx() != tid { continue; }
+        }
+        if occupancy.is_occupied(site.position()) { continue; }
+        let dist = from.distance(site.position());
         if best.is_none() || dist < best.unwrap().0 {
-            best = Some((dist, farm.position));
+            best = Some((dist, site.position()));
         }
     }
     best.map(|(_, pos)| pos)
 }
 
-/// Find farm index by position (for FarmStates lookup which is still Vec-indexed).
-pub fn find_farm_index_by_pos(farms: &[Farm], pos: Vec2) -> Option<usize> {
+/// Find nearest worksite within radius, filtered by town. Returns (index, position).
+pub fn find_within_radius<W: Worksite>(
+    from: Vec2,
+    sites: &[W],
+    radius: f32,
+    town_idx: u32,
+) -> Option<(usize, Vec2)> {
+    let mut best: Option<(f32, usize, Vec2)> = None;
+    for (idx, site) in sites.iter().enumerate() {
+        if site.town_idx() != town_idx { continue; }
+        let dist = from.distance(site.position());
+        if dist <= radius && (best.is_none() || dist < best.unwrap().0) {
+            best = Some((dist, idx, site.position()));
+        }
+    }
+    best.map(|(_, idx, pos)| (idx, pos))
+}
+
+/// Find worksite index by position.
+pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
     let key = pos_to_key(pos);
-    farms.iter().position(|f| pos_to_key(f.position) == key)
+    sites.iter().position(|s| pos_to_key(s.position()) == key)
 }
 
 // ============================================================================
@@ -721,30 +777,29 @@ pub fn generate_world(
         let name = names.get(town_idx).cloned().unwrap_or_else(|| format!("Town {}", town_idx));
         let camp_pos = camp_positions[town_idx];
 
-        // Add villager town to WorldData
+        // Add villager town
         world_data.towns.push(Town {
             name: name.clone(),
             center,
             faction: 0,
             sprite_type: 0, // fountain
         });
+        let vill_town_idx = (world_data.towns.len() - 1) as u32;
 
-        // Place buildings on grid around town center
-        place_town_buildings(grid, world_data, farm_states, center, town_idx as u32, config);
+        place_town_buildings(grid, world_data, farm_states, center, vill_town_idx, config);
 
-        // Add raider camp town to WorldData
-        // Raider towns use indices num_towns..2*num_towns
+        // Add raider town
         world_data.towns.push(Town {
             name: "Raider Camp".into(),
             center: camp_pos,
             faction: (town_idx + 1) as i32,
             sprite_type: 1, // tent
         });
+        let raid_town_idx = (world_data.towns.len() - 1) as u32;
 
-        // Place camp building on grid
         let (camp_col, camp_row) = grid.world_to_grid(camp_pos);
         if let Some(cell) = grid.cell_mut(camp_col, camp_row) {
-            cell.building = Some(Building::Camp { town_idx: town_idx as u32 });
+            cell.building = Some(Building::Camp { town_idx: raid_town_idx });
         }
     }
 

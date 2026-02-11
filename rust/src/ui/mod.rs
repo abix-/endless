@@ -3,7 +3,7 @@
 pub mod main_menu;
 pub mod game_hud;
 pub mod build_menu;
-pub mod right_panel;
+pub mod left_panel;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -31,7 +31,7 @@ pub fn register_ui(app: &mut App) {
     // Top bar → left panel → bottom panel (inspector+log) + overlay → windows → pause overlay.
     app.add_systems(EguiPrimaryContextPass, (
         game_hud::top_bar_system,
-        right_panel::right_panel_system,
+        left_panel::left_panel_system,
         (game_hud::bottom_panel_system, game_hud::target_overlay_system),
         build_menu::build_menu_system,
         pause_menu_system,
@@ -61,16 +61,19 @@ fn ui_toggle_system(
     mut follow: ResMut<FollowSelected>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
-        ui_state.toggle_right_tab(RightPanelTab::Roster);
+        ui_state.toggle_left_tab(LeftPanelTab::Roster);
     }
     if keys.just_pressed(KeyCode::KeyB) {
         ui_state.build_menu_open = !ui_state.build_menu_open;
     }
     if keys.just_pressed(KeyCode::KeyU) {
-        ui_state.toggle_right_tab(RightPanelTab::Upgrades);
+        ui_state.toggle_left_tab(LeftPanelTab::Upgrades);
     }
     if keys.just_pressed(KeyCode::KeyP) {
-        ui_state.toggle_right_tab(RightPanelTab::Policies);
+        ui_state.toggle_left_tab(LeftPanelTab::Policies);
+    }
+    if keys.just_pressed(KeyCode::KeyT) {
+        ui_state.toggle_left_tab(LeftPanelTab::Patrols);
     }
     if keys.just_pressed(KeyCode::KeyF) {
         follow.0 = !follow.0;
@@ -103,7 +106,7 @@ fn game_startup_system(
     mut town_grids: ResMut<world::TownGrids>,
     mut policies: ResMut<TownPolicies>,
     mut spawner_state: ResMut<SpawnerState>,
-    mut farm_occupancy: ResMut<world::FarmOccupancy>,
+    mut farm_occupancy: ResMut<world::BuildingOccupancy>,
 ) {
     info!("Game startup: generating world...");
 
@@ -159,22 +162,25 @@ fn game_startup_system(
     }
 
     // Reset farm occupancy for fresh game
-    farm_occupancy.occupants.clear();
+    farm_occupancy.clear();
+
+    // Local tracker to prevent two farmers picking the same farm at startup.
+    // NOT written to BuildingOccupancy — the arrival handler will populate that when farmers arrive.
+    let mut startup_claimed = world::BuildingOccupancy::default();
 
     // Spawn 1 NPC per building spawner (instant, no timer)
     let mut total = 0;
     for entry in spawner_state.0.iter_mut() {
         let Some(slot) = slots.alloc() else { break };
-        let town_data_idx = (entry.town_idx as usize) * 2;
+        let town_data_idx = entry.town_idx as usize;
 
         let (job, work_x, work_y, starting_post, attack_type) = if entry.building_kind == 0 {
-            // Hut → Farmer: find nearest FREE farm (skip occupied ones)
-            let farm = world::find_nearest_free_farm(
-                entry.position, &world_data, &farm_occupancy,
+            // Hut → Farmer: find nearest FREE farm in own town
+            let farm = world::find_nearest_free(
+                entry.position, &world_data.farms, &startup_claimed, Some(entry.town_idx as u32),
             ).unwrap_or(entry.position);
-            // Pre-populate occupancy so next farmer picks a different farm
-            let key = world::pos_to_key(farm);
-            *farm_occupancy.occupants.entry(key).or_insert(0) += 1;
+            // Mark in local tracker so next farmer picks a different farm
+            startup_claimed.claim(farm);
             (0, farm.x, farm.y, -1, 0)
         } else {
             // Barracks → Guard: find nearest guard post
@@ -564,7 +570,7 @@ struct CleanupDebug<'w> {
     combat_debug: ResMut<'w, CombatDebug>,
     health_debug: ResMut<'w, HealthDebug>,
     kill_stats: ResMut<'w, KillStats>,
-    farm_occ: ResMut<'w, world::FarmOccupancy>,
+    farm_occ: ResMut<'w, world::BuildingOccupancy>,
     camp_state: ResMut<'w, CampState>,
     raid_queue: ResMut<'w, RaidQueue>,
     npc_entity_map: ResMut<'w, NpcEntityMap>,

@@ -115,7 +115,7 @@ Execution order is **chained** — each system completes before the next starts.
      - Target → (-9999, -9999) — prevents zombie movement
      - Arrival → 1 — stops GPU from computing movement
      - Health → 0 — ensures click detection skips slot
-  4. Release `AssignedFarm` occupancy if `Activity::Working`
+  4. Release `AssignedFarm` via `BuildingOccupancy.release()` if `Activity::Working`
   5. Remove from `RaidQueue` if Raider
   6. Update stats: `PopulationStats` (dec_alive, inc_dead, dec_working), `FactionStats` (dec_alive, inc_dead), `KillStats`
   7. Remove from `NpcsByTownCache`

@@ -156,7 +156,7 @@ pub fn build_menu_system(
                 }
             } else {
                 // Empty unlocked slot: show build options
-                let town_idx = grid_idx as u32; // villager town index for Building
+                let town_idx = town_data_idx as u32;
 
                 // Farm
                 let can_farm = food >= FARM_BUILD_COST;
@@ -227,7 +227,7 @@ pub fn build_menu_system(
                         let snapped = grid.grid_to_world(gc, gr);
                         spawner_state.0.push(SpawnerEntry {
                             building_kind: 0,
-                            town_idx: grid_idx as i32,
+                            town_idx: town_data_idx as i32,
                             position: snapped,
                             npc_slot: -1,
                             respawn_timer: 0.0,
@@ -260,7 +260,7 @@ pub fn build_menu_system(
                         let snapped = grid.grid_to_world(gc, gr);
                         spawner_state.0.push(SpawnerEntry {
                             building_kind: 1,
-                            town_idx: grid_idx as i32,
+                            town_idx: town_data_idx as i32,
                             position: snapped,
                             npc_slot: -1,
                             respawn_timer: 0.0,

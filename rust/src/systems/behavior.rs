@@ -20,7 +20,7 @@ use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
 use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior};
 use crate::systems::economy::*;
-use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free_farm, find_location_within_radius, FarmOccupancy, find_farm_index_by_pos, pos_to_key};
+use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -32,7 +32,7 @@ use bevy::ecs::system::SystemParam;
 #[derive(SystemParam)]
 pub struct FarmParams<'w> {
     pub states: ResMut<'w, FarmStates>,
-    pub occupancy: ResMut<'w, FarmOccupancy>,
+    pub occupancy: ResMut<'w, BuildingOccupancy>,
     pub world: Res<'w, WorldData>,
 }
 
@@ -124,7 +124,7 @@ pub fn arrival_system(
         }
 
         // Harvest check: if farm became Ready while working, harvest it
-        if let Some(farm_idx) = find_farm_index_by_pos(&world_data.farms, farm_pos) {
+        if let Some(farm_idx) = find_by_pos(&world_data.farms, farm_pos) {
             if farm_idx < farm_states.states.len()
                 && farm_states.states[farm_idx] == FarmGrowthState::Ready
             {
@@ -318,13 +318,12 @@ pub fn decision_system(
                                 }
                             });
 
-                        if let Some((farm_idx, farm_pos)) = find_location_within_radius(search_pos, &farms.world, LocationKind::Farm, FARM_ARRIVAL_RADIUS) {
-                            let farm_key = pos_to_key(farm_pos);
-                            let occupied = farms.occupancy.occupants.get(&farm_key).copied().unwrap_or(0) >= 1;
+                        if let Some((farm_idx, farm_pos)) = find_within_radius(search_pos, &farms.world.farms, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
+                            let occupied = farms.occupancy.is_occupied(farm_pos);
 
                             if occupied {
-                                // Farm already has a farmer — find a free one
-                                if let Some(free_pos) = find_nearest_free_farm(search_pos, &farms.world, &farms.occupancy) {
+                                // Farm already has a farmer — find a free one in own town
+                                if let Some(free_pos) = find_nearest_free(search_pos, &farms.world.farms, &farms.occupancy, Some(town_id.0 as u32)) {
                                     *activity = Activity::GoingToWork;
                                     commands.entity(entity).insert(WorkPosition(free_pos));
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: free_pos.x, y: free_pos.y }));
@@ -334,7 +333,7 @@ pub fn decision_system(
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied → Idle".into());
                                 }
                             } else {
-                                *farms.occupancy.occupants.entry(farm_key).or_insert(0) += 1;
+                                farms.occupancy.claim(farm_pos);
 
                                 *activity = Activity::Working;
                                 commands.entity(entity).insert(AssignedFarm(farm_pos));
@@ -562,10 +561,7 @@ pub fn decision_system(
             if energy.0 < ENERGY_TIRED_THRESHOLD {
                 *activity = Activity::Idle;
                 if let Ok(assigned) = assigned_query.get(entity) {
-                    let farm_key = pos_to_key(assigned.0);
-                    if let Some(count) = farms.occupancy.occupants.get_mut(&farm_key) {
-                        *count = count.saturating_sub(1);
-                    }
+                    farms.occupancy.release(assigned.0);
                     commands.entity(entity).remove::<AssignedFarm>();
                 }
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Stopped".into());
@@ -801,5 +797,21 @@ pub fn on_duty_tick_system(
         if let Activity::OnDuty { ticks_waiting } = &mut *activity {
             *ticks_waiting += 1;
         }
+    }
+}
+
+/// Rebuild all guards' patrol routes when WorldData changes (guard post added/removed/reordered).
+pub fn rebuild_patrol_routes_system(
+    world_data: Res<WorldData>,
+    mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
+) {
+    if !world_data.is_changed() { return; }
+    for (mut route, town_id, job) in guards.iter_mut() {
+        if *job != Job::Guard { continue; }
+        let new_posts = crate::systems::spawn::build_patrol_route(&world_data, town_id.0 as u32);
+        if new_posts.is_empty() { continue; }
+        // Clamp current index to new route length
+        route.current = if route.current < new_posts.len() { route.current } else { 0 };
+        route.posts = new_posts;
     }
 }

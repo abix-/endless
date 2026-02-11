@@ -203,12 +203,9 @@ pub fn spawn_npc_system(
 }
 
 /// Build sorted patrol route from WorldData for a given town.
-/// `npc_town_idx` is the WorldData index (0, 2, 4... for villager towns).
-/// Buildings use pair index (0, 1, 2...) so we divide by 2.
-fn build_patrol_route(world: &WorldData, npc_town_idx: u32) -> Vec<Vec2> {
-    let pair_idx = npc_town_idx / 2;
+pub(crate) fn build_patrol_route(world: &WorldData, town_idx: u32) -> Vec<Vec2> {
     let mut posts: Vec<(u32, Vec2)> = world.guard_posts.iter()
-        .filter(|p| p.town_idx == pair_idx)
+        .filter(|p| p.town_idx == town_idx)
         .map(|p| (p.patrol_order, p.position))
         .collect();
     posts.sort_by_key(|(order, _)| *order);

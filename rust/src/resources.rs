@@ -151,6 +151,14 @@ pub struct KillStats {
 #[derive(Resource, Default)]
 pub struct SelectedNpc(pub i32);
 
+/// Currently selected building (grid cell). `active = false` means no building selected.
+#[derive(Resource, Default)]
+pub struct SelectedBuilding {
+    pub col: usize,
+    pub row: usize,
+    pub active: bool,
+}
+
 /// Camera follow mode — when true, camera tracks the selected NPC.
 #[derive(Resource, Default)]
 pub struct FollowSelected(pub bool);
@@ -559,13 +567,14 @@ impl FactionStats {
 // UI STATE
 // ============================================================================
 
-/// Active tab in the right panel.
+/// Active tab in the left panel.
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
-pub enum RightPanelTab {
+pub enum LeftPanelTab {
     #[default]
     Roster,
     Upgrades,
     Policies,
+    Patrols,
 }
 
 /// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
@@ -573,8 +582,8 @@ pub enum RightPanelTab {
 pub struct UiState {
     pub build_menu_open: bool,
     pub pause_menu_open: bool,
-    pub right_panel_open: bool,
-    pub right_panel_tab: RightPanelTab,
+    pub left_panel_open: bool,
+    pub left_panel_tab: LeftPanelTab,
 }
 
 impl Default for UiState {
@@ -582,20 +591,20 @@ impl Default for UiState {
         Self {
             build_menu_open: false,
             pause_menu_open: false,
-            right_panel_open: false,
-            right_panel_tab: RightPanelTab::default(),
+            left_panel_open: false,
+            left_panel_tab: LeftPanelTab::default(),
         }
     }
 }
 
 impl UiState {
-    /// Toggle right panel to a specific tab, or close if already showing that tab.
-    pub fn toggle_right_tab(&mut self, tab: RightPanelTab) {
-        if self.right_panel_open && self.right_panel_tab == tab {
-            self.right_panel_open = false;
+    /// Toggle left panel to a specific tab, or close if already showing that tab.
+    pub fn toggle_left_tab(&mut self, tab: LeftPanelTab) {
+        if self.left_panel_open && self.left_panel_tab == tab {
+            self.left_panel_open = false;
         } else {
-            self.right_panel_open = true;
-            self.right_panel_tab = tab;
+            self.left_panel_open = true;
+            self.left_panel_tab = tab;
         }
     }
 }

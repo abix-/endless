@@ -8,7 +8,7 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
 use crate::gpu::NpcSpriteTexture;
-use crate::resources::SelectedNpc;
+use crate::resources::{SelectedNpc, SelectedBuilding};
 use crate::settings::UserSettings;
 use crate::world::{WorldGrid, build_tileset, TERRAIN_TILES, BUILDING_TILES};
 
@@ -246,8 +246,10 @@ fn click_to_select_system(
     windows: Query<&Window>,
     camera_query: Query<(&Transform, &Projection), With<MainCamera>>,
     mut selected: ResMut<SelectedNpc>,
+    mut selected_building: ResMut<SelectedBuilding>,
     mut egui_contexts: bevy_egui::EguiContexts,
     gpu_state: Res<crate::resources::GpuReadState>,
+    grid: Res<WorldGrid>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) { return; }
 
@@ -294,7 +296,24 @@ fn click_to_select_system(
         }
     }
 
-    selected.0 = best_idx;
+    if best_idx >= 0 {
+        // NPC found — select it, clear building selection
+        selected.0 = best_idx;
+        selected_building.active = false;
+    } else {
+        // No NPC — check for building under cursor
+        selected.0 = -1;
+        let (col, row) = grid.world_to_grid(world_pos);
+        if let Some(cell) = grid.cell(col, row) {
+            if cell.building.is_some() {
+                *selected_building = SelectedBuilding { col, row, active: true };
+            } else {
+                selected_building.active = false;
+            }
+        } else {
+            selected_building.active = false;
+        }
+    }
 }
 
 // =============================================================================

@@ -49,7 +49,7 @@ pub struct CleanupExtra<'w> {
     pub combat_debug: ResMut<'w, crate::resources::CombatDebug>,
     pub health_debug: ResMut<'w, crate::resources::HealthDebug>,
     pub kill_stats: ResMut<'w, crate::resources::KillStats>,
-    pub farm_occ: ResMut<'w, crate::world::FarmOccupancy>,
+    pub farm_occ: ResMut<'w, crate::world::BuildingOccupancy>,
     pub camp_state: ResMut<'w, crate::resources::CampState>,
     pub raid_queue: ResMut<'w, crate::resources::RaidQueue>,
     pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,

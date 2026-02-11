@@ -47,7 +47,7 @@ Static world data, immutable after initialization.
 |----------|------|---------|
 | WorldData | towns, farms, beds, guard_posts, huts, barracks | All building positions and metadata |
 | SpawnerState | `Vec<SpawnerEntry>` — one per Hut/Barracks | Building→NPC links + respawn timers |
-| FarmOccupancy | `HashMap<(i32,i32), i32>` — farm position → worker count | Farm assignment |
+| BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
 | TownGrids | `Vec<TownGrid>` — one per villager town | Per-town building slot unlock tracking |
 
@@ -62,7 +62,7 @@ Static world data, immutable after initialization.
 | Hut | position (Vec2), town_idx |
 | Barracks | position (Vec2), town_idx |
 
-Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `find_farm_index_by_pos()`.
+Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `find_nearest_free()` (generic via `Worksite` trait), `find_within_radius()`, `find_by_pos()`.
 
 ### World Grid
 
@@ -180,6 +180,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | Resource | Data | Purpose |
 |----------|------|---------|
 | SelectedNpc | `i32` (-1 = none) | Currently selected NPC for inspector panel |
+| SelectedBuilding | `{ col, row, active }` (default inactive) | Currently selected building grid cell for building inspector |
 | FollowSelected | `bool` (default false) | When true, camera tracks selected NPC position each frame |
 
 ## Test Framework
@@ -197,7 +198,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| UiState | build_menu_open, pause_menu_open, right_panel_open, right_panel_tab (RightPanelTab enum) | ui_toggle_system (keyboard), top_bar (buttons), right_panel tabs, pause_menu | All panel systems |
+| UiState | build_menu_open, pause_menu_open, left_panel_open, left_panel_tab (LeftPanelTab enum) | ui_toggle_system (keyboard), top_bar (buttons), left_panel tabs, pause_menu | All panel systems |
 | CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system | bottom_panel_system |
 | BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, screen_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | right_panel upgrades (UI) | process_upgrades_system |
@@ -205,7 +206,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind, town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
-`UiState` tracks which panels are open. All default to false. `RightPanelTab` enum: Roster (default), Upgrades, Policies. `toggle_right_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
+`UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 
 `CombatLog` is a ring buffer of global events with 5 kinds: Kill, Spawn, Raid, Harvest, LevelUp. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
 

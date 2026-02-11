@@ -7,7 +7,7 @@ use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, UPGRADE_PCT};
 use crate::systems::economy::*;
-use crate::world::{WorldData, FarmOccupancy, pos_to_key};
+use crate::world::{WorldData, BuildingOccupancy};
 
 /// Apply queued damage to Health component and sync to GPU.
 /// Uses NpcEntityMap for O(1) entity lookup instead of O(n) iteration.
@@ -73,7 +73,7 @@ pub fn death_cleanup_system(
     mut npcs_by_town: ResMut<NpcsByTownCache>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut slots: ResMut<SlotAllocator>,
-    mut farm_occupancy: ResMut<FarmOccupancy>,
+    mut farm_occupancy: ResMut<BuildingOccupancy>,
     mut raid_queue: ResMut<RaidQueue>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
@@ -98,10 +98,7 @@ pub fn death_cleanup_system(
 
         // Release assigned farm if any
         if let Some(assigned) = assigned_farm {
-            let farm_key = pos_to_key(assigned.0);
-            if let Some(count) = farm_occupancy.occupants.get_mut(&farm_key) {
-                *count = count.saturating_sub(1);
-            }
+            farm_occupancy.release(assigned.0);
         }
 
         // Remove from raid queue if raider was waiting

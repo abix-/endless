@@ -8,7 +8,8 @@ use crate::components::*;
 use crate::gpu::NpcBufferWrites;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::world::WorldData;
+use crate::world::{WorldData, WorldGrid, Building, BuildingOccupancy};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType};
 
 // ============================================================================
 // TOP RESOURCE BAR
@@ -39,14 +40,17 @@ pub fn top_bar_system(
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // LEFT: panel toggle buttons
-                if ui.selectable_label(ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Roster, "Roster").clicked() {
-                    ui_state.toggle_right_tab(RightPanelTab::Roster);
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Roster, "Roster").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Roster);
                 }
-                if ui.selectable_label(ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Upgrades, "Upgrades").clicked() {
-                    ui_state.toggle_right_tab(RightPanelTab::Upgrades);
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Upgrades, "Upgrades").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Upgrades);
                 }
-                if ui.selectable_label(ui_state.right_panel_open && ui_state.right_panel_tab == RightPanelTab::Policies, "Policies").clicked() {
-                    ui_state.toggle_right_tab(RightPanelTab::Policies);
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies, "Policies").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Policies);
+                }
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Patrols, "Patrols").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Patrols);
                 }
 
                 // CENTER: town name + time (painted at true center of bar)
@@ -71,8 +75,8 @@ pub fn top_bar_system(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Debug: enemy info (rightmost)
                     if settings.debug_enemy_info {
-                        let num_villager_towns = world_data.towns.len() / 2;
-                        let camp_food: i32 = food_storage.food.iter().skip(num_villager_towns).sum();
+                        // Sum food at odd indices (raider camps in interleaved array)
+                        let camp_food: i32 = food_storage.food.iter().skip(1).step_by(2).sum();
                         ui.label(format!("Camp: {}", camp_food));
                         ui.label(format!("Kills: g{} r{}",
                             kill_stats.guard_kills, kill_stats.villager_kills));
@@ -83,33 +87,17 @@ pub fn top_bar_system(
                         ui.separator();
                     }
 
-                    // Player stats (right-aligned)
-                    let num_villager_towns = world_data.towns.len() / 2;
-                    let town_food: i32 = food_storage.food.iter().take(num_villager_towns).sum();
+                    // Player stats (right-aligned) — player's town is index 0
+                    let town_food = food_storage.food.first().copied().unwrap_or(0);
                     ui.label(format!("Food: {}", town_food));
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
-                    ui.label(format!("Guards: {}", guards));
-                    ui.label(format!("Farmers: {}", farmers));
-
-                    // Spawner counts
-                    let hut_total = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.position.x > -9000.0).count();
-                    let hut_alive = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.position.x > -9000.0 && s.npc_slot >= 0).count();
-                    let barracks_total = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.position.x > -9000.0).count();
-                    let barracks_alive = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.position.x > -9000.0 && s.npc_slot >= 0).count();
-                    let hut_respawning = hut_total - hut_alive;
-                    let barracks_respawning = barracks_total - barracks_alive;
-                    if hut_respawning > 0 {
-                        ui.label(format!("Huts: {} ({} respawning)", hut_total, hut_respawning));
-                    } else {
-                        ui.label(format!("Huts: {}", hut_total));
-                    }
-                    if barracks_respawning > 0 {
-                        ui.label(format!("Barr: {} ({} respawning)", barracks_total, barracks_respawning));
-                    } else {
-                        ui.label(format!("Barr: {}", barracks_total));
-                    }
+                    // Filter to player's town (pair_idx 0) to match pop_stats town 0
+                    let huts = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.town_idx == 0 && s.position.x > -9000.0).count();
+                    let barracks = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.town_idx == 0 && s.position.x > -9000.0).count();
+                    ui.label(format!("Guards: {}/{}", guards, barracks));
+                    ui.label(format!("Farmers: {}/{}", farmers, huts));
                 });
             });
         });
@@ -149,6 +137,20 @@ pub struct BottomPanelData<'w> {
     combat_log: Res<'w, CombatLog>,
 }
 
+/// Bundled resources for building inspector.
+#[derive(SystemParam)]
+pub struct BuildingInspectorData<'w> {
+    selected_building: Res<'w, SelectedBuilding>,
+    grid: Res<'w, WorldGrid>,
+    farm_states: Res<'w, FarmStates>,
+    farm_occupancy: Res<'w, BuildingOccupancy>,
+    spawner_state: Res<'w, SpawnerState>,
+    guard_post_state: Res<'w, GuardPostState>,
+    food_storage: Res<'w, FoodStorage>,
+    combat_config: Res<'w, CombatConfig>,
+    town_upgrades: Res<'w, TownUpgrades>,
+}
+
 #[derive(Default)]
 pub struct LogFilterState {
     pub show_kills: bool,
@@ -164,6 +166,7 @@ pub struct LogFilterState {
 pub fn bottom_panel_system(
     mut contexts: EguiContexts,
     data: BottomPanelData,
+    bld_data: BuildingInspectorData,
     world_data: Res<WorldData>,
     health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
     npc_states: NpcStateQuery,
@@ -201,7 +204,7 @@ pub fn bottom_panel_system(
                 ui.vertical(|ui| {
                     ui.set_width(INSPECTOR_WIDTH);
                     inspector_content(
-                        ui, &data, &world_data, &health_query, &npc_states,
+                        ui, &data, &bld_data, &world_data, &health_query, &npc_states,
                         &gpu_state, &buffer_writes, &mut follow, &settings, &mut copy_text,
                     );
                 });
@@ -315,6 +318,7 @@ pub fn bottom_panel_system(
 fn inspector_content(
     ui: &mut egui::Ui,
     data: &BottomPanelData,
+    bld_data: &BuildingInspectorData,
     world_data: &WorldData,
     health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
     npc_states: &NpcStateQuery,
@@ -326,7 +330,11 @@ fn inspector_content(
 ) {
     let sel = data.selected.0;
     if sel < 0 {
-        ui.label("Click an NPC to inspect");
+        if bld_data.selected_building.active {
+            building_inspector_content(ui, bld_data, world_data, &data.meta_cache);
+            return;
+        }
+        ui.label("Click an NPC or building to inspect");
         return;
     }
     let idx = sel as usize;
@@ -473,6 +481,167 @@ fn inspector_content(
                 }
             }
             *copy_text = Some(info);
+        }
+    }
+}
+
+// ============================================================================
+// BUILDING INSPECTOR
+// ============================================================================
+
+fn building_name(building: &Building) -> &'static str {
+    match building {
+        Building::Fountain { .. } => "Fountain",
+        Building::Farm { .. } => "Farm",
+        Building::Bed { .. } => "Bed",
+        Building::GuardPost { .. } => "Guard Post",
+        Building::Camp { .. } => "Camp",
+        Building::Hut { .. } => "Hut",
+        Building::Barracks { .. } => "Barracks",
+    }
+}
+
+fn building_town_idx(building: &Building) -> u32 {
+    match building {
+        Building::Fountain { town_idx }
+        | Building::Farm { town_idx }
+        | Building::Bed { town_idx }
+        | Building::GuardPost { town_idx, .. }
+        | Building::Camp { town_idx }
+        | Building::Hut { town_idx }
+        | Building::Barracks { town_idx } => *town_idx,
+    }
+}
+
+/// Render building inspector content when a building cell is selected.
+fn building_inspector_content(
+    ui: &mut egui::Ui,
+    bld: &BuildingInspectorData,
+    world_data: &WorldData,
+    meta_cache: &NpcMetaCache,
+) {
+    let col = bld.selected_building.col;
+    let row = bld.selected_building.row;
+    let Some(cell) = bld.grid.cell(col, row) else { return };
+    let Some(building) = &cell.building else { return };
+
+    let town_idx = building_town_idx(building) as usize;
+
+    // Header
+    ui.strong(building_name(building));
+
+    // Town name
+    if let Some(town) = world_data.towns.get(town_idx) {
+        ui.label(format!("Town: {}", town.name));
+    }
+
+    // Per-type details
+    match building {
+        Building::Farm { .. } => {
+            // Find farm index by matching grid position
+            let world_pos = bld.grid.grid_to_world(col, row);
+            if let Some(farm_idx) = world_data.farms.iter().position(|f| {
+                (f.position - world_pos).length() < 1.0
+            }) {
+                if let Some(state) = bld.farm_states.states.get(farm_idx) {
+                    let state_name = match state {
+                        FarmGrowthState::Growing => "Growing",
+                        FarmGrowthState::Ready => "Ready to harvest",
+                    };
+                    ui.label(format!("Status: {}", state_name));
+
+                    if let Some(&progress) = bld.farm_states.progress.get(farm_idx) {
+                        let color = if *state == FarmGrowthState::Ready {
+                            egui::Color32::from_rgb(200, 200, 60)
+                        } else {
+                            egui::Color32::from_rgb(80, 180, 80)
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label("Growth:");
+                            ui.add(egui::ProgressBar::new(progress)
+                                .text(format!("{:.0}%", progress * 100.0))
+                                .fill(color));
+                        });
+                    }
+                }
+
+                // Show farmer working here
+                let occupants = bld.farm_occupancy.count(world_pos);
+                ui.label(format!("Farmers: {}", occupants));
+            }
+        }
+
+        Building::Hut { .. } | Building::Barracks { .. } => {
+            let is_hut = matches!(building, Building::Hut { .. });
+            let kind = if is_hut { 0 } else { 1 };
+            let world_pos = bld.grid.grid_to_world(col, row);
+
+            // Find matching spawner entry
+            if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
+                e.building_kind == kind
+                    && (e.position - world_pos).length() < 1.0
+                    && e.position.x > -9000.0
+            }) {
+                ui.label(format!("Spawns: {}", if is_hut { "Farmer" } else { "Guard" }));
+
+                if entry.npc_slot >= 0 {
+                    let slot = entry.npc_slot as usize;
+                    if slot < meta_cache.0.len() {
+                        let meta = &meta_cache.0[slot];
+                        ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
+                    }
+                    ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
+                } else if entry.respawn_timer > 0.0 {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 200, 40),
+                        format!("Respawning in {:.0}h", entry.respawn_timer),
+                    );
+                } else {
+                    ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Spawning...");
+                }
+            }
+        }
+
+        Building::GuardPost { patrol_order, .. } => {
+            ui.label(format!("Patrol order: {}", patrol_order));
+
+            // Find guard post index by matching grid position
+            let world_pos = bld.grid.grid_to_world(col, row);
+            if let Some(post_idx) = world_data.guard_posts.iter().position(|g| {
+                (g.position - world_pos).length() < 1.0
+            }) {
+                if let Some(&enabled) = bld.guard_post_state.attack_enabled.get(post_idx) {
+                    ui.label(format!("Turret: {}", if enabled { "Enabled" } else { "Disabled" }));
+                }
+            }
+        }
+
+        Building::Fountain { .. } => {
+            // Healing info
+            let base_radius = bld.combat_config.heal_radius;
+            let upgrade_bonus = if let Some(town) = bld.town_upgrades.levels.get(town_idx) {
+                town[UpgradeType::FountainRadius as usize] as f32 * 24.0
+            } else {
+                0.0
+            };
+            ui.label(format!("Heal radius: {:.0}px", base_radius + upgrade_bonus));
+            ui.label(format!("Heal rate: {:.0}/s", bld.combat_config.heal_rate));
+
+            // Town food — town_idx is direct index into food_storage
+            if let Some(&food) = bld.food_storage.food.get(town_idx) {
+                ui.label(format!("Food: {}", food));
+            }
+        }
+
+        Building::Camp { .. } => {
+            // Camp food — town_idx is direct index into food_storage
+            if let Some(&food) = bld.food_storage.food.get(town_idx) {
+                ui.label(format!("Camp food: {}", food));
+            }
+        }
+
+        Building::Bed { .. } => {
+            ui.label("Rest point");
         }
     }
 }

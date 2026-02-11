@@ -12,7 +12,7 @@ NPC decision-making and state transitions. All run in `Step::Behavior` after com
 Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
 
 The system uses **SystemParam bundles** for farm and economy parameters:
-- `FarmParams`: farm states, occupancy tracking, world data
+- `FarmParams`: farm states, `BuildingOccupancy` tracking, world data
 - `EconomyParams`: food storage, food events, population stats
 
 Priority order (first match wins):
@@ -168,7 +168,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `AtDestination`: match on Activity variant
   - `Patrolling` → `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting { recover_until: None }` (sleep icon derived by `sync_visual_sprites`)
-  - `GoingToWork` → check `FarmOccupancy`: if farm occupied, redirect to nearest free farm (or idle if none); else claim farm via `AssignedFarm` + harvest if ready
+  - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
   - `Raiding { .. }` → steal if farm ready, else re-target; `Activity::Returning { has_food: true }`
   - `Wandering` → `Activity::Idle`
   - Wounded check (skipped if starving — HP capped at 50% by starvation, fountain can't heal past it, NPC must rest for energy first): if `prioritize_healing` policy enabled and HP < `recovery_hp` threshold:
@@ -256,7 +256,7 @@ Guards have a `PatrolRoute` with ordered posts (built from WorldData at spawn). 
 4. Arrive → `OnDuty` again
 5. After last post, wrap to post 0
 
-Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes are rebuilt when guard posts are added or removed via `add_location()`/`remove_location()`.
+Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes are rebuilt dynamically by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) when `WorldData` changes — e.g. guard posts added, removed, or reordered via the Patrols tab. The system clamps the current patrol index to the new route length.
 
 ## Known Issues / Limitations
 
