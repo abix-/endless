@@ -242,7 +242,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<systems::stats::TownUpgrades>()
        .init_resource::<systems::stats::UpgradeQueue>()
        .init_resource::<TownPolicies>()
-       .init_resource::<settings::UserSettings>()
+       .insert_resource(settings::load_settings())
        // Plugins
        .add_plugins(bevy_egui::EguiPlugin::default())
        .add_plugins(gpu::GpuComputePlugin)

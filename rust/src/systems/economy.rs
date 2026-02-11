@@ -324,8 +324,8 @@ pub fn spawner_respawn_system(
             }
         }
 
-        // Count down respawn timer
-        if entry.respawn_timer > 0.0 {
+        // Count down respawn timer (>= 0.0 catches newly-built spawners at 0.0)
+        if entry.respawn_timer >= 0.0 {
             entry.respawn_timer -= 1.0;
             if entry.respawn_timer <= 0.0 {
                 // Spawn replacement NPC

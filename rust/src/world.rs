@@ -772,8 +772,8 @@ fn place_town_buildings(
     farm_states.push_farm();
     farm_states.push_farm();
 
-    // 4 guard posts: outer corners (clockwise patrol)
-    let post_slots = [(-2, -2), (-2, 3), (3, 3), (3, -2)];
+    // 4 guard posts: outer corners (clockwise patrol: TL → TR → BR → BL)
+    let post_slots = [(3, -2), (3, 3), (-2, 3), (-2, -2)];
     for (order, &(row, col)) in post_slots.iter().enumerate() {
         let post_pos = place(row, col, Building::GuardPost { town_idx, patrol_order: order as u32 });
         world_data.guard_posts.push(GuardPost {

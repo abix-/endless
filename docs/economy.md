@@ -64,6 +64,7 @@ game_time_system (every frame)
 - Each `SpawnerEntry` in `SpawnerState` links a Hut (farmer) or Barracks (guard) to an NPC slot
 - If `npc_slot >= 0` and NPC is dead (not in `NpcEntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
+- Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
 - Hut → Farmer (nearest farm as work target, home = building position), Barracks → Guard (nearest guard post, home = building position)
 

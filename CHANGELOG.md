@@ -2,6 +2,13 @@
 
 ## 2026-02-10
 
+- **roadmap: stage 14 tower defense** — Wintermaul Wars-inspired TD mechanics: maze building with path validation, elemental rock-paper-scissors (6 elements), income/interest economy, competitive creep sending via guards, tiered tower upgrades, branching tower evolution
+- **fix: guard post patrol order** — reorder post_slots so guards patrol clockwise (TL → TR → BR → BL) instead of arbitrary order
+- **fix: newly-built spawner timing** — change spawner timer check from `> 0.0` to `>= 0.0` so newly-built Huts/Barracks (timer=0.0) spawn their NPC on the next hourly tick
+- **fix: settings loaded at app startup** — replace `init_resource::<UserSettings>()` with `insert_resource(load_settings())` so saved settings persist across app restarts
+
+## 2026-02-10
+
 - **remove beds** — NPCs rest at their spawner building (Hut/Barracks) instead of separate beds
   - remove beds from world gen (`place_town_buildings`), build menu, `BedOccupancy` resource, `LocationKind::Bed`
   - spawner_respawn_system sets home to building position instead of nearest bed

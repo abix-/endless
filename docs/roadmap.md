@@ -357,6 +357,50 @@ Economy depth:
 - [ ] Multiple resources (wood, iron, gold)
 - [ ] Production buildings (lumber mill, mine, blacksmith)
 
+**Stage 14: Tower Defense (Wintermaul Wars-inspired)**
+
+*Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, player can send creeps (guards) at enemy lanes, and towers upgrade/evolve into advanced forms.*
+
+Maze building:
+- [ ] Open-field tower placement on a grid (towers block pathing, enemies path around them)
+- [ ] Pathfinding recalculation on tower place/remove (A* or flow field on grid)
+- [ ] Maze validation — path from spawn to goal must always exist (reject placements that fully block)
+- [ ] Visual path preview (show calculated enemy route through current maze)
+
+Elemental rock-paper-scissors:
+- [ ] `Element` enum: Fire, Ice, Nature, Lightning, Arcane, Dark (6 elements)
+- [ ] Element weakness matrix (Fire→Nature→Lightning→Ice→Fire, Arcane↔Dark)
+- [ ] Creep waves carry an element — weak-element towers deal 2x, strong-element towers deal 0.5x
+- [ ] Tower/creep element shown via tint or icon overlay
+- [ ] Forces diverse tower builds — can't spam one type
+
+Income & interest system:
+- [ ] Per-wave gold income (base + bonus for no leaks)
+- [ ] Interest on banked gold each wave (e.g. 5% per round, capped)
+- [ ] Risk/reward tension: spend now for defense vs. bank for compound interest
+- [ ] Leak penalty — lives lost per creep that reaches the goal
+- [ ] HUD: gold, income, interest rate, lives
+
+Sending creeps (guards):
+- [ ] Competitive mode: spend gold to send extra creeps into opponent's lane
+- [ ] Send menu with creep tiers (cheap/fast, tanky, elemental, boss)
+- [ ] Sent creeps appear as your guards marching through enemy maze
+- [ ] Income bonus from sending (reward aggressive play)
+- [ ] Balance: sending weakens your economy but pressures opponents
+
+Tower upgrades:
+- [ ] Multi-tier upgrade path per tower (Lv1 → Lv2 → Lv3, increasing stats + visual change)
+- [ ] Upgrade cost scales with tier
+- [ ] Upgraded towers: more damage, range, attack speed, or splash
+- [ ] Visual progression (sprite change or size increase per tier)
+
+Tower evolution:
+- [ ] At max upgrade tier, towers can evolve into specialized variants
+- [ ] Evolution branches (e.g. Fire Lv3 → Inferno (AoE) or Sniper Flame (single-target, long range))
+- [ ] Evolution requires adjacent tower synergy or resource cost
+- [ ] Evolved towers get unique abilities (slow, DoT, chain lightning, lifesteal)
+- [ ] Evolution tree visible in tower info panel
+
 **Stage 13: Endgame**
 
 *Done when: AI factions compete autonomously, armies clash over territory, and the simulation runs efficiently at scale.*
