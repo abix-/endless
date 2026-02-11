@@ -49,10 +49,10 @@ Rules:
 ### Movement & Physics
 - [x] GPU compute shader for movement toward targets
 - [x] set_target(npc_index, x, y) API for directing NPCs
-- [x] Separation physics (boids-style, no pile-ups)
+- [x] Separation physics (boids-style, same-faction 1.5x boost, avoidance clamped to speed×1.5)
 - [x] Spatial grid for O(1) neighbor lookups (256x256 cells, 128px each, 48 NPCs/cell max, covers 32,768px)
 - [x] Arrival detection with persistent flag
-- [x] TCP-style backoff for blocked NPCs
+- [x] Lateral steering for blocked NPCs (replaced TCP-style backoff — routes around obstacles at 60% speed)
 - [x] Zero-distance fallback (golden angle when NPCs overlap exactly)
 - [x] reset() function for scene reload
 
@@ -79,6 +79,7 @@ Rules:
 - [x] 15-minute decision cycles (event-driven override on state changes)
 - [x] Building arrival based on sprite size (not pixel coordinates)
 - [x] Drift detection (working NPCs pushed off position walk back)
+- [x] `rebuild_patrol_routes_system` — rebuilds all guards' patrol routes when WorldData changes (guard post added/removed/reordered)
 
 ### Economy
 - [x] Food production (farmers generate food per hour)
@@ -97,16 +98,17 @@ Rules:
 - [x] WorldGrid (250x250 cells, 32px each, terrain biome + building per cell)
 - [x] WorldGenConfig resource (world size, town count, spacing, NPC counts)
 - [x] Building grid expansion (6x6 start, expandable to 100x100 via per-tile unlock)
+- [x] Spiral building placement (`spiral_slots()` generates positions outward from center, auto-unlocks TownGrid slots)
 
 ### World Data
 - [x] Towns, farms, beds, guard posts as Bevy resources
-- [x] Occupancy tracking (reserve/release beds and farms)
+- [x] BuildingOccupancy resource (private map + claim/release/is_occupied/count API, replaces FarmOccupancy)
+- [x] Worksite trait + generic `find_nearest_free()`/`find_within_radius()`/`find_by_pos()` helpers
 - [x] Query APIs: get_town_center, get_camp_position, get_patrol_post
-- [x] Query APIs: get_nearest_free_bed/farm
 - [x] init_world, add_town/farm/bed/guard_post APIs
 
 ### UI Integration
-- [x] Click to select NPC (click_to_select_system, nearest within 20px)
+- [x] Click to select NPC or building (click_to_select_system, nearest NPC within 20px, fallback to WorldGrid building cell)
 - [x] Name generation ("Adjective Noun" by job)
 - [x] NpcMetaCache resource (name, level, xp, trait, town_id, job per NPC)
 - [x] NpcEnergyCache resource (energy per NPC)
@@ -121,7 +123,10 @@ Rules:
 - [x] combat_log.rs (event feed with color-coded timestamps, Kill/Spawn/Raid/Harvest)
 - [x] upgrade_menu.rs (14 upgrade rows with level/cost, spend food to purchase)
 - [x] policies_panel.rs (behavior config with live policy controls wired to TownPolicies resource)
-- [x] Keyboard toggles: R=roster, L=log, B=build, U=upgrades, P=policies
+- [x] Keyboard toggles: R=roster, B=build, U=upgrades, P=policies, T=patrols, F=follow
+- [x] Building inspector (click building → farm growth/occupancy, spawner NPC status/respawn timer, guard post patrol order/turret, fountain heal radius/food)
+- [x] Patrols tab (T) — view and reorder guard post patrol routes, swap buttons mutate WorldData
+- [x] Left panel (renamed from right_panel): Roster / Upgrades / Policies / Patrols tabs
 
 ### Building System
 - [x] Runtime add/remove farm/bed/guard_post (place_building/remove_building with tombstone deletion)
@@ -199,6 +204,7 @@ Rules:
 
 ### Settings & Config
 - [x] User settings persistence (serde JSON, scroll speed + world gen sliders)
+- [x] Cross-platform settings path (USERPROFILE on Windows, HOME fallback on macOS/Linux)
 - [x] Main menu DragValue widgets alongside sliders for typeable config inputs
 
 ### Guard Post Turrets
@@ -298,7 +304,7 @@ Remaining:
 - [x] Fountain healing zone radius reads from `CombatConfig` + upgrade bonus (already implemented in Stage 9 healing_system)
 - [x] Camp healing zone: raiders heal at camp center (already works — camps are in WorldData.towns with faction match)
 
-**Stage 11: Building Spawners** (see [spec](#building-spawners))
+**Stage 11: Building Spawners** ✓ (see [spec](#building-spawners))
 
 *Done when: each Hut supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Huts/Barracks to grow population. Menu sliders for farmers/guards removed.*
 
