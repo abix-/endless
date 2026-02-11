@@ -6,13 +6,46 @@ Built with Bevy 0.18 ECS and GPU compute shaders (WGSL). Data-oriented design wi
 
 ## Getting Started
 
-**Prerequisites:** [Rust 1.93+](https://rustup.rs/), GPU with Vulkan or DX12 support
+### Windows
+
+1. Install [Rust](https://rustup.rs/) (includes `cargo`). Requires [Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+2. GPU with Vulkan or DX12 support (any dedicated GPU from the last 10 years, most integrated GPUs).
 
 ```bash
 git clone https://github.com/abix-/endless.git
 cd endless/rust
 cargo run --release
 ```
+
+### macOS
+
+1. Install [Rust](https://rustup.rs/) (includes `cargo`). Xcode Command Line Tools will be installed automatically if missing.
+2. Apple Silicon or Intel Mac with Metal support (2012+).
+
+```bash
+git clone https://github.com/abix-/endless.git
+cd endless/rust
+cargo run --release
+```
+
+### Linux
+
+1. Install [Rust](https://rustup.rs/) and system dependencies for Bevy:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt install g++ pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+   # Fedora
+   sudo dnf install gcc-c++ libX11-devel alsa-lib-devel systemd-devel wayland-devel libxkbcommon-devel
+   ```
+2. GPU with Vulkan support and up-to-date drivers.
+
+```bash
+git clone https://github.com/abix-/endless.git
+cd endless/rust
+cargo run --release
+```
+
+First build takes 2-5 minutes (compiles Bevy + dependencies). Subsequent builds are ~15 seconds.
 
 ## The Struggle
 
@@ -28,14 +61,15 @@ cargo run --release
 |-----|--------|
 | WASD / Arrows | Move camera |
 | Mouse Wheel | Zoom (centers on cursor) |
-| Left Click (NPC) | Select and inspect |
-| Left Click (Farm) | Show farm occupancy |
+| Left Click (NPC) | Select and inspect NPC |
+| Left Click (building) | Select and inspect building |
 | Right Click (slot) | Build menu / unlock slot / turret toggle |
 | + / = | Speed up time (2x) |
 | - | Slow down time (0.5x) |
 | SPACE | Pause/unpause |
 | R | Roster panel (view all guards/farmers) |
-| L | Combat log (kills, spawns, raids, harvests) |
+| F | Follow selected NPC |
+| T | Patrols panel (reorder guard post routes) |
 | B | Build menu panel |
 | U | Upgrade menu |
 | P | Policies panel (faction settings) |
