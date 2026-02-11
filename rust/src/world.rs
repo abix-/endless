@@ -716,6 +716,7 @@ pub fn generate_world(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     farm_states: &mut FarmStates,
+    town_grids: &mut TownGrids,
 ) {
     use rand::Rng;
     let mut rng = rand::rng();
@@ -786,7 +787,9 @@ pub fn generate_world(
         });
         let vill_town_idx = (world_data.towns.len() - 1) as u32;
 
-        place_town_buildings(grid, world_data, farm_states, center, vill_town_idx, config);
+        town_grids.grids.push(TownGrid::new_base());
+        let grid_idx = town_grids.grids.len() - 1;
+        place_town_buildings(grid, world_data, farm_states, center, vill_town_idx, config, &mut town_grids.grids[grid_idx]);
 
         // Add raider town
         world_data.towns.push(Town {
@@ -816,9 +819,13 @@ fn place_town_buildings(
     center: Vec2,
     town_idx: u32,
     config: &WorldGenConfig,
+    town_grid: &mut TownGrid,
 ) {
+    // Track which town-grid slots are occupied by buildings
+    let mut occupied = HashSet::new();
+
     // Helper: place building at town grid (row, col), return snapped world position
-    let mut place = |row: i32, col: i32, building: Building| -> Vec2 {
+    let mut place = |row: i32, col: i32, building: Building, occ: &mut HashSet<(i32, i32)>, tg: &mut TownGrid| -> Vec2 {
         let world_pos = town_grid_to_world(center, row, col);
         let (gc, gr) = grid.world_to_grid(world_pos);
         let snapped_pos = grid.grid_to_world(gc, gr);
@@ -827,15 +834,17 @@ fn place_town_buildings(
                 cell.building = Some(building);
             }
         }
+        occ.insert((row, col));
+        tg.unlocked.insert((row, col));
         snapped_pos
     };
 
     // Fountain at (0, 0) = town center
-    place(0, 0, Building::Fountain { town_idx });
+    place(0, 0, Building::Fountain { town_idx }, &mut occupied, town_grid);
 
     // 2 farms: above and below center
-    let farm0_pos = place(-1, 0, Building::Farm { town_idx });
-    let farm1_pos = place(1, 0, Building::Farm { town_idx });
+    let farm0_pos = place(-1, 0, Building::Farm { town_idx }, &mut occupied, town_grid);
+    let farm1_pos = place(1, 0, Building::Farm { town_idx }, &mut occupied, town_grid);
     world_data.farms.push(Farm { position: farm0_pos, town_idx });
     world_data.farms.push(Farm { position: farm1_pos, town_idx });
     farm_states.push_farm();
@@ -844,7 +853,7 @@ fn place_town_buildings(
     // 4 guard posts: outer corners (clockwise patrol: TL → TR → BR → BL)
     let post_slots = [(3, -2), (3, 3), (-2, 3), (-2, -2)];
     for (order, &(row, col)) in post_slots.iter().enumerate() {
-        let post_pos = place(row, col, Building::GuardPost { town_idx, patrol_order: order as u32 });
+        let post_pos = place(row, col, Building::GuardPost { town_idx, patrol_order: order as u32 }, &mut occupied, town_grid);
         world_data.guard_posts.push(GuardPost {
             position: post_pos,
             town_idx,
@@ -852,25 +861,57 @@ fn place_town_buildings(
         });
     }
 
-    // Huts and barracks: available inner grid slots not used by other buildings
-    // Huts first, then barracks, drawing from pool in order
-    let spawner_slots: [(i32, i32); 12] = [
-        (0, -1), (0, 1), (1, -1), (1, 1), (-1, 1), (2, 0),
-        (2, 1), (1, -2), (1, 2), (0, -2), (0, 2), (-1, -2),
-    ];
-    let mut slot_iter = spawner_slots.iter();
+    // Generate spawner positions via spiral outward from center, skipping occupied cells.
+    // Enough for any slider value (spiral covers the full MAX_GRID_EXTENT).
+    let needed = config.farmers_per_town + config.guards_per_town;
+    let slots = spiral_slots(&occupied, needed);
+    let mut slot_iter = slots.into_iter();
 
     for _ in 0..config.farmers_per_town {
-        let Some(&(row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::Hut { town_idx });
+        let Some((row, col)) = slot_iter.next() else { break };
+        let pos = place(row, col, Building::Hut { town_idx }, &mut occupied, town_grid);
         world_data.huts.push(Hut { position: pos, town_idx });
     }
 
     for _ in 0..config.guards_per_town {
-        let Some(&(row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::Barracks { town_idx });
+        let Some((row, col)) = slot_iter.next() else { break };
+        let pos = place(row, col, Building::Barracks { town_idx }, &mut occupied, town_grid);
         world_data.barracks.push(Barracks { position: pos, town_idx });
     }
+}
+
+/// Generate `count` grid positions in a spiral pattern outward from (0,0), skipping occupied cells.
+fn spiral_slots(occupied: &HashSet<(i32, i32)>, count: usize) -> Vec<(i32, i32)> {
+    let mut result = Vec::with_capacity(count);
+    // Walk rings outward: ring 1 = distance 1 from center, ring 2 = distance 2, etc.
+    for ring in 1..=MAX_GRID_EXTENT {
+        if result.len() >= count { break; }
+        // Top edge: row = -ring, col = -ring..ring
+        for col in -ring..=ring {
+            if result.len() >= count { break; }
+            let pos = (-ring, col);
+            if !occupied.contains(&pos) { result.push(pos); }
+        }
+        // Right edge: row = -ring+1..ring, col = ring
+        for row in (-ring + 1)..=ring {
+            if result.len() >= count { break; }
+            let pos = (row, ring);
+            if !occupied.contains(&pos) { result.push(pos); }
+        }
+        // Bottom edge: row = ring, col = ring-1..-ring
+        for col in (-ring..ring).rev() {
+            if result.len() >= count { break; }
+            let pos = (ring, col);
+            if !occupied.contains(&pos) { result.push(pos); }
+        }
+        // Left edge: row = ring..-ring+1, col = -ring
+        for row in ((-ring + 1)..ring).rev() {
+            if result.len() >= count { break; }
+            let pos = (row, -ring);
+            if !occupied.contains(&pos) { result.push(pos); }
+        }
+    }
+    result
 }
 
 /// Find camp position for a town: try 16 directions, pick furthest from all towns.

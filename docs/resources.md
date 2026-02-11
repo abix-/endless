@@ -81,7 +81,7 @@ Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `f
 
 **WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px camp distance, 2 farmers / 2 guards / 0 raiders per town (testing defaults).
 
-**`generate_world()`**: Pure function that takes config and populates both WorldGrid and WorldData. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 guard posts at grid corners, N Huts + N Barracks from config sliders).
+**`generate_world()`**: Takes config and populates WorldGrid, WorldData, and TownGrids. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 guard posts at grid corners, N Huts + N Barracks from config sliders). Building positions are generated via `spiral_slots()` — a spiral outward from town center that skips occupied cells, so slider values up to 1000 are supported. Slots beyond the base 6x6 grid are auto-unlocked in TownGrids during placement.
 
 ### Town Building Grid
 

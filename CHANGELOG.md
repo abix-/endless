@@ -2,6 +2,9 @@
 
 ## 2026-02-10
 
+- **fix: spiral building placement** — replace hardcoded 12-slot spawner array with `spiral_slots()` generator; `generate_world()` now populates `TownGrids` directly, auto-unlocking slots beyond base 6x6 grid; supports slider values up to 1000 huts/barracks per town
+- **fix: settings path cross-platform** — fall back to `HOME` env var when `USERPROFILE` missing (macOS/Linux)
+- **readme: per-platform getting started** — separate Windows/macOS/Linux install instructions with prerequisites
 - **refactor: FarmOccupancy → BuildingOccupancy** — generic `Worksite` trait + `find_nearest_free()`/`find_within_radius()`/`find_by_pos()` replace farm-specific helpers; private field with claim/release/is_occupied/count API prevents double-increment bugs
 - **fix: town index convention** — remove `÷2` pair-index conversion; NPCs and buildings both use direct WorldData indices (villagers at even, raiders at odd); fixes build menu spawner town_idx, spawner_respawn, and `build_patrol_route` (now `pub(crate)`)
 - **UI: building inspector** — click buildings to inspect; shows per-type details (farm growth/occupancy, spawner NPC status/respawn timer, guard post patrol order/turret, fountain heal radius/food, camp food); `SelectedBuilding` resource with grid col/row

@@ -110,20 +110,15 @@ fn game_startup_system(
 ) {
     info!("Game startup: generating world...");
 
-    // Generate world (populates grid + world_data + farm_states + huts/barracks)
-    world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states);
+    // Generate world (populates grid + world_data + farm_states + huts/barracks + town_grids)
+    town_grids.grids.clear();
+    world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states, &mut town_grids);
 
     // Load saved policies for player's town
     let saved = crate::settings::load_settings();
     let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
     if town_idx < policies.policies.len() {
         policies.policies[town_idx] = saved.policy;
-    }
-
-    // Init town building grids (one per villager town)
-    town_grids.grids.clear();
-    for _ in 0..config.num_towns {
-        town_grids.grids.push(world::TownGrid::new_base());
     }
 
     // Init economy resources
