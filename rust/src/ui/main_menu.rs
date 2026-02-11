@@ -123,9 +123,9 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Raiders per camp
+            // Tents per camp (1 raider per tent)
             ui.horizontal(|ui| {
-                ui.label("Raiders:");
+                ui.label("Tents:");
                 ui.add(egui::Slider::new(&mut state.raiders, 0.0..=1000.0)
                     .step_by(1.0)
                     .show_value(false));

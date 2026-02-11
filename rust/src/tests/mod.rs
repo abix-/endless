@@ -55,6 +55,7 @@ pub struct CleanupExtra<'w> {
     pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
     pub world_grid: ResMut<'w, crate::world::WorldGrid>,
     pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
+    pub spawner_state: ResMut<'w, crate::resources::SpawnerState>,
 }
 
 // ============================================================================
@@ -70,6 +71,7 @@ pub struct TestSetupParams<'w> {
     pub faction_stats: ResMut<'w, FactionStats>,
     pub game_time: ResMut<'w, GameTime>,
     pub test_state: ResMut<'w, TestState>,
+    pub spawner_state: ResMut<'w, SpawnerState>,
 }
 
 impl TestSetupParams<'_> {
@@ -795,6 +797,7 @@ fn cleanup_test_world(
     *extra.proj_alloc = Default::default();
     *extra.world_grid = Default::default();
     *extra.debug_flags = Default::default();
+    *extra.spawner_state = Default::default();
 
     info!("Test cleanup: despawned {} NPCs, reset resources", count);
 }

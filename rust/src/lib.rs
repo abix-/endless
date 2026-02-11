@@ -285,7 +285,6 @@ pub fn build_app(app: &mut App) {
            game_time_system,
            farm_growth_system,
            camp_forage_system,
-           raider_respawn_system,
            spawner_respawn_system,
            starvation_system,
            decision_system,

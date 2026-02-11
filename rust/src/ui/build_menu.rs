@@ -157,125 +157,161 @@ pub fn build_menu_system(
             } else {
                 // Empty unlocked slot: show build options
                 let town_idx = town_data_idx as u32;
+                let is_camp = world_data.towns.get(town_data_idx)
+                    .map(|t| t.faction > 0).unwrap_or(false);
 
-                // Farm
-                let can_farm = food >= FARM_BUILD_COST;
-                if ui.add_enabled(can_farm, egui::Button::new(
-                    format!("Farm ({} food)", FARM_BUILD_COST)
-                )).on_hover_text("Produces food when tended by farmers")
-                .clicked() {
-                    let building = Building::Farm { town_idx };
-                    if let Ok(()) = world::place_building(
-                        &mut grid, &mut world_data, &mut farm_states,
-                        building, row, col, town_center,
-                    ) {
-                        if let Some(f) = food_storage.food.get_mut(town_data_idx) {
-                            *f -= FARM_BUILD_COST;
+                if is_camp {
+                    // Camp grid: only Tent
+                    let can_tent = food >= TENT_BUILD_COST;
+                    if ui.add_enabled(can_tent, egui::Button::new(
+                        format!("Tent ({} food)", TENT_BUILD_COST)
+                    )).on_hover_text("Supports 1 raider. Respawns after 12h if killed.")
+                    .clicked() {
+                        let building = Building::Tent { town_idx };
+                        if let Ok(()) = world::place_building(
+                            &mut grid, &mut world_data, &mut farm_states,
+                            building, row, col, town_center,
+                        ) {
+                            if let Some(f) = food_storage.food.get_mut(town_data_idx) {
+                                *f -= TENT_BUILD_COST;
+                            }
+                            let pos = world::town_grid_to_world(town_center, row, col);
+                            let (gc, gr) = grid.world_to_grid(pos);
+                            let snapped = grid.grid_to_world(gc, gr);
+                            spawner_state.0.push(SpawnerEntry {
+                                building_kind: 2,
+                                town_idx: town_data_idx as i32,
+                                position: snapped,
+                                npc_slot: -1,
+                                respawn_timer: 0.0,
+                            });
+                            combat_log.push(
+                                CombatEventKind::Harvest,
+                                game_time.day(), game_time.hour(), game_time.minute(),
+                                format!("Built tent at ({},{}) in {}", row, col, town_name),
+                            );
                         }
-                        combat_log.push(
-                            CombatEventKind::Harvest,
-                            game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("Built farm at ({},{}) in {}", row, col, town_name),
-                        );
+                        action_taken = true;
                     }
-                    action_taken = true;
-                }
-
-                // Guard Post
-                let can_post = food >= GUARD_POST_BUILD_COST;
-                if ui.add_enabled(can_post, egui::Button::new(
-                    format!("Guard Post ({} food)", GUARD_POST_BUILD_COST)
-                )).on_hover_text("Guards patrol between posts")
-                .clicked() {
-                    // patrol_order = count of existing posts for this town
-                    let existing_posts = world_data.guard_posts.iter()
-                        .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
-                        .count() as u32;
-                    let building = Building::GuardPost { town_idx, patrol_order: existing_posts };
-                    if let Ok(()) = world::place_building(
-                        &mut grid, &mut world_data, &mut farm_states,
-                        building, row, col, town_center,
-                    ) {
-                        if let Some(f) = food_storage.food.get_mut(town_data_idx) {
-                            *f -= GUARD_POST_BUILD_COST;
+                    if !can_tent {
+                        ui.small("Not enough food");
+                    }
+                } else {
+                    // Villager town: Farm, Guard Post, Hut, Barracks
+                    let can_farm = food >= FARM_BUILD_COST;
+                    if ui.add_enabled(can_farm, egui::Button::new(
+                        format!("Farm ({} food)", FARM_BUILD_COST)
+                    )).on_hover_text("Produces food when tended by farmers")
+                    .clicked() {
+                        let building = Building::Farm { town_idx };
+                        if let Ok(()) = world::place_building(
+                            &mut grid, &mut world_data, &mut farm_states,
+                            building, row, col, town_center,
+                        ) {
+                            if let Some(f) = food_storage.food.get_mut(town_data_idx) {
+                                *f -= FARM_BUILD_COST;
+                            }
+                            combat_log.push(
+                                CombatEventKind::Harvest,
+                                game_time.day(), game_time.hour(), game_time.minute(),
+                                format!("Built farm at ({},{}) in {}", row, col, town_name),
+                            );
                         }
-                        combat_log.push(
-                            CombatEventKind::Harvest,
-                            game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("Built guard post at ({},{}) in {}", row, col, town_name),
-                        );
+                        action_taken = true;
                     }
-                    action_taken = true;
-                }
 
-                // Hut
-                let can_hut = food >= HUT_BUILD_COST;
-                if ui.add_enabled(can_hut, egui::Button::new(
-                    format!("Hut ({} food)", HUT_BUILD_COST)
-                )).on_hover_text("Supports 1 farmer. Respawns after 12h if killed.")
-                .clicked() {
-                    let building = Building::Hut { town_idx };
-                    if let Ok(()) = world::place_building(
-                        &mut grid, &mut world_data, &mut farm_states,
-                        building, row, col, town_center,
-                    ) {
-                        if let Some(f) = food_storage.food.get_mut(town_data_idx) {
-                            *f -= HUT_BUILD_COST;
+                    let can_post = food >= GUARD_POST_BUILD_COST;
+                    if ui.add_enabled(can_post, egui::Button::new(
+                        format!("Guard Post ({} food)", GUARD_POST_BUILD_COST)
+                    )).on_hover_text("Guards patrol between posts")
+                    .clicked() {
+                        let existing_posts = world_data.guard_posts.iter()
+                            .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
+                            .count() as u32;
+                        let building = Building::GuardPost { town_idx, patrol_order: existing_posts };
+                        if let Ok(()) = world::place_building(
+                            &mut grid, &mut world_data, &mut farm_states,
+                            building, row, col, town_center,
+                        ) {
+                            if let Some(f) = food_storage.food.get_mut(town_data_idx) {
+                                *f -= GUARD_POST_BUILD_COST;
+                            }
+                            combat_log.push(
+                                CombatEventKind::Harvest,
+                                game_time.day(), game_time.hour(), game_time.minute(),
+                                format!("Built guard post at ({},{}) in {}", row, col, town_name),
+                            );
                         }
-                        let pos = world::town_grid_to_world(town_center, row, col);
-                        let (gc, gr) = grid.world_to_grid(pos);
-                        let snapped = grid.grid_to_world(gc, gr);
-                        spawner_state.0.push(SpawnerEntry {
-                            building_kind: 0,
-                            town_idx: town_data_idx as i32,
-                            position: snapped,
-                            npc_slot: -1,
-                            respawn_timer: 0.0,
-                        });
-                        combat_log.push(
-                            CombatEventKind::Harvest,
-                            game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("Built hut at ({},{}) in {}", row, col, town_name),
-                        );
+                        action_taken = true;
                     }
-                    action_taken = true;
-                }
 
-                // Barracks
-                let can_barracks = food >= BARRACKS_BUILD_COST;
-                if ui.add_enabled(can_barracks, egui::Button::new(
-                    format!("Barracks ({} food)", BARRACKS_BUILD_COST)
-                )).on_hover_text("Supports 1 guard. Respawns after 12h if killed.")
-                .clicked() {
-                    let building = Building::Barracks { town_idx };
-                    if let Ok(()) = world::place_building(
-                        &mut grid, &mut world_data, &mut farm_states,
-                        building, row, col, town_center,
-                    ) {
-                        if let Some(f) = food_storage.food.get_mut(town_data_idx) {
-                            *f -= BARRACKS_BUILD_COST;
+                    let can_hut = food >= HUT_BUILD_COST;
+                    if ui.add_enabled(can_hut, egui::Button::new(
+                        format!("Hut ({} food)", HUT_BUILD_COST)
+                    )).on_hover_text("Supports 1 farmer. Respawns after 12h if killed.")
+                    .clicked() {
+                        let building = Building::Hut { town_idx };
+                        if let Ok(()) = world::place_building(
+                            &mut grid, &mut world_data, &mut farm_states,
+                            building, row, col, town_center,
+                        ) {
+                            if let Some(f) = food_storage.food.get_mut(town_data_idx) {
+                                *f -= HUT_BUILD_COST;
+                            }
+                            let pos = world::town_grid_to_world(town_center, row, col);
+                            let (gc, gr) = grid.world_to_grid(pos);
+                            let snapped = grid.grid_to_world(gc, gr);
+                            spawner_state.0.push(SpawnerEntry {
+                                building_kind: 0,
+                                town_idx: town_data_idx as i32,
+                                position: snapped,
+                                npc_slot: -1,
+                                respawn_timer: 0.0,
+                            });
+                            combat_log.push(
+                                CombatEventKind::Harvest,
+                                game_time.day(), game_time.hour(), game_time.minute(),
+                                format!("Built hut at ({},{}) in {}", row, col, town_name),
+                            );
                         }
-                        let pos = world::town_grid_to_world(town_center, row, col);
-                        let (gc, gr) = grid.world_to_grid(pos);
-                        let snapped = grid.grid_to_world(gc, gr);
-                        spawner_state.0.push(SpawnerEntry {
-                            building_kind: 1,
-                            town_idx: town_data_idx as i32,
-                            position: snapped,
-                            npc_slot: -1,
-                            respawn_timer: 0.0,
-                        });
-                        combat_log.push(
-                            CombatEventKind::Harvest,
-                            game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("Built barracks at ({},{}) in {}", row, col, town_name),
-                        );
+                        action_taken = true;
                     }
-                    action_taken = true;
-                }
 
-                if food < FARM_BUILD_COST {
-                    ui.small("Not enough food");
+                    let can_barracks = food >= BARRACKS_BUILD_COST;
+                    if ui.add_enabled(can_barracks, egui::Button::new(
+                        format!("Barracks ({} food)", BARRACKS_BUILD_COST)
+                    )).on_hover_text("Supports 1 guard. Respawns after 12h if killed.")
+                    .clicked() {
+                        let building = Building::Barracks { town_idx };
+                        if let Ok(()) = world::place_building(
+                            &mut grid, &mut world_data, &mut farm_states,
+                            building, row, col, town_center,
+                        ) {
+                            if let Some(f) = food_storage.food.get_mut(town_data_idx) {
+                                *f -= BARRACKS_BUILD_COST;
+                            }
+                            let pos = world::town_grid_to_world(town_center, row, col);
+                            let (gc, gr) = grid.world_to_grid(pos);
+                            let snapped = grid.grid_to_world(gc, gr);
+                            spawner_state.0.push(SpawnerEntry {
+                                building_kind: 1,
+                                town_idx: town_data_idx as i32,
+                                position: snapped,
+                                npc_slot: -1,
+                                respawn_timer: 0.0,
+                            });
+                            combat_log.push(
+                                CombatEventKind::Harvest,
+                                game_time.day(), game_time.hour(), game_time.minute(),
+                                format!("Built barracks at ({},{}) in {}", row, col, town_name),
+                            );
+                        }
+                        action_taken = true;
+                    }
+
+                    if food < FARM_BUILD_COST {
+                        ui.small("Not enough food");
+                    }
                 }
             }
         });

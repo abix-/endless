@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-02-11
+
+- **raider tent spawners** — raiders now spawn from individual Tent buildings instead of bulk camp spawns; `Building::Tent` variant + `WorldData.tents` + `BUILDING_TILES[7]`; `raider_respawn_system` removed, unified into `spawner_respawn_system` (building_kind 2=Tent → Raider with camp center as home)
+- **camp TownGrids** — raider camps get expandable building grids like villager towns; `TownGrid` gains `town_data_idx` field replacing fragile `grid_idx * 2` mapping; `find_town_slot()` iterates all grids using stored index; `place_camp_buildings()` places Camp center + N Tents via spiral
+- **build menu: camp support** — right-clicking camp grid slots shows Tent build option; villager-only buildings (Farm/GuardPost/Hut/Barracks) gated to faction==0 grids
+- **guard posts on perimeter** — guard posts now placed after all spawner buildings via `spiral_slots()` so they're always on the outer ring regardless of slider values
+- **HUD: raider/tent counts** — top bar shows `Raiders: alive/tents` for first raider camp; building inspector supports Tent (shows linked NPC + respawn timer)
+- **main menu: rename raiders → tents** — slider now labeled "Tents" (1 raider per tent)
+
 ## 2026-02-10
 
 - **fix: spiral building placement** — replace hardcoded 12-slot spawner array with `spiral_slots()` generator; `generate_world()` now populates `TownGrids` directly, auto-unlocking slots beyond base 6x6 grid; supports slider values up to 1000 huts/barracks per town

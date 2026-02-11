@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::resources::*;
-use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, RAIDER_SPAWN_COST, CAMP_MAX_POP, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS};
+use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS};
 use crate::world::{self, WorldData, BuildingOccupancy};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
@@ -159,74 +159,6 @@ pub fn camp_forage_system(
 }
 
 // ============================================================================
-// RAIDER RESPAWN SYSTEM
-// ============================================================================
-
-/// Raider respawning: camps spend food to spawn new raiders.
-/// Only runs when game_time.hour_ticked is true.
-/// Checks: food >= RAIDER_SPAWN_COST, population < CAMP_MAX_POP.
-pub fn raider_respawn_system(
-    game_time: Res<GameTime>,
-    mut food_storage: ResMut<FoodStorage>,
-    faction_stats: Res<FactionStats>,
-    world_data: Res<WorldData>,
-    mut slots: ResMut<SlotAllocator>,
-    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
-) {
-    if !game_time.hour_ticked {
-        return;
-    }
-
-    // Check each raider camp (faction > 0)
-    for (town_idx, town) in world_data.towns.iter().enumerate() {
-        if town.faction <= 0 {
-            continue; // Skip villager towns
-        }
-
-        // Check food
-        let food = food_storage.food.get(town_idx).copied().unwrap_or(0);
-        if food < RAIDER_SPAWN_COST {
-            continue; // Not enough food
-        }
-
-        // Check population cap
-        let alive = faction_stats.stats.get(town.faction as usize)
-            .map(|s| s.alive)
-            .unwrap_or(0);
-        if alive >= CAMP_MAX_POP {
-            continue; // At capacity
-        }
-
-        // Allocate slot
-        let slot_idx = match slots.alloc() {
-            Some(idx) => idx,
-            None => continue, // No slots available
-        };
-
-        // Spawn raider at camp center
-        spawn_writer.write(SpawnNpcMsg {
-            slot_idx,
-            x: town.center.x,
-            y: town.center.y,
-            job: 2, // Raider
-            faction: town.faction,
-            town_idx: town_idx as i32,
-            home_x: town.center.x,
-            home_y: town.center.y,
-            work_x: -1.0,
-            work_y: -1.0,
-            starting_post: -1,
-            attack_type: 0, // Melee
-        });
-
-        // Subtract food cost
-        if let Some(f) = food_storage.food.get_mut(town_idx) {
-            *f -= RAIDER_SPAWN_COST;
-        }
-    }
-}
-
-// ============================================================================
 // STARVATION SYSTEM
 // ============================================================================
 
@@ -293,7 +225,7 @@ pub fn farm_visual_system(
 // BUILDING SPAWNER SYSTEM
 // ============================================================================
 
-/// Detects dead NPCs linked to Hut/Barracks buildings, counts down respawn timers,
+/// Detects dead NPCs linked to Hut/Barracks/Tent buildings, counts down respawn timers,
 /// and spawns replacements via SlotAllocator + SpawnNpcMsg.
 /// Only runs when game_time.hour_ticked is true.
 pub fn spawner_respawn_system(
@@ -332,30 +264,48 @@ pub fn spawner_respawn_system(
                 let Some(slot) = slots.alloc() else { continue };
                 let town_data_idx = entry.town_idx as usize;
 
-                let (job, work_x, work_y, starting_post, attack_type, job_name) =
-                    if entry.building_kind == 0 {
-                        // Hut → Farmer: find nearest FREE farm in own town
-                        let farm = world::find_nearest_free(
-                            entry.position, &world_data.farms, &farm_occupancy, Some(entry.town_idx as u32),
-                        ).unwrap_or(entry.position);
-                        (0, farm.x, farm.y, -1, 0, "Farmer")
-                    } else {
-                        // Barracks → Guard
-                        let post_idx = world::find_location_within_radius(
-                            entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
-                        ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-                        (1, -1.0, -1.0, post_idx, 1, "Guard")
+                let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
+                    match entry.building_kind {
+                        0 => {
+                            // Hut -> Farmer: find nearest FREE farm in own town
+                            let farm = world::find_nearest_free(
+                                entry.position, &world_data.farms, &farm_occupancy, Some(entry.town_idx as u32),
+                            ).unwrap_or(entry.position);
+                            (0, 0, farm.x, farm.y, -1, 0, "Farmer", "Hut")
+                        }
+                        1 => {
+                            // Barracks -> Guard
+                            let post_idx = world::find_location_within_radius(
+                                entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
+                            ).map(|(idx, _)| idx as i32).unwrap_or(-1);
+                            (1, 0, -1.0, -1.0, post_idx, 1, "Guard", "Barracks")
+                        }
+                        _ => {
+                            // Tent -> Raider: home = camp center
+                            let camp_faction = world_data.towns.get(town_data_idx)
+                                .map(|t| t.faction).unwrap_or(1);
+                            (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Tent")
+                        }
                     };
+
+                // Raider home = camp center, villager home = building position
+                let (home_x, home_y) = if entry.building_kind == 2 {
+                    let center = world_data.towns.get(town_data_idx)
+                        .map(|t| t.center).unwrap_or(entry.position);
+                    (center.x, center.y)
+                } else {
+                    (entry.position.x, entry.position.y)
+                };
 
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,
                     x: entry.position.x,
                     y: entry.position.y,
                     job,
-                    faction: 0,
+                    faction,
                     town_idx: town_data_idx as i32,
-                    home_x: entry.position.x,
-                    home_y: entry.position.y,
+                    home_x,
+                    home_y,
                     work_x,
                     work_y,
                     starting_post,
@@ -364,7 +314,6 @@ pub fn spawner_respawn_system(
                 entry.npc_slot = slot as i32;
                 entry.respawn_timer = -1.0;
 
-                let building_name = if entry.building_kind == 0 { "Hut" } else { "Barracks" };
                 combat_log.push(
                     CombatEventKind::Spawn,
                     game_time.day(), game_time.hour(), game_time.minute(),

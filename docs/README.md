@@ -17,7 +17,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 **Architecture** (`rust/src/tests/`):
 - `TestState` resource: shared phase tracking, counters, flags, results
 - `TestRegistry`: registered test entries (name, description, phase_count, time_scale)
-- `TestSetupParams`: SystemParam bundle for test setup (slot alloc, spawn, world data, food, factions, game time, test state)
+- `TestSetupParams`: SystemParam bundle for test setup (slot alloc, spawn, world data, food, factions, game time, test state, spawner state)
 - `test_is("name")` run condition gates per-test setup/tick systems
 - Each test exports `setup` (OnEnter Running) + `tick` (Update after Behavior)
 - Helpers: `tick_elapsed()`, `require_entity()` reduce boilerplate
@@ -41,7 +41,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `combat` | 6 | GPU targeting → Fighting → damage → health drop → death → slot freed |
 | `projectiles` | 4 | Ranged targeting → projectile spawn → hit + damage → slot freed |
 | `healing` | 3 | Damaged NPC near town → Healing marker → health recovers to max |
-| `economy` | 5 | Farm growing → ready → harvest → camp forage → raider respawn |
+| `economy` | 5 | Farm growing → ready → harvest → camp forage → tent spawner respawn |
 | `world-gen` | 6 | Grid dimensions, town placement, buildings, terrain, camps |
 | `sleep-visual` | 3 | Resting NPC gets SLEEP_SPRITE on status layer, cleared on wake |
 | `farm-visual` | 3 | Ready farm spawns FarmReadyMarker, removed on harvest |
@@ -64,7 +64,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Bottom panel: NPC/building inspector (left) + combat log with filters (right)
     │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T)
     │   ├─ FPS overlay: bottom-right corner, EMA-smoothed, always visible (all states)
-    │   ├─ Build menu: right-click context menu (Farm/Bed/GuardPost/Hut/Barracks/Destroy/Unlock/Turret toggle)
+    │   ├─ Build menu: right-click context menu (Farm/GuardPost/Hut/Barracks for towns, Tent for camps, Destroy/Unlock/Turret toggle)
     │   ├─ Pause menu (ESC): Resume, Settings (scroll speed + log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
@@ -107,7 +107,7 @@ Frame execution order ───────────────────�
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
-| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, raider respawning, building spawners, FarmYield upgrade | 8/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (Hut/Barracks/Tent), FarmYield upgrade | 8/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 8/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
@@ -137,7 +137,7 @@ rust/
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
     game_hud.rs         # Top bar, bottom panel (NPC + building inspector + combat log), target overlay, FPS counter
     left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) — policy persistence on tab leave
-    build_menu.rs       # Right-click context menu: build/destroy/unlock town slots, turret toggle
+    build_menu.rs       # Right-click context menu: build/destroy/unlock town+camp slots, turret toggle
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)

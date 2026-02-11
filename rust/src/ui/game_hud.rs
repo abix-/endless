@@ -93,11 +93,14 @@ pub fn top_bar_system(
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
-                    // Filter to player's town (pair_idx 0) to match pop_stats town 0
                     let huts = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.town_idx == 0 && s.position.x > -9000.0).count();
                     let barracks = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.town_idx == 0 && s.position.x > -9000.0).count();
+                    // Raider camp is town_data_idx 1 (first odd index)
+                    let raiders = pop_stats.0.get(&(2, 1)).map(|s| s.alive).unwrap_or(0);
+                    let tents = spawner_state.0.iter().filter(|s| s.building_kind == 2 && s.town_idx == 1 && s.position.x > -9000.0).count();
                     ui.label(format!("Guards: {}/{}", guards, barracks));
                     ui.label(format!("Farmers: {}/{}", farmers, huts));
+                    ui.label(format!("Raiders: {}/{}", raiders, tents));
                 });
             });
         });
@@ -498,6 +501,7 @@ fn building_name(building: &Building) -> &'static str {
         Building::Camp { .. } => "Camp",
         Building::Hut { .. } => "Hut",
         Building::Barracks { .. } => "Barracks",
+        Building::Tent { .. } => "Tent",
     }
 }
 
@@ -509,7 +513,8 @@ fn building_town_idx(building: &Building) -> u32 {
         | Building::GuardPost { town_idx, .. }
         | Building::Camp { town_idx }
         | Building::Hut { town_idx }
-        | Building::Barracks { town_idx } => *town_idx,
+        | Building::Barracks { town_idx }
+        | Building::Tent { town_idx } => *town_idx,
     }
 }
 
@@ -571,9 +576,12 @@ fn building_inspector_content(
             }
         }
 
-        Building::Hut { .. } | Building::Barracks { .. } => {
-            let is_hut = matches!(building, Building::Hut { .. });
-            let kind = if is_hut { 0 } else { 1 };
+        Building::Hut { .. } | Building::Barracks { .. } | Building::Tent { .. } => {
+            let (kind, spawns_label) = match building {
+                Building::Hut { .. } => (0, "Farmer"),
+                Building::Barracks { .. } => (1, "Guard"),
+                _ => (2, "Raider"),
+            };
             let world_pos = bld.grid.grid_to_world(col, row);
 
             // Find matching spawner entry
@@ -582,7 +590,7 @@ fn building_inspector_content(
                     && (e.position - world_pos).length() < 1.0
                     && e.position.x > -9000.0
             }) {
-                ui.label(format!("Spawns: {}", if is_hut { "Farmer" } else { "Guard" }));
+                ui.label(format!("Spawns: {}", spawns_label));
 
                 if entry.npc_slot >= 0 {
                     let slot = entry.npc_slot as usize;

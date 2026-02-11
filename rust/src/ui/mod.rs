@@ -135,7 +135,7 @@ fn game_startup_system(
     // Reset game time
     *game_time = GameTime::default();
 
-    // Build SpawnerState from world gen Huts + Barracks
+    // Build SpawnerState from world gen Huts + Barracks + Tents
     spawner_state.0.clear();
     for hut in world_data.huts.iter() {
         spawner_state.0.push(SpawnerEntry {
@@ -155,6 +155,15 @@ fn game_startup_system(
             respawn_timer: -1.0,
         });
     }
+    for tent in world_data.tents.iter() {
+        spawner_state.0.push(SpawnerEntry {
+            building_kind: 2,
+            town_idx: tent.town_idx as i32,
+            position: tent.position,
+            npc_slot: -1,
+            respawn_timer: -1.0,
+        });
+    }
 
     // Reset farm occupancy for fresh game
     farm_occupancy.clear();
@@ -169,20 +178,38 @@ fn game_startup_system(
         let Some(slot) = slots.alloc() else { break };
         let town_data_idx = entry.town_idx as usize;
 
-        let (job, work_x, work_y, starting_post, attack_type) = if entry.building_kind == 0 {
-            // Hut → Farmer: find nearest FREE farm in own town
-            let farm = world::find_nearest_free(
-                entry.position, &world_data.farms, &startup_claimed, Some(entry.town_idx as u32),
-            ).unwrap_or(entry.position);
-            // Mark in local tracker so next farmer picks a different farm
-            startup_claimed.claim(farm);
-            (0, farm.x, farm.y, -1, 0)
+        let (job, faction, work_x, work_y, starting_post, attack_type) = match entry.building_kind {
+            0 => {
+                // Hut -> Farmer: find nearest FREE farm in own town
+                let farm = world::find_nearest_free(
+                    entry.position, &world_data.farms, &startup_claimed, Some(entry.town_idx as u32),
+                ).unwrap_or(entry.position);
+                // Mark in local tracker so next farmer picks a different farm
+                startup_claimed.claim(farm);
+                (0, 0, farm.x, farm.y, -1, 0)
+            }
+            1 => {
+                // Barracks -> Guard: find nearest guard post
+                let post_idx = world::find_location_within_radius(
+                    entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
+                ).map(|(idx, _)| idx as i32).unwrap_or(-1);
+                (1, 0, -1.0, -1.0, post_idx, 1)
+            }
+            _ => {
+                // Tent -> Raider: home = camp center
+                let camp_faction = world_data.towns.get(town_data_idx)
+                    .map(|t| t.faction).unwrap_or(1);
+                (2, camp_faction, -1.0, -1.0, -1, 0)
+            }
+        };
+
+        // Raider home = camp center, villager home = building position
+        let (home_x, home_y) = if entry.building_kind == 2 {
+            let center = world_data.towns.get(town_data_idx)
+                .map(|t| t.center).unwrap_or(entry.position);
+            (center.x, center.y)
         } else {
-            // Barracks → Guard: find nearest guard post
-            let post_idx = world::find_location_within_radius(
-                entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
-            ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-            (1, -1.0, -1.0, post_idx, 1)
+            (entry.position.x, entry.position.y)
         };
 
         spawn_writer.write(SpawnNpcMsg {
@@ -190,10 +217,10 @@ fn game_startup_system(
             x: entry.position.x,
             y: entry.position.y,
             job,
-            faction: 0,
+            faction,
             town_idx: town_data_idx as i32,
-            home_x: entry.position.x,
-            home_y: entry.position.y,
+            home_x,
+            home_y,
             work_x,
             work_y,
             starting_post,
@@ -201,33 +228,6 @@ fn game_startup_system(
         });
         entry.npc_slot = slot as i32;
         total += 1;
-    }
-
-    // Raiders (unchanged — bulk spawn from camp)
-    for town_idx in 0..config.num_towns {
-        let raider_idx = town_idx * 2 + 1;
-        if raider_idx >= world_data.towns.len() { break; }
-        let raider_town = &world_data.towns[raider_idx];
-        let camp_pos = raider_town.center;
-        let raider_town_idx = (town_idx * 2 + 1) as i32;
-        for i in 0..config.raiders_per_camp {
-            let Some(slot) = slots.alloc() else { break };
-            spawn_writer.write(SpawnNpcMsg {
-                slot_idx: slot,
-                x: camp_pos.x + (i as f32 * 13.0 % 160.0) - 80.0,
-                y: camp_pos.y + (i as f32 * 17.0 % 160.0) - 80.0,
-                job: 2,
-                faction: (town_idx + 1) as i32,
-                town_idx: raider_town_idx,
-                home_x: camp_pos.x,
-                home_y: camp_pos.y,
-                work_x: -1.0,
-                work_y: -1.0,
-                starting_post: -1,
-                attack_type: 1,
-            });
-            total += 1;
-        }
     }
 
     // Center camera on first town
@@ -462,9 +462,9 @@ fn draw_slot_indicators(
         commands.entity(entity).despawn();
     }
 
-    let player_town = 0usize;
-    let Some(town_grid) = town_grids.grids.get(player_town) else { return };
-    let town_data_idx = player_town * 2;
+    // Only show indicators for the player's villager town (first grid)
+    let Some(town_grid) = town_grids.grids.first() else { return };
+    let town_data_idx = town_grid.town_data_idx;
     let Some(town) = world_data.towns.get(town_data_idx) else { return };
     let center = town.center;
 

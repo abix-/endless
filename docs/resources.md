@@ -45,11 +45,11 @@ Static world data, immutable after initialization.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| WorldData | towns, farms, beds, guard_posts, huts, barracks | All building positions and metadata |
-| SpawnerState | `Vec<SpawnerEntry>` — one per Hut/Barracks | Building→NPC links + respawn timers |
+| WorldData | towns, farms, beds, guard_posts, huts, barracks, tents | All building positions and metadata |
+| SpawnerState | `Vec<SpawnerEntry>` — one per Hut/Barracks/Tent | Building→NPC links + respawn timers |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
-| TownGrids | `Vec<TownGrid>` — one per villager town | Per-town building slot unlock tracking |
+| TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 
 ### WorldData Structs
 
@@ -61,6 +61,7 @@ Static world data, immutable after initialization.
 | GuardPost | position (Vec2), town_idx, patrol_order |
 | Hut | position (Vec2), town_idx |
 | Barracks | position (Vec2), town_idx |
+| Tent | position (Vec2), town_idx |
 
 Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `find_nearest_free()` (generic via `Worksite` trait), `find_within_radius()`, `find_by_pos()`.
 
@@ -75,22 +76,22 @@ Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `f
 
 **WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<Building>`.
 
-**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `GuardPost { town_idx, patrol_order }`, `Camp { town_idx }`, `Hut { town_idx }`, `Barracks { town_idx }`.
+**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `GuardPost { town_idx, patrol_order }`, `Camp { town_idx }`, `Hut { town_idx }`, `Barracks { town_idx }`, `Tent { town_idx }`.
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
 **WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px camp distance, 2 farmers / 2 guards / 0 raiders per town (testing defaults).
 
-**`generate_world()`**: Takes config and populates WorldGrid, WorldData, and TownGrids. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 guard posts at grid corners, N Huts + N Barracks from config sliders). Building positions are generated via `spiral_slots()` — a spiral outward from town center that skips occupied cells, so slider values up to 1000 are supported. Slots beyond the base 6x6 grid are auto-unlocked in TownGrids during placement.
+**`generate_world()`**: Takes config and populates WorldGrid, WorldData, and TownGrids. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Villager towns get 1 fountain, 2 farms, N Huts + N Barracks (spiral-placed), then 4 guard posts on the outer ring. Raider camps get a Camp center + N Tents (spiral-placed from slider). Both town types get a TownGrid with expandable building slots. Building positions are generated via `spiral_slots()` — a spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
 
 ### Town Building Grid
 
-Per-town slot tracking for the building system. Each villager town has a `TownGrid` with a `HashSet<(i32, i32)>` of unlocked (row, col) slots. Initial base grid is 6x6 (rows/cols -2 to +3), expandable to 100x100 by unlocking adjacent slots.
+Per-town slot tracking for the building system. Each town (villager and raider camp) has a `TownGrid` with a `HashSet<(i32, i32)>` of unlocked (row, col) slots and a `town_data_idx` linking to its `WorldData.towns` entry. Initial base grid is 6x6 (rows/cols -2 to +3), expandable to 100x100 by unlocking adjacent slots.
 
 | Struct | Fields |
 |--------|--------|
-| TownGrid | unlocked: `HashSet<(i32, i32)>` |
-| TownGrids | grids: `Vec<TownGrid>` (one per villager town) |
+| TownGrid | town_data_idx: usize, unlocked: `HashSet<(i32, i32)>` |
+| TownGrids | grids: `Vec<TownGrid>` (one per town — villager + camp) |
 | TownSlotInfo | grid_idx, town_data_idx, row, col, slot_state |
 | SlotState | Unlocked, Locked |
 | BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, is_locked, has_building, is_fountain |
@@ -99,7 +100,7 @@ Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(
 
 Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. Tombstone deletion preserves parallel Vec indices (FarmStates). Fountains and camps cannot be removed.
 
-Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, SlotUnlock=1 food.
+Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, Tent=1, SlotUnlock=1 food.
 
 ## Food & Economy
 
@@ -203,7 +204,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, screen_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | right_panel upgrades (UI) | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
-| SpawnerState | `Vec<SpawnerEntry>` — building_kind, town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
+| SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=Hut, 1=Barracks, 2=Tent), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.

@@ -185,6 +185,9 @@ pub const HUT_BUILD_COST: i32 = 1;
 /// Food cost to build a barracks (supports 1 guard).
 pub const BARRACKS_BUILD_COST: i32 = 1;
 
+/// Food cost to build a tent (supports 1 raider).
+pub const TENT_BUILD_COST: i32 = 1;
+
 /// Game hours before a dead NPC respawns from its building.
 pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;
 

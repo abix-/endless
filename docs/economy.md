@@ -2,7 +2,7 @@
 
 ## Overview
 
-Economy systems handle time progression, food production, starvation, camp foraging, and raider respawning. All run in `Step::Behavior` and use `GameTime.hour_ticked` for hourly event gating. Defined in `rust/src/systems/economy.rs`.
+Economy systems handle time progression, food production, starvation, and camp foraging. All run in `Step::Behavior` and use `GameTime.hour_ticked` for hourly event gating. Defined in `rust/src/systems/economy.rs`.
 
 ## Data Flow
 
@@ -17,11 +17,8 @@ game_time_system (every frame)
     ├─ camp_forage_system (hourly)
     │   └─ Each raider camp gains CAMP_FORAGE_RATE food
     │
-    ├─ raider_respawn_system (hourly)
-    │   └─ Camps with food + population room → spawn raider
-    │
     ├─ spawner_respawn_system (hourly)
-    │   └─ Detects dead NPCs linked to Hut/Barracks, counts down 12h timer, spawns replacement
+    │   └─ Detects dead NPCs linked to Hut/Barracks/Tent, counts down 12h timer, spawns replacement
     │
     ├─ starvation_system (hourly)
     │   └─ NPCs with zero energy → Starving marker
@@ -53,20 +50,14 @@ game_time_system (every frame)
 - Each raider camp (faction > 0) gains `CAMP_FORAGE_RATE` (1) food per hour
 - Passive income ensures raiders can survive even if they never steal
 
-### raider_respawn_system
-- Runs when `game_time.hour_ticked` is true
-- Camps with food >= `RAIDER_SPAWN_COST` (5) and population < `CAMP_MAX_POP` (10) spawn a new raider
-- Spawns at camp center via `SpawnNpcMsg`
-- Subtracts food cost after spawning
-
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Each `SpawnerEntry` in `SpawnerState` links a Hut (farmer) or Barracks (guard) to an NPC slot
+- Each `SpawnerEntry` in `SpawnerState` links a Hut (farmer), Barracks (guard), or Tent (raider) to an NPC slot
 - If `npc_slot >= 0` and NPC is dead (not in `NpcEntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Hut → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position)
+- Hut → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position), Tent → Raider (faction from town data, home = camp center)
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -190,7 +181,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | FoodEvents | delivered/consumed event logs | arrival_system, decision_system |
 | FarmStates | Growing/Ready state + progress per farm | farm_growth_system, harvest/steal |
 | BuildingOccupancy | private map, methods: claim/release/is_occupied/count/clear | decision_system, death_cleanup, game_startup, spawner_respawn |
-| CampState | max_pop, respawn_timers, forage_timers | camp_forage_system, raider_respawn |
+| CampState | max_pop, respawn_timers, forage_timers | camp_forage_system |
 | RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | decision_system, death_cleanup |
 | SpawnerState | `Vec<SpawnerEntry>` — building→NPC links + respawn timers | spawner_respawn_system, game_startup |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
@@ -202,8 +193,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | FARM_BASE_GROWTH_RATE | 0.08/hour | Passive growth (~12h to harvest) |
 | FARM_TENDED_GROWTH_RATE | 0.25/hour | Tended growth (~4h to harvest) |
 | CAMP_FORAGE_RATE | 1 food/hour | Passive raider food income |
-| RAIDER_SPAWN_COST | 5 food | Cost to respawn a raider |
-| CAMP_MAX_POP | 10 | Max raiders per camp |
+| TENT_BUILD_COST | 1 | Food cost to build a Tent |
 | STARVING_HP_CAP | 0.5 | 50% MaxHealth cap while starving |
 | STARVING_SPEED_MULT | 0.5 | 50% speed while starving |
 | RAID_GROUP_SIZE | 5 | Min raiders to form a raid group |
@@ -217,4 +207,4 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 
 ## Rating: 8/10
 
-Farm growth cycle creates meaningful gameplay loop — farmers tend crops, raiders steal harvests, camps forage passively. Group raid coordination prevents solo suicide runs. Starvation adds survival pressure to both factions. Game time system is clean with single `hour_ticked` flag. FarmYield upgrade scales per-town via `TownUpgrades`. Starvation uses resolved `CachedStats.speed` instead of hardcoded constants. Weaknesses: no visual feedback for farm state, population helpers use raw `(job, town)` tuple keys.
+Farm growth cycle creates meaningful gameplay loop — farmers tend crops, raiders steal harvests, camps forage passively. Group raid coordination prevents solo suicide runs. Starvation adds survival pressure to both factions. Game time system is clean with single `hour_ticked` flag. FarmYield upgrade scales per-town via `TownUpgrades`. Starvation uses resolved `CachedStats.speed` instead of hardcoded constants. Unified spawner system handles all three NPC types (farmer/guard/raider) through a single `spawner_respawn_system`. Weaknesses: no visual feedback for farm state, population helpers use raw `(job, town)` tuple keys.

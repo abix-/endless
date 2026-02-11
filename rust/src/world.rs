@@ -69,6 +69,13 @@ pub struct Barracks {
     pub town_idx: u32,
 }
 
+/// A tent that supports 1 raider (building spawner).
+#[derive(Clone, Debug)]
+pub struct Tent {
+    pub position: Vec2,
+    pub town_idx: u32,
+}
+
 // ============================================================================
 // WORLD RESOURCES
 // ============================================================================
@@ -82,33 +89,35 @@ pub struct WorldData {
     pub guard_posts: Vec<GuardPost>,
     pub huts: Vec<Hut>,
     pub barracks: Vec<Barracks>,
+    pub tents: Vec<Tent>,
 }
 
 // ============================================================================
 // TOWN BUILDING GRID
 // ============================================================================
 
-/// Per-villager-town building grid. Tracks which slots are unlocked.
+/// Per-town building grid. Tracks which slots are unlocked.
 /// Grid uses (row, col) relative to town center with TOWN_GRID_SPACING.
 /// Base grid: (-2,-2) to (3,3) = 6x6, expandable by unlocking adjacent slots.
 pub struct TownGrid {
+    pub town_data_idx: usize,
     pub unlocked: HashSet<(i32, i32)>,
 }
 
 impl TownGrid {
-    /// Create with base 6x6 grid unlocked.
-    pub fn new_base() -> Self {
+    /// Create with base 6x6 grid unlocked for the given town data index.
+    pub fn new_base(town_data_idx: usize) -> Self {
         let mut unlocked = HashSet::new();
         for row in BASE_GRID_MIN..=BASE_GRID_MAX {
             for col in BASE_GRID_MIN..=BASE_GRID_MAX {
                 unlocked.insert((row, col));
             }
         }
-        Self { unlocked }
+        Self { town_data_idx, unlocked }
     }
 }
 
-/// All town building grids. One per villager town (not raider camps).
+/// All town building grids. One per town (villager and raider camps).
 #[derive(Resource, Default)]
 pub struct TownGrids {
     pub grids: Vec<TownGrid>,
@@ -148,20 +157,17 @@ pub fn get_adjacent_locked_slots(grid: &TownGrid) -> Vec<(i32, i32)> {
     adjacent.into_iter().collect()
 }
 
-/// Find which villager town (if any) has a slot matching the given grid coords.
-/// Returns the villager town index (0-based, indexing into TownGrids.grids)
-/// and whether the slot is unlocked, adjacent-locked, or out of range.
+/// Find which town (villager or camp) has a slot matching the given grid coords.
+/// Returns the grid index, town data index, and whether the slot is unlocked/locked.
 pub fn find_town_slot(
     world_pos: Vec2,
     towns: &[Town],
     grids: &TownGrids,
 ) -> Option<TownSlotInfo> {
     for (grid_idx, town_grid) in grids.grids.iter().enumerate() {
-        // Villager towns are at even indices in WorldData.towns (0, 2, 4, ...)
-        let town_data_idx = grid_idx * 2;
+        let town_data_idx = town_grid.town_data_idx;
         if town_data_idx >= towns.len() { continue; }
         let town = &towns[town_data_idx];
-        if town.faction != 0 { continue; } // Skip non-villager
 
         let (row, col) = world_to_town_grid(town.center, world_pos);
 
@@ -196,7 +202,7 @@ pub fn find_town_slot(
 /// Info about a clicked town grid slot.
 pub struct TownSlotInfo {
     pub grid_idx: usize,       // Index into TownGrids.grids
-    pub town_data_idx: usize,  // Index into WorldData.towns (villager town)
+    pub town_data_idx: usize,  // Index into WorldData.towns
     pub row: i32,
     pub col: i32,
     pub slot_state: SlotState,
@@ -262,6 +268,9 @@ pub fn place_building(
         }
         Building::Barracks { town_idx } => {
             world_data.barracks.push(Barracks { position: snapped_pos, town_idx });
+        }
+        Building::Tent { town_idx } => {
+            world_data.tents.push(Tent { position: snapped_pos, town_idx });
         }
         _ => {} // Fountain and Camp not player-placeable
     }
@@ -339,6 +348,13 @@ pub fn remove_building(
                 (b.position - snapped_pos).length() < 1.0
             }) {
                 b.position = tombstone;
+            }
+        }
+        Building::Tent { .. } => {
+            if let Some(t) = world_data.tents.iter_mut().find(|t| {
+                (t.position - snapped_pos).length() < 1.0
+            }) {
+                t.position = tombstone;
             }
         }
         _ => {}
@@ -521,14 +537,15 @@ pub const TERRAIN_TILES: [(u32, u32); 11] = [
 ];
 
 /// Atlas (col, row) positions for the 5 building tiles used in the building TilemapChunk layer.
-pub const BUILDING_TILES: [(u32, u32); 7] = [
+pub const BUILDING_TILES: [(u32, u32); 8] = [
     (50, 9),  // 0: Fountain
     (15, 2),  // 1: Bed
     (20, 20), // 2: Guard Post
     (2, 15),  // 3: Farm
-    (48, 10), // 4: Camp/Tent
+    (48, 10), // 4: Camp (center)
     (13, 2),  // 5: Hut (house)
     (14, 2),  // 6: Barracks (castle)
+    (49, 10), // 7: Tent (raider spawner)
 ];
 
 /// Extract tiles from the world atlas and build a texture_2d_array for TilemapChunk.
@@ -583,6 +600,7 @@ pub enum Building {
     Camp { town_idx: u32 },
     Hut { town_idx: u32 },
     Barracks { town_idx: u32 },
+    Tent { town_idx: u32 },
 }
 
 impl Building {
@@ -596,6 +614,7 @@ impl Building {
             Building::Camp { .. } => 4,
             Building::Hut { .. } => 5,
             Building::Barracks { .. } => 6,
+            Building::Tent { .. } => 7,
         }
     }
 }
@@ -787,7 +806,8 @@ pub fn generate_world(
         });
         let vill_town_idx = (world_data.towns.len() - 1) as u32;
 
-        town_grids.grids.push(TownGrid::new_base());
+        let vill_data_idx = world_data.towns.len() - 1;
+        town_grids.grids.push(TownGrid::new_base(vill_data_idx));
         let grid_idx = town_grids.grids.len() - 1;
         place_town_buildings(grid, world_data, farm_states, center, vill_town_idx, config, &mut town_grids.grids[grid_idx]);
 
@@ -799,11 +819,11 @@ pub fn generate_world(
             sprite_type: 1, // tent
         });
         let raid_town_idx = (world_data.towns.len() - 1) as u32;
+        let raid_data_idx = world_data.towns.len() - 1;
 
-        let (camp_col, camp_row) = grid.world_to_grid(camp_pos);
-        if let Some(cell) = grid.cell_mut(camp_col, camp_row) {
-            cell.building = Some(Building::Camp { town_idx: raid_town_idx });
-        }
+        town_grids.grids.push(TownGrid::new_base(raid_data_idx));
+        let camp_grid_idx = town_grids.grids.len() - 1;
+        place_camp_buildings(grid, world_data, camp_pos, raid_town_idx, config, &mut town_grids.grids[camp_grid_idx]);
     }
 
     info!("generate_world: {} villager towns, {} raider camps, grid {}x{}",
@@ -850,19 +870,7 @@ fn place_town_buildings(
     farm_states.push_farm();
     farm_states.push_farm();
 
-    // 4 guard posts: outer corners (clockwise patrol: TL → TR → BR → BL)
-    let post_slots = [(3, -2), (3, 3), (-2, 3), (-2, -2)];
-    for (order, &(row, col)) in post_slots.iter().enumerate() {
-        let post_pos = place(row, col, Building::GuardPost { town_idx, patrol_order: order as u32 }, &mut occupied, town_grid);
-        world_data.guard_posts.push(GuardPost {
-            position: post_pos,
-            town_idx,
-            patrol_order: order as u32,
-        });
-    }
-
-    // Generate spawner positions via spiral outward from center, skipping occupied cells.
-    // Enough for any slider value (spiral covers the full MAX_GRID_EXTENT).
+    // Spawner buildings first (spiral outward from center)
     let needed = config.farmers_per_town + config.guards_per_town;
     let slots = spiral_slots(&occupied, needed);
     let mut slot_iter = slots.into_iter();
@@ -877,6 +885,54 @@ fn place_town_buildings(
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, Building::Barracks { town_idx }, &mut occupied, town_grid);
         world_data.barracks.push(Barracks { position: pos, town_idx });
+    }
+
+    // 4 guard posts: outside all spawner buildings (clockwise patrol: TL → TR → BR → BL)
+    let post_positions = spiral_slots(&occupied, 4);
+    for (order, (row, col)) in post_positions.into_iter().enumerate() {
+        let post_pos = place(row, col, Building::GuardPost { town_idx, patrol_order: order as u32 }, &mut occupied, town_grid);
+        world_data.guard_posts.push(GuardPost {
+            position: post_pos,
+            town_idx,
+            patrol_order: order as u32,
+        });
+    }
+}
+
+/// Place buildings for a raider camp: camp center + tents in spiral.
+fn place_camp_buildings(
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    center: Vec2,
+    town_idx: u32,
+    config: &WorldGenConfig,
+    town_grid: &mut TownGrid,
+) {
+    let mut occupied = HashSet::new();
+
+    // Place camp center at (0,0)
+    let world_pos = town_grid_to_world(center, 0, 0);
+    let (gc, gr) = grid.world_to_grid(world_pos);
+    if let Some(cell) = grid.cell_mut(gc, gr) {
+        cell.building = Some(Building::Camp { town_idx });
+    }
+    occupied.insert((0, 0));
+    town_grid.unlocked.insert((0, 0));
+
+    // Place tents in spiral around camp center
+    let slots = spiral_slots(&occupied, config.raiders_per_camp);
+    for (row, col) in slots {
+        let world_pos = town_grid_to_world(center, row, col);
+        let (gc, gr) = grid.world_to_grid(world_pos);
+        let snapped = grid.grid_to_world(gc, gr);
+        if let Some(cell) = grid.cell_mut(gc, gr) {
+            if cell.building.is_none() {
+                cell.building = Some(Building::Tent { town_idx });
+            }
+        }
+        occupied.insert((row, col));
+        town_grid.unlocked.insert((row, col));
+        world_data.tents.push(Tent { position: snapped, town_idx });
     }
 }
 

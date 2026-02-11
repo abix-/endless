@@ -88,13 +88,15 @@ Checks `ResetFlag`. If set, clears `NpcEntityMap`, `PopulationStats`, and resets
 
 **Town index convention**: NPCs and buildings both use direct WorldData town indices. Villager towns are at even indices (0, 2, 4...), raider camps at odd indices (1, 3, 5...). `build_patrol_route()` is `pub(crate)` and filters guard posts by `town_idx` directly (no `÷2` conversion).
 
-## Building Spawners (Stage 11)
+## Building Spawners
 
-Villager population is building-driven: each **Hut** supports 1 farmer, each **Barracks** supports 1 guard. At game startup, `game_startup_system` builds `SpawnerState` from `WorldData.huts` + `WorldData.barracks` and spawns 1 NPC per entry via `SlotAllocator` + `SpawnNpcMsg`. Menu sliders control how many Huts/Barracks world gen places.
+All NPC population is building-driven: each **Hut** supports 1 farmer, each **Barracks** supports 1 guard, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from `WorldData.huts` + `WorldData.barracks` + `WorldData.tents` and spawns 1 NPC per entry via `SlotAllocator` + `SpawnNpcMsg`. Menu sliders control how many Huts/Barracks/Tents world gen places.
 
-When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building Huts/Barracks at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick.
+When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Camp grids only allow Tent placement; villager grids allow Farm/GuardPost/Hut/Barracks.
 
-Destroying a Hut/Barracks tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
+Destroying a spawner building tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
+
+Tent spawners set raider home to camp center (not building position) and faction from the camp's town data.
 
 ## Known Issues
 

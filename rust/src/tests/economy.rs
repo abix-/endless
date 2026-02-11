@@ -31,8 +31,16 @@ pub fn setup(
     params.add_bed(400.0, 450.0);
 
     params.init_economy(2);
-    params.food_storage.food[1] = 10; // camp has enough food for respawn
-    camp_state.init(1, 5); // 1 camp, max 5 raiders
+    params.food_storage.food[1] = 10; // camp has food
+    camp_state.init(1, 5);
+    // Tent spawner so a raider can spawn via spawner_respawn_system
+    params.spawner_state.0.push(SpawnerEntry {
+        building_kind: 2,
+        town_idx: 1,
+        position: Vec2::new(400.0, 100.0),
+        npc_slot: -1,
+        respawn_timer: 0.0,
+    });
     params.game_time.time_scale = 1.0;
 
     // Spawn 1 farmer to tend the farm (speeds growth)
