@@ -181,29 +181,6 @@ pub fn build_menu_system(
                     action_taken = true;
                 }
 
-                // Bed
-                let can_bed = food >= BED_BUILD_COST;
-                if ui.add_enabled(can_bed, egui::Button::new(
-                    format!("Bed ({} food)", BED_BUILD_COST)
-                )).on_hover_text("NPCs rest and recover energy here")
-                .clicked() {
-                    let building = Building::Bed { town_idx };
-                    if let Ok(()) = world::place_building(
-                        &mut grid, &mut world_data, &mut farm_states,
-                        building, row, col, town_center,
-                    ) {
-                        if let Some(f) = food_storage.food.get_mut(town_data_idx) {
-                            *f -= BED_BUILD_COST;
-                        }
-                        combat_log.push(
-                            CombatEventKind::Harvest,
-                            game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("Built bed at ({},{}) in {}", row, col, town_name),
-                        );
-                    }
-                    action_taken = true;
-                }
-
                 // Guard Post
                 let can_post = food >= GUARD_POST_BUILD_COST;
                 if ui.add_enabled(can_post, egui::Button::new(
@@ -297,7 +274,7 @@ pub fn build_menu_system(
                     action_taken = true;
                 }
 
-                if food < BED_BUILD_COST {
+                if food < FARM_BUILD_COST {
                     ui.small("Not enough food");
                 }
             }

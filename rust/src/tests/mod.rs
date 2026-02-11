@@ -49,7 +49,6 @@ pub struct CleanupExtra<'w> {
     pub combat_debug: ResMut<'w, crate::resources::CombatDebug>,
     pub health_debug: ResMut<'w, crate::resources::HealthDebug>,
     pub kill_stats: ResMut<'w, crate::resources::KillStats>,
-    pub bed_occ: ResMut<'w, crate::world::BedOccupancy>,
     pub farm_occ: ResMut<'w, crate::world::FarmOccupancy>,
     pub camp_state: ResMut<'w, crate::resources::CampState>,
     pub raid_queue: ResMut<'w, crate::resources::RaidQueue>,
@@ -790,7 +789,6 @@ fn cleanup_test_world(
     *extra.combat_debug = Default::default();
     *extra.health_debug = Default::default();
     *extra.kill_stats = Default::default();
-    *extra.bed_occ = Default::default();
     *extra.farm_occ = Default::default();
     *extra.camp_state = Default::default();
     *extra.raid_queue = Default::default();

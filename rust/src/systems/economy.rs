@@ -347,10 +347,6 @@ pub fn spawner_respawn_system(
                         (1, -1.0, -1.0, post_idx, 1, "Guard")
                     };
 
-                let home = world::find_nearest_location(
-                    entry.position, &world_data, world::LocationKind::Bed,
-                ).unwrap_or(entry.position);
-
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,
                     x: entry.position.x,
@@ -358,8 +354,8 @@ pub fn spawner_respawn_system(
                     job,
                     faction: 0,
                     town_idx: town_data_idx as i32,
-                    home_x: home.x,
-                    home_y: home.y,
+                    home_x: entry.position.x,
+                    home_y: entry.position.y,
                     work_x,
                     work_y,
                     starting_post,

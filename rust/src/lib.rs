@@ -206,7 +206,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GameTime>()
        .init_resource::<RespawnTimers>()
        .init_resource::<world::WorldData>()
-       .init_resource::<world::BedOccupancy>()
        .init_resource::<world::FarmOccupancy>()
        .init_resource::<FarmStates>()
        .init_resource::<HealthDebug>()

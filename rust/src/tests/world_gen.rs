@@ -95,7 +95,6 @@ pub fn tick(
             // Count buildings per villager town
             let mut fountains = vec![0u32; num_vill];
             let mut farms = vec![0u32; num_vill];
-            let mut beds = vec![0u32; num_vill];
             let mut posts = vec![0u32; num_vill];
 
             for cell in &world_grid.cells {
@@ -107,31 +106,27 @@ pub fn tick(
                         world::Building::Farm { town_idx } => {
                             if (*town_idx as usize) < num_vill { farms[*town_idx as usize] += 1; }
                         }
-                        world::Building::Bed { town_idx } => {
-                            if (*town_idx as usize) < num_vill { beds[*town_idx as usize] += 1; }
-                        }
                         world::Building::GuardPost { town_idx, .. } => {
                             if (*town_idx as usize) < num_vill { posts[*town_idx as usize] += 1; }
                         }
-                        world::Building::Camp { .. } => {}
-                        world::Building::Hut { .. } | world::Building::Barracks { .. } => {}
+                        _ => {}
                     }
                 }
             }
 
             let all_ok = (0..num_vill).all(|i| {
-                fountains[i] == 1 && farms[i] == 2 && beds[i] == 4 && posts[i] == 4
+                fountains[i] == 1 && farms[i] == 2 && posts[i] == 4
             });
 
-            test.phase_name = format!("town0: f={} farm={} bed={} post={}",
+            test.phase_name = format!("town0: f={} farm={} post={}",
                 fountains.first().unwrap_or(&0), farms.first().unwrap_or(&0),
-                beds.first().unwrap_or(&0), posts.first().unwrap_or(&0));
+                posts.first().unwrap_or(&0));
 
             if all_ok {
-                test.pass_phase(elapsed, format!("all {} towns have 1 fountain, 2 farms, 4 beds, 4 posts", num_vill));
+                test.pass_phase(elapsed, format!("all {} towns have 1 fountain, 2 farms, 4 posts", num_vill));
             } else {
                 let details: Vec<String> = (0..num_vill).map(|i| {
-                    format!("town{}: f={} farm={} bed={} post={}", i, fountains[i], farms[i], beds[i], posts[i])
+                    format!("town{}: f={} farm={} post={}", i, fountains[i], farms[i], posts[i])
                 }).collect();
                 test.fail_phase(elapsed, details.join(", "));
             }

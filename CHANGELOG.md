@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-02-10
+
+- **remove beds** — NPCs rest at their spawner building (Hut/Barracks) instead of separate beds
+  - remove beds from world gen (`place_town_buildings`), build menu, `BedOccupancy` resource, `LocationKind::Bed`
+  - spawner_respawn_system sets home to building position instead of nearest bed
+  - world-gen test updated: no longer counts beds in building phase
+  - reduce hut/barracks build cost from 3/5 to 1/1
+- **increase raider camp distance** from 1100px to 3500px (~3x farther, ~35s travel)
+- **esc closes build menu** before toggling pause menu (standard innermost-UI-first pattern)
+- **roadmap: continent world generation spec** added to stage 12
+
 ## 2026-02-11
 
 - **stage 11: building spawners — population driven by Hut/Barracks buildings**

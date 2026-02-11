@@ -328,8 +328,8 @@ Startup:
 Registration:
 - [x] `.init_resource::<SpawnerState>()`, add `spawner_respawn_system` to Step::Behavior
 
-Remaining:
-- [ ] Remove beds — NPCs rest at their spawner building (Hut/Barracks) instead of separate beds. Home = spawner position. Remove beds from world gen, build menu, and `BedOccupancy` resource. Keep `Bed` struct + `add_bed()` for test compat. See plan file `~/.claude/plans/replicated-wandering-seahorse.md` for full spec.
+Beds removed:
+- [x] Remove beds — NPCs rest at their spawner building (Hut/Barracks) instead of separate beds. Home = spawner position. Removed beds from world gen, build menu, `BedOccupancy` resource, `LocationKind::Bed`. Kept `Bed` struct + `add_bed()` for test compat.
 
 **Stage 12: Combat & Economy Depth**
 

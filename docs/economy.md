@@ -65,7 +65,7 @@ game_time_system (every frame)
 - If `npc_slot >= 0` and NPC is dead (not in `NpcEntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Hut → Farmer (nearest farm as work target), Barracks → Guard (nearest guard post)
+- Hut → Farmer (nearest farm as work target, home = building position), Barracks → Guard (nearest guard post, home = building position)
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -128,7 +128,7 @@ Speed restored to CachedStats.speed
 
 **Recovery paths:**
 - **Eat**: consumes 1 food from town storage, instantly restores energy to 100. No travel required.
-- **Rest**: walk home to bed, recover energy slowly (6 hours 0→100). Works even when starving.
+- **Rest**: walk home to spawner building (Hut/Barracks), recover energy slowly (6 hours 0→100). Works even when starving.
 
 **Constants:**
 - `STARVING_HP_CAP`: 0.5 (50% of MaxHealth)
@@ -206,8 +206,8 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | STARVING_HP_CAP | 0.5 | 50% MaxHealth cap while starving |
 | STARVING_SPEED_MULT | 0.5 | 50% speed while starving |
 | RAID_GROUP_SIZE | 5 | Min raiders to form a raid group |
-| HUT_BUILD_COST | 3 | Food cost to build a Hut |
-| BARRACKS_BUILD_COST | 5 | Food cost to build a Barracks |
+| HUT_BUILD_COST | 1 | Food cost to build a Hut |
+| BARRACKS_BUILD_COST | 1 | Food cost to build a Barracks |
 | SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
 
 ## Known Issues

@@ -173,9 +173,6 @@ pub const STARVING_SPEED_MULT: f32 = 0.5;
 /// Food cost to build a farm.
 pub const FARM_BUILD_COST: i32 = 1;
 
-/// Food cost to build a bed.
-pub const BED_BUILD_COST: i32 = 1;
-
 /// Food cost to build a guard post.
 pub const GUARD_POST_BUILD_COST: i32 = 1;
 
@@ -183,10 +180,10 @@ pub const GUARD_POST_BUILD_COST: i32 = 1;
 pub const SLOT_UNLOCK_COST: i32 = 1;
 
 /// Food cost to build a hut (supports 1 farmer).
-pub const HUT_BUILD_COST: i32 = 3;
+pub const HUT_BUILD_COST: i32 = 1;
 
 /// Food cost to build a barracks (supports 1 guard).
-pub const BARRACKS_BUILD_COST: i32 = 5;
+pub const BARRACKS_BUILD_COST: i32 = 1;
 
 /// Game hours before a dead NPC respawns from its building.
 pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;

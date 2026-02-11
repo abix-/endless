@@ -47,7 +47,6 @@ Static world data, immutable after initialization.
 |----------|------|---------|
 | WorldData | towns, farms, beds, guard_posts, huts, barracks | All building positions and metadata |
 | SpawnerState | `Vec<SpawnerEntry>` — one per Hut/Barracks | Building→NPC links + respawn timers |
-| BedOccupancy | `HashMap<(i32,i32), i32>` — bed position → NPC index (-1 = free) | Bed assignment |
 | FarmOccupancy | `HashMap<(i32,i32), i32>` — farm position → worker count | Farm assignment |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
 | TownGrids | `Vec<TownGrid>` — one per villager town | Per-town building slot unlock tracking |
@@ -80,9 +79,9 @@ Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `f
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
-**WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 1100px camp distance, 2 farmers / 2 guards / 0 raiders per town (testing defaults).
+**WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px camp distance, 2 farmers / 2 guards / 0 raiders per town (testing defaults).
 
-**`generate_world()`**: Pure function that takes config and populates both WorldGrid and WorldData. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 beds, 4 guard posts at grid corners, N Huts + N Barracks from config sliders).
+**`generate_world()`**: Pure function that takes config and populates both WorldGrid and WorldData. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements, and places buildings per town (1 fountain, 2 farms, 4 guard posts at grid corners, N Huts + N Barracks from config sliders).
 
 ### Town Building Grid
 
@@ -100,7 +99,7 @@ Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(
 
 Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. Tombstone deletion preserves parallel Vec indices (FarmStates). Fountains and camps cannot be removed.
 
-Building costs (from constants.rs): Farm=1, Bed=1, GuardPost=1, Hut=3, Barracks=5, SlotUnlock=1 food.
+Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, SlotUnlock=1 food.
 
 ## Food & Economy
 

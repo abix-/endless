@@ -351,7 +351,6 @@ pub fn remove_building(
 #[derive(Clone, Copy, Debug)]
 pub enum LocationKind {
     Farm,
-    Bed,
     GuardPost,
     Town,
 }
@@ -373,7 +372,6 @@ pub fn find_location_within_radius(
 
     let positions: Vec<Vec2> = match kind {
         LocationKind::Farm => world.farms.iter().map(|f| f.position).collect(),
-        LocationKind::Bed => world.beds.iter().map(|b| b.position).collect(),
         LocationKind::GuardPost => world.guard_posts.iter().map(|g| g.position).collect(),
         LocationKind::Town => world.towns.iter().map(|t| t.center).collect(),
     };
@@ -394,12 +392,6 @@ pub fn find_location_within_radius(
 /// Uses rounded coordinates so slight position differences still match.
 pub fn pos_to_key(pos: Vec2) -> (i32, i32) {
     (pos.x.round() as i32, pos.y.round() as i32)
-}
-
-/// Tracks which NPCs occupy each bed. Key = bed position, Value = NPC index (-1 = free).
-#[derive(Resource, Default)]
-pub struct BedOccupancy {
-    pub occupants: HashMap<(i32, i32), i32>,
 }
 
 /// Tracks how many NPCs are working at each farm. Key = farm position, Value = count.
@@ -629,7 +621,7 @@ impl Default for WorldGenConfig {
             num_towns: 2,
             min_town_distance: 1200.0,
             grid_spacing: 34.0,
-            camp_distance: 1100.0,
+            camp_distance: 3500.0,
             farmers_per_town: 2,
             guards_per_town: 2,
             raiders_per_camp: 0,
@@ -779,13 +771,6 @@ fn place_town_buildings(
     world_data.farms.push(Farm { position: farm1_pos, town_idx });
     farm_states.push_farm();
     farm_states.push_farm();
-
-    // 4 beds: inner corners
-    let bed_slots = [(-1, -1), (-1, 2), (2, -1), (2, 2)];
-    for &(row, col) in &bed_slots {
-        let bed_pos = place(row, col, Building::Bed { town_idx });
-        world_data.beds.push(Bed { position: bed_pos, town_idx });
-    }
 
     // 4 guard posts: outer corners (clockwise patrol)
     let post_slots = [(-2, -2), (-2, 3), (3, 3), (3, -2)];

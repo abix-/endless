@@ -245,9 +245,13 @@ fn game_escape_system(
     mut game_time: ResMut<GameTime>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
-        ui_state.pause_menu_open = !ui_state.pause_menu_open;
-        // Auto-pause when opening, unpause when closing
-        game_time.paused = ui_state.pause_menu_open;
+        if ui_state.build_menu_open {
+            ui_state.build_menu_open = false;
+        } else {
+            ui_state.pause_menu_open = !ui_state.pause_menu_open;
+            // Auto-pause when opening, unpause when closing
+            game_time.paused = ui_state.pause_menu_open;
+        }
     }
     // Time controls only when pause menu is closed
     if !ui_state.pause_menu_open {
@@ -553,7 +557,6 @@ struct CleanupDebug<'w> {
     combat_debug: ResMut<'w, CombatDebug>,
     health_debug: ResMut<'w, HealthDebug>,
     kill_stats: ResMut<'w, KillStats>,
-    bed_occ: ResMut<'w, world::BedOccupancy>,
     farm_occ: ResMut<'w, world::FarmOccupancy>,
     camp_state: ResMut<'w, CampState>,
     raid_queue: ResMut<'w, RaidQueue>,
@@ -605,7 +608,6 @@ fn game_cleanup_system(
     *debug.combat_debug = Default::default();
     *debug.health_debug = Default::default();
     *debug.kill_stats = Default::default();
-    *debug.bed_occ = Default::default();
     *debug.farm_occ = Default::default();
     *debug.camp_state = Default::default();
     *debug.raid_queue = Default::default();
