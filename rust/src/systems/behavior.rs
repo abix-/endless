@@ -245,7 +245,8 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 ///
 /// Priority order (first match wins):
 /// 0. AtDestination → Handle arrival transition
-/// 1-3. Combat (flee/leash/skip)
+/// 1-3. Combat (flee/leash/skip) — runs before transit skip so fighting NPCs can flee
+/// -- Skip transit NPCs --
 /// 4. Resting? → Wake when HP recovered (if wounded) AND energy >= 90%
 /// 5. Working + tired? → Stop work
 /// 6. OnDuty + time_to_patrol? → Patrol
@@ -439,14 +440,9 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Skip NPCs in transit states (they're walking to their destination)
-        // ====================================================================
-        if activity.is_transit() {
-            continue;
-        }
-
-        // ====================================================================
         // Priority 1-3: Combat decisions (flee/leash/skip)
+        // Runs BEFORE transit skip so fighting NPCs in transit (e.g. Raiding)
+        // can still flee or leash back.
         // ====================================================================
         if combat_state.is_fighting() {
             // Priority 1: Should flee? (policy-driven)
@@ -515,6 +511,13 @@ pub fn decision_system(
             }
 
             // Priority 3: Still in combat, attack_system handles targeting
+            continue;
+        }
+
+        // ====================================================================
+        // Skip NPCs in transit states (they're walking to their destination)
+        // ====================================================================
+        if activity.is_transit() {
             continue;
         }
 

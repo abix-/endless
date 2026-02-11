@@ -27,7 +27,6 @@ pub fn collect_gpu_updates(mut events: MessageReader<GpuUpdateMsg>) {
 /// Reset Bevy resources when reset flag is set.
 pub fn reset_bevy_system(
     mut reset_flag: ResMut<ResetFlag>,
-    mut npc_count: ResMut<resources::NpcCount>,
     mut npc_map: ResMut<resources::NpcEntityMap>,
     mut pop_stats: ResMut<resources::PopulationStats>,
     mut slot_alloc: ResMut<resources::SlotAllocator>,
@@ -37,7 +36,6 @@ pub fn reset_bevy_system(
     }
     reset_flag.0 = false;
 
-    npc_count.0 = 0;
     npc_map.0.clear();
     pop_stats.0.clear();
     slot_alloc.reset();

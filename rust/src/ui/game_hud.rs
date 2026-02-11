@@ -22,7 +22,7 @@ pub fn top_bar_system(
     food_storage: Res<FoodStorage>,
     faction_stats: Res<FactionStats>,
     kill_stats: Res<KillStats>,
-    npc_count: Res<NpcCount>,
+    slots: Res<SlotAllocator>,
     world_data: Res<WorldData>,
     settings: Res<UserSettings>,
     mut ui_state: ResMut<UiState>,
@@ -48,18 +48,23 @@ pub fn top_bar_system(
                     ui_state.toggle_right_tab(RightPanelTab::Policies);
                 }
 
-                ui.separator();
-
-                // CENTER: town name + time
+                // CENTER: town name + time (painted at true center of bar)
                 let town_name = world_data.towns.first()
                     .map(|t| t.name.as_str())
                     .unwrap_or("Unknown");
                 let period = if game_time.is_daytime() { "Day" } else { "Night" };
-                ui.label(format!("{}  -  Day {} {:02}:{:02} ({}) {:.0}x{}",
+                let center_text = format!("{}  -  Day {} {:02}:{:02} ({}) {:.0}x{}",
                     town_name,
                     game_time.day(), game_time.hour(), game_time.minute(), period,
                     game_time.time_scale,
-                    if game_time.paused { " [PAUSED]" } else { "" }));
+                    if game_time.paused { " [PAUSED]" } else { "" });
+                ui.painter().text(
+                    ui.max_rect().center(),
+                    egui::Align2::CENTER_CENTER,
+                    &center_text,
+                    egui::FontId::default(),
+                    ui.style().visuals.text_color(),
+                );
 
                 // RIGHT: stats pushed to the right edge
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -73,7 +78,7 @@ pub fn top_bar_system(
                         let raider_alive: i32 = faction_stats.stats.iter().skip(1).map(|s| s.alive).sum();
                         let raider_dead: i32 = faction_stats.stats.iter().skip(1).map(|s| s.dead).sum();
                         ui.label(format!("Raiders: {}/{}", raider_alive, raider_dead));
-                        ui.label(format!("Total: {}", npc_count.0));
+                        ui.label(format!("Total: {}", slots.alive()));
                         ui.separator();
                     }
 

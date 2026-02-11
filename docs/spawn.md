@@ -15,11 +15,9 @@ spawn_npc_system
     ├─ Emit GPU updates: SetPosition, SetTarget,
     │   SetSpeed, SetFaction, SetHealth, SetSpriteFrame
     │
-    ├─ Update GPU_DISPATCH_COUNT (max slot + 1)
-    │
     ├─ Spawn ECS entity with base + job-specific components
     │
-    ├─ Update NpcEntityMap, NpcCount, PopulationStats, FactionStats
+    ├─ Update NpcEntityMap, PopulationStats, FactionStats
     │
     ├─ Initialize NpcMetaCache (name, level, trait)
     │
@@ -39,7 +37,7 @@ pub struct SlotAllocator {
 
 `alloc()` pops from the free list first, falls back to incrementing `next`. `free()` pushes onto the free list. Both spawn (`spawn_npc_system`) and death (`death_cleanup_system`) use this resource. LIFO reuse — most recently freed slot is allocated first.
 
-`GPU_DISPATCH_COUNT` (static Mutex) tracks how many NPCs have initialized GPU buffers. Updated by `spawn_npc_system` after emitting GPU writes, ensuring compute never dispatches NPCs with uninitialized buffers.
+GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next`). Dead NPC slots within this range are hidden via sentinel position (-9999) and culled by the renderer. No separate dispatch count resource needed.
 
 ## Spawn Parameters
 
@@ -86,7 +84,7 @@ Deterministic: adjective + job noun. Adjective cycles through a 10-word list, no
 
 ### reset_bevy_system
 
-Checks `ResetFlag`. If set, clears `NpcCount`, `NpcEntityMap`, `PopulationStats`, and resets `SlotAllocator`.
+Checks `ResetFlag`. If set, clears `NpcEntityMap`, `PopulationStats`, and resets `SlotAllocator`.
 
 ## reassign_npc_system (Step::Behavior)
 
@@ -106,10 +104,9 @@ Equipment visuals update automatically — `sync_visual_sprites` reads `Equipped
 
 ## Known Issues
 
-- **npc_count never decreases**: High-water mark. 1000 spawns + 999 deaths = npc_count still 1000. Buffers sized to peak, not active count.
 - **No spawn validation**: Doesn't verify town_idx is valid or that guard posts exist. Bad input silently creates a guard with no patrol route.
 - **One-frame GPU delay**: GPU writes go through message collection → populate_buffer_writes → extract → upload. NPC won't render until the frame after Bevy processes the spawn.
 
-## Rating: 7/10
+## Rating: 8/10
 
-Single spawn path with job-as-template pattern. Slot recycling works. Personality and name generation are deterministic and reproducible. GPU writes properly batched through message system. Weaknesses: high-water mark dispatch count, no defensive validation on spawn parameters.
+Single spawn path with job-as-template pattern. Slot recycling via `SlotAllocator` — single source of truth for NPC counting (`count()` for GPU dispatch, `alive()` for UI). Personality and name generation are deterministic and reproducible. GPU writes properly batched through message system.

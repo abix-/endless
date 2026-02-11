@@ -38,7 +38,7 @@ pub fn cooldown_system(
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
-    mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
@@ -60,9 +60,17 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (_entity, npc_idx, cached, mut timer, faction, mut combat_state) in query.iter_mut() {
+    for (_entity, npc_idx, cached, mut timer, faction, mut combat_state, activity) in query.iter_mut() {
         attackers += 1;
         let i = npc_idx.0;
+
+        // Don't re-engage NPCs heading home (fled combat or delivering food)
+        if matches!(activity, Activity::Returning { .. }) {
+            if combat_state.is_fighting() {
+                *combat_state = CombatState::None;
+            }
+            continue;
+        }
 
         let target_idx = combat_targets.get(i).copied().unwrap_or(-1);
 
@@ -95,6 +103,14 @@ pub fn attack_system(
         }
         let (tx, ty) = (positions[ti * 2], positions[ti * 2 + 1]);
 
+        // Skip dead/hidden targets (graveyard at ~-9999)
+        if tx < -9000.0 {
+            if combat_state.is_fighting() {
+                *combat_state = CombatState::None;
+            }
+            continue;
+        }
+
         let dx = tx - x;
         let dy = ty - y;
         let dist = (dx * dx + dy * dy).sqrt();
@@ -104,6 +120,9 @@ pub fn attack_system(
         }
 
         if dist <= cached.range {
+            // Track enemy position so NPC doesn't drift toward original target
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: tx, y: ty }));
+
             in_range_count += 1;
             if in_range_count == 1 {
                 sample_timer = timer.0;

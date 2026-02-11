@@ -65,7 +65,6 @@ pub fn tick(
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
     slot_alloc: Res<SlotAllocator>,
-    _npc_count: Res<NpcCount>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {

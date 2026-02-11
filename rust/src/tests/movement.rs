@@ -48,7 +48,7 @@ pub fn tick(
     activity_query: Query<&Activity, (With<NpcIndex>, Without<Dead>)>,
     at_dest_query: Query<(), (With<AtDestination>, With<NpcIndex>, Without<Dead>)>,
     gpu_state: Res<GpuReadState>,
-    npc_count: Res<NpcCount>,
+    slots: Res<SlotAllocator>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
@@ -62,7 +62,7 @@ pub fn tick(
             test.phase_name = format!("transit={}/3 working={}", transit, working);
             if transit + working >= 3 {
                 test.pass_phase(elapsed, format!("transit={} working={}", transit, working));
-            } else if npc_count.0 >= 3 && elapsed > 0.5 {
+            } else if slots.alive() >= 3 && elapsed > 0.5 {
                 // Farmers with work_x get GoingToWork at spawn
                 // If not seen, might have already arrived (unlikely at 150px)
                 let at_dest = at_dest_query.iter().count();
@@ -71,7 +71,7 @@ pub fn tick(
                 }
             }
             if elapsed > 5.0 {
-                test.fail_phase(elapsed, format!("transit={} working={} npc_count={}", transit, working, npc_count.0));
+                test.fail_phase(elapsed, format!("transit={} working={} alive={}", transit, working, slots.alive()));
             }
         }
         // Phase 2: GPU positions have changed (not all at spawn Y)

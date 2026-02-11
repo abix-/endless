@@ -4,9 +4,9 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::constants::*;
-use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg, GPU_DISPATCH_COUNT};
+use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
-    NpcCount, NpcEntityMap, PopulationStats, GpuDispatchCount, NpcMetaCache, NpcMeta,
+    NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta,
     NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind, ReassignQueue,
 };
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
@@ -67,7 +67,6 @@ fn generate_personality(slot: usize) -> Personality {
 pub fn spawn_npc_system(
     mut commands: Commands,
     mut events: MessageReader<SpawnNpcMsg>,
-    mut count: ResMut<NpcCount>,
     mut npc_map: ResMut<NpcEntityMap>,
     mut pop_stats: ResMut<PopulationStats>,
     mut faction_stats: ResMut<FactionStats>,
@@ -76,20 +75,12 @@ pub fn spawn_npc_system(
     game_time: Res<GameTime>,
     mut npc_meta: ResMut<NpcMetaCache>,
     mut npcs_by_town: ResMut<NpcsByTownCache>,
-    mut gpu_dispatch: ResMut<GpuDispatchCount>,
     mut combat_log: ResMut<CombatLog>,
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
 ) {
-    let mut max_slot = 0usize;
-    let mut had_spawns = false;
-
     for msg in events.read() {
-        had_spawns = true;
         let idx = msg.slot_idx;
-        if idx + 1 > max_slot {
-            max_slot = idx + 1;
-        }
         let job = Job::from_i32(msg.job);
 
         // Determine attack type (farmers default to Melee — stats exist but unused)
@@ -177,7 +168,6 @@ pub fn spawn_npc_system(
         }
 
         npc_map.0.insert(idx, ec.id());
-        count.0 += 1;
         pop_inc_alive(&mut pop_stats, job, msg.town_idx);
         faction_stats.inc_alive(msg.faction);
 
@@ -210,16 +200,6 @@ pub fn spawn_npc_system(
         }
     }
 
-    // Update GPU dispatch count so process() includes these NPCs
-    if had_spawns && max_slot > gpu_dispatch.0 {
-        gpu_dispatch.0 = max_slot;
-        // Also update static for lib.rs process() to read
-        if let Ok(mut c) = GPU_DISPATCH_COUNT.lock() {
-            if max_slot > *c {
-                *c = max_slot;
-            }
-        }
-    }
 }
 
 /// Build sorted patrol route from WorldData for a given town.

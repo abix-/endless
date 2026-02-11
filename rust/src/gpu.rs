@@ -32,7 +32,7 @@ use std::borrow::Cow;
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::{HEAL_SPRITE, SLEEP_SPRITE, FOOD_SPRITE};
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{NpcCount, GpuReadState, ProjHitState, ProjPositionState};
+use crate::resources::{GpuReadState, ProjHitState, ProjPositionState, SlotAllocator};
 
 // =============================================================================
 // CONSTANTS
@@ -339,7 +339,7 @@ pub fn sync_visual_sprites(
 
 /// Drain GPU_UPDATE_QUEUE and apply updates to NpcBufferWrites.
 /// Runs in main world each frame before extraction.
-pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: Res<Time>, npc_count: Res<NpcCount>) {
+pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: Res<Time>, slots: Res<SlotAllocator>) {
     // Reset dirty flags - will be set if any updates applied
     buffer_writes.dirty = false;
     buffer_writes.position_dirty_indices.clear();
@@ -359,7 +359,7 @@ pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: 
     let dt = time.delta_secs();
     const FLASH_DECAY_RATE: f32 = 5.0;
     let mut any_flash = false;
-    let active = npc_count.0.min(buffer_writes.flash_values.len());
+    let active = slots.count().min(buffer_writes.flash_values.len());
     for flash in buffer_writes.flash_values[..active].iter_mut() {
         if *flash > 0.0 {
             *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
@@ -576,7 +576,7 @@ fn setup_readback_buffers(
     commands.spawn(Readback::buffer(npc_pos_buf))
         .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
             let data: Vec<f32> = event.to_shader_type();
-            // Don't overwrite npc_count — buffer is MAX-sized, actual count comes from NpcCount resource
+            // Don't overwrite npc_count — buffer is MAX-sized, actual count comes from SlotAllocator
             state.positions = data;
         });
 
@@ -694,13 +694,13 @@ struct ProjectileComputeLabel;
 fn update_gpu_data(
     mut gpu_data: ResMut<NpcGpuData>,
     mut params: ResMut<NpcComputeParams>,
-    npc_count: Res<crate::resources::NpcCount>,
+    slots: Res<SlotAllocator>,
     time: Res<Time>,
 ) {
-    gpu_data.npc_count = npc_count.0 as u32;
+    gpu_data.npc_count = slots.count() as u32;
     gpu_data.delta = time.delta_secs();
     params.delta = time.delta_secs();
-    params.count = npc_count.0 as u32;
+    params.count = slots.count() as u32;
 }
 
 // =============================================================================
@@ -1242,12 +1242,12 @@ impl render_graph::Node for NpcComputeNode {
 fn update_proj_gpu_data(
     mut proj_data: ResMut<ProjGpuData>,
     mut proj_params: ResMut<ProjComputeParams>,
-    npc_count: Res<crate::resources::NpcCount>,
+    slots: Res<SlotAllocator>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
 ) {
     let pc = proj_alloc.next as u32;
-    let nc = npc_count.0 as u32;
+    let nc = slots.count() as u32;
     let dt = time.delta_secs();
     proj_data.proj_count = pc;
     proj_data.npc_count = nc;

@@ -312,7 +312,7 @@ fn pause_menu_system(
 
             // Settings section
             egui::CollapsingHeader::new("Settings")
-                .default_open(false)
+                .default_open(true)
                 .show(ui, |ui| {
                     ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0)
                         .text("Scroll Speed"));
@@ -541,7 +541,6 @@ fn draw_slot_indicators(
 // SystemParam bundles to keep cleanup under 16-param limit
 #[derive(SystemParam)]
 struct CleanupWorld<'w> {
-    npc_count: ResMut<'w, NpcCount>,
     slot_alloc: ResMut<'w, SlotAllocator>,
     world_data: ResMut<'w, world::WorldData>,
     food_storage: ResMut<'w, FoodStorage>,
@@ -595,7 +594,6 @@ fn game_cleanup_system(
     }
 
     // Reset world resources
-    *world.npc_count = Default::default();
     world.slot_alloc.reset();
     *world.world_data = Default::default();
     *world.food_storage = Default::default();

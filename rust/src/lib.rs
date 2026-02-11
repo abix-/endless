@@ -26,10 +26,10 @@ use bevy::prelude::*;
 
 use messages::{SpawnNpcMsg, DamageMsg, GpuUpdateMsg};
 use resources::{
-    NpcCount, NpcEntityMap, PopulationStats, GameConfig, GameTime, RespawnTimers,
+    NpcEntityMap, PopulationStats, GameConfig, GameTime, RespawnTimers,
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
-    ResetFlag, GpuReadState, GpuDispatchCount, SlotAllocator, ProjSlotAllocator,
+    ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     ReassignQueue, GuardPostState, FollowSelected, TownPolicies,
@@ -146,7 +146,7 @@ fn debug_toggle_system(
 /// Debug: log NPC count every second, plus optional detailed logs.
 fn debug_tick_system(
     time: Res<Time>,
-    npc_count: Res<NpcCount>,
+    slots: Res<SlotAllocator>,
     gpu_state: Res<GpuReadState>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
@@ -155,8 +155,8 @@ fn debug_tick_system(
 ) {
     *last_log += time.delta_secs();
     if *last_log >= 1.0 {
-        if flags.readback && npc_count.0 > 0 {
-            info!("Tick: {} NPCs active", npc_count.0);
+        if flags.readback && slots.alive() > 0 {
+            info!("Tick: {} NPCs active", slots.alive());
             let n = gpu_state.npc_count.min(5);
             for i in 0..n {
                 let x = gpu_state.positions.get(i * 2).copied().unwrap_or(0.0);
@@ -200,7 +200,6 @@ pub fn build_app(app: &mut App) {
        .add_message::<DamageMsg>()
        .add_message::<GpuUpdateMsg>()
        // Resources
-       .init_resource::<NpcCount>()
        .init_resource::<NpcEntityMap>()
        .init_resource::<PopulationStats>()
        .init_resource::<GameConfig>()
@@ -224,7 +223,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GpuReadState>()
        .init_resource::<ProjHitState>()
        .init_resource::<ProjPositionState>()
-       .init_resource::<GpuDispatchCount>()
        .init_resource::<SlotAllocator>()
        .init_resource::<ProjSlotAllocator>()
        .init_resource::<FoodStorage>()

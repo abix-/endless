@@ -2,6 +2,13 @@
 
 ## 2026-02-11
 
+- **fix: ghost NPC rendering — replace NpcCount with SlotAllocator**
+  - remove `NpcCount` resource (running total, never decremented on death — caused GPU to dispatch uninitialized slots)
+  - remove `GpuDispatchCount` resource and `GPU_DISPATCH_COUNT` static (redundant with SlotAllocator)
+  - GPU compute dispatch, flash decay, and projectile collision all use `SlotAllocator.count()` (high-water mark)
+  - add `SlotAllocator.alive()` (`next - free.len()`) for UI display and test assertions
+  - single source of truth for NPC counting eliminates the class of bug where multiple count resources diverge
+
 - **fix: GPU readback for factions and health**
   - add factions + health readback buffers (COPY_SRC on GPU buffers, ReadbackComplete observers, render node copy)
   - enables `count_nearby_factions()` for flee threat assessment and guard post turret targeting

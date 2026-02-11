@@ -107,7 +107,7 @@ pub fn setup(
 /// Tick: phased assertions with time gates.
 pub fn tick(
     time: Res<Time>,
-    npc_count: Res<NpcCount>,
+    slots: Res<SlotAllocator>,
     gpu_state: Res<GpuReadState>,
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
@@ -118,21 +118,21 @@ pub fn tick(
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     // Track lowest NPC count for death detection
-    if npc_count.0 > 0 && npc_count.0 < test.count("lowest_npc") as usize {
-        test.counters.insert("lowest_npc".into(), npc_count.0 as u32);
+    if slots.alive() > 0 && slots.alive() < test.count("lowest_npc") as usize {
+        test.counters.insert("lowest_npc".into(), slots.alive() as u32);
     }
-    if !test.counters.contains_key("lowest_npc") && npc_count.0 > 0 {
-        test.counters.insert("lowest_npc".into(), npc_count.0 as u32);
+    if !test.counters.contains_key("lowest_npc") && slots.alive() > 0 {
+        test.counters.insert("lowest_npc".into(), slots.alive() as u32);
     }
 
     match test.phase {
         // Phase 1: All 12 NPCs spawned
         1 => {
-            test.phase_name = format!("npc_count={}/12", npc_count.0);
-            if npc_count.0 == 12 {
-                test.pass_phase(elapsed, format!("npc_count={}", npc_count.0));
+            test.phase_name = format!("npc_count={}/12", slots.alive());
+            if slots.alive() == 12 {
+                test.pass_phase(elapsed, format!("npc_count={}", slots.alive()));
             } else if elapsed > 2.0 {
-                test.fail_phase(elapsed, format!("npc_count={} (expected 12)", npc_count.0));
+                test.fail_phase(elapsed, format!("npc_count={} (expected 12)", slots.alive()));
             }
         }
         // Phase 2: GPU readback has valid positions
@@ -192,25 +192,25 @@ pub fn tick(
         }
         // Phase 7: At least one death
         7 => {
-            test.phase_name = format!("npc_count={} deaths_frame={}", npc_count.0, health_debug.deaths_this_frame);
-            if npc_count.0 < 12 || health_debug.deaths_this_frame > 0 {
+            test.phase_name = format!("npc_count={} deaths_frame={}", slots.alive(), health_debug.deaths_this_frame);
+            if slots.alive() < 12 || health_debug.deaths_this_frame > 0 {
                 test.set_flag("death_seen", true);
-                test.pass_phase(elapsed, format!("npc_count={}, deaths_frame={}", npc_count.0, health_debug.deaths_this_frame));
+                test.pass_phase(elapsed, format!("npc_count={}, deaths_frame={}", slots.alive(), health_debug.deaths_this_frame));
             } else if elapsed > 40.0 {
-                test.fail_phase(elapsed, format!("npc_count={} (no deaths)", npc_count.0));
+                test.fail_phase(elapsed, format!("npc_count={} (no deaths)", slots.alive()));
             }
         }
         // Phase 8: Respawn
         8 => {
-            test.phase_name = format!("npc_count={}/12 (waiting for respawn)", npc_count.0);
-            if test.get_flag("death_seen") && npc_count.0 >= 12 {
-                test.pass_phase(elapsed, format!("npc_count={} (recovered)", npc_count.0));
+            test.phase_name = format!("npc_count={}/12 (waiting for respawn)", slots.alive());
+            if test.get_flag("death_seen") && slots.alive() >= 12 {
+                test.pass_phase(elapsed, format!("npc_count={} (recovered)", slots.alive()));
                 test.complete(elapsed);
             } else if elapsed > 60.0 {
                 let lowest = test.count("lowest_npc");
                 let death_seen = test.get_flag("death_seen");
                 test.fail_phase(elapsed, format!(
-                    "npc_count={}, lowest={}, death_seen={}", npc_count.0, lowest, death_seen));
+                    "npc_count={}, lowest={}, death_seen={}", slots.alive(), lowest, death_seen));
             }
         }
         _ => {}

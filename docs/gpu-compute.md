@@ -73,7 +73,7 @@ GPU → ECS (readback, Bevy async Readback):
     → gpu_position_readback: GpuReadState → ECS Position components
       + arrival detection: if HasTarget && dist(pos, goal) < ARRIVAL_THRESHOLD → AtDestination
   Data is 1 frame old (~1.6px drift at 100px/s). ARRIVAL_THRESHOLD=8px >> drift.
-  npc_count not set from readback (buffer is MAX-sized) — comes from NpcCount resource.
+  npc_count not set from readback (buffer is MAX-sized) — comes from SlotAllocator.count().
 
 GPU → Render:
   prepare_npc_buffers: reads GpuReadState (extracted to render world) for positions,
@@ -141,7 +141,7 @@ Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; spri
 
 | Field | Default | Purpose |
 |-------|---------|---------|
-| count | 0 | Active NPC count (set from NpcCount each frame) |
+| count | 0 | NPC slot high-water mark (set from SlotAllocator.count() each frame) |
 | separation_radius | 20.0 | Minimum distance NPCs try to maintain |
 | separation_strength | 100.0 | Repulsion force multiplier |
 | delta | 0.016 | Frame delta time |

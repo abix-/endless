@@ -10,12 +10,10 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
-| NpcCount | `usize` | spawn_npc_system, death_cleanup_system | UI, spawn throttling |
 | NpcEntityMap | `HashMap<usize, Entity>` | spawn_npc_system, death_cleanup_system | damage_system (slot → entity lookup) |
-| SlotAllocator | `{ next, free: Vec }` | spawn_npc_system (alloc), death_cleanup_system (free) | — |
-| GpuDispatchCount | `usize` | spawn_npc_system | GPU compute dispatch sizing |
+| SlotAllocator | `{ next, free: Vec }` | spawn_npc_system (alloc), death_cleanup_system (free) | GPU compute dispatch, UI, tests |
 
-`SlotAllocator` uses LIFO free list — most recently freed slot is reused first. `next` is the high-water mark. See [spawn.md](spawn.md).
+`SlotAllocator` uses LIFO free list — most recently freed slot is reused first. `next` is the high-water mark. Two query methods: `count()` returns high-water mark (for GPU dispatch bounds), `alive()` returns `next - free.len()` (for UI display). Single source of truth for all NPC counting. See [spawn.md](spawn.md).
 
 ## NPC UI Caches
 
@@ -231,9 +229,8 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 ## Known Issues
 
 - **Health dual ownership**: CPU-authoritative but synced to GPU via messages. Could diverge if sync fails.
-- **NpcCount high-water mark**: SlotAllocator.next never shrinks. 1000 spawns + 999 deaths = count still 1000.
 - **No external API**: All state is internal Bevy Resources. No query interface for external tools or UI frameworks.
 
-## Rating: 7/10
+## Rating: 8/10
 
-Resources are well-organized by domain with clear ownership. UI caches avoid repeated ECS queries. Slot allocator with free list handles reuse efficiently. Weaknesses: GpuReadState is a dead struct, high-water mark dispatch count, and NPC state derivation at query time could be expensive with many NPCs.
+Resources are well-organized by domain with clear ownership. UI caches avoid repeated ECS queries. SlotAllocator is single source of truth for NPC counting — `count()` for GPU dispatch, `alive()` for UI. No redundant count resources.

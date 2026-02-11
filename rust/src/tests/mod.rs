@@ -35,7 +35,6 @@ use crate::world;
 
 #[derive(SystemParam)]
 pub struct CleanupCore<'w> {
-    pub npc_count: ResMut<'w, crate::resources::NpcCount>,
     pub slot_alloc: ResMut<'w, crate::resources::SlotAllocator>,
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub food_storage: ResMut<'w, crate::resources::FoodStorage>,
@@ -780,7 +779,6 @@ fn cleanup_test_world(
         commands.entity(entity).despawn();
     }
 
-    *core.npc_count = Default::default();
     *core.slot_alloc = Default::default();
     *core.world_data = Default::default();
     *core.food_storage = Default::default();

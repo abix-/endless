@@ -78,7 +78,6 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | Static | Type | Writer | Reader |
 |--------|------|--------|--------|
 | GPU_UPDATE_QUEUE | `Mutex<Vec<GpuUpdate>>` | collect_gpu_updates | populate_buffer_writes |
-| GPU_DISPATCH_COUNT | `Mutex<usize>` | spawn_npc_system | (legacy, used for dispatch count) |
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
 | PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | attack_system, guard_post_attack_system | populate_proj_buffer_writes |
 | FREE_PROJ_SLOTS | `Mutex<Vec<usize>>` | (unused) | (unused) |
@@ -88,11 +87,11 @@ GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`)
 
 ## GPU Read State
 
-`GpuReadState` (Bevy Resource, `Clone + ExtractResource`) holds GPU output for Bevy systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Extracted to render world for `prepare_npc_buffers`. `npc_count` set by `NpcCount` resource (not from readback — buffer is MAX-sized).
+`GpuReadState` (Bevy Resource, `Clone + ExtractResource`) holds GPU output for Bevy systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Extracted to render world for `prepare_npc_buffers`. `npc_count` set by `SlotAllocator.count()` (not from readback — buffer is MAX-sized).
 
 | Field | Type | Source | Consumers |
 |-------|------|--------|-----------|
-| npc_count | usize | NpcCount resource | gpu_position_readback |
+| npc_count | usize | SlotAllocator.count() | gpu_position_readback |
 | positions | Vec\<f32\> | ReadbackComplete (npc_positions buffer) | attack_system, healing_system, prepare_npc_buffers |
 | combat_targets | Vec\<i32\> | ReadbackComplete (combat_targets buffer) | attack_system (target selection) |
 | health | Vec\<f32\> | CPU cache | (available for queries) |

@@ -44,11 +44,6 @@ pub struct ReassignMsg {
 // GPU DISPATCH COUNT
 // ============================================================================
 
-/// Number of NPCs with initialized GPU buffers. Set by spawn_npc_system
-/// after pushing GPU_UPDATE_QUEUE. Read by process() for dispatch count.
-/// NPC slot allocation itself is handled by Bevy's SlotAllocator resource.
-pub static GPU_DISPATCH_COUNT: Mutex<usize> = Mutex::new(0);
-
 // ============================================================================
 // PROJECTILE SLOT REUSE
 // ============================================================================

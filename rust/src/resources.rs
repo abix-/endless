@@ -37,9 +37,6 @@ pub struct BevyFrameTimer {
     pub start: Option<std::time::Instant>,
 }
 
-/// Tracks total number of active NPCs.
-#[derive(Resource, Default)]
-pub struct NpcCount(pub usize);
 
 /// Delta time for the current frame (seconds).
 #[derive(Resource, Default)]
@@ -366,7 +363,10 @@ impl SlotAllocator {
         })
     }
     pub fn free(&mut self, slot: usize) { self.free.push(slot); }
+    /// High-water mark: max slot index ever allocated. Use for GPU dispatch bounds.
     pub fn count(&self) -> usize { self.next }
+    /// Currently alive: allocated minus freed. Use for UI display counts.
+    pub fn alive(&self) -> usize { self.next - self.free.len() }
     pub fn reset(&mut self) { self.next = 0; self.free.clear(); }
 }
 
@@ -395,10 +395,6 @@ impl ProjSlotAllocator {
 /// Reset flag. Replaces RESET_BEVY static.
 #[derive(Resource, Default)]
 pub struct ResetFlag(pub bool);
-
-/// GPU dispatch count. Replaces GPU_DISPATCH_COUNT static.
-#[derive(Resource, Default)]
-pub struct GpuDispatchCount(pub usize);
 
 /// GPU readback state. Populated by ReadbackComplete observers, read by Bevy systems.
 /// Clone + ExtractResource so render world can access positions for instanced rendering.
