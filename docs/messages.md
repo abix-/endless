@@ -68,7 +68,7 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | SetSpeed | idx, speed | spawn_npc_system |
 | ApplyDamage | idx, amount | damage_system |
 | HideNpc | idx | death_cleanup_system |
-| SetSpriteFrame | idx, col, row | spawn_npc_system |
+| SetSpriteFrame | idx, col, row, atlas | spawn_npc_system (atlas: 0.0=character, 1.0=world) |
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_buffer_writes) |
 
 **Removed (replaced by `sync_visual_sprites`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame (see [gpu-compute.md](gpu-compute.md)).

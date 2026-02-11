@@ -30,7 +30,7 @@ pub const PUSH_CONSTANTS_SIZE: usize = 48;
 // Equipment sprite frames (column, row) — placeholder coordinates
 pub const EQUIP_SWORD: (f32, f32) = (45.0, 6.0);
 pub const EQUIP_HELMET: (f32, f32) = (28.0, 0.0);
-pub const FOOD_SPRITE: (f32, f32) = (6.0, 8.0);
+pub const FOOD_SPRITE: (f32, f32) = (24.0, 9.0);
 
 // Visual indicator sprites (column, row) — placeholder coordinates, verify against atlas
 pub const SLEEP_SPRITE: (f32, f32) = (24.0, 7.0);

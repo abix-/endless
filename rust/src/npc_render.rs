@@ -394,13 +394,14 @@ fn extract_camera_state(
 // =============================================================================
 
 /// Equipment layer sprite sources (matches EquipLayer enum order).
-const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32); 6] = [
-    |w, i| { let j = i * 2; (w.armor_sprites.get(j).copied().unwrap_or(-1.0), w.armor_sprites.get(j+1).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 2; (w.helmet_sprites.get(j).copied().unwrap_or(-1.0), w.helmet_sprites.get(j+1).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 2; (w.weapon_sprites.get(j).copied().unwrap_or(-1.0), w.weapon_sprites.get(j+1).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 2; (w.item_sprites.get(j).copied().unwrap_or(-1.0), w.item_sprites.get(j+1).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 2; (w.status_sprites.get(j).copied().unwrap_or(-1.0), w.status_sprites.get(j+1).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 2; (w.healing_sprites.get(j).copied().unwrap_or(-1.0), w.healing_sprites.get(j+1).copied().unwrap_or(0.0)) },
+/// Returns (col, row, atlas_id) per NPC. Stride 3 per NPC in each buffer.
+const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32, f32); 6] = [
+    |w, i| { let j = i * 3; (w.armor_sprites.get(j).copied().unwrap_or(-1.0), w.armor_sprites.get(j+1).copied().unwrap_or(0.0), w.armor_sprites.get(j+2).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 3; (w.helmet_sprites.get(j).copied().unwrap_or(-1.0), w.helmet_sprites.get(j+1).copied().unwrap_or(0.0), w.helmet_sprites.get(j+2).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 3; (w.weapon_sprites.get(j).copied().unwrap_or(-1.0), w.weapon_sprites.get(j+1).copied().unwrap_or(0.0), w.weapon_sprites.get(j+2).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 3; (w.item_sprites.get(j).copied().unwrap_or(-1.0), w.item_sprites.get(j+1).copied().unwrap_or(0.0), w.item_sprites.get(j+2).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 3; (w.status_sprites.get(j).copied().unwrap_or(-1.0), w.status_sprites.get(j+1).copied().unwrap_or(0.0), w.status_sprites.get(j+2).copied().unwrap_or(0.0)) },
+    |w, i| { let j = i * 3; (w.healing_sprites.get(j).copied().unwrap_or(-1.0), w.healing_sprites.get(j+1).copied().unwrap_or(0.0), w.healing_sprites.get(j+2).copied().unwrap_or(0.0)) },
 ];
 
 /// Prepare all instance buffers — body + 6 overlay layers (7 layers).
@@ -455,6 +456,7 @@ fn prepare_npc_buffers(
         let health = (writes.healths.get(i).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
         let flash = writes.flash_values.get(i).copied().unwrap_or(0.0);
 
+        let body_atlas = writes.sprite_indices.get(i * 4 + 2).copied().unwrap_or(0.0);
         if sc >= 0.0 {
             layer_instances[0].push(InstanceData {
                 position: [px, py],
@@ -463,14 +465,14 @@ fn prepare_npc_buffers(
                 health,
                 flash,
                 scale: 16.0,
-                atlas_id: 0.0,
+                atlas_id: body_atlas,
             });
         }
 
-        // Layers 1-4: Equipment (only if sprite col >= 0, i.e. equipped)
+        // Layers 1-6: Equipment/overlay (only if sprite col >= 0, i.e. equipped)
         // Tint with same job color so guards (blue) and raiders (red) are visually distinct
         for (layer_idx, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
-            let (ecol, erow) = get_sprite(&writes, i);
+            let (ecol, erow, eatlas) = get_sprite(&writes, i);
             if ecol >= 0.0 {
                 layer_instances[layer_idx + 1].push(InstanceData {
                     position: [px, py],
@@ -479,7 +481,7 @@ fn prepare_npc_buffers(
                     health: 1.0,
                     flash,
                     scale: 16.0,
-                    atlas_id: 0.0,
+                    atlas_id: eatlas,
                 });
             }
         }

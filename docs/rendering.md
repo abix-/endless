@@ -83,24 +83,28 @@ Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terr
 
 **Layer 0 (body):**
 - **Positions**: from GPU readback if available, else from CPU-side NpcBufferWrites
-- **Sprites**: from `sprite_indices` (4 floats per NPC, uses first 2: col, row)
+- **Sprites**: from `sprite_indices` (4 floats per NPC: col, row, atlas_id, unused)
+- **Atlas**: from `sprite_indices[i*4 + 2]` (0.0=character, 1.0=world). Defaults to 0.0 (character sheet)
 - **Colors**: from `colors` (4 floats per NPC: RGBA)
 - **Health**: from `healths` (normalized by dividing by 100.0, clamped to 0-1)
 - **Flash**: from `flash_values` (0.0-1.0, decays at 5.0/s in `populate_buffer_writes`)
 - **Hidden NPCs** (position.x < -9000) are skipped
+- **Body skip**: sprite col < 0 skips body rendering (used by npc-visuals test to show overlay-only columns)
 
 **Layers 1-4 (equipment: armor, helmet, weapon, item):**
 - Same position as body (from readback)
-- Sprite from `armor_sprites`/`helmet_sprites`/`weapon_sprites`/`item_sprites` (stride 2, col/row per NPC)
+- Sprite from `armor_sprites`/`helmet_sprites`/`weapon_sprites`/`item_sprites` (stride 3: col, row, atlas_id per NPC)
 - Sentinel: col < 0 means unequipped → skip
+- Atlas: per-sprite atlas_id (0.0=character, 1.0=world). Food item uses world atlas (1.0)
 - Color: job color tint (same RGBA as body) — guards' equipment renders blue, raiders' red
 - Health: 1.0 (no health bar; shader discards bottom pixels for health >= 0.99)
 - Flash: inherited from body (equipment flashes on hit)
 
 **Layers 5-6 (visual indicators: status, healing):**
 - Same position as body (from readback)
-- Sprite from `status_sprites` (sleep icon) / `healing_sprites` (heal glow) (stride 2, col/row per NPC)
+- Sprite from `status_sprites` (sleep icon) / `healing_sprites` (heal glow) (stride 3: col, row, atlas_id per NPC)
 - Sentinel: col < 0 means inactive → skip
+- Atlas: per-sprite atlas_id (currently all 0.0 = character sheet)
 - Derived by `sync_visual_sprites` from `Activity::Resting` and `Healing` ECS components each frame
 - Independent layers: NPC can show sleep AND healing simultaneously
 
@@ -296,19 +300,19 @@ Multi-layer rendering uses `NpcBufferWrites` fields for 6 overlay types:
 
 | Layer | Index | NpcBufferWrites Field | Stride | Sentinel | Set By |
 |-------|-------|----------------------|--------|----------|--------|
-| Armor | 1 | `armor_sprites` | 2 (col, row) | col < 0 | SetEquipSprite |
-| Helmet | 2 | `helmet_sprites` | 2 (col, row) | col < 0 | SetEquipSprite |
-| Weapon | 3 | `weapon_sprites` | 2 (col, row) | col < 0 | SetEquipSprite |
-| Item | 4 | `item_sprites` | 2 (col, row) | col < 0 | SetEquipSprite |
-| Status | 5 | `status_sprites` | 2 (col, row) | col < 0 | SetSleeping |
-| Healing | 6 | `healing_sprites` | 2 (col, row) | col < 0 | SetHealing |
+| Armor | 1 | `armor_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
+| Helmet | 2 | `helmet_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
+| Weapon | 3 | `weapon_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
+| Item | 4 | `item_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
+| Status | 5 | `status_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
+| Healing | 6 | `healing_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
 
-Equipment layers (1-4) are set via `GpuUpdate::SetEquipSprite { idx, layer, col, row }`. Status and healing layers are set via dedicated `SetSleeping`/`SetHealing` messages that write sprite constants (`SLEEP_SPRITE`, `HEAL_SPRITE`) or clear to -1.0. At spawn, all layers are cleared to -1.0 (unequipped/inactive). Equipment is also cleared on death to prevent stale data on slot reuse.
+All overlay layers are written by `sync_visual_sprites` each frame from ECS components (`EquippedWeapon`, `EquippedHelmet`, `EquippedArmor`, `Activity`, `Healing`). At spawn, all layers are cleared to -1.0 (unequipped/inactive). Equipment is also cleared on death to prevent stale data on slot reuse. Each layer stores atlas_id alongside sprite coordinates so items can reference either atlas.
 
 Current equipment assignments:
-- **Guards**: Weapon (45, 6) + Helmet (28, 0)
-- **Raiders**: Weapon (45, 6)
-- **Carried food**: Item layer set when raider steals food, cleared on delivery
+- **Guards**: Weapon (45, 6) + Helmet (28, 0) — character atlas
+- **Raiders**: Weapon (45, 6) — character atlas
+- **Carried food**: Item layer (24, 9) — world atlas, set when raider steals food, cleared on delivery
 
 ## World Tilemap (Terrain + Buildings)
 
@@ -341,7 +345,7 @@ Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase a
 
 - **Health bar mode hardcoded**: Only "when damaged" mode (show when health < 99%). Off/always modes need a uniform or config resource.
 - **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
-- **Equipment sprite tuning**: Equipment sprites (sword, helmet, food) have updated atlas coordinates — use `npc-visuals` test scene to review layers.
+- **Equipment sprite tuning**: Equipment sprites have updated atlas coordinates — use `npc-visuals` test scene to review layers. Food sprite is on world atlas (24,9).
 - **Single sort key for all layers**: All 7 NPC layers share sort_key=0.5 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but layers can't interleave with other phase items.
 - **Single tilemap chunk per layer**: At 1000×1000 (1M tiles), `command_buffer_generation_tasks` costs ~10ms because Bevy processes all tiles even when most are off-screen. Splitting into 32×32 chunks enables off-screen culling (see roadmap spec).
 

@@ -129,14 +129,14 @@ pub struct NpcBufferWrites {
     pub colors: Vec<f32>,
     /// Damage flash intensity: 0.0-1.0 per NPC (decays each frame)
     pub flash_values: Vec<f32>,
-    /// Equipment sprites per layer: [col, row] per NPC, stride 2. -1.0 col = unequipped.
+    /// Equipment sprites per layer: [col, row, atlas] per NPC, stride 3. -1.0 col = unequipped.
     pub armor_sprites: Vec<f32>,
     pub helmet_sprites: Vec<f32>,
     pub weapon_sprites: Vec<f32>,
     pub item_sprites: Vec<f32>,
-    /// Status indicator sprites per NPC: [col, row], -1.0 = none. Layer 5 (sleep icon, etc.)
+    /// Status indicator sprites per NPC: [col, row, atlas], -1.0 = none. Layer 5 (sleep icon, etc.)
     pub status_sprites: Vec<f32>,
-    /// Healing indicator sprites per NPC: [col, row], -1.0 = none. Layer 6 (healing glow)
+    /// Healing indicator sprites per NPC: [col, row, atlas], -1.0 = none. Layer 6 (healing glow)
     pub healing_sprites: Vec<f32>,
     /// Whether any data changed this frame (skip upload if false)
     pub dirty: bool,
@@ -163,12 +163,12 @@ impl Default for NpcBufferWrites {
             sprite_indices: vec![0.0; max * 4], // vec4 per NPC
             colors: vec![1.0; max * 4],          // RGBA, default white
             flash_values: vec![0.0; max],
-            armor_sprites: vec![-1.0; max * 2],
-            helmet_sprites: vec![-1.0; max * 2],
-            weapon_sprites: vec![-1.0; max * 2],
-            item_sprites: vec![-1.0; max * 2],
-            status_sprites: vec![-1.0; max * 2],
-            healing_sprites: vec![-1.0; max * 2],
+            armor_sprites: vec![-1.0; max * 3],
+            helmet_sprites: vec![-1.0; max * 3],
+            weapon_sprites: vec![-1.0; max * 3],
+            item_sprites: vec![-1.0; max * 3],
+            status_sprites: vec![-1.0; max * 3],
+            healing_sprites: vec![-1.0; max * 3],
             dirty: false,
             position_dirty_indices: Vec::new(),
             target_dirty_indices: Vec::new(),
@@ -245,12 +245,12 @@ impl NpcBufferWrites {
                     self.position_dirty_indices.push(*idx);
                 }
             }
-            GpuUpdate::SetSpriteFrame { idx, col, row } => {
+            GpuUpdate::SetSpriteFrame { idx, col, row, atlas } => {
                 let i = *idx * 4;
                 if i + 3 < self.sprite_indices.len() {
                     self.sprite_indices[i] = *col;
                     self.sprite_indices[i + 1] = *row;
-                    // zw unused, leave as 0
+                    self.sprite_indices[i + 2] = *atlas;
                     self.dirty = true;
                 }
             }
@@ -279,7 +279,7 @@ pub fn sync_visual_sprites(
     // Dead NPCs are skipped by the renderer (x < -9000), so stale data is harmless.
     for (npc_idx, faction, job, activity, healing, weapon, helmet, armor) in all_npcs.iter() {
         let idx = npc_idx.0;
-        let j = idx * 2;
+        let j = idx * 3;
 
         // Color: raiders use faction palette, others use job color
         let c = idx * 4;
@@ -295,36 +295,41 @@ pub fn sync_visual_sprites(
             buffer.colors[c + 3] = a;
         }
 
-        if j + 1 >= buffer.weapon_sprites.len() { continue; }
+        if j + 2 >= buffer.weapon_sprites.len() { continue; }
 
-        // Equipment (write -1.0 sentinel when unequipped)
+        // Equipment (write -1.0 sentinel when unequipped, atlas 0.0 = character sheet)
         let (wc, wr) = weapon.map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
         buffer.weapon_sprites[j] = wc;
         buffer.weapon_sprites[j + 1] = wr;
+        buffer.weapon_sprites[j + 2] = 0.0;
 
         let (hc, hr) = helmet.map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
         buffer.helmet_sprites[j] = hc;
         buffer.helmet_sprites[j + 1] = hr;
+        buffer.helmet_sprites[j + 2] = 0.0;
 
         let (ac, ar) = armor.map(|a| (a.0, a.1)).unwrap_or((-1.0, 0.0));
         buffer.armor_sprites[j] = ac;
         buffer.armor_sprites[j + 1] = ar;
+        buffer.armor_sprites[j + 2] = 0.0;
 
-        // Carried item (food)
-        let (ic, ir) = if matches!(activity, Activity::Returning { has_food: true }) {
-            (FOOD_SPRITE.0, FOOD_SPRITE.1)
+        // Carried item (food = world atlas)
+        let (ic, ir, ia) = if matches!(activity, Activity::Returning { has_food: true }) {
+            (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0)
         } else {
-            (-1.0, 0.0)
+            (-1.0, 0.0, 0.0)
         };
         buffer.item_sprites[j] = ic;
         buffer.item_sprites[j + 1] = ir;
+        buffer.item_sprites[j + 2] = ia;
 
-        // Healing indicator
+        // Healing indicator (character sheet)
         let (hlc, hlr) = if healing.is_some() { (HEAL_SPRITE.0, HEAL_SPRITE.1) } else { (-1.0, 0.0) };
         buffer.healing_sprites[j] = hlc;
         buffer.healing_sprites[j + 1] = hlr;
+        buffer.healing_sprites[j + 2] = 0.0;
 
-        // Sleep indicator
+        // Sleep indicator (character sheet)
         let (sc, sr) = if matches!(activity, Activity::Resting { .. }) {
             (SLEEP_SPRITE.0, SLEEP_SPRITE.1)
         } else {
@@ -332,6 +337,7 @@ pub fn sync_visual_sprites(
         };
         buffer.status_sprites[j] = sc;
         buffer.status_sprites[j + 1] = sr;
+        buffer.status_sprites[j + 2] = 0.0;
     }
 
     buffer.dirty = true;

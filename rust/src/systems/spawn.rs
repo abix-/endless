@@ -112,7 +112,7 @@ pub fn spawn_npc_system(
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx, faction: msg.faction }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: cached.max_health }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row, atlas: 0.0 }));
 
         // Base entity (all NPCs get these)
         let mut ec = commands.spawn((

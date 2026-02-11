@@ -80,8 +80,8 @@ pub enum GpuUpdate {
     SetPosition { idx: usize, x: f32, y: f32 },
     /// Set speed
     SetSpeed { idx: usize, speed: f32 },
-    /// Set sprite frame (column, row in sprite sheet)
-    SetSpriteFrame { idx: usize, col: f32, row: f32 },
+    /// Set sprite frame (column, row in sprite sheet, atlas: 0.0=character, 1.0=world)
+    SetSpriteFrame { idx: usize, col: f32, row: f32, atlas: f32 },
     /// Set damage flash intensity (1.0 = full white, decays to 0.0)
     SetDamageFlash { idx: usize, intensity: f32 },
 }

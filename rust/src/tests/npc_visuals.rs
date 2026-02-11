@@ -158,28 +158,25 @@ pub fn tick(
                         }
                     }
                     COL_ITEM => {
-                        // Item layer only: hide body, show food sprite
+                        // Show food sprite as body (world atlas)
                         commands.entity(entity).remove::<EquippedWeapon>();
                         commands.entity(entity).remove::<EquippedHelmet>();
                         commands.entity(entity).remove::<EquippedArmor>();
-                        commands.entity(entity).insert(Activity::Returning { has_food: true });
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: -1.0, row: -1.0 }));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: FOOD_SPRITE.0, row: FOOD_SPRITE.1, atlas: 1.0 }));
                     }
                     COL_SLEEP => {
-                        // Sleep layer only: hide body, show sleep sprite
+                        // Show sleep sprite as body (character sheet)
                         commands.entity(entity).remove::<EquippedWeapon>();
                         commands.entity(entity).remove::<EquippedHelmet>();
                         commands.entity(entity).remove::<EquippedArmor>();
-                        commands.entity(entity).insert(Activity::Resting { recover_until: None });
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: -1.0, row: -1.0 }));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: SLEEP_SPRITE.0, row: SLEEP_SPRITE.1, atlas: 0.0 }));
                     }
                     COL_HEAL => {
-                        // Heal layer only: hide body, show heal sprite
+                        // Show heal sprite as body (character sheet)
                         commands.entity(entity).remove::<EquippedWeapon>();
                         commands.entity(entity).remove::<EquippedHelmet>();
                         commands.entity(entity).remove::<EquippedArmor>();
-                        commands.entity(entity).insert(Healing);
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: -1.0, row: -1.0 }));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: HEAL_SPRITE.0, row: HEAL_SPRITE.1, atlas: 0.0 }));
                     }
                     COL_FULL => {
                         // Full: keep all equipment as spawned (guard has weapon+helmet, raider has weapon)
