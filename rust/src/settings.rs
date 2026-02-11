@@ -68,8 +68,10 @@ impl Default for UserSettings {
 }
 
 fn settings_path() -> Option<PathBuf> {
-    let profile = std::env::var("USERPROFILE").ok()?;
-    let dir = PathBuf::from(profile).join("Documents").join("Endless");
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()?;
+    let dir = PathBuf::from(home).join("Documents").join("Endless");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("settings.json"))
 }
