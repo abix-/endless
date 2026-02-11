@@ -445,7 +445,7 @@ fn prepare_npc_buffers(
             continue;
         }
 
-        // Layer 0: Body
+        // Layer 0: Body (skip if sprite col < 0)
         let sc = writes.sprite_indices.get(i * 4).copied().unwrap_or(0.0);
         let sr = writes.sprite_indices.get(i * 4 + 1).copied().unwrap_or(0.0);
         let cr = writes.colors.get(i * 4).copied().unwrap_or(1.0);
@@ -455,15 +455,17 @@ fn prepare_npc_buffers(
         let health = (writes.healths.get(i).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
         let flash = writes.flash_values.get(i).copied().unwrap_or(0.0);
 
-        layer_instances[0].push(InstanceData {
-            position: [px, py],
-            sprite: [sc, sr],
-            color: [cr, cg, cb, ca],
-            health,
-            flash,
-            scale: 16.0,
-            atlas_id: 0.0,
-        });
+        if sc >= 0.0 {
+            layer_instances[0].push(InstanceData {
+                position: [px, py],
+                sprite: [sc, sr],
+                color: [cr, cg, cb, ca],
+                health,
+                flash,
+                scale: 16.0,
+                atlas_id: 0.0,
+            });
+        }
 
         // Layers 1-4: Equipment (only if sprite col >= 0, i.e. equipped)
         // Tint with same job color so guards (blue) and raiders (red) are visually distinct

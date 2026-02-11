@@ -18,6 +18,7 @@ pub mod world_gen;
 pub mod sleep_visual;
 pub mod farm_visual;
 pub mod heal_visual;
+pub mod npc_visuals;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -531,6 +532,21 @@ pub fn register_tests(app: &mut App) {
         heal_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("heal-visual"))
+            .after(crate::gpu::sync_visual_sprites));
+
+    // npc-visuals
+    registry.tests.push(TestEntry {
+        name: "npc-visuals".into(),
+        description: "Visual showcase: all NPC types with individual layer breakdown".into(),
+        phase_count: 1,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        npc_visuals::setup.run_if(test_is("npc-visuals")));
+    app.add_systems(Update,
+        npc_visuals::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("npc-visuals"))
             .after(crate::gpu::sync_visual_sprites));
 
     app.insert_resource(registry);

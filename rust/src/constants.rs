@@ -20,20 +20,20 @@ pub const FLOATS_PER_INSTANCE: usize = 16;
 
 // Sprite frames (column, row) in the character sheet (17px cells with 1px margin)
 pub const SPRITE_FARMER: (f32, f32) = (1.0, 6.0);
-pub const SPRITE_GUARD: (f32, f32) = (0.0, 11.0);
+pub const SPRITE_GUARD: (f32, f32) = (0.0, 0.0);
 pub const SPRITE_RAIDER: (f32, f32) = (0.0, 6.0);
-pub const SPRITE_FIGHTER: (f32, f32) = (7.0, 0.0);
+pub const SPRITE_FIGHTER: (f32, f32) = (1.0, 9.0);
 
 /// Size of push constants passed to the compute shader.
 pub const PUSH_CONSTANTS_SIZE: usize = 48;
 
 // Equipment sprite frames (column, row) — placeholder coordinates
-pub const EQUIP_SWORD: (f32, f32) = (0.0, 8.0);
-pub const EQUIP_HELMET: (f32, f32) = (7.0, 9.0);
+pub const EQUIP_SWORD: (f32, f32) = (45.0, 6.0);
+pub const EQUIP_HELMET: (f32, f32) = (28.0, 0.0);
 pub const FOOD_SPRITE: (f32, f32) = (6.0, 8.0);
 
 // Visual indicator sprites (column, row) — placeholder coordinates, verify against atlas
-pub const SLEEP_SPRITE: (f32, f32) = (51.0, 0.0);
+pub const SLEEP_SPRITE: (f32, f32) = (24.0, 7.0);
 pub const HEAL_SPRITE: (f32, f32) = (23.0, 0.0);
 
 // Distinct colors for raider factions (warm/aggressive palette)

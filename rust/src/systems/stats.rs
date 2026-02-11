@@ -63,22 +63,22 @@ impl Default for CombatConfig {
 // TOWN UPGRADES
 // ============================================================================
 
-pub const UPGRADE_COUNT: usize = 14;
+pub const UPGRADE_COUNT: usize = 12;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(usize)]
 pub enum UpgradeType {
     GuardHealth = 0, GuardAttack = 1, GuardRange = 2, GuardSize = 3,
     AttackSpeed = 4, MoveSpeed = 5, AlertRadius = 6,
-    FarmYield = 7, FarmerHp = 8, FarmerCap = 9, GuardCap = 10,
-    HealingRate = 11, FoodEfficiency = 12, FountainRadius = 13,
+    FarmYield = 7, FarmerHp = 8,
+    HealingRate = 9, FoodEfficiency = 10, FountainRadius = 11,
 }
 
 pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
     0.10, 0.10, 0.05, 0.05,  // guard: health, attack, range, size
     0.08, 0.05, 0.10,         // cooldown reduction, move speed, alert radius
-    0.15, 0.20, 0.0, 0.0,    // farm yield, farmer HP | farmer cap, guard cap (flat)
-    0.20, 0.10, 0.0,          // healing rate, food efficiency | fountain radius (flat)
+    0.15, 0.20,               // farm yield, farmer HP
+    0.20, 0.10, 0.0,          // healing rate, food efficiency, fountain radius (flat)
 ];
 
 /// Per-town upgrade levels.
@@ -225,6 +225,31 @@ pub fn process_upgrades_system(
 
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: npc_idx.0, speed: cached.speed }));
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_idx.0, health: health.0 }));
+        }
+    }
+}
+
+// ============================================================================
+// AUTO-UPGRADE SYSTEM
+// ============================================================================
+
+/// Once per game hour, queues upgrades for any auto-enabled slots that are affordable.
+pub fn auto_upgrade_system(
+    game_time: Res<crate::resources::GameTime>,
+    auto: Res<crate::resources::AutoUpgrade>,
+    upgrades: Res<TownUpgrades>,
+    food_storage: Res<crate::resources::FoodStorage>,
+    mut queue: ResMut<UpgradeQueue>,
+) {
+    if !game_time.hour_ticked { return; }
+
+    for (town_idx, flags) in auto.flags.iter().enumerate() {
+        let food = food_storage.food.get(town_idx).copied().unwrap_or(0);
+        let levels = upgrades.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT]);
+        for (i, &enabled) in flags.iter().enumerate() {
+            if enabled && food >= upgrade_cost(levels[i]) {
+                queue.0.push((town_idx, i));
+            }
         }
     }
 }

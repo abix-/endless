@@ -165,9 +165,9 @@ The fragment shader samples from the correct texture based on `atlas_id`. Health
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
-- Guard: (0, 11)
+- Guard: (0, 0)
 - Raider: (0, 6)
-- Fighter: (7, 0)
+- Fighter: (1, 9)
 
 ## Fragment Shader
 
@@ -306,8 +306,8 @@ Multi-layer rendering uses `NpcBufferWrites` fields for 6 overlay types:
 Equipment layers (1-4) are set via `GpuUpdate::SetEquipSprite { idx, layer, col, row }`. Status and healing layers are set via dedicated `SetSleeping`/`SetHealing` messages that write sprite constants (`SLEEP_SPRITE`, `HEAL_SPRITE`) or clear to -1.0. At spawn, all layers are cleared to -1.0 (unequipped/inactive). Equipment is also cleared on death to prevent stale data on slot reuse.
 
 Current equipment assignments:
-- **Guards**: Weapon (0, 8) + Helmet (7, 9)
-- **Raiders**: Weapon (0, 8)
+- **Guards**: Weapon (45, 6) + Helmet (28, 0)
+- **Raiders**: Weapon (45, 6)
 - **Carried food**: Item layer set when raider steals food, cleared on delivery
 
 ## World Tilemap (Terrain + Buildings)
@@ -341,7 +341,7 @@ Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase a
 
 - **Health bar mode hardcoded**: Only "when damaged" mode (show when health < 99%). Off/always modes need a uniform or config resource.
 - **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
-- **Equipment sprite placeholders**: Current equipment sprites (sword, helmet, food) use placeholder atlas coordinates — need tuning with sprite browser.
+- **Equipment sprite tuning**: Equipment sprites (sword, helmet, food) have updated atlas coordinates — use `npc-visuals` test scene to review layers.
 - **Single sort key for all layers**: All 7 NPC layers share sort_key=0.5 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but layers can't interleave with other phase items.
 - **Single tilemap chunk per layer**: At 1000×1000 (1M tiles), `command_buffer_generation_tasks` costs ~10ms because Bevy processes all tiles even when most are off-screen. Splitting into 32×32 chunks enables off-screen culling (see roadmap spec).
 

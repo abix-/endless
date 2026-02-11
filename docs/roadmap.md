@@ -288,7 +288,6 @@ Rules:
 
 Remaining:
 - [ ] Differentiate job base stats if desired (e.g., raider damage != guard damage)
-- [ ] FarmerCap/GuardCap flat upgrades enforced in spawn cap checks
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 
 **Stage 10: Town Policies** ✓
@@ -449,7 +448,7 @@ Stage 8 (completed) established `CombatConfig`, `CachedStats`, `BaseAttackType`,
 **`TownUpgrades` resource** (`resources.rs`):
 
 ```rust
-pub const UPGRADE_COUNT: usize = 14; // matches UPGRADES array in upgrade_menu.rs
+pub const UPGRADE_COUNT: usize = 12; // matches UPGRADES array in left_panel.rs
 
 #[derive(Resource)]
 pub struct TownUpgrades {
@@ -461,24 +460,22 @@ pub struct TownUpgrades {
 pub enum UpgradeType {
     GuardHealth = 0, GuardAttack = 1, GuardRange = 2, GuardSize = 3,
     AttackSpeed = 4, MoveSpeed = 5, AlertRadius = 6,
-    FarmYield = 7, FarmerHp = 8, FarmerCap = 9, GuardCap = 10,
-    HealingRate = 11, FoodEfficiency = 12, FountainRadius = 13,
+    FarmYield = 7, FarmerHp = 8,
+    HealingRate = 9, FoodEfficiency = 10, FountainRadius = 11,
 }
 
 // Cost: base_cost * 2^level (doubles each level)
 // Multiplicative upgrades: multiplier = 1.0 + level * pct_per_level
-// Flat upgrades (FarmerCap, GuardCap, FountainRadius): use separate formulas in their owning systems
+// Flat upgrades (FountainRadius): use separate formulas in their owning systems
 const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
     0.10, 0.10, 0.05, 0.05,  // guard: health, attack, range, size
     0.08, 0.05, 0.10,         // cooldown reduction, move speed, alert radius
-    0.15, 0.20, 0.0, 0.0,    // farm yield, farmer HP | farmer cap (+2 flat), guard cap (+10 flat)
-    0.20, 0.10, 0.0,          // healing rate, food efficiency | fountain radius (+24px flat)
+    0.15, 0.20,               // farm yield, farmer HP
+    0.20, 0.10, 0.0,          // healing rate, food efficiency, fountain radius (+24px flat)
 ];
 ```
 
-**Flat upgrades** (FarmerCap, GuardCap, FountainRadius) have `0.0` in `UPGRADE_PCT` because they're not multiplicative. Their owning systems compute them directly:
-- FarmerCap: `base_cap + level * 2`
-- GuardCap: `base_cap + level * 10`
+**Flat upgrades** (FountainRadius) have `0.0` in `UPGRADE_PCT` because they're not multiplicative. Their owning systems compute them directly:
 - FountainRadius: `base_radius + level * 24.0`
 
 **Upgrade applicability by job** — not all upgrades apply to all NPCs:
@@ -489,7 +486,6 @@ const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
 | AttackSpeed, MoveSpeed | All combatants (Guard, Raider, Fighter) | Generic combat upgrades |
 | FarmerHp | Farmer only | Farmer survivability |
 | FarmYield | Economy system (not combat resolver) | `farm_growth_system` reads this directly |
-| FarmerCap, GuardCap | Spawn system (not combat resolver) | Population caps, not per-NPC stats |
 | HealingRate, FountainRadius | `healing_system` (not combat resolver) | Town infrastructure |
 | FoodEfficiency | `decision_system` eat logic (not combat resolver) | Economy, not combat |
 
@@ -529,7 +525,8 @@ pub struct PolicySet {
     pub farmer_flee_hp: f32,     // 0.0-1.0 percentage
     pub guard_flee_hp: f32,
     pub recovery_hp: f32,
-    pub work_schedule: WorkSchedule,
+    pub farmer_schedule: WorkSchedule,
+    pub guard_schedule: WorkSchedule,
     pub farmer_off_duty: OffDutyBehavior,
     pub guard_off_duty: OffDutyBehavior,
 }
@@ -538,7 +535,7 @@ pub struct PolicySet {
 #[derive(Clone, Copy)] pub enum OffDutyBehavior { GoToBed, StayAtFountain, WanderTown }
 ```
 
-Mirrors existing `PolicyState` in `policies_panel.rs` (lines 10-24). Wire the UI to write `TownPolicies` instead of `Local<PolicyState>`.
+Per-job schedules allow farmers and guards to have independent work schedules. UI in `left_panel.rs` Policies tab.
 
 **Files changed per stage:**
 

@@ -58,8 +58,6 @@ const UPGRADES: &[UpgradeDef] = &[
     UpgradeDef { label: "Alert Radius",    tooltip: "+10% alert radius per level",              category: "Guard" },
     UpgradeDef { label: "Farm Yield",      tooltip: "+15% food production per level",           category: "Farm" },
     UpgradeDef { label: "Farmer HP",       tooltip: "+20% farmer HP per level",                 category: "Farm" },
-    UpgradeDef { label: "Farmer Cap",      tooltip: "+2 max farmers per level",                 category: "Farm" },
-    UpgradeDef { label: "Guard Cap",       tooltip: "+10 max guards per level",                 category: "Guard" },
     UpgradeDef { label: "Healing Rate",    tooltip: "+20% HP regen at fountain per level",      category: "Town" },
     UpgradeDef { label: "Food Efficiency", tooltip: "10% chance per level to not consume food", category: "Town" },
     UpgradeDef { label: "Fountain Radius", tooltip: "+24px fountain healing range per level",   category: "Town" },
@@ -97,6 +95,7 @@ pub struct UpgradeParams<'w> {
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     queue: ResMut<'w, UpgradeQueue>,
+    auto: ResMut<'w, AutoUpgrade>,
 }
 
 // ============================================================================
@@ -390,6 +389,13 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
         let can_afford = food >= cost;
 
         ui.horizontal(|ui| {
+            // Auto-upgrade checkbox
+            if upgrade.auto.flags.len() <= town_idx {
+                upgrade.auto.flags.resize(town_idx + 1, [false; UPGRADE_COUNT]);
+            }
+            let auto_flag = &mut upgrade.auto.flags[town_idx][i];
+            ui.checkbox(auto_flag, "").on_hover_text("Auto-buy each game hour");
+
             ui.label(upg.label);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let btn = egui::Button::new(format!("{}", cost));
@@ -419,85 +425,88 @@ fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: 
         ui.separator();
     }
 
+    // -- General --
     ui.label(egui::RichText::new("General").strong());
     ui.checkbox(&mut policy.eat_food, "Eat Food")
         .on_hover_text("NPCs consume food to restore HP and energy");
     ui.checkbox(&mut policy.prioritize_healing, "Prioritize Healing")
         .on_hover_text("Wounded NPCs go to fountain before resuming work");
-
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new("Guard Behavior").strong());
-    ui.checkbox(&mut policy.guard_aggressive, "Aggressive")
-        .on_hover_text("Guards never flee combat");
-    ui.checkbox(&mut policy.guard_leash, "Leash")
-        .on_hover_text("Guards return home if too far from post");
-
-    ui.add_space(4.0);
-    ui.label(egui::RichText::new("Farmer Behavior").strong());
-    ui.checkbox(&mut policy.farmer_fight_back, "Fight Back")
-        .on_hover_text("Farmers attack enemies instead of fleeing");
-
-    ui.add_space(8.0);
-    ui.label(egui::RichText::new("Thresholds").strong());
-
-    let mut farmer_flee_pct = policy.farmer_flee_hp * 100.0;
-    let mut guard_flee_pct = policy.guard_flee_hp * 100.0;
     let mut recovery_pct = policy.recovery_hp * 100.0;
-
-    ui.horizontal(|ui| {
-        ui.label("Farmer flee HP:");
-        ui.add(egui::Slider::new(&mut farmer_flee_pct, 0.0..=100.0).suffix("%"));
-    });
-    ui.horizontal(|ui| {
-        ui.label("Guard flee HP:");
-        ui.add(egui::Slider::new(&mut guard_flee_pct, 0.0..=100.0).suffix("%"));
-    });
     ui.horizontal(|ui| {
         ui.label("Recovery HP:");
         ui.add(egui::Slider::new(&mut recovery_pct, 0.0..=100.0).suffix("%"));
     });
-
-    policy.farmer_flee_hp = farmer_flee_pct / 100.0;
-    policy.guard_flee_hp = guard_flee_pct / 100.0;
     policy.recovery_hp = recovery_pct / 100.0;
 
+    // -- Guards --
     ui.add_space(8.0);
-    ui.label(egui::RichText::new("Schedules").strong());
-
-    let mut schedule_idx = policy.work_schedule as usize;
-    let mut farmer_off_idx = policy.farmer_off_duty as usize;
-    let mut guard_off_idx = policy.guard_off_duty as usize;
-
+    ui.label(egui::RichText::new("Guards").strong());
+    ui.checkbox(&mut policy.guard_aggressive, "Aggressive")
+        .on_hover_text("Guards never flee combat");
+    ui.checkbox(&mut policy.guard_leash, "Leash")
+        .on_hover_text("Guards return home if too far from post");
+    let mut guard_flee_pct = policy.guard_flee_hp * 100.0;
     ui.horizontal(|ui| {
-        ui.label("Work schedule:");
-        egui::ComboBox::from_id_salt("work_schedule")
-            .selected_text(SCHEDULE_OPTIONS[schedule_idx])
-            .show_index(ui, &mut schedule_idx, SCHEDULE_OPTIONS.len(), |i| SCHEDULE_OPTIONS[i]);
+        ui.label("Flee HP:");
+        ui.add(egui::Slider::new(&mut guard_flee_pct, 0.0..=100.0).suffix("%"));
     });
+    policy.guard_flee_hp = guard_flee_pct / 100.0;
+    let mut guard_sched_idx = policy.guard_schedule as usize;
     ui.horizontal(|ui| {
-        ui.label("Farmer off-duty:");
-        egui::ComboBox::from_id_salt("farmer_off_duty")
-            .selected_text(OFF_DUTY_OPTIONS[farmer_off_idx])
-            .show_index(ui, &mut farmer_off_idx, OFF_DUTY_OPTIONS.len(), |i| OFF_DUTY_OPTIONS[i]);
+        ui.label("Schedule:");
+        egui::ComboBox::from_id_salt("guard_schedule")
+            .selected_text(SCHEDULE_OPTIONS[guard_sched_idx])
+            .show_index(ui, &mut guard_sched_idx, SCHEDULE_OPTIONS.len(), |i| SCHEDULE_OPTIONS[i]);
     });
-    ui.horizontal(|ui| {
-        ui.label("Guard off-duty:");
-        egui::ComboBox::from_id_salt("guard_off_duty")
-            .selected_text(OFF_DUTY_OPTIONS[guard_off_idx])
-            .show_index(ui, &mut guard_off_idx, OFF_DUTY_OPTIONS.len(), |i| OFF_DUTY_OPTIONS[i]);
-    });
-
-    policy.work_schedule = match schedule_idx {
+    policy.guard_schedule = match guard_sched_idx {
         1 => WorkSchedule::DayOnly,
         2 => WorkSchedule::NightOnly,
         _ => WorkSchedule::Both,
     };
-    policy.farmer_off_duty = match farmer_off_idx {
+    let mut guard_off_idx = policy.guard_off_duty as usize;
+    ui.horizontal(|ui| {
+        ui.label("Off-duty:");
+        egui::ComboBox::from_id_salt("guard_off_duty")
+            .selected_text(OFF_DUTY_OPTIONS[guard_off_idx])
+            .show_index(ui, &mut guard_off_idx, OFF_DUTY_OPTIONS.len(), |i| OFF_DUTY_OPTIONS[i]);
+    });
+    policy.guard_off_duty = match guard_off_idx {
         1 => OffDutyBehavior::StayAtFountain,
         2 => OffDutyBehavior::WanderTown,
         _ => OffDutyBehavior::GoToBed,
     };
-    policy.guard_off_duty = match guard_off_idx {
+
+    // -- Farmers --
+    ui.add_space(8.0);
+    ui.label(egui::RichText::new("Farmers").strong());
+    ui.checkbox(&mut policy.farmer_fight_back, "Fight Back")
+        .on_hover_text("Farmers attack enemies instead of fleeing");
+    let mut farmer_flee_pct = policy.farmer_flee_hp * 100.0;
+    ui.horizontal(|ui| {
+        ui.label("Flee HP:");
+        ui.add(egui::Slider::new(&mut farmer_flee_pct, 0.0..=100.0).suffix("%"));
+    });
+    policy.farmer_flee_hp = farmer_flee_pct / 100.0;
+    let mut farmer_sched_idx = policy.farmer_schedule as usize;
+    ui.horizontal(|ui| {
+        ui.label("Schedule:");
+        egui::ComboBox::from_id_salt("farmer_schedule")
+            .selected_text(SCHEDULE_OPTIONS[farmer_sched_idx])
+            .show_index(ui, &mut farmer_sched_idx, SCHEDULE_OPTIONS.len(), |i| SCHEDULE_OPTIONS[i]);
+    });
+    policy.farmer_schedule = match farmer_sched_idx {
+        1 => WorkSchedule::DayOnly,
+        2 => WorkSchedule::NightOnly,
+        _ => WorkSchedule::Both,
+    };
+    let mut farmer_off_idx = policy.farmer_off_duty as usize;
+    ui.horizontal(|ui| {
+        ui.label("Off-duty:");
+        egui::ComboBox::from_id_salt("farmer_off_duty")
+            .selected_text(OFF_DUTY_OPTIONS[farmer_off_idx])
+            .show_index(ui, &mut farmer_off_idx, OFF_DUTY_OPTIONS.len(), |i| OFF_DUTY_OPTIONS[i]);
+    });
+    policy.farmer_off_duty = match farmer_off_idx {
         1 => OffDutyBehavior::StayAtFountain,
         2 => OffDutyBehavior::WanderTown,
         _ => OffDutyBehavior::GoToBed,

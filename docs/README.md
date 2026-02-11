@@ -46,6 +46,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `sleep-visual` | 3 | Resting NPC gets SLEEP_SPRITE on status layer, cleared on wake |
 | `farm-visual` | 3 | Ready farm spawns FarmReadyMarker, removed on harvest |
 | `heal-visual` | 3 | Healing NPC gets HEAL_SPRITE on healing layer, cleared when healed |
+| `npc-visuals` | 1 | Visual showcase: all NPC types in labeled grid with individual layer breakdown |
 
 ## System Map
 
@@ -155,9 +156,10 @@ rust/
     sleep_visual.rs     # Sleep icon visual test (3 phases)
     farm_visual.rs      # Farm ready marker visual test (3 phases)
     heal_visual.rs      # Heal icon visual test (3 phases)
+    npc_visuals.rs    # NPC visual showcase — all types × all layers in labeled grid (1 phase)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
-    stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, resolve_combat_stats(), xp_grant_system, process_upgrades_system
+    stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
     combat.rs           # Attack cooldown, targeting, guard post turret auto-attack

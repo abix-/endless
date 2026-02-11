@@ -33,6 +33,7 @@ use resources::{
     FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
+    AutoUpgrade,
 };
 use systems::*;
 use components::*;
@@ -241,6 +242,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<systems::stats::CombatConfig>()
        .init_resource::<systems::stats::TownUpgrades>()
        .init_resource::<systems::stats::UpgradeQueue>()
+       .init_resource::<AutoUpgrade>()
        .init_resource::<TownPolicies>()
        .insert_resource(settings::load_settings())
        // Plugins
@@ -289,7 +291,8 @@ pub fn build_app(app: &mut App) {
            starvation_system,
            decision_system,
            farm_visual_system,
-           process_upgrades_system,
+           auto_upgrade_system,
+           process_upgrades_system.after(auto_upgrade_system),
            rebuild_patrol_routes_system,
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))

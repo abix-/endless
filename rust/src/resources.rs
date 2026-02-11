@@ -706,6 +706,19 @@ pub struct SpawnerEntry {
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 
+/// Per-town auto-upgrade flags. When enabled, upgrades are purchased automatically
+/// once per game hour whenever the town has enough food.
+#[derive(Resource)]
+pub struct AutoUpgrade {
+    pub flags: Vec<[bool; crate::systems::stats::UPGRADE_COUNT]>,
+}
+
+impl Default for AutoUpgrade {
+    fn default() -> Self {
+        Self { flags: vec![[false; crate::systems::stats::UPGRADE_COUNT]; 16] }
+    }
+}
+
 // ============================================================================
 // TOWN POLICIES
 // ============================================================================
@@ -737,7 +750,8 @@ pub struct PolicySet {
     pub farmer_flee_hp: f32,     // 0.0-1.0 percentage
     pub guard_flee_hp: f32,
     pub recovery_hp: f32,        // 0.0-1.0 — go rest/heal when below this
-    pub work_schedule: WorkSchedule,
+    pub farmer_schedule: WorkSchedule,
+    pub guard_schedule: WorkSchedule,
     pub farmer_off_duty: OffDutyBehavior,
     pub guard_off_duty: OffDutyBehavior,
 }
@@ -753,7 +767,8 @@ impl Default for PolicySet {
             farmer_flee_hp: 0.30,
             guard_flee_hp: 0.15,
             recovery_hp: 0.80,
-            work_schedule: WorkSchedule::Both,
+            farmer_schedule: WorkSchedule::Both,
+            guard_schedule: WorkSchedule::Both,
             farmer_off_duty: OffDutyBehavior::GoToBed,
             guard_off_duty: OffDutyBehavior::GoToBed,
         }

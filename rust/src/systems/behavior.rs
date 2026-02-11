@@ -641,8 +641,13 @@ pub fn decision_system(
             scores.push((Action::Rest, rest_score));
         }
 
-        // Work schedule gate: check if current time allows work
-        let work_allowed = match policy.map(|p| p.work_schedule).unwrap_or(WorkSchedule::Both) {
+        // Work schedule gate: per-job schedule
+        let schedule = match job {
+            Job::Farmer => policy.map(|p| p.farmer_schedule).unwrap_or(WorkSchedule::Both),
+            Job::Guard => policy.map(|p| p.guard_schedule).unwrap_or(WorkSchedule::Both),
+            _ => WorkSchedule::Both,
+        };
+        let work_allowed = match schedule {
             WorkSchedule::Both => true,
             WorkSchedule::DayOnly => game_time.is_daytime(),
             WorkSchedule::NightOnly => !game_time.is_daytime(),

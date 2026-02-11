@@ -195,7 +195,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 **Priority 8: Idle scoring (Utility AI)**
 - **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → go to fountain for healing. Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
-- **Work schedule gate**: Work only scored if `work_schedule` policy allows it (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
+- **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers use `farmer_schedule`, guards use `guard_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
 - **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action

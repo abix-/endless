@@ -2,6 +2,12 @@
 
 ## 2026-02-11
 
+- **npc-visuals test scene** — new test in Debug Tests that spawns all 4 NPC types (Guard/Farmer/Raider/Fighter) in a labeled 4×7 grid showing each render layer individually (body, weapon, helmet, item, sleep, heal, full); egui labels at world positions with sprite coordinates; stays on screen for visual review
+- **sprite coordinate updates** — Guard (0,0), Fighter (1,9), sword (45,6), helmet (28,0), sleep icon (24,7)
+- **per-job work schedules** — `work_schedule` split into `farmer_schedule` + `guard_schedule` in PolicySet; policies panel reorganized by job (Guards/Farmers sections)
+- **auto-upgrade system** — per-upgrade auto-buy checkbox in Upgrades tab; `AutoUpgrade` resource + `auto_upgrade_system` queues affordable upgrades each game hour
+- **remove FarmerCap/GuardCap upgrades** — UPGRADE_COUNT 14→12; population is building-driven (Stage 11), not upgrade-driven
+- **merge policies+upgrades into left_panel** — deleted `policies_panel.rs` and `upgrade_menu.rs`; all UI lives in `left_panel.rs`
 - **fix: raider wander drift** — `Action::Wander` now offsets from home position instead of current position, preventing unbounded random walk off the map; farm-seeking on raid arrival excludes current farm position and filters tombstoned farms, falls back to returning home if no other farm found; HP work gate lowered from 50% to 30% so starving raiders (HP capped at 50%) can still join raid queues
 - **rename: Hut → House** — `Building::Hut` → `Building::House`, `WorldData.huts` → `WorldData.houses`, `HUT_BUILD_COST` → `HOUSE_BUILD_COST`, UI labels updated throughout
 - **farms per town slider** — separate "Farms" slider in main menu (persisted in settings); farms placed first in spiral, then houses, then barracks

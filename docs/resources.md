@@ -153,20 +153,21 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Defined In | Purpose |
 |----------|------|------------|---------|
 | CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats — resolved via `resolve_combat_stats()` |
-| TownUpgrades | `Vec<[u8; 14]>` per town | `systems/stats.rs` | Per-town upgrade levels, indexed by `UpgradeType` enum |
+| TownUpgrades | `Vec<[u8; 12]>` per town | `systems/stats.rs` | Per-town upgrade levels, indexed by `UpgradeType` enum |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | `systems/stats.rs` | Pending upgrade purchases from UI, drained by `process_upgrades_system` |
+| AutoUpgrade | `Vec<[bool; 12]>` per town | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` queues affordable upgrades each game hour |
 
 `CombatConfig::default()` initializes from hardcoded values (guard/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150). `resolve_combat_stats()` combines job base × upgrade mult × trait mult × level mult → `CachedStats` component.
 
-`TownUpgrades` is indexed by town, each entry is a fixed-size array of 14 upgrade levels (`UpgradeType` enum). `UpgradeQueue` decouples the UI from stat re-resolution — `upgrade_menu.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates food cost (`10 * 2^level`), increments level, deducts food, and re-resolves `CachedStats` for affected NPCs.
+`TownUpgrades` is indexed by town, each entry is a fixed-size array of 12 upgrade levels (`UpgradeType` enum: GuardHealth, GuardAttack, GuardRange, GuardSize, AttackSpeed, MoveSpeed, AlertRadius, FarmYield, FarmerHp, HealingRate, FoodEfficiency, FountainRadius). `UpgradeQueue` decouples the UI from stat re-resolution — `left_panel.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates food cost (`10 * 2^level`), increments level, deducts food, and re-resolves `CachedStats` for affected NPCs. `auto_upgrade_system` runs once per game hour before `process_upgrades_system`, queuing any auto-enabled upgrades the town can afford.
 
 ## Town Policies
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| TownPolicies | `Vec<PolicySet>` — per-town behavior configuration (16 slots default) | policies_panel (UI) | decision_system, behavior systems |
+| TownPolicies | `Vec<PolicySet>` — per-town behavior configuration (16 slots default) | left_panel (UI) | decision_system, behavior systems |
 
-`PolicySet` fields: `eat_food` (bool), `guard_aggressive` (bool), `guard_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `guard_flee_hp` (f32), `recovery_hp` (f32), `work_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `guard_off_duty` (OffDutyBehavior enum).
+`PolicySet` fields: `eat_food` (bool), `guard_aggressive` (bool), `guard_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `guard_flee_hp` (f32), `recovery_hp` (f32), `farmer_schedule` (WorkSchedule enum), `guard_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `guard_off_duty` (OffDutyBehavior enum).
 
 `WorkSchedule`: Both (default), DayOnly, NightOnly. `OffDutyBehavior`: GoToBed (default), StayAtFountain, WanderTown.
 
@@ -202,7 +203,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | UiState | build_menu_open, pause_menu_open, left_panel_open, left_panel_tab (LeftPanelTab enum) | ui_toggle_system (keyboard), top_bar (buttons), left_panel tabs, pause_menu | All panel systems |
 | CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system | bottom_panel_system |
 | BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, screen_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
-| UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | right_panel upgrades (UI) | process_upgrades_system |
+| UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=Hut, 1=Barracks, 2=Tent), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
@@ -211,7 +212,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `CombatLog` is a ring buffer of global events with 5 kinds: Kill, Spawn, Raid, Harvest, LevelUp. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
 
-`PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicies` on game startup, saved when leaving the Policies tab in the right panel.
+`PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicies` on game startup, saved when leaving the Policies tab in the left panel.
 
 ## Debug Resources
 
