@@ -43,7 +43,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `healing` | 3 | Damaged NPC near town → Healing marker → health recovers to max |
 | `economy` | 5 | Farm growing → ready → harvest → camp forage → tent spawner respawn |
 | `world-gen` | 6 | Grid dimensions, town placement, buildings, terrain, camps |
-| `sleep-visual` | 3 | Resting NPC gets SLEEP_SPRITE on status layer, cleared on wake |
+| `sleep-visual` | 3 | Resting NPC gets sleep icon (atlas_id=3.0) on status layer, cleared on wake |
 | `farm-visual` | 3 | Ready farm spawns FarmReadyMarker, removed on harvest |
 | `heal-visual` | 3 | Healing NPC gets halo (atlas_id=2.0) on healing layer, cleared when healed |
 | `npc-visuals` | 1 | Visual showcase: all NPC types in labeled grid with individual layer breakdown |
@@ -82,7 +82,7 @@ Bevy ECS (lib.rs build_app)
     │
     ├─ Sprite Rendering (render.rs) ───────────▶ [rendering.md]
     │   ├─ 2D camera, texture atlases
-    │   └─ Character + world + heal sprite sheets
+    │   └─ Character + world + heal + sleep sprite sheets
     │
     ├─ Bevy Systems (gated on AppState::Playing | Running)
     │   ├─ Spawn systems ──────────────────▶ [spawn.md]
@@ -178,5 +178,6 @@ assets/
   roguelikeChar_transparent.png   # Character sprites (54x12 grid, 16px + 1px margin)
   roguelikeSheet_transparent.png  # World sprites (57x31 grid, 16px + 1px margin)
   heal.png                        # Heal halo sprite (single 16x16, atlas_id=2.0)
+  sleep.png                       # Sleep icon sprite (single 16x16, atlas_id=3.0)
 ```
 

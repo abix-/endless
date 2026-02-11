@@ -474,11 +474,13 @@ fn prepare_npc_buffers(
         for (layer_idx, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
             let (ecol, erow, eatlas) = get_sprite(&writes, i);
             if ecol >= 0.0 {
-                // Procedural halo: larger quad, yellow color
-                let (lscale, lcolor) = if eatlas >= 1.5 {
-                    (20.0, [1.0, 0.9, 0.2, 1.0])
+                // Sprite-based overlays: heal halo (atlas 2) or sleep icon (atlas 3)
+                let (lscale, lcolor) = if eatlas >= 2.5 {
+                    (16.0, [1.0, 1.0, 1.0, 1.0])  // sleep: natural sprite color
+                } else if eatlas >= 1.5 {
+                    (20.0, [1.0, 0.9, 0.2, 1.0])  // heal: larger, yellow
                 } else {
-                    (16.0, [cr, cg, cb, 1.0])
+                    (16.0, [cr, cg, cb, 1.0])      // equipment: job color
                 };
                 layer_instances[layer_idx + 1].push(InstanceData {
                     position: [px, py],
@@ -541,9 +543,11 @@ fn prepare_npc_texture_bind_group(
     let Some(char_handle) = &sprite_texture.handle else { return };
     let Some(world_handle) = &sprite_texture.world_handle else { return };
     let Some(heal_handle) = &sprite_texture.heal_handle else { return };
+    let Some(sleep_handle) = &sprite_texture.sleep_handle else { return };
     let Some(char_image) = gpu_images.get(char_handle) else { return };
     let Some(world_image) = gpu_images.get(world_handle) else { return };
     let Some(heal_image) = gpu_images.get(heal_handle) else { return };
+    let Some(sleep_image) = gpu_images.get(sleep_handle) else { return };
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.texture_bind_group_layout);
 
@@ -557,6 +561,8 @@ fn prepare_npc_texture_bind_group(
             &world_image.sampler,
             &heal_image.texture_view,
             &heal_image.sampler,
+            &sleep_image.texture_view,
+            &sleep_image.sampler,
         )),
     );
 
@@ -773,6 +779,9 @@ impl FromWorld for NpcPipeline {
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                     // Bindings 4-5: Heal halo sprite
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    // Bindings 6-7: Sleep icon sprite
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                 ),

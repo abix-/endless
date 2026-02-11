@@ -30,7 +30,7 @@ use bevy::{
 use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
-use crate::constants::{SLEEP_SPRITE, FOOD_SPRITE};
+use crate::constants::FOOD_SPRITE;
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
 use crate::resources::{GpuReadState, ProjHitState, ProjPositionState, SlotAllocator};
 
@@ -323,21 +323,21 @@ pub fn sync_visual_sprites(
         buffer.item_sprites[j + 1] = ir;
         buffer.item_sprites[j + 2] = ia;
 
-        // Healing halo (atlas_id=2.0 triggers procedural ring in shader)
+        // Healing halo (atlas_id=2.0 → heal sprite texture)
         let (hlc, hla) = if healing.is_some() { (0.0, 2.0) } else { (-1.0, 0.0) };
         buffer.healing_sprites[j] = hlc;
         buffer.healing_sprites[j + 1] = 0.0;
         buffer.healing_sprites[j + 2] = hla;
 
-        // Sleep indicator (character sheet)
-        let (sc, sr) = if matches!(activity, Activity::Resting { .. }) {
-            (SLEEP_SPRITE.0, SLEEP_SPRITE.1)
+        // Sleep indicator (atlas_id=3.0 → sleep sprite texture)
+        let (sc, sr, sa) = if matches!(activity, Activity::Resting { .. }) {
+            (0.0, 0.0, 3.0)
         } else {
-            (-1.0, 0.0)
+            (-1.0, 0.0, 0.0)
         };
         buffer.status_sprites[j] = sc;
         buffer.status_sprites[j + 1] = sr;
-        buffer.status_sprites[j + 2] = 0.0;
+        buffer.status_sprites[j + 2] = sa;
     }
 
     buffer.dirty = true;
@@ -751,6 +751,7 @@ pub struct NpcSpriteTexture {
     pub handle: Option<Handle<Image>>,
     pub world_handle: Option<Handle<Image>>,
     pub heal_handle: Option<Handle<Image>>,
+    pub sleep_handle: Option<Handle<Image>>,
 }
 
 /// GPU buffers for projectile compute.

@@ -38,16 +38,16 @@ pub const HEAL_SPRITE: (f32, f32) = (23.0, 0.0);
 
 // Distinct colors for raider factions (warm/aggressive palette)
 pub const RAIDER_COLORS: [(f32, f32, f32); 10] = [
-    (1.0, 0.3, 0.3),   // Red tint
-    (1.0, 0.7, 0.4),   // Orange tint
-    (1.0, 0.5, 0.7),   // Magenta tint
-    (0.8, 0.5, 1.0),   // Purple tint
-    (1.0, 0.9, 0.4),   // Yellow tint
-    (0.9, 0.6, 0.5),   // Brown tint
-    (1.0, 0.6, 0.7),   // Pink tint
-    (0.8, 0.4, 0.4),   // Dark red tint
-    (1.0, 0.8, 0.5),   // Gold tint
-    (0.8, 0.4, 0.6),   // Dark magenta tint
+    (1.0, 0.0, 0.0),   // Red
+    (1.0, 0.5, 0.0),   // Orange
+    (1.0, 0.0, 1.0),   // Magenta
+    (0.5, 0.0, 1.0),   // Purple
+    (1.0, 1.0, 0.0),   // Yellow
+    (0.6, 0.3, 0.0),   // Brown
+    (1.0, 0.4, 0.7),   // Pink
+    (0.7, 0.0, 0.0),   // Dark red
+    (1.0, 0.8, 0.0),   // Gold
+    (0.6, 0.0, 0.4),   // Dark magenta
 ];
 
 /// Get RGBA color for a raider faction (cycles through palette).

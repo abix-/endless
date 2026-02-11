@@ -3,7 +3,6 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::SLEEP_SPRITE;
 use crate::gpu::NpcBufferWrites;
 use crate::resources::*;
 
@@ -72,11 +71,13 @@ pub fn tick(
             test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());
 
             if let Some((idx, _)) = resting {
-                let sprite_col = buffer.status_sprites.get(idx.0 * 2).copied().unwrap_or(-1.0);
-                if sprite_col == SLEEP_SPRITE.0 {
-                    test.pass_phase(elapsed, format!("Sleep icon set (idx={}, col={:.0})", idx.0, sprite_col));
+                let j = idx.0 * 3;
+                let sprite_col = buffer.status_sprites.get(j).copied().unwrap_or(-1.0);
+                let sprite_atlas = buffer.status_sprites.get(j + 2).copied().unwrap_or(0.0);
+                if sprite_col >= 0.0 && sprite_atlas >= 2.5 {
+                    test.pass_phase(elapsed, format!("Sleep icon set (idx={}, col={:.0}, atlas={:.0})", idx.0, sprite_col, sprite_atlas));
                 } else {
-                    test.fail_phase(elapsed, format!("Resting but status_sprites[{}]={:.1}, expected {:.0}", idx.0 * 2, sprite_col, SLEEP_SPRITE.0));
+                    test.fail_phase(elapsed, format!("Resting but status[{}] col={:.1} atlas={:.1}, expected col>=0 atlas=3", j, sprite_col, sprite_atlas));
                 }
             } else if elapsed > 45.0 {
                 test.fail_phase(elapsed, format!("energy={:.0} but never rested", energy));
@@ -90,12 +91,13 @@ pub fn tick(
 
             if let Some((idx, _)) = awake {
                 if energy >= 80.0 {
-                    let sprite_col = buffer.status_sprites.get(idx.0 * 2).copied().unwrap_or(-1.0);
+                    let j = idx.0 * 3;
+                    let sprite_col = buffer.status_sprites.get(j).copied().unwrap_or(-1.0);
                     if sprite_col == -1.0 {
                         test.pass_phase(elapsed, format!("Sleep icon cleared (idx={}, energy={:.0})", idx.0, energy));
                         test.complete(elapsed);
                     } else {
-                        test.fail_phase(elapsed, format!("Awake but status_sprites[{}]={:.1}, expected -1", idx.0 * 2, sprite_col));
+                        test.fail_phase(elapsed, format!("Awake but status_sprites[{}]={:.1}, expected -1", j, sprite_col));
                     }
                 }
             }

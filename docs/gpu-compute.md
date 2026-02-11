@@ -12,7 +12,7 @@ Main World (ECS)                       Render World (GPU)
 ├─ NpcGpuData ───────────────────────▶ ExtractResource
 ├─ NpcComputeParams ─────────────────▶ (cloned each frame)
 ├─ NpcBufferWrites ──────────────────▶
-├─ NpcSpriteTexture ─────────────────▶
+├─ NpcSpriteTexture (char+world+heal+sleep) ▶
 ├─ GpuReadState (Clone+ExtractResource) ▶ (for prepare_npc_buffers)
 ├─ ProjPositionState (Clone+ExtractResource) ▶ (for prepare_proj_buffers)
 │                                      │

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Two rendering systems work together: **terrain and buildings** use Bevy's built-in `TilemapChunk` (two layers on the same grid — terrain opaque at z=-1, buildings alpha-blended at z=-0.5, zero per-frame CPU cost), while **NPCs, equipment, and projectiles** use a custom GPU instanced pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. The instanced renderer uses 7 layers: NPC body (layer 0), 4 equipment layers (layers 1-4), and 2 visual indicator layers (status=5, healing=6), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. Both character and world sprite atlases are bound simultaneously — per-instance `atlas_id` selects which atlas to sample.
+Two rendering systems work together: **terrain and buildings** use Bevy's built-in `TilemapChunk` (two layers on the same grid — terrain opaque at z=-1, buildings alpha-blended at z=-0.5, zero per-frame CPU cost), while **NPCs, equipment, and projectiles** use a custom GPU instanced pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. The instanced renderer uses 7 layers: NPC body (layer 0), 4 equipment layers (layers 1-4), and 2 visual indicator layers (status=5, healing=6), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. Four textures are bound simultaneously — per-instance `atlas_id` selects which to sample (0=character, 1=world, 2=heal halo, 3=sleep icon).
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -31,7 +31,7 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                             prepare_npc_texture_bind_group
-                            (triple atlas: char + world + heal)
+                            (quad atlas: char + world + heal + sleep)
                             prepare_npc_camera_bind_group
                                       │
                                       ▼
@@ -75,7 +75,7 @@ pub struct InstanceData {
     pub health: f32,         // normalized 0.0-1.0 (4 bytes)
     pub flash: f32,          // damage flash 0.0-1.0 (4 bytes)
     pub scale: f32,          // world-space quad size (4 bytes)
-    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal halo (4 bytes)
+    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal halo, 3.0=sleep icon (4 bytes)
 }
 ```
 
@@ -104,8 +104,8 @@ Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terr
 - Same position as body (from readback)
 - Sprite from `status_sprites` (sleep icon) / `healing_sprites` (heal halo) (stride 3: col, row, atlas_id per NPC)
 - Sentinel: col < 0 means inactive → skip
-- Atlas: status uses 0.0 (character sheet); healing uses 2.0 (heal.png single-sprite texture)
-- Healing layer: scale=20.0 (larger than 16px body), yellow color tint [1.0, 0.9, 0.2], atlas_id=2.0 triggers heal_texture sampling
+- Status layer (sleep): atlas_id=3.0 (sleep.png single-sprite texture), scale=16.0, white color [1.0, 1.0, 1.0] (preserves sprite's natural blue Zz)
+- Healing layer: atlas_id=2.0 (heal.png single-sprite texture), scale=20.0 (larger than 16px body), yellow color tint [1.0, 0.9, 0.2]
 - Derived by `sync_visual_sprites` from `Activity::Resting` and `Healing` ECS components each frame
 - Independent layers: NPC can show sleep AND healing simultaneously
 
@@ -147,19 +147,20 @@ Two vertex buffer slots with different step modes:
 
 ## Sprite Atlases
 
-Three textures are bound simultaneously at group 0 (bindings 0-5). Per-instance `atlas_id` selects which to sample.
+Four textures are bound simultaneously at group 0 (bindings 0-7). Per-instance `atlas_id` selects which to sample.
 
 | Atlas | Bindings | File | Size | Grid | Used By |
 |-------|----------|------|------|------|---------|
 | Character | 0-1 | `roguelikeChar_transparent.png` | 918×203 | 54×12 | NPCs, equipment, projectiles |
 | World | 2-3 | `roguelikeSheet_transparent.png` | 968×526 | 57×31 | Terrain, buildings |
 | Heal halo | 4-5 | `heal.png` | 16×16 | 1×1 | Healing halo overlay |
+| Sleep icon | 6-7 | `sleep.png` | 16×16 | 1×1 | Sleep indicator overlay |
 
-Character and world atlases use 16px sprites with 1px margin (17px cells). The heal texture is a single 16×16 sprite (UV = quad_uv directly). The vertex shader selects atlas constants based on `atlas_id`:
+Character and world atlases use 16px sprites with 1px margin (17px cells). Heal and sleep textures are single 16×16 sprites (UV = quad_uv directly). The vertex shader selects atlas constants based on `atlas_id`:
 
 ```wgsl
 if in.atlas_id >= 1.5 {
-    // Heal halo: single-sprite texture, UV = quad_uv
+    // Heal halo / sleep icon: single-sprite texture, UV = quad_uv
     out.uv = in.quad_uv;
 } else if in.atlas_id < 0.5 {
     // Character atlas: 918×203
@@ -170,7 +171,7 @@ if in.atlas_id >= 1.5 {
 }
 ```
 
-The fragment shader samples from the correct texture based on `atlas_id`. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). The heal halo early-returns after texture sampling with color tint applied.
+The fragment shader dispatches texture sampling by `atlas_id` in descending order: sleep (≥2.5) samples `sleep_texture`, heal (≥1.5) samples `heal_texture`, then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). Sleep and heal both early-return after texture sampling with color tint applied.
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
@@ -181,6 +182,14 @@ Job sprite assignments (from constants.rs):
 ## Fragment Shader
 
 The fragment shader handles both health bar rendering and sprite rendering. The vertex shader passes two UV sets: `uv` (atlas-transformed for texture sampling) and `quad_uv` (raw 0-1 within the sprite quad for health bar positioning).
+
+**Dedicated texture overlays** (early-return before health bar / sprite rendering):
+```wgsl
+// Sleep icon (atlas_id 3): sample sleep_texture, discard transparent, apply color tint
+if in.atlas_id >= 2.5 { ... return; }
+// Heal halo (atlas_id 2): sample heal_texture, discard transparent, apply color tint
+if in.atlas_id >= 1.5 { ... return; }
+```
 
 **Health bar** (bottom 15% of sprite, show-when-damaged mode):
 ```wgsl
@@ -205,7 +214,7 @@ if in.health >= 0.99 && in.quad_uv.y > 0.85 && in.atlas_id < 0.5 { discard; }
 var final_color = vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
 ```
 
-Texture color is multiplied by the instance's tint color. This is how faction colors work — raiders get per-faction RGB tints (10-color palette), while villagers get job-based colors. Equipment layers (health >= 0.99) discard pixels in the health bar region so the body's health bar remains visible underneath.
+Texture color is multiplied by the instance's tint color. This is how faction colors work — raiders get per-faction RGB tints (10-color saturated palette), while villagers get job-based colors (pure green/blue/red/yellow). Equipment layers (health >= 0.99) discard pixels in the health bar region so the body's health bar remains visible underneath.
 
 **Damage flash** (white overlay, applied after color tinting):
 ```wgsl
@@ -227,7 +236,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | PrepareResources | `prepare_npc_buffers` | Build 7 layer buffers (body + 4 equipment + 2 indicators) |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
-| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create triple atlas bind group from NpcSpriteTexture (char + world + heal) |
+| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create quad atlas bind group from NpcSpriteTexture (char + world + heal + sleep) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
 | Queue | `queue_npcs` | Add NpcBatch to Transparent2d (sort_key=0.5) |
 | Queue | `queue_projs` | Add ProjBatch to Transparent2d (sort_key=1.0, above NPCs) |
@@ -297,8 +306,9 @@ let ndc = offset / (camera.viewport * 0.5);
 | Characters | `roguelikeChar_transparent.png` | 918×203 | 54×12 (16px + 1px margin) | NPC instanced rendering |
 | World | `roguelikeSheet_transparent.png` | 968×526 | 57×31 (16px + 1px margin) | Building/terrain sprites |
 | Heal halo | `heal.png` | 16×16 | 1×1 (single sprite) | Healing overlay |
+| Sleep icon | `sleep.png` | 16×16 | 1×1 (single sprite) | Sleep indicator overlay |
 
-Texture handles are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo), extracted to render world for triple bind group creation.
+Texture handles are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon), extracted to render world for quad bind group creation.
 
 ## Equipment Layers
 

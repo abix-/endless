@@ -43,8 +43,8 @@ Rules:
 - [x] Sprite texture sampling with alpha discard and color tinting
 - [x] TilemapChunk terrain + buildings (two layers on 250x250 grid, zero per-frame CPU cost)
 - [x] FPS counter overlay (egui, bottom-left, EMA-smoothed)
-- [x] Sleep indicator (SLEEP_SPRITE on status layer via sync_visual_sprites)
-- [x] Healing indicator (HEAL_SPRITE on healing layer via sync_visual_sprites)
+- [x] Sleep indicator (sleep.png sprite texture on status layer, atlas_id=3.0, scale 16 with white tint)
+- [x] Healing halo (heal.png sprite texture on healing layer, atlas_id=2.0, scale 20 with yellow tint)
 
 ### Movement & Physics
 - [x] GPU compute shader for movement toward targets
@@ -349,6 +349,9 @@ Combat depth:
 - [ ] Trait flee modifiers (Brave never flees, Coward +20% threshold)
 - [ ] Trait combinations (multiple traits per NPC)
 - [ ] Player combat abilities
+
+Visual polish:
+- [x] Sleep sprite texture — `sleep.png` as 4th texture (bindings 6-7, atlas_id=3.0), scale 16.0 with white tint
 
 Economy depth:
 - [ ] Multi-camp food delivery (currently hardcoded to camp_food[0])

@@ -2,6 +2,8 @@
 
 ## 2026-02-11
 
+- **sleep sprite texture** — sleep indicator now uses dedicated `sleep.png` texture (4th atlas, bindings 6-7, atlas_id=3.0) instead of character sheet lookup; white tint preserves sprite's natural blue Zz; fragment shader dispatches sleep (≥2.5) → heal (≥1.5) → normal; sleep_visual test stride fix (`idx*2` → `idx*3`) and assertion updated for atlas-based check
+- **color saturation** — job colors changed from tinted to pure (farmer=green, guard=blue, raider=red, fighter=yellow); raider faction palette saturated (10 distinct pure colors instead of muted tints)
 - **healing halo** — healing NPCs show a yellow halo ring sprite (`heal.png`) instead of a small icon overlay; third texture atlas bound at group 0 bindings 4-5 (`atlas_id=2.0`); healing layer renders at scale 20 with yellow tint; heal_visual test updated for new signal format (stride fix: `idx*2` → `idx*3`)
 - **color tuning** — guard blue tint slightly darker (0.4→0.3 green), raider base red more saturated (0.5→0.3)
 - **npc-visuals test scene** — new test in Debug Tests that spawns all 4 NPC types (Guard/Farmer/Raider/Fighter) in a labeled 4×7 grid showing each render layer individually (body, weapon, helmet, item, sleep, heal, full); egui labels at world positions with sprite coordinates; stays on screen for visual review

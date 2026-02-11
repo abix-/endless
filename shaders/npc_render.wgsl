@@ -13,7 +13,7 @@ struct VertexInput {
     @location(5) health: f32,            // 0.0-1.0 normalized
     @location(6) flash: f32,             // 0.0-1.0 damage flash intensity
     @location(7) scale: f32,             // world-space quad size (16=NPC, 32=terrain)
-    @location(8) atlas_id: f32,          // 0=character atlas, 1=world atlas, 2=heal halo
+    @location(8) atlas_id: f32,          // 0=character, 1=world, 2=heal halo, 3=sleep icon
 };
 
 struct VertexOutput {
@@ -37,6 +37,10 @@ struct VertexOutput {
 // Heal halo sprite (bind group 0, bindings 4-5)
 @group(0) @binding(4) var heal_texture: texture_2d<f32>;
 @group(0) @binding(5) var heal_sampler: sampler;
+
+// Sleep icon sprite (bind group 0, bindings 6-7)
+@group(0) @binding(6) var sleep_texture: texture_2d<f32>;
+@group(0) @binding(7) var sleep_sampler: sampler;
 
 // Camera uniform (bind group 1)
 struct Camera {
@@ -98,7 +102,14 @@ fn vertex(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Heal halo sprite (atlas_id >= 2): sample from heal_texture
+    // Sleep icon sprite (atlas_id 3)
+    if in.atlas_id >= 2.5 {
+        let tex_color = textureSample(sleep_texture, sleep_sampler, in.uv);
+        if tex_color.a < 0.1 { discard; }
+        return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+    }
+
+    // Heal halo sprite (atlas_id 2)
     if in.atlas_id >= 1.5 {
         let tex_color = textureSample(heal_texture, heal_sampler, in.uv);
         if tex_color.a < 0.1 { discard; }
@@ -106,8 +117,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // Health bar in bottom 15% of sprite (quad_uv.y > 0.85 = bottom rows)
-    // Only show when damaged (health < 99%) and on character atlas sprites
-    let show_hp_bar = in.health < 0.99 && in.atlas_id < 0.5;
+    // Show when damaged (health < 99%) — applies to NPCs and farm growth bars
+    let show_hp_bar = in.health < 0.99;
     if in.quad_uv.y > 0.85 && show_hp_bar {
         var bar_color = vec4<f32>(0.2, 0.2, 0.2, 1.0);
 
@@ -140,7 +151,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    var final_color = vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+    let brightness = dot(tex_color.rgb, vec3<f32>(0.299, 0.587, 0.114));
+    var final_color = vec4<f32>(brightness * in.color.rgb, tex_color.a);
 
     // Damage flash: white overlay that fades out (character sprites only)
     if in.flash > 0.0 && in.atlas_id < 0.5 {

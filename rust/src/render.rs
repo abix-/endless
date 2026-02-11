@@ -133,6 +133,9 @@ fn load_sprites(
     // Load heal halo sprite (single 16x16 texture)
     npc_sprite_tex.heal_handle = Some(asset_server.load("assets/heal.png"));
 
+    // Load sleep icon sprite (single 16x16 texture)
+    npc_sprite_tex.sleep_handle = Some(asset_server.load("assets/sleep.png"));
+
     // Create atlas layout for world sprites
     let world_layout = TextureAtlasLayout::from_grid(
         UVec2::new(WORLD_SPRITE_SIZE as u32, WORLD_SPRITE_SIZE as u32),
