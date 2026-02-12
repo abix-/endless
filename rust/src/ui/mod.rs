@@ -32,7 +32,7 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(EguiPrimaryContextPass, (
         game_hud::top_bar_system,
         left_panel::left_panel_system,
-        (game_hud::bottom_panel_system, game_hud::target_overlay_system),
+        (game_hud::bottom_panel_system, game_hud::target_overlay_system, game_hud::squad_overlay_system),
         build_menu::build_menu_system,
         pause_menu_system,
     ).chain().run_if(in_state(AppState::Playing)));
@@ -74,6 +74,9 @@ fn ui_toggle_system(
     }
     if keys.just_pressed(KeyCode::KeyT) {
         ui_state.toggle_left_tab(LeftPanelTab::Patrols);
+    }
+    if keys.just_pressed(KeyCode::KeyQ) {
+        ui_state.toggle_left_tab(LeftPanelTab::Squads);
     }
     if keys.just_pressed(KeyCode::KeyF) {
         follow.0 = !follow.0;
@@ -245,8 +248,14 @@ fn game_escape_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<UiState>,
     mut game_time: ResMut<GameTime>,
+    mut squad_state: ResMut<SquadState>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
+        // Cancel squad target placement first
+        if squad_state.placing_target {
+            squad_state.placing_target = false;
+            return;
+        }
         if ui_state.build_menu_open {
             ui_state.build_menu_open = false;
         } else {
@@ -577,6 +586,7 @@ fn game_cleanup_system(
     mut debug: CleanupDebug,
     mut combat_log: ResMut<CombatLog>,
     mut ui_state: ResMut<UiState>,
+    mut squad_state: ResMut<SquadState>,
 ) {
     // Despawn all entities
     for entity in npc_query.iter() {
@@ -619,6 +629,7 @@ fn game_cleanup_system(
     // Reset UI state
     *combat_log = Default::default();
     *ui_state = Default::default();
+    *squad_state = Default::default();
 
     info!("Game cleanup complete");
 }

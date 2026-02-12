@@ -317,3 +317,13 @@ pub fn spawner_respawn_system(
         }
     }
 }
+
+/// Remove dead NPCs from squad member lists.
+pub fn squad_cleanup_system(
+    mut squad_state: ResMut<SquadState>,
+    npc_map: Res<NpcEntityMap>,
+) {
+    for squad in squad_state.squads.iter_mut() {
+        squad.members.retain(|&slot| npc_map.0.contains_key(&slot));
+    }
+}

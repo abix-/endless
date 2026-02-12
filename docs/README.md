@@ -63,7 +63,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
     │   ├─ Top bar: panel toggles left, town name + time center, stats right
     │   ├─ Bottom panel: NPC/building inspector (left) + combat log with filters (right)
-    │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T)
+    │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q)
     │   ├─ FPS overlay: bottom-right corner, EMA-smoothed, always visible (all states)
     │   ├─ Build menu: right-click context menu (Farm/GuardPost/House/Barracks for towns, Tent for camps, Destroy/Unlock/Turret toggle)
     │   ├─ Pause menu (ESC): Resume, Settings (scroll speed + log/debug filters), Exit to Main Menu
@@ -128,16 +128,16 @@ rust/
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums)
-  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret)
-  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, etc.)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId)
+  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits)
+  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
   src/world.rs          # World data structs, world grid, procedural generation, tileset builder, town grid, building placement/removal
   src/ui/
-    mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings), escape/time controls, keyboard toggles, slot right-click, slot indicators
+    mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings), escape/time controls, keyboard toggles (Q=squads), slot right-click, slot indicators
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
-    game_hud.rs         # Top bar, bottom panel (NPC + building inspector + combat log), target overlay, FPS counter
-    left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) — policy persistence on tab leave
+    game_hud.rs         # Top bar, bottom panel (NPC + building inspector + combat log), target overlay, squad overlay, FPS counter
+    left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) — policy persistence on tab leave
     build_menu.rs       # Right-click context menu: build/destroy/unlock town+camp slots, turret toggle
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
@@ -165,7 +165,7 @@ rust/
     combat.rs           # Attack cooldown, targeting, guard post turret auto-attack
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
-    economy.rs          # Game time, farm growth, respawning, building spawners
+    economy.rs          # Game time, farm growth, respawning, building spawners, squad cleanup
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 

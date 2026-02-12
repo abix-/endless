@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior};
+use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos};
 
@@ -255,10 +255,10 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 /// 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
 pub fn decision_system(
     mut commands: Commands,
-    // Main query: core NPC data
+    // Main query: core NPC data (SquadId is Optional — only on squad-assigned guards)
     mut query: Query<
         (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
-         &mut Activity, &mut CombatState, Option<&AtDestination>),
+         &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&SquadId>),
         Without<Dead>
     >,
     // Combat config queries
@@ -277,6 +277,7 @@ pub fn decision_system(
     mut raid_queue: ResMut<RaidQueue>,
     mut combat_log: ResMut<CombatLog>,
     policies: Res<TownPolicies>,
+    squad_state: Res<SquadState>,
 ) {
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
@@ -288,7 +289,7 @@ pub fn decision_system(
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
-         mut activity, mut combat_state, at_destination) in query.iter_mut()
+         mut activity, mut combat_state, at_destination, squad_id) in query.iter_mut()
     {
         let idx = npc_idx.0;
 
@@ -711,6 +712,19 @@ pub fn decision_system(
                         }
                     }
                     Job::Guard => {
+                        // Squad override: go to squad target instead of patrolling
+                        if let Some(sid) = squad_id {
+                            if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
+                                if let Some(target) = squad.target {
+                                    *activity = Activity::Patrolling;
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target.x, y: target.y }));
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                                        format!("Squad {} → target", sid.0 + 1));
+                                    continue;
+                                }
+                            }
+                            // No target set — fall through to normal patrol
+                        }
                         if let Ok(patrol) = patrol_query.get(entity) {
                             *activity = Activity::Patrolling;
                             if let Some(pos) = patrol.posts.get(patrol.current) {

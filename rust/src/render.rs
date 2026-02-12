@@ -264,7 +264,14 @@ fn click_to_select_system(
     mut egui_contexts: bevy_egui::EguiContexts,
     gpu_state: Res<crate::resources::GpuReadState>,
     grid: Res<WorldGrid>,
+    mut squad_state: ResMut<crate::resources::SquadState>,
 ) {
+    // Right-click cancels squad target placement
+    if mouse.just_pressed(MouseButton::Right) && squad_state.placing_target {
+        squad_state.placing_target = false;
+        return;
+    }
+
     if !mouse.just_pressed(MouseButton::Left) { return; }
 
     // Don't steal clicks from egui UI
@@ -287,6 +294,16 @@ fn click_to_select_system(
         screen_center.y - cursor_pos.y,
     );
     let world_pos = position + mouse_offset / zoom;
+
+    // Squad target placement — intercept before NPC selection
+    if squad_state.placing_target {
+        let si = squad_state.selected;
+        if si >= 0 && (si as usize) < squad_state.squads.len() {
+            squad_state.squads[si as usize].target = Some(world_pos);
+        }
+        squad_state.placing_target = false;
+        return;
+    }
 
     // Find nearest NPC within 20px radius using GPU readback positions
     let positions = &gpu_state.positions;

@@ -220,3 +220,10 @@ pub const GUARD_POST_PROJ_SPEED: f32 = 300.0;
 
 /// Turret projectile lifetime (seconds).
 pub const GUARD_POST_PROJ_LIFETIME: f32 = 1.5;
+
+// ============================================================================
+// SQUAD CONSTANTS
+// ============================================================================
+
+/// Maximum number of player-controlled squads.
+pub const MAX_SQUADS: usize = 10;

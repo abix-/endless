@@ -99,6 +99,21 @@ pub struct UpgradeParams<'w> {
 }
 
 // ============================================================================
+// SQUAD TYPES
+// ============================================================================
+
+#[derive(SystemParam)]
+pub struct SquadParams<'w, 's> {
+    squad_state: ResMut<'w, SquadState>,
+    meta_cache: Res<'w, NpcMetaCache>,
+    gpu_state: Res<'w, GpuReadState>,
+    // Query: alive guards without SquadId (available for recruitment)
+    available_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static TownId), (With<Guard>, Without<Dead>, Without<SquadId>)>,
+    // Query: guards with SquadId (for dismiss)
+    squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId), (With<Guard>, Without<Dead>)>,
+}
+
+// ============================================================================
 // MAIN SYSTEM
 // ============================================================================
 
@@ -109,6 +124,8 @@ pub fn left_panel_system(
     mut policies: ResMut<TownPolicies>,
     mut roster: RosterParams,
     mut upgrade: UpgradeParams,
+    mut squad: SquadParams,
+    mut commands: Commands,
     mut roster_state: Local<RosterState>,
     settings: Res<UserSettings>,
     mut prev_tab: Local<LeftPanelTab>,
@@ -126,6 +143,7 @@ pub fn left_panel_system(
         LeftPanelTab::Upgrades => "Upgrades",
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
+        LeftPanelTab::Squads => "Squads",
     };
 
     let mut open = ui_state.left_panel_open;
@@ -140,6 +158,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
                 LeftPanelTab::Patrols => patrols_content(ui, &mut world_data),
+                LeftPanelTab::Squads => squads_content(ui, &mut squad, &world_data, &mut commands),
             }
         });
 
@@ -564,4 +583,125 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &mut WorldData) {
         world_data.guard_posts[a].patrol_order = order_b;
         world_data.guard_posts[b].patrol_order = order_a;
     }
+}
+
+// ============================================================================
+// SQUADS CONTENT
+// ============================================================================
+
+fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &WorldData, commands: &mut Commands) {
+    let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
+    let selected = squad.squad_state.selected;
+
+    // Squad list
+    for i in 0..squad.squad_state.squads.len() {
+        let count = squad.squad_state.squads[i].members.len();
+        let has_target = squad.squad_state.squads[i].target.is_some();
+        let is_selected = selected == i as i32;
+
+        let target_str = if has_target { "target set" } else { "---" };
+        let label = format!("{}. Squad {}  [{}]  {}", i + 1, i + 1, count, target_str);
+
+        if ui.selectable_label(is_selected, label).clicked() {
+            squad.squad_state.selected = if is_selected { -1 } else { i as i32 };
+        }
+    }
+
+    ui.separator();
+
+    // Selected squad details
+    if selected < 0 || selected as usize >= squad.squad_state.squads.len() {
+        ui.label("Select a squad above");
+        return;
+    }
+    let si = selected as usize;
+    let member_count = squad.squad_state.squads[si].members.len();
+
+    ui.strong(format!("Squad {} — {} guards", si + 1, member_count));
+
+    // Target controls
+    ui.horizontal(|ui| {
+        if squad.squad_state.placing_target {
+            ui.colored_label(egui::Color32::YELLOW, "Click map to set target...");
+        } else {
+            if ui.button("Set Target").clicked() {
+                squad.squad_state.placing_target = true;
+            }
+        }
+        if squad.squad_state.squads[si].target.is_some() {
+            if ui.button("Clear Target").clicked() {
+                squad.squad_state.squads[si].target = None;
+            }
+        }
+    });
+
+    if let Some(target) = squad.squad_state.squads[si].target {
+        ui.small(format!("Target: ({:.0}, {:.0})", target.x, target.y));
+    }
+
+    ui.add_space(4.0);
+
+    // Dismiss all
+    if member_count > 0 {
+        if ui.button("Dismiss All").clicked() {
+            // Remove SquadId from all members
+            for (entity, _, sid) in squad.squad_guards.iter() {
+                if sid.0 == selected {
+                    commands.entity(entity).remove::<SquadId>();
+                }
+            }
+            squad.squad_state.squads[si].members.clear();
+        }
+    }
+
+    ui.add_space(4.0);
+
+    // Recruit buttons
+    let available: Vec<(Entity, usize)> = squad.available_guards.iter()
+        .filter(|(_, _, town)| town.0 == player_town)
+        .map(|(e, ni, _)| (e, ni.0))
+        .collect();
+    let avail_count = available.len();
+
+    ui.label(format!("Recruit ({} available):", avail_count));
+    ui.horizontal_wrapped(|ui| {
+        for n in [1, 2, 4, 8, 16, 32] {
+            let can_recruit = avail_count >= n;
+            if ui.add_enabled(can_recruit, egui::Button::new(format!("+{}", n))).clicked() {
+                let to_recruit: Vec<(Entity, usize)> = available.iter().take(n).copied().collect();
+                for (entity, slot) in to_recruit {
+                    commands.entity(entity).insert(SquadId(selected));
+                    squad.squad_state.squads[si].members.push(slot);
+                }
+            }
+        }
+    });
+
+    ui.separator();
+
+    // Member list
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let members = &squad.squad_state.squads[si].members;
+        for &slot in members {
+            if slot >= squad.meta_cache.0.len() { continue; }
+            let meta = &squad.meta_cache.0[slot];
+            if meta.name.is_empty() { continue; }
+
+            // Try to get HP from GPU readback
+            let hp_str = if slot < squad.gpu_state.health.len() {
+                format!("HP {:.0}", squad.gpu_state.health[slot])
+            } else {
+                String::new()
+            };
+
+            ui.horizontal(|ui| {
+                let job_color = egui::Color32::from_rgb(80, 100, 220);
+                ui.colored_label(job_color, &meta.name);
+                ui.label(format!("Lv.{}", meta.level));
+                if !hp_str.is_empty() {
+                    ui.label(hp_str);
+                }
+            });
+        }
+    });
 }

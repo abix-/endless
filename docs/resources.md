@@ -208,11 +208,23 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=Hut, 1=Barracks, 2=Tent), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
-`UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
+`UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 
 `CombatLog` is a ring buffer of global events with 5 kinds: Kill, Spawn, Raid, Harvest, LevelUp. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
 
 `PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicies` on game startup, saved when leaving the Policies tab in the left panel.
+
+## Squads
+
+| Resource | Data | Writers | Readers |
+|----------|------|---------|---------|
+| SquadState | `squads: Vec<Squad>` (10), `selected: i32`, `placing_target: bool` | left_panel (recruit/dismiss), click_to_select (target placement), game_escape (cancel placement) | decision_system, squad_overlay_system, squad_cleanup_system |
+
+`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None).
+
+`SquadId(i32)` component (0-9) added to guards when recruited into a squad. Removed on dismiss. Guards with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
+
+`placing_target`: when true, next left-click on the map sets the selected squad's target. Cancelled by ESC or right-click.
 
 ## Debug Resources
 

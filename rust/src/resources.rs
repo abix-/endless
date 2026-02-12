@@ -577,6 +577,7 @@ pub enum LeftPanelTab {
     Upgrades,
     Policies,
     Patrols,
+    Squads,
 }
 
 /// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
@@ -786,6 +787,39 @@ pub struct TownPolicies {
 impl Default for TownPolicies {
     fn default() -> Self {
         Self { policies: vec![PolicySet::default(); 16] }
+    }
+}
+
+// ============================================================================
+// SQUADS
+// ============================================================================
+
+/// A player-controlled squad of guards.
+#[derive(Clone, Default)]
+pub struct Squad {
+    /// NPC slot indices of guards in this squad.
+    pub members: Vec<usize>,
+    /// Squad target position. None = no target, guards patrol normally.
+    pub target: Option<Vec2>,
+}
+
+/// All squads + UI state. 10 squads, pre-initialized.
+#[derive(Resource)]
+pub struct SquadState {
+    pub squads: Vec<Squad>,
+    /// Currently selected squad in UI (-1 = none).
+    pub selected: i32,
+    /// When true, next left-click sets the selected squad's target.
+    pub placing_target: bool,
+}
+
+impl Default for SquadState {
+    fn default() -> Self {
+        Self {
+            squads: (0..crate::constants::MAX_SQUADS).map(|_| Squad::default()).collect(),
+            selected: -1,
+            placing_target: false,
+        }
     }
 }
 

@@ -313,6 +313,11 @@ pub struct Healing;
 #[derive(Component)]
 pub struct Starving;
 
+/// Squad assignment for guards. 0-9 = squad index.
+/// Guards with this component follow squad target instead of patrolling.
+#[derive(Component)]
+pub struct SquadId(pub i32);
+
 /// Marker: farm is visually Ready (food icon overlay).
 #[derive(Component)]
 pub struct FarmReadyMarker {

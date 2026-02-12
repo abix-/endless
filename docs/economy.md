@@ -23,8 +23,11 @@ game_time_system (every frame)
     ├─ starvation_system (hourly)
     │   └─ NPCs with zero energy → Starving marker
     │
-    └─ farm_visual_system (every frame)
-        └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
+    ├─ farm_visual_system (every frame)
+    │   └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
+    │
+    └─ squad_cleanup_system (every frame)
+        └─ Removes dead NPC slots from Squad.members via NpcEntityMap check
 ```
 
 ## Systems
@@ -200,6 +203,11 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | HOUSE_BUILD_COST | 1 | Food cost to build a House |
 | BARRACKS_BUILD_COST | 1 | Food cost to build a Barracks |
 | SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
+
+### squad_cleanup_system
+- Runs every frame in `Step::Behavior`
+- Iterates all squads, retains only members whose slot is still in `NpcEntityMap` (alive)
+- Lightweight scan — no allocation, just `Vec::retain`
 
 ## Known Issues
 

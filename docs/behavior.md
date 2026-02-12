@@ -152,6 +152,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
 | LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin (raiders only) |
+| SquadId | `i32` (0-9) | Squad assignment — guards with this follow squad target instead of patrolling |
 
 ## Systems
 
@@ -188,6 +189,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `Activity::OnDuty { ticks_waiting }` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, set `Activity::Patrolling`
 
 **Priority 7: Idle scoring (Utility AI)**
+- **Squad override** (guards only): Guards with a `SquadId` component check `SquadState.squads[id].target` before normal patrol logic. If squad has a target, guard walks to squad target instead of patrol posts. Falls through to normal patrol if no target is set.
 - **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → `GoingToHeal` targeting fountain. Applies to all jobs (including raiders — they heal at their camp center). Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
 - **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers use `farmer_schedule`, guards use `guard_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
 - **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
@@ -252,6 +254,18 @@ Guards have a `PatrolRoute` with ordered posts (built from WorldData at spawn). 
 5. After last post, wrap to post 0
 
 Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes are rebuilt dynamically by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) when `WorldData` changes — e.g. guard posts added, removed, or reordered via the Patrols tab. The system clamps the current patrol index to the new route length.
+
+## Squads
+
+Player-directed guard groups. 10 squads available, each with a target position on the map. Guards are reassigned (not spawned) — existing patrol guards get a `SquadId` component and follow squad orders instead of patrolling.
+
+**Behavior override**: In `decision_system`'s `Action::Work` → `Job::Guard` branch, guards with `SquadId` check `SquadState.squads[id].target`. If a target exists, the guard walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as guard post). If no target is set, falls through to normal patrol.
+
+**All survival behavior preserved**: Squad guards still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities.
+
+**Recruitment**: UI queries alive guards without `SquadId` in the player's town. +N buttons insert `SquadId(squad_idx)` on up to N guards. "Dismiss All" removes `SquadId` from all squad members — guards resume patrol.
+
+**Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `NpcEntityMap`.
 
 ## Known Issues / Limitations
 

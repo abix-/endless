@@ -52,6 +52,9 @@ pub fn top_bar_system(
                 if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Patrols, "Patrols").clicked() {
                     ui_state.toggle_left_tab(LeftPanelTab::Patrols);
                 }
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Squads, "Squads").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Squads);
+                }
 
                 // CENTER: town name + time (painted at true center of bar)
                 let town_name = world_data.towns.first()
@@ -732,6 +735,82 @@ pub fn target_overlay_system(
     // Small circle highlight on NPC
     let npc_color = egui::Color32::from_rgba_unmultiplied(100, 200, 255, 160);
     painter.circle_stroke(npc_screen, 8.0, egui::Stroke::new(1.5, npc_color));
+
+    Ok(())
+}
+
+// ============================================================================
+// SQUAD TARGET OVERLAY
+// ============================================================================
+
+/// Draw numbered markers at each squad's target position.
+pub fn squad_overlay_system(
+    mut contexts: EguiContexts,
+    squad_state: Res<SquadState>,
+    camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
+    windows: Query<&Window>,
+) -> Result {
+    let Ok(window) = windows.single() else { return Ok(()); };
+    let Ok((transform, projection)) = camera_query.single() else { return Ok(()); };
+
+    let zoom = match projection {
+        Projection::Orthographic(ortho) => 1.0 / ortho.scale,
+        _ => 1.0,
+    };
+    let cam = transform.translation.truncate();
+    let viewport = egui::Vec2::new(window.width(), window.height());
+    let center = viewport * 0.5;
+
+    let ctx = contexts.ctx_mut()?;
+    let painter = ctx.layer_painter(egui::LayerId::background());
+
+    // Squad colors (distinct per squad)
+    let colors = [
+        egui::Color32::from_rgb(255, 80, 80),    // red
+        egui::Color32::from_rgb(80, 180, 255),    // blue
+        egui::Color32::from_rgb(80, 220, 80),     // green
+        egui::Color32::from_rgb(255, 200, 40),    // yellow
+        egui::Color32::from_rgb(200, 80, 255),    // purple
+        egui::Color32::from_rgb(255, 140, 40),    // orange
+        egui::Color32::from_rgb(40, 220, 200),    // teal
+        egui::Color32::from_rgb(255, 100, 180),   // pink
+        egui::Color32::from_rgb(180, 180, 80),    // olive
+        egui::Color32::from_rgb(140, 140, 255),   // light blue
+    ];
+
+    for (i, squad) in squad_state.squads.iter().enumerate() {
+        let Some(target) = squad.target else { continue };
+        if squad.members.is_empty() { continue; }
+
+        let screen = egui::Pos2::new(
+            center.x + (target.x - cam.x) * zoom,
+            center.y - (target.y - cam.y) * zoom,
+        );
+
+        let color = colors[i % colors.len()];
+        let fill = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 120);
+
+        // Filled circle with border
+        painter.circle(screen, 10.0, fill, egui::Stroke::new(2.0, color));
+
+        // Squad number label
+        painter.text(
+            screen,
+            egui::Align2::CENTER_CENTER,
+            format!("{}", i + 1),
+            egui::FontId::proportional(11.0),
+            egui::Color32::WHITE,
+        );
+    }
+
+    // Placement mode cursor hint
+    if squad_state.placing_target && squad_state.selected >= 0 {
+        if let Some(cursor_pos) = window.cursor_position() {
+            let cursor_egui = egui::Pos2::new(cursor_pos.x, cursor_pos.y);
+            let hint_color = egui::Color32::from_rgba_unmultiplied(255, 255, 100, 160);
+            painter.circle_stroke(cursor_egui, 12.0, egui::Stroke::new(2.0, hint_color));
+        }
+    }
 
     Ok(())
 }

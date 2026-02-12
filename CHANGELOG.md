@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-12
+
+- **squads system** — player-directed guard groups; 10 squads with map target markers; reassign existing patrol guards via +1/+2/+4/+8/+16/+32 recruit buttons; squad guards walk to target instead of patrolling; all survival behavior preserved (flee, rest, heal, sleep); `SquadState` resource + `SquadId` component + `squad_cleanup_system`; new Squads tab in left panel (Q key), top bar button, colored numbered target overlay, click-to-place targeting with ESC/right-click cancel
+
 ## 2026-02-11
 
 - **separate rest from heal** — NPCs go home (spawner) to rest (energy recovery) and to the fountain to heal (HP recovery); new `GoingToHeal` + `HealingAtFountain{recover_until}` Activity variants; `Resting` simplified to unit variant (energy-only); raiders now heal at camp center like villagers (removed raider exclusion); raider Home changed from camp center to tent position; sleep icon only shows for Resting, not HealingAtFountain; energy recovers during both states to prevent ping-pong
