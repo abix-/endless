@@ -2,6 +2,9 @@
 
 ## 2026-02-12
 
+- **fix: healing fountain drift deadlock** — NPCs in `HealingAtFountain` state could be pushed out of healing range by separation physics and get stuck forever (HP never recovers, decision system `continue`s); added drift check that re-targets fountain when NPC drifts >100px from town center; added early arrival so `GoingToHeal` NPCs transition to `HealingAtFountain` as soon as they enter healing range (100px) instead of walking to exact center
+- **fix: duplicate "Healing, Healing" state display** — NPC inspector was showing both `Activity::HealingAtFountain` name and `Healing` marker component; removed marker components (AtDestination, Starving, Healing) from state display — only shows Activity + CombatState enums
+- **target overlay visibility** — thicker line (1.5→2.5px), brighter alpha (140→200), larger diamond (5→7px) and NPC circle (8→10px radius)
 - **squads system** — player-directed guard groups; 10 squads with map target markers; reassign existing patrol guards via +1/+2/+4/+8/+16/+32 recruit buttons; squad guards walk to target instead of patrolling; all survival behavior preserved (flee, rest, heal, sleep); `SquadState` resource + `SquadId` component + `squad_cleanup_system`; new Squads tab in left panel (Q key), top bar button, colored numbered target overlay, click-to-place targeting with ESC/right-click cancel
 
 ## 2026-02-11

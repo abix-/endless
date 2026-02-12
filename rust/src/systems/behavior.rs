@@ -287,6 +287,7 @@ pub fn decision_system(
     const THREAT_RADIUS: f32 = 200.0;
     const CHECK_INTERVAL: usize = 30;
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
+    const HEAL_DRIFT_RADIUS: f32 = 100.0; // Re-target fountain if pushed beyond this
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
          mut activity, mut combat_state, at_destination, squad_id) in query.iter_mut()
@@ -517,6 +518,25 @@ pub fn decision_system(
         }
 
         // ====================================================================
+        // Early arrival: GoingToHeal NPCs stop once inside healing range
+        // ====================================================================
+        if matches!(*activity, Activity::GoingToHeal) {
+            let town_idx = town_id.0 as usize;
+            if let Some(town) = farms.world.towns.get(town_idx) {
+                if idx * 2 + 1 < positions.len() {
+                    let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                    if current.distance(town.center) <= HEAL_DRIFT_RADIUS {
+                        let threshold = policies.policies.get(town_idx)
+                            .map(|p| p.recovery_hp).unwrap_or(0.8);
+                        *activity = Activity::HealingAtFountain { recover_until: threshold };
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Healing".into());
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
         // Skip NPCs in transit states (they're walking to their destination)
         // ====================================================================
         if activity.is_transit() {
@@ -532,6 +552,18 @@ pub fn decision_system(
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Recovered".into());
                 // Fall through to make a decision
             } else {
+                // Drift check: separation physics pushes NPCs out of healing range
+                let town_idx = town_id.0 as usize;
+                if let Some(town) = farms.world.towns.get(town_idx) {
+                    if idx * 2 + 1 < positions.len() {
+                        let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                        if current.distance(town.center) > HEAL_DRIFT_RADIUS {
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx, x: town.center.x, y: town.center.y
+                            }));
+                        }
+                    }
+                }
                 continue;
             }
         }

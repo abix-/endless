@@ -130,9 +130,6 @@ pub struct NpcStateQuery<'w, 's> {
         &'static TownId,
         &'static Activity,
         &'static CombatState,
-        Option<&'static AtDestination>,
-        Option<&'static Starving>,
-        Option<&'static Healing>,
     ), Without<Dead>>,
 }
 
@@ -410,7 +407,7 @@ fn inspector_content(
     let mut home_str = String::new();
     let mut faction_str = String::new();
 
-    if let Some((_, home, faction, town_id, activity, combat, at_dest, starving, healing))
+    if let Some((_, home, faction, town_id, activity, combat))
         = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
     {
         home_str = format!("({:.0}, {:.0})", home.0.x, home.0.y);
@@ -420,9 +417,6 @@ fn inspector_content(
         let combat_name = combat.name();
         if !combat_name.is_empty() { parts.push(combat_name); }
         parts.push(activity.name());
-        if at_dest.is_some() { parts.push("AtDest"); }
-        if starving.is_some() { parts.push("Starving"); }
-        if healing.is_some() { parts.push("Healing"); }
         state_str = parts.join(", ");
     }
 
@@ -718,23 +712,23 @@ pub fn target_overlay_system(
     let painter = ctx.layer_painter(egui::LayerId::background());
 
     // Line from NPC to target
-    let line_color = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 140);
-    painter.line_segment([npc_screen, tgt_screen], egui::Stroke::new(1.5, line_color));
+    let line_color = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 200);
+    painter.line_segment([npc_screen, tgt_screen], egui::Stroke::new(2.5, line_color));
 
     // Diamond marker at target
-    let s = 5.0;
+    let s = 7.0;
     let diamond = [
         egui::Pos2::new(tgt_screen.x, tgt_screen.y - s),
         egui::Pos2::new(tgt_screen.x + s, tgt_screen.y),
         egui::Pos2::new(tgt_screen.x, tgt_screen.y + s),
         egui::Pos2::new(tgt_screen.x - s, tgt_screen.y),
     ];
-    let fill = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 200);
+    let fill = egui::Color32::from_rgba_unmultiplied(255, 220, 50, 240);
     painter.add(egui::Shape::convex_polygon(diamond.to_vec(), fill, egui::Stroke::NONE));
 
-    // Small circle highlight on NPC
-    let npc_color = egui::Color32::from_rgba_unmultiplied(100, 200, 255, 160);
-    painter.circle_stroke(npc_screen, 8.0, egui::Stroke::new(1.5, npc_color));
+    // Circle highlight on NPC
+    let npc_color = egui::Color32::from_rgba_unmultiplied(100, 200, 255, 200);
+    painter.circle_stroke(npc_screen, 10.0, egui::Stroke::new(2.0, npc_color));
 
     Ok(())
 }

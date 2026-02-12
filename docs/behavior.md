@@ -100,14 +100,16 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
              ┌──────────┐                  ┌──────────┐
              │GoingToRest│ (tired→home)    │GoingToHeal│ (wounded→fountain)
              └────┬─────┘                  └────┬─────┘
-                  │ arrival                      │ arrival
+                  │ arrival                      │ within 100px (early)
                   ▼                              ▼
              ┌──────────┐                  ┌────────────────────────┐
              │ Resting  │ (energy recovery)│ HealingAtFountain      │
              └────┬─────┘                  │ {recover_until: 0.75}  │
-                  │ energy >= 90%          └────┬───────────────────┘
-                  ▼                              │ HP >= threshold
-             back to previous cycle              ▼
+                  │ energy >= 90%          │ drift check: re-target │
+                  ▼                        │ if pushed > 100px      │
+             back to previous cycle        └────┬───────────────────┘
+                                                │ HP >= threshold
+                                                ▼
                                            back to previous cycle
 
     Combat (orthogonal CombatState, Activity preserved):
@@ -176,8 +178,12 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `CombatState::Fighting` + should leash: guards check `guard_leash` policy (if disabled, guards chase freely), raiders use per-entity `LeashRange` component
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
 
+**Early arrival: GoingToHeal proximity check** (before transit skip)
+- If `GoingToHeal` + within `HEAL_DRIFT_RADIUS` (100px) of town center: transition to `HealingAtFountain` immediately — NPC stops walking as soon as it enters healing range, doesn't need to reach the exact center
+
 **Priority 4a: HealingAtFountain wake**
 - If `HealingAtFountain { recover_until }` + HP / max_hp >= recover_until: set `Activity::Idle`
+- **Drift check**: if not recovered and NPC is >100px from town center, re-target fountain (separation physics can push NPCs out of healing range)
 
 **Priority 4b: Resting wake**
 - If `Activity::Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
@@ -206,6 +212,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 ### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for Returning raiders: matches `Activity::Returning { .. }`, checks distance to home, delivers food within DELIVERY_RADIUS (150px), sets `Activity::Idle`
 - **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm
+- **Healing drift check** in decision_system: `HealingAtFountain` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
+- **GoingToHeal early arrival** in decision_system: NPCs transition to `HealingAtFountain` as soon as they're within 100px of town center, before reaching the exact pixel
 - Arrival detection (`is_transit()` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs
 - All state transitions handled by decision_system Priority 0 (central brain model)
 
