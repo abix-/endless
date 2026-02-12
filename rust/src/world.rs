@@ -251,7 +251,7 @@ pub fn place_building(
     match building {
         Building::Farm { town_idx } => {
             world_data.farms.push(Farm { position: snapped_pos, town_idx });
-            farm_states.push_farm();
+            farm_states.push_farm(snapped_pos);
         }
         Building::Bed { town_idx } => {
             world_data.beds.push(Bed { position: snapped_pos, town_idx });
@@ -873,7 +873,7 @@ fn place_town_buildings(
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, Building::Farm { town_idx }, &mut occupied, town_grid);
         world_data.farms.push(Farm { position: pos, town_idx });
-        farm_states.push_farm();
+        farm_states.push_farm(pos);
     }
 
     for _ in 0..config.farmers_per_town {

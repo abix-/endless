@@ -9,7 +9,8 @@ struct ProjParams {
     proj_count: u32,
     npc_count: u32,
     delta: f32,
-    hit_radius: f32,
+    hit_half_length: f32,
+    hit_half_width: f32,
     grid_width: u32,
     grid_height: u32,
     cell_size: f32,
@@ -65,9 +66,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Skip if already hit something
     if (proj_hits[i].x >= 0) { return; }
 
-    // Collision detection via spatial grid
+    // Oriented rectangle collision: arrow is long along velocity, thin perpendicular
     let my_faction = proj_factions[i];
-    let hit_radius_sq = params.hit_radius * params.hit_radius;
+    let speed_sq = dot(vel, vel);
+
+    // Derive arrow axes from velocity (fallback to circle for near-zero velocity)
+    var fwd: vec2<f32>;
+    var perp: vec2<f32>;
+    var use_oriented: bool = speed_sq > 0.001;
+    if (use_oriented) {
+        let inv_speed = 1.0 / sqrt(speed_sq);
+        fwd = vel * inv_speed;
+        perp = vec2<f32>(-fwd.y, fwd.x);
+    }
 
     // Get grid cell
     let cx = i32(pos.x / params.cell_size);
@@ -105,12 +116,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 // Skip dead NPCs
                 if (npc_healths[npc_idx] <= 0.0) { continue; }
 
-                // Distance check
                 let npc_pos = npc_positions[npc_idx];
-                let diff = pos - npc_pos;
-                let dist_sq = dot(diff, diff);
+                let diff = npc_pos - pos;
 
-                if (dist_sq < hit_radius_sq) {
+                var hit = false;
+                if (use_oriented) {
+                    // Project onto arrow axes
+                    let along = abs(dot(diff, fwd));
+                    let across = abs(dot(diff, perp));
+                    hit = along < params.hit_half_length && across < params.hit_half_width;
+                } else {
+                    // Fallback: circle with average radius
+                    let r = params.hit_half_length;
+                    hit = dot(diff, diff) < r * r;
+                }
+
+                if (hit) {
                     // HIT — record target, deactivate, hide
                     proj_hits[i] = vec2<i32>(npc_idx, 0);  // 0 = not processed yet
                     proj_active[i] = 0;

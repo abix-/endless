@@ -47,7 +47,8 @@ const MAX_PROJECTILES: u32 = 50_000;
 const GRID_WIDTH: u32 = 256;
 const GRID_HEIGHT: u32 = 256;
 const MAX_PER_CELL: u32 = 48;
-const HIT_RADIUS: f32 = 10.0;
+const HIT_HALF_LENGTH: f32 = 12.0;
+const HIT_HALF_WIDTH: f32 = 4.0;
 
 // =============================================================================
 // RESOURCES (Main World)
@@ -330,7 +331,7 @@ pub fn sync_visual_sprites(
         buffer.healing_sprites[j + 2] = hla;
 
         // Sleep indicator (atlas_id=3.0 → sleep sprite texture)
-        let (sc, sr, sa) = if matches!(activity, Activity::Resting { .. }) {
+        let (sc, sr, sa) = if matches!(activity, Activity::Resting) {
             (0.0, 0.0, 3.0)
         } else {
             (-1.0, 0.0, 0.0)
@@ -401,7 +402,8 @@ pub struct ProjComputeParams {
     pub proj_count: u32,
     pub npc_count: u32,
     pub delta: f32,
-    pub hit_radius: f32,
+    pub hit_half_length: f32,
+    pub hit_half_width: f32,
     pub grid_width: u32,
     pub grid_height: u32,
     pub cell_size: f32,
@@ -414,7 +416,8 @@ impl Default for ProjComputeParams {
             proj_count: 0,
             npc_count: 0,
             delta: 0.016,
-            hit_radius: HIT_RADIUS,
+            hit_half_length: HIT_HALF_LENGTH,
+            hit_half_width: HIT_HALF_WIDTH,
             grid_width: GRID_WIDTH,
             grid_height: GRID_HEIGHT,
             cell_size: 128.0,
@@ -658,6 +661,7 @@ impl Plugin for GpuComputePlugin {
             ExtractResourcePlugin::<ReadbackHandles>::default(),
             ExtractResourcePlugin::<GpuReadState>::default(),
             ExtractResourcePlugin::<ProjPositionState>::default(),
+            ExtractResourcePlugin::<crate::resources::FarmStates>::default(),
         ));
 
         // Set up render world systems
@@ -752,6 +756,7 @@ pub struct NpcSpriteTexture {
     pub world_handle: Option<Handle<Image>>,
     pub heal_handle: Option<Handle<Image>>,
     pub sleep_handle: Option<Handle<Image>>,
+    pub arrow_handle: Option<Handle<Image>>,
 }
 
 /// GPU buffers for projectile compute.

@@ -16,6 +16,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
     });
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.0);
+    farm_states.positions.push(Vec2::new(400.0, 350.0));
     params.add_bed(400.0, 450.0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
@@ -56,7 +57,7 @@ pub fn tick(
     let going_work = activity_query.iter().filter(|a| matches!(a, Activity::GoingToWork)).count();
     let working = activity_query.iter().filter(|a| matches!(a, Activity::Working)).count();
     let going_rest = activity_query.iter().filter(|a| matches!(a, Activity::GoingToRest)).count();
-    let resting = activity_query.iter().filter(|a| matches!(a, Activity::Resting { .. })).count();
+    let resting = activity_query.iter().filter(|a| matches!(a, Activity::Resting)).count();
 
     match test.phase {
         // Phase 1: Farmer spawns with GoingToWork

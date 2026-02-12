@@ -136,6 +136,9 @@ fn load_sprites(
     // Load sleep icon sprite (single 16x16 texture)
     npc_sprite_tex.sleep_handle = Some(asset_server.load("assets/sleep.png"));
 
+    // Load arrow projectile sprite (single texture, white, points up)
+    npc_sprite_tex.arrow_handle = Some(asset_server.load("assets/arrow.png"));
+
     // Create atlas layout for world sprites
     let world_layout = TextureAtlasLayout::from_grid(
         UVec2::new(WORLD_SPRITE_SIZE as u32, WORLD_SPRITE_SIZE as u32),

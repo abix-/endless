@@ -28,6 +28,7 @@ pub fn setup(
     });
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.95); // near ready so transition happens within 30s
+    farm_states.positions.push(Vec2::new(400.0, 350.0));
     params.add_bed(400.0, 450.0);
 
     params.init_economy(2);

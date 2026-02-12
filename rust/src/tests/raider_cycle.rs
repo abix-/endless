@@ -29,6 +29,7 @@ pub fn setup(
         });
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
+        farm_states.positions.push(Vec2::new(350.0 + (i as f32 * 50.0), 350.0));
     }
     params.init_economy(2);
     params.food_storage.food[0] = 10; // villager food

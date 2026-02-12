@@ -96,7 +96,7 @@ When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the 
 
 Destroying a spawner building tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
 
-Tent spawners set raider home to camp center (not building position) and faction from the camp's town data.
+All spawners set home to building position (house/barracks/tent). Tent spawners set faction from the camp's town data.
 
 ## Known Issues
 

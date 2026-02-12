@@ -457,17 +457,19 @@ pub enum FarmGrowthState {
     Ready,    // Ready to harvest, shows food icon
 }
 
-/// Per-farm growth tracking.
-#[derive(Resource, Default)]
+/// Per-farm growth tracking. Extracted to render world for instanced farm sprites.
+#[derive(Resource, Default, Clone, ExtractResource)]
 pub struct FarmStates {
     pub states: Vec<FarmGrowthState>,  // Per-farm state
     pub progress: Vec<f32>,            // Growth progress 0.0-1.0
+    pub positions: Vec<Vec2>,          // World positions (for render)
 }
 
 impl FarmStates {
-    pub fn push_farm(&mut self) {
+    pub fn push_farm(&mut self, pos: Vec2) {
         self.states.push(FarmGrowthState::Growing);
         self.progress.push(0.0);
+        self.positions.push(pos);
     }
 }
 

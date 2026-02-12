@@ -17,6 +17,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
     });
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.0);
+    farm_states.positions.push(Vec2::new(450.0, 400.0));
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
 
@@ -67,7 +68,7 @@ pub fn tick(
         }
         // Phase 2: Farmer rests → status_sprites should show SLEEP_SPRITE
         2 => {
-            let resting = npc_activity_query.iter().find(|(_, a)| matches!(a, Activity::Resting { .. }));
+            let resting = npc_activity_query.iter().find(|(_, a)| matches!(a, Activity::Resting));
             test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());
 
             if let Some((idx, _)) = resting {
@@ -86,7 +87,7 @@ pub fn tick(
         // Phase 3: Farmer wakes → status_sprites should be cleared (-1)
         3 => {
             // Look for a farmer that was resting (phase 2 passed) and is now awake
-            let awake = npc_activity_query.iter().find(|(_, a)| !matches!(a, Activity::Resting { .. }));
+            let awake = npc_activity_query.iter().find(|(_, a)| !matches!(a, Activity::Resting));
             test.phase_name = format!("e={:.0} awake={}", energy, awake.is_some());
 
             if let Some((idx, _)) = awake {

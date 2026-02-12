@@ -127,7 +127,7 @@ pub struct WorkPosition(pub Vec2);
 // ============================================================================
 
 /// What the NPC is *doing*. Mutually exclusive — an NPC is in exactly one activity.
-/// Transit variants (Patrolling, GoingToWork, GoingToRest, Wandering, Raiding, Returning)
+/// Transit variants (Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning)
 /// mean the NPC is moving toward a destination; use `is_transit()` to check.
 #[derive(Component, Default, Clone, Debug, PartialEq)]
 pub enum Activity {
@@ -138,7 +138,9 @@ pub enum Activity {
     Patrolling,
     GoingToWork,
     GoingToRest,
-    Resting { recover_until: Option<f32> },
+    Resting,
+    GoingToHeal,
+    HealingAtFountain { recover_until: f32 },
     Wandering,
     Raiding { target: Vec2 },
     Returning { has_food: bool },
@@ -148,7 +150,7 @@ impl Activity {
     /// Is this NPC moving toward a destination?
     pub fn is_transit(&self) -> bool {
         matches!(self, Self::Patrolling | Self::GoingToWork | Self::GoingToRest
-            | Self::Wandering | Self::Raiding { .. } | Self::Returning { .. })
+            | Self::GoingToHeal | Self::Wandering | Self::Raiding { .. } | Self::Returning { .. })
     }
 
     /// Display name for UI/debug.
@@ -160,8 +162,9 @@ impl Activity {
             Self::Patrolling => "Patrolling",
             Self::GoingToWork => "Going to Work",
             Self::GoingToRest => "Going to Rest",
-            Self::Resting { recover_until: Some(_) } => "Recovering",
-            Self::Resting { recover_until: None } => "Resting",
+            Self::Resting => "Resting",
+            Self::GoingToHeal => "Going to Heal",
+            Self::HealingAtFountain { .. } => "Healing",
             Self::Wandering => "Wandering",
             Self::Raiding { .. } => "Raiding",
             Self::Returning { has_food: true } => "Returning (food)",

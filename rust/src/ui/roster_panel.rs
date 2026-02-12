@@ -108,12 +108,12 @@ pub fn roster_panel_system(
                 state.job_filter = -1;
                 state.frame_counter = 0; // force refresh
             }
-            if ui.selectable_label(state.job_filter == 0, "Farmers").clicked() {
-                state.job_filter = 0;
-                state.frame_counter = 0;
-            }
             if ui.selectable_label(state.job_filter == 1, "Guards").clicked() {
                 state.job_filter = 1;
+                state.frame_counter = 0;
+            }
+            if ui.selectable_label(state.job_filter == 0, "Farmers").clicked() {
+                state.job_filter = 0;
                 state.frame_counter = 0;
             }
             if ui.selectable_label(state.job_filter == 2, "Raiders").clicked() {

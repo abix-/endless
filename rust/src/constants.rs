@@ -125,8 +125,9 @@ pub const MAX_FARMS: usize = 500;
 /// Maximum projectiles the system can handle.
 pub const MAX_PROJECTILES: usize = 50000;
 
-/// Collision detection radius for projectile hits.
-pub const PROJECTILE_HIT_RADIUS: f32 = 10.0;
+/// Oriented rectangle hitbox for arrow projectiles.
+pub const PROJECTILE_HIT_HALF_LENGTH: f32 = 12.0; // along travel direction
+pub const PROJECTILE_HIT_HALF_WIDTH: f32 = 4.0;   // perpendicular to travel
 
 /// Floats per projectile instance in MultiMesh buffer.
 pub const PROJ_FLOATS_PER_INSTANCE: usize = 12;

@@ -350,6 +350,19 @@ Combat depth:
 - [ ] Trait combinations (multiple traits per NPC)
 - [ ] Player combat abilities
 
+Loot system:
+- [ ] `LootRarity` enum: Common (60%), Uncommon (25%), Rare (10%), Epic (4%), Legendary (1%)
+- [ ] `LootItem` struct: slot (Weapon/Armor), rarity, stat bonus (damage% or armor%)
+- [ ] Raider death → chance to drop `LootBag` entity at death position (30% base drop rate)
+- [ ] `LootBag` world sprite (gold sack icon on ground, despawn after 5 game-hours if uncollected)
+- [ ] Guards detect nearby loot bags in `decision_system` (priority above patrol, below combat)
+- [ ] Guard walks to loot bag → picks up → item added to `TownInventory`
+- [ ] `TownInventory` resource: per-town `Vec<LootItem>`, capacity scales with town upgrades
+- [ ] Inventory panel UI (new tab): view collected loot sorted by rarity, click to equip on selected NPC
+- [ ] `Equipment` component on NPCs: weapon slot + armor slot, each holds `Option<LootItem>`
+- [ ] Equipped loot feeds into `resolve_combat_stats()` — weapon adds damage%, armor adds max_health%
+- [ ] Equipped weapon/armor reflected in NPC equipment sprite layers
+
 Visual polish:
 - [x] Sleep sprite texture — `sleep.png` as 4th texture (bindings 6-7, atlas_id=3.0), scale 16.0 with white tint
 

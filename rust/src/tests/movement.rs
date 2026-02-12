@@ -21,6 +21,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
         });
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
+        farm_states.positions.push(Vec2::new(fx, FARM_Y));
         params.add_bed(fx, 550.0);
     }
     params.init_economy(1);

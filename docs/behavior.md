@@ -6,7 +6,7 @@ NPC decision-making and state transitions. All run in `Step::Behavior` after com
 
 **Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal enum components (concurrent state machines pattern):
 
-- `Activity` enum: what the NPC is *doing* (Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, Wandering, Raiding, Returning)
+- `Activity` enum: what the NPC is *doing* (Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain, Wandering, Raiding, Returning)
 - `CombatState` enum: whether the NPC is *fighting* (None, Fighting, Fleeing)
 
 Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
@@ -20,11 +20,11 @@ Priority order (first match wins):
 1. CombatState::Fighting + should_flee? → Flee
 2. CombatState::Fighting + should_leash? → Leash
 3. CombatState::Fighting → Skip (attack_system handles)
-4. Resting { recover_until: Some(t) } + HP >= t → Resume
+4a. HealingAtFountain + HP >= threshold → Wake (HP-only check)
+4b. Resting + energy >= 90% → Wake (energy-only check)
 5. Working + tired? → Stop work
 6. OnDuty + time_to_patrol? → Patrol
-7. Resting + rested? → Wake up
-8. Idle → Score Eat/Rest/Work/Wander
+7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
 
 All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `guard_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
 
@@ -97,31 +97,25 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
          └────────┬───────────┘                deliver food, re-enter
                   │ decision_system            decision_system
                   ▼ (weighted random)
-             ┌──────────┐
-             │GoingToRest│
-             └────┬─────┘
-                  │ arrival
-                  ▼
-             ┌─────────────────────┐
-             │ Resting{recover: _} │
-             └────┬────────────────┘
-                  │ decision_system
-                  ▼ (weighted random)
-             back to previous cycle
+             ┌──────────┐                  ┌──────────┐
+             │GoingToRest│ (tired→home)    │GoingToHeal│ (wounded→fountain)
+             └────┬─────┘                  └────┬─────┘
+                  │ arrival                      │ arrival
+                  ▼                              ▼
+             ┌──────────┐                  ┌────────────────────────┐
+             │ Resting  │ (energy recovery)│ HealingAtFountain      │
+             └────┬─────┘                  │ {recover_until: 0.75}  │
+                  │ energy >= 90%          └────┬───────────────────┘
+                  ▼                              │ HP >= threshold
+             back to previous cycle              ▼
+                                           back to previous cycle
 
     Combat (orthogonal CombatState, Activity preserved):
     ┌─────────────────────┐                    ┌───────────────────┐
     │ CombatState::       │                    │ CombatState::None │
     │ Fighting{origin}    │──flee/leash───────▶│ Activity unchanged│
-    │ Activity: preserved │                    │ (or Returning if  │
-    └─────────────────────┘                    │  wounded)         │
-                                               └─────┬─────────────┘
-                                                     │ if wounded
-                                                     ▼
-                                               ┌───────────────────┐
-                                               │ Resting{recover:  │
-                                               │   Some(0.75)}     │
-                                               └───────────────────┘
+    │ Activity: preserved │                    │ (or Returning)    │
+    └─────────────────────┘                    └───────────────────┘
 ```
 
 ## Components
@@ -130,12 +124,14 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 | Component | Variants | Purpose |
 |-----------|----------|---------|
-| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting{recover_until}, Wandering, Raiding{target}, Returning{has_food}` | What the NPC is *doing* — mutually exclusive |
+| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain{recover_until}, Wandering, Raiding{target}, Returning{has_food}` | What the NPC is *doing* — mutually exclusive |
 | CombatState | `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
 
-`Activity::is_transit()` returns true for Patrolling, GoingToWork, GoingToRest, Wandering, Raiding, Returning. Used by `gpu_position_readback` for arrival detection (replaces old `HasTarget` marker).
+`Activity::is_transit()` returns true for Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning. Used by `gpu_position_readback` for arrival detection.
 
-`Resting { recover_until: Some(0.75) }` replaces old `Recovering` component — NPC rests until HP >= threshold, then resumes.
+`Resting` is a unit variant — energy recovery only. NPCs go home (spawner) to rest.
+
+`HealingAtFountain { recover_until: 0.75 }` — HP recovery at town fountain. NPC waits until HP >= threshold, then resumes. Separate from energy rest.
 
 `Returning { has_food: true }` replaces old `CarryingFood` marker — food carried state is part of the activity.
 
@@ -150,7 +146,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | Starving | marker | NPC energy at zero (50% HP cap, 50% speed) |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
-| Home | `{ x, y }` | NPC's home/bed position |
+| Home | `{ x, y }` | NPC's spawner building position (house/barracks/tent) — rest destination |
 | WorkPosition | `{ x, y }` | Farmer's field position |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
@@ -167,13 +163,11 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 **Priority 0: Arrival transitions**
 - If `AtDestination`: match on Activity variant
   - `Patrolling` → `Activity::OnDuty { ticks_waiting: 0 }`
-  - `GoingToRest` → `Activity::Resting { recover_until: None }` (sleep icon derived by `sync_visual_sprites`)
+  - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
+  - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
   - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
   - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
-  - Wounded check (skipped if starving — HP capped at 50% by starvation, fountain can't heal past it, NPC must rest for energy first): if `prioritize_healing` policy enabled and HP < `recovery_hp` threshold:
-    - If already `Resting`: stamp `recover_until: Some(recovery_hp)` on existing state (avoids redirect loop when NPC is already at destination)
-    - Else: set `GoingToRest` targeting town fountain
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
@@ -181,8 +175,11 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `CombatState::Fighting` + should leash: guards check `guard_leash` policy (if disabled, guards chase freely), raiders use per-entity `LeashRange` component
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
 
-**Priority 4: Recovery**
-- If `Resting { recover_until: Some(t) }` + HP >= t: set `Activity::Idle`
+**Priority 4a: HealingAtFountain wake**
+- If `HealingAtFountain { recover_until }` + HP / max_hp >= recover_until: set `Activity::Idle`
+
+**Priority 4b: Resting wake**
+- If `Activity::Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
 **Priority 5: Tired workers**
 - If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release `AssignedFarm`
@@ -190,11 +187,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 **Priority 6: Patrol**
 - If `Activity::OnDuty { ticks_waiting }` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, set `Activity::Patrolling`
 
-**Priority 7: Wake up**
-- If `Activity::Resting { .. }` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
-
-**Priority 8: Idle scoring (Utility AI)**
-- **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → go to fountain for healing. Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
+**Priority 7: Idle scoring (Utility AI)**
+- **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → `GoingToHeal` targeting fountain. Applies to all jobs (including raiders — they heal at their camp center). Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
 - **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers use `farmer_schedule`, guards use `guard_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
 - **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
@@ -214,10 +208,11 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - All state transitions handled by decision_system Priority 0 (central brain model)
 
 ### energy_system
-- NPCs with `Activity::Resting { .. }`: recover `ENERGY_RECOVER_RATE` per tick
+- NPCs with `Activity::Resting` or `Activity::HealingAtFountain`: recover `ENERGY_RECOVER_RATE` per tick
 - All other NPCs: drain `ENERGY_DRAIN_RATE` per tick
 - Clamp to 0.0-100.0
-- **Note**: All state transitions (wake-up, stop working) are handled in decision_system to keep decisions centralized and avoid Bevy command sync races
+- **Note**: HealingAtFountain also recovers energy to prevent ping-pong (NPC leaves fountain tired → goes home → not healed → returns to fountain)
+- All state transitions (wake-up, stop working) are handled in decision_system to keep decisions centralized
 
 ### healing_system
 - Query: NPCs with `Health`, `MaxHealth`, `Faction`, `TownId` (without `Dead`)
@@ -244,7 +239,7 @@ Energy uses game time (respects time_scale and pause):
 | ENERGY_TIRED_THRESHOLD | 30.0 | Stop working and seek rest below this |
 | ENERGY_EAT_THRESHOLD | 10.0 | Emergency eat threshold — Eat only scored below this |
 
-Rest is scored when energy < `ENERGY_HUNGRY` (50), Eat only when energy < `ENERGY_EAT_THRESHOLD` (10). This means NPCs strongly prefer resting over eating, only consuming food as a last resort. NPCs automatically wake from `Resting` at 90% energy (handled in decision_system for proper command sync).
+Rest is scored when energy < `ENERGY_HUNGRY` (50), Eat only when energy < `ENERGY_EAT_THRESHOLD` (10). This means NPCs strongly prefer resting over eating, only consuming food as a last resort. NPCs go home (spawner building) to rest, and wake at 90% energy. Wounded NPCs go to the town fountain to heal (separate `GoingToHeal` / `HealingAtFountain` activity).
 
 ## Patrol Cycle
 

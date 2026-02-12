@@ -2,6 +2,7 @@
 
 ## 2026-02-11
 
+- **separate rest from heal** — NPCs go home (spawner) to rest (energy recovery) and to the fountain to heal (HP recovery); new `GoingToHeal` + `HealingAtFountain{recover_until}` Activity variants; `Resting` simplified to unit variant (energy-only); raiders now heal at camp center like villagers (removed raider exclusion); raider Home changed from camp center to tent position; sleep icon only shows for Resting, not HealingAtFountain; energy recovers during both states to prevent ping-pong
 - **sleep sprite texture** — sleep indicator now uses dedicated `sleep.png` texture (4th atlas, bindings 6-7, atlas_id=3.0) instead of character sheet lookup; white tint preserves sprite's natural blue Zz; fragment shader dispatches sleep (≥2.5) → heal (≥1.5) → normal; sleep_visual test stride fix (`idx*2` → `idx*3`) and assertion updated for atlas-based check
 - **color saturation** — job colors changed from tinted to pure (farmer=green, guard=blue, raider=red, fighter=yellow); raider faction palette saturated (10 distinct pure colors instead of muted tints)
 - **healing halo** — healing NPCs show a yellow halo ring sprite (`heal.png`) instead of a small icon overlay; third texture atlas bound at group 0 bindings 4-5 (`atlas_id=2.0`); healing layer renders at scale 20 with yellow tint; heal_visual test updated for new signal format (stride fix: `idx*2` → `idx*3`)

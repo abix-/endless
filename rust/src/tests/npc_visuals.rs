@@ -56,6 +56,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<crate::resourc
     });
     farm_states.states.push(crate::resources::FarmGrowthState::Growing);
     farm_states.progress.push(0.0);
+    farm_states.positions.push(Vec2::new(450.0, 400.0));
     params.init_economy(1);
     params.game_time.time_scale = 0.0;
 

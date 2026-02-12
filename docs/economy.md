@@ -57,7 +57,7 @@ game_time_system (every frame)
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- House → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position), Tent → Raider (faction from town data, home = camp center)
+- House → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position), Tent → Raider (faction from town data, home = tent position)
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true

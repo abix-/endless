@@ -77,8 +77,10 @@ pub struct InstanceData {
     pub flash: f32,
     /// World-space quad size (16.0 for NPCs, 32.0 for terrain tiles)
     pub scale: f32,
-    /// Which texture atlas to sample (0.0 = character, 1.0 = world)
+    /// Which texture atlas to sample (0.0 = character, 1.0 = world, 4.0 = arrow)
     pub atlas_id: f32,
+    /// Rotation in radians (0.0 = no rotation, used for projectile orientation)
+    pub rotation: f32,
 }
 
 /// Static quad vertex: position and UV
@@ -414,6 +416,7 @@ fn prepare_npc_buffers(
     gpu_data: Option<Res<NpcGpuData>>,
     existing_buffers: Option<ResMut<NpcRenderBuffers>>,
     gpu_state: Option<Res<crate::resources::GpuReadState>>,
+    farm_states: Option<Res<crate::resources::FarmStates>>,
 ) {
     let Some(writes) = buffer_writes else { return };
 
@@ -430,6 +433,33 @@ fn prepare_npc_buffers(
     let mut layer_instances: Vec<RawBufferVec<InstanceData>> = (0..LAYER_COUNT)
         .map(|_| RawBufferVec::new(BufferUsages::VERTEX))
         .collect();
+
+    // Farm sprites first (drawn below NPCs): food icon with growth progress bar
+    if let Some(farms) = farm_states {
+        let count = farms.positions.len().min(farms.progress.len()).min(farms.states.len());
+        for i in 0..count {
+            let pos = farms.positions[i];
+            if pos.x < -9000.0 { continue; } // tombstoned
+
+            let ready = farms.states[i] == crate::resources::FarmGrowthState::Ready;
+            let color = if ready {
+                [1.0, 0.85, 0.0, 1.0] // golden
+            } else {
+                [0.4, 0.8, 0.2, 1.0]  // green
+            };
+
+            layer_instances[0].push(InstanceData {
+                position: [pos.x, pos.y],
+                sprite: [24.0, 9.0], // FOOD_SPRITE on world atlas
+                color,
+                health: farms.progress[i].clamp(0.0, 1.0),
+                flash: 0.0,
+                scale: 16.0,
+                atlas_id: 1.0, // world atlas
+                rotation: 0.0,
+            });
+        }
+    }
 
     for i in 0..npc_count {
         let (px, py) = if let Some(ref pos) = readback_positions {
@@ -466,6 +496,7 @@ fn prepare_npc_buffers(
                 flash,
                 scale: 16.0,
                 atlas_id: body_atlas,
+                rotation: 0.0,
             });
         }
 
@@ -490,6 +521,7 @@ fn prepare_npc_buffers(
                     flash,
                     scale: lscale,
                     atlas_id: eatlas,
+                    rotation: 0.0,
                 });
             }
         }
@@ -544,10 +576,12 @@ fn prepare_npc_texture_bind_group(
     let Some(world_handle) = &sprite_texture.world_handle else { return };
     let Some(heal_handle) = &sprite_texture.heal_handle else { return };
     let Some(sleep_handle) = &sprite_texture.sleep_handle else { return };
+    let Some(arrow_handle) = &sprite_texture.arrow_handle else { return };
     let Some(char_image) = gpu_images.get(char_handle) else { return };
     let Some(world_image) = gpu_images.get(world_handle) else { return };
     let Some(heal_image) = gpu_images.get(heal_handle) else { return };
     let Some(sleep_image) = gpu_images.get(sleep_handle) else { return };
+    let Some(arrow_image) = gpu_images.get(arrow_handle) else { return };
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.texture_bind_group_layout);
 
@@ -563,6 +597,8 @@ fn prepare_npc_texture_bind_group(
             &heal_image.sampler,
             &sleep_image.texture_view,
             &sleep_image.sampler,
+            &arrow_image.texture_view,
+            &arrow_image.sampler,
         )),
     );
 
@@ -731,6 +767,11 @@ impl SpecializedRenderPipeline for NpcPipeline {
                                 offset: 44,
                                 shader_location: 8, // atlas_id
                             },
+                            VertexAttribute {
+                                format: bevy::render::render_resource::VertexFormat::Float32,
+                                offset: 48,
+                                shader_location: 9, // rotation
+                            },
                         ],
                     },
                 ],
@@ -782,6 +823,9 @@ impl FromWorld for NpcPipeline {
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                     // Bindings 6-7: Sleep icon sprite
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
+                    // Bindings 8-9: Arrow projectile sprite
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                 ),
@@ -869,23 +913,29 @@ fn prepare_proj_buffers(
 
         if px < -9000.0 { continue; }
 
-        // Color by faction: 0 = villager (blue), 1+ = raider (red)
+        // Color by faction (same palette as NPCs)
         let faction = writes.factions.get(i).copied().unwrap_or(0);
         let (cr, cg, cb) = if faction == 0 {
-            (0.4, 0.6, 1.0)
+            (0.0, 0.0, 1.0) // Villager: blue (guard color)
         } else {
-            (1.0, 0.3, 0.2)
+            let (r, g, b, _) = crate::constants::raider_faction_color(faction);
+            (r, g, b)
         };
 
-        // Projectile sprite (20, 7) — small arrow/bolt
+        // Rotation from velocity: atan2 gives angle from +X, subtract PI/2 since arrow points up
+        let vx = writes.velocities.get(i * 2).copied().unwrap_or(0.0);
+        let vy = writes.velocities.get(i * 2 + 1).copied().unwrap_or(0.0);
+        let angle = vy.atan2(vx) - std::f32::consts::FRAC_PI_2;
+
         instances.push(InstanceData {
             position: [px, py],
-            sprite: [20.0, 7.0],
+            sprite: [0.0, 0.0],
             color: [cr, cg, cb, 1.0],
             health: 1.0,
             flash: 0.0,
             scale: 16.0,
-            atlas_id: 0.0,
+            atlas_id: 4.0,
+            rotation: angle,
         });
     }
 

@@ -35,6 +35,7 @@ pub fn setup(
         });
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
+        farm_states.positions.push(Vec2::new(fx, fy));
     }
 
     // 5 beds near town 0

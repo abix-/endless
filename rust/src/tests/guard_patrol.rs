@@ -59,7 +59,7 @@ pub fn tick(
     let energy = energy_query.iter().next().map(|e| e.0).unwrap_or(100.0);
     let on_duty = activity_query.iter().filter(|a| matches!(a, Activity::OnDuty { .. })).count();
     let patrolling = activity_query.iter().filter(|a| matches!(a, Activity::Patrolling)).count();
-    let resting = activity_query.iter().filter(|a| matches!(a, Activity::Resting { .. })).count();
+    let resting = activity_query.iter().filter(|a| matches!(a, Activity::Resting)).count();
     let going_rest = activity_query.iter().filter(|a| matches!(a, Activity::GoingToRest)).count();
 
     match test.phase {

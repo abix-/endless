@@ -288,14 +288,8 @@ pub fn spawner_respawn_system(
                         }
                     };
 
-                // Raider home = camp center, villager home = building position
-                let (home_x, home_y) = if entry.building_kind == 2 {
-                    let center = world_data.towns.get(town_data_idx)
-                        .map(|t| t.center).unwrap_or(entry.position);
-                    (center.x, center.y)
-                } else {
-                    (entry.position.x, entry.position.y)
-                };
+                // Home = spawner building position (house/barracks/tent)
+                let (home_x, home_y) = (entry.position.x, entry.position.y);
 
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,

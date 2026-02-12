@@ -8,10 +8,11 @@
 //! The decision system is the NPC's "brain" - all decisions flow through it:
 //! Priority 0: AtDestination? → Handle arrival transition
 //! Priority 1-3: Combat (flee/leash/skip)
-//! Priority 4: Resting? → Wake when HP recovered (if wounded) AND energy >= 90%
+//! Priority 4a: HealingAtFountain? → Wake when HP recovered
+//! Priority 4b: Resting? → Wake when energy >= 90%
 //! Priority 5: Working + tired? → Stop work
 //! Priority 6: OnDuty + time_to_patrol? → Patrol
-//! Priority 7: Idle → Score Eat/Rest/Work/Wander
+//! Priority 7: Idle → Score Eat/Rest/Work/Wander (wounded → fountain)
 
 use bevy::prelude::*;
 
@@ -247,10 +248,11 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 /// 0. AtDestination → Handle arrival transition
 /// 1-3. Combat (flee/leash/skip) — runs before transit skip so fighting NPCs can flee
 /// -- Skip transit NPCs --
-/// 4. Resting? → Wake when HP recovered (if wounded) AND energy >= 90%
+/// 4a. HealingAtFountain? → Wake when HP recovered
+/// 4b. Resting? → Wake when energy >= 90%
 /// 5. Working + tired? → Stop work
 /// 6. OnDuty + time_to_patrol? → Patrol
-/// 7. Idle → Score Eat/Rest/Work/Wander (utility AI)
+/// 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
 pub fn decision_system(
     mut commands: Commands,
     // Main query: core NPC data
@@ -302,8 +304,15 @@ pub fn decision_system(
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ OnDuty".into());
                 }
                 Activity::GoingToRest => {
-                    *activity = Activity::Resting { recover_until: None };
+                    *activity = Activity::Resting;
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting".into());
+                }
+                Activity::GoingToHeal => {
+                    let town_idx = town_id.0 as usize;
+                    let threshold = policies.policies.get(town_idx)
+                        .map(|p| p.recovery_hp).unwrap_or(0.8);
+                    *activity = Activity::HealingAtFountain { recover_until: threshold };
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Healing".into());
                 }
                 Activity::GoingToWork => {
                     // Farmers: find farm at WorkPosition and start working
@@ -428,34 +437,6 @@ pub fn decision_system(
                 _ => {}
             }
 
-            // Check wounded threshold on arrival (policy-driven)
-            // Skip if starving — HP is capped at 50% until energy recovers, so
-            // fountain healing can't reach recovery_hp. Let them rest for energy first.
-            let town_idx = town_id.0 as usize;
-            if energy.0 > 0.0 {
-                if let Some(policy) = policies.policies.get(town_idx) {
-                    let max_hp = 100.0; // TODO: use CachedStats.max_health when available in query
-                    let health_pct = health.0 / max_hp;
-                    if health_pct < policy.recovery_hp {
-                        if matches!(*activity, Activity::Resting { .. }) {
-                            // Already resting at destination — just set recovery threshold
-                            *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
-                        } else if policy.prioritize_healing {
-                            if let Some(town) = farms.world.towns.get(town_idx) {
-                                let center = town.center;
-                                *activity = Activity::GoingToRest;
-                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded → Fountain".into());
-                            } else {
-                                *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
-                            }
-                        } else {
-                            *activity = Activity::Resting { recover_until: Some(policy.recovery_hp) };
-                        }
-                    }
-                }
-            }
-
             continue;
         }
 
@@ -542,20 +523,25 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Priority 4: Resting? (energy rest + wounded recovery unified)
+        // Priority 4a: HealingAtFountain? → Wake when HP recovered
         // ====================================================================
-        if let Activity::Resting { recover_until } = &*activity {
-            // Wounded recovery: wait for HP threshold before waking
-            if let Some(threshold) = recover_until {
-                if health.0 / 100.0 < *threshold {
-                    continue; // still recovering HP
-                }
-            }
-            // Normal wake: energy must reach threshold
-            if energy.0 >= ENERGY_WAKE_THRESHOLD {
-                let msg = if recover_until.is_some() { "Recovered" } else { "Woke up" };
+        if let Activity::HealingAtFountain { recover_until } = &*activity {
+            if health.0 / 100.0 >= *recover_until {
                 *activity = Activity::Idle;
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), msg.into());
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Recovered".into());
+                // Fall through to make a decision
+            } else {
+                continue;
+            }
+        }
+
+        // ====================================================================
+        // Priority 4b: Resting? → Wake when energy recovered
+        // ====================================================================
+        if matches!(*activity, Activity::Resting) {
+            if energy.0 >= ENERGY_WAKE_THRESHOLD {
+                *activity = Activity::Idle;
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Woke up".into());
                 // Fall through to make a decision
             } else {
                 continue;
@@ -620,10 +606,10 @@ pub fn decision_system(
         // Prioritize healing: wounded NPCs go to fountain before doing anything else
         // Skip if starving — HP capped at 50% until energy recovers
         if let Some(p) = policy {
-            if p.prioritize_healing && energy.0 > 0.0 && health.0 / 100.0 < p.recovery_hp && *job != Job::Raider {
+            if p.prioritize_healing && energy.0 > 0.0 && health.0 / 100.0 < p.recovery_hp {
                 if let Some(town) = farms.world.towns.get(town_idx) {
                     let center = town.center;
-                    *activity = Activity::GoingToRest;
+                    *activity = Activity::GoingToHeal;
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded → Fountain".into());
                     continue;
