@@ -2,7 +2,7 @@
 
 One town. A few farmers. Raiders at the gate.
 
-Grow food. Train guards. Build walls. Raise an army. Conquer the map. Then conquer the next one.
+Grow food. Train guards. Build walls. Raise an army. Take the county. Take the world.
 
 A real-time kingdom builder inspired by [Lords of the Realm 2](https://en.wikipedia.org/wiki/Lords_of_the_Realm_II) meets [Factorio](https://factorio.com)-scale simulation — tens of thousands of NPCs, each with a job, a home, and a personality.
 
