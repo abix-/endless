@@ -19,6 +19,7 @@ pub mod sleep_visual;
 pub mod farm_visual;
 pub mod heal_visual;
 pub mod npc_visuals;
+pub mod terrain_visual;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -57,6 +58,7 @@ pub struct CleanupExtra<'w> {
     pub world_grid: ResMut<'w, crate::world::WorldGrid>,
     pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
     pub spawner_state: ResMut<'w, crate::resources::SpawnerState>,
+    pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
 }
 
 // ============================================================================
@@ -549,6 +551,21 @@ pub fn register_tests(app: &mut App) {
             .run_if(test_is("npc-visuals"))
             .after(crate::gpu::sync_visual_sprites));
 
+    // terrain-visual
+    registry.tests.push(TestEntry {
+        name: "terrain-visual".into(),
+        description: "Visual showcase: all terrain biomes and building types".into(),
+        phase_count: 1,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        terrain_visual::setup.run_if(test_is("terrain-visual")));
+    app.add_systems(Update,
+        terrain_visual::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("terrain-visual"))
+            .after(Step::Behavior));
+
     app.insert_resource(registry);
 }
 
@@ -788,11 +805,16 @@ pub fn auto_start_next_test(
 fn cleanup_test_world(
     mut commands: Commands,
     entity_query: Query<Entity, Or<(With<NpcIndex>, With<FarmReadyMarker>)>>,
+    tilemap_query: Query<Entity, Or<(With<crate::render::TerrainChunk>, With<crate::render::BuildingChunk>)>>,
     mut core: CleanupCore,
     mut extra: CleanupExtra,
 ) {
     let count = entity_query.iter().count();
     for entity in entity_query.iter() {
+        commands.entity(entity).despawn();
+    }
+    let tilemap_count = tilemap_query.iter().count();
+    for entity in tilemap_query.iter() {
         commands.entity(entity).despawn();
     }
 
@@ -814,7 +836,8 @@ fn cleanup_test_world(
     *extra.world_grid = Default::default();
     *extra.debug_flags = Default::default();
     *extra.spawner_state = Default::default();
+    extra.tilemap_spawned.0 = false;
 
-    info!("Test cleanup: despawned {} NPCs, reset resources", count);
+    info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);
 }
 

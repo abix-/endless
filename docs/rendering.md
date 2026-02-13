@@ -96,7 +96,7 @@ Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terr
 - Sprite from `armor_sprites`/`helmet_sprites`/`weapon_sprites`/`item_sprites` (stride 3: col, row, atlas_id per NPC)
 - Sentinel: col < 0 means unequipped → skip
 - Atlas: per-sprite atlas_id (0.0=character, 1.0=world). Food item uses world atlas (1.0)
-- Color: job color tint (same RGBA as body) — guards' equipment renders blue, raiders' red
+- Color: equipment (atlas < 0.5) uses job color tint; carried items (atlas >= 0.5) use white [1,1,1,1] for original sprite color
 - Health: 1.0 (no health bar; shader discards bottom pixels for health >= 0.99)
 - Flash: inherited from body (equipment flashes on hit)
 
@@ -337,13 +337,15 @@ Both terrain and buildings are rendered via Bevy's built-in `TilemapChunk` — t
 | Layer | Z | Alpha | Content | Tileset |
 |-------|---|-------|---------|---------|
 | Terrain | -1.0 | Blend | Every cell filled (biome tiles) | 11 tiles (`TERRAIN_TILES`) |
-| Buildings | -0.5 | Blend | `None` for empty, building tile where placed | 5 tiles (`BUILDING_TILES`) |
+| Buildings | -0.5 | Blend | `None` for empty, building tile where placed | 8 tiles (`BUILDING_TILES`) |
 
 Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase alongside NPCs (sort_key=0.5). Using `Opaque` would place terrain in the Opaque2d phase which renders *after* Transparent2d, causing terrain to draw over NPCs regardless of z-value.
 
 **Slot Indicators** (`ui/mod.rs`): Building grid indicators use Sprite entities at z=-0.3 with a `SlotIndicator` marker component — not gizmos, because Bevy gizmos render in a separate pass after all Transparent2d items and can't be z-sorted with them. Green "+" crosshairs mark empty unlocked slots, dim bracket corners mark adjacent locked slots. Indicators are rebuilt when `TownGrids` or `WorldGrid` changes, and despawned on game cleanup.
 
-**`build_tileset(atlas, tiles, images)`** (`world.rs`): Generic function that extracts 16×16 tiles from the world atlas at specified (col, row) positions and builds a `texture_2d_array`. Called twice — once with `TERRAIN_TILES` (11 tiles: 2 grass, 6 forest, water, rock, dirt) and once with `BUILDING_TILES` (5 tiles: fountain, bed, guard post, farm, camp).
+**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite or `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad.
+
+**`build_tileset(atlas, tiles, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array`. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block, visually identical to GPU stretch). `Quad` tiles blit four 16×16 sprites into quadrants. Called twice — once with `TERRAIN_TILES` (11 tiles) and once with `BUILDING_TILES` (8 tiles).
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 

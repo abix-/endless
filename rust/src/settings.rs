@@ -44,6 +44,9 @@ pub struct UserSettings {
     // Town policies
     #[serde(default)]
     pub policy: PolicySet,
+    // Display
+    #[serde(default)]
+    pub background_fps: bool,
     // AI players
     #[serde(default = "default_one")]
     pub ai_towns: usize,
@@ -75,6 +78,7 @@ impl Default for UserSettings {
             log_levelups: true,
             log_npc_activity: true,
             log_ai: true,
+            background_fps: false,
             debug_enemy_info: false,
             debug_coordinates: false,
             debug_all_npcs: false,

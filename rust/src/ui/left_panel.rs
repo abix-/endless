@@ -84,6 +84,7 @@ pub struct RosterParams<'w, 's> {
         &'static CachedStats,
         &'static Activity,
         &'static CombatState,
+        &'static Faction,
     ), Without<Dead>>,
     camera_query: Query<'w, 's, &'static mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<'w, GpuReadState>,
@@ -191,11 +192,11 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
     state.frame_counter += 1;
     if state.frame_counter % 30 == 1 || state.cached_rows.is_empty() {
         let mut rows = Vec::new();
-        for (npc_idx, health, cached, activity, combat) in roster.health_query.iter() {
+        for (npc_idx, health, cached, activity, combat, faction) in roster.health_query.iter() {
             let idx = npc_idx.0;
             let meta = &roster.meta_cache.0[idx];
-            // Hide raiders unless debug mode
-            if !debug_all && meta.job == 2 { continue; }
+            // Player faction only unless debug
+            if !debug_all && faction.0 != 0 { continue; }
             if state.job_filter >= 0 && meta.job != state.job_filter {
                 continue;
             }

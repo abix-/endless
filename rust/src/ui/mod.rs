@@ -322,6 +322,7 @@ fn pause_menu_system(
     mut game_time: ResMut<GameTime>,
     mut next_state: ResMut<NextState<AppState>>,
     mut settings: ResMut<crate::settings::UserSettings>,
+    mut winit_settings: ResMut<bevy::winit::WinitSettings>,
 ) -> Result {
     if !ui_state.pause_menu_open { return Ok(()); }
 
@@ -361,6 +362,18 @@ fn pause_menu_system(
                 .show(ui, |ui| {
                     ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0)
                         .text("Scroll Speed"));
+
+                    let prev_bg_fps = settings.background_fps;
+                    ui.checkbox(&mut settings.background_fps, "Full FPS in Background");
+                    if settings.background_fps != prev_bg_fps {
+                        winit_settings.unfocused_mode = if settings.background_fps {
+                            bevy::winit::UpdateMode::Continuous
+                        } else {
+                            bevy::winit::UpdateMode::reactive_low_power(
+                                std::time::Duration::from_secs_f64(1.0 / 60.0),
+                            )
+                        };
+                    }
 
                     ui.add_space(4.0);
                     ui.label("Combat Log Filters:");

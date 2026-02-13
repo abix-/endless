@@ -510,6 +510,8 @@ fn prepare_npc_buffers(
                     (16.0, [1.0, 1.0, 1.0, 1.0])  // sleep: natural sprite color
                 } else if eatlas >= 1.5 {
                     (20.0, [1.0, 0.9, 0.2, 1.0])  // heal: larger, yellow
+                } else if eatlas >= 0.5 {
+                    (16.0, [1.0, 1.0, 1.0, 1.0])  // carried item: original sprite color
                 } else {
                     (16.0, [cr, cg, cb, 1.0])      // equipment: job color
                 };

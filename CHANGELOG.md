@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-13
+
+- **2x2 composite tiles** — `TileSpec` enum (`Single`/`Quad`) enables tiles built from four 16x16 sprites; `build_tileset` produces 32x32 array texture layers with nearest-neighbor 2x upscale for single sprites and quadrant blitting for composites; Rock terrain, Farm, Camp, and Tent buildings now use 2x2 composites; new grass sprites (A=3,16 B=3,13)
+- **carried food untinted** — food sprite on returning raiders renders with original texture colors instead of faction color tint; equipment layers (atlas 0) still use job color, carried items (atlas >= 0.5) use white
+- **roster faction filter** — roster panel only shows player faction (faction 0) NPCs by default; existing "All NPCs in Roster" debug setting in pause menu toggles all-faction view; replaces old raiders-only hide filter
+- **background fps setting** — pause menu checkbox "Full FPS in Background" keeps game running at full framerate when window is unfocused; persisted in settings; applied on startup via WinitSettings
+- **terrain-visual test** — new debug test showcasing all terrain biomes and building types in a labeled grid; test cleanup now despawns tilemap chunks and resets TilemapSpawned
+
 ## 2026-02-12
 
 - **ai personalities** — AI players get random personality (Aggressive/Balanced/Economic) at game start; personality drives build order, upgrade priority, food reserve threshold, and town policies; combat log shows personality tag (`Town [Balanced] built farm`); smart slot selection: economy buildings prefer inner slots, guard posts prefer outer slots with min spacing of 5; slot unlock now sets terrain to Dirt (visible on tilemap via new `sync_terrain_tilemap` system + `TerrainChunk` marker)

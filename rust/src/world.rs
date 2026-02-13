@@ -521,63 +521,101 @@ impl Biome {
     }
 }
 
+/// Tile specification: single 16x16 sprite or 2x2 composite of four 16x16 sprites.
+#[derive(Clone, Copy)]
+pub enum TileSpec {
+    Single(u32, u32),
+    Quad([(u32, u32); 4]),  // [TL, TR, BL, BR]
+}
+
 /// Atlas (col, row) positions for the 11 terrain tiles used in the TilemapChunk tileset.
-pub const TERRAIN_TILES: [(u32, u32); 11] = [
-    (0, 14),  // 0: Grass A
-    (1, 14),  // 1: Grass B
-    (13, 9),  // 2: Forest A
-    (14, 9),  // 3: Forest B
-    (15, 9),  // 4: Forest C
-    (16, 9),  // 5: Forest D
-    (17, 9),  // 6: Forest E
-    (18, 9),  // 7: Forest F
-    (3, 1),   // 8: Water
-    (7, 13),  // 9: Rock
-    (8, 10),  // 10: Dirt
+pub const TERRAIN_TILES: [TileSpec; 11] = [
+    TileSpec::Single(3, 16),  // 0: Grass A
+    TileSpec::Single(3, 13),  // 1: Grass B
+    TileSpec::Single(13, 9),  // 2: Forest A
+    TileSpec::Single(14, 9),  // 3: Forest B
+    TileSpec::Single(15, 9),  // 4: Forest C
+    TileSpec::Single(16, 9),  // 5: Forest D
+    TileSpec::Single(17, 9),  // 6: Forest E
+    TileSpec::Single(18, 9),  // 7: Forest F
+    TileSpec::Single(3, 1),   // 8: Water
+    TileSpec::Quad([(7, 15), (9, 15), (7, 17), (9, 17)]),  // 9: Rock
+    TileSpec::Single(8, 10),  // 10: Dirt
 ];
 
-/// Atlas (col, row) positions for the 5 building tiles used in the building TilemapChunk layer.
-pub const BUILDING_TILES: [(u32, u32); 8] = [
-    (50, 9),  // 0: Fountain
-    (15, 2),  // 1: Bed
-    (20, 20), // 2: Guard Post
-    (2, 15),  // 3: Farm
-    (48, 10), // 4: Camp (center)
-    (13, 2),  // 5: House
-    (14, 2),  // 6: Barracks (castle)
-    (49, 10), // 7: Tent (raider spawner)
+/// Atlas (col, row) positions for the 8 building tiles used in the building TilemapChunk layer.
+pub const BUILDING_TILES: [TileSpec; 8] = [
+    TileSpec::Single(50, 9),  // 0: Fountain
+    TileSpec::Single(15, 2),  // 1: Bed
+    TileSpec::Single(20, 20), // 2: Guard Post
+    TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]), // 3: Farm
+    TileSpec::Quad([(46, 10), (47, 10), (46, 11), (47, 11)]), // 4: Camp (center)
+    TileSpec::Single(13, 2),  // 5: House
+    TileSpec::Single(14, 2),  // 6: Barracks (castle)
+    TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]), // 7: Tent (raider spawner)
 ];
 
 /// Extract tiles from the world atlas and build a texture_2d_array for TilemapChunk.
-/// Each tile is 16x16 pixels. The atlas has 1px margins (17px cells).
-/// Called with TERRAIN_TILES (11 tiles) or BUILDING_TILES (7 tiles).
-pub fn build_tileset(atlas: &Image, tiles: &[(u32, u32)], images: &mut Assets<Image>) -> Handle<Image> {
-    let tile_size = SPRITE_SIZE as u32; // 16
+/// Each layer is 32x32 pixels. Single sprites are nearest-neighbor 2x upscaled.
+/// Quad sprites composite four 16x16 sprites into quadrants.
+/// The atlas has 1px margins (17px cells).
+pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], images: &mut Assets<Image>) -> Handle<Image> {
+    let sprite = SPRITE_SIZE as u32;    // 16
+    let out_size = sprite * 2;          // 32
     let cell_size = CELL as u32;        // 17
     let atlas_width = atlas.width();
     let layers = tiles.len() as u32;
 
-    // Stack tiles vertically: 16 wide × (16 * N) tall
-    let mut data = vec![0u8; (tile_size * tile_size * layers * 4) as usize];
+    let mut data = vec![0u8; (out_size * out_size * layers * 4) as usize];
     let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
 
-    for (layer, &(col, row)) in tiles.iter().enumerate() {
+    // Blit a 16x16 sprite from atlas (col, row) into layer at (dx, dy) offset
+    let blit = |data: &mut [u8], layer: u32, col: u32, row: u32, dx: u32, dy: u32| {
         let src_x = col * cell_size;
         let src_y = row * cell_size;
+        for ty in 0..sprite {
+            for tx in 0..sprite {
+                let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                let di = (layer * out_size * out_size + (dy + ty) * out_size + (dx + tx)) as usize * 4;
+                data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+            }
+        }
+    };
 
-        for ty in 0..tile_size {
-            for tx in 0..tile_size {
-                let src_idx = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
-                let dst_idx = (layer as u32 * tile_size * tile_size + ty * tile_size + tx) as usize * 4;
-                data[dst_idx..dst_idx + 4].copy_from_slice(&atlas_data[src_idx..src_idx + 4]);
+    for (layer, spec) in tiles.iter().enumerate() {
+        let l = layer as u32;
+        match *spec {
+            TileSpec::Single(col, row) => {
+                // Nearest-neighbor 2x upscale: each src pixel → 2x2 dst pixels
+                let src_x = col * cell_size;
+                let src_y = row * cell_size;
+                for ty in 0..sprite {
+                    for tx in 0..sprite {
+                        let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+                        for oy in 0..2u32 {
+                            for ox in 0..2u32 {
+                                let di = (l * out_size * out_size
+                                    + (ty * 2 + oy) * out_size
+                                    + (tx * 2 + ox)) as usize * 4;
+                                data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+                            }
+                        }
+                    }
+                }
+            }
+            TileSpec::Quad(q) => {
+                blit(&mut data, l, q[0].0, q[0].1, 0, 0);              // TL
+                blit(&mut data, l, q[1].0, q[1].1, sprite, 0);         // TR
+                blit(&mut data, l, q[2].0, q[2].1, 0, sprite);         // BL
+                blit(&mut data, l, q[3].0, q[3].1, sprite, sprite);    // BR
             }
         }
     }
 
     let mut image = Image::new(
         Extent3d {
-            width: tile_size,
-            height: tile_size * layers,
+            width: out_size,
+            height: out_size * layers,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,

@@ -21,7 +21,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 - `test_is("name")` run condition gates per-test setup/tick systems
 - Each test exports `setup` (OnEnter Running) + `tick` (Update after Behavior)
 - Helpers: `tick_elapsed()`, `require_entity()` reduce boilerplate
-- Cleanup on OnExit(Running): despawn all NPC + FarmReadyMarker entities, reset all resources
+- Cleanup on OnExit(Running): despawn all NPC + FarmReadyMarker + tilemap chunk entities, reset all resources (including TilemapSpawned)
 - Run All: sequential execution via `RunAllState` queue (auto-advances after 1.5s)
 - Single tests stay running after pass/fail — user clicks Back in HUD to return
 
@@ -47,6 +47,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `farm-visual` | 3 | Ready farm spawns FarmReadyMarker, removed on harvest |
 | `heal-visual` | 3 | Healing NPC gets halo (atlas_id=2.0) on healing layer, cleared when healed |
 | `npc-visuals` | 1 | Visual showcase: all NPC types in labeled grid with individual layer breakdown |
+| `terrain-visual` | 1 | Visual showcase: all terrain biomes and building types in labeled grid |
 
 ## System Map
 
@@ -66,7 +67,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q)
     │   ├─ FPS overlay: bottom-right corner, EMA-smoothed, always visible (all states)
     │   ├─ Build menu: right-click context menu (Farm/GuardPost/House/Barracks for towns, Tent for camps, Destroy/Unlock/Turret toggle)
-    │   ├─ Pause menu (ESC): Resume, Settings (scroll speed + log/debug filters), Exit to Main Menu
+    │   ├─ Pause menu (ESC): Resume, Settings (scroll speed, background FPS, log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
     ├─ Messages (static queues) ───────────▶ [messages.md]
@@ -158,6 +159,7 @@ rust/
     farm_visual.rs      # Farm ready marker visual test (3 phases)
     heal_visual.rs      # Heal icon visual test (3 phases)
     npc_visuals.rs    # NPC visual showcase — all types × all layers in labeled grid (1 phase)
+    terrain_visual.rs # Terrain + building visual showcase — all biomes and building types (1 phase)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
     stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system
