@@ -313,7 +313,20 @@ Rules:
 
 *Done when: each House supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Houses/Barracks to grow population. Menu sliders for farmers/guards removed.*
 
-**Stage 12: Tension**
+**Stage 12: AI Players** (see [spec](#ai-players))
+
+*Done when: the player is one town in a sea of hostile AI — enemy towns build farms/guards and grow their economy, raider camps build tents and send raids, all factions fight each other, and the AI decision speed is configurable from the main menu.*
+
+- [ ] `AiPlayerConfig` resource (decision interval in real seconds, configurable from main menu)
+- [ ] `AiPlayerState` resource with `Vec<AiPlayer>` — one per AI settlement
+- [ ] `AiKind::Raider` AI: builds tents, unlocks slots, buys AttackSpeed/MoveSpeed upgrades
+- [ ] `AiKind::Builder` AI: builds farms/houses/barracks/guard posts, buys all upgrade types
+- [ ] World gen: independent placement of player towns, AI towns, and raider camps (not paired)
+- [ ] Main menu sliders: AI Towns (0-10), Raider Camps (0-10), AI Speed (1-30s)
+- [ ] Fix faction hardcoding: `spawner_respawn_system` + `game_startup_system` use town faction instead of 0
+- [ ] Fix `NpcsByTownCache` initialization (resize to num_towns in `game_startup_system`)
+
+**Stage 13: Tension**
 
 *Done when: a player who doesn't build or upgrade loses within 30 minutes — raids escalate, food runs out, town falls.*
 
@@ -324,7 +337,7 @@ Rules:
 - [ ] Loss condition: all town NPCs dead + no spawners → game over screen
 - [ ] Building costs rebalanced (everything=1 is not an economy)
 
-**Stage 13: Performance**
+**Stage 14: Performance**
 
 *Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250×250 world.*
 
@@ -340,7 +353,7 @@ Chunked tilemap (see [spec](#chunked-tilemap)):
 Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
 
-**Stage 14: Combat Depth**
+**Stage 15: Combat Depth**
 
 *Done when: two guards with different traits fight the same raider noticeably differently — one flees early, the other berserks at low HP.*
 
@@ -349,7 +362,7 @@ Entity sleeping:
 - [ ] Trait combinations (multiple traits per NPC)
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
 
-**Stage 15: Walls & Defenses**
+**Stage 16: Walls & Defenses**
 
 *Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
 
@@ -359,7 +372,7 @@ Entity sleeping:
 - [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
 - [ ] Guard towers (upgrade from guard post — elevated, +range, requires wall adjacency)
 
-**Stage 16: Save/Load**
+**Stage 17: Save/Load**
 
 *Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off — NPCs in the same positions, same HP, same upgrades, same food.*
 
@@ -368,7 +381,7 @@ Entity sleeping:
 - [ ] Autosave every N game-hours
 - [ ] Save slot selection (3 slots)
 
-**Stage 17: Loot & Equipment**
+**Stage 18: Loot & Equipment**
 
 *Done when: raider dies → drops loot bag → guard picks it up → item appears in town inventory → player equips it on a guard → guard's stats increase and sprite changes.*
 
@@ -379,7 +392,7 @@ Entity sleeping:
 - [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
 - [ ] Equipped items reflected in NPC equipment sprite layers
 
-**Stage 18: Tech Trees**
+**Stage 19: Tech Trees**
 
 *Done when: player researches "Iron Working" which unlocks Barracks Lv2 and Guard damage upgrade tier 2 — visible tech tree with branching paths and resource costs.*
 
@@ -389,7 +402,7 @@ Entity sleeping:
 - [ ] 3 branches: Military (guards/combat), Agriculture (farms/food), Industry (walls/buildings)
 - [ ] UI: tech tree viewer tab in left panel
 
-**Stage 19: Economy Depth**
+**Stage 20: Economy Depth**
 
 *Done when: player must choose between feeding NPCs and buying upgrades — food is a constraint, not a score.*
 
@@ -397,7 +410,7 @@ Entity sleeping:
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 - [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
 
-**Stage 20: Diplomacy**
+**Stage 21: Diplomacy**
 
 *Done when: a raider camp sends a messenger offering a truce for 3 food/hour tribute — accepting stops raids, refusing triggers an immediate attack wave.*
 
@@ -407,7 +420,7 @@ Entity sleeping:
 - [ ] Allied camps stop raiding, may send fighters during large attacks
 - [ ] Betrayal: allied camps can turn hostile if tribute stops or player is weak
 
-**Stage 21: World Generation** (see [spec](#continent-world-generation))
+**Stage 22: World Generation** (see [spec](#continent-world-generation))
 
 *Done when: player selects "Continents" from main menu, sees landmasses with ocean, towns only on land, biome variety across continents.*
 
@@ -416,7 +429,7 @@ Entity sleeping:
 - [ ] Town/camp placement constrained to land cells in Continents mode
 - [ ] Main menu combo box to select generation style, persisted in UserSettings
 
-**Stage 22: Resources & Jobs**
+**Stage 23: Resources & Jobs**
 
 *Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food — multi-resource economy with job specialization.*
 
@@ -424,10 +437,10 @@ Entity sleeping:
 - [ ] Harvester buildings: lumber mill, quarry, mine (same spawner pattern as House/Barracks, 1 worker each)
 - [ ] Resource storage per town (like FoodStorage but for each type)
 - [ ] Building costs use mixed resources (walls=stone, barracks=wood+stone, upgrades=food+iron, etc.)
-- [ ] Crafting: blacksmith building consumes iron → produces weapons/armor (feeds into Stage 17 loot system)
+- [ ] Crafting: blacksmith building consumes iron → produces weapons/armor (feeds into Stage 18 loot system)
 - [ ] Villager job assignment UI (drag workers between roles — farming, woodcutting, mining, smithing, military)
 
-**Stage 23: Armies & Marching**
+**Stage 24: Armies & Marching**
 
 *Done when: player recruits 15 guards into an army, gives a march order to a neighboring camp, and the army walks across the map as a formation — arriving ready to fight.*
 
@@ -437,27 +450,26 @@ Entity sleeping:
 - [ ] Army supply: marching armies consume food from origin town's storage, starve without supply
 - [ ] Field battles: two armies in proximity → combat triggers (existing combat system handles it)
 
-**Stage 24: Conquest**
+**Stage 25: Conquest**
 
 *Done when: player marches an army to a raider camp, defeats defenders, and claims the town — camp converts to player-owned town with buildings intact, player now manages two towns.*
 
 - [ ] Camp/town siege: army arrives at hostile settlement → attacks defenders + buildings
 - [ ] Building HP: walls, barracks, houses have HP — attackers must breach defenses
 - [ ] Town capture: all defenders dead + town center HP → 0 = captured → converts to player town
-- [ ] AI lords: each raider camp gets an AI controller that builds, upgrades, and recruits (mirrors player systems)
-- [ ] AI expansion: AI lords can attack each other and the player (not just raid — full conquest attempts)
+- [ ] AI expansion: AI players can attack each other and the player (not just raid — full conquest attempts)
 - [ ] Victory condition: control all settlements on the map
 
-**Stage 25: World Map**
+**Stage 26: World Map**
 
-*Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI lords and more camps — campaign progression.*
+*Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI and more camps — campaign progression.*
 
 - [ ] World map screen: grid of regions (counties), each is a separate game map
 - [ ] Region difficulty scaling (more camps, tougher AI, scarcer resources)
 - [ ] Persistent bonuses between regions (tech carries over, starting resources from tribute)
 - [ ] "Country" = set of regions. "World" = set of countries. Campaign arc.
 
-**Stage 26: Tower Defense (Wintermaul Wars-inspired)**
+**Stage 27: Tower Defense (Wintermaul Wars-inspired)**
 
 *Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
 
@@ -1085,6 +1097,250 @@ Optional: add a 2nd test `world-gen-continents` that sets `gen_style = Continent
 4. Debug Tests → `world-gen` test passes (Classic mode, 6 phases)
 5. Try small world (4000) and large world (32000) with Continents — land/ocean ratio looks reasonable
 6. Verify towns never spawn in ocean (if world is mostly ocean and town placement fails, `warn!` fires but game still runs)
+
+### AI Players
+
+The player is one town in a sea of hostile AI. Two AI archetypes compete: **destroyers** (raider camps that build tents and send raids) and **builders** (enemy towns that mirror the player — farms, houses, barracks, guard posts, upgrades). Each AI settlement gets its own faction. Everyone fights everyone. AI players follow the same rules as the human player — same building costs, same spawn timers, same upgrade system. They don't cheat. They make 1 decision every N real seconds (configurable, default 5.0s).
+
+**Faction model**: Player = faction 0. Each AI settlement = unique faction (1, 2, 3, ...). GPU targeting treats any NPC with a different faction as an enemy, so three-way (N-way) conflicts emerge naturally.
+
+**`AiPlayerConfig` resource** (`systems/ai_player.rs`):
+
+```rust
+#[derive(Resource)]
+pub struct AiPlayerConfig {
+    pub decision_interval: f32, // real seconds between decisions (default 5.0)
+}
+```
+
+Configurable from main menu slider. Uses `Res<Time>` (real time), not game time — the AI thinks at the same pace regardless of time_scale, just like a human player can't click faster when the game speeds up.
+
+**`AiPlayerState` resource** (`systems/ai_player.rs`):
+
+```rust
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AiKind {
+    Raider,  // builds tents only — offensive
+    Builder, // builds farms, houses, barracks, guard posts — mirrors player
+}
+
+pub struct AiPlayer {
+    pub town_data_idx: usize,  // index into WorldData.towns
+    pub grid_idx: usize,       // index into TownGrids.grids
+    pub kind: AiKind,
+    pub last_decision: f32,    // time.elapsed_secs() of last decision
+}
+
+#[derive(Resource, Default)]
+pub struct AiPlayerState {
+    pub players: Vec<AiPlayer>,
+}
+```
+
+One `AiPlayer` per AI settlement. `kind` is determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
+
+**`ai_player_system`** (`systems/ai_player.rs`, `Step::Behavior`):
+
+Runs every frame. For each AI player, checks if `time.elapsed_secs() - last_decision >= config.decision_interval`. If so, makes exactly one action:
+
+**Raider AI priorities** (first affordable action wins):
+1. **Build tent** — if `food >= TENT_BUILD_COST` and empty unlocked slot exists
+2. **Unlock slot** — if `food >= SLOT_UNLOCK_COST` and no empty slots but `get_adjacent_locked_slots()` returns options
+3. **Buy upgrade** — try `UpgradeType::AttackSpeed` first, then `UpgradeType::MoveSpeed`
+
+**Builder AI priorities** (first affordable action wins):
+1. **Build farm** — if farm count < house count (need food income to support population)
+2. **Build house** — if house count <= farm count (need farmers to tend farms)
+3. **Build barracks** — if barracks count == 0, or barracks < house count / 2 (need defense)
+4. **Build guard post** — if guard post count < barracks count (guards need patrol routes)
+5. **Unlock slot** — if no empty unlocked slots
+6. **Buy upgrade** — cycle through: `GuardHealth`, `GuardAttack`, `FarmYield`, `AttackSpeed`, `MoveSpeed` (pick first affordable)
+
+Building counts: iterate `WorldData.farms/houses/barracks/guard_posts/tents`, filter `town_idx == my_town_idx` and `position.x > -9000.0` (skip tombstoned).
+
+**Helper: `find_empty_slot()`**:
+```rust
+fn find_empty_slot(
+    town_grid: &TownGrid,
+    world_grid: &WorldGrid,
+    center: Vec2,
+) -> Option<(i32, i32)> {
+    for &(row, col) in &town_grid.unlocked {
+        if row == 0 && col == 0 { continue; } // skip center (fountain/camp)
+        let pos = town_grid_to_world(center, row, col);
+        let (gc, gr) = world_grid.world_to_grid(pos);
+        if let Some(cell) = world_grid.cell(gc, gr) {
+            if cell.building.is_none() {
+                return Some((row, col));
+            }
+        }
+    }
+    None
+}
+```
+
+**Building placement**: call `place_building()` (same function the player's build menu uses). After placement, push `SpawnerEntry` to `SpawnerState` for House/Barracks/Tent (same pattern as `build_menu.rs:180-310`). Farm and GuardPost don't need SpawnerEntry (they don't spawn NPCs).
+
+**Upgrade purchases**: push `(town_data_idx, upgrade_idx)` to `UpgradeQueue` — identical to player UI. `process_upgrades_system` handles deducting food and re-resolving NPC stats.
+
+**Combat log**: all AI actions logged as `CombatEventKind::Harvest` with prefix "AI: ", e.g. `"AI: Raider Camp built tent"`, `"AI: Tampa built farm"`.
+
+**World gen changes** (`world.rs`):
+
+Add to `WorldGenConfig`:
+```rust
+pub ai_towns: usize,       // default 1
+pub raider_camps: usize,    // default 1
+```
+
+Restructure `generate_world()` — currently pairs each player town with a raider camp. New flow places all settlements independently with min_distance:
+
+```
+1. Collect all_positions: Vec<Vec2> (for min_distance checks)
+
+2. Place player town centers (faction 0) — existing logic
+   Push each to all_positions
+
+3. Place enemy AI town centers
+   let mut next_faction = 1;
+   for i in 0..config.ai_towns:
+       loop { random position, check min_distance from all_positions }
+       Create Town { faction: next_faction, sprite_type: 0 }  // fountain = builder
+       Create TownGrid
+       place_town_buildings() — same layout as player (fountain + farms + houses + barracks + guard posts)
+       next_faction += 1
+       Push to all_positions
+
+4. Place raider camp centers
+   for i in 0..config.raider_camps:
+       loop { random position, check min_distance from all_positions }
+       Create Town { faction: next_faction, sprite_type: 1 }  // tent = raider
+       Create TownGrid
+       place_camp_buildings() — existing (camp center + tents)
+       next_faction += 1
+       Push to all_positions
+
+5. Generate terrain — pass all_positions (player + AI + camp) for Dirt clearing
+```
+
+Remove the implicit 1:1 player-town:raider-camp pairing from the old `generate_world()` loop.
+
+**Bug fix: faction hardcoding** — two places hardcode `faction: 0` for House→Farmer and Barracks→Guard:
+
+1. `spawner_respawn_system` (`systems/economy.rs:267-288`):
+```rust
+// Current:
+0 => { (0, 0, farm.x, farm.y, -1, 0, "Farmer", "House") }
+1 => { (1, 0, -1.0, -1.0, post_idx, 1, "Guard", "Barracks") }
+
+// Fix: look up town faction
+let faction = world_data.towns.get(town_data_idx)
+    .map(|t| t.faction).unwrap_or(0);
+0 => { (0, faction, farm.x, farm.y, -1, 0, "Farmer", "House") }
+1 => { (1, faction, -1.0, -1.0, post_idx, 1, "Guard", "Barracks") }
+```
+
+2. `game_startup_system` (`ui/mod.rs:184-207`) — same fix for initial spawn loop.
+
+Without this fix, enemy town farmers/guards spawn as faction 0 (player) instead of their town's faction.
+
+**Bug fix: `NpcsByTownCache` initialization** — `NpcsByTownCache` is init'd as empty Vec and never resized. `spawn_npc_system` checks bounds before inserting, so no NPCs are tracked per-town. This means `process_upgrades_system` (which reads `NpcsByTownCache` to find NPCs to re-resolve stats) silently skips all NPCs.
+
+Fix in `game_startup_system` after world gen:
+```rust
+npcs_by_town.0.resize(num_towns, Vec::new());
+```
+
+**Main menu** (`ui/main_menu.rs`):
+
+Add to `MenuState`: `ai_towns: f32` (default 1.0), `raider_camps: f32` (default 1.0), `ai_interval: f32` (default 5.0).
+
+Add sliders in main config area (between Towns and Play button):
+```
+AI Towns:       [===slider===] 1     (range 0..=10, step 1)
+Raider Camps:   [===slider===] 1     (range 0..=10, step 1)
+AI Speed:       [===slider===] 5.0s  (range 1.0..=30.0, step 0.5)
+```
+
+On Play: write to `WorldGenConfig` (`ai_towns`, `raider_camps`) and `AiPlayerConfig` (`decision_interval`).
+
+**Settings** (`settings.rs`):
+
+Add to `UserSettings`:
+```rust
+#[serde(default = "default_one")]
+pub ai_towns: usize,
+#[serde(default = "default_one")]
+pub raider_camps: usize,
+#[serde(default = "default_ai_interval")]
+pub ai_interval: f32,
+```
+
+`fn default_one() -> usize { 1 }`, `fn default_ai_interval() -> f32 { 5.0 }`
+
+**Startup** (`ui/mod.rs:game_startup_system`):
+
+After world gen, populate `AiPlayerState`:
+```rust
+let mut ai_players = Vec::new();
+for (grid_idx, town_grid) in town_grids.grids.iter().enumerate() {
+    let tdi = town_grid.town_data_idx;
+    if let Some(town) = world_data.towns.get(tdi) {
+        if town.faction > 0 {
+            let kind = if town.sprite_type == 1 { AiKind::Raider } else { AiKind::Builder };
+            ai_players.push(AiPlayer {
+                town_data_idx: tdi, grid_idx, kind, last_decision: 0.0,
+            });
+        }
+    }
+}
+ai_player_state.players = ai_players;
+```
+
+Reset `AiPlayerState` in `game_cleanup_system`.
+
+**Registration** (`lib.rs`):
+
+```rust
+.init_resource::<AiPlayerState>()
+.insert_resource(AiPlayerConfig { decision_interval: 5.0 })
+// In Step::Behavior:
+ai_player_system,
+```
+
+**Constants** (`constants.rs`):
+
+```rust
+pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
+```
+
+**Files changed:**
+
+| File | Changes |
+|---|---|
+| `systems/ai_player.rs` | **New file.** `AiPlayerConfig`, `AiPlayerState`, `AiPlayer`, `AiKind`, `ai_player_system`, `find_empty_slot()` |
+| `systems/mod.rs` | Add `pub mod ai_player;` |
+| `world.rs` | Add `ai_towns`/`raider_camps` to `WorldGenConfig`. Restructure `generate_world()` for independent placement. |
+| `systems/economy.rs` | Fix faction in `spawner_respawn_system` — lookup `world_data.towns[idx].faction` instead of hardcoded 0 |
+| `ui/mod.rs` | Fix faction in `game_startup_system`. Init `AiPlayerState` + `NpcsByTownCache`. Reset in cleanup. |
+| `ui/main_menu.rs` | Add `ai_towns`, `raider_camps`, `ai_interval` to `MenuState`. Add 3 sliders. Write to config on Play. |
+| `settings.rs` | Add `ai_towns`, `raider_camps`, `ai_interval` to `UserSettings` with serde defaults. |
+| `constants.rs` | Add `DEFAULT_AI_INTERVAL` |
+| `lib.rs` | Register `AiPlayerConfig`, `AiPlayerState`. Add `ai_player_system` to `Step::Behavior`. |
+
+**Verification:**
+
+1. `cargo check` — compiles without errors
+2. `cargo run --release` → set 1 player town, 1 AI town, 1 raider camp → Play
+3. AI town: after ~5 real seconds, starts building. Pan camera to enemy town — see farm/house tiles appear. Farmers spawn with enemy faction color, tend farms. Guards spawn, patrol.
+4. Raider camp: after ~5s, starts building tents. Raiders spawn, form raid groups (existing `decision_system` raid queue), attack farms — both player farms AND AI town farms.
+5. Three-way combat: AI town guards (faction 1) fight raiders (faction 2). Player guards (faction 0) fight both. GPU targeting handles it automatically.
+6. Combat log: "AI: [town name] built farm", "AI: Raider Camp built tent", "AI: [name] upgraded AttackSpeed to Lv.2"
+7. AI respects food: with 0 food, AI makes no actions. Builder AI accumulates food from foraging + farm harvests before building.
+8. AI Speed slider: change to 1.0s → AI builds rapidly. Change to 30.0s → AI builds slowly. Restart to apply.
+9. All debug tests pass (AI systems only run in `AppState::Playing`, tests use `AppState::Running`)
+10. Enemy town NPCs have correct faction (not 0) — click an enemy farmer in roster, verify faction color is different from player
+11. Multiple AI towns + camps: set 3 AI towns + 3 raider camps. All factions distinct. Multi-faction wars emerge.
 
 ## References
 
