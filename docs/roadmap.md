@@ -441,9 +441,10 @@ Entity sleeping:
 
 *Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food — multi-resource economy with job specialization.*
 
+- [x] Gold mines: wilderness resource nodes placed between towns, unowned (any faction), slow regen, mining_pct policy slider, AI personality allocation
 - [ ] Resource types: wood (Forest biome), stone (Rock biome), iron (ore nodes, rare)
-- [ ] Harvester buildings: lumber mill, quarry, mine (same spawner pattern as House/Barracks, 1 worker each)
-- [ ] Resource storage per town (like FoodStorage but for each type)
+- [ ] Harvester buildings: lumber mill, quarry (same spawner pattern as House/Barracks, 1 worker each)
+- [ ] Resource storage per town (like FoodStorage but for each type — gold already done via GoldStorage)
 - [ ] Building costs use mixed resources (walls=stone, barracks=wood+stone, upgrades=food+iron, etc.)
 - [ ] Crafting: blacksmith building consumes iron → produces weapons/armor (feeds into Stage 18 loot system)
 - [ ] Villager job assignment UI (drag workers between roles — farming, woodcutting, mining, smithing, military)

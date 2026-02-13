@@ -317,7 +317,7 @@ pub fn sync_visual_sprites(
         buffer.armor_sprites[j + 2] = 0.0;
 
         // Carried item (food = world atlas)
-        let (ic, ir, ia) = if matches!(activity, Activity::Returning { has_food: true }) {
+        let (ic, ir, ia) = if matches!(activity, Activity::Returning { has_food: true, .. }) {
             (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0)
         } else {
             (-1.0, 0.0, 0.0)

@@ -21,6 +21,7 @@ pub struct MenuState {
     pub raider_camps: f32,
     pub ai_interval: f32,
     pub gen_style: i32,
+    pub gold_mines: f32,
     pub initialized: bool,
 }
 
@@ -60,6 +61,7 @@ pub fn main_menu_system(
         state.raider_camps = saved.raider_camps as f32;
         state.ai_interval = saved.ai_interval;
         state.gen_style = saved.gen_style as i32;
+        state.gold_mines = saved.gold_mines_per_town as f32;
         state.initialized = true;
     }
 
@@ -149,6 +151,20 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
+            // Gold Mines
+            ui.horizontal(|ui| {
+                ui.label("Gold Mines:");
+                ui.add(egui::Slider::new(&mut state.gold_mines, 0.0..=10.0)
+                    .step_by(1.0)
+                    .show_value(false));
+                let mut gm = state.gold_mines as i32;
+                if ui.add(egui::DragValue::new(&mut gm).range(0..=10).suffix(" /town")).changed() {
+                    state.gold_mines = gm as f32;
+                }
+            });
+
+            ui.add_space(4.0);
+
             // AI Speed
             ui.horizontal(|ui| {
                 ui.label("AI Speed:");
@@ -172,6 +188,7 @@ pub fn main_menu_system(
                 wg_config.raiders_per_camp = state.raiders as usize;
                 wg_config.ai_towns = state.ai_towns as usize;
                 wg_config.raider_camps = state.raider_camps as usize;
+                wg_config.gold_mines_per_town = state.gold_mines as usize;
                 ai_config.decision_interval = state.ai_interval;
 
                 let mut saved = settings::load_settings();
@@ -185,6 +202,7 @@ pub fn main_menu_system(
                 saved.raider_camps = state.raider_camps as usize;
                 saved.ai_interval = state.ai_interval;
                 saved.gen_style = state.gen_style as u8;
+                saved.gold_mines_per_town = state.gold_mines as usize;
                 settings::save_settings(&saved);
 
                 next_state.set(AppState::Playing);
@@ -283,6 +301,7 @@ pub fn main_menu_system(
                             state.raider_camps = defaults.raider_camps as f32;
                             state.ai_interval = defaults.ai_interval;
                             state.gen_style = defaults.gen_style as i32;
+                            state.gold_mines = defaults.gold_mines_per_town as f32;
                             settings::save_settings(&defaults);
                         }
                     });

@@ -23,6 +23,9 @@ game_time_system (every frame)
     ├─ starvation_system (hourly)
     │   └─ NPCs with zero energy → Starving marker
     │
+    ├─ mine_regen_system (every frame, uses game-time delta)
+    │   └─ MineStates: gold slowly regenerates when mine is unoccupied
+    │
     ├─ farm_visual_system (every frame)
     │   └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
     │
@@ -186,6 +189,8 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | FoodStorage | `Vec<i32>` — food count per town/camp | harvest, steal, forage, respawn |
 | FoodEvents | delivered/consumed event logs | arrival_system, decision_system |
 | FarmStates | Growing/Ready state + progress per farm | farm_growth_system, harvest/steal |
+| GoldStorage | `Vec<i32>` — gold count per town/camp | mining delivery, UI |
+| MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
 | BuildingOccupancy | private map, methods: claim/release/is_occupied/count/clear | decision_system, death_cleanup, game_startup, spawner_respawn |
 | CampState | max_pop, respawn_timers, forage_timers | camp_forage_system |
 | RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | decision_system, death_cleanup |
@@ -206,6 +211,17 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | HOUSE_BUILD_COST | 1 | Food cost to build a House |
 | BARRACKS_BUILD_COST | 1 | Food cost to build a Barracks |
 | SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
+| MINE_MAX_GOLD | 200.0 | Maximum gold a mine can hold |
+| MINE_REGEN_RATE | 2.0/hour | Gold regeneration rate (when unoccupied) |
+| MINE_EXTRACT_PER_CYCLE | 5 | Gold extracted per mining work cycle |
+| MINE_MIN_SETTLEMENT_DIST | 300.0px | Minimum distance from mine to any town/camp center |
+| MINE_MIN_SPACING | 400.0px | Minimum distance between mines |
+
+### mine_regen_system
+- Runs every frame, advances mine gold based on elapsed game time
+- Only regenerates when mine has no occupant (`BuildingOccupancy.is_occupied()` returns false)
+- Rate: `MINE_REGEN_RATE` (2.0 gold/hour), capped at `MINE_MAX_GOLD` (200.0) per mine
+- Uses `MineStates` resource — parallel Vecs of gold, max_gold, and positions per mine
 
 ### squad_cleanup_system
 - Runs every frame in `Step::Behavior`

@@ -8,6 +8,7 @@ use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, upgrade_cost};
+use crate::systems::{AiPlayerState, AiKind};
 use crate::world::WorldData;
 
 // ============================================================================
@@ -115,6 +116,52 @@ pub struct SquadParams<'w, 's> {
 }
 
 // ============================================================================
+// INTEL TYPES
+// ============================================================================
+
+#[derive(SystemParam)]
+pub struct IntelParams<'w> {
+    ai_state: Res<'w, AiPlayerState>,
+    food_storage: Res<'w, FoodStorage>,
+    spawner_state: Res<'w, SpawnerState>,
+    faction_stats: Res<'w, FactionStats>,
+    upgrades: Res<'w, TownUpgrades>,
+}
+
+#[derive(Clone)]
+struct AiSnapshot {
+    town_name: String,
+    kind_name: &'static str,
+    personality_name: &'static str,
+    food: i32,
+    farmers: usize,
+    guards: usize,
+    raiders: usize,
+    houses: usize,
+    barracks: usize,
+    tents: usize,
+    farms: usize,
+    guard_posts: usize,
+    alive: i32,
+    dead: i32,
+    kills: i32,
+    upgrades: [u8; UPGRADE_COUNT],
+    last_actions: Vec<String>,
+    guard_aggressive: bool,
+    guard_leash: bool,
+    guard_flee_hp: f32,
+    farmer_flee_hp: f32,
+    prioritize_healing: bool,
+    center: Vec2,
+}
+
+#[derive(Default)]
+pub struct IntelCache {
+    frame_counter: u32,
+    snapshots: Vec<AiSnapshot>,
+}
+
+// ============================================================================
 // MAIN SYSTEM
 // ============================================================================
 
@@ -126,8 +173,11 @@ pub fn left_panel_system(
     mut roster: RosterParams,
     mut upgrade: UpgradeParams,
     mut squad: SquadParams,
+    intel: IntelParams,
+    timings: Res<SystemTimings>,
     mut commands: Commands,
     mut roster_state: Local<RosterState>,
+    mut intel_cache: Local<IntelCache>,
     settings: Res<UserSettings>,
     mut prev_tab: Local<LeftPanelTab>,
 ) -> Result {
@@ -145,9 +195,12 @@ pub fn left_panel_system(
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
         LeftPanelTab::Squads => "Squads",
+        LeftPanelTab::Intel => "Intel",
+        LeftPanelTab::Profiler => "Profiler",
     };
 
     let mut open = ui_state.left_panel_open;
+    let mut jump_target: Option<Vec2> = None;
     egui::Window::new(tab_name)
         .open(&mut open)
         .resizable(false)
@@ -160,8 +213,18 @@ pub fn left_panel_system(
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
                 LeftPanelTab::Patrols => patrols_content(ui, &mut world_data),
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &world_data, &mut commands),
+                LeftPanelTab::Intel => intel_content(ui, &intel, &world_data, &policies, &mut intel_cache, &mut jump_target),
+                LeftPanelTab::Profiler => profiler_content(ui, &timings),
             }
         });
+
+    // Apply camera jump from Intel panel
+    if let Some(target) = jump_target {
+        if let Ok(mut transform) = roster.camera_query.single_mut() {
+            transform.translation.x = target.x;
+            transform.translation.y = target.y;
+        }
+    }
 
     if !open {
         ui_state.left_panel_open = false;
@@ -531,6 +594,12 @@ fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: 
         2 => OffDutyBehavior::WanderTown,
         _ => OffDutyBehavior::GoToBed,
     };
+    let mut mining_pct = policy.mining_pct * 100.0;
+    ui.horizontal(|ui| {
+        ui.label("Mining:");
+        ui.add(egui::Slider::new(&mut mining_pct, 0.0..=100.0).suffix("%"));
+    });
+    policy.mining_pct = mining_pct / 100.0;
 }
 
 // ============================================================================
@@ -703,6 +772,247 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &World
                     ui.label(hp_str);
                 }
             });
+        }
+    });
+}
+
+// ============================================================================
+// INTEL CONTENT
+// ============================================================================
+
+const UPGRADE_SHORT: &[&str] = &[
+    "G.HP", "G.Atk", "G.Rng", "G.Size", "AtkSpd", "MvSpd",
+    "Alert", "FarmY", "F.HP", "Heal", "FoodEff", "Fount",
+];
+
+fn rebuild_intel_cache(
+    intel: &IntelParams,
+    world_data: &WorldData,
+    policies: &TownPolicies,
+    cache: &mut IntelCache,
+) {
+    cache.snapshots.clear();
+    for player in intel.ai_state.players.iter() {
+        let tdi = player.town_data_idx;
+        let ti = tdi as u32;
+
+        let town_name = world_data.towns.get(tdi)
+            .map(|t| t.name.clone()).unwrap_or_default();
+        let center = world_data.towns.get(tdi)
+            .map(|t| t.center).unwrap_or_default();
+
+        let kind_name = match player.kind {
+            AiKind::Builder => "Builder",
+            AiKind::Raider => "Raider",
+        };
+
+        let alive_check = |pos: Vec2, idx: u32| idx == ti && pos.x > -9000.0;
+        let farms = world_data.farms.iter().filter(|f| alive_check(f.position, f.town_idx)).count();
+        let houses = world_data.houses.iter().filter(|h| alive_check(h.position, h.town_idx)).count();
+        let barracks = world_data.barracks.iter().filter(|b| alive_check(b.position, b.town_idx)).count();
+        let guard_posts = world_data.guard_posts.iter().filter(|g| alive_check(g.position, g.town_idx)).count();
+        let tents = world_data.tents.iter().filter(|t| alive_check(t.position, t.town_idx)).count();
+
+        // Count alive NPCs by job from spawner state
+        let ti_i32 = tdi as i32;
+        let farmers = intel.spawner_state.0.iter()
+            .filter(|s| s.building_kind == 0 && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
+        let guards = intel.spawner_state.0.iter()
+            .filter(|s| s.building_kind == 1 && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
+        let raiders = intel.spawner_state.0.iter()
+            .filter(|s| s.building_kind == 2 && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
+
+        let food = intel.food_storage.food.get(tdi).copied().unwrap_or(0);
+        let faction = world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
+        let (alive, dead, kills) = intel.faction_stats.stats.get(faction as usize)
+            .map(|s| (s.alive, s.dead, s.kills))
+            .unwrap_or((0, 0, 0));
+
+        let upgrades = intel.upgrades.levels.get(tdi).copied().unwrap_or([0; UPGRADE_COUNT]);
+
+        let last_actions: Vec<String> = player.last_actions.iter().rev().cloned().collect();
+
+        let policy = policies.policies.get(tdi);
+        let guard_aggressive = policy.map(|p| p.guard_aggressive).unwrap_or(false);
+        let guard_leash = policy.map(|p| p.guard_leash).unwrap_or(true);
+        let guard_flee_hp = policy.map(|p| p.guard_flee_hp).unwrap_or(0.15);
+        let farmer_flee_hp = policy.map(|p| p.farmer_flee_hp).unwrap_or(0.30);
+        let prioritize_healing = policy.map(|p| p.prioritize_healing).unwrap_or(true);
+
+        cache.snapshots.push(AiSnapshot {
+            town_name,
+            kind_name,
+            personality_name: player.personality.name(),
+            food,
+            farmers,
+            guards,
+            raiders,
+            houses,
+            barracks,
+            tents,
+            farms,
+            guard_posts,
+            alive,
+            dead,
+            kills,
+            upgrades,
+            last_actions,
+            guard_aggressive,
+            guard_leash,
+            guard_flee_hp,
+            farmer_flee_hp,
+            prioritize_healing,
+            center,
+        });
+    }
+}
+
+fn intel_content(
+    ui: &mut egui::Ui,
+    intel: &IntelParams,
+    world_data: &WorldData,
+    policies: &TownPolicies,
+    cache: &mut IntelCache,
+    jump_target: &mut Option<Vec2>,
+) {
+    // Rebuild cache every 30 frames
+    cache.frame_counter += 1;
+    if cache.frame_counter % 30 == 1 || cache.snapshots.is_empty() {
+        rebuild_intel_cache(intel, world_data, policies, cache);
+    }
+
+    if cache.snapshots.is_empty() {
+        ui.label("No AI settlements");
+        return;
+    }
+
+    ui.label(format!("{} AI settlements", cache.snapshots.len()));
+    ui.separator();
+
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        for (i, snap) in cache.snapshots.iter().enumerate() {
+            let header = format!("{} [{} {}]", snap.town_name, snap.personality_name, snap.kind_name);
+            let kind_color = match snap.kind_name {
+                "Builder" => egui::Color32::from_rgb(80, 180, 255),
+                _ => egui::Color32::from_rgb(220, 80, 80),
+            };
+
+            let id = egui::Id::new("ai_intel").with(i);
+            egui::CollapsingHeader::new(egui::RichText::new(&header).color(kind_color))
+                .id_salt(id)
+                .default_open(cache.snapshots.len() <= 4)
+                .show(ui, |ui| {
+                    // Jump + Food
+                    ui.horizontal(|ui| {
+                        if ui.small_button("Jump").clicked() {
+                            *jump_target = Some(snap.center);
+                        }
+                        ui.label(format!("Food: {}", snap.food));
+                    });
+
+                    // Population
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills));
+                    });
+
+                    // NPCs by type
+                    ui.horizontal(|ui| {
+                        if snap.farmers > 0 || snap.houses > 0 {
+                            ui.label(format!("Farmers: {}/{}", snap.farmers, snap.houses));
+                        }
+                        if snap.guards > 0 || snap.barracks > 0 {
+                            ui.label(format!("Guards: {}/{}", snap.guards, snap.barracks));
+                        }
+                        if snap.raiders > 0 || snap.tents > 0 {
+                            ui.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
+                        }
+                    });
+
+                    // Buildings
+                    ui.horizontal(|ui| {
+                        if snap.farms > 0 { ui.label(format!("Farms: {}", snap.farms)); }
+                        if snap.guard_posts > 0 { ui.label(format!("Posts: {}", snap.guard_posts)); }
+                    });
+
+                    // Upgrades — compact grid, only show non-zero
+                    let has_upgrades = snap.upgrades.iter().any(|&l| l > 0);
+                    if has_upgrades {
+                        ui.add_space(2.0);
+                        ui.horizontal_wrapped(|ui| {
+                            for (j, &level) in snap.upgrades.iter().enumerate() {
+                                if level == 0 { continue; }
+                                let label = UPGRADE_SHORT.get(j).unwrap_or(&"?");
+                                ui.small(format!("{} {}", label, level));
+                            }
+                        });
+                    }
+
+                    // Last 3 actions (most recent first)
+                    if !snap.last_actions.is_empty() {
+                        ui.add_space(2.0);
+                        for action in &snap.last_actions {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(180, 120, 220),
+                                format!("  {}", action),
+                            );
+                        }
+                    }
+
+                    // Key policies
+                    ui.add_space(2.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if snap.guard_aggressive {
+                            ui.small(egui::RichText::new("Aggressive").color(egui::Color32::from_rgb(220, 80, 80)));
+                        }
+                        if !snap.guard_leash {
+                            ui.small(egui::RichText::new("No Leash").color(egui::Color32::from_rgb(220, 160, 40)));
+                        }
+                        if snap.prioritize_healing {
+                            ui.small(egui::RichText::new("Heal First").color(egui::Color32::from_rgb(80, 200, 80)));
+                        }
+                        ui.small(format!("Flee: G{:.0}% F{:.0}%", snap.guard_flee_hp * 100.0, snap.farmer_flee_hp * 100.0));
+                    });
+
+                    ui.add_space(4.0);
+                });
+        }
+    });
+}
+
+// ============================================================================
+// PROFILER CONTENT
+// ============================================================================
+
+fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings) {
+    let frame_ms = timings.get_frame_ms();
+    ui.label(egui::RichText::new(format!("Frame: {:.2} ms", frame_ms)).strong());
+    ui.separator();
+
+    let mut entries: Vec<_> = timings.get_timings().into_iter().collect();
+    entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if entries.is_empty() {
+        ui.label("Enable profiler in pause menu settings");
+        return;
+    }
+
+    if ui.button("Copy Top 10").clicked() {
+        let top10: String = entries.iter().take(10)
+            .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let text = format!("Frame: {:.2} ms\n{}", frame_ms, top10);
+        ui.ctx().copy_text(text);
+    }
+    ui.separator();
+
+    egui::Grid::new("profiler_grid").striped(true).show(ui, |ui| {
+        for (name, ms) in &entries {
+            ui.label(*name);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(format!("{:.3} ms", ms));
+            });
+            ui.end_row();
         }
     });
 }

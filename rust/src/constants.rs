@@ -230,3 +230,22 @@ pub const MAX_SQUADS: usize = 10;
 
 /// Default real-time seconds between AI decisions.
 pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
+
+// ============================================================================
+// GOLD MINE CONSTANTS
+// ============================================================================
+
+/// Maximum gold a mine starts with and can regenerate to.
+pub const MINE_MAX_GOLD: f32 = 200.0;
+
+/// Gold regenerated per game-hour when mine is not being worked.
+pub const MINE_REGEN_RATE: f32 = 2.0;
+
+/// Gold extracted per work cycle (farmer delivers this much when returning home).
+pub const MINE_EXTRACT_PER_CYCLE: i32 = 5;
+
+/// Minimum distance from any settlement center to place a gold mine.
+pub const MINE_MIN_SETTLEMENT_DIST: f32 = 300.0;
+
+/// Minimum distance between gold mines.
+pub const MINE_MIN_SPACING: f32 = 400.0;

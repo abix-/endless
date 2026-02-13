@@ -30,7 +30,7 @@ use resources::{
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
-    FoodStorage, FactionStats, CampState, RaidQueue, SystemTimings,
+    FoodStorage, GoldStorage, MineStates, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState,
@@ -122,32 +122,17 @@ fn startup_system() {
     info!("Endless ECS initialized - systems registered");
 }
 
-/// Toggle debug flags with F1-F5 keys.
-fn debug_toggle_system(
-    keys: Res<ButtonInput<KeyCode>>,
+/// Sync debug settings from UserSettings into DebugFlags + SystemTimings resources.
+fn sync_debug_settings(
+    settings: Res<crate::settings::UserSettings>,
     mut flags: ResMut<DebugFlags>,
     mut timings: ResMut<SystemTimings>,
 ) {
-    if keys.just_pressed(KeyCode::F1) {
-        flags.readback = !flags.readback;
-        info!("Debug readback: {}", if flags.readback { "ON" } else { "OFF" });
-    }
-    if keys.just_pressed(KeyCode::F2) {
-        flags.combat = !flags.combat;
-        info!("Debug combat: {}", if flags.combat { "ON" } else { "OFF" });
-    }
-    if keys.just_pressed(KeyCode::F3) {
-        flags.spawns = !flags.spawns;
-        info!("Debug spawns: {}", if flags.spawns { "ON" } else { "OFF" });
-    }
-    if keys.just_pressed(KeyCode::F4) {
-        flags.behavior = !flags.behavior;
-        info!("Debug behavior: {}", if flags.behavior { "ON" } else { "OFF" });
-    }
-    if keys.just_pressed(KeyCode::F5) {
-        timings.enabled = !timings.enabled;
-        info!("System profiler: {}", if timings.enabled { "ON" } else { "OFF" });
-    }
+    flags.readback = settings.debug_readback;
+    flags.combat = settings.debug_combat;
+    flags.spawns = settings.debug_spawns;
+    flags.behavior = settings.debug_behavior;
+    timings.enabled = settings.debug_profiler;
 }
 
 /// Debug: log NPC count every second, plus optional detailed logs.
@@ -228,6 +213,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<SlotAllocator>()
        .init_resource::<ProjSlotAllocator>()
        .init_resource::<FoodStorage>()
+       .init_resource::<GoldStorage>()
+       .init_resource::<MineStates>()
        .init_resource::<FactionStats>()
        .init_resource::<CampState>()
        .init_resource::<RaidQueue>()
@@ -290,6 +277,7 @@ pub fn build_app(app: &mut App) {
            on_duty_tick_system,
            game_time_system,
            farm_growth_system,
+           mine_regen_system,
            camp_forage_system,
            spawner_respawn_system,
            starvation_system,
@@ -303,8 +291,8 @@ pub fn build_app(app: &mut App) {
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, frame_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))
-       // Debug (F1=readback, F2=combat, F3=spawns, F4=behavior)
-       .add_systems(Update, (debug_toggle_system, debug_tick_system).run_if(game_active.clone()));
+       // Debug settings sync + tick logging
+       .add_systems(Update, (sync_debug_settings, debug_tick_system).run_if(game_active.clone()));
 
     // Test framework (registers TestState, menu UI, all tests)
     tests::register_tests(app);

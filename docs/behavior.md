@@ -127,16 +127,18 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 | Component | Variants | Purpose |
 |-----------|----------|---------|
-| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain{recover_until}, Wandering, Raiding{target}, Returning{has_food}` | What the NPC is *doing* — mutually exclusive |
+| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain{recover_until}, Wandering, Raiding{target}, Returning{has_food, gold}, Mining{mine_pos}, MiningAtMine` | What the NPC is *doing* — mutually exclusive |
 | CombatState | `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
 
-`Activity::is_transit()` returns true for Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning. Used by `gpu_position_readback` for arrival detection.
+`Activity::is_transit()` returns true for Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning, Mining. Used by `gpu_position_readback` for arrival detection.
 
 `Resting` is a unit variant — energy recovery only. NPCs go home (spawner) to rest.
 
 `HealingAtFountain { recover_until: 0.75 }` — HP recovery at town fountain. NPC waits until HP >= threshold, then resumes. Separate from energy rest.
 
-`Returning { has_food: true }` replaces old `CarryingFood` marker — food carried state is part of the activity.
+`Returning { has_food: bool, gold: i32 }` — carried resources are part of the activity. `gold > 0` means miner is returning with extracted gold.
+
+`Mining { mine_pos: Vec2 }` — farmer walking to a gold mine. `MiningAtMine` — farmer actively extracting gold (claims occupancy, extracts on tired threshold).
 
 ### Data Components
 
@@ -171,6 +173,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
   - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
+  - `Mining { mine_pos }` → find mine at position, check gold > 0, claim occupancy via `BuildingOccupancy`, set `Activity::MiningAtMine`
   - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
 - Removes `AtDestination` after handling
 
@@ -191,6 +194,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 **Priority 5: Tired workers**
 - If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release `AssignedFarm`
+- If `Activity::MiningAtMine` + energy < threshold: extract gold from mine (min of mine gold and `MINE_EXTRACT_PER_CYCLE`), release occupancy, set `Activity::Returning { has_food: false, gold: extracted }`
 
 **Priority 6: Patrol**
 - If `Activity::OnDuty { ticks_waiting }` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, set `Activity::Patrolling`
@@ -203,6 +207,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
+- **Mining work roll**: When a farmer picks Work, the `mining_pct` policy is checked. A pseudo-random roll < `mining_pct` sends the farmer to the nearest mine with gold > 0 (`Activity::Mining { mine_pos }`); otherwise normal farm work. Default `mining_pct` is 0.0 (all farming). AI personalities set: Aggressive 0.20, Balanced 0.40, Economic 0.60.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
 ### on_duty_tick_system
@@ -211,7 +216,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Separated from decision_system to allow mutable Activity access while main query has immutable view
 
 ### arrival_system (Proximity Checks)
-- **Proximity-based delivery** for Returning raiders: matches `Activity::Returning { .. }`, checks distance to home, delivers food within DELIVERY_RADIUS (150px), sets `Activity::Idle`
+- **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (150px), sets `Activity::Idle`. Gold delivered to `GoldStorage` per town.
 - **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm
 - **Healing drift check** in decision_system: `HealingAtFountain` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
 - **GoingToHeal early arrival** in decision_system: NPCs transition to `HealingAtFountain` as soon as they're within 100px of town center, before reaching the exact pixel

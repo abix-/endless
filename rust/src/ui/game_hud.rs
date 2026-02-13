@@ -21,11 +21,9 @@ pub fn top_bar_system(
     game_time: Res<GameTime>,
     pop_stats: Res<PopulationStats>,
     food_storage: Res<FoodStorage>,
-    faction_stats: Res<FactionStats>,
-    kill_stats: Res<KillStats>,
+    gold_storage: Res<GoldStorage>,
     slots: Res<SlotAllocator>,
     world_data: Res<WorldData>,
-    settings: Res<UserSettings>,
     mut ui_state: ResMut<UiState>,
     spawner_state: Res<SpawnerState>,
 ) -> Result {
@@ -55,6 +53,12 @@ pub fn top_bar_system(
                 if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Squads, "Squads").clicked() {
                     ui_state.toggle_left_tab(LeftPanelTab::Squads);
                 }
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Intel, "Intel").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Intel);
+                }
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Profiler, "Profiler").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Profiler);
+                }
 
                 // CENTER: town name + time (painted at true center of bar)
                 let town_name = world_data.towns.first()
@@ -76,23 +80,11 @@ pub fn top_bar_system(
 
                 // RIGHT: stats pushed to the right edge
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Debug: enemy info (rightmost)
-                    if settings.debug_enemy_info {
-                        // Sum food at odd indices (raider camps in interleaved array)
-                        let camp_food: i32 = food_storage.food.iter().skip(1).step_by(2).sum();
-                        ui.label(format!("Camp: {}", camp_food));
-                        ui.label(format!("Kills: g{} r{}",
-                            kill_stats.guard_kills, kill_stats.villager_kills));
-                        let raider_alive: i32 = faction_stats.stats.iter().skip(1).map(|s| s.alive).sum();
-                        let raider_dead: i32 = faction_stats.stats.iter().skip(1).map(|s| s.dead).sum();
-                        ui.label(format!("Raiders: {}/{}", raider_alive, raider_dead));
-                        ui.label(format!("Total: {}", slots.alive()));
-                        ui.separator();
-                    }
-
                     // Player stats (right-aligned) — player's town is index 0
                     let town_food = food_storage.food.first().copied().unwrap_or(0);
+                    let town_gold = gold_storage.gold.first().copied().unwrap_or(0);
                     ui.label(format!("Food: {}", town_food));
+                    ui.colored_label(egui::Color32::from_rgb(220, 190, 50), format!("Gold: {}", town_gold));
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
@@ -153,6 +145,7 @@ pub struct BuildingInspectorData<'w> {
     food_storage: Res<'w, FoodStorage>,
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
+    mine_states: Res<'w, MineStates>,
 }
 
 #[derive(Default)]
@@ -193,7 +186,7 @@ pub fn bottom_panel_system(
             .inner_margin(egui::Margin::same(6));
 
         egui::Window::new("Inspector")
-            .anchor(egui::Align2::LEFT_BOTTOM, [8.0, -28.0])
+            .anchor(egui::Align2::LEFT_BOTTOM, [2.0, -2.0])
             .fixed_size([300.0, 160.0])
             .collapsible(true)
             .movable(false)
@@ -229,7 +222,9 @@ pub fn combat_log_system(
     data: BottomPanelData,
     mut settings: ResMut<UserSettings>,
     mut filter_state: Local<LogFilterState>,
+    ui_state: Res<UiState>,
 ) -> Result {
+    if !ui_state.combat_log_visible { return Ok(()); }
     let ctx = contexts.ctx_mut()?;
 
     // Init filter state from saved settings
@@ -255,9 +250,9 @@ pub fn combat_log_system(
         .inner_margin(egui::Margin::same(6));
 
     egui::Window::new("Combat Log")
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-8.0, -28.0])
+        .anchor(egui::Align2::RIGHT_BOTTOM, [-2.0, -2.0])
         .fixed_size([450.0, 140.0])
-        .collapsible(true)
+        .collapsible(false)
         .movable(false)
         .frame(frame)
         .title_bar(true)
@@ -533,6 +528,7 @@ fn building_name(building: &Building) -> &'static str {
         Building::House { .. } => "House",
         Building::Barracks { .. } => "Barracks",
         Building::Tent { .. } => "Tent",
+        Building::GoldMine => "Gold Mine",
     }
 }
 
@@ -546,6 +542,7 @@ fn building_town_idx(building: &Building) -> u32 {
         | Building::House { town_idx }
         | Building::Barracks { town_idx }
         | Building::Tent { town_idx } => *town_idx,
+        Building::GoldMine => 0, // mines are unowned
     }
 }
 
@@ -681,6 +678,32 @@ fn building_inspector_content(
 
         Building::Bed { .. } => {
             ui.label("Rest point");
+        }
+
+        Building::GoldMine => {
+            let world_pos = bld.grid.grid_to_world(col, row);
+            if let Some(mine_idx) = bld.mine_states.positions.iter().position(|p| {
+                (*p - world_pos).length() < 1.0
+            }) {
+                let gold = bld.mine_states.gold.get(mine_idx).copied().unwrap_or(0.0);
+                let max_gold = bld.mine_states.max_gold.get(mine_idx).copied().unwrap_or(1.0);
+                ui.label(format!("Gold: {:.0} / {:.0}", gold, max_gold));
+                let pct = gold / max_gold.max(1.0);
+                let color = if pct > 0.5 {
+                    egui::Color32::from_rgb(200, 180, 40)
+                } else if pct > 0.0 {
+                    egui::Color32::from_rgb(160, 140, 40)
+                } else {
+                    egui::Color32::from_rgb(100, 100, 100)
+                };
+                ui.add(egui::ProgressBar::new(pct)
+                    .text(format!("{:.0}%", pct * 100.0))
+                    .fill(color));
+                let occupants = bld.farm_occupancy.count(world_pos);
+                if occupants > 0 {
+                    ui.label(format!("Miners: {}", occupants));
+                }
+            }
         }
     }
 }
@@ -844,7 +867,7 @@ pub fn squad_overlay_system(
 // FPS DISPLAY
 // ============================================================================
 
-/// Always-visible FPS counter at bottom-right. Smoothed with exponential moving average.
+/// Always-visible FPS counter at top-right. Smoothed with exponential moving average.
 pub fn fps_display_system(
     mut contexts: EguiContexts,
     time: Res<Time>,
@@ -859,7 +882,7 @@ pub fn fps_display_system(
     }
 
     egui::Area::new(egui::Id::new("fps_display"))
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-8.0, -8.0])
+        .anchor(egui::Align2::RIGHT_TOP, [-8.0, 30.0])
         .show(ctx, |ui| {
             ui.label(egui::RichText::new(format!("FPS: {:.0}", *avg_fps))
                 .size(14.0)

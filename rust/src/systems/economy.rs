@@ -140,6 +140,33 @@ pub fn farm_growth_system(
 }
 
 // ============================================================================
+// MINE REGEN SYSTEM
+// ============================================================================
+
+/// Gold mines slowly regenerate when below max capacity.
+pub fn mine_regen_system(
+    time: Res<Time>,
+    game_time: Res<GameTime>,
+    mut mine_states: ResMut<MineStates>,
+    farm_occupancy: Res<BuildingOccupancy>,
+    timings: Res<SystemTimings>,
+) {
+    let _t = timings.scope("mine_regen");
+    if game_time.paused { return; }
+
+    let hours_elapsed = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
+
+    for i in 0..mine_states.gold.len() {
+        // Only regen when mine is not being worked
+        if farm_occupancy.is_occupied(mine_states.positions[i]) { continue; }
+        if mine_states.gold[i] < mine_states.max_gold[i] {
+            mine_states.gold[i] = (mine_states.gold[i] + crate::constants::MINE_REGEN_RATE * hours_elapsed)
+                .min(mine_states.max_gold[i]);
+        }
+    }
+}
+
+// ============================================================================
 // CAMP FORAGING SYSTEM
 // ============================================================================
 

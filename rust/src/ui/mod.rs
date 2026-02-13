@@ -5,6 +5,8 @@ pub mod game_hud;
 pub mod build_menu;
 pub mod left_panel;
 
+use std::collections::VecDeque;
+
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiPrimaryContextPass, egui};
@@ -80,6 +82,12 @@ fn ui_toggle_system(
     if keys.just_pressed(KeyCode::KeyQ) {
         ui_state.toggle_left_tab(LeftPanelTab::Squads);
     }
+    if keys.just_pressed(KeyCode::KeyI) {
+        ui_state.toggle_left_tab(LeftPanelTab::Intel);
+    }
+    if keys.just_pressed(KeyCode::KeyL) {
+        ui_state.combat_log_visible = !ui_state.combat_log_visible;
+    }
     if keys.just_pressed(KeyCode::KeyF) {
         follow.0 = !follow.0;
     }
@@ -102,6 +110,8 @@ struct StartupExtra<'w> {
     npcs_by_town: ResMut<'w, NpcsByTownCache>,
     ai_state: ResMut<'w, AiPlayerState>,
     combat_log: ResMut<'w, CombatLog>,
+    mine_states: ResMut<'w, MineStates>,
+    gold_storage: ResMut<'w, GoldStorage>,
 }
 
 /// Initialize the world and spawn NPCs when entering Playing state.
@@ -126,7 +136,7 @@ fn game_startup_system(
 
     // Generate world (populates grid + world_data + farm_states + houses/barracks + town_grids)
     town_grids.grids.clear();
-    world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states, &mut town_grids);
+    world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states, &mut extra.mine_states, &mut town_grids);
 
     // Load saved policies for player's town
     let saved = crate::settings::load_settings();
@@ -139,6 +149,7 @@ fn game_startup_system(
     let num_towns = world_data.towns.len();
     extra.npcs_by_town.0.resize(num_towns, Vec::new());
     food_storage.init(num_towns);
+    extra.gold_storage.init(num_towns);
     faction_stats.init(num_towns); // one per settlement (player + AI + camps)
     camp_state.init(num_towns, 10);
 
@@ -256,7 +267,7 @@ fn game_startup_system(
                 if let Some(policy) = extra.policies.policies.get_mut(tdi) {
                     *policy = personality.default_policies();
                 }
-                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality });
+                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality, last_actions: VecDeque::new() });
                 // Log AI player joining
                 extra.combat_log.push(CombatEventKind::Ai, 1, 6, 0,
                     format!("{} [{}] joined the game", town.name, personality.name()));
@@ -387,9 +398,13 @@ fn pause_menu_system(
 
                     ui.add_space(4.0);
                     ui.label("Debug:");
-                    ui.checkbox(&mut settings.debug_enemy_info, "Enemy Info");
                     ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
                     ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
+                    ui.checkbox(&mut settings.debug_readback, "GPU Readback");
+                    ui.checkbox(&mut settings.debug_combat, "Combat Logging");
+                    ui.checkbox(&mut settings.debug_spawns, "Spawn Logging");
+                    ui.checkbox(&mut settings.debug_behavior, "Behavior Logging");
+                    ui.checkbox(&mut settings.debug_profiler, "System Profiler");
                 });
 
             ui.separator();
@@ -613,6 +628,8 @@ struct CleanupWorld<'w> {
     build_menu_ctx: ResMut<'w, BuildMenuContext>,
     spawner_state: ResMut<'w, SpawnerState>,
     ai_state: ResMut<'w, AiPlayerState>,
+    mine_states: ResMut<'w, MineStates>,
+    gold_storage: ResMut<'w, GoldStorage>,
 }
 
 #[derive(SystemParam)]
@@ -668,6 +685,8 @@ fn game_cleanup_system(
     *world.build_menu_ctx = Default::default();
     *world.spawner_state = Default::default();
     *world.ai_state = Default::default();
+    *world.mine_states = Default::default();
+    *world.gold_storage = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();

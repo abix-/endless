@@ -6,6 +6,8 @@
 //! (closest to center). Guard posts prefer outer slots (farthest from center) with
 //! minimum spacing of 5 grid slots between posts.
 
+use std::collections::VecDeque;
+
 use bevy::prelude::*;
 use rand::Rng;
 
@@ -72,14 +74,19 @@ impl AiPersonality {
                 prioritize_healing: false,
                 guard_flee_hp: 0.0,
                 farmer_flee_hp: 0.30,
+                mining_pct: 0.20,
                 ..PolicySet::default()
             },
-            Self::Balanced => PolicySet::default(),
+            Self::Balanced => PolicySet {
+                mining_pct: 0.40,
+                ..PolicySet::default()
+            },
             Self::Economic => PolicySet {
                 guard_leash: true,
                 prioritize_healing: true,
                 guard_flee_hp: 0.25,
                 farmer_flee_hp: 0.50,
+                mining_pct: 0.60,
                 ..PolicySet::default()
             },
         }
@@ -140,7 +147,10 @@ pub struct AiPlayer {
     pub grid_idx: usize,
     pub kind: AiKind,
     pub personality: AiPersonality,
+    pub last_actions: VecDeque<String>,
 }
+
+const MAX_ACTION_HISTORY: usize = 3;
 
 #[derive(Resource, Default)]
 pub struct AiPlayerState {
@@ -216,7 +226,7 @@ fn has_empty_slot(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> bool 
 pub fn ai_decision_system(
     time: Res<Time>,
     config: Res<AiPlayerConfig>,
-    ai_state: Res<AiPlayerState>,
+    mut ai_state: ResMut<AiPlayerState>,
     mut grid: ResMut<WorldGrid>,
     mut world_data: ResMut<WorldData>,
     mut farm_states: ResMut<FarmStates>,
@@ -235,7 +245,8 @@ pub fn ai_decision_system(
     if *timer < config.decision_interval { return; }
     *timer = 0.0;
 
-    for player in ai_state.players.iter() {
+    for pi in 0..ai_state.players.len() {
+        let player = &ai_state.players[pi];
         let tdi = player.town_data_idx;
         let food = food_storage.food.get(tdi).copied().unwrap_or(0);
         let reserve = player.personality.food_reserve();
@@ -313,6 +324,9 @@ pub fn ai_decision_system(
         );
         if let Some(what) = label {
             log_ai(&mut combat_log, &game_time, &town_name, pname, &what);
+            let actions = &mut ai_state.players[pi].last_actions;
+            if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
+            actions.push_back(what);
         }
     }
 }

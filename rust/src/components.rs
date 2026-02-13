@@ -122,6 +122,10 @@ pub struct PatrolRoute {
 #[derive(Component)]
 pub struct WorkPosition(pub Vec2);
 
+/// Gold being carried by a miner returning home.
+#[derive(Component)]
+pub struct CarriedGold(pub i32);
+
 // ============================================================================
 // NPC STATE — Two orthogonal enums (Activity × CombatState)
 // ============================================================================
@@ -143,14 +147,17 @@ pub enum Activity {
     HealingAtFountain { recover_until: f32 },
     Wandering,
     Raiding { target: Vec2 },
-    Returning { has_food: bool },
+    Returning { has_food: bool, gold: i32 },
+    Mining { mine_pos: Vec2 },
+    MiningAtMine,
 }
 
 impl Activity {
     /// Is this NPC moving toward a destination?
     pub fn is_transit(&self) -> bool {
         matches!(self, Self::Patrolling | Self::GoingToWork | Self::GoingToRest
-            | Self::GoingToHeal | Self::Wandering | Self::Raiding { .. } | Self::Returning { .. })
+            | Self::GoingToHeal | Self::Wandering | Self::Raiding { .. } | Self::Returning { .. }
+            | Self::Mining { .. })
     }
 
     /// Display name for UI/debug.
@@ -167,8 +174,11 @@ impl Activity {
             Self::HealingAtFountain { .. } => "Healing",
             Self::Wandering => "Wandering",
             Self::Raiding { .. } => "Raiding",
-            Self::Returning { has_food: true } => "Returning (food)",
-            Self::Returning { has_food: false } => "Returning",
+            Self::Returning { has_food: true, .. } => "Returning (food)",
+            Self::Returning { gold, .. } if *gold > 0 => "Returning (gold)",
+            Self::Returning { .. } => "Returning",
+            Self::Mining { .. } => "Mining",
+            Self::MiningAtMine => "Mining",
         }
     }
 }

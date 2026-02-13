@@ -214,7 +214,7 @@ pub struct FollowSelected(pub bool);
 // DEBUG RESOURCES
 // ============================================================================
 
-/// Toggleable debug log flags. Press F1-F4 in-game to toggle.
+/// Toggleable debug log flags. Controlled via pause menu settings.
 #[derive(Resource)]
 pub struct DebugFlags {
     /// Log GPU readback positions each tick
@@ -496,6 +496,34 @@ impl FoodStorage {
     }
 }
 
+/// Gold storage per town. Mirrors FoodStorage.
+#[derive(Resource, Default)]
+pub struct GoldStorage {
+    pub gold: Vec<i32>,
+}
+
+impl GoldStorage {
+    pub fn init(&mut self, count: usize) {
+        self.gold = vec![0; count];
+    }
+}
+
+/// Per-mine gold tracking. Mirrors FarmStates pattern.
+#[derive(Resource, Default, Clone)]
+pub struct MineStates {
+    pub gold: Vec<f32>,      // Current gold in each mine
+    pub max_gold: Vec<f32>,  // Max capacity per mine
+    pub positions: Vec<Vec2>, // World positions (for render/lookup)
+}
+
+impl MineStates {
+    pub fn push_mine(&mut self, pos: Vec2, max_gold: f32) {
+        self.gold.push(max_gold);
+        self.max_gold.push(max_gold);
+        self.positions.push(pos);
+    }
+}
+
 /// Farm growth state.
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum FarmGrowthState {
@@ -625,6 +653,8 @@ pub enum LeftPanelTab {
     Policies,
     Patrols,
     Squads,
+    Intel,
+    Profiler,
 }
 
 /// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
@@ -634,6 +664,7 @@ pub struct UiState {
     pub pause_menu_open: bool,
     pub left_panel_open: bool,
     pub left_panel_tab: LeftPanelTab,
+    pub combat_log_visible: bool,
 }
 
 impl Default for UiState {
@@ -643,6 +674,7 @@ impl Default for UiState {
             pause_menu_open: false,
             left_panel_open: false,
             left_panel_tab: LeftPanelTab::default(),
+            combat_log_visible: true,
         }
     }
 }
@@ -805,6 +837,7 @@ pub struct PolicySet {
     pub guard_schedule: WorkSchedule,
     pub farmer_off_duty: OffDutyBehavior,
     pub guard_off_duty: OffDutyBehavior,
+    pub mining_pct: f32, // 0.0-1.0 — fraction of idle farmers that choose mining over farming
 }
 
 impl Default for PolicySet {
@@ -822,6 +855,7 @@ impl Default for PolicySet {
             guard_schedule: WorkSchedule::Both,
             farmer_off_duty: OffDutyBehavior::GoToBed,
             guard_off_duty: OffDutyBehavior::GoToBed,
+            mining_pct: 0.0,
         }
     }
 }

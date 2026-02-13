@@ -36,11 +36,20 @@ pub struct UserSettings {
     pub log_ai: bool,
     // Debug visibility (pause menu settings)
     #[serde(default)]
-    pub debug_enemy_info: bool,
-    #[serde(default)]
     pub debug_coordinates: bool,
     #[serde(default)]
     pub debug_all_npcs: bool,
+    // Debug logging (formerly F-key toggles)
+    #[serde(default)]
+    pub debug_readback: bool,
+    #[serde(default)]
+    pub debug_combat: bool,
+    #[serde(default)]
+    pub debug_spawns: bool,
+    #[serde(default)]
+    pub debug_behavior: bool,
+    #[serde(default)]
+    pub debug_profiler: bool,
     // Town policies
     #[serde(default)]
     pub policy: PolicySet,
@@ -57,7 +66,11 @@ pub struct UserSettings {
     pub raider_camps: usize,
     #[serde(default = "default_ai_interval")]
     pub ai_interval: f32,
+    #[serde(default = "default_gold_mines")]
+    pub gold_mines_per_town: usize,
 }
+
+fn default_gold_mines() -> usize { 2 }
 
 fn default_true() -> bool { true }
 fn default_farms() -> usize { 2 }
@@ -83,13 +96,18 @@ impl Default for UserSettings {
             log_ai: true,
             gen_style: 0,
             background_fps: false,
-            debug_enemy_info: false,
             debug_coordinates: false,
             debug_all_npcs: false,
+            debug_readback: false,
+            debug_combat: false,
+            debug_spawns: false,
+            debug_behavior: false,
+            debug_profiler: false,
             policy: PolicySet::default(),
             ai_towns: 1,
             raider_camps: 1,
             ai_interval: 5.0,
+            gold_mines_per_town: 2,
         }
     }
 }

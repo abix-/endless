@@ -76,6 +76,12 @@ pub struct Tent {
     pub town_idx: u32,
 }
 
+/// A gold mine in the wilderness (unowned, any faction can mine).
+#[derive(Clone, Debug)]
+pub struct GoldMine {
+    pub position: Vec2,
+}
+
 // ============================================================================
 // WORLD RESOURCES
 // ============================================================================
@@ -90,6 +96,7 @@ pub struct WorldData {
     pub houses: Vec<House>,
     pub barracks: Vec<Barracks>,
     pub tents: Vec<Tent>,
+    pub gold_mines: Vec<GoldMine>,
 }
 
 // ============================================================================
@@ -369,6 +376,7 @@ pub enum LocationKind {
     Farm,
     GuardPost,
     Town,
+    GoldMine,
 }
 
 /// Find nearest location of a given kind (no radius limit, position only).
@@ -390,6 +398,7 @@ pub fn find_location_within_radius(
         LocationKind::Farm => world.farms.iter().map(|f| f.position).collect(),
         LocationKind::GuardPost => world.guard_posts.iter().map(|g| g.position).collect(),
         LocationKind::Town => world.towns.iter().map(|t| t.center).collect(),
+        LocationKind::GoldMine => world.gold_mines.iter().map(|m| m.position).collect(),
     };
 
     for (idx, pos) in positions.iter().enumerate() {
@@ -545,7 +554,7 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
 ];
 
 /// Atlas (col, row) positions for the 8 building tiles used in the building TilemapChunk layer.
-pub const BUILDING_TILES: [TileSpec; 8] = [
+pub const BUILDING_TILES: [TileSpec; 9] = [
     TileSpec::Single(50, 9),  // 0: Fountain
     TileSpec::Single(15, 2),  // 1: Bed
     TileSpec::External(2),    // 2: Guard Post (guard_post.png)
@@ -554,6 +563,7 @@ pub const BUILDING_TILES: [TileSpec; 8] = [
     TileSpec::External(0),    // 5: House (house.png)
     TileSpec::External(1),    // 6: Barracks (barracks.png)
     TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]), // 7: Tent (raider spawner)
+    TileSpec::Single(43, 11), // 8: Gold Mine
 ];
 
 /// Extract tiles from the world atlas and build a texture_2d_array for TilemapChunk.
@@ -648,6 +658,7 @@ pub enum Building {
     House { town_idx: u32 },
     Barracks { town_idx: u32 },
     Tent { town_idx: u32 },
+    GoldMine,
 }
 
 impl Building {
@@ -662,6 +673,7 @@ impl Building {
             Building::House { .. } => 5,
             Building::Barracks { .. } => 6,
             Building::Tent { .. } => 7,
+            Building::GoldMine => 8,
         }
     }
 }
@@ -757,6 +769,7 @@ pub struct WorldGenConfig {
     pub raiders_per_camp: usize,
     pub ai_towns: usize,
     pub raider_camps: usize,
+    pub gold_mines_per_town: usize,
     pub town_names: Vec<String>,
 }
 
@@ -777,6 +790,7 @@ impl Default for WorldGenConfig {
             raiders_per_camp: 1,
             ai_towns: 1,
             raider_camps: 1,
+            gold_mines_per_town: 2,
             town_names: vec![
                 "Miami".into(), "Orlando".into(), "Tampa".into(), "Jacksonville".into(),
                 "Tallahassee".into(), "Gainesville".into(), "Pensacola".into(), "Sarasota".into(),
@@ -798,6 +812,7 @@ pub fn generate_world(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     farm_states: &mut FarmStates,
+    mine_states: &mut crate::resources::MineStates,
     town_grids: &mut TownGrids,
 ) {
     use rand::Rng;
@@ -934,8 +949,44 @@ pub fn generate_world(
         generate_terrain(grid, &all_positions, &[]);
     }
 
-    info!("generate_world: {} player towns, {} AI towns, {} raider camps, grid {}x{} ({})",
-        player_positions.len(), ai_town_positions.len(), camp_positions.len(), w, h,
+    // Step 6: Place gold mines in wilderness between settlements
+    let total_mines = config.gold_mines_per_town * all_positions.len();
+    let mut mine_positions: Vec<Vec2> = Vec::new();
+    let mut mine_attempts = 0;
+    while mine_positions.len() < total_mines && mine_attempts < max_attempts {
+        mine_attempts += 1;
+        let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
+        let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
+        let pos = Vec2::new(x, y);
+        // Not on water
+        if is_continents {
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+        }
+        // Min distance from settlements
+        if all_positions.iter().any(|s| pos.distance(*s) < crate::constants::MINE_MIN_SETTLEMENT_DIST) {
+            continue;
+        }
+        // Min distance from other mines
+        if mine_positions.iter().any(|m| pos.distance(*m) < crate::constants::MINE_MIN_SPACING) {
+            continue;
+        }
+        // Snap to grid and place
+        let (gc, gr) = grid.world_to_grid(pos);
+        if let Some(cell) = grid.cell(gc, gr) {
+            if cell.building.is_some() { continue; }
+        }
+        let snapped = grid.grid_to_world(gc, gr);
+        if let Some(cell) = grid.cell_mut(gc, gr) {
+            cell.building = Some(Building::GoldMine);
+        }
+        world_data.gold_mines.push(GoldMine { position: snapped });
+        mine_states.push_mine(snapped, crate::constants::MINE_MAX_GOLD);
+        mine_positions.push(snapped);
+    }
+
+    info!("generate_world: {} player towns, {} AI towns, {} raider camps, {} gold mines, grid {}x{} ({})",
+        player_positions.len(), ai_town_positions.len(), camp_positions.len(), mine_positions.len(), w, h,
         if is_continents { "continents" } else { "classic" });
 }
 

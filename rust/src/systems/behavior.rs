@@ -41,6 +41,8 @@ pub struct FarmParams<'w> {
 #[derive(SystemParam)]
 pub struct EconomyParams<'w> {
     pub food_storage: ResMut<'w, FoodStorage>,
+    pub gold_storage: ResMut<'w, crate::resources::GoldStorage>,
+    pub mine_states: ResMut<'w, crate::resources::MineStates>,
     pub food_events: ResMut<'w, FoodEvents>,
     pub pop_stats: ResMut<'w, PopulationStats>,
 }
@@ -79,6 +81,7 @@ pub fn arrival_system(
     mut farm_states: ResMut<FarmStates>,
     mut frame_counter: Local<u32>,
     mut combat_log: ResMut<CombatLog>,
+    mut gold_storage: ResMut<crate::resources::GoldStorage>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("arrival");
@@ -90,8 +93,10 @@ pub fn arrival_system(
     // 1. Proximity-based delivery for Returning raiders
     // ========================================================================
     for (_entity, npc_idx, town, home, _faction, mut activity) in returning_query.iter_mut() {
-        let has_food = matches!(*activity, Activity::Returning { has_food: true });
-        if !matches!(*activity, Activity::Returning { .. }) { continue; }
+        let (has_food, carried_gold) = match &*activity {
+            Activity::Returning { has_food, gold } => (*has_food, *gold),
+            _ => continue,
+        };
 
         let idx = npc_idx.0;
         if idx * 2 + 1 >= positions.len() { continue; }
@@ -103,13 +108,20 @@ pub fn arrival_system(
         let dist = (dx * dx + dy * dy).sqrt();
 
         if dist <= DELIVERY_RADIUS {
+            let town_idx = town.0 as usize;
             if has_food {
-                let camp_idx = town.0 as usize;
-                if camp_idx < food_storage.food.len() {
-                    food_storage.food[camp_idx] += 1;
+                if town_idx < food_storage.food.len() {
+                    food_storage.food[town_idx] += 1;
                 }
                 food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Delivered food".into());
+            }
+            if carried_gold > 0 {
+                if town_idx < gold_storage.gold.len() {
+                    gold_storage.gold[town_idx] += carried_gold;
+                }
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("Delivered {} gold", carried_gold));
             }
             *activity = Activity::Idle;
         }
@@ -418,7 +430,7 @@ pub fn decision_system(
                             farms.states.states[farm_idx] = FarmGrowthState::Growing;
                             farms.states.progress[farm_idx] = 0.0;
 
-                            *activity = Activity::Returning { has_food: true };
+                            *activity = Activity::Returning { has_food: true, gold: 0 };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning".into());
                         } else {
@@ -436,11 +448,34 @@ pub fn decision_system(
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm.position.x, y: farm.position.y }));
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another".into());
                             } else {
-                                *activity = Activity::Returning { has_food: false };
+                                *activity = Activity::Returning { has_food: false, gold: 0 };
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No other farms, returning".into());
                             }
                         }
+                    }
+                }
+                Activity::Mining { mine_pos } => {
+                    let mine_pos = *mine_pos;
+                    // Arrived at gold mine — start mining if gold available
+                    if let Some(mine_idx) = economy.mine_states.positions.iter().position(|p| {
+                        (*p - mine_pos).length() < 30.0
+                    }) {
+                        if mine_idx < economy.mine_states.gold.len() && economy.mine_states.gold[mine_idx] > 0.0 {
+                            farms.occupancy.claim(mine_pos);
+                            *activity = Activity::MiningAtMine;
+                            commands.entity(entity).insert(WorkPosition(mine_pos));
+                            pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: mine_pos.x, y: mine_pos.y }));
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ MiningAtMine".into());
+                        } else {
+                            // Mine depleted
+                            *activity = Activity::Idle;
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Mine depleted → Idle".into());
+                        }
+                    } else {
+                        *activity = Activity::Idle;
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No mine nearby → Idle".into());
                     }
                 }
                 Activity::Wandering => {
@@ -499,7 +534,7 @@ pub fn decision_system(
 
                 if health.0 / 100.0 < effective_threshold {
                     *combat_state = CombatState::None;
-                    *activity = Activity::Returning { has_food: false };
+                    *activity = Activity::Returning { has_food: false, gold: 0 };
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Fled combat".into());
                     continue;
@@ -519,7 +554,7 @@ pub fn decision_system(
                         let dy = positions[idx * 2 + 1] - origin.y;
                         if (dx * dx + dy * dy).sqrt() > leash_dist {
                             *combat_state = CombatState::None;
-                            *activity = Activity::Returning { has_food: false };
+                            *activity = Activity::Returning { has_food: false, gold: 0 };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Leashed → Returning".into());
                             continue;
@@ -597,7 +632,7 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Priority 5: Working + tired?
+        // Priority 5: Working/Mining + tired?
         // ====================================================================
         if matches!(*activity, Activity::Working) {
             if energy.0 < ENERGY_TIRED_THRESHOLD {
@@ -607,6 +642,38 @@ pub fn decision_system(
                     commands.entity(entity).remove::<AssignedFarm>();
                 }
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Stopped".into());
+            }
+            continue;
+        }
+
+        if matches!(*activity, Activity::MiningAtMine) {
+            if energy.0 < ENERGY_TIRED_THRESHOLD {
+                // Extract gold before leaving
+                let gold_amount = crate::constants::MINE_EXTRACT_PER_CYCLE;
+                if let Ok(wp) = work_query.get(entity) {
+                    let mine_pos = wp.0;
+                    // Deduct from mine
+                    if let Some(mine_idx) = economy.mine_states.positions.iter().position(|p| {
+                        (*p - mine_pos).length() < 30.0
+                    }) {
+                        if mine_idx < economy.mine_states.gold.len() {
+                            let extracted = (economy.mine_states.gold[mine_idx] as i32).min(gold_amount);
+                            economy.mine_states.gold[mine_idx] = (economy.mine_states.gold[mine_idx] - extracted as f32).max(0.0);
+                            farms.occupancy.release(mine_pos);
+                            commands.entity(entity).remove::<WorkPosition>();
+                            *activity = Activity::Returning { has_food: false, gold: extracted };
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                                format!("Mined {} gold → Returning", extracted));
+                            continue;
+                        }
+                    }
+                    // Couldn't find mine — just leave
+                    farms.occupancy.release(mine_pos);
+                    commands.entity(entity).remove::<WorkPosition>();
+                }
+                *activity = Activity::Idle;
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Mining tired → Idle".into());
             }
             continue;
         }
@@ -753,7 +820,37 @@ pub fn decision_system(
             Action::Work => {
                 match job {
                     Job::Farmer => {
-                        if let Ok(wp) = work_query.get(entity) {
+                        // Roll mining vs farming based on policy
+                        let mining_pct = policy.map(|p| p.mining_pct).unwrap_or(0.0);
+                        let roll = pseudo_random(idx, frame);
+                        if mining_pct > 0.0 && roll < mining_pct {
+                            // Go mine gold — find nearest mine with gold > 0
+                            let current_pos = if idx * 2 + 1 < positions.len() {
+                                Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
+                            } else {
+                                home.0
+                            };
+                            let mut best_mine: Option<(f32, Vec2)> = None;
+                            for (mi, mpos) in economy.mine_states.positions.iter().enumerate() {
+                                if mi < economy.mine_states.gold.len() && economy.mine_states.gold[mi] > 0.0 {
+                                    let dist = current_pos.distance(*mpos);
+                                    if best_mine.is_none() || dist < best_mine.unwrap().0 {
+                                        best_mine = Some((dist, *mpos));
+                                    }
+                                }
+                            }
+                            if let Some((_, mine_pos)) = best_mine {
+                                *activity = Activity::Mining { mine_pos };
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: mine_pos.x, y: mine_pos.y }));
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Mining gold".into());
+                            } else {
+                                // No mines with gold — farm instead
+                                if let Ok(wp) = work_query.get(entity) {
+                                    *activity = Activity::GoingToWork;
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: wp.0.x, y: wp.0.y }));
+                                }
+                            }
+                        } else if let Ok(wp) = work_query.get(entity) {
                             *activity = Activity::GoingToWork;
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: wp.0.x, y: wp.0.y }));
                         }

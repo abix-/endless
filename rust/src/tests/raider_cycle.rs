@@ -72,7 +72,7 @@ pub fn tick(
     for activity in activity_query.iter() {
         match activity {
             Activity::Raiding { .. } => raiding += 1,
-            Activity::Returning { has_food } => {
+            Activity::Returning { has_food, .. } => {
                 returning += 1;
                 if *has_food { carrying += 1; }
             }
