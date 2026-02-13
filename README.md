@@ -12,7 +12,11 @@ A real-time kingdom builder inspired by [Lords of the Realm 2](https://en.wikipe
 
 ## Getting Started
 
-Requires [Rust](https://rustup.rs/) and a GPU with Vulkan, DX12, or Metal support.
+Requires [Rust](https://rustup.rs/) and a GPU with Vulkan, DX12, or Metal support. First build takes 2-5 minutes. Subsequent builds ~15 seconds.
+
+### Windows
+
+1. Install [Rust](https://rustup.rs/) + [Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 
 ```bash
 git clone https://github.com/abix-/endless.git
@@ -20,21 +24,31 @@ cd endless/rust
 cargo run --release
 ```
 
-<details>
-<summary>Platform notes</summary>
+### macOS
 
-**Windows:** Requires [Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+1. Install [Rust](https://rustup.rs/). Xcode Command Line Tools install automatically if missing.
 
-**Linux:** Install Bevy dependencies:
 ```bash
-# Ubuntu/Debian
-sudo apt install g++ pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-# Fedora
-sudo dnf install gcc-c++ libX11-devel alsa-lib-devel systemd-devel wayland-devel libxkbcommon-devel
+git clone https://github.com/abix-/endless.git
+cd endless/rust
+cargo run --release
 ```
 
-First build takes 2-5 minutes. Subsequent builds ~15 seconds.
-</details>
+### Linux
+
+1. Install [Rust](https://rustup.rs/) + Bevy dependencies:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt install g++ pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+   # Fedora
+   sudo dnf install gcc-c++ libX11-devel alsa-lib-devel systemd-devel wayland-devel libxkbcommon-devel
+   ```
+
+```bash
+git clone https://github.com/abix-/endless.git
+cd endless/rust
+cargo run --release
+```
 
 ## Controls
 
