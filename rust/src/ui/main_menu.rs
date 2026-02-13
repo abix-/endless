@@ -20,6 +20,7 @@ pub struct MenuState {
     pub ai_towns: f32,
     pub raider_camps: f32,
     pub ai_interval: f32,
+    pub npc_interval: f32,
     pub gen_style: i32,
     pub gold_mines: f32,
     pub initialized: bool,
@@ -44,6 +45,7 @@ pub fn main_menu_system(
     mut next_state: ResMut<NextState<AppState>>,
     mut wg_config: ResMut<WorldGenConfig>,
     mut ai_config: ResMut<AiPlayerConfig>,
+    mut npc_config: ResMut<crate::resources::NpcDecisionConfig>,
     mut state: Local<MenuState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
@@ -60,6 +62,7 @@ pub fn main_menu_system(
         state.ai_towns = saved.ai_towns as f32;
         state.raider_camps = saved.raider_camps as f32;
         state.ai_interval = saved.ai_interval;
+        state.npc_interval = saved.npc_interval;
         state.gen_style = saved.gen_style as i32;
         state.gold_mines = saved.gold_mines_per_town as f32;
         state.initialized = true;
@@ -174,6 +177,17 @@ pub fn main_menu_system(
                     .show_value(true));
             });
 
+            ui.add_space(4.0);
+
+            // NPC Think interval
+            ui.horizontal(|ui| {
+                ui.label("NPC Think:");
+                ui.add(egui::Slider::new(&mut state.npc_interval, 0.5..=10.0)
+                    .step_by(0.5)
+                    .suffix("s")
+                    .show_value(true));
+            });
+
             ui.add_space(20.0);
 
             // Play button
@@ -190,6 +204,7 @@ pub fn main_menu_system(
                 wg_config.raider_camps = state.raider_camps as usize;
                 wg_config.gold_mines_per_town = state.gold_mines as usize;
                 ai_config.decision_interval = state.ai_interval;
+                npc_config.interval = state.npc_interval;
 
                 let mut saved = settings::load_settings();
                 saved.world_size = state.world_size;
@@ -201,6 +216,7 @@ pub fn main_menu_system(
                 saved.ai_towns = state.ai_towns as usize;
                 saved.raider_camps = state.raider_camps as usize;
                 saved.ai_interval = state.ai_interval;
+                saved.npc_interval = state.npc_interval;
                 saved.gen_style = state.gen_style as u8;
                 saved.gold_mines_per_town = state.gold_mines as usize;
                 settings::save_settings(&saved);
@@ -300,6 +316,7 @@ pub fn main_menu_system(
                             state.ai_towns = defaults.ai_towns as f32;
                             state.raider_camps = defaults.raider_camps as f32;
                             state.ai_interval = defaults.ai_interval;
+                            state.npc_interval = defaults.npc_interval;
                             state.gen_style = defaults.gen_style as i32;
                             state.gold_mines = defaults.gold_mines_per_town as f32;
                             settings::save_settings(&defaults);

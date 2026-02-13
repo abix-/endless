@@ -58,6 +58,15 @@ impl SystemTimings {
         }
     }
 
+    /// Record a timing value directly (same EMA as scope guard).
+    /// Use for accumulated sub-section timings recorded after a loop.
+    pub fn record(&self, name: &'static str, ms: f32) {
+        if let Ok(mut data) = self.data.lock() {
+            let entry = data.entry(name).or_insert(0.0);
+            *entry = *entry * 0.95 + ms * 0.05;
+        }
+    }
+
     pub fn get_timings(&self) -> HashMap<&'static str, f32> {
         self.data.lock().map(|d| d.clone()).unwrap_or_default()
     }
@@ -89,6 +98,16 @@ impl Drop for TimerGuard<'_> {
 /// Delta time for the current frame (seconds).
 #[derive(Resource, Default)]
 pub struct DeltaTime(pub f32);
+
+/// NPC decision throttling config. Controls how often non-combat decisions are evaluated.
+#[derive(Resource)]
+pub struct NpcDecisionConfig {
+    pub interval: f32, // seconds between decision evaluations (default 2.0)
+}
+
+impl Default for NpcDecisionConfig {
+    fn default() -> Self { Self { interval: 2.0 } }
+}
 
 /// O(1) lookup from NPC slot index to Bevy Entity.
 /// Populated on spawn, used by damage_system for fast entity lookup.

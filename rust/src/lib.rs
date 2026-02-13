@@ -232,6 +232,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<SquadState>()
        .init_resource::<AiPlayerState>()
        .init_resource::<AiPlayerConfig>()
+       .init_resource::<resources::NpcDecisionConfig>()
        .init_resource::<systems::stats::CombatConfig>()
        .init_resource::<systems::stats::TownUpgrades>()
        .init_resource::<systems::stats::UpgradeQueue>()

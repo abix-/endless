@@ -238,7 +238,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=Hut, 1=Barracks, 2=Tent), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
-| UserSettings | world_size, towns, farmers, guards, raiders, ai_towns, raider_camps, ai_interval, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
+| UserSettings | world_size, towns, farmers, guards, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 
@@ -264,6 +264,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 |----------|------|---------|---------|
 | AiPlayerConfig | `decision_interval: f32` (real seconds between AI ticks, default 5.0) | main_menu (from settings) | ai_decision_system |
 | AiPlayerState | `players: Vec<AiPlayer>` — one per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
+| NpcDecisionConfig | `interval: f32` (seconds between Tier 3 decisions, default 2.0) | main_menu (from settings) | decision_system |
 
 `AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 

@@ -299,8 +299,10 @@ pub fn decision_system(
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
+    npc_config: Res<crate::resources::NpcDecisionConfig>,
 ) {
     let _t = extras.timings.scope("decision");
+    let profiling = extras.timings.enabled;
     let npc_logs = &mut extras.npc_logs;
     let raid_queue = &mut extras.raid_queue;
     let combat_log = &mut extras.combat_log;
@@ -315,6 +317,16 @@ pub fn decision_system(
     const CHECK_INTERVAL: usize = 30;
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
     const HEAL_DRIFT_RADIUS: f32 = 100.0; // Re-target fountain if pushed beyond this
+    const COMBAT_INTERVAL: usize = 8; // Tier 2: combat flee/leash every 8 frames (~133ms)
+    let think_buckets = ((npc_config.interval * 60.0) as usize).max(1); // Tier 3: slow decisions
+
+    // Sub-profiling accumulators (zero cost when profiler disabled)
+    let mut t_arrival = std::time::Duration::ZERO;
+    let mut t_combat = std::time::Duration::ZERO;
+    let mut t_idle = std::time::Duration::ZERO;
+    let mut n_arrival: u32 = 0;
+    let mut n_combat: u32 = 0;
+    let mut n_idle: u32 = 0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
          mut activity, mut combat_state, at_destination, squad_id) in query.iter_mut()
@@ -325,6 +337,7 @@ pub fn decision_system(
         // Priority 0: AtDestination → Handle arrival transition
         // ====================================================================
         if at_destination.is_some() {
+            let _ps = if profiling { Some(std::time::Instant::now()) } else { None };
             commands.entity(entity).remove::<AtDestination>();
 
             match &*activity {
@@ -489,15 +502,19 @@ pub fn decision_system(
                 _ => {}
             }
 
+            if let Some(s) = _ps { t_arrival += s.elapsed(); n_arrival += 1; }
             continue;
         }
 
         // ====================================================================
         // Priority 1-3: Combat decisions (flee/leash/skip)
         // Runs BEFORE transit skip so fighting NPCs in transit (e.g. Raiding)
-        // can still flee or leash back.
+        // can still flee or leash back. Tier 2: every COMBAT_INTERVAL frames.
         // ====================================================================
         if combat_state.is_fighting() {
+            let combat_tick = (idx + frame) % COMBAT_INTERVAL == 0;
+            if combat_tick {
+            let _ps = if profiling { Some(std::time::Instant::now()) } else { None };
             // Priority 1: Should flee? (policy-driven)
             let town_idx_usize = town_id.0 as usize;
             let flee_pct = match job {
@@ -537,6 +554,7 @@ pub fn decision_system(
                     *activity = Activity::Returning { has_food: false, gold: 0 };
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Fled combat");
+                    if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
                     continue;
                 }
             }
@@ -557,6 +575,7 @@ pub fn decision_system(
                             *activity = Activity::Returning { has_food: false, gold: 0 };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Leashed → Returning");
+                            if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
                             continue;
                         }
                     }
@@ -564,32 +583,38 @@ pub fn decision_system(
             }
 
             // Priority 3: Still in combat, attack_system handles targeting
+            if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
+            } // end combat_tick
             continue;
         }
 
         // ====================================================================
-        // Early arrival: GoingToHeal NPCs stop once inside healing range
+        // Skip NPCs in transit states (they're walking to their destination)
+        // GoingToHeal proximity check runs at combat cadence (every 8 frames).
         // ====================================================================
-        if matches!(*activity, Activity::GoingToHeal) {
-            let town_idx = town_id.0 as usize;
-            if let Some(town) = farms.world.towns.get(town_idx) {
-                if idx * 2 + 1 < positions.len() {
-                    let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
-                    if current.distance(town.center) <= HEAL_DRIFT_RADIUS {
-                        let threshold = policies.policies.get(town_idx)
-                            .map(|p| p.recovery_hp).unwrap_or(0.8);
-                        *activity = Activity::HealingAtFountain { recover_until: threshold };
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Healing");
-                        continue;
+        if activity.is_transit() {
+            // Early arrival: GoingToHeal NPCs stop once inside healing range
+            if (idx + frame) % COMBAT_INTERVAL == 0 && matches!(*activity, Activity::GoingToHeal) {
+                let town_idx = town_id.0 as usize;
+                if let Some(town) = farms.world.towns.get(town_idx) {
+                    if idx * 2 + 1 < positions.len() {
+                        let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                        if current.distance(town.center) <= HEAL_DRIFT_RADIUS {
+                            let threshold = policies.policies.get(town_idx)
+                                .map(|p| p.recovery_hp).unwrap_or(0.8);
+                            *activity = Activity::HealingAtFountain { recover_until: threshold };
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Healing");
+                        }
                     }
                 }
             }
+            continue;
         }
 
         // ====================================================================
-        // Skip NPCs in transit states (they're walking to their destination)
+        // Tier 3 gate: non-combat decisions only run on this NPC's bucket
         // ====================================================================
-        if activity.is_transit() {
+        if (idx + frame) % think_buckets != 0 {
             continue;
         }
 
@@ -614,7 +639,7 @@ pub fn decision_system(
                         }
                     }
                 }
-                continue;
+                continue; // still healing
             }
         }
 
@@ -627,7 +652,7 @@ pub fn decision_system(
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Woke up");
                 // Fall through to make a decision
             } else {
-                continue;
+                continue; // still resting
             }
         }
 
@@ -706,18 +731,9 @@ pub fn decision_system(
 
 
         // ====================================================================
-        // Bucket time-slice: idle NPCs only re-evaluate every IDLE_BUCKETS frames.
-        // Priorities 0-6 (arrivals, combat, transit, healing, resting, working,
-        // on-duty) still run every frame for responsiveness.
-        // ====================================================================
-        const IDLE_BUCKETS: usize = 8;
-        if matches!(*activity, Activity::Idle) && (frame + idx) % IDLE_BUCKETS != 0 {
-            continue;
-        }
-
-        // ====================================================================
         // Priority 8: Idle → Score Eat/Rest/Work/Wander (policy-aware)
         // ====================================================================
+        let _ps_idle = if profiling { Some(std::time::Instant::now()) } else { None };
         let en = energy.0;
         let (_fight_m, _flee_m, rest_m, eat_m, work_m, wander_m) = personality.get_multipliers();
 
@@ -738,6 +754,7 @@ pub fn decision_system(
                     *activity = Activity::GoingToHeal;
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded → Fountain");
+                    if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                     continue;
                 }
             }
@@ -798,6 +815,7 @@ pub fn decision_system(
                         *activity = Activity::Wandering;
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Off-duty → Fountain");
+                        if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                         continue;
                     }
                 }
@@ -869,6 +887,7 @@ pub fn decision_system(
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target.x, y: target.y }));
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                                         format!("Squad {} → target", sid.0 + 1));
+                                    if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                                     continue;
                                 }
                             }
@@ -941,6 +960,7 @@ pub fn decision_system(
                 } else if idx * 2 + 1 < positions.len() {
                     (positions[idx * 2], positions[idx * 2 + 1])
                 } else {
+                    if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                     continue;
                 };
                 let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 200.0;
@@ -950,6 +970,18 @@ pub fn decision_system(
             }
             Action::Fight | Action::Flee => {}
         }
+        if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
+    }
+
+    // Record sub-profiling results
+    if profiling {
+        let t = &extras.timings;
+        t.record("d.arrival", t_arrival.as_secs_f32() * 1000.0);
+        t.record("d.combat", t_combat.as_secs_f32() * 1000.0);
+        t.record("d.idle", t_idle.as_secs_f32() * 1000.0);
+        t.record("d.n_arrival", n_arrival as f32);
+        t.record("d.n_combat", n_combat as f32);
+        t.record("d.n_idle", n_idle as f32);
     }
 }
 

@@ -60,7 +60,7 @@ Bevy ECS (lib.rs build_app)
     ├─ AppState: MainMenu → Playing | TestMenu → Running
     │
     ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, panels, startup, cleanup
-    │   ├─ Main menu: world config sliders (gold mines, AI speed, etc.) + Play / Debug Tests
+    │   ├─ Main menu: world config sliders (gold mines, AI speed, NPC think, etc.) + Play / Debug Tests
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
     │   ├─ Top bar: panel toggles left, town name + time center, stats (food + gold) right
     │   ├─ Floating windows: NPC/building inspector (bottom-left) + combat log with filters (bottom-right)

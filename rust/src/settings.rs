@@ -68,6 +68,8 @@ pub struct UserSettings {
     pub ai_interval: f32,
     #[serde(default = "default_gold_mines")]
     pub gold_mines_per_town: usize,
+    #[serde(default = "default_npc_interval")]
+    pub npc_interval: f32,
 }
 
 fn default_gold_mines() -> usize { 2 }
@@ -76,6 +78,7 @@ fn default_true() -> bool { true }
 fn default_farms() -> usize { 2 }
 fn default_one() -> usize { 1 }
 fn default_ai_interval() -> f32 { 5.0 }
+fn default_npc_interval() -> f32 { 2.0 }
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -108,6 +111,7 @@ impl Default for UserSettings {
             raider_camps: 1,
             ai_interval: 5.0,
             gold_mines_per_town: 2,
+            npc_interval: 2.0,
         }
     }
 }

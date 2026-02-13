@@ -16,16 +16,25 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 - `EconomyParams`: food storage, food events, population stats
 - `DecisionExtras`: npc logs, raid queue, combat log, policies, squad state, timings
 
-Priority order (first match wins):
-0. AtDestination → Handle arrival transitions (match on Activity variant)
+Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
+
+**Tier 1 — every frame:**
+0. AtDestination → Handle arrival transitions (transient one-frame flag, can't miss)
+-- Transit skip (`activity.is_transit()` → continue, with GoingToHeal proximity check at Tier 2 cadence) --
+
+**Tier 2 — every 8 frames (~133ms):**
 1. CombatState::Fighting + should_flee? → Flee
 2. CombatState::Fighting + should_leash? → Leash
 3. CombatState::Fighting → Skip (attack_system handles)
+
+**Tier 3 — bucketed by `NpcDecisionConfig.interval` (default 2s, configurable 0.5-10s):**
 4a. HealingAtFountain + HP >= threshold → Wake (HP-only check)
 4b. Resting + energy >= 90% → Wake (energy-only check)
 5. Working + tired? → Stop work
 6. OnDuty + time_to_patrol? → Patrol
 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
+
+Bucketing uses `(idx + frame) % bucket_count` where `bucket_count = interval × 60fps`. With 5100 NPCs at 2s default, only ~42 NPCs evaluate Tier 3 per frame.
 
 All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `guard_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
 
@@ -166,6 +175,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 ### decision_system (Unified Priority Cascade)
 - Query: NPCs with `&mut Activity`, `&mut CombatState`, skips NPCs in transit (`activity.is_transit()`)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
+- Reads `NpcDecisionConfig.interval` for Tier 3 bucket count (`interval × 60fps`)
+- Three-tier throttling: arrivals every frame, combat every 8 frames, decisions bucketed by interval
 - Matches on Activity and CombatState enums in priority order:
 
 **Priority 0: Arrival transitions**
