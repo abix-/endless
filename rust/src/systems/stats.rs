@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, CombatLog, CombatEventKind, GameTime};
+use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, CombatLog, CombatEventKind, GameTime, SystemTimings};
 
 // ============================================================================
 // COMBAT CONFIG (replaces scattered constants)
@@ -187,7 +187,9 @@ pub fn process_upgrades_system(
     meta_cache: Res<NpcMetaCache>,
     mut npc_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("process_upgrades");
     for (town_idx, upgrade_idx) in queue.0.drain(..) {
         if upgrade_idx >= UPGRADE_COUNT { continue; }
         if town_idx >= upgrades.levels.len() { continue; }
@@ -240,7 +242,9 @@ pub fn auto_upgrade_system(
     upgrades: Res<TownUpgrades>,
     food_storage: Res<crate::resources::FoodStorage>,
     mut queue: ResMut<UpgradeQueue>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("auto_upgrade");
     if !game_time.hour_ticked { return; }
 
     for (town_idx, flags) in auto.flags.iter().enumerate() {
@@ -269,7 +273,9 @@ pub fn xp_grant_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("xp_grant");
     for (_dead_idx, last_hit) in dead_query.iter() {
         let Some(last_hit) = last_hit else { continue };
         if last_hit.0 < 0 { continue; }

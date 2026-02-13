@@ -30,7 +30,7 @@ use resources::{
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
-    FoodStorage, FactionStats, CampState, RaidQueue, BevyFrameTimer, PERF_STATS,
+    FoodStorage, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState,
@@ -114,18 +114,19 @@ pub enum Step {
     Behavior,
 }
 
-fn bevy_timer_start(mut timer: ResMut<BevyFrameTimer>) {
-    timer.start = Some(std::time::Instant::now());
+fn frame_timer_start(timings: Res<SystemTimings>) {
+    timings.begin_frame();
 }
 
 fn startup_system() {
     info!("Endless ECS initialized - systems registered");
 }
 
-/// Toggle debug flags with F1-F4 keys.
+/// Toggle debug flags with F1-F5 keys.
 fn debug_toggle_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut flags: ResMut<DebugFlags>,
+    mut timings: ResMut<SystemTimings>,
 ) {
     if keys.just_pressed(KeyCode::F1) {
         flags.readback = !flags.readback;
@@ -142,6 +143,10 @@ fn debug_toggle_system(
     if keys.just_pressed(KeyCode::F4) {
         flags.behavior = !flags.behavior;
         info!("Debug behavior: {}", if flags.behavior { "ON" } else { "OFF" });
+    }
+    if keys.just_pressed(KeyCode::F5) {
+        timings.enabled = !timings.enabled;
+        info!("System profiler: {}", if timings.enabled { "ON" } else { "OFF" });
     }
 }
 
@@ -180,13 +185,8 @@ fn debug_tick_system(
     }
 }
 
-fn bevy_timer_end(timer: Res<BevyFrameTimer>) {
-    if let Some(start) = timer.start {
-        let elapsed = start.elapsed().as_secs_f32() * 1000.0;
-        if let Ok(mut stats) = PERF_STATS.lock() {
-            stats.bevy_ms = elapsed;
-        }
-    }
+fn frame_timer_end(timings: Res<SystemTimings>) {
+    timings.end_frame();
 }
 
 /// Build the Bevy application.
@@ -231,7 +231,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<FactionStats>()
        .init_resource::<CampState>()
        .init_resource::<RaidQueue>()
-       .init_resource::<BevyFrameTimer>()
+       .init_resource::<SystemTimings>()
        .init_resource::<world::WorldGrid>()
        .init_resource::<world::WorldGenConfig>()
        .init_resource::<UiState>()
@@ -259,7 +259,7 @@ pub fn build_app(app: &mut App) {
        // System sets — game systems only run during AppState::Running
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain()
            .run_if(game_active.clone()))
-       .add_systems(Update, bevy_timer_start.before(Step::Drain).run_if(game_active.clone()))
+       .add_systems(Update, frame_timer_start.before(Step::Drain).run_if(game_active.clone()))
        .add_systems(Update, ApplyDeferred.after(Step::Spawn).before(Step::Combat).run_if(game_active.clone()))
        // Drain
        .add_systems(Update, (
@@ -302,7 +302,7 @@ pub fn build_app(app: &mut App) {
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))
-       .add_systems(Update, bevy_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))
+       .add_systems(Update, frame_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))
        // Debug (F1=readback, F2=combat, F3=spawns, F4=behavior)
        .add_systems(Update, (debug_toggle_system, debug_tick_system).run_if(game_active.clone()));
 

@@ -262,6 +262,14 @@ Rules:
 - [x] Eliminate `GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE` static Mutexes (replaced by `ReadbackComplete` events → Bevy Resources)
 - [x] Convert 4 readback compute buffers to `ShaderStorageBuffer` assets with `COPY_SRC`
 
+### Continent World Generation
+- [x] `WorldGenStyle` enum (Classic/Continents) in `WorldGenConfig`, selectable from main menu combo box
+- [x] 3-octave fBm elevation noise (freq 0.0008/0.0016/0.0032) + square-bump edge falloff + power redistribution
+- [x] Independent moisture noise (freq 0.003) for biome selection: dry→Rock, moderate→Grass, wet→Forest
+- [x] Town/camp placement constrained to land cells in Continents mode (5000 max attempts)
+- [x] `stamp_dirt()` clears terrain around settlements after placement
+- [x] Setting persisted in UserSettings as `gen_style: u8`
+
 ### Architecture
 - [x] Bevy Messages (MessageWriter/MessageReader) for all inter-system communication
 - [x] All state as Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
@@ -420,14 +428,14 @@ Entity sleeping:
 - [ ] Allied camps stop raiding, may send fighters during large attacks
 - [ ] Betrayal: allied camps can turn hostile if tribute stops or player is weak
 
-**Stage 22: World Generation** (see [spec](#continent-world-generation))
+**Stage 22: World Generation** ✓ (see [spec](#continent-world-generation))
 
 *Done when: player selects "Continents" from main menu, sees landmasses with ocean, towns only on land, biome variety across continents.*
 
-- [ ] `WorldGenStyle` enum: Classic (current) / Continents (multi-layer noise with land/ocean)
-- [ ] Continental shelf noise + edge falloff + biome noise on land only
-- [ ] Town/camp placement constrained to land cells in Continents mode
-- [ ] Main menu combo box to select generation style, persisted in UserSettings
+- [x] `WorldGenStyle` enum: Classic (current) / Continents (multi-octave fBm elevation + moisture noise with land/ocean)
+- [x] 3-octave elevation fBm + square-bump edge falloff + independent moisture noise for biome selection
+- [x] Town/camp placement constrained to land cells in Continents mode (5000 max attempts)
+- [x] Main menu combo box to select generation style, persisted in UserSettings
 
 **Stage 23: Resources & Jobs**
 

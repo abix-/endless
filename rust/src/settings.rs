@@ -47,6 +47,9 @@ pub struct UserSettings {
     // Display
     #[serde(default)]
     pub background_fps: bool,
+    // World gen style (0=Classic, 1=Continents)
+    #[serde(default)]
+    pub gen_style: u8,
     // AI players
     #[serde(default = "default_one")]
     pub ai_towns: usize,
@@ -78,6 +81,7 @@ impl Default for UserSettings {
             log_levelups: true,
             log_npc_activity: true,
             log_ai: true,
+            gen_style: 0,
             background_fps: false,
             debug_enemy_info: false,
             debug_coordinates: false,

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{GUARD_POST_RANGE, GUARD_POST_DAMAGE, GUARD_POST_COOLDOWN, GUARD_POST_PROJ_SPEED, GUARD_POST_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, SystemTimings};
 use crate::gpu::ProjBufferWrites;
 use crate::world::WorldData;
 
@@ -13,7 +13,9 @@ pub fn cooldown_system(
     time: Res<Time>,
     mut query: Query<&mut AttackTimer>,
     mut debug: ResMut<CombatDebug>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("cooldown");
     let dt = time.delta_secs();
 
     let mut first_timer_before = -99.0f32;
@@ -44,7 +46,9 @@ pub fn attack_system(
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("attack");
     let positions = &gpu_state.positions;
     let combat_targets = &gpu_state.combat_targets;
 
@@ -199,7 +203,9 @@ pub fn process_proj_hits(
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("process_proj_hits");
     // Only iterate up to high-water mark — readback returns full MAX buffer but
     // slots beyond proj_alloc.next were never allocated (stale/zero data)
     let max_slot = proj_alloc.next.min(hit_state.0.len());
@@ -256,7 +262,9 @@ pub fn guard_post_attack_system(
     world_data: Res<WorldData>,
     mut gp_state: ResMut<GuardPostState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("guard_post_attack");
     let dt = time.delta_secs();
     let positions = &gpu_state.positions;
     let factions = &gpu_state.factions;

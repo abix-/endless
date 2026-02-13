@@ -118,8 +118,6 @@ pub fn top_bar_system(
 // BOTTOM PANEL (INSPECTOR + COMBAT LOG)
 // ============================================================================
 
-const INSPECTOR_WIDTH: f32 = 260.0;
-
 /// Query bundle for NPC state display.
 #[derive(SystemParam)]
 pub struct NpcStateQuery<'w, 's> {
@@ -169,7 +167,7 @@ pub struct LogFilterState {
     pub initialized: bool,
 }
 
-/// Bottom panel: inspector (left, always visible) + combat log (right).
+/// Bottom panel: NPC/building inspector.
 pub fn bottom_panel_system(
     mut contexts: EguiContexts,
     data: BottomPanelData,
@@ -180,6 +178,55 @@ pub fn bottom_panel_system(
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<NpcBufferWrites>,
     mut follow: ResMut<FollowSelected>,
+    settings: Res<UserSettings>,
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
+
+    let mut copy_text: Option<String> = None;
+
+    // Only show inspector when something is selected
+    let has_npc = data.selected.0 >= 0;
+    let has_building = bld_data.selected_building.active;
+    if has_npc || has_building {
+        let frame = egui::Frame::new()
+            .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 220))
+            .inner_margin(egui::Margin::same(6));
+
+        egui::Window::new("Inspector")
+            .anchor(egui::Align2::LEFT_BOTTOM, [8.0, -28.0])
+            .fixed_size([300.0, 160.0])
+            .collapsible(true)
+            .movable(false)
+            .frame(frame)
+            .show(ctx, |ui| {
+                inspector_content(
+                    ui, &data, &bld_data, &world_data, &health_query, &npc_states,
+                    &gpu_state, &buffer_writes, &mut follow, &settings, &mut copy_text,
+                );
+            });
+    }
+
+    // Handle clipboard copy (must be outside egui closure)
+    if let Some(text) = copy_text {
+        info!("Copy button clicked, {} bytes", text.len());
+        match arboard::Clipboard::new() {
+            Ok(mut cb) => {
+                match cb.set_text(text) {
+                    Ok(_) => info!("Clipboard: text copied successfully"),
+                    Err(e) => error!("Clipboard: set_text failed: {e}"),
+                }
+            }
+            Err(e) => error!("Clipboard: failed to open: {e}"),
+        }
+    }
+
+    Ok(())
+}
+
+/// Combat log window anchored at bottom-right.
+pub fn combat_log_system(
+    mut contexts: EguiContexts,
+    data: BottomPanelData,
     mut settings: ResMut<UserSettings>,
     mut filter_state: Local<LogFilterState>,
 ) -> Result {
@@ -203,95 +250,85 @@ pub fn bottom_panel_system(
         filter_state.show_ai,
     );
 
-    let mut copy_text: Option<String> = None;
+    let frame = egui::Frame::new()
+        .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 220))
+        .inner_margin(egui::Margin::same(6));
 
-    egui::TopBottomPanel::bottom("bottom_panel")
-        .default_height(160.0)
+    egui::Window::new("Combat Log")
+        .anchor(egui::Align2::RIGHT_BOTTOM, [-8.0, -28.0])
+        .fixed_size([450.0, 140.0])
+        .collapsible(true)
+        .movable(false)
+        .frame(frame)
+        .title_bar(true)
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                // LEFT: Inspector (fixed width)
-                ui.vertical(|ui| {
-                    ui.set_width(INSPECTOR_WIDTH);
-                    inspector_content(
-                        ui, &data, &bld_data, &world_data, &health_query, &npc_states,
-                        &gpu_state, &buffer_writes, &mut follow, &settings, &mut copy_text,
-                    );
-                });
+            // Filter checkboxes
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut filter_state.show_kills, "Deaths");
+                ui.checkbox(&mut filter_state.show_spawns, "Spawns");
+                ui.checkbox(&mut filter_state.show_raids, "Raids");
+                ui.checkbox(&mut filter_state.show_harvests, "Harvests");
+                ui.checkbox(&mut filter_state.show_levelups, "Levels");
+                ui.checkbox(&mut filter_state.show_npc_activity, "NPC");
+                ui.checkbox(&mut filter_state.show_ai, "AI");
+            });
 
-                ui.separator();
+            ui.separator();
 
-                // RIGHT: Combat log (fills remaining width)
-                ui.vertical(|ui| {
-                    // Filter checkboxes
-                    ui.horizontal_wrapped(|ui| {
-                        ui.checkbox(&mut filter_state.show_kills, "Deaths");
-                        ui.checkbox(&mut filter_state.show_spawns, "Spawns");
-                        ui.checkbox(&mut filter_state.show_raids, "Raids");
-                        ui.checkbox(&mut filter_state.show_harvests, "Harvests");
-                        ui.checkbox(&mut filter_state.show_levelups, "Levels");
-                        ui.checkbox(&mut filter_state.show_npc_activity, "NPC");
-                        ui.checkbox(&mut filter_state.show_ai, "AI");
-                    });
+            // Scrollable log — merge combat + NPC logs chronologically
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    let mut merged: Vec<(i64, egui::Color32, String, &str)> = Vec::new();
 
-                    ui.separator();
+                    for entry in &data.combat_log.entries {
+                        let show = match entry.kind {
+                            CombatEventKind::Kill => filter_state.show_kills,
+                            CombatEventKind::Spawn => filter_state.show_spawns,
+                            CombatEventKind::Raid => filter_state.show_raids,
+                            CombatEventKind::Harvest => filter_state.show_harvests,
+                            CombatEventKind::LevelUp => filter_state.show_levelups,
+                            CombatEventKind::Ai => filter_state.show_ai,
+                        };
+                        if !show { continue; }
 
-                    // Scrollable log — merge combat + NPC logs chronologically
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            // Collect visible entries: (sort_key, color, timestamp, message)
-                            let mut merged: Vec<(i64, egui::Color32, String, &str)> = Vec::new();
+                        let color = match entry.kind {
+                            CombatEventKind::Kill => egui::Color32::from_rgb(220, 80, 80),
+                            CombatEventKind::Spawn => egui::Color32::from_rgb(80, 200, 80),
+                            CombatEventKind::Raid => egui::Color32::from_rgb(220, 160, 40),
+                            CombatEventKind::Harvest => egui::Color32::from_rgb(200, 200, 60),
+                            CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
+                            CombatEventKind::Ai => egui::Color32::from_rgb(180, 120, 220),
+                        };
 
-                            for entry in &data.combat_log.entries {
-                                let show = match entry.kind {
-                                    CombatEventKind::Kill => filter_state.show_kills,
-                                    CombatEventKind::Spawn => filter_state.show_spawns,
-                                    CombatEventKind::Raid => filter_state.show_raids,
-                                    CombatEventKind::Harvest => filter_state.show_harvests,
-                                    CombatEventKind::LevelUp => filter_state.show_levelups,
-                                    CombatEventKind::Ai => filter_state.show_ai,
-                                };
-                                if !show { continue; }
+                        let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
+                        let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
+                        merged.push((key, color, ts, &entry.message));
+                    }
 
-                                let color = match entry.kind {
-                                    CombatEventKind::Kill => egui::Color32::from_rgb(220, 80, 80),
-                                    CombatEventKind::Spawn => egui::Color32::from_rgb(80, 200, 80),
-                                    CombatEventKind::Raid => egui::Color32::from_rgb(220, 160, 40),
-                                    CombatEventKind::Harvest => egui::Color32::from_rgb(200, 200, 60),
-                                    CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
-                                    CombatEventKind::Ai => egui::Color32::from_rgb(180, 120, 220),
-                                };
-
+                    // Selected NPC activity log entries
+                    if filter_state.show_npc_activity && data.selected.0 >= 0 {
+                        let idx = data.selected.0 as usize;
+                        if idx < data.npc_logs.0.len() {
+                            let npc_color = egui::Color32::from_rgb(180, 180, 220);
+                            for entry in data.npc_logs.0[idx].iter() {
                                 let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
                                 let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
-                                merged.push((key, color, ts, &entry.message));
+                                merged.push((key, npc_color, ts, &entry.message));
                             }
+                        }
+                    }
 
-                            // Selected NPC activity log entries
-                            if filter_state.show_npc_activity && data.selected.0 >= 0 {
-                                let idx = data.selected.0 as usize;
-                                if idx < data.npc_logs.0.len() {
-                                    let npc_color = egui::Color32::from_rgb(180, 180, 220);
-                                    for entry in data.npc_logs.0[idx].iter() {
-                                        let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
-                                        let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
-                                        merged.push((key, npc_color, ts, &entry.message));
-                                    }
-                                }
-                            }
+                    merged.sort_by_key(|(key, ..)| *key);
 
-                            merged.sort_by_key(|(key, ..)| *key);
-
-                            for (_, color, ts, msg) in &merged {
-                                ui.horizontal(|ui| {
-                                    ui.small(ts);
-                                    ui.colored_label(*color, *msg);
-                                });
-                            }
+                    for (_, color, ts, msg) in &merged {
+                        ui.horizontal(|ui| {
+                            ui.small(ts);
+                            ui.colored_label(*color, *msg);
                         });
+                    }
                 });
-            });
         });
 
     // Persist filter changes
@@ -309,20 +346,6 @@ pub fn bottom_panel_system(
         settings.log_npc_activity = filter_state.show_npc_activity;
         settings.log_ai = filter_state.show_ai;
         settings::save_settings(&settings);
-    }
-
-    // Handle clipboard copy (must be outside egui closure)
-    if let Some(text) = copy_text {
-        info!("Copy button clicked, {} bytes", text.len());
-        match arboard::Clipboard::new() {
-            Ok(mut cb) => {
-                match cb.set_text(text) {
-                    Ok(_) => info!("Clipboard: text copied successfully"),
-                    Err(e) => error!("Clipboard: set_text failed: {e}"),
-                }
-            }
-            Err(e) => error!("Clipboard: failed to open: {e}"),
-        }
     }
 
     Ok(())

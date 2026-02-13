@@ -228,7 +228,9 @@ pub fn ai_decision_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut timer: Local<f32>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("ai_decision");
     *timer += time.delta_secs();
     if *timer < config.decision_interval { return; }
     *timer = 0.0;

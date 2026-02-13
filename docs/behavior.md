@@ -14,6 +14,7 @@ Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding`
 The system uses **SystemParam bundles** for farm and economy parameters:
 - `FarmParams`: farm states, `BuildingOccupancy` tracking, world data
 - `EconomyParams`: food storage, food events, population stats
+- `DecisionExtras`: npc logs, raid queue, combat log, policies, squad state, timings
 
 Priority order (first match wins):
 0. AtDestination → Handle arrival transitions (match on Activity variant)

@@ -7,7 +7,7 @@ use crate::constants::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta,
-    NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind,
+    NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind, SystemTimings,
 };
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
 use crate::systems::economy::*;
@@ -78,7 +78,9 @@ pub fn spawn_npc_system(
     mut combat_log: ResMut<CombatLog>,
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("spawn_npc");
     for msg in events.read() {
         let idx = msg.slot_idx;
         let job = Job::from_i32(msg.job);

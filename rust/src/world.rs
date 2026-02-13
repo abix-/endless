@@ -732,9 +732,18 @@ impl WorldGrid {
 // WORLD GEN CONFIG
 // ============================================================================
 
+/// World generation algorithm style.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum WorldGenStyle {
+    #[default]
+    Classic,
+    Continents,
+}
+
 /// Configuration for procedural world generation.
 #[derive(Resource)]
 pub struct WorldGenConfig {
+    pub gen_style: WorldGenStyle,
     pub world_width: f32,
     pub world_height: f32,
     pub world_margin: f32,
@@ -754,6 +763,7 @@ pub struct WorldGenConfig {
 impl Default for WorldGenConfig {
     fn default() -> Self {
         Self {
+            gen_style: WorldGenStyle::Classic,
             world_width: 8000.0,
             world_height: 8000.0,
             world_margin: 400.0,
@@ -808,9 +818,17 @@ pub fn generate_world(
     }
     let mut name_idx = 0;
 
+    let is_continents = config.gen_style == WorldGenStyle::Continents;
+
+    // Continents: generate terrain first so we can reject Water positions
+    if is_continents {
+        generate_terrain_continents(grid);
+    }
+
     // All settlement positions for min_distance checks
     let mut all_positions: Vec<Vec2> = Vec::new();
-    let max_attempts = 2000;
+    // Continents needs more attempts since many positions land in ocean
+    let max_attempts = if is_continents { 5000 } else { 2000 };
     let mut next_faction = 1;
 
     // Step 2: Place player town centers (faction 0)
@@ -821,6 +839,11 @@ pub fn generate_world(
         let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
         let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
         let pos = Vec2::new(x, y);
+        // Continents: reject Water cells
+        if is_continents {
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+        }
         if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
             player_positions.push(pos);
             all_positions.push(pos);
@@ -851,6 +874,10 @@ pub fn generate_world(
         let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
         let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
         let pos = Vec2::new(x, y);
+        if is_continents {
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+        }
         if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
             ai_town_positions.push(pos);
             all_positions.push(pos);
@@ -878,6 +905,10 @@ pub fn generate_world(
         let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
         let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
         let pos = Vec2::new(x, y);
+        if is_continents {
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
+        }
         if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
             camp_positions.push(pos);
             all_positions.push(pos);
@@ -895,11 +926,17 @@ pub fn generate_world(
         place_camp_buildings(grid, world_data, center, town_idx, config, &mut town_grids.grids[gi]);
     }
 
-    // Step 5: Generate terrain via noise (all positions get dirt clearings)
-    generate_terrain(grid, &all_positions, &[]);
+    // Step 5: Generate terrain
+    if is_continents {
+        // Terrain already generated; stamp dirt clearings around settlements
+        stamp_dirt(grid, &all_positions);
+    } else {
+        generate_terrain(grid, &all_positions, &[]);
+    }
 
-    info!("generate_world: {} player towns, {} AI towns, {} raider camps, grid {}x{}",
-        player_positions.len(), ai_town_positions.len(), camp_positions.len(), w, h);
+    info!("generate_world: {} player towns, {} AI towns, {} raider camps, grid {}x{} ({})",
+        player_positions.len(), ai_town_positions.len(), camp_positions.len(), w, h,
+        if is_continents { "continents" } else { "classic" });
 }
 
 /// Place buildings for one town on the grid: fountain, farms, houses, barracks, guard posts.
@@ -1089,6 +1126,71 @@ fn generate_terrain(
 
             let idx = row * grid.width + col;
             grid.cells[idx].terrain = biome;
+        }
+    }
+}
+
+/// Overwrite terrain near settlements with Dirt (clearing for buildings).
+fn stamp_dirt(grid: &mut WorldGrid, positions: &[Vec2]) {
+    let clear_radius = 6.0 * grid.cell_size;
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let world_pos = grid.grid_to_world(col, row);
+            if positions.iter().any(|p| world_pos.distance(*p) < clear_radius) {
+                grid.cells[row * grid.width + col].terrain = Biome::Dirt;
+            }
+        }
+    }
+}
+
+/// Continent terrain: multi-octave elevation noise + moisture noise + edge falloff.
+/// Based on Red Blob Games "Making maps with noise" approach:
+/// - 3-octave fBm for elevation with square-bump edge falloff
+/// - Separate moisture noise for biome selection within land
+fn generate_terrain_continents(grid: &mut WorldGrid) {
+    use noise::{NoiseFn, Simplex};
+
+    let elevation_noise = Simplex::new(rand::random::<u32>());
+    let moisture_noise = Simplex::new(rand::random::<u32>());
+
+    let world_w = grid.width as f64 * grid.cell_size as f64;
+    let world_h = grid.height as f64 * grid.cell_size as f64;
+
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            let world_pos = grid.grid_to_world(col, row);
+            let wx = world_pos.x as f64;
+            let wy = world_pos.y as f64;
+
+            // 3-octave fBm elevation (large continents → medium islands → small coastline detail)
+            let e = (1.0 * elevation_noise.get([wx * 0.0008, wy * 0.0008])
+                + 0.5 * elevation_noise.get([wx * 0.0016, wy * 0.0016])
+                + 0.25 * elevation_noise.get([wx * 0.0032, wy * 0.0032]))
+                / 1.75;
+
+            // Square bump edge falloff (Red Blob Games)
+            let nx = (wx / world_w - 0.5) * 2.0;
+            let ny = (wy / world_h - 0.5) * 2.0;
+            let d = 1.0 - (1.0 - nx * nx) * (1.0 - ny * ny);
+
+            // Push edges to ocean, redistribute elevation
+            let e = ((e + 1.0) * 0.5 * (1.0 - d)).powf(1.5); // normalize to ~[0,1] then apply falloff + power
+
+            // Independent moisture noise
+            let m = (moisture_noise.get([wx * 0.003, wy * 0.003]) + 1.0) * 0.5; // [0, 1]
+
+            // Biome from elevation × moisture
+            let biome = if e < 0.08 {
+                Biome::Water
+            } else if m < 0.3 {
+                Biome::Rock
+            } else if m < 0.6 {
+                Biome::Grass
+            } else {
+                Biome::Forest
+            };
+
+            grid.cells[row * grid.width + col].terrain = biome;
         }
     }
 }

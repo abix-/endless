@@ -3,10 +3,11 @@
 use bevy::prelude::*;
 
 use crate::messages::*;
-use crate::resources::{self, ResetFlag};
+use crate::resources::{self, ResetFlag, SystemTimings};
 
 /// Drain game config staging into Bevy Resource (one-shot).
-pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>) {
+pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>, timings: Res<SystemTimings>) {
+    let _t = timings.scope("drain_game_config");
     if let Ok(mut staging) = GAME_CONFIG_STAGING.lock() {
         if let Some(new_config) = staging.take() {
             *config = new_config;
@@ -16,7 +17,8 @@ pub fn drain_game_config(mut config: ResMut<crate::resources::GameConfig>) {
 
 /// Collect GPU update events from all systems into the static queue.
 /// Runs at end of Behavior phase - single lock point for all GPU writes.
-pub fn collect_gpu_updates(mut events: MessageReader<GpuUpdateMsg>) {
+pub fn collect_gpu_updates(mut events: MessageReader<GpuUpdateMsg>, timings: Res<SystemTimings>) {
+    let _t = timings.scope("collect_gpu_updates");
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for msg in events.read() {
             queue.push(msg.0.clone());
@@ -30,7 +32,9 @@ pub fn reset_bevy_system(
     mut npc_map: ResMut<resources::NpcEntityMap>,
     mut pop_stats: ResMut<resources::PopulationStats>,
     mut slot_alloc: ResMut<resources::SlotAllocator>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("reset_bevy");
     if !reset_flag.0 {
         return;
     }

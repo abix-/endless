@@ -5,7 +5,7 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::AppState;
 use crate::settings;
-use crate::world::WorldGenConfig;
+use crate::world::{WorldGenConfig, WorldGenStyle};
 use crate::systems::AiPlayerConfig;
 
 /// Slider state persisted across frames via Local.
@@ -20,6 +20,7 @@ pub struct MenuState {
     pub ai_towns: f32,
     pub raider_camps: f32,
     pub ai_interval: f32,
+    pub gen_style: i32,
     pub initialized: bool,
 }
 
@@ -58,6 +59,7 @@ pub fn main_menu_system(
         state.ai_towns = saved.ai_towns as f32;
         state.raider_camps = saved.raider_camps as f32;
         state.ai_interval = saved.ai_interval;
+        state.gen_style = saved.gen_style as i32;
         state.initialized = true;
     }
 
@@ -85,6 +87,22 @@ pub fn main_menu_system(
                 }
                 let tiles = state.world_size as i32 / 32;
                 ui.label(format!("{} ({}x{})", size_name(state.world_size), tiles, tiles));
+            });
+
+            ui.add_space(4.0);
+
+            // World gen style
+            ui.horizontal(|ui| {
+                ui.label("World gen:");
+                egui::ComboBox::from_id_salt("gen_style")
+                    .selected_text(match state.gen_style {
+                        1 => "Continents",
+                        _ => "Classic",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut state.gen_style, 0, "Classic");
+                        ui.selectable_value(&mut state.gen_style, 1, "Continents");
+                    });
             });
 
             ui.add_space(4.0);
@@ -144,6 +162,7 @@ pub fn main_menu_system(
 
             // Play button
             if ui.button(egui::RichText::new("  Play  ").size(18.0)).clicked() {
+                wg_config.gen_style = if state.gen_style == 1 { WorldGenStyle::Continents } else { WorldGenStyle::Classic };
                 wg_config.world_width = state.world_size;
                 wg_config.world_height = state.world_size;
                 wg_config.num_towns = state.towns as usize;
@@ -165,6 +184,7 @@ pub fn main_menu_system(
                 saved.ai_towns = state.ai_towns as usize;
                 saved.raider_camps = state.raider_camps as usize;
                 saved.ai_interval = state.ai_interval;
+                saved.gen_style = state.gen_style as u8;
                 settings::save_settings(&saved);
 
                 next_state.set(AppState::Playing);
@@ -262,6 +282,7 @@ pub fn main_menu_system(
                             state.ai_towns = defaults.ai_towns as f32;
                             state.raider_camps = defaults.raider_camps as f32;
                             state.ai_interval = defaults.ai_interval;
+                            state.gen_style = defaults.gen_style as i32;
                             settings::save_settings(&defaults);
                         }
                     });

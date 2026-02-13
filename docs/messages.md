@@ -81,7 +81,6 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
 | PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | attack_system, guard_post_attack_system | populate_proj_buffer_writes |
 | FREE_PROJ_SLOTS | `Mutex<Vec<usize>>` | (unused) | (unused) |
-| PERF_STATS | `Mutex<PerfStats>` | bevy_timer_end | (debug display) |
 
 GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`) deleted — replaced by Bevy `ReadbackComplete` observers writing directly to Bevy resources.
 

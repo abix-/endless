@@ -32,7 +32,7 @@ use std::borrow::Cow;
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::FOOD_SPRITE;
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{GpuReadState, ProjHitState, ProjPositionState, SlotAllocator};
+use crate::resources::{GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, SystemTimings};
 
 // =============================================================================
 // CONSTANTS
@@ -275,7 +275,9 @@ pub fn sync_visual_sprites(
         Option<&Healing>,
         Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
     ), Without<Dead>>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("sync_visual_sprites");
     // Single pass: write ALL visual fields per alive NPC (defaults where no component).
     // Dead NPCs are skipped by the renderer (x < -9000), so stale data is harmless.
     for (npc_idx, faction, job, activity, healing, weapon, helmet, armor) in all_npcs.iter() {

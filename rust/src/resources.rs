@@ -6,35 +6,82 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use crate::constants::MAX_NPC_COUNT;
 
-/// Performance timing stats (updated each frame in process())
-#[derive(Default)]
-pub struct PerfStats {
-    pub queue_ms: f32,
-    pub dispatch_ms: f32,
-    pub readpos_ms: f32,
-    pub combat_ms: f32,
-    pub build_ms: f32,
-    pub upload_ms: f32,
-    pub bevy_ms: f32,
-    pub frame_ms: f32,  // Full frame time (process to process)
-    pub prev_ecs_total_ms: f32,  // Previous frame's ECS time (for godot_ms calc)
-    // Debug stats (cached to avoid extra GPU reads)
-    pub arrived_count: i32,
-    pub avg_backoff: i32,
-    pub max_backoff: i32,
+/// Per-system profiling (Factorio-style). RAII guard pattern: `let _t = timings.scope("name");`
+/// Uses Res<SystemTimings> (not ResMut) with internal Mutex so parallel systems don't serialize.
+#[derive(Resource)]
+pub struct SystemTimings {
+    data: Mutex<HashMap<&'static str, f32>>,
+    frame_start: Mutex<Option<std::time::Instant>>,
+    pub frame_ms: Mutex<f32>,
+    pub enabled: bool,
 }
 
-pub static PERF_STATS: Mutex<PerfStats> = Mutex::new(PerfStats {
-    queue_ms: 0.0, dispatch_ms: 0.0, readpos_ms: 0.0,
-    combat_ms: 0.0, build_ms: 0.0, upload_ms: 0.0, bevy_ms: 0.0, frame_ms: 0.0,
-    prev_ecs_total_ms: 0.0,
-    arrived_count: 0, avg_backoff: 0, max_backoff: 0,
-});
+impl Default for SystemTimings {
+    fn default() -> Self {
+        Self {
+            data: Mutex::new(HashMap::new()),
+            frame_start: Mutex::new(None),
+            frame_ms: Mutex::new(0.0),
+            enabled: false,
+        }
+    }
+}
 
-/// Bevy frame timing resource
-#[derive(Resource, Default)]
-pub struct BevyFrameTimer {
-    pub start: Option<std::time::Instant>,
+impl SystemTimings {
+    pub fn scope(&self, name: &'static str) -> TimerGuard<'_> {
+        TimerGuard {
+            timings: self,
+            name,
+            start: if self.enabled { Some(std::time::Instant::now()) } else { None },
+        }
+    }
+
+    pub fn begin_frame(&self) {
+        if self.enabled {
+            if let Ok(mut start) = self.frame_start.lock() {
+                *start = Some(std::time::Instant::now());
+            }
+        }
+    }
+
+    pub fn end_frame(&self) {
+        if self.enabled {
+            if let Ok(start) = self.frame_start.lock() {
+                if let Some(s) = *start {
+                    let ms = s.elapsed().as_secs_f64() as f32 * 1000.0;
+                    if let Ok(mut fm) = self.frame_ms.lock() {
+                        *fm = *fm * 0.95 + ms * 0.05;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn get_timings(&self) -> HashMap<&'static str, f32> {
+        self.data.lock().map(|d| d.clone()).unwrap_or_default()
+    }
+
+    pub fn get_frame_ms(&self) -> f32 {
+        self.frame_ms.lock().map(|f| *f).unwrap_or(0.0)
+    }
+}
+
+pub struct TimerGuard<'a> {
+    timings: &'a SystemTimings,
+    name: &'static str,
+    start: Option<std::time::Instant>,
+}
+
+impl Drop for TimerGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(start) = self.start {
+            let ms = start.elapsed().as_secs_f64() as f32 * 1000.0;
+            if let Ok(mut data) = self.timings.data.lock() {
+                let entry = data.entry(self.name).or_insert(0.0);
+                *entry = *entry * 0.95 + ms * 0.05;
+            }
+        }
+    }
 }
 
 

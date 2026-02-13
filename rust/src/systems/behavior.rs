@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState};
+use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos};
 
@@ -45,6 +45,17 @@ pub struct EconomyParams<'w> {
     pub pop_stats: ResMut<'w, PopulationStats>,
 }
 
+/// Extra resources for decision_system (bundled to stay under 16 params)
+#[derive(SystemParam)]
+pub struct DecisionExtras<'w> {
+    pub npc_logs: ResMut<'w, NpcLogCache>,
+    pub raid_queue: ResMut<'w, RaidQueue>,
+    pub combat_log: ResMut<'w, CombatLog>,
+    pub policies: Res<'w, TownPolicies>,
+    pub squad_state: Res<'w, SquadState>,
+    pub timings: Res<'w, SystemTimings>,
+}
+
 /// Arrival system: proximity checks for returning raiders and working farmers.
 ///
 /// Responsibilities:
@@ -68,7 +79,9 @@ pub fn arrival_system(
     mut farm_states: ResMut<FarmStates>,
     mut frame_counter: Local<u32>,
     mut combat_log: ResMut<CombatLog>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("arrival");
     let positions = &gpu_state.positions;
     const DELIVERY_RADIUS: f32 = 150.0;     // Same as healing radius - deliver when near camp
     const MAX_DRIFT: f32 = 20.0;            // Keep farmers visually on the farm
@@ -273,12 +286,14 @@ pub fn decision_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
-    mut npc_logs: ResMut<NpcLogCache>,
-    mut raid_queue: ResMut<RaidQueue>,
-    mut combat_log: ResMut<CombatLog>,
-    policies: Res<TownPolicies>,
-    squad_state: Res<SquadState>,
+    mut extras: DecisionExtras,
 ) {
+    let _t = extras.timings.scope("decision");
+    let npc_logs = &mut extras.npc_logs;
+    let raid_queue = &mut extras.raid_queue;
+    let combat_log = &mut extras.combat_log;
+    let policies = &extras.policies;
+    let squad_state = &extras.squad_state;
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
     let factions_buf = &gpu_state.factions;
@@ -840,7 +855,9 @@ pub fn decision_system(
 /// Separated from decision_system because we need mutable Activity access.
 pub fn on_duty_tick_system(
     mut query: Query<(&mut Activity, &CombatState), Without<Dead>>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("on_duty_tick");
     for (mut activity, combat) in query.iter_mut() {
         if combat.is_fighting() { continue; }
         if let Activity::OnDuty { ticks_waiting } = &mut *activity {
@@ -853,7 +870,9 @@ pub fn on_duty_tick_system(
 pub fn rebuild_patrol_routes_system(
     world_data: Res<WorldData>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("rebuild_patrol_routes");
     if !world_data.is_changed() { return; }
     for (mut route, town_id, job) in guards.iter_mut() {
         if *job != Job::Guard { continue; }

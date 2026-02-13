@@ -63,7 +63,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Main menu: world config sliders + Play / Debug Tests
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
     │   ├─ Top bar: panel toggles left, town name + time center, stats right
-    │   ├─ Bottom panel: NPC/building inspector (left) + combat log with filters (right)
+    │   ├─ Floating windows: NPC/building inspector (bottom-left) + combat log with filters (bottom-right)
     │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q)
     │   ├─ FPS overlay: bottom-right corner, EMA-smoothed, always visible (all states)
     │   ├─ Build menu: right-click context menu (Farm/GuardPost/House/Barracks for towns, Tent for camps, Destroy/Unlock/Turret toggle)
@@ -138,7 +138,7 @@ rust/
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings), escape/time controls, keyboard toggles (Q=squads), slot right-click, slot indicators
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
-    game_hud.rs         # Top bar, bottom panel (NPC + building inspector + combat log), target overlay, squad overlay, FPS counter
+    game_hud.rs         # Top bar, floating inspector (bottom-left) + combat log (bottom-right), target overlay, squad overlay, FPS counter
     left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) — policy persistence on tab leave
     build_menu.rs       # Right-click context menu: build/destroy/unlock town+camp slots, turret toggle
   src/tests/

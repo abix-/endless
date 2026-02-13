@@ -278,8 +278,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 |----------|-----------|------------|
 | CombatDebug | attackers_queried, targets_found, attacks_made, chases_started, sample positions/distances | cooldown/attack systems |
 | HealthDebug | damage_processed, deaths, despawned, entity_count, healing stats | damage/death systems |
-| PerfStats | queue_ms, dispatch_ms, bevy_ms, frame_ms (static Mutex, not Resource) | bevy_timer_end |
-| BevyFrameTimer | start: `Option<Instant>` | frame timing systems |
+| SystemTimings | per-system EMA-smoothed ms (internal Mutex, `Res` not `ResMut`), frame_ms, enabled toggle (F5) | all systems via `timings.scope("name")` RAII guard |
 
 ## Control Resources
 

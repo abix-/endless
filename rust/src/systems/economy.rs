@@ -56,7 +56,9 @@ pub fn pop_inc_dead(stats: &mut PopulationStats, job: Job, clan: i32) {
 pub fn game_time_system(
     time: Res<Time>,
     mut game_time: ResMut<GameTime>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("game_time");
     // Reset tick flag each frame
     game_time.hour_ticked = false;
 
@@ -89,7 +91,9 @@ pub fn farm_growth_system(
     world_data: Res<WorldData>,
     farm_occupancy: Res<BuildingOccupancy>,
     upgrades: Res<TownUpgrades>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("farm_growth");
     if game_time.paused {
         return;
     }
@@ -145,7 +149,9 @@ pub fn camp_forage_system(
     game_time: Res<GameTime>,
     mut food_storage: ResMut<FoodStorage>,
     world_data: Res<WorldData>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("camp_forage");
     if !game_time.hour_ticked {
         return;
     }
@@ -170,7 +176,9 @@ pub fn starvation_system(
     game_time: Res<GameTime>,
     query: Query<(Entity, &NpcIndex, &Energy, &CachedStats, Option<&Starving>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("starvation");
     if !game_time.hour_ticked {
         return;
     }
@@ -202,7 +210,9 @@ pub fn farm_visual_system(
     world_data: Res<crate::world::WorldData>,
     markers: Query<(Entity, &FarmReadyMarker)>,
     mut prev_states: Local<Vec<FarmGrowthState>>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("farm_visual");
     prev_states.resize(farm_states.states.len(), FarmGrowthState::Growing);
     for (farm_idx, state) in farm_states.states.iter().enumerate() {
         let prev = prev_states[farm_idx];
@@ -237,7 +247,9 @@ pub fn spawner_respawn_system(
     world_data: Res<WorldData>,
     mut combat_log: ResMut<CombatLog>,
     farm_occupancy: Res<BuildingOccupancy>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("spawner_respawn");
     if !game_time.hour_ticked {
         return;
     }
@@ -325,7 +337,9 @@ pub fn spawner_respawn_system(
 pub fn squad_cleanup_system(
     mut squad_state: ResMut<SquadState>,
     npc_map: Res<NpcEntityMap>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("squad_cleanup");
     for squad in squad_state.squads.iter_mut() {
         squad.members.retain(|&slot| npc_map.0.contains_key(&slot));
     }

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ARRIVAL_THRESHOLD;
 use crate::gpu::NpcBufferWrites;
-use crate::resources::GpuReadState;
+use crate::resources::{GpuReadState, SystemTimings};
 
 /// Read positions from GPU and update Bevy Position components.
 /// Also detects arrivals: if NPC is in a transit Activity and within ARRIVAL_THRESHOLD
@@ -15,7 +15,9 @@ pub fn gpu_position_readback(
     mut query: Query<(Entity, &NpcIndex, &mut Position, &Activity, Option<&AtDestination>)>,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<NpcBufferWrites>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("gpu_position_readback");
     let positions = &gpu_state.positions;
     let targets = &buffer_writes.targets;
     let threshold_sq = ARRIVAL_THRESHOLD * ARRIVAL_THRESHOLD;
