@@ -199,7 +199,7 @@ Rules:
 - [x] `attack_system` reads `&CachedStats` instead of `&AttackStats`
 - [x] `healing_system` reads `CombatConfig.heal_rate`/`heal_radius` instead of local constants
 - [x] `MaxHealth` component removed — `CachedStats.max_health` is single source of truth
-- [x] `Personality::get_stat_multipliers()` wired into resolver (previously defined but never called)
+- [x] `Personality` (4 traits: Brave/Tough/Swift/Focused) wired into `resolve_combat_stats()`. Display `trait_id` uses separate 9-name list — unification in Stage 14
 - [x] Init values match hardcoded values: guard/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150
 - [x] Stage 8 parity checks verified stats matched hardcoded values (removed in Stage 9)
 
@@ -313,7 +313,18 @@ Rules:
 
 *Done when: each House supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Houses/Barracks to grow population. Menu sliders for farmers/guards removed.*
 
-**Stage 12: Performance**
+**Stage 12: Tension**
+
+*Done when: a player who doesn't build or upgrade loses within 30 minutes — raids escalate, food runs out, town falls.*
+
+- [ ] Raid escalation: wave size and stats increase every N game-hours
+- [ ] Differentiate job base stats (raiders hit harder, guards are tankier, farmers are fragile)
+- [ ] Food consumption: NPCs eat hourly, eating restores HP/energy
+- [ ] Starvation effects: no food → HP drain, speed penalty, desertion
+- [ ] Loss condition: all town NPCs dead + no spawners → game over screen
+- [ ] Building costs rebalanced (everything=1 is not an economy)
+
+**Stage 13: Performance**
 
 *Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250×250 world.*
 
@@ -326,27 +337,29 @@ Chunked tilemap (see [spec](#chunked-tilemap)):
 - [ ] Bevy frustum-culls off-screen chunk entities — only visible chunks generate draw commands
 - [ ] `sync_building_tilemap` updates only chunks whose grid region changed, not all 62K+ tiles
 
-**Stage 13: Tension**
-
-*Done when: a player who doesn't build or upgrade loses within 30 minutes — raids escalate, food runs out, town falls.*
-
-- [ ] Raid escalation: wave size and stats increase every N game-hours
-- [ ] Differentiate job base stats (raiders hit harder, guards are tankier, farmers are fragile)
-- [ ] Food consumption: NPCs eat hourly, eating restores HP/energy
-- [ ] Starvation effects: no food → HP drain, speed penalty, desertion
-- [ ] Loss condition: all town NPCs dead + no spawners → game over screen
-- [ ] Difficulty curve config: starting grace period, escalation rate
+Entity sleeping:
+- [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
 
 **Stage 14: Combat Depth**
 
 *Done when: two guards with different traits fight the same raider noticeably differently — one flees early, the other berserks at low HP.*
 
-- [ ] Trait combat modifiers wired into `resolve_combat_stats()` (Strong +25%, Berserker +50% at low HP, Efficient -25% cooldown, Lazy +20% cooldown, Sharpshot +25% range)
-- [ ] Trait flee modifiers (Brave never flees, Coward +20% threshold)
+- [ ] Unify `TraitKind` (4 variants) and `trait_name()` (9 names) into single 9-trait Personality system
+- [ ] All 9 traits affect both `resolve_combat_stats()` and `decision_system` behavior weights
 - [ ] Trait combinations (multiple traits per NPC)
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
 
-**Stage 15: Save/Load**
+**Stage 15: Walls & Defenses**
+
+*Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
+
+- [ ] Wall building type (straight segments on grid, connects to adjacent walls)
+- [ ] Wall HP + raiders attack walls blocking their path to farms
+- [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
+- [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
+- [ ] Guard towers (upgrade from guard post — elevated, +range, requires wall adjacency)
+
+**Stage 16: Save/Load**
 
 *Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off — NPCs in the same positions, same HP, same upgrades, same food.*
 
@@ -355,7 +368,7 @@ Chunked tilemap (see [spec](#chunked-tilemap)):
 - [ ] Autosave every N game-hours
 - [ ] Save slot selection (3 slots)
 
-**Stage 16: Loot & Equipment**
+**Stage 17: Loot & Equipment**
 
 *Done when: raider dies → drops loot bag → guard picks it up → item appears in town inventory → player equips it on a guard → guard's stats increase and sprite changes.*
 
@@ -366,16 +379,35 @@ Chunked tilemap (see [spec](#chunked-tilemap)):
 - [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
 - [ ] Equipped items reflected in NPC equipment sprite layers
 
-**Stage 17: Economy Depth**
+**Stage 18: Tech Trees**
+
+*Done when: player researches "Iron Working" which unlocks Barracks Lv2 and Guard damage upgrade tier 2 — visible tech tree with branching paths and resource costs.*
+
+- [ ] `TechTree` resource with node graph (prereqs, cost, unlock effects)
+- [ ] Research building (Library/Workshop — 1 per town, consumes food over time to research)
+- [ ] Tech nodes unlock: new buildings, upgrade tiers, new unit types, passive bonuses
+- [ ] 3 branches: Military (guards/combat), Agriculture (farms/food), Industry (walls/buildings)
+- [ ] UI: tech tree viewer tab in left panel
+
+**Stage 19: Economy Depth**
 
 *Done when: player must choose between feeding NPCs and buying upgrades — food is a constraint, not a score.*
 
-- [ ] Multi-camp food delivery (fix hardcoded camp_food[0])
 - [ ] HP regen tiers (1x idle, 3x sleeping, 10x fountain)
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 - [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
 
-**Stage 18: World Generation** (see [spec](#continent-world-generation))
+**Stage 20: Diplomacy**
+
+*Done when: a raider camp sends a messenger offering a truce for 3 food/hour tribute — accepting stops raids, refusing triggers an immediate attack wave.*
+
+- [ ] Camp reputation system (hostile → neutral → friendly, based on food tribute and combat history)
+- [ ] Tribute offers: camps propose truces at reputation thresholds
+- [ ] Trade routes between player towns (send food caravan from surplus town to deficit town)
+- [ ] Allied camps stop raiding, may send fighters during large attacks
+- [ ] Betrayal: allied camps can turn hostile if tribute stops or player is weak
+
+**Stage 21: World Generation** (see [spec](#continent-world-generation))
 
 *Done when: player selects "Continents" from main menu, sees landmasses with ocean, towns only on land, biome variety across continents.*
 
@@ -384,27 +416,48 @@ Chunked tilemap (see [spec](#chunked-tilemap)):
 - [ ] Town/camp placement constrained to land cells in Continents mode
 - [ ] Main menu combo box to select generation style, persisted in UserSettings
 
-Sound (bevy_audio) should be woven into stages as they're built — not deferred to a dedicated stage.
+**Stage 22: Resources & Jobs**
 
-**Stage 19: Expansion**
+*Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food — multi-resource economy with job specialization.*
 
-*Done when: the colony sim has multiple resource types, production chains, and AI factions competing for territory.*
+- [ ] Resource types: wood (Forest biome), stone (Rock biome), iron (ore nodes, rare)
+- [ ] Harvester buildings: lumber mill, quarry, mine (same spawner pattern as House/Barracks, 1 worker each)
+- [ ] Resource storage per town (like FoodStorage but for each type)
+- [ ] Building costs use mixed resources (walls=stone, barracks=wood+stone, upgrades=food+iron, etc.)
+- [ ] Crafting: blacksmith building consumes iron → produces weapons/armor (feeds into Stage 17 loot system)
+- [ ] Villager job assignment UI (drag workers between roles — farming, woodcutting, mining, smithing, military)
 
-Resources & production:
-- [ ] Multiple resources (wood, iron, gold)
-- [ ] Production buildings (lumber mill, mine, blacksmith)
-- [ ] Equipment crafting (weapons, armor from resources)
+**Stage 23: Armies & Marching**
 
-AI & conquest:
-- [ ] AI lords that expand and compete
-- [ ] Army units (peasant levy, archers, knights), recruitment, movement
-- [ ] Attack and capture enemy towns
-- [ ] Player combat abilities
+*Done when: player recruits 15 guards into an army, gives a march order to a neighboring camp, and the army walks across the map as a formation — arriving ready to fight.*
 
-Performance:
-- [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
+- [ ] Army formation from existing squads (select squad → "Form Army" → army entity with member list)
+- [ ] March orders: right-click map location → army walks as group (use existing movement system, group speed = slowest member)
+- [ ] Unit types via tech tree unlocks: levy (cheap, weak), archer (ranged), men-at-arms (tanky, expensive)
+- [ ] Army supply: marching armies consume food from origin town's storage, starve without supply
+- [ ] Field battles: two armies in proximity → combat triggers (existing combat system handles it)
 
-**Stage 20: Tower Defense (Wintermaul Wars-inspired)**
+**Stage 24: Conquest**
+
+*Done when: player marches an army to a raider camp, defeats defenders, and claims the town — camp converts to player-owned town with buildings intact, player now manages two towns.*
+
+- [ ] Camp/town siege: army arrives at hostile settlement → attacks defenders + buildings
+- [ ] Building HP: walls, barracks, houses have HP — attackers must breach defenses
+- [ ] Town capture: all defenders dead + town center HP → 0 = captured → converts to player town
+- [ ] AI lords: each raider camp gets an AI controller that builds, upgrades, and recruits (mirrors player systems)
+- [ ] AI expansion: AI lords can attack each other and the player (not just raid — full conquest attempts)
+- [ ] Victory condition: control all settlements on the map
+
+**Stage 25: World Map**
+
+*Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI lords and more camps — campaign progression.*
+
+- [ ] World map screen: grid of regions (counties), each is a separate game map
+- [ ] Region difficulty scaling (more camps, tougher AI, scarcer resources)
+- [ ] Persistent bonuses between regions (tech carries over, starting resources from tribute)
+- [ ] "Country" = set of regions. "World" = set of countries. Campaign arc.
+
+**Stage 26: Tower Defense (Wintermaul Wars-inspired)**
 
 *Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
 
@@ -434,6 +487,8 @@ Tower upgrades & evolution:
 - [ ] Multi-tier upgrade path (Lv1 → Lv2 → Lv3, increasing stats + visual change)
 - [ ] At max tier, evolve into specialized variants (e.g. Fire Lv3 → Inferno AoE or Sniper Flame)
 - [ ] Evolved towers get unique abilities (slow, DoT, chain lightning, lifesteal)
+
+Sound (bevy_audio) should be woven into stages as they're built — not deferred to a dedicated stage.
 
 ## Specs
 
