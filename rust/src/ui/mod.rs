@@ -112,6 +112,7 @@ struct StartupExtra<'w> {
     combat_log: ResMut<'w, CombatLog>,
     mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
+    miner_target: ResMut<'w, MinerTarget>,
 }
 
 /// Initialize the world and spawn NPCs when entering Playing state.
@@ -150,6 +151,7 @@ fn game_startup_system(
     extra.npcs_by_town.0.resize(num_towns, Vec::new());
     food_storage.init(num_towns);
     extra.gold_storage.init(num_towns);
+    extra.miner_target.targets = vec![0; num_towns];
     faction_stats.init(num_towns); // one per settlement (player + AI + camps)
     camp_state.init(num_towns, 10);
 
@@ -630,6 +632,7 @@ struct CleanupWorld<'w> {
     ai_state: ResMut<'w, AiPlayerState>,
     mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
+    miner_target: ResMut<'w, MinerTarget>,
 }
 
 #[derive(SystemParam)]
@@ -687,6 +690,7 @@ fn game_cleanup_system(
     *world.ai_state = Default::default();
     *world.mine_states = Default::default();
     *world.gold_storage = Default::default();
+    *world.miner_target = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();

@@ -74,19 +74,14 @@ impl AiPersonality {
                 prioritize_healing: false,
                 guard_flee_hp: 0.0,
                 farmer_flee_hp: 0.30,
-                mining_pct: 0.20,
                 ..PolicySet::default()
             },
-            Self::Balanced => PolicySet {
-                mining_pct: 0.40,
-                ..PolicySet::default()
-            },
+            Self::Balanced => PolicySet::default(),
             Self::Economic => PolicySet {
                 guard_leash: true,
                 prioritize_healing: true,
                 guard_flee_hp: 0.25,
                 farmer_flee_hp: 0.50,
-                mining_pct: 0.60,
                 ..PolicySet::default()
             },
         }
@@ -237,6 +232,7 @@ pub fn ai_decision_system(
     upgrades: Res<TownUpgrades>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
+    mut miner_target: ResMut<crate::resources::MinerTarget>,
     mut timer: Local<f32>,
     timings: Res<SystemTimings>,
 ) {
@@ -269,6 +265,16 @@ pub fn ai_decision_system(
         let can_unlock = !has_slots && town_grids.grids.get(player.grid_idx)
             .map(|tg| !world::get_adjacent_locked_slots(tg).is_empty())
             .unwrap_or(false);
+
+        // Set miner target based on personality and house count
+        if player.kind == AiKind::Builder && tdi < miner_target.targets.len() {
+            let target = match player.personality {
+                AiPersonality::Aggressive => (houses / 3) as i32,   // 1 miner per 3 houses
+                AiPersonality::Balanced   => (houses / 2) as i32,   // 1 miner per 2 houses
+                AiPersonality::Economic   => ((houses * 2) / 3) as i32, // 2 miners per 3 houses
+            };
+            miner_target.targets[tdi] = target;
+        }
 
         // Score all eligible actions
         let mut scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);

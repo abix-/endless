@@ -23,6 +23,7 @@ pub const SPRITE_FARMER: (f32, f32) = (1.0, 6.0);
 pub const SPRITE_GUARD: (f32, f32) = (0.0, 0.0);
 pub const SPRITE_RAIDER: (f32, f32) = (0.0, 6.0);
 pub const SPRITE_FIGHTER: (f32, f32) = (1.0, 9.0);
+pub const SPRITE_MINER: (f32, f32) = (1.0, 6.0);  // Same sprite as farmer, differentiated by brown tint
 
 /// Size of push constants passed to the compute shader.
 pub const PUSH_CONSTANTS_SIZE: usize = 48;

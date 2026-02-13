@@ -6,7 +6,7 @@ NPC decision-making and state transitions. All run in `Step::Behavior` after com
 
 **Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal enum components (concurrent state machines pattern):
 
-- `Activity` enum: what the NPC is *doing* (Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain, Wandering, Raiding, Returning)
+- `Activity` enum: what the NPC is *doing* (Idle, Working, OnDuty, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain, Wandering, Raiding, Returning, Mining, MiningAtMine)
 - `CombatState` enum: whether the NPC is *fighting* (None, Fighting, Fleeing)
 
 Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
@@ -79,24 +79,26 @@ Same situation, different outcomes. That's emergent behavior.
 Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` (fighting status). Activity is preserved through combat.
 
 ```
-    Guard:                Farmer:               Stealer (Raider):
-    ┌──────────┐         ┌──────────┐          ┌──────────┐
-    │  OnDuty  │ spawn   │GoingToWork│ spawn   │  Idle    │ spawns idle
-    │{ticks: 0}│         └────┬─────┘          └────┬─────┘
-    └────┬─────┘              │ arrival              │ decision_system
-         │ decision_system    ▼                      ▼
-         ▼                ┌──────────┐          ┌──────────────────┐
-    ┌──────────┐         │ Working  │          │ Raiding{target}  │
-    │Patrolling│         └────┬─────┘          └────┬─────────────┘
-    └────┬─────┘              │                     │ arrival at farm
-         │ arrival            │                     ▼
-         ▼                    │                ┌──────────────────┐
-    ┌──────────┐              │                │Returning{food:T} │
-    │  OnDuty  │              │                └────┬─────────────┘
-    │{ticks: 0}│              │                     │ proximity delivery
-    └────┬─────┘              │                     ▼
-         └────────┬───────────┘                deliver food, re-enter
-                  │ decision_system            decision_system
+    Guard:                Farmer:               Miner:                Stealer (Raider):
+    ┌──────────┐         ┌──────────┐         ┌──────────┐          ┌──────────┐
+    │  OnDuty  │ spawn   │GoingToWork│ spawn  │  Idle    │ spawn   │  Idle    │ spawns idle
+    │{ticks: 0}│         └────┬─────┘         └────┬─────┘          └────┬─────┘
+    └────┬─────┘              │ arrival             │ decision          │ decision_system
+         │ decision_system    ▼                     ▼                   ▼
+         ▼                ┌──────────┐         ┌──────────┐       ┌──────────────────┐
+    ┌──────────┐         │ Working  │         │Mining{pos}│       │ Raiding{target}  │
+    │Patrolling│         └────┬─────┘         └────┬─────┘       └────┬─────────────┘
+    └────┬─────┘              │                     │ arrival          │ arrival at farm
+         │ arrival            │                     ▼                  ▼
+         ▼                    │                ┌──────────┐       ┌──────────────────┐
+    ┌──────────┐              │                │MiningAt  │       │Returning{food:T} │
+    │  OnDuty  │              │                │Mine      │       └────┬─────────────┘
+    │{ticks: 0}│              │                └────┬─────┘            │ proximity delivery
+    └────┬─────┘              │                     │ tired             ▼
+         │                    │                     ▼              deliver food, re-enter
+         │                    │                Returning{gold}     decision_system
+         └────────┬───────────┴─────────────────────┘
+                  │ decision_system
                   ▼ (weighted random)
              ┌──────────┐                  ┌──────────┐
              │GoingToRest│ (tired→home)    │GoingToHeal│ (wounded→fountain)
@@ -138,7 +140,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 `Returning { has_food: bool, gold: i32 }` — carried resources are part of the activity. `gold > 0` means miner is returning with extracted gold.
 
-`Mining { mine_pos: Vec2 }` — farmer walking to a gold mine. `MiningAtMine` — farmer actively extracting gold (claims occupancy, extracts on tired threshold).
+`Mining { mine_pos: Vec2 }` — miner walking to a gold mine. `MiningAtMine` — miner actively extracting gold (claims occupancy, extracts on tired threshold).
 
 ### Data Components
 
@@ -178,7 +180,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
-- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — guards use `guard_flee_hp`, farmers use `farmer_flee_hp`, raiders hardcoded 0.50. `guard_aggressive` disables guard flee, `farmer_fight_back` disables farmer flee. Dynamic threat assessment via `count_nearby_factions()` (enemies vs allies within 200px, throttled every 30 frames) — reads `GpuReadState.factions` and `GpuReadState.health` from GPU readback
+- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — guards use `guard_flee_hp`, farmers and miners use `farmer_flee_hp`, raiders hardcoded 0.50. `guard_aggressive` disables guard flee, `farmer_fight_back` disables farmer/miner flee. Dynamic threat assessment via `count_nearby_factions()` (enemies vs allies within 200px, throttled every 30 frames) — reads `GpuReadState.factions` and `GpuReadState.health` from GPU readback
 - If `CombatState::Fighting` + should leash: guards check `guard_leash` policy (if disabled, guards chase freely), raiders use per-entity `LeashRange` component
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
 
@@ -202,12 +204,12 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 **Priority 7: Idle scoring (Utility AI)**
 - **Squad override** (guards only): Guards with a `SquadId` component check `SquadState.squads[id].target` before normal patrol logic. If squad has a target, guard walks to squad target instead of patrol posts. Falls through to normal patrol if no target is set.
 - **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → `GoingToHeal` targeting fountain. Applies to all jobs (including raiders — they heal at their camp center). Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
-- **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers use `farmer_schedule`, guards use `guard_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
+- **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers and miners use `farmer_schedule`, guards use `guard_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
 - **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
-- **Mining work roll**: When a farmer picks Work, the `mining_pct` policy is checked. A pseudo-random roll < `mining_pct` sends the farmer to the nearest mine with gold > 0 (`Activity::Mining { mine_pos }`); otherwise normal farm work. Default `mining_pct` is 0.0 (all farming). AI personalities set: Aggressive 0.20, Balanced 0.40, Economic 0.60.
+- **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch that finds the nearest mine with gold > 0 and walks there (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
 ### on_duty_tick_system

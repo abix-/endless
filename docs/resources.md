@@ -110,6 +110,7 @@ Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, Tent
 |----------|------|---------|---------|
 | FoodStorage | `Vec<i32>` — food count per town/camp | economy systems (arrival, eating) | economy systems, UI |
 | GoldStorage | `Vec<i32>` — gold count per town/camp | mining delivery (arrival_system) | UI (top bar) |
+| MinerTarget | `Vec<i32>` — desired miner count per town | left_panel (UI), ai_decision_system | job_reassign_system |
 | FoodEvents | delivered: `Vec<FoodDelivered>`, consumed: `Vec<FoodConsumed>` | behavior systems | UI (poll and drain) |
 
 `FoodStorage.init(count)` initializes per-town counters. Villager towns and raider camps share the same indexing.
@@ -187,7 +188,7 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 |---------|-----------|-------|
 | GuardHealth, GuardAttack, GuardRange, GuardSize, AlertRadius | Guard only | Combat resolver |
 | AttackSpeed, MoveSpeed | All combatants (Guard, Raider, Fighter) | Combat resolver |
-| FarmerHp | Farmer only | Combat resolver |
+| FarmerHp | Farmer and Miner | Combat resolver |
 | FarmYield | `farm_growth_system` reads directly | Not combat resolver |
 | HealingRate, FountainRadius | `healing_system` reads directly | Not combat resolver |
 | FoodEfficiency | `decision_system` eat logic | Not combat resolver |
@@ -198,7 +199,7 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 |----------|------|---------|---------|
 | TownPolicies | `Vec<PolicySet>` — per-town behavior configuration (16 slots default) | left_panel (UI) | decision_system, behavior systems |
 
-`PolicySet` fields: `eat_food` (bool), `guard_aggressive` (bool), `guard_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `guard_flee_hp` (f32), `recovery_hp` (f32), `farmer_schedule` (WorkSchedule enum), `guard_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `guard_off_duty` (OffDutyBehavior enum), `mining_pct` (f32, 0.0-1.0 — fraction of farmer work time spent mining gold).
+`PolicySet` fields: `eat_food` (bool), `guard_aggressive` (bool), `guard_leash` (bool), `farmer_fight_back` (bool), `prioritize_healing` (bool), `farmer_flee_hp` (f32, 0.0-1.0), `guard_flee_hp` (f32), `recovery_hp` (f32), `farmer_schedule` (WorkSchedule enum), `guard_schedule` (WorkSchedule enum), `farmer_off_duty` (OffDutyBehavior enum), `guard_off_duty` (OffDutyBehavior enum).
 
 `WorkSchedule`: Both (default), DayOnly, NightOnly. `OffDutyBehavior`: GoToBed (default), StayAtFountain, WanderTown.
 
@@ -266,10 +267,10 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
-Personality drives build order, upgrade priority, food reserve, town policies, and mining allocation:
-- **Aggressive**: military first (barracks → guard posts → economy), zero food reserve, combat upgrades prioritized, 20% mining
-- **Balanced**: economy and military in tandem (farm → house → barracks → guard post), 10 food reserve, 40% mining
-- **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized, 60% mining
+Personality drives build order, upgrade priority, food reserve, town policies, and miner allocation:
+- **Aggressive**: military first (barracks → guard posts → economy), zero food reserve, combat upgrades prioritized, miners = 1/3 of houses
+- **Balanced**: economy and military in tandem (farm → house → barracks → guard post), 10 food reserve, miners = 1/2 of houses
+- **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized, miners = 2/3 of houses
 
 Slot selection: economy buildings (farms, houses, barracks) prefer inner slots (closest to center). Guard posts prefer outer slots (farthest from center) with minimum Manhattan distance of 5 between posts. Raider tents cluster around camp center (inner slots).
 

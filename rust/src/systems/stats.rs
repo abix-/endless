@@ -45,6 +45,7 @@ impl Default for CombatConfig {
         jobs.insert(Job::Guard, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
         jobs.insert(Job::Raider, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
         jobs.insert(Job::Farmer, JobStats { max_health: 100.0, damage: 0.0, speed: 100.0 });
+        jobs.insert(Job::Miner, JobStats { max_health: 100.0, damage: 0.0, speed: 100.0 });
         jobs.insert(Job::Fighter, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
 
         let mut attacks = HashMap::new();
@@ -147,7 +148,7 @@ pub fn resolve_combat_stats(
 
     let upgrade_hp = match job {
         Job::Guard => 1.0 + town[UpgradeType::GuardHealth as usize] as f32 * UPGRADE_PCT[0],
-        Job::Farmer => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
+        Job::Farmer | Job::Miner => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
         _ => 1.0,
     };
     let upgrade_dmg = match job {

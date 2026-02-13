@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::resources::*;
-use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS};
+use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS, SPRITE_FARMER, SPRITE_MINER};
 use crate::world::{self, WorldData, BuildingOccupancy};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
@@ -369,5 +369,126 @@ pub fn squad_cleanup_system(
     let _t = timings.scope("squad_cleanup");
     for squad in squad_state.squads.iter_mut() {
         squad.members.retain(|&slot| npc_map.0.contains_key(&slot));
+    }
+}
+
+// ============================================================================
+// JOB REASSIGNMENT SYSTEM
+// ============================================================================
+
+/// Converts idle farmers↔miners to match MinerTarget per town.
+/// Runs every frame but only converts NPCs that are Idle or Resting.
+pub fn job_reassign_system(
+    mut commands: Commands,
+    miner_target: Res<MinerTarget>,
+    npc_query: Query<(
+        Entity, &NpcIndex, &Job, &TownId, &Activity, &Home,
+        Option<&AssignedFarm>, Option<&WorkPosition>,
+    ), Without<Dead>>,
+    mut npc_meta: ResMut<NpcMetaCache>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut npc_logs: ResMut<NpcLogCache>,
+    mut occupancy: ResMut<BuildingOccupancy>,
+    world_data: Res<WorldData>,
+    game_time: Res<GameTime>,
+    timings: Res<SystemTimings>,
+) {
+    let _t = timings.scope("job_reassign");
+    if miner_target.targets.is_empty() { return; }
+
+    // Count current miners per town
+    let num_towns = miner_target.targets.len();
+    let mut miner_counts = vec![0i32; num_towns];
+    for (_, _, job, town_id, _, _, _, _) in npc_query.iter() {
+        if *job == Job::Miner && town_id.0 >= 0 && (town_id.0 as usize) < num_towns {
+            miner_counts[town_id.0 as usize] += 1;
+        }
+    }
+
+    // Collect convertible NPCs per town (idle/resting only)
+    for town_idx in 0..num_towns {
+        let target = miner_target.targets[town_idx];
+        let current = miner_counts[town_idx];
+        let diff = target - current;
+
+        if diff == 0 { continue; }
+
+        if diff > 0 {
+            // Need more miners — convert idle farmers
+            let mut converted = 0;
+            let mut to_convert: Vec<(Entity, usize)> = Vec::new();
+            for (entity, npc_idx, job, town_id, activity, _, _, _) in npc_query.iter() {
+                if converted >= diff { break; }
+                if *job != Job::Farmer || town_id.0 as usize != town_idx { continue; }
+                if !matches!(*activity, Activity::Idle | Activity::Resting) { continue; }
+                to_convert.push((entity, npc_idx.0));
+                converted += 1;
+            }
+            for (entity, idx) in to_convert {
+                // Release farm occupancy if assigned
+                if let Ok((_, _, _, _, _, _, assigned_farm, _)) = npc_query.get(entity) {
+                    if let Some(af) = assigned_farm {
+                        occupancy.release(af.0);
+                    }
+                }
+                commands.entity(entity)
+                    .remove::<Farmer>()
+                    .remove::<AssignedFarm>()
+                    .remove::<WorkPosition>()
+                    .insert(Miner)
+                    .insert(Job::Miner)
+                    .insert(Activity::Idle);
+                // Update GPU sprite
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+                    idx, col: SPRITE_MINER.0, row: SPRITE_MINER.1, atlas: 0.0,
+                }));
+                // Update meta
+                if idx < npc_meta.0.len() {
+                    npc_meta.0[idx].job = 4;
+                }
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                    "Reassigned → Miner");
+            }
+        } else {
+            // Too many miners — convert idle miners back to farmers
+            let needed = (-diff) as i32;
+            let mut converted = 0;
+            let mut to_convert: Vec<(Entity, usize, Vec2)> = Vec::new();
+            for (entity, npc_idx, job, town_id, activity, home, _, work_pos) in npc_query.iter() {
+                if converted >= needed { break; }
+                if *job != Job::Miner || town_id.0 as usize != town_idx { continue; }
+                if !matches!(*activity, Activity::Idle | Activity::Resting) { continue; }
+                // Release mine occupancy if working
+                if let Some(wp) = work_pos {
+                    occupancy.release(wp.0);
+                }
+                to_convert.push((entity, npc_idx.0, home.0));
+                converted += 1;
+            }
+            for (entity, idx, home_pos) in to_convert {
+                // Find nearest free farm for this town
+                let farm_pos = world::find_nearest_free(
+                    home_pos, &world_data.farms, &occupancy, Some(town_idx as u32),
+                ).unwrap_or(home_pos);
+
+                commands.entity(entity)
+                    .remove::<Miner>()
+                    .remove::<WorkPosition>()
+                    .insert(Farmer)
+                    .insert(Job::Farmer)
+                    .insert(WorkPosition(farm_pos))
+                    .insert(Activity::Idle);
+                // Update GPU sprite
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame {
+                    idx, col: SPRITE_FARMER.0, row: SPRITE_FARMER.1, atlas: 0.0,
+                }));
+                // Update meta
+                if idx < npc_meta.0.len() {
+                    npc_meta.0[idx].job = 0;
+                }
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                    "Reassigned → Farmer");
+            }
+        }
     }
 }

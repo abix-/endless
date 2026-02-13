@@ -35,15 +35,17 @@ pub enum Job {
     Guard,
     Raider,
     Fighter,
+    Miner,
 }
 
 impl Job {
-    /// Convert from GDScript integer (0=Farmer, 1=Guard, 2=Raider, 3=Fighter)
+    /// Convert from integer (0=Farmer, 1=Guard, 2=Raider, 3=Fighter, 4=Miner)
     pub fn from_i32(v: i32) -> Self {
         match v {
             1 => Job::Guard,
             2 => Job::Raider,
             3 => Job::Fighter,
+            4 => Job::Miner,
             _ => Job::Farmer,
         }
     }
@@ -51,10 +53,11 @@ impl Job {
     /// RGBA color for this job type. Alpha=1.0 means "has target" on GPU.
     pub fn color(&self) -> (f32, f32, f32, f32) {
         match self {
-            Job::Farmer => (0.0, 1.0, 0.0, 1.0),  // Green
-            Job::Guard => (0.0, 0.0, 1.0, 1.0),   // Blue
-            Job::Raider => (1.0, 0.0, 0.0, 1.0),  // Red
-            Job::Fighter => (1.0, 1.0, 0.0, 1.0), // Yellow
+            Job::Farmer => (0.0, 1.0, 0.0, 1.0),    // Green
+            Job::Guard => (0.0, 0.0, 1.0, 1.0),     // Blue
+            Job::Raider => (1.0, 0.0, 0.0, 1.0),    // Red
+            Job::Fighter => (1.0, 1.0, 0.0, 1.0),   // Yellow
+            Job::Miner => (0.6, 0.4, 0.2, 1.0),     // Brown
         }
     }
 }
@@ -80,6 +83,10 @@ pub struct Guard;
 /// Farmer marker - identifies NPC as a farmer.
 #[derive(Component)]
 pub struct Farmer;
+
+/// Miner marker - identifies NPC as a miner.
+#[derive(Component)]
+pub struct Miner;
 
 /// TownId identifies which town an NPC belongs to.
 /// Universal component on every NPC. All settlements are "towns" (villager or raider).

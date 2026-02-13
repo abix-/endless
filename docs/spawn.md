@@ -47,7 +47,7 @@ GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next
 |-------|------|-------|
 | slot_idx | usize | Pre-allocated via SlotAllocator |
 | x, y | f32 | Spawn position |
-| job | i32 | 0=Farmer, 1=Guard, 2=Raider, 3=Fighter |
+| job | i32 | 0=Farmer, 1=Guard, 2=Raider, 3=Fighter, 4=Miner |
 | faction | i32 | 0=Player, 1+=AI settlements |
 | town_idx | i32 | Town association (-1 = none) |
 | home_x, home_y | f32 | Home/camp position |
@@ -67,12 +67,13 @@ Job-specific templates:
 |-----|----------------------|
 | Guard | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Guard`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
 | Farmer | `Energy`, `Farmer`, `WorkPosition`, `Activity::GoingToWork` |
+| Miner | `Energy`, `Miner` |
 | Raider | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Stealer`, `LeashRange(400)`, `EquippedWeapon` |
 | Fighter | `BaseAttackType` (Melee or Ranged via attack_type), `AttackTimer(0)` |
 
 GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs). Colors and equipment sprites are derived from ECS components by `sync_visual_sprites` (not sent as messages).
 
-Sprite assignments: Farmer=(1,6), Guard=(0,11), Raider=(0,6), Fighter=(7,0)
+Sprite assignments: Farmer=(1,6), Guard=(0,11), Raider=(0,6), Fighter=(7,0), Miner=(1,6) (brown tint differentiates)
 
 ### Personality Generation
 
@@ -91,6 +92,8 @@ Checks `ResetFlag`. If set, clears `NpcEntityMap`, `PopulationStats`, and resets
 ## Building Spawners
 
 All NPC population is building-driven: each **Hut** supports 1 farmer, each **Barracks** supports 1 guard, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from `WorldData.huts` + `WorldData.barracks` + `WorldData.tents` and spawns 1 NPC per entry via `SlotAllocator` + `SpawnNpcMsg`. Menu sliders control how many Huts/Barracks/Tents world gen places.
+
+**Miners** are not spawned directly by buildings. Houses always spawn farmers; `job_reassign_system` converts idle farmers → miners to match `MinerTarget` per town. If a miner dies, the house respawns a farmer, who may be re-converted.
 
 When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Camp grids only allow Tent placement; villager grids allow Farm/GuardPost/Hut/Barracks.
 

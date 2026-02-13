@@ -89,6 +89,7 @@ pub struct RosterParams<'w, 's> {
     ), Without<Dead>>,
     camera_query: Query<'w, 's, &'static mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<'w, GpuReadState>,
+    miner_target: ResMut<'w, MinerTarget>,
 }
 
 #[derive(SystemParam)]
@@ -312,6 +313,10 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
             state.job_filter = 1;
             state.frame_counter = 0;
         }
+        if ui.selectable_label(state.job_filter == 4, "Miners").clicked() {
+            state.job_filter = 4;
+            state.frame_counter = 0;
+        }
         if debug_all {
             if ui.selectable_label(state.job_filter == 2, "Raiders").clicked() {
                 state.job_filter = 2;
@@ -319,6 +324,28 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
             }
         }
     });
+
+    // Miner target control — set how many villagers should be miners
+    let player_town_idx = roster.meta_cache.0.iter()
+        .position(|m| m.job == 0 || m.job == 4) // find any farmer/miner
+        .and_then(|idx| {
+            let ti = roster.meta_cache.0[idx].town_id;
+            if ti >= 0 { Some(ti as usize) } else { None }
+        })
+        .unwrap_or(0);
+    if player_town_idx < roster.miner_target.targets.len() {
+        // Count total villagers (farmers + miners) for this town as max
+        let total_villagers = roster.meta_cache.0.iter()
+            .filter(|m| m.town_id == player_town_idx as i32 && (m.job == 0 || m.job == 4) && !m.name.is_empty())
+            .count() as i32;
+        let mut target = roster.miner_target.targets[player_town_idx];
+        ui.horizontal(|ui| {
+            ui.label("Miners:");
+            ui.add(egui::DragValue::new(&mut target).range(0..=total_villagers));
+            ui.small(format!("/ {} villagers", total_villagers));
+        });
+        roster.miner_target.targets[player_town_idx] = target;
+    }
 
     ui.label(format!("{} NPCs", state.cached_rows.len()));
     ui.separator();
@@ -370,9 +397,10 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
         for row in &state.cached_rows {
             let is_selected = selected_idx == row.slot as i32;
             let job_color = match row.job {
-                0 => egui::Color32::from_rgb(80, 200, 80),
-                1 => egui::Color32::from_rgb(80, 100, 220),
-                2 => egui::Color32::from_rgb(220, 80, 80),
+                0 => egui::Color32::from_rgb(80, 200, 80),   // Farmer green
+                1 => egui::Color32::from_rgb(80, 100, 220),  // Guard blue
+                2 => egui::Color32::from_rgb(220, 80, 80),   // Raider red
+                4 => egui::Color32::from_rgb(160, 110, 60),  // Miner brown
                 _ => egui::Color32::from_rgb(220, 220, 80),
             };
 
@@ -594,12 +622,6 @@ fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: 
         2 => OffDutyBehavior::WanderTown,
         _ => OffDutyBehavior::GoToBed,
     };
-    let mut mining_pct = policy.mining_pct * 100.0;
-    ui.horizontal(|ui| {
-        ui.label("Mining:");
-        ui.add(egui::Slider::new(&mut mining_pct, 0.0..=100.0).suffix("%"));
-    });
-    policy.mining_pct = mining_pct / 100.0;
 }
 
 // ============================================================================

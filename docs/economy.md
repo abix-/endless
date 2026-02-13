@@ -29,6 +29,9 @@ game_time_system (every frame)
     ├─ farm_visual_system (every frame)
     │   └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
     │
+    ├─ job_reassign_system (every frame, after decision_system)
+    │   └─ Converts idle farmers↔miners per town to match MinerTarget
+    │
     ├─ ai_decision_system (real-time interval, default 5s)
     │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated, personality-driven)
     │
@@ -195,6 +198,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | CampState | max_pop, respawn_timers, forage_timers | camp_forage_system |
 | RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | decision_system, death_cleanup |
 | SpawnerState | `Vec<SpawnerEntry>` — building→NPC links + respawn timers | spawner_respawn_system, game_startup |
+| MinerTarget | `Vec<i32>` — desired miner count per town | left_panel (UI), ai_decision_system | job_reassign_system |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 
 ## Constants
@@ -222,6 +226,15 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 - Only regenerates when mine has no occupant (`BuildingOccupancy.is_occupied()` returns false)
 - Rate: `MINE_REGEN_RATE` (2.0 gold/hour), capped at `MINE_MAX_GOLD` (200.0) per mine
 - Uses `MineStates` resource — parallel Vecs of gold, max_gold, and positions per mine
+
+### job_reassign_system
+- Runs every frame in `Step::Behavior`, after `decision_system`
+- Reads `MinerTarget` resource (per-town desired miner count)
+- Counts current miners per town, compares to target
+- **diff > 0** (need more miners): converts idle/resting farmers → miners. Removes `Farmer`/`WorkPosition`/`AssignedFarm`, inserts `Miner`, updates sprite to `SPRITE_MINER`, updates `NpcMetaCache.job`
+- **diff < 0** (need fewer miners): converts idle/resting miners → farmers. Removes `Miner`, inserts `Farmer` + `WorkPosition` (nearest free farm), updates sprite to `SPRITE_FARMER`, updates `NpcMetaCache.job`
+- Only touches NPCs in `Activity::Idle` or `Activity::Resting` — never interrupts working/mining/fighting NPCs
+- Updates `BuildingOccupancy` when releasing mine positions or assigning farm positions
 
 ### squad_cleanup_system
 - Runs every frame in `Step::Behavior`

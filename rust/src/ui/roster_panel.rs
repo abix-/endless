@@ -116,6 +116,10 @@ pub fn roster_panel_system(
                 state.job_filter = 0;
                 state.frame_counter = 0;
             }
+            if ui.selectable_label(state.job_filter == 4, "Miners").clicked() {
+                state.job_filter = 4;
+                state.frame_counter = 0;
+            }
             if ui.selectable_label(state.job_filter == 2, "Raiders").clicked() {
                 state.job_filter = 2;
                 state.frame_counter = 0;
@@ -176,9 +180,10 @@ pub fn roster_panel_system(
 
                 // Job color indicator
                 let job_color = match row.job {
-                    0 => egui::Color32::from_rgb(80, 200, 80),
-                    1 => egui::Color32::from_rgb(80, 100, 220),
-                    2 => egui::Color32::from_rgb(220, 80, 80),
+                    0 => egui::Color32::from_rgb(80, 200, 80),   // Farmer green
+                    1 => egui::Color32::from_rgb(80, 100, 220),  // Guard blue
+                    2 => egui::Color32::from_rgb(220, 80, 80),   // Raider red
+                    4 => egui::Color32::from_rgb(160, 110, 60),  // Miner brown
                     _ => egui::Color32::from_rgb(220, 220, 80),
                 };
 

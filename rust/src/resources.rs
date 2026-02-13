@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResource;
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use crate::constants::MAX_NPC_COUNT;
@@ -327,7 +328,7 @@ pub struct NpcLogEntry {
     pub day: i32,
     pub hour: i32,
     pub minute: i32,
-    pub message: String,
+    pub message: Cow<'static, str>,
 }
 
 /// Per-NPC metadata cache (names, levels, traits). Indexed by slot.
@@ -356,11 +357,11 @@ impl Default for NpcLogCache {
 
 impl NpcLogCache {
     /// Push a log message for an NPC with timestamp.
-    pub fn push(&mut self, idx: usize, day: i32, hour: i32, minute: i32, message: String) {
+    pub fn push(&mut self, idx: usize, day: i32, hour: i32, minute: i32, message: impl Into<Cow<'static, str>>) {
         if idx >= MAX_NPC_COUNT {
             return;
         }
-        let entry = NpcLogEntry { day, hour, minute, message };
+        let entry = NpcLogEntry { day, hour, minute, message: message.into() };
         if let Some(log) = self.0.get_mut(idx) {
             if log.len() >= NPC_LOG_CAPACITY {
                 log.pop_front();
@@ -506,6 +507,13 @@ impl GoldStorage {
     pub fn init(&mut self, count: usize) {
         self.gold = vec![0; count];
     }
+}
+
+/// Per-town miner target count. Player/AI sets how many villagers should be miners.
+/// The job_reassign_system converts idle farmers↔miners to match these targets.
+#[derive(Resource, Default)]
+pub struct MinerTarget {
+    pub targets: Vec<i32>, // per-town desired miner count (index = town_data_idx)
 }
 
 /// Per-mine gold tracking. Mirrors FarmStates pattern.
@@ -837,7 +845,6 @@ pub struct PolicySet {
     pub guard_schedule: WorkSchedule,
     pub farmer_off_duty: OffDutyBehavior,
     pub guard_off_duty: OffDutyBehavior,
-    pub mining_pct: f32, // 0.0-1.0 — fraction of idle farmers that choose mining over farming
 }
 
 impl Default for PolicySet {
@@ -855,7 +862,6 @@ impl Default for PolicySet {
             guard_schedule: WorkSchedule::Both,
             farmer_off_duty: OffDutyBehavior::GoToBed,
             guard_off_duty: OffDutyBehavior::GoToBed,
-            mining_pct: 0.0,
         }
     }
 }

@@ -18,6 +18,7 @@ const ADJECTIVES: &[&str] = &["Swift", "Brave", "Calm", "Bold", "Sharp", "Quick"
 const FARMER_NOUNS: &[&str] = &["Tiller", "Sower", "Reaper", "Plower", "Grower"];
 const GUARD_NOUNS: &[&str] = &["Shield", "Sword", "Watcher", "Sentinel", "Defender"];
 const RAIDER_NOUNS: &[&str] = &["Blade", "Fang", "Shadow", "Claw", "Storm"];
+const MINER_NOUNS: &[&str] = &["Digger", "Pickaxe", "Prospector", "Delver", "Stonecutter"];
 
 
 fn generate_name(job: Job, slot: usize) -> String {
@@ -27,6 +28,7 @@ fn generate_name(job: Job, slot: usize) -> String {
         Job::Guard => GUARD_NOUNS[(slot / ADJECTIVES.len()) % GUARD_NOUNS.len()],
         Job::Raider => RAIDER_NOUNS[(slot / ADJECTIVES.len()) % RAIDER_NOUNS.len()],
         Job::Fighter => "Fighter",
+        Job::Miner => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
     };
     format!("{} {}", adj, noun)
 }
@@ -107,6 +109,7 @@ pub fn spawn_npc_system(
             Job::Guard => SPRITE_GUARD,
             Job::Raider => SPRITE_RAIDER,
             Job::Fighter => SPRITE_FIGHTER,
+            Job::Miner => SPRITE_MINER,
         };
 
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y }));
@@ -163,6 +166,10 @@ pub fn spawn_npc_system(
                 ec.insert(Stealer);
                 ec.insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
                 ec.insert(LeashRange { distance: 400.0 });
+            }
+            Job::Miner => {
+                ec.insert(Energy::default());
+                ec.insert(Miner);
             }
             Job::Fighter => {
                 ec.insert(AttackTimer(0.0));

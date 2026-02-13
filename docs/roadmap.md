@@ -21,7 +21,7 @@ Rules:
 ## Completed
 
 ### Spawning & Rendering
-- [x] NPCs spawn with jobs (guard, farmer, raider, fighter)
+- [x] NPCs spawn with jobs (guard, farmer, raider, fighter, miner)
 - [x] GPU instanced rendering via RenderCommand + Transparent2d (10,000+ @ 140fps)
 - [x] Sprite frames, faction colors
 - [x] Unified spawn API with job-as-template pattern
@@ -90,6 +90,9 @@ Rules:
 - [x] GameConfig resource (farmers/guards per town, spawn interval, food per hour)
 - [x] PopulationStats resource (alive/working counts per job/clan)
 - [x] economy_tick_system (unified hourly economy)
+- [x] Miner job type (Job::Miner, brown tint, separate behavior from farmer)
+- [x] MinerTarget resource (per-town desired miner count, DragValue UI)
+- [x] job_reassign_system (converts idle farmers↔miners to match target)
 - [x] Population caps per town (upgradeable)
 
 ### World Generation
@@ -360,6 +363,14 @@ Chunked tilemap (see [spec](#chunked-tilemap)):
 
 Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
+
+SystemParam bundle consolidation:
+- [ ] Create `GameLog` bundle in `resources.rs`: `{ combat_log: ResMut<CombatLog>, game_time: Res<GameTime>, timings: Res<SystemTimings> }`. This triple appears in 8+ systems: `arrival_system`, `spawn_npc_system`, `death_cleanup_system`, `spawner_respawn_system`, `ai_decision_system`, `xp_grant_system`, `healing_system`, `process_upgrades_system`. Each system drops its 3 direct params in favor of `log: GameLog`.
+- [ ] Move `FarmParams` and `EconomyParams` from `systems/behavior.rs` to `resources.rs` (they're `pub` but only imported by behavior.rs today). Update imports in behavior.rs.
+- [ ] Adopt `FarmParams` + `EconomyParams` in `arrival_system` (13→8 params): replace direct `farm_states`, `world_data`, `food_storage`, `gold_storage`, `food_events` with the two bundles. Access via `farms.states`, `economy.food_storage`, etc.
+- [ ] Do NOT refactor systems where `WorldData` mutability mismatches — `ai_decision_system` and `build_menu_system` need `ResMut<WorldData>` but `FarmParams` has `Res<WorldData>`. Leave those as-is.
+- [ ] Do NOT nest bundles (e.g. `GameLog` inside `DecisionExtras`). Flat bundles only.
+- [ ] Expected param count reductions: `arrival_system` 13→8, `spawn_npc_system` 15→13, `death_cleanup_system` 9→7, `spawner_respawn_system` 9→7, `ai_decision_system` 15→13, `xp_grant_system` 10→8, `healing_system` 10→8, `process_upgrades_system` 10→9. Pure refactor — no behavioral changes. Verify with `cargo check`.
 
 **Stage 15: Combat Depth**
 
