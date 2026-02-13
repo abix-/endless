@@ -27,7 +27,7 @@ game_time_system (every frame)
     │   └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
     │
     ├─ ai_decision_system (real-time interval, default 5s)
-    │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated)
+    │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated, personality-driven)
     │
     └─ squad_cleanup_system (every frame)
         └─ Removes dead NPC slots from Squad.members via NpcEntityMap check
@@ -214,7 +214,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 
 ## Known Issues
 
-- **No carried item rendering**: CarriedItem component exists but nothing draws the food icon.
+None currently.
 
 ## Rating: 8/10
 

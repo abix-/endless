@@ -261,9 +261,16 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | AiPlayerConfig | `decision_interval: f32` (real seconds between AI ticks, default 5.0) | main_menu (from settings) | ai_decision_system |
 | AiPlayerState | `players: Vec<AiPlayer>` — one per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
 
-`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
+`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
-Builder AI priority: farm → house → barracks → guard post. Raider AI: tents only. Both unlock slots when full and buy upgrades with surplus food.
+Personality drives build order, upgrade priority, food reserve, and town policies:
+- **Aggressive**: military first (barracks → guard posts → economy), zero food reserve, combat upgrades prioritized
+- **Balanced**: economy and military in tandem (farm → house → barracks → guard post), 10 food reserve
+- **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized
+
+Slot selection: economy buildings (farms, houses, barracks) prefer inner slots (closest to center). Guard posts prefer outer slots (farthest from center) with minimum Manhattan distance of 5 between posts. Raider tents cluster around camp center (inner slots).
+
+Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus food. Combat log shows personality tag: `"Town [Balanced] built farm"`.
 
 ## Debug Resources
 

@@ -89,7 +89,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Combat pipeline ────────────────▶ [combat.md]
     │   ├─ Behavior systems ───────────────▶ [behavior.md]
     │   ├─ Economy systems ────────────────▶ [economy.md]
-    │   └─ AI player system ─────────────▶ builds, unlocks, upgrades for non-player factions
+    │   └─ AI player system ─────────────▶ personality-driven build/unlock/upgrade for non-player factions
     │
     └─ Test Framework (tests/)
         ├─ bevy_egui menu (EguiPrimaryContextPass)
@@ -127,7 +127,7 @@ rust/
   src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
-  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, BuildingChunk sync
+  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits)
@@ -167,7 +167,7 @@ rust/
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, respawning, building spawners, squad cleanup
-    ai_player.rs        # AI decision system (build, unlock, upgrade for non-player factions)
+    ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), smart slot selection, build/unlock/upgrade
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 

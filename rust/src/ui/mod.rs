@@ -8,12 +8,13 @@ pub mod left_panel;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiPrimaryContextPass, egui};
+use rand::Rng;
 
 use crate::AppState;
 use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
-use crate::systems::{AiPlayerState, AiKind, AiPlayer};
+use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality};
 use crate::world::{self, WorldGenConfig};
 
 /// Register all UI systems.
@@ -100,6 +101,7 @@ struct StartupExtra<'w> {
     farm_occupancy: ResMut<'w, world::BuildingOccupancy>,
     npcs_by_town: ResMut<'w, NpcsByTownCache>,
     ai_state: ResMut<'w, AiPlayerState>,
+    combat_log: ResMut<'w, CombatLog>,
 }
 
 /// Initialize the world and spawn NPCs when entering Playing state.
@@ -240,14 +242,24 @@ fn game_startup_system(
         total += 1;
     }
 
-    // Populate AI players (non-player factions)
+    // Populate AI players (non-player factions) with random personalities
     extra.ai_state.players.clear();
+    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
+    let mut rng = rand::rng();
     for (grid_idx, town_grid) in town_grids.grids.iter().enumerate() {
         let tdi = town_grid.town_data_idx;
         if let Some(town) = world_data.towns.get(tdi) {
             if town.faction > 0 {
                 let kind = if town.sprite_type == 1 { AiKind::Raider } else { AiKind::Builder };
-                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind });
+                let personality = personalities[rng.random_range(0..personalities.len())];
+                // Set town policies based on personality
+                if let Some(policy) = extra.policies.policies.get_mut(tdi) {
+                    *policy = personality.default_policies();
+                }
+                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality });
+                // Log AI player joining
+                extra.combat_log.push(CombatEventKind::Ai, 1, 6, 0,
+                    format!("{} [{}] joined the game", town.name, personality.name()));
             }
         }
     }

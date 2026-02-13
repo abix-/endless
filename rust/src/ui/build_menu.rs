@@ -78,9 +78,14 @@ pub fn build_menu_system(
                 if ui.add_enabled(can_unlock, egui::Button::new(
                     format!("Unlock ({} food)", SLOT_UNLOCK_COST)
                 )).clicked() {
-                    // Unlock the slot
+                    // Unlock the slot and set terrain to dirt
                     if let Some(town_grid) = town_grids.grids.get_mut(grid_idx) {
                         town_grid.unlocked.insert((row, col));
+                    }
+                    let slot_pos = world::town_grid_to_world(town_center, row, col);
+                    let (gc, gr) = grid.world_to_grid(slot_pos);
+                    if let Some(cell) = grid.cell_mut(gc, gr) {
+                        cell.terrain = world::Biome::Dirt;
                     }
                     if let Some(f) = food_storage.food.get_mut(town_data_idx) {
                         *f -= SLOT_UNLOCK_COST;

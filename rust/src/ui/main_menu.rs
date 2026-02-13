@@ -89,9 +89,9 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Towns
+            // Player Towns
             ui.horizontal(|ui| {
-                ui.label("Towns:");
+                ui.label("Your Towns:");
                 ui.add(egui::Slider::new(&mut state.towns, 1.0..=50.0)
                     .step_by(1.0)
                     .show_value(false));
@@ -235,9 +235,12 @@ pub fn main_menu_system(
                     ui.add_space(8.0);
 
                     // NPC total
-                    let towns = state.towns as i32;
-                    let villagers = towns * (state.farmers as i32 + state.guards as i32);
-                    let raiders = towns * state.raiders as i32;
+                    let player_towns = state.towns as i32;
+                    let ai_towns = state.ai_towns as i32;
+                    let camps = state.raider_camps as i32;
+                    let per_town = state.farmers as i32 + state.guards as i32;
+                    let villagers = (player_towns + ai_towns) * per_town;
+                    let raiders = camps * state.raiders as i32;
                     let total = villagers + raiders;
                     ui.label(format!("~{} NPCs total", total));
 

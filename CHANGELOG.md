@@ -2,9 +2,11 @@
 
 ## 2026-02-12
 
+- **ai personalities** — AI players get random personality (Aggressive/Balanced/Economic) at game start; personality drives build order, upgrade priority, food reserve threshold, and town policies; combat log shows personality tag (`Town [Balanced] built farm`); smart slot selection: economy buildings prefer inner slots, guard posts prefer outer slots with min spacing of 5; slot unlock now sets terrain to Dirt (visible on tilemap via new `sync_terrain_tilemap` system + `TerrainChunk` marker)
 - **ai players** — autonomous AI opponents that build, unlock slots, and buy upgrades; Builder AI (farms/houses/barracks/guard posts), Raider AI (tents); unique faction per settlement; `ai_decision_system` in Step::Behavior; configurable interval (1-30s); purple "AI" combat log entries with filter
 - **world gen refactor** — independent placement of player towns, AI towns, and raider camps (no longer paired 1:1); configurable counts (AI Towns 0-10, Raider Camps 0-10); unique faction per settlement; removed `find_camp_position()` helper
-- **main menu overhaul** — AI Towns / Raider Camps / AI Speed sliders; per-town sliders in collapsible section; Reset Defaults button; NPC count estimate; removed "Colony simulation" subtitle
+- **main menu overhaul** — "Towns" renamed to "Your Towns" for clarity; AI Towns / Raider Camps / AI Speed sliders; per-town sliders in collapsible section; Reset Defaults button; removed "Colony simulation" subtitle
+- **fix: NPC count estimate** — estimate now correctly counts AI town NPCs and uses raider camp count (not player town count) for raiders
 - **fix: turret friendly fire** — `guard_post_attack_system` looks up post's owning faction from town data instead of hardcoding faction 0; prevents turrets from shooting their own town's NPCs
 - **fix: spawner faction** — `spawner_respawn_system` + `game_startup_system` use `world_data.towns[idx].faction` instead of hardcoded 0; enemy town farmers/guards now spawn with correct faction
 - **delete combat_log.rs** — dead code removed (undeclared module, never registered, referenced nonexistent `UiState.combat_log_open`)
