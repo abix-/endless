@@ -150,6 +150,7 @@ Rules:
 - [x] Sleep indicator on resting NPCs (SLEEP_SPRITE on status layer via sync_visual_sprites)
 - [x] Healing indicator on healing NPCs (HEAL_SPRITE on healing layer via sync_visual_sprites)
 - [x] Carried item icon (food sprite on returning raiders)
+- [x] Farm growth state visible (Growing → Ready sprite change via farm-visual test)
 
 ### Events
 - [x] Death events emitted to CombatLog (Kill kind, NPC name/job/level)
@@ -240,6 +241,22 @@ Rules:
 - [x] `prioritize_healing` sends wounded NPCs to fountain before resuming work
 - [x] Removed hardcoded `FleeThreshold`/`WoundedThreshold` from raider spawn — thresholds policy-driven
 
+### Building Spawners
+- [x] `Building::House { town_idx }` and `Building::Barracks { town_idx }` variants in `world.rs`
+- [x] `House`/`Barracks` structs in `WorldData`, `BUILDING_TILES` extended 5→7
+- [x] Wire `place_building()`/`remove_building()` for House/Barracks (same tombstone pattern)
+- [x] World gen: `place_town_buildings()` places N Houses + N Barracks from config sliders
+- [x] `SpawnerEntry` struct: `building_kind`, `town_idx`, `position`, `npc_slot` (-1=none), `respawn_timer`
+- [x] `SpawnerState` resource: `Vec<SpawnerEntry>` — one entry per House/Barracks
+- [x] `spawner_respawn_system` in `systems/economy.rs` (Step::Behavior, hourly): detects dead NPC via `NpcEntityMap`, starts 12h timer, spawns replacement when timer expires
+- [x] House + Barracks buttons in `build_menu.rs` (push `SpawnerEntry` on build)
+- [x] Sliders renamed to Houses/Barracks (kept for testing, control world gen building count)
+- [x] HUD shows spawner counts: `Farmers: alive/houses` / `Guards: alive/barracks`
+- [x] `game_startup_system` builds `SpawnerState` from world gen Houses/Barracks, spawns 1 NPC per entry (instant, no timer)
+- [x] Replaced bulk farmer/guard spawn loops with spawner-based spawn — raider spawn loop kept
+- [x] `.init_resource::<SpawnerState>()`, add `spawner_respawn_system` to Step::Behavior
+- [x] Remove beds — NPCs rest at their spawner building (House/Barracks) instead of separate beds. Home = spawner position.
+
 ### Architecture
 - [x] Bevy Messages (MessageWriter/MessageReader) for all inter-system communication
 - [x] All state as Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
@@ -267,12 +284,9 @@ Rules:
 
 *Done when: every completed system has a dedicated test, tests are selectable from an in-game menu, and all tests pass.*
 
-**Stage 6: Visual Feedback**
+**Stage 6: Visual Feedback** ✓
 
 *Done when: you can watch the core loop happen on screen and understand what's going on without reading logs.*
-
-- [ ] Farm growth state visible (Growing → Ready sprite change + progress bar on tile)
-- [ ] Healing glow effect (pulsing green tint + radial halo — needs TIME uniform in shader)
 
 **Stage 7: Playable Game** ✓
 
@@ -286,52 +300,13 @@ Rules:
 
 *Done when: player can spend food on upgrades in the UI, guards with upgrades visibly outperform unupgraded ones, and NPCs gain levels from kills.*
 
-Remaining:
-- [ ] Differentiate job base stats if desired (e.g., raider damage != guard damage)
-- [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
-
 **Stage 10: Town Policies** ✓
 
 *Done when: changing a policy slider immediately alters NPC behavior — raiders flee at the configured HP%, farmers sleep during night shift, off-duty guards wander to the fountain.*
 
-- [x] `TownPolicies` Bevy resource: per-town policy values (mirrors existing `PolicyState` scaffold in `policies_panel.rs`)
-- [x] Wire `policies_panel.rs` controls to read/write `TownPolicies` instead of `Local<PolicyState>`
-- [x] `decision_system` reads `TownPolicies` for: flee thresholds, work schedule, off-duty behavior, prioritize healing
-- [x] Remove hardcoded `FleeThreshold { pct: 0.50 }` from raider spawn — derive from policies
-- [x] Work schedule: `decision_system` checks `GameTime.hour()` against day/night policy before assigning work
-- [x] Off-duty behavior: idle NPCs choose bed/fountain/wander based on policy
-- [x] Fountain healing zone radius reads from `CombatConfig` + upgrade bonus (already implemented in Stage 9 healing_system)
-- [x] Camp healing zone: raiders heal at camp center (already works — camps are in WorldData.towns with faction match)
-
 **Stage 11: Building Spawners** ✓ (see [spec](#building-spawners))
 
 *Done when: each House supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Houses/Barracks to grow population. Menu sliders for farmers/guards removed.*
-
-Buildings:
-- [x] `Building::House { town_idx }` and `Building::Barracks { town_idx }` variants in `world.rs`
-- [x] `House`/`Barracks` structs in `WorldData`, `BUILDING_TILES` extended 5→7
-- [x] Wire `place_building()`/`remove_building()` for House/Barracks (same tombstone pattern)
-- [x] World gen: `place_town_buildings()` places N Houses + N Barracks from config sliders
-
-Spawner state:
-- [x] `SpawnerEntry` struct: `building_kind`, `town_idx`, `position`, `npc_slot` (-1=none), `respawn_timer`
-- [x] `SpawnerState` resource: `Vec<SpawnerEntry>` — one entry per House/Barracks
-- [x] `spawner_respawn_system` in `systems/economy.rs` (Step::Behavior, hourly): detects dead NPC via `NpcEntityMap`, starts 12h timer, spawns replacement when timer expires
-
-UI:
-- [x] House + Barracks buttons in `build_menu.rs` (push `SpawnerEntry` on build)
-- [x] Sliders renamed to Houses/Barracks (kept for testing, control world gen building count)
-- [x] HUD shows spawner counts: `Farmers: alive/houses` / `Guards: alive/barracks`
-
-Startup:
-- [x] `game_startup_system` builds `SpawnerState` from world gen Houses/Barracks, spawns 1 NPC per entry (instant, no timer)
-- [x] Replaced bulk farmer/guard spawn loops with spawner-based spawn — raider spawn loop kept
-
-Registration:
-- [x] `.init_resource::<SpawnerState>()`, add `spawner_respawn_system` to Step::Behavior
-
-Beds removed:
-- [x] Remove beds — NPCs rest at their spawner building (House/Barracks) instead of separate beds. Home = spawner position. Removed beds from world gen, build menu, `BedOccupancy` resource, `LocationKind::Bed`. Kept `Bed` struct + `add_bed()` for test compat.
 
 **Stage 12: Combat & Economy Depth**
 
@@ -344,6 +319,7 @@ World generation (see [spec](#continent-world-generation)):
 - [ ] Main menu combo box to select generation style, persisted in UserSettings
 
 Combat depth:
+- [ ] Differentiate job base stats (e.g., raider damage != guard damage)
 - [ ] Target switching (prefer non-fleeing enemies over fleeing)
 - [ ] Trait combat modifiers (Strong +25%, Berserker +50% at low HP, Efficient -25% cooldown, Lazy +20% cooldown)
 - [ ] Trait flee modifiers (Brave never flees, Coward +20% threshold)
@@ -363,14 +339,11 @@ Loot system:
 - [ ] Equipped loot feeds into `resolve_combat_stats()` — weapon adds damage%, armor adds max_health%
 - [ ] Equipped weapon/armor reflected in NPC equipment sprite layers
 
-Visual polish:
-- [x] Sleep sprite texture — `sleep.png` as 4th texture (bindings 6-7, atlas_id=3.0), scale 16.0 with white tint
-
 Economy depth:
 - [ ] Multi-camp food delivery (currently hardcoded to camp_food[0])
 - [ ] HP regen system (3x sleeping, 10x fountain/camp with upgrade)
 - [ ] Food consumption (eating restores HP/energy, npc_ate_food event)
-- [ ] Food efficiency upgrade (chance of free meal)
+- [ ] FoodEfficiency upgrade wired into `decision_system` eat logic (chance of free meal)
 - [ ] Starvation effects (HP drain, desertion)
 - [ ] Multiple resources (wood, iron, gold)
 - [ ] Production buildings (lumber mill, mine, blacksmith)
