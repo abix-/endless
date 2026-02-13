@@ -1,8 +1,30 @@
 # Endless
 
-A game about fighting entropy. Raiders steal your food. Guards die in combat. Farms lie fallow. Everything tends toward chaos and collapse. Can you build something that lasts?
+You start with one town, a handful of farmers, and a fence that won't hold. Raiders are already coming.
 
-Built with Bevy 0.18 ECS and GPU compute shaders (WGSL). Data-oriented design with Factorio-style optimizations — 50K NPCs via GPU instanced rendering in a single draw call.
+Grow food. Train guards. Build walls. Research technology. Forge alliances — or break them. Raise an army, march across the map, and conquer every settlement on the continent. Then do it again on the next one.
+
+A real-time kingdom builder inspired by **Lords of the Realm 2**, built to scale to tens of thousands of NPCs. Every villager has a job, a home, energy, personality, and opinions about whether they'd rather fight or flee. Every decision you make — who farms, who fights, where the walls go — ripples through the simulation.
+
+*Early development. Core loop works: farming, combat, upgrades, building, policies. Conquest arc in progress.*
+
+<!-- TODO: Add screenshot/GIF here -->
+
+## The Struggle
+
+1. **Produce** — Farmers work fields. Food feeds your people, fuels upgrades, and funds expansion. Without it, everything collapses.
+2. **Defend** — Raiders steal your food and kill your people. Guards patrol, walls channel, turrets fire. Layout matters.
+3. **Upgrade** — Spend food to research tech, improve stats, unlock new buildings. Every investment is food your people aren't eating.
+4. **Expand** — Build more houses and barracks. Grow your economy. Claim territory beyond your walls.
+5. **Conquer** — Form armies from your guards. March them to enemy camps. Siege, capture, and rule. One town becomes two. Two becomes a county. A county becomes the world.
+6. **Endure** — Entropy never stops. Raiders escalate. Allies betray. The frontier always needs more than you have. Can you build something that lasts?
+
+## Inspirations
+
+- **Lords of the Realm 2** — assign villagers to roles, manage production, raise armies, conquer rival towns
+- **Factorio** — scale to thousands of entities, the satisfaction of watching systems hum
+- **RimWorld** — colonist needs, emergent chaos, stories that write themselves
+- **Asimov's "The Last Question"** — entropy as the ultimate antagonist
 
 ## Getting Started
 
@@ -47,14 +69,6 @@ cargo run --release
 
 First build takes 2-5 minutes (compiles Bevy + dependencies). Subsequent builds are ~15 seconds.
 
-## The Struggle
-
-1. **Produce** - Farmers generate food. Without food, nothing else matters.
-2. **Defend** - Guards protect what you've built. Raiders want it.
-3. **Upgrade** - Invest food to make guards stronger. Trade present resources for future survival.
-4. **Expand** - Claim neutral towns. More territory, more production, more to defend.
-5. **Endure** - Entropy never stops. Neither can you.
-
 ## Controls
 
 | Key | Action |
@@ -73,25 +87,14 @@ First build takes 2-5 minutes (compiles Bevy + dependencies). Subsequent builds 
 | B | Build menu panel |
 | U | Upgrade menu |
 | P | Policies panel (faction settings) |
+| Q | Squads panel |
 | ESC | Settings menu |
 
 ## Architecture
 
+Built with [Bevy 0.18](https://bevyengine.org/) ECS and GPU compute shaders (WGSL). Data-oriented design with Factorio-style optimizations — 50K NPC buffer capacity via GPU instanced rendering in a single draw call.
+
 See [docs/](docs/README.md) for architecture documentation — system maps, file tree, data flow, GPU buffers, combat pipeline, behavior state machines, and known issues with ratings.
-
-## Inspirations
-
-- **Asimov's "The Last Question"** - entropy as the ultimate antagonist
-- **Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, conquer rival towns
-  - Farming: villagers work fields → grain → rations, weather affects yield, starvation causes unrest
-  - Balance farming vs other jobs (woodcutting, mining, blacksmithing, army)
-- **RimWorld** - colonist needs, AI storytelling, emergent chaos
-- **Factorio** - scale to thousands of entities, predicted rendering, dormant states, spatial partitioning
-  - The satisfaction of watching your creation work — farmers farming, guards patrolling, systems humming
-  - Content with where you are, but always knowing there's more to build
-- **Animal Crossing** - existence is the game, not winning
-  - NPCs have their own lives, schedules, personalities
-  - The world is worth inhabiting, not just optimizing
 
 ## Credits
 

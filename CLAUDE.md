@@ -1,6 +1,6 @@
 # Endless
 
-Colony sim: pure Bevy 0.18 ECS with GPU compute for 16K NPCs via instanced rendering.
+Real-time kingdom builder: pure Bevy 0.18 ECS with GPU compute for 50K NPCs via instanced rendering.
 
 - When writing Rust for Endless, read `~/.claude/skills/bevy.md` first.
 - When writing WGSL shaders, read `~/.claude/skills/wgsl.md` first.
