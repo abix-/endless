@@ -88,7 +88,8 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Spawn systems ──────────────────▶ [spawn.md]
     │   ├─ Combat pipeline ────────────────▶ [combat.md]
     │   ├─ Behavior systems ───────────────▶ [behavior.md]
-    │   └─ Economy systems ────────────────▶ [economy.md]
+    │   ├─ Economy systems ────────────────▶ [economy.md]
+    │   └─ AI player system ─────────────▶ builds, unlocks, upgrades for non-player factions
     │
     └─ Test Framework (tests/)
         ├─ bevy_egui menu (EguiPrimaryContextPass)
@@ -162,10 +163,11 @@ rust/
     stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
-    combat.rs           # Attack cooldown, targeting, guard post turret auto-attack
+    combat.rs           # Attack cooldown, targeting, guard post turret auto-attack (faction-aware)
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, respawning, building spawners, squad cleanup
+    ai_player.rs        # AI decision system (build, unlock, upgrade for non-player factions)
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 

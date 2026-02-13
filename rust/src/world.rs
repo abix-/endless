@@ -699,6 +699,8 @@ pub struct WorldGenConfig {
     pub farmers_per_town: usize,
     pub guards_per_town: usize,
     pub raiders_per_camp: usize,
+    pub ai_towns: usize,
+    pub raider_camps: usize,
     pub town_names: Vec<String>,
 }
 
@@ -715,7 +717,9 @@ impl Default for WorldGenConfig {
             farms_per_town: 2,
             farmers_per_town: 2,
             guards_per_town: 2,
-            raiders_per_camp: 0,
+            raiders_per_camp: 1,
+            ai_towns: 1,
+            raider_camps: 1,
             town_names: vec![
                 "Miami".into(), "Orlando".into(), "Tampa".into(), "Jacksonville".into(),
                 "Tallahassee".into(), "Gainesville".into(), "Pensacola".into(), "Sarasota".into(),
@@ -749,87 +753,106 @@ pub fn generate_world(
     grid.height = h;
     grid.cells = vec![WorldCell::default(); w * h];
 
-    // Step 2: Place town centers with min distance constraint
-    let mut town_positions: Vec<Vec2> = Vec::new();
-    let max_attempts = 1000;
-    let mut attempts = 0;
-
-    while town_positions.len() < config.num_towns && attempts < max_attempts {
-        attempts += 1;
-        let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
-        let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
-        let pos = Vec2::new(x, y);
-
-        let valid = town_positions.iter().all(|existing| {
-            pos.distance(*existing) >= config.min_town_distance
-        });
-
-        if valid {
-            town_positions.push(pos);
-        }
-    }
-
-    if town_positions.len() < config.num_towns {
-        warn!("generate_world: only placed {}/{} towns after {} attempts",
-            town_positions.len(), config.num_towns, max_attempts);
-    }
-
     // Shuffle town names
     let mut names = config.town_names.clone();
-    // Simple Fisher-Yates shuffle
     for i in (1..names.len()).rev() {
         let j = rng.random_range(0..=i);
         names.swap(i, j);
     }
+    let mut name_idx = 0;
 
-    // Step 3: Find camp positions (furthest from all towns)
+    // All settlement positions for min_distance checks
+    let mut all_positions: Vec<Vec2> = Vec::new();
+    let max_attempts = 2000;
+    let mut next_faction = 1;
+
+    // Step 2: Place player town centers (faction 0)
+    let mut player_positions: Vec<Vec2> = Vec::new();
+    let mut attempts = 0;
+    while player_positions.len() < config.num_towns && attempts < max_attempts {
+        attempts += 1;
+        let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
+        let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
+        let pos = Vec2::new(x, y);
+        if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+            player_positions.push(pos);
+            all_positions.push(pos);
+        }
+    }
+
+    if player_positions.len() < config.num_towns {
+        warn!("generate_world: only placed {}/{} player towns", player_positions.len(), config.num_towns);
+    }
+
+    // Register player towns
+    for &center in &player_positions {
+        let name = names.get(name_idx).cloned().unwrap_or_else(|| format!("Town {}", name_idx));
+        name_idx += 1;
+        world_data.towns.push(Town { name, center, faction: 0, sprite_type: 0 });
+        let town_data_idx = world_data.towns.len() - 1;
+        let town_idx = town_data_idx as u32;
+        town_grids.grids.push(TownGrid::new_base(town_data_idx));
+        let gi = town_grids.grids.len() - 1;
+        place_town_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi]);
+    }
+
+    // Step 3: Place AI town centers (Builder AI, each gets unique faction)
+    let mut ai_town_positions: Vec<Vec2> = Vec::new();
+    attempts = 0;
+    while ai_town_positions.len() < config.ai_towns && attempts < max_attempts {
+        attempts += 1;
+        let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
+        let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
+        let pos = Vec2::new(x, y);
+        if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+            ai_town_positions.push(pos);
+            all_positions.push(pos);
+        }
+    }
+
+    for &center in &ai_town_positions {
+        let name = names.get(name_idx).cloned().unwrap_or_else(|| format!("AI Town {}", name_idx));
+        name_idx += 1;
+        let faction = next_faction;
+        next_faction += 1;
+        world_data.towns.push(Town { name, center, faction, sprite_type: 0 });
+        let town_data_idx = world_data.towns.len() - 1;
+        let town_idx = town_data_idx as u32;
+        town_grids.grids.push(TownGrid::new_base(town_data_idx));
+        let gi = town_grids.grids.len() - 1;
+        place_town_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi]);
+    }
+
+    // Step 4: Place raider camp centers (Raider AI, each gets unique faction)
     let mut camp_positions: Vec<Vec2> = Vec::new();
-    for town_center in &town_positions {
-        let camp = find_camp_position(*town_center, &town_positions, config);
-        camp_positions.push(camp);
+    attempts = 0;
+    while camp_positions.len() < config.raider_camps && attempts < max_attempts {
+        attempts += 1;
+        let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
+        let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
+        let pos = Vec2::new(x, y);
+        if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+            camp_positions.push(pos);
+            all_positions.push(pos);
+        }
     }
 
-    // Step 4: Generate terrain via noise
-    generate_terrain(grid, &town_positions, &camp_positions);
-
-    // Step 5: Place buildings for each town
-    let actual_towns = town_positions.len();
-    for town_idx in 0..actual_towns {
-        let center = town_positions[town_idx];
-        let name = names.get(town_idx).cloned().unwrap_or_else(|| format!("Town {}", town_idx));
-        let camp_pos = camp_positions[town_idx];
-
-        // Add villager town
-        world_data.towns.push(Town {
-            name: name.clone(),
-            center,
-            faction: 0,
-            sprite_type: 0, // fountain
-        });
-        let vill_town_idx = (world_data.towns.len() - 1) as u32;
-
-        let vill_data_idx = world_data.towns.len() - 1;
-        town_grids.grids.push(TownGrid::new_base(vill_data_idx));
-        let grid_idx = town_grids.grids.len() - 1;
-        place_town_buildings(grid, world_data, farm_states, center, vill_town_idx, config, &mut town_grids.grids[grid_idx]);
-
-        // Add raider town
-        world_data.towns.push(Town {
-            name: "Raider Camp".into(),
-            center: camp_pos,
-            faction: (town_idx + 1) as i32,
-            sprite_type: 1, // tent
-        });
-        let raid_town_idx = (world_data.towns.len() - 1) as u32;
-        let raid_data_idx = world_data.towns.len() - 1;
-
-        town_grids.grids.push(TownGrid::new_base(raid_data_idx));
-        let camp_grid_idx = town_grids.grids.len() - 1;
-        place_camp_buildings(grid, world_data, camp_pos, raid_town_idx, config, &mut town_grids.grids[camp_grid_idx]);
+    for &center in &camp_positions {
+        let faction = next_faction;
+        next_faction += 1;
+        world_data.towns.push(Town { name: "Raider Camp".into(), center, faction, sprite_type: 1 });
+        let town_data_idx = world_data.towns.len() - 1;
+        let town_idx = town_data_idx as u32;
+        town_grids.grids.push(TownGrid::new_base(town_data_idx));
+        let gi = town_grids.grids.len() - 1;
+        place_camp_buildings(grid, world_data, center, town_idx, config, &mut town_grids.grids[gi]);
     }
 
-    info!("generate_world: {} villager towns, {} raider camps, grid {}x{}",
-        actual_towns, camp_positions.len(), w, h);
+    // Step 5: Generate terrain via noise (all positions get dirt clearings)
+    generate_terrain(grid, &all_positions, &[]);
+
+    info!("generate_world: {} player towns, {} AI towns, {} raider camps, grid {}x{}",
+        player_positions.len(), ai_town_positions.len(), camp_positions.len(), w, h);
 }
 
 /// Place buildings for one town on the grid: fountain, farms, houses, barracks, guard posts.
@@ -979,36 +1002,6 @@ fn spiral_slots(occupied: &HashSet<(i32, i32)>, count: usize) -> Vec<(i32, i32)>
         }
     }
     result
-}
-
-/// Find camp position for a town: try 16 directions, pick furthest from all towns.
-fn find_camp_position(town_center: Vec2, all_towns: &[Vec2], config: &WorldGenConfig) -> Vec2 {
-    use rand::Rng;
-    let mut rng = rand::rng();
-    let mut best_pos = town_center;
-    let mut best_score = f32::NEG_INFINITY;
-
-    for i in 0..16 {
-        let angle = i as f32 * std::f32::consts::TAU / 16.0 + rng.random_range(-0.1f32..0.1f32);
-        let dir = Vec2::new(angle.cos(), angle.sin());
-        let mut pos = town_center + dir * config.camp_distance;
-
-        // Clamp to world bounds
-        pos.x = pos.x.clamp(config.world_margin, config.world_width - config.world_margin);
-        pos.y = pos.y.clamp(config.world_margin, config.world_height - config.world_margin);
-
-        // Score = minimum distance to any town (higher = better)
-        let min_dist = all_towns.iter()
-            .map(|tc| pos.distance(*tc))
-            .fold(f32::MAX, f32::min);
-
-        if min_dist > best_score {
-            best_score = min_dist;
-            best_pos = pos;
-        }
-    }
-
-    best_pos
 }
 
 /// Fill grid terrain using simplex noise, with Dirt override near towns and camps.

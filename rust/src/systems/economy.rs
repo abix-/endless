@@ -264,6 +264,9 @@ pub fn spawner_respawn_system(
                 let Some(slot) = slots.alloc() else { continue };
                 let town_data_idx = entry.town_idx as usize;
 
+                let town_faction = world_data.towns.get(town_data_idx)
+                    .map(|t| t.faction).unwrap_or(0);
+
                 let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
                     match entry.building_kind {
                         0 => {
@@ -271,14 +274,14 @@ pub fn spawner_respawn_system(
                             let farm = world::find_nearest_free(
                                 entry.position, &world_data.farms, &farm_occupancy, Some(entry.town_idx as u32),
                             ).unwrap_or(entry.position);
-                            (0, 0, farm.x, farm.y, -1, 0, "Farmer", "House")
+                            (0, town_faction, farm.x, farm.y, -1, 0, "Farmer", "House")
                         }
                         1 => {
                             // Barracks -> Guard
                             let post_idx = world::find_location_within_radius(
                                 entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
                             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-                            (1, 0, -1.0, -1.0, post_idx, 1, "Guard", "Barracks")
+                            (1, town_faction, -1.0, -1.0, post_idx, 1, "Guard", "Barracks")
                         }
                         _ => {
                             // Tent -> Raider: home = camp center

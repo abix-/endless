@@ -37,7 +37,7 @@ NPC state is derived at query time via `derive_npc_state()` which checks ECS com
 | KillStats | guard_kills, villager_kills | death_cleanup_system | UI |
 | FactionStats | `Vec<FactionStat>` — alive, dead, kills per faction | spawn/death systems | UI |
 
-`FactionStats` index 0 = villagers (all towns share), 1+ = raider camps. Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`.
+`FactionStats` — one entry per settlement (player towns + AI towns + raider camps). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`.
 
 ## World Layout
 
@@ -161,6 +161,34 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 
 `TownUpgrades` is indexed by town, each entry is a fixed-size array of 12 upgrade levels (`UpgradeType` enum: GuardHealth, GuardAttack, GuardRange, GuardSize, AttackSpeed, MoveSpeed, AlertRadius, FarmYield, FarmerHp, HealingRate, FoodEfficiency, FountainRadius). `UpgradeQueue` decouples the UI from stat re-resolution — `left_panel.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates food cost (`10 * 2^level`), increments level, deducts food, and re-resolves `CachedStats` for affected NPCs. `auto_upgrade_system` runs once per game hour before `process_upgrades_system`, queuing any auto-enabled upgrades the town can afford.
 
+**Upgrade percentages** (`UPGRADE_PCT` array in `systems/stats.rs`):
+
+| Index | Upgrade | % per level | Type |
+|-------|---------|-------------|------|
+| 0 | GuardHealth | +10% | Multiplicative |
+| 1 | GuardAttack | +10% | Multiplicative |
+| 2 | GuardRange | +5% | Multiplicative |
+| 3 | GuardSize | +5% | Multiplicative |
+| 4 | AttackSpeed | -8% cooldown | Reciprocal: `1/(1+level*0.08)` |
+| 5 | MoveSpeed | +5% | Multiplicative |
+| 6 | AlertRadius | +10% | Multiplicative |
+| 7 | FarmYield | +15% | Multiplicative |
+| 8 | FarmerHp | +20% | Multiplicative |
+| 9 | HealingRate | +20% | Multiplicative |
+| 10 | FoodEfficiency | +10% | Multiplicative |
+| 11 | FountainRadius | +24px flat | Flat: `base_radius + level * 24.0` |
+
+**Upgrade applicability by job** — not all upgrades flow through `resolve_combat_stats()`:
+
+| Upgrade | Applies to | Notes |
+|---------|-----------|-------|
+| GuardHealth, GuardAttack, GuardRange, GuardSize, AlertRadius | Guard only | Combat resolver |
+| AttackSpeed, MoveSpeed | All combatants (Guard, Raider, Fighter) | Combat resolver |
+| FarmerHp | Farmer only | Combat resolver |
+| FarmYield | `farm_growth_system` reads directly | Not combat resolver |
+| HealingRate, FountainRadius | `healing_system` reads directly | Not combat resolver |
+| FoodEfficiency | `decision_system` eat logic | Not combat resolver |
+
 ## Town Policies
 
 | Resource | Data | Writers | Readers |
@@ -206,11 +234,11 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=Hut, 1=Barracks, 2=Tent), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
-| UserSettings | world_size, towns, farmers, guards, raiders, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
+| UserSettings | world_size, towns, farmers, guards, raiders, ai_towns, raider_camps, ai_interval, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 
-`CombatLog` is a ring buffer of global events with 5 kinds: Kill, Spawn, Raid, Harvest, LevelUp. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity.
+`CombatLog` is a ring buffer of global events with 6 kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity. AI entries (purple in HUD) log build/unlock/upgrade actions.
 
 `PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicies` on game startup, saved when leaving the Policies tab in the left panel.
 
@@ -225,6 +253,17 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 `SquadId(i32)` component (0-9) added to guards when recruited into a squad. Removed on dismiss. Guards with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
 
 `placing_target`: when true, next left-click on the map sets the selected squad's target. Cancelled by ESC or right-click.
+
+## AI Players
+
+| Resource | Data | Writers | Readers |
+|----------|------|---------|---------|
+| AiPlayerConfig | `decision_interval: f32` (real seconds between AI ticks, default 5.0) | main_menu (from settings) | ai_decision_system |
+| AiPlayerState | `players: Vec<AiPlayer>` — one per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
+
+`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
+
+Builder AI priority: farm → house → barracks → guard post. Raider AI: tents only. Both unlock slots when full and buy upgrades with surplus food.
 
 ## Debug Resources
 

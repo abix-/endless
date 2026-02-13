@@ -2,6 +2,12 @@
 
 ## 2026-02-12
 
+- **ai players** — autonomous AI opponents that build, unlock slots, and buy upgrades; Builder AI (farms/houses/barracks/guard posts), Raider AI (tents); unique faction per settlement; `ai_decision_system` in Step::Behavior; configurable interval (1-30s); purple "AI" combat log entries with filter
+- **world gen refactor** — independent placement of player towns, AI towns, and raider camps (no longer paired 1:1); configurable counts (AI Towns 0-10, Raider Camps 0-10); unique faction per settlement; removed `find_camp_position()` helper
+- **main menu overhaul** — AI Towns / Raider Camps / AI Speed sliders; per-town sliders in collapsible section; Reset Defaults button; NPC count estimate; removed "Colony simulation" subtitle
+- **fix: turret friendly fire** — `guard_post_attack_system` looks up post's owning faction from town data instead of hardcoding faction 0; prevents turrets from shooting their own town's NPCs
+- **fix: spawner faction** — `spawner_respawn_system` + `game_startup_system` use `world_data.towns[idx].faction` instead of hardcoded 0; enemy town farmers/guards now spawn with correct faction
+- **delete combat_log.rs** — dead code removed (undeclared module, never registered, referenced nonexistent `UiState.combat_log_open`)
 - **fix: healing fountain drift deadlock** — NPCs in `HealingAtFountain` state could be pushed out of healing range by separation physics and get stuck forever (HP never recovers, decision system `continue`s); added drift check that re-targets fountain when NPC drifts >100px from town center; added early arrival so `GoingToHeal` NPCs transition to `HealingAtFountain` as soon as they enter healing range (100px) instead of walking to exact center
 - **fix: duplicate "Healing, Healing" state display** — NPC inspector was showing both `Activity::HealingAtFountain` name and `Healing` marker component; removed marker components (AtDestination, Starving, Healing) from state display — only shows Activity + CombatState enums
 - **target overlay visibility** — thicker line (1.5→2.5px), brighter alpha (140→200), larger diamond (5→7px) and NPC circle (8→10px radius)

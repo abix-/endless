@@ -6,6 +6,7 @@ use bevy_egui::{EguiContexts, egui};
 use crate::AppState;
 use crate::settings;
 use crate::world::WorldGenConfig;
+use crate::systems::AiPlayerConfig;
 
 /// Slider state persisted across frames via Local.
 #[derive(Default)]
@@ -16,6 +17,9 @@ pub struct MenuState {
     pub farmers: f32,
     pub guards: f32,
     pub raiders: f32,
+    pub ai_towns: f32,
+    pub raider_camps: f32,
+    pub ai_interval: f32,
     pub initialized: bool,
 }
 
@@ -37,6 +41,7 @@ pub fn main_menu_system(
     mut contexts: EguiContexts,
     mut next_state: ResMut<NextState<AppState>>,
     mut wg_config: ResMut<WorldGenConfig>,
+    mut ai_config: ResMut<AiPlayerConfig>,
     mut state: Local<MenuState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
@@ -50,6 +55,9 @@ pub fn main_menu_system(
         state.farmers = saved.farmers as f32;
         state.guards = saved.guards as f32;
         state.raiders = saved.raiders as f32;
+        state.ai_towns = saved.ai_towns as f32;
+        state.raider_camps = saved.raider_camps as f32;
+        state.ai_interval = saved.ai_interval;
         state.initialized = true;
     }
 
@@ -57,8 +65,6 @@ pub fn main_menu_system(
         ui.vertical_centered(|ui| {
             ui.add_space(40.0);
             ui.heading(egui::RichText::new("Endless").size(32.0));
-            ui.add_space(10.0);
-            ui.label("Colony simulation");
             ui.add_space(30.0);
         });
 
@@ -97,102 +103,166 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Farms per town
+            // AI Towns
             ui.horizontal(|ui| {
-                ui.label("Farms:");
-                ui.add(egui::Slider::new(&mut state.farms, 0.0..=50.0)
+                ui.label("AI Towns:");
+                ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=10.0)
                     .step_by(1.0)
                     .show_value(false));
-                let mut fm = state.farms as i32;
-                if ui.add(egui::DragValue::new(&mut fm).range(0..=50).suffix(" /town")).changed() {
-                    state.farms = fm as f32;
+                let mut at = state.ai_towns as i32;
+                if ui.add(egui::DragValue::new(&mut at).range(0..=10)).changed() {
+                    state.ai_towns = at as f32;
                 }
             });
 
             ui.add_space(4.0);
 
-            // Houses per town (each supports 1 farmer)
+            // Raider Camps
             ui.horizontal(|ui| {
-                ui.label("Houses:");
-                ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
+                ui.label("Raider Camps:");
+                ui.add(egui::Slider::new(&mut state.raider_camps, 0.0..=10.0)
                     .step_by(1.0)
                     .show_value(false));
-                let mut f = state.farmers as i32;
-                if ui.add(egui::DragValue::new(&mut f).range(0..=50).suffix(" /town")).changed() {
-                    state.farmers = f as f32;
+                let mut rc = state.raider_camps as i32;
+                if ui.add(egui::DragValue::new(&mut rc).range(0..=10)).changed() {
+                    state.raider_camps = rc as f32;
                 }
             });
 
             ui.add_space(4.0);
 
-            // Barracks per town (each supports 1 guard)
+            // AI Speed
             ui.horizontal(|ui| {
-                ui.label("Barracks:");
-                ui.add(egui::Slider::new(&mut state.guards, 0.0..=5000.0)
-                    .step_by(1.0)
-                    .show_value(false));
-                let mut g = state.guards as i32;
-                if ui.add(egui::DragValue::new(&mut g).range(0..=5000).suffix(" /town")).changed() {
-                    state.guards = g as f32;
-                }
+                ui.label("AI Speed:");
+                ui.add(egui::Slider::new(&mut state.ai_interval, 1.0..=30.0)
+                    .step_by(0.5)
+                    .suffix("s")
+                    .show_value(true));
             });
-
-            ui.add_space(4.0);
-
-            // Tents per camp (1 raider per tent)
-            ui.horizontal(|ui| {
-                ui.label("Tents:");
-                ui.add(egui::Slider::new(&mut state.raiders, 0.0..=5000.0)
-                    .step_by(1.0)
-                    .show_value(false));
-                let mut r = state.raiders as i32;
-                if ui.add(egui::DragValue::new(&mut r).range(0..=5000).suffix(" /camp")).changed() {
-                    state.raiders = r as f32;
-                }
-            });
-
-            ui.add_space(8.0);
-
-            // NPC total
-            let towns = state.towns as i32;
-            let villagers = towns * (state.farmers as i32 + state.guards as i32);
-            let raiders = towns * state.raiders as i32;
-            let total = villagers + raiders;
-            ui.label(format!("~{} NPCs total", total));
 
             ui.add_space(20.0);
 
-            // Buttons
-            ui.horizontal(|ui| {
-                if ui.button(egui::RichText::new("  Play  ").size(18.0)).clicked() {
-                    // Write config
-                    wg_config.world_width = state.world_size;
-                    wg_config.world_height = state.world_size;
-                    wg_config.num_towns = state.towns as usize;
-                    wg_config.farms_per_town = state.farms as usize;
-                    wg_config.farmers_per_town = state.farmers as usize;
-                    wg_config.guards_per_town = state.guards as usize;
-                    wg_config.raiders_per_camp = state.raiders as usize;
+            // Play button
+            if ui.button(egui::RichText::new("  Play  ").size(18.0)).clicked() {
+                wg_config.world_width = state.world_size;
+                wg_config.world_height = state.world_size;
+                wg_config.num_towns = state.towns as usize;
+                wg_config.farms_per_town = state.farms as usize;
+                wg_config.farmers_per_town = state.farmers as usize;
+                wg_config.guards_per_town = state.guards as usize;
+                wg_config.raiders_per_camp = state.raiders as usize;
+                wg_config.ai_towns = state.ai_towns as usize;
+                wg_config.raider_camps = state.raider_camps as usize;
+                ai_config.decision_interval = state.ai_interval;
 
-                    // Persist settings (merge into existing to preserve log filters)
-                    let mut saved = settings::load_settings();
-                    saved.world_size = state.world_size;
-                    saved.towns = state.towns as usize;
-                    saved.farms = state.farms as usize;
-                    saved.farmers = state.farmers as usize;
-                    saved.guards = state.guards as usize;
-                    saved.raiders = state.raiders as usize;
-                    settings::save_settings(&saved);
+                let mut saved = settings::load_settings();
+                saved.world_size = state.world_size;
+                saved.towns = state.towns as usize;
+                saved.farms = state.farms as usize;
+                saved.farmers = state.farmers as usize;
+                saved.guards = state.guards as usize;
+                saved.raiders = state.raiders as usize;
+                saved.ai_towns = state.ai_towns as usize;
+                saved.raider_camps = state.raider_camps as usize;
+                saved.ai_interval = state.ai_interval;
+                settings::save_settings(&saved);
 
-                    next_state.set(AppState::Playing);
-                }
+                next_state.set(AppState::Playing);
+            }
 
-                ui.add_space(20.0);
+            ui.add_space(20.0);
 
-                if ui.button(egui::RichText::new("Debug Tests").size(14.0)).clicked() {
-                    next_state.set(AppState::TestMenu);
-                }
-            });
+            // Debug options — collapsed by default
+            egui::CollapsingHeader::new("Debug Options")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.add_space(4.0);
+
+                    // Farms per town
+                    ui.horizontal(|ui| {
+                        ui.label("Farms:");
+                        ui.add(egui::Slider::new(&mut state.farms, 0.0..=50.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut fm = state.farms as i32;
+                        if ui.add(egui::DragValue::new(&mut fm).range(0..=50).suffix(" /town")).changed() {
+                            state.farms = fm as f32;
+                        }
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Houses per town (each supports 1 farmer)
+                    ui.horizontal(|ui| {
+                        ui.label("Houses:");
+                        ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut f = state.farmers as i32;
+                        if ui.add(egui::DragValue::new(&mut f).range(0..=50).suffix(" /town")).changed() {
+                            state.farmers = f as f32;
+                        }
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Barracks per town (each supports 1 guard)
+                    ui.horizontal(|ui| {
+                        ui.label("Barracks:");
+                        ui.add(egui::Slider::new(&mut state.guards, 0.0..=5000.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut g = state.guards as i32;
+                        if ui.add(egui::DragValue::new(&mut g).range(0..=5000).suffix(" /town")).changed() {
+                            state.guards = g as f32;
+                        }
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Tents per camp (1 raider per tent)
+                    ui.horizontal(|ui| {
+                        ui.label("Tents:");
+                        ui.add(egui::Slider::new(&mut state.raiders, 0.0..=5000.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut r = state.raiders as i32;
+                        if ui.add(egui::DragValue::new(&mut r).range(0..=5000).suffix(" /camp")).changed() {
+                            state.raiders = r as f32;
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    // NPC total
+                    let towns = state.towns as i32;
+                    let villagers = towns * (state.farmers as i32 + state.guards as i32);
+                    let raiders = towns * state.raiders as i32;
+                    let total = villagers + raiders;
+                    ui.label(format!("~{} NPCs total", total));
+
+                    ui.add_space(12.0);
+
+                    ui.horizontal(|ui| {
+                        if ui.button(egui::RichText::new("Debug Tests").size(14.0)).clicked() {
+                            next_state.set(AppState::TestMenu);
+                        }
+
+                        if ui.button(egui::RichText::new("Reset Defaults").size(14.0)).clicked() {
+                            let defaults = settings::UserSettings::default();
+                            state.world_size = defaults.world_size;
+                            state.towns = defaults.towns as f32;
+                            state.farms = defaults.farms as f32;
+                            state.farmers = defaults.farmers as f32;
+                            state.guards = defaults.guards as f32;
+                            state.raiders = defaults.raiders as f32;
+                            state.ai_towns = defaults.ai_towns as f32;
+                            state.raider_camps = defaults.raider_camps as f32;
+                            state.ai_interval = defaults.ai_interval;
+                            settings::save_settings(&defaults);
+                        }
+                    });
+                });
         });
     });
 

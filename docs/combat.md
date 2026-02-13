@@ -62,7 +62,7 @@ attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or ap
 | Health | `f32` | Current HP (default 100.0) |
 | Dead | marker | Inserted when health <= 0 |
 | LastHitBy | `i32` | NPC slot index of last attacker (-1 = no attacker). Inserted by damage_system, read by xp_grant_system. |
-| Faction | `struct(i32)` | Faction ID (0=Villager, 1+=Raider camps). NPCs attack different factions. |
+| Faction | `struct(i32)` | Faction ID (0=Player, 1+=AI settlements). NPCs attack different factions. |
 | BaseAttackType | enum | `Melee` or `Ranged` — keys into `CombatConfig.attacks` HashMap |
 | CachedStats | struct | `damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed` — resolved from `CombatConfig` via `resolve_combat_stats()` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
@@ -125,8 +125,8 @@ Execution order is **chained** — each system completes before the next starts.
 ### 7. guard_post_attack_system (combat.rs)
 - Iterates `WorldData.guard_posts` with `GuardPostState` per-post timers and enabled flags
 - State length auto-syncs with guard post count (handles runtime building)
-- For each enabled post with cooldown ready: scans `GpuReadState.positions`+`factions` for nearest enemy (faction != 0) within `GUARD_POST_RANGE` (250px)
-- Fires projectile via `PROJ_GPU_UPDATE_QUEUE` with `shooter: -1` (building, not NPC) and `faction: 0`
+- For each enabled post with cooldown ready: looks up owning faction from `world_data.towns[post.town_idx]`, scans `GpuReadState.positions`+`factions` for nearest enemy (different faction) within `GUARD_POST_RANGE` (250px)
+- Fires projectile via `PROJ_GPU_UPDATE_QUEUE` with `shooter: -1` (building, not NPC) and post's owning faction
 - Constants: range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s
 - Turret toggle: `GuardPostState.attack_enabled[i]` toggled via build menu UI
 

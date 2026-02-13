@@ -649,6 +649,7 @@ pub enum CombatEventKind {
     Raid,
     Harvest,
     LevelUp,
+    Ai,
 }
 
 /// A single combat log entry.

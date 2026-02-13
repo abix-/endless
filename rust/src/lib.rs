@@ -35,6 +35,7 @@ use resources::{
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState,
 };
+use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
 use components::*;
 
@@ -240,6 +241,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GuardPostState>()
        .init_resource::<SpawnerState>()
        .init_resource::<SquadState>()
+       .init_resource::<AiPlayerState>()
+       .init_resource::<AiPlayerConfig>()
        .init_resource::<systems::stats::CombatConfig>()
        .init_resource::<systems::stats::TownUpgrades>()
        .init_resource::<systems::stats::UpgradeQueue>()
@@ -294,6 +297,7 @@ pub fn build_app(app: &mut App) {
            farm_visual_system,
            auto_upgrade_system,
            process_upgrades_system.after(auto_upgrade_system),
+           ai_decision_system,
            (rebuild_patrol_routes_system, squad_cleanup_system),
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))

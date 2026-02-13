@@ -283,12 +283,14 @@ pub fn guard_post_attack_system(
         // Find nearest enemy within range
         let px = post.position.x;
         let py = post.position.y;
+        let post_faction = world_data.towns.get(post.town_idx as usize)
+            .map(|t| t.faction).unwrap_or(0);
         let mut best_dist_sq = range_sq;
         let mut best_idx: Option<usize> = None;
 
         for n in 0..npc_count {
             if n >= factions.len() { continue; }
-            if factions[n] == 0 { continue; } // Don't shoot friendlies
+            if factions[n] == post_faction { continue; } // Don't shoot own faction
             let nx = positions[n * 2];
             let ny = positions[n * 2 + 1];
             if nx < -9000.0 { continue; } // Hidden/dead
@@ -321,7 +323,7 @@ pub fn guard_post_attack_system(
                             vx: dir_x * GUARD_POST_PROJ_SPEED,
                             vy: dir_y * GUARD_POST_PROJ_SPEED,
                             damage: GUARD_POST_DAMAGE,
-                            faction: 0,
+                            faction: post_faction,
                             shooter: -1, // Building, not NPC
                             lifetime: GUARD_POST_PROJ_LIFETIME,
                         });

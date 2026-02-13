@@ -48,7 +48,7 @@ GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next
 | slot_idx | usize | Pre-allocated via SlotAllocator |
 | x, y | f32 | Spawn position |
 | job | i32 | 0=Farmer, 1=Guard, 2=Raider, 3=Fighter |
-| faction | i32 | 0=Villager, 1+=Raider camps |
+| faction | i32 | 0=Player, 1+=AI settlements |
 | town_idx | i32 | Town association (-1 = none) |
 | home_x, home_y | f32 | Home/camp position |
 | work_x, work_y | f32 | Farm position (-1 = none, farmers only) |
@@ -96,7 +96,7 @@ When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the 
 
 Destroying a spawner building tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
 
-All spawners set home to building position (house/barracks/tent). Tent spawners set faction from the camp's town data.
+All spawners set home to building position (house/barracks/tent). All spawner types set faction from `world_data.towns[town_idx].faction` (player towns = 0, AI settlements = unique 1+).
 
 ## Known Issues
 

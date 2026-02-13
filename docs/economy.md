@@ -2,7 +2,7 @@
 
 ## Overview
 
-Economy systems handle time progression, food production, starvation, and camp foraging. All run in `Step::Behavior` and use `GameTime.hour_ticked` for hourly event gating. Defined in `rust/src/systems/economy.rs`.
+Economy systems handle time progression, food production, starvation, camp foraging, and AI decisions. All run in `Step::Behavior` and use `GameTime.hour_ticked` for hourly event gating. Defined in `rust/src/systems/economy.rs` and `rust/src/systems/ai_player.rs`.
 
 ## Data Flow
 
@@ -25,6 +25,9 @@ game_time_system (every frame)
     │
     ├─ farm_visual_system (every frame)
     │   └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
+    │
+    ├─ ai_decision_system (real-time interval, default 5s)
+    │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated)
     │
     └─ squad_cleanup_system (every frame)
         └─ Removes dead NPC slots from Squad.members via NpcEntityMap check
@@ -60,7 +63,7 @@ game_time_system (every frame)
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- House → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position), Tent → Raider (faction from town data, home = tent position)
+- House → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position), Tent → Raider (home = tent position). All spawner types look up faction from `world_data.towns[town_idx].faction`.
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true

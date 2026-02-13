@@ -32,6 +32,8 @@ pub struct UserSettings {
     pub log_levelups: bool,
     #[serde(default = "default_true")]
     pub log_npc_activity: bool,
+    #[serde(default = "default_true")]
+    pub log_ai: bool,
     // Debug visibility (pause menu settings)
     #[serde(default)]
     pub debug_enemy_info: bool,
@@ -42,10 +44,19 @@ pub struct UserSettings {
     // Town policies
     #[serde(default)]
     pub policy: PolicySet,
+    // AI players
+    #[serde(default = "default_one")]
+    pub ai_towns: usize,
+    #[serde(default = "default_one")]
+    pub raider_camps: usize,
+    #[serde(default = "default_ai_interval")]
+    pub ai_interval: f32,
 }
 
 fn default_true() -> bool { true }
 fn default_farms() -> usize { 2 }
+fn default_one() -> usize { 1 }
+fn default_ai_interval() -> f32 { 5.0 }
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -55,7 +66,7 @@ impl Default for UserSettings {
             farms: 2,
             farmers: 2,
             guards: 2,
-            raiders: 0,
+            raiders: 1,
             scroll_speed: 400.0,
             log_kills: true,
             log_spawns: true,
@@ -63,10 +74,14 @@ impl Default for UserSettings {
             log_harvests: true,
             log_levelups: true,
             log_npc_activity: true,
+            log_ai: true,
             debug_enemy_info: false,
             debug_coordinates: false,
             debug_all_npcs: false,
             policy: PolicySet::default(),
+            ai_towns: 1,
+            raider_camps: 1,
+            ai_interval: 5.0,
         }
     }
 }

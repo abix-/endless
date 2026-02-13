@@ -165,6 +165,7 @@ pub struct LogFilterState {
     pub show_harvests: bool,
     pub show_levelups: bool,
     pub show_npc_activity: bool,
+    pub show_ai: bool,
     pub initialized: bool,
 }
 
@@ -192,12 +193,14 @@ pub fn bottom_panel_system(
         filter_state.show_harvests = settings.log_harvests;
         filter_state.show_levelups = settings.log_levelups;
         filter_state.show_npc_activity = settings.log_npc_activity;
+        filter_state.show_ai = settings.log_ai;
         filter_state.initialized = true;
     }
 
     let prev_filters = (
         filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
         filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
+        filter_state.show_ai,
     );
 
     let mut copy_text: Option<String> = None;
@@ -227,6 +230,7 @@ pub fn bottom_panel_system(
                         ui.checkbox(&mut filter_state.show_harvests, "Harvests");
                         ui.checkbox(&mut filter_state.show_levelups, "Levels");
                         ui.checkbox(&mut filter_state.show_npc_activity, "NPC");
+                        ui.checkbox(&mut filter_state.show_ai, "AI");
                     });
 
                     ui.separator();
@@ -246,6 +250,7 @@ pub fn bottom_panel_system(
                                     CombatEventKind::Raid => filter_state.show_raids,
                                     CombatEventKind::Harvest => filter_state.show_harvests,
                                     CombatEventKind::LevelUp => filter_state.show_levelups,
+                                    CombatEventKind::Ai => filter_state.show_ai,
                                 };
                                 if !show { continue; }
 
@@ -255,6 +260,7 @@ pub fn bottom_panel_system(
                                     CombatEventKind::Raid => egui::Color32::from_rgb(220, 160, 40),
                                     CombatEventKind::Harvest => egui::Color32::from_rgb(200, 200, 60),
                                     CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
+                                    CombatEventKind::Ai => egui::Color32::from_rgb(180, 120, 220),
                                 };
 
                                 let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
@@ -292,6 +298,7 @@ pub fn bottom_panel_system(
     let curr_filters = (
         filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
         filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
+        filter_state.show_ai,
     );
     if curr_filters != prev_filters {
         settings.log_kills = filter_state.show_kills;
@@ -300,6 +307,7 @@ pub fn bottom_panel_system(
         settings.log_harvests = filter_state.show_harvests;
         settings.log_levelups = filter_state.show_levelups;
         settings.log_npc_activity = filter_state.show_npc_activity;
+        settings.log_ai = filter_state.show_ai;
         settings::save_settings(&settings);
     }
 

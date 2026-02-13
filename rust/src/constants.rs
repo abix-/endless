@@ -227,3 +227,6 @@ pub const GUARD_POST_PROJ_LIFETIME: f32 = 1.5;
 
 /// Maximum number of player-controlled squads.
 pub const MAX_SQUADS: usize = 10;
+
+/// Default real-time seconds between AI decisions.
+pub const DEFAULT_AI_INTERVAL: f32 = 5.0;

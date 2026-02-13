@@ -13,6 +13,7 @@ use crate::AppState;
 use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
+use crate::systems::{AiPlayerState, AiKind, AiPlayer};
 use crate::world::{self, WorldGenConfig};
 
 /// Register all UI systems.
@@ -92,6 +93,15 @@ fn ui_toggle_system(
 // GAME STARTUP
 // ============================================================================
 
+// SystemParam bundle for startup to stay under 16-param limit
+#[derive(SystemParam)]
+struct StartupExtra<'w> {
+    policies: ResMut<'w, TownPolicies>,
+    farm_occupancy: ResMut<'w, world::BuildingOccupancy>,
+    npcs_by_town: ResMut<'w, NpcsByTownCache>,
+    ai_state: ResMut<'w, AiPlayerState>,
+}
+
 /// Initialize the world and spawn NPCs when entering Playing state.
 fn game_startup_system(
     config: Res<WorldGenConfig>,
@@ -107,9 +117,8 @@ fn game_startup_system(
     mut game_time: ResMut<GameTime>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
     mut town_grids: ResMut<world::TownGrids>,
-    mut policies: ResMut<TownPolicies>,
     mut spawner_state: ResMut<SpawnerState>,
-    mut farm_occupancy: ResMut<world::BuildingOccupancy>,
+    mut extra: StartupExtra,
 ) {
     info!("Game startup: generating world...");
 
@@ -120,15 +129,16 @@ fn game_startup_system(
     // Load saved policies for player's town
     let saved = crate::settings::load_settings();
     let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
-    if town_idx < policies.policies.len() {
-        policies.policies[town_idx] = saved.policy;
+    if town_idx < extra.policies.policies.len() {
+        extra.policies.policies[town_idx] = saved.policy;
     }
 
-    // Init economy resources
+    // Init NPC tracking per town
     let num_towns = world_data.towns.len();
+    extra.npcs_by_town.0.resize(num_towns, Vec::new());
     food_storage.init(num_towns);
-    faction_stats.init(1 + config.num_towns); // faction 0 = villagers, 1+ = raider camps
-    camp_state.init(config.num_towns, 10);
+    faction_stats.init(num_towns); // one per settlement (player + AI + camps)
+    camp_state.init(num_towns, 10);
 
     // Sync GameConfig from WorldGenConfig
     game_config.farmers_per_town = config.farmers_per_town as i32;
@@ -169,7 +179,7 @@ fn game_startup_system(
     }
 
     // Reset farm occupancy for fresh game
-    farm_occupancy.clear();
+    extra.farm_occupancy.clear();
 
     // Local tracker to prevent two farmers picking the same farm at startup.
     // NOT written to BuildingOccupancy — the arrival handler will populate that when farmers arrive.
@@ -181,6 +191,9 @@ fn game_startup_system(
         let Some(slot) = slots.alloc() else { break };
         let town_data_idx = entry.town_idx as usize;
 
+        let town_faction = world_data.towns.get(entry.town_idx as usize)
+            .map(|t| t.faction).unwrap_or(0);
+
         let (job, faction, work_x, work_y, starting_post, attack_type) = match entry.building_kind {
             0 => {
                 // House -> Farmer: find nearest FREE farm in own town
@@ -189,14 +202,14 @@ fn game_startup_system(
                 ).unwrap_or(entry.position);
                 // Mark in local tracker so next farmer picks a different farm
                 startup_claimed.claim(farm);
-                (0, 0, farm.x, farm.y, -1, 0)
+                (0, town_faction, farm.x, farm.y, -1, 0)
             }
             1 => {
                 // Barracks -> Guard: find nearest guard post
                 let post_idx = world::find_location_within_radius(
                     entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
                 ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-                (1, 0, -1.0, -1.0, post_idx, 1)
+                (1, town_faction, -1.0, -1.0, post_idx, 1)
             }
             _ => {
                 // Tent -> Raider: home = camp center
@@ -225,6 +238,18 @@ fn game_startup_system(
         });
         entry.npc_slot = slot as i32;
         total += 1;
+    }
+
+    // Populate AI players (non-player factions)
+    extra.ai_state.players.clear();
+    for (grid_idx, town_grid) in town_grids.grids.iter().enumerate() {
+        let tdi = town_grid.town_data_idx;
+        if let Some(town) = world_data.towns.get(tdi) {
+            if town.faction > 0 {
+                let kind = if town.sprite_type == 1 { AiKind::Raider } else { AiKind::Builder };
+                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind });
+            }
+        }
     }
 
     // Center camera on first town
@@ -333,6 +358,7 @@ fn pause_menu_system(
                     ui.checkbox(&mut settings.log_harvests, "Harvests");
                     ui.checkbox(&mut settings.log_levelups, "Level Ups");
                     ui.checkbox(&mut settings.log_npc_activity, "NPC Activity");
+                    ui.checkbox(&mut settings.log_ai, "AI Actions");
 
                     ui.add_space(4.0);
                     ui.label("Debug:");
@@ -561,6 +587,7 @@ struct CleanupWorld<'w> {
     town_grids: ResMut<'w, world::TownGrids>,
     build_menu_ctx: ResMut<'w, BuildMenuContext>,
     spawner_state: ResMut<'w, SpawnerState>,
+    ai_state: ResMut<'w, AiPlayerState>,
 }
 
 #[derive(SystemParam)]
@@ -615,6 +642,7 @@ fn game_cleanup_system(
     *world.town_grids = Default::default();
     *world.build_menu_ctx = Default::default();
     *world.spawner_state = Default::default();
+    *world.ai_state = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();
