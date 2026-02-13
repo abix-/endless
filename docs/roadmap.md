@@ -257,6 +257,11 @@ Rules:
 - [x] `.init_resource::<SpawnerState>()`, add `spawner_respawn_system` to Step::Behavior
 - [x] Remove beds — NPCs rest at their spawner building (House/Barracks) instead of separate beds. Home = spawner position.
 
+### GPU Performance
+- [x] Replace hand-rolled readback with Bevy's `Readback` + `ReadbackComplete` (eliminates 9ms blocking `device.poll`)
+- [x] Eliminate `GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE` static Mutexes (replaced by `ReadbackComplete` events → Bevy Resources)
+- [x] Convert 4 readback compute buffers to `ShaderStorageBuffer` assets with `COPY_SRC`
+
 ### Architecture
 - [x] Bevy Messages (MessageWriter/MessageReader) for all inter-system communication
 - [x] All state as Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
@@ -308,49 +313,100 @@ Rules:
 
 *Done when: each House supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Houses/Barracks to grow population. Menu sliders for farmers/guards removed.*
 
-**Stage 12: Combat & Economy Depth**
+**Stage 12: Performance**
 
-*Done when: emergent gameplay happens — raids succeed or fail based on guard upgrades, economy collapses if farms aren't defended, raiders starve if they can't steal.*
+*Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250×250 world.*
 
-World generation (see [spec](#continent-world-generation)):
-- [ ] `WorldGenStyle` enum: Classic (current) / Continents (multi-layer noise with land/ocean)
-- [ ] Continents mode: continental shelf noise + edge falloff + biome noise on land only
-- [ ] Town placement constrained to land cells in Continents mode
-- [ ] Main menu combo box to select generation style, persisted in UserSettings
+GPU extract optimization (see [spec](#gpu-readback--extract-optimization)):
+- [ ] Split `NpcBufferWrites` (1.9MB) into `NpcComputeWrites` (~460KB) + `NpcVisualData` (~1.4MB static)
+- [ ] `NpcVisualData` bypasses ExtractResource via static Mutex (render world reads directly)
 
-Combat depth:
-- [ ] Differentiate job base stats (e.g., raider damage != guard damage)
-- [ ] Target switching (prefer non-fleeing enemies over fleeing)
-- [ ] Trait combat modifiers (Strong +25%, Berserker +50% at low HP, Efficient -25% cooldown, Lazy +20% cooldown)
+Chunked tilemap (see [spec](#chunked-tilemap)):
+- [ ] Split single 250×250 TilemapChunk per layer into 32×32 tile chunks
+- [ ] Bevy frustum-culls off-screen chunk entities — only visible chunks generate draw commands
+- [ ] `sync_building_tilemap` updates only chunks whose grid region changed, not all 62K+ tiles
+
+**Stage 13: Tension**
+
+*Done when: a player who doesn't build or upgrade loses within 30 minutes — raids escalate, food runs out, town falls.*
+
+- [ ] Raid escalation: wave size and stats increase every N game-hours
+- [ ] Differentiate job base stats (raiders hit harder, guards are tankier, farmers are fragile)
+- [ ] Food consumption: NPCs eat hourly, eating restores HP/energy
+- [ ] Starvation effects: no food → HP drain, speed penalty, desertion
+- [ ] Loss condition: all town NPCs dead + no spawners → game over screen
+- [ ] Difficulty curve config: starting grace period, escalation rate
+
+**Stage 14: Combat Depth**
+
+*Done when: two guards with different traits fight the same raider noticeably differently — one flees early, the other berserks at low HP.*
+
+- [ ] Trait combat modifiers wired into `resolve_combat_stats()` (Strong +25%, Berserker +50% at low HP, Efficient -25% cooldown, Lazy +20% cooldown, Sharpshot +25% range)
 - [ ] Trait flee modifiers (Brave never flees, Coward +20% threshold)
 - [ ] Trait combinations (multiple traits per NPC)
-- [ ] Player combat abilities
+- [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
 
-Loot system:
-- [ ] `LootRarity` enum: Common (60%), Uncommon (25%), Rare (10%), Epic (4%), Legendary (1%)
-- [ ] `LootItem` struct: slot (Weapon/Armor), rarity, stat bonus (damage% or armor%)
-- [ ] Raider death → chance to drop `LootBag` entity at death position (30% base drop rate)
-- [ ] `LootBag` world sprite (gold sack icon on ground, despawn after 5 game-hours if uncollected)
-- [ ] Guards detect nearby loot bags in `decision_system` (priority above patrol, below combat)
-- [ ] Guard walks to loot bag → picks up → item added to `TownInventory`
-- [ ] `TownInventory` resource: per-town `Vec<LootItem>`, capacity scales with town upgrades
-- [ ] Inventory panel UI (new tab): view collected loot sorted by rarity, click to equip on selected NPC
-- [ ] `Equipment` component on NPCs: weapon slot + armor slot, each holds `Option<LootItem>`
-- [ ] Equipped loot feeds into `resolve_combat_stats()` — weapon adds damage%, armor adds max_health%
-- [ ] Equipped weapon/armor reflected in NPC equipment sprite layers
+**Stage 15: Save/Load**
 
-Economy depth:
-- [ ] Multi-camp food delivery (currently hardcoded to camp_food[0])
-- [ ] HP regen system (3x sleeping, 10x fountain/camp with upgrade)
-- [ ] Food consumption (eating restores HP/energy, npc_ate_food event)
-- [ ] FoodEfficiency upgrade wired into `decision_system` eat logic (chance of free meal)
-- [ ] Starvation effects (HP drain, desertion)
+*Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off — NPCs in the same positions, same HP, same upgrades, same food.*
+
+- [ ] Serialize full game state (WorldData, SpawnerState, TownUpgrades, TownPolicies, FoodStorage, GameTime, NPC positions/states/stats)
+- [ ] Save to JSON file, load from main menu
+- [ ] Autosave every N game-hours
+- [ ] Save slot selection (3 slots)
+
+**Stage 16: Loot & Equipment**
+
+*Done when: raider dies → drops loot bag → guard picks it up → item appears in town inventory → player equips it on a guard → guard's stats increase and sprite changes.*
+
+- [ ] `LootItem` struct: slot (Weapon/Armor), stat bonus (damage% or armor%)
+- [ ] Raider death → chance to drop `LootBag` entity at death position (30% base rate)
+- [ ] Guards detect and collect nearby loot bags (priority above patrol, below combat)
+- [ ] `TownInventory` resource, inventory UI tab
+- [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
+- [ ] Equipped items reflected in NPC equipment sprite layers
+
+**Stage 17: Economy Depth**
+
+*Done when: player must choose between feeding NPCs and buying upgrades — food is a constraint, not a score.*
+
+- [ ] Multi-camp food delivery (fix hardcoded camp_food[0])
+- [ ] HP regen tiers (1x idle, 3x sleeping, 10x fountain)
+- [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
+- [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
+
+**Stage 18: World Generation** (see [spec](#continent-world-generation))
+
+*Done when: player selects "Continents" from main menu, sees landmasses with ocean, towns only on land, biome variety across continents.*
+
+- [ ] `WorldGenStyle` enum: Classic (current) / Continents (multi-layer noise with land/ocean)
+- [ ] Continental shelf noise + edge falloff + biome noise on land only
+- [ ] Town/camp placement constrained to land cells in Continents mode
+- [ ] Main menu combo box to select generation style, persisted in UserSettings
+
+Sound (bevy_audio) should be woven into stages as they're built — not deferred to a dedicated stage.
+
+**Stage 19: Expansion**
+
+*Done when: the colony sim has multiple resource types, production chains, and AI factions competing for territory.*
+
+Resources & production:
 - [ ] Multiple resources (wood, iron, gold)
 - [ ] Production buildings (lumber mill, mine, blacksmith)
+- [ ] Equipment crafting (weapons, armor from resources)
 
-**Stage 14: Tower Defense (Wintermaul Wars-inspired)**
+AI & conquest:
+- [ ] AI lords that expand and compete
+- [ ] Army units (peasant levy, archers, knights), recruitment, movement
+- [ ] Attack and capture enemy towns
+- [ ] Player combat abilities
 
-*Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, player can send creeps (guards) at enemy lanes, and towers upgrade/evolve into advanced forms.*
+Performance:
+- [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
+
+**Stage 20: Tower Defense (Wintermaul Wars-inspired)**
+
+*Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
 
 Maze building:
 - [ ] Open-field tower placement on a grid (towers block pathing, enemies path around them)
@@ -363,70 +419,21 @@ Elemental rock-paper-scissors:
 - [ ] Element weakness matrix (Fire→Nature→Lightning→Ice→Fire, Arcane↔Dark)
 - [ ] Creep waves carry an element — weak-element towers deal 2x, strong-element towers deal 0.5x
 - [ ] Tower/creep element shown via tint or icon overlay
-- [ ] Forces diverse tower builds — can't spam one type
 
-Income & interest system:
+Income & interest:
 - [ ] Per-wave gold income (base + bonus for no leaks)
-- [ ] Interest on banked gold each wave (e.g. 5% per round, capped)
-- [ ] Risk/reward tension: spend now for defense vs. bank for compound interest
+- [ ] Interest on banked gold each wave (5% per round, capped)
 - [ ] Leak penalty — lives lost per creep that reaches the goal
-- [ ] HUD: gold, income, interest rate, lives
 
-Sending creeps (guards):
-- [ ] Competitive mode: spend gold to send extra creeps into opponent's lane
+Sending creeps:
+- [ ] Spend gold to send extra creeps into opponent's lane
 - [ ] Send menu with creep tiers (cheap/fast, tanky, elemental, boss)
-- [ ] Sent creeps appear as your guards marching through enemy maze
 - [ ] Income bonus from sending (reward aggressive play)
-- [ ] Balance: sending weakens your economy but pressures opponents
 
-Tower upgrades:
-- [ ] Multi-tier upgrade path per tower (Lv1 → Lv2 → Lv3, increasing stats + visual change)
-- [ ] Upgrade cost scales with tier
-- [ ] Upgraded towers: more damage, range, attack speed, or splash
-- [ ] Visual progression (sprite change or size increase per tier)
-
-Tower evolution:
-- [ ] At max upgrade tier, towers can evolve into specialized variants
-- [ ] Evolution branches (e.g. Fire Lv3 → Inferno (AoE) or Sniper Flame (single-target, long range))
-- [ ] Evolution requires adjacent tower synergy or resource cost
+Tower upgrades & evolution:
+- [ ] Multi-tier upgrade path (Lv1 → Lv2 → Lv3, increasing stats + visual change)
+- [ ] At max tier, evolve into specialized variants (e.g. Fire Lv3 → Inferno AoE or Sniper Flame)
 - [ ] Evolved towers get unique abilities (slow, DoT, chain lightning, lifesteal)
-- [ ] Evolution tree visible in tower info panel
-
-**Stage 13: Endgame**
-
-*Done when: AI factions compete autonomously, armies clash over territory, and the simulation runs efficiently at scale.*
-
-Armies & conquest:
-- [ ] Army units (peasant levy, archers, knights)
-- [ ] Equipment crafting (weapons, armor)
-- [ ] Army recruitment and movement
-- [ ] Attack and capture enemy towns
-
-AI & coordination:
-- [ ] AI lords that expand and compete
-- [ ] count_nearby_raiders() for group behavior
-- [ ] get_raider_group_center() for coordinated movement
-- [ ] find_nearest_raider() for regrouping
-
-Performance — GPU readback + extract optimization (see [spec](#gpu-readback--extract-optimization)):
-- [x] Replace hand-rolled readback with Bevy's `Readback` + `ReadbackComplete` (eliminates 9ms blocking `device.poll`)
-- [x] Eliminate `GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE` static Mutexes (replaced by `ReadbackComplete` events → Bevy Resources)
-- [ ] Split `NpcBufferWrites` (1.9MB) to reduce ExtractResource clone cost (18ms → <5ms)
-- [x] Convert 4 readback compute buffers to `ShaderStorageBuffer` assets with `COPY_SRC`
-
-Performance — chunked tilemap (see [spec](#chunked-tilemap)):
-- [ ] Split single 250×250 (or up to 1000×1000) TilemapChunk per layer into 32×32 tile chunks
-- [ ] Bevy frustum-culls off-screen chunk entities automatically — only visible chunks generate draw commands
-- [ ] `sync_building_tilemap` updates only chunks whose grid region changed, not all 62K+ tiles
-- [ ] Expected: `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom
-
-Performance — entity sleeping:
-- [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
-- [ ] awake/sleep_timers per NPC, ACTIVE_RADIUS check
-- [ ] Combat/raiding states force awake
-
-Audio:
-- [ ] bevy_audio integration
 
 ## Specs
 
