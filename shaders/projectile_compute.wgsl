@@ -15,6 +15,7 @@ struct ProjParams {
     grid_height: u32,
     cell_size: f32,
     max_per_cell: u32,
+    mode: u32,
 }
 
 // Projectile buffers (read_write)
@@ -39,9 +40,45 @@ struct ProjParams {
 // Uniform params
 @group(0) @binding(13) var<uniform> params: ProjParams;
 
+// Projectile spatial grid (read_write — built by modes 0+1, read by NPC compute)
+@group(0) @binding(14) var<storage, read_write> proj_grid_counts: array<atomic<i32>>;
+@group(0) @binding(15) var<storage, read_write> proj_grid_data: array<i32>;
+
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x;
+
+    // =========================================================================
+    // MODE 0: Clear projectile spatial grid
+    // =========================================================================
+    if (params.mode == 0u) {
+        let grid_cells = params.grid_width * params.grid_height;
+        if (i >= grid_cells) { return; }
+        atomicStore(&proj_grid_counts[i], 0);
+        return;
+    }
+
+    // =========================================================================
+    // MODE 1: Build projectile spatial grid (insert active projectiles)
+    // =========================================================================
+    if (params.mode == 1u) {
+        if (i >= params.proj_count) { return; }
+        if (proj_active[i] == 0) { return; }
+        let p = proj_positions[i];
+        if (p.x < -9000.0) { return; }
+        let pcx = clamp(i32(p.x / params.cell_size), 0, i32(params.grid_width) - 1);
+        let pcy = clamp(i32(p.y / params.cell_size), 0, i32(params.grid_height) - 1);
+        let cell_idx = pcy * i32(params.grid_width) + pcx;
+        let slot = atomicAdd(&proj_grid_counts[cell_idx], 1);
+        if (slot < i32(params.max_per_cell)) {
+            proj_grid_data[cell_idx * i32(params.max_per_cell) + slot] = i32(i);
+        }
+        return;
+    }
+
+    // =========================================================================
+    // MODE 2: Movement + Collision Detection
+    // =========================================================================
     if (i >= params.proj_count) { return; }
     if (proj_active[i] == 0) { return; }
 

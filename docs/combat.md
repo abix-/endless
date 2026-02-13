@@ -81,6 +81,7 @@ Execution order is **chained** — each system completes before the next starts.
 - Reads `GpuReadState.combat_targets` for each NPC with CachedStats + BaseAttackType
 - If target is valid (not -1) and in bounds:
   - Sets `CombatState::Fighting { origin }` (stores current position)
+  - **In range**: sets `SetTarget` to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
   - **Out of range**: pushes `GpuUpdate::SetTarget` to chase
 - If no target: sets `CombatState::None` (Activity is preserved — e.g. Raiding NPC stays Raiding so decision_system can re-target farm)
@@ -153,6 +154,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | GPU → CPU | Projectile hits | `ProjHitState` — populated via Bevy `ReadbackComplete` observer, includes expired sentinel (-2) |
 | CPU → GPU | Health sync | `GpuUpdate::SetHealth` after damage |
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
+| CPU → GPU | Stand ground | `GpuUpdate::SetTarget` to own position when in attack range (stops movement, allows proj dodge) |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
 | CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + guard_post_attack_system) |
 

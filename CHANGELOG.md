@@ -2,6 +2,7 @@
 
 ## 2026-02-13
 
+- **projectile dodge** — NPCs in combat stand their ground and shoot, but actively dodge incoming enemy projectiles; GPU spatial grid for projectiles (3-mode dispatch: clear, build, query) mirrors NPC grid pattern; NPC compute scans 3×3 neighborhood for approaching arrows within 60px, strafes perpendicular to projectile velocity with urgency scaling; 1-frame latency (proj grid built by projectile compute, read by NPC compute next frame); fixes combat circling bug where `SetTarget` to enemy position every frame reset arrival flag, causing separation/dodge physics to orbit NPCs counter-clockwise
 - **ai weighted random decisions** — AI building/upgrade decisions now use scored weighted random selection (same pattern as NPC behavior system) instead of strict priority ordering; personality weights bias probabilities (Aggressive favors barracks, Economic favors farms) but don't hard-lock; need factors scale scores based on building ratio deficits; fixes bug where Balanced/Economic AI never built barracks (farm+house conditions were mutually exhaustive)
 - **external building sprites** — House, Barracks, and GuardPost buildings use dedicated 32x32 PNGs (`house.png`, `barracks.png`, `guard_post.png`) instead of world atlas tiles; new `TileSpec::External(usize)` variant; `build_tileset` accepts extra images slice for non-atlas tiles
 - **faction-based NPC coloring** — player faction (0) uses job colors (green/blue/red/yellow), all other factions use faction palette; previously color was job-based (only raiders got faction colors)

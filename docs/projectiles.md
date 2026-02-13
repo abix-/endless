@@ -12,10 +12,10 @@ attack_system fires projectile
     → populate_proj_buffer_writes drains to ProjBufferWrites
     → ExtractResource clones to render world
     → write_proj_buffers uploads to GPU
-    → ProjectileComputeNode dispatches projectile_compute.wgsl
-        ├─ Decrement lifetime → deactivate expired
-        ├─ Move by velocity × delta
-        └─ Collision via NPC spatial grid → write hit buffer
+    → ProjectileComputeNode dispatches projectile_compute.wgsl (3 modes)
+        ├─ Mode 0: Clear projectile spatial grid
+        ├─ Mode 1: Build projectile spatial grid (for NPC dodge next frame)
+        └─ Mode 2: Decrement lifetime → move → collision via NPC spatial grid → write hit buffer
 ```
 
 ## Render Graph Order
@@ -24,7 +24,7 @@ attack_system fires projectile
 NpcComputeNode → ProjectileComputeNode → CameraDriverLabel → Transparent2d
 ```
 
-Projectile compute runs after NPC compute because it reads the NPC spatial grid (built by NPC compute modes 0+1, not yet ported) and NPC positions/factions/healths.
+Projectile compute runs after NPC compute because it reads the NPC spatial grid (built by NPC compute modes 0+1) and NPC positions/factions/healths. NPC compute reads the projectile spatial grid (built by projectile compute in the previous frame) for projectile dodge — 1-frame latency is acceptable.
 
 ## Fire Path
 
@@ -43,15 +43,23 @@ Spawn data includes: position, velocity, damage, faction, shooter index, lifetim
 
 ## GPU Dispatch
 
-`projectile_compute.wgsl` — 64 threads per workgroup, `ceil(proj_count / 64)` dispatches.
+`projectile_compute.wgsl` — 64 threads per workgroup. 3 dispatches per frame with different `mode` uniform values, mirroring the NPC compute pattern.
 
+### Mode 0: Clear Projectile Grid
+One thread per grid cell. Atomically clears `proj_grid_counts[cell]` to 0. Dispatches `ceil(grid_cells / 64)` workgroups.
+
+### Mode 1: Build Projectile Grid
+One thread per projectile. Computes cell from `floor(pos / cell_size)`, atomically increments `proj_grid_counts[cell]`, writes projectile index into `proj_grid_data[cell * max_per_cell + slot]`. Skips inactive/hidden projectiles. The resulting grid is read by NPC compute (mode 2) in the next frame for projectile dodge.
+
+### Mode 2: Movement + Collision
 For each active projectile:
 1. **Lifetime**: `lifetime -= delta`. If <= 0, deactivate, hide at (-9999, -9999), and write `proj_hits[i] = (-2, 0)` (expired sentinel for CPU slot recycling).
 2. **Movement**: `pos += velocity * delta`
-3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood:
+3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood of NPC spatial grid:
    - Skip same faction (no friendly fire)
    - Skip dead NPCs (`health <= 0`)
-   - If distance² < hit_radius²: write `hit = ivec2(npc_idx, 0)`, deactivate, hide.
+   - Oriented rectangle collision (long along velocity, thin perpendicular)
+   - If hit: write `hit = ivec2(npc_idx, 0)`, deactivate, hide.
 
 ## Hit Processing
 
@@ -94,6 +102,13 @@ for slot in 0..min(proj_alloc.next, hit_state.len()):
 | 11 | grid_counts | NpcGpuBuffers.grid_counts |
 | 12 | grid_data | NpcGpuBuffers.grid_data |
 
+### Projectile Spatial Grid (built by modes 0+1, read by NPC compute for dodge)
+
+| Binding | Name | Type | R/W | Purpose |
+|---------|------|------|-----|---------|
+| 14 | proj_grid_counts | atomic\<i32\>[] | RW | Projectiles per grid cell (atomically written by modes 0+1) |
+| 15 | proj_grid_data | i32[] | RW | Projectile indices per cell (written by mode 1) |
+
 ### Uniform Params
 
 | Binding | Field | Default | Purpose |
@@ -101,11 +116,13 @@ for slot in 0..min(proj_alloc.next, hit_state.len()):
 | 13 | proj_count | 0 | Active projectile count (from ProjSlotAllocator.next) |
 | | npc_count | 0 | NPC count for bounds checking |
 | | delta | 0.016 | Frame delta time |
-| | hit_radius | 10.0 | Collision detection radius (px) |
-| | grid_width | 128 | Spatial grid columns |
-| | grid_height | 128 | Spatial grid rows |
-| | cell_size | 64.0 | Pixels per grid cell |
-| | max_per_cell | 48 | Max NPCs per grid cell |
+| | hit_half_length | 10.0 | Oriented rectangle half-length along velocity (px) |
+| | hit_half_width | 5.0 | Oriented rectangle half-width perpendicular to velocity (px) |
+| | grid_width | 256 | Spatial grid columns (same as NPC grid) |
+| | grid_height | 256 | Spatial grid rows |
+| | cell_size | 128.0 | Pixels per grid cell |
+| | max_per_cell | 48 | Max entries per grid cell |
+| | mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=movement+collision) |
 
 ## Slot Lifecycle
 

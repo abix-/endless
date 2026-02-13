@@ -120,8 +120,8 @@ pub fn attack_system(
         }
 
         if dist <= cached.range {
-            // Track enemy position so NPC doesn't drift toward original target
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x: tx, y: ty }));
+            // Stand ground while fighting — set target to own position so NPC stops moving
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
 
             in_range_count += 1;
             if in_range_count == 1 {

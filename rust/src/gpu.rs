@@ -86,7 +86,7 @@ pub struct NpcComputeParams {
     pub arrival_threshold: f32,
     pub mode: u32,
     pub combat_range: f32,
-    pub _pad2: f32,
+    pub proj_max_per_cell: u32,
 }
 
 impl Default for NpcComputeParams {
@@ -103,7 +103,7 @@ impl Default for NpcComputeParams {
             arrival_threshold: 8.0,
             mode: 0,
             combat_range: 300.0,
-            _pad2: 0.0,
+            proj_max_per_cell: MAX_PER_CELL,
         }
     }
 }
@@ -408,6 +408,7 @@ pub struct ProjComputeParams {
     pub grid_height: u32,
     pub cell_size: f32,
     pub max_per_cell: u32,
+    pub mode: u32,
 }
 
 impl Default for ProjComputeParams {
@@ -422,6 +423,7 @@ impl Default for ProjComputeParams {
             grid_height: GRID_HEIGHT,
             cell_size: 128.0,
             max_per_cell: MAX_PER_CELL,
+            mode: 0,
         }
     }
 }
@@ -770,12 +772,16 @@ pub struct ProjGpuBuffers {
     pub lifetimes: Buffer,
     pub active: Buffer,
     pub hits: Buffer,
+    pub grid_counts: Buffer,
+    pub grid_data: Buffer,
 }
 
-/// Bind groups for projectile compute pass.
+/// Bind groups for projectile compute pass (3 modes: clear grid, build grid, movement+collision).
 #[derive(Resource)]
 struct ProjBindGroups {
-    bind_group: BindGroup,
+    mode0: BindGroup,
+    mode1: BindGroup,
+    mode2: BindGroup,
 }
 
 /// Pipeline resources for projectile compute.
@@ -892,6 +898,13 @@ fn init_npc_compute_pipeline(
                 storage_buffer::<Vec<i32>>(false),
                 // 10: params (uniform)
                 uniform_buffer::<NpcComputeParams>(false),
+                // 11-12: projectile spatial grid (read only from NPC perspective)
+                storage_buffer_read_only::<Vec<i32>>(false),  // proj_grid_counts
+                storage_buffer_read_only::<Vec<i32>>(false),  // proj_grid_data
+                // 13-15: projectile data (read only)
+                storage_buffer_read_only::<Vec<[f32; 2]>>(false), // proj_positions
+                storage_buffer_read_only::<Vec<[f32; 2]>>(false), // proj_velocities
+                storage_buffer_read_only::<Vec<i32>>(false),      // proj_factions
             ),
         ),
     );
@@ -923,6 +936,7 @@ fn prepare_npc_bind_groups(
     mut commands: Commands,
     pipeline: Option<Res<NpcComputePipeline>>,
     buffers: Option<Res<NpcGpuBuffers>>,
+    proj_buffers: Option<Res<ProjGpuBuffers>>,
     params: Option<Res<NpcComputeParams>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -930,6 +944,7 @@ fn prepare_npc_bind_groups(
 ) {
     let Some(pipeline) = pipeline else { return };
     let Some(buffers) = buffers else { return };
+    let Some(proj) = proj_buffers else { return };
     let Some(params) = params else { return };
 
     // Create 3 uniform buffers (one per mode) for multi-dispatch
@@ -958,6 +973,15 @@ fn prepare_npc_bind_groups(
     ub1.write_buffer(&render_device, &render_queue);
     ub2.write_buffer(&render_device, &render_queue);
 
+    // Projectile grid + data bindings (read-only from NPC compute)
+    let proj_bind = (
+        proj.grid_counts.as_entire_buffer_binding(),
+        proj.grid_data.as_entire_buffer_binding(),
+        proj.positions.as_entire_buffer_binding(),
+        proj.velocities.as_entire_buffer_binding(),
+        proj.factions.as_entire_buffer_binding(),
+    );
+
     let mode0 = render_device.create_bind_group(
         Some("npc_compute_bg_mode0"),
         layout,
@@ -968,6 +992,8 @@ fn prepare_npc_bind_groups(
             storage_bindings.6.clone(), storage_bindings.7.clone(),
             storage_bindings.8.clone(), storage_bindings.9.clone(),
             &ub0,
+            proj_bind.0.clone(), proj_bind.1.clone(),
+            proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
         )),
     );
     let mode1 = render_device.create_bind_group(
@@ -980,6 +1006,8 @@ fn prepare_npc_bind_groups(
             storage_bindings.6.clone(), storage_bindings.7.clone(),
             storage_bindings.8.clone(), storage_bindings.9.clone(),
             &ub1,
+            proj_bind.0.clone(), proj_bind.1.clone(),
+            proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
         )),
     );
     let mode2 = render_device.create_bind_group(
@@ -992,6 +1020,8 @@ fn prepare_npc_bind_groups(
             storage_bindings.6.clone(), storage_bindings.7.clone(),
             storage_bindings.8.clone(), storage_bindings.9.clone(),
             &ub2,
+            proj_bind.0.clone(), proj_bind.1.clone(),
+            proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
         )),
     );
 
@@ -1277,6 +1307,8 @@ fn init_proj_compute_pipeline(
     pipeline_cache: Res<PipelineCache>,
 ) {
     let max = MAX_PROJECTILES as usize;
+    let grid_cells = (GRID_WIDTH * GRID_HEIGHT) as usize;
+    let grid_data_size = grid_cells * MAX_PER_CELL as usize;
 
     let buffers = ProjGpuBuffers {
         positions: render_device.create_buffer(&BufferDescriptor {
@@ -1327,11 +1359,23 @@ fn init_proj_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
+        grid_counts: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_grid_counts"),
+            size: (grid_cells * std::mem::size_of::<i32>()) as u64,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        }),
+        grid_data: render_device.create_buffer(&BufferDescriptor {
+            label: Some("proj_grid_data"),
+            size: (grid_data_size * std::mem::size_of::<i32>()) as u64,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        }),
     };
 
     commands.insert_resource(buffers);
 
-    // 14 bindings: 8 proj (rw) + 3 NPC (ro) + 2 grid (ro) + 1 uniform
+    // 16 bindings: 8 proj (rw) + 3 NPC (ro) + 2 NPC grid (ro) + 1 uniform + 2 proj grid (rw)
     let bind_group_layout = BindGroupLayoutDescriptor::new(
         "ProjComputeLayout",
         &BindGroupLayoutEntries::sequential(
@@ -1350,11 +1394,14 @@ fn init_proj_compute_pipeline(
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // npc_positions
                 storage_buffer_read_only::<Vec<i32>>(false),      // npc_factions
                 storage_buffer_read_only::<Vec<f32>>(false),      // npc_healths
-                // 11-12: spatial grid (read only)
+                // 11-12: NPC spatial grid (read only)
                 storage_buffer_read_only::<Vec<i32>>(false),      // grid_counts
                 storage_buffer_read_only::<Vec<i32>>(false),      // grid_data
                 // 13: uniform params
                 uniform_buffer::<ProjComputeParams>(false),
+                // 14-15: projectile spatial grid (read_write)
+                storage_buffer::<Vec<i32>>(false),                // proj_grid_counts
+                storage_buffer::<Vec<i32>>(false),                // proj_grid_data
             ),
         ),
     );
@@ -1391,35 +1438,84 @@ fn prepare_proj_bind_groups(
     let Some(npc) = npc_buffers else { return };
     let Some(params) = params else { return };
 
-    let mut uniform_buffer = UniformBuffer::from(params.clone());
-    uniform_buffer.write_buffer(&render_device, &render_queue);
+    let layout = &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
+    let storage_bindings = (
+        proj.positions.as_entire_buffer_binding(),
+        proj.velocities.as_entire_buffer_binding(),
+        proj.damages.as_entire_buffer_binding(),
+        proj.factions.as_entire_buffer_binding(),
+        proj.shooters.as_entire_buffer_binding(),
+        proj.lifetimes.as_entire_buffer_binding(),
+        proj.active.as_entire_buffer_binding(),
+        proj.hits.as_entire_buffer_binding(),
+        npc.positions.as_entire_buffer_binding(),
+        npc.factions.as_entire_buffer_binding(),
+        npc.healths.as_entire_buffer_binding(),
+        npc.grid_counts.as_entire_buffer_binding(),
+        npc.grid_data.as_entire_buffer_binding(),
+    );
 
-    let bind_group = render_device.create_bind_group(
-        Some("proj_compute_bind_group"),
-        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+    let mut p0 = params.clone(); p0.mode = 0;
+    let mut p1 = params.clone(); p1.mode = 1;
+    let mut p2 = params.clone(); p2.mode = 2;
+
+    let mut ub0 = UniformBuffer::from(p0);
+    let mut ub1 = UniformBuffer::from(p1);
+    let mut ub2 = UniformBuffer::from(p2);
+    ub0.write_buffer(&render_device, &render_queue);
+    ub1.write_buffer(&render_device, &render_queue);
+    ub2.write_buffer(&render_device, &render_queue);
+
+    let mode0 = render_device.create_bind_group(
+        Some("proj_compute_bg_mode0"),
+        layout,
         &BindGroupEntries::sequential((
-            // 0-7: projectile buffers
-            proj.positions.as_entire_buffer_binding(),
-            proj.velocities.as_entire_buffer_binding(),
-            proj.damages.as_entire_buffer_binding(),
-            proj.factions.as_entire_buffer_binding(),
-            proj.shooters.as_entire_buffer_binding(),
-            proj.lifetimes.as_entire_buffer_binding(),
-            proj.active.as_entire_buffer_binding(),
-            proj.hits.as_entire_buffer_binding(),
-            // 8-10: NPC buffers (shared, read only)
-            npc.positions.as_entire_buffer_binding(),
-            npc.factions.as_entire_buffer_binding(),
-            npc.healths.as_entire_buffer_binding(),
-            // 11-12: spatial grid (shared, read only)
-            npc.grid_counts.as_entire_buffer_binding(),
-            npc.grid_data.as_entire_buffer_binding(),
-            // 13: uniform
-            &uniform_buffer,
+            storage_bindings.0.clone(), storage_bindings.1.clone(),
+            storage_bindings.2.clone(), storage_bindings.3.clone(),
+            storage_bindings.4.clone(), storage_bindings.5.clone(),
+            storage_bindings.6.clone(), storage_bindings.7.clone(),
+            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            storage_bindings.10.clone(), storage_bindings.11.clone(),
+            storage_bindings.12.clone(),
+            &ub0,
+            proj.grid_counts.as_entire_buffer_binding(),
+            proj.grid_data.as_entire_buffer_binding(),
+        )),
+    );
+    let mode1 = render_device.create_bind_group(
+        Some("proj_compute_bg_mode1"),
+        layout,
+        &BindGroupEntries::sequential((
+            storage_bindings.0.clone(), storage_bindings.1.clone(),
+            storage_bindings.2.clone(), storage_bindings.3.clone(),
+            storage_bindings.4.clone(), storage_bindings.5.clone(),
+            storage_bindings.6.clone(), storage_bindings.7.clone(),
+            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            storage_bindings.10.clone(), storage_bindings.11.clone(),
+            storage_bindings.12.clone(),
+            &ub1,
+            proj.grid_counts.as_entire_buffer_binding(),
+            proj.grid_data.as_entire_buffer_binding(),
+        )),
+    );
+    let mode2 = render_device.create_bind_group(
+        Some("proj_compute_bg_mode2"),
+        layout,
+        &BindGroupEntries::sequential((
+            storage_bindings.0.clone(), storage_bindings.1.clone(),
+            storage_bindings.2.clone(), storage_bindings.3.clone(),
+            storage_bindings.4.clone(), storage_bindings.5.clone(),
+            storage_bindings.6.clone(), storage_bindings.7.clone(),
+            storage_bindings.8.clone(), storage_bindings.9.clone(),
+            storage_bindings.10.clone(), storage_bindings.11.clone(),
+            storage_bindings.12.clone(),
+            &ub2,
+            proj.grid_counts.as_entire_buffer_binding(),
+            proj.grid_data.as_entire_buffer_binding(),
         )),
     );
 
-    commands.insert_resource(ProjBindGroups { bind_group });
+    commands.insert_resource(ProjBindGroups { mode0, mode1, mode2 });
 }
 
 /// Write projectile data from extracted resource to GPU buffers.
@@ -1541,19 +1637,38 @@ impl render_graph::Node for ProjectileComputeNode {
             return Ok(());
         };
 
-        // Scope compute pass so it drops before we use the encoder for copy
+        let grid_cells = GRID_WIDTH * GRID_HEIGHT;
+        let grid_wg = (grid_cells + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+        let proj_wg = (proj_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
+        // Pass 0: Clear projectile spatial grid
         {
             let mut pass = render_context
                 .command_encoder()
                 .begin_compute_pass(&ComputePassDescriptor::default());
-
-            pass.set_bind_group(0, &bind_groups.bind_group, &[]);
+            pass.set_bind_group(0, &bind_groups.mode0, &[]);
             pass.set_pipeline(compute_pipeline);
-            pass.dispatch_workgroups(
-                (proj_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE,
-                1,
-                1,
-            );
+            pass.dispatch_workgroups(grid_wg, 1, 1);
+        }
+
+        // Pass 1: Build projectile spatial grid (insert active projectiles)
+        {
+            let mut pass = render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor::default());
+            pass.set_bind_group(0, &bind_groups.mode1, &[]);
+            pass.set_pipeline(compute_pipeline);
+            pass.dispatch_workgroups(proj_wg, 1, 1);
+        }
+
+        // Pass 2: Movement + collision detection
+        {
+            let mut pass = render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor::default());
+            pass.set_bind_group(0, &bind_groups.mode2, &[]);
+            pass.set_pipeline(compute_pipeline);
+            pass.dispatch_workgroups(proj_wg, 1, 1);
         }
 
         // Copy hits + positions → readback ShaderStorageBuffer assets

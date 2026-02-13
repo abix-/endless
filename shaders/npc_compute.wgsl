@@ -18,7 +18,7 @@ struct Params {
     arrival_threshold: f32,
     mode: u32,
     combat_range: f32,
-    _pad2: f32,
+    proj_max_per_cell: u32,
 }
 
 // Storage buffers matching Rust bind group layout
@@ -33,6 +33,13 @@ struct Params {
 @group(0) @binding(8) var<storage, read_write> healths: array<f32>;
 @group(0) @binding(9) var<storage, read_write> combat_targets: array<i32>;
 @group(0) @binding(10) var<uniform> params: Params;
+
+// Projectile spatial grid + data (read only — built by projectile compute modes 0+1)
+@group(0) @binding(11) var<storage, read> proj_grid_counts: array<i32>;
+@group(0) @binding(12) var<storage, read> proj_grid_data: array<i32>;
+@group(0) @binding(13) var<storage, read> proj_positions: array<vec2<f32>>;
+@group(0) @binding(14) var<storage, read> proj_velocities: array<vec2<f32>>;
+@group(0) @binding(15) var<storage, read> proj_factions: array<i32>;
 
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -220,6 +227,53 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         avoidance = (avoidance / avoidance_mag) * max_avoidance;
     }
 
+    // --- Projectile dodge: strafe away from incoming arrows (spatial grid) ---
+    var proj_dodge = vec2<f32>(0.0, 0.0);
+    let dodge_radius = 60.0;
+    let dodge_radius_sq = dodge_radius * dodge_radius;
+    let pmpc = i32(params.proj_max_per_cell);
+
+    for (var pdy: i32 = -1; pdy <= 1; pdy++) {
+        let pny = cy + pdy;
+        if (pny < 0 || pny >= gh) { continue; }
+        for (var pdx: i32 = -1; pdx <= 1; pdx++) {
+            let pnx = cx + pdx;
+            if (pnx < 0 || pnx >= gw) { continue; }
+            let pcell = pny * gw + pnx;
+            let pcount = min(proj_grid_counts[pcell], pmpc);
+            let pbase = pcell * pmpc;
+            for (var pn: i32 = 0; pn < pcount; pn++) {
+                let pi = proj_grid_data[pbase + pn];
+                if (pi < 0) { continue; }
+                if (proj_factions[pi] == my_faction) { continue; }
+
+                let pp = proj_positions[pi];
+                let pv = proj_velocities[pi];
+                let to_me = pos - pp;
+                let dist_sq = dot(to_me, to_me);
+                if (dist_sq > dodge_radius_sq || dist_sq < 1.0) { continue; }
+
+                // Is projectile heading toward me?
+                let pspd_sq = dot(pv, pv);
+                if (pspd_sq < 1.0) { continue; }
+                let pdir = pv / sqrt(pspd_sq);
+                let approach = dot(pdir, to_me / sqrt(dist_sq));
+                if (approach < 0.3) { continue; }
+
+                // Dodge perpendicular to projectile direction
+                let pperp = vec2<f32>(-pdir.y, pdir.x);
+                let pside = dot(to_me, pperp);
+                let ddir = select(-1.0, 1.0, pside >= 0.0);
+                let urgency = 1.0 - sqrt(dist_sq) / dodge_radius;
+                proj_dodge += pperp * ddir * urgency;
+            }
+        }
+    }
+    let pdlen = length(proj_dodge);
+    if (pdlen > 0.0) {
+        proj_dodge = (proj_dodge / pdlen) * speed * 1.5;
+    }
+
     // --- STEP 3: Movement toward goal + lateral steering when blocked ---
     // Instead of slowing down when blocked, steer sideways to route around.
     var movement = vec2<f32>(0.0, 0.0);
@@ -252,7 +306,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // --- STEP 4: Apply movement + avoidance ---
-    pos += (movement + avoidance) * params.delta;
+    pos += (movement + avoidance + proj_dodge) * params.delta;
 
     positions[i] = pos;
     arrivals[i] = settled;
