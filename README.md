@@ -50,6 +50,13 @@ First build takes 2-5 minutes. Subsequent builds ~15 seconds.
 | F | Follow selected NPC |
 | ESC | Settings |
 
+## Inspirations
+
+- **Lords of the Realm 2** — assign villagers to roles, manage production, raise armies, conquer rival towns
+- **Factorio** — scale to thousands of entities, the satisfaction of watching systems hum
+- **RimWorld** — colonist needs, emergent chaos, stories that write themselves
+- **Asimov's "The Last Question"** — entropy as the ultimate antagonist
+
 ## Architecture
 
 Built with [Bevy 0.18](https://bevyengine.org/) ECS + GPU compute shaders (WGSL). 50K NPC capacity via instanced rendering in a single draw call. See [docs/](docs/README.md) for details.
