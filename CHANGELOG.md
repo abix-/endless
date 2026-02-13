@@ -2,6 +2,10 @@
 
 ## 2026-02-13
 
+- **ai weighted random decisions** — AI building/upgrade decisions now use scored weighted random selection (same pattern as NPC behavior system) instead of strict priority ordering; personality weights bias probabilities (Aggressive favors barracks, Economic favors farms) but don't hard-lock; need factors scale scores based on building ratio deficits; fixes bug where Balanced/Economic AI never built barracks (farm+house conditions were mutually exhaustive)
+- **external building sprites** — House, Barracks, and GuardPost buildings use dedicated 32x32 PNGs (`house.png`, `barracks.png`, `guard_post.png`) instead of world atlas tiles; new `TileSpec::External(usize)` variant; `build_tileset` accepts extra images slice for non-atlas tiles
+- **faction-based NPC coloring** — player faction (0) uses job colors (green/blue/red/yellow), all other factions use faction palette; previously color was job-based (only raiders got faction colors)
+- **fix: turret npc_count** — `guard_post_attack_system` uses `gpu_state.npc_count` instead of `positions.len() / 2` for enemy scanning bounds
 - **2x2 composite tiles** — `TileSpec` enum (`Single`/`Quad`) enables tiles built from four 16x16 sprites; `build_tileset` produces 32x32 array texture layers with nearest-neighbor 2x upscale for single sprites and quadrant blitting for composites; Rock terrain, Farm, Camp, and Tent buildings now use 2x2 composites; new grass sprites (A=3,16 B=3,13)
 - **carried food untinted** — food sprite on returning raiders renders with original texture colors instead of faction color tint; equipment layers (atlas 0) still use job color, carried items (atlas >= 0.5) use white
 - **roster faction filter** — roster panel only shows player faction (faction 0) NPCs by default; existing "All NPCs in Roster" debug setting in pause menu toggles all-faction view; replaces old raiders-only hide filter

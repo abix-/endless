@@ -1,17 +1,18 @@
 //! AI player system — autonomous opponents that build and upgrade like the player.
-//! Each AI has a personality (Aggressive/Balanced/Economic) that drives build order,
-//! upgrade priorities, town policies, and food management.
+//! Each AI has a personality (Aggressive/Balanced/Economic) that influences weighted
+//! random decisions — same pattern as NPC behavior scoring.
 //!
 //! Slot selection: economy buildings (farms, houses, barracks) prefer inner slots
 //! (closest to center). Guard posts prefer outer slots (farthest from center) with
 //! minimum spacing of 5 grid slots between posts.
 
 use bevy::prelude::*;
+use rand::Rng;
 
 use crate::constants::*;
 use crate::resources::*;
 use crate::world::{self, Building, WorldData, WorldGrid, TownGrids};
-use crate::systems::stats::{UpgradeQueue, UpgradeType, TownUpgrades, upgrade_cost};
+use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_cost};
 
 /// Minimum Manhattan distance between guard posts on the town grid.
 const MIN_GUARD_POST_SPACING: i32 = 5;
@@ -31,9 +32,17 @@ pub enum AiKind { Raider, Builder }
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AiPersonality { Aggressive, Balanced, Economic }
 
-/// What the AI decided to build (before slot selection).
-#[derive(Clone, Copy)]
-enum BuildChoice { Farm, House, Barracks, GuardPost }
+/// All possible AI actions, scored and picked via weighted random.
+#[derive(Clone, Copy, Debug)]
+enum AiAction {
+    BuildFarm,
+    BuildHouse,
+    BuildBarracks,
+    BuildGuardPost,
+    BuildTent,
+    UnlockSlot,
+    Upgrade(usize), // upgrade index into UPGRADE_PCT
+}
 
 impl AiPersonality {
     pub fn name(self) -> &'static str {
@@ -76,64 +85,54 @@ impl AiPersonality {
         }
     }
 
-    /// Decide what to build based on personality priorities and current counts.
-    /// Returns None if nothing should be built (ratios satisfied or can't afford).
-    fn pick_building_type(
-        self, farms: usize, houses: usize, barracks: usize, guard_posts: usize, food: i32,
-    ) -> Option<BuildChoice> {
+    /// Base weights for building types: (farm, house, barracks, guard_post)
+    fn building_weights(self) -> (f32, f32, f32, f32) {
         match self {
-            // Aggressive: military first — barracks, guard posts, then economy
-            Self::Aggressive => {
-                if barracks < houses.max(1) && food >= BARRACKS_BUILD_COST { return Some(BuildChoice::Barracks); }
-                if guard_posts < barracks && food >= GUARD_POST_BUILD_COST { return Some(BuildChoice::GuardPost); }
-                if farms < houses && food >= FARM_BUILD_COST { return Some(BuildChoice::Farm); }
-                if houses <= farms && food >= HOUSE_BUILD_COST { return Some(BuildChoice::House); }
-                None
-            }
-            // Balanced: economy and military in tandem
-            Self::Balanced => {
-                if farms < houses && food >= FARM_BUILD_COST { return Some(BuildChoice::Farm); }
-                if houses <= farms && food >= HOUSE_BUILD_COST { return Some(BuildChoice::House); }
-                if (barracks == 0 || barracks < houses / 2) && food >= BARRACKS_BUILD_COST { return Some(BuildChoice::Barracks); }
-                if guard_posts < barracks && food >= GUARD_POST_BUILD_COST { return Some(BuildChoice::GuardPost); }
-                None
-            }
-            // Economic: farms first, minimal military
-            Self::Economic => {
-                if farms <= houses && food >= FARM_BUILD_COST { return Some(BuildChoice::Farm); }
-                if houses < farms && food >= HOUSE_BUILD_COST { return Some(BuildChoice::House); }
-                if barracks < 1 + houses / 3 && food >= BARRACKS_BUILD_COST { return Some(BuildChoice::Barracks); }
-                if guard_posts < barracks && food >= GUARD_POST_BUILD_COST { return Some(BuildChoice::GuardPost); }
-                None
-            }
+            Self::Aggressive => (10.0, 10.0, 30.0, 20.0),
+            Self::Balanced   => (20.0, 20.0, 15.0, 10.0),
+            Self::Economic   => (30.0, 25.0,  5.0,  5.0),
         }
     }
 
-    /// Upgrade priority list for Builder AI.
-    fn builder_upgrades(self) -> &'static [UpgradeType] {
+    /// Barracks target count relative to houses.
+    fn barracks_target(self, houses: usize) -> usize {
         match self {
-            Self::Aggressive => &[
-                UpgradeType::GuardAttack, UpgradeType::AttackSpeed,
-                UpgradeType::GuardHealth, UpgradeType::MoveSpeed, UpgradeType::GuardRange,
-            ],
-            Self::Balanced => &[
-                UpgradeType::GuardHealth, UpgradeType::GuardAttack,
-                UpgradeType::FarmYield, UpgradeType::AttackSpeed, UpgradeType::MoveSpeed,
-            ],
-            Self::Economic => &[
-                UpgradeType::FarmYield, UpgradeType::FarmerHp,
-                UpgradeType::HealingRate, UpgradeType::GuardHealth, UpgradeType::GuardAttack,
-            ],
+            Self::Aggressive => houses.max(1),
+            Self::Balanced   => (houses / 2).max(1),
+            Self::Economic   => 1 + houses / 3,
         }
     }
 
-    /// Upgrade priority list for Raider AI.
-    fn raider_upgrades(self) -> &'static [UpgradeType] {
-        match self {
-            Self::Economic => &[UpgradeType::MoveSpeed, UpgradeType::AttackSpeed],
-            _ => &[UpgradeType::AttackSpeed, UpgradeType::MoveSpeed],
+    /// Upgrade weights indexed by UpgradeType discriminant (12 entries).
+    /// Only entries with weight > 0 are scored.
+    fn upgrade_weights(self, kind: AiKind) -> [f32; 12] {
+        match kind {
+            AiKind::Raider => match self {
+                //                           GH  GA  GR  GS  AS  MS  AR  FY  FH  HR  FE  FR
+                Self::Economic =>           [0., 0., 0., 0., 4., 6., 0., 0., 0., 0., 0., 0.],
+                _ =>                        [0., 0., 0., 0., 6., 4., 0., 0., 0., 0., 0., 0.],
+            },
+            AiKind::Builder => match self {
+                //                           GH  GA  GR  GS  AS  MS  AR  FY  FH  HR  FE  FR
+                Self::Aggressive =>         [6., 8., 4., 0., 6., 4., 0., 2., 1., 1., 0., 0.],
+                Self::Balanced =>           [5., 5., 2., 0., 4., 3., 0., 5., 3., 3., 0., 0.],
+                Self::Economic =>           [3., 2., 1., 0., 2., 2., 0., 8., 5., 5., 0., 0.],
+            },
         }
     }
+}
+
+/// Weighted random selection from scored actions.
+fn weighted_pick(scores: &[(AiAction, f32)]) -> Option<AiAction> {
+    let total: f32 = scores.iter().map(|(_, s)| *s).sum();
+    if total <= 0.0 { return None; }
+    let roll = rand::rng().random_range(0.0..total);
+    let mut acc = 0.0;
+    for &(action, score) in scores {
+        acc += score;
+        if roll < acc { return Some(action); }
+    }
+    scores.last().map(|(a, _)| *a)
 }
 
 pub struct AiPlayer {
@@ -213,7 +212,7 @@ fn has_empty_slot(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> bool 
 // AI DECISION SYSTEM
 // ============================================================================
 
-/// One decision per AI per interval tick. Accumulates real time via Local timer.
+/// One decision per AI per interval tick. Scores all eligible actions, picks via weighted random.
 pub fn ai_decision_system(
     time: Res<Time>,
     config: Res<AiPlayerConfig>,
@@ -254,91 +253,141 @@ pub fn ai_decision_system(
         let has_slots = town_grids.grids.get(player.grid_idx)
             .map(|tg| has_empty_slot(tg, center, &grid))
             .unwrap_or(false);
+        let can_unlock = !has_slots && town_grids.grids.get(player.grid_idx)
+            .map(|tg| !world::get_adjacent_locked_slots(tg).is_empty())
+            .unwrap_or(false);
 
-        // Phase 1: Build — decide WHAT, then pick WHERE
-        if has_slots {
-            let built = match player.kind {
-                AiKind::Raider => {
-                    if player.personality == AiPersonality::Economic && food < 20 {
-                        None
-                    } else if let Some(tg) = town_grids.grids.get(player.grid_idx) {
-                        // Raiders use inner slots for tents (cluster around camp)
-                        find_inner_slot(tg, center, &grid).and_then(|(row, col)| {
-                            try_build(&mut grid, &mut world_data, &mut farm_states, &mut food_storage, &mut spawner_state,
-                                Building::Tent { town_idx: ti }, 2, tdi, row, col, center, TENT_BUILD_COST)
-                                .then_some("built tent")
-                        })
-                    } else { None }
+        // Score all eligible actions
+        let mut scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
+
+        match player.kind {
+            AiKind::Raider => {
+                // Tents (only building raiders make)
+                if has_slots && food >= TENT_BUILD_COST {
+                    scores.push((AiAction::BuildTent, 30.0));
                 }
-                AiKind::Builder => {
-                    if let Some(choice) = player.personality.pick_building_type(farms, houses, barracks, guard_posts, food) {
-                        if let Some(tg) = town_grids.grids.get(player.grid_idx) {
-                            // Guard posts → outermost slot with spacing; everything else → innermost
-                            let slot = match choice {
-                                BuildChoice::GuardPost => find_guard_post_slot(tg, center, &grid, &world_data, ti),
-                                _ => find_inner_slot(tg, center, &grid),
-                            };
-                            slot.and_then(|(row, col)| {
-                                let (building, spawner_kind, cost, label) = match choice {
-                                    BuildChoice::Farm => (Building::Farm { town_idx: ti }, -1, FARM_BUILD_COST, "built farm"),
-                                    BuildChoice::House => (Building::House { town_idx: ti }, 0, HOUSE_BUILD_COST, "built house"),
-                                    BuildChoice::Barracks => (Building::Barracks { town_idx: ti }, 1, BARRACKS_BUILD_COST, "built barracks"),
-                                    BuildChoice::GuardPost => (
-                                        Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
-                                        -1, GUARD_POST_BUILD_COST, "built guard post",
-                                    ),
-                                };
-                                try_build(&mut grid, &mut world_data, &mut farm_states, &mut food_storage, &mut spawner_state,
-                                    building, spawner_kind, tdi, row, col, center, cost)
-                                    .then_some(label)
-                            })
-                        } else { None }
-                    } else { None }
-                }
-            };
-            if let Some(what) = built {
-                log_ai(&mut combat_log, &game_time, &town_name, pname, what);
-                continue;
             }
-        }
+            AiKind::Builder => {
+                let (fw, hw, bw, gw) = player.personality.building_weights();
+                let bt = player.personality.barracks_target(houses);
 
-        // Phase 2: Unlock slot if no empties
-        if !has_slots {
-            if let Some(tg) = town_grids.grids.get(player.grid_idx) {
-                let adjacent = world::get_adjacent_locked_slots(tg);
-                if let Some(&(row, col)) = adjacent.first() {
-                    let f = food_storage.food.get(tdi).copied().unwrap_or(0);
-                    if f >= SLOT_UNLOCK_COST {
-                        if let Some(f) = food_storage.food.get_mut(tdi) { *f -= SLOT_UNLOCK_COST; }
-                        // Set terrain to dirt at the unlocked slot
-                        let slot_pos = world::town_grid_to_world(center, row, col);
-                        let (gc, gr) = grid.world_to_grid(slot_pos);
-                        if let Some(cell) = grid.cell_mut(gc, gr) {
-                            cell.terrain = world::Biome::Dirt;
-                        }
-                        if let Some(tg) = town_grids.grids.get_mut(player.grid_idx) {
-                            tg.unlocked.insert((row, col));
-                        }
-                        log_ai(&mut combat_log, &game_time, &town_name, pname, "unlocked slot");
-                        continue;
-                    }
+                if has_slots {
+                    // Need factors: 1.0 base + deficit (higher when behind target ratio)
+                    let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0);
+                    let house_need = 1.0 + (farms as f32 - houses as f32).max(0.0);
+                    let barracks_need = if barracks < bt { 1.0 + (bt - barracks) as f32 } else { 0.5 };
+                    let gp_need = if guard_posts < barracks { 1.0 + (barracks - guard_posts) as f32 } else { 0.5 };
+
+                    if food >= FARM_BUILD_COST { scores.push((AiAction::BuildFarm, fw * farm_need)); }
+                    if food >= HOUSE_BUILD_COST { scores.push((AiAction::BuildHouse, hw * house_need)); }
+                    if food >= BARRACKS_BUILD_COST { scores.push((AiAction::BuildBarracks, bw * barracks_need)); }
+                    if food >= GUARD_POST_BUILD_COST { scores.push((AiAction::BuildGuardPost, gw * gp_need)); }
                 }
             }
         }
 
-        // Phase 3: Upgrades (personality-driven priority)
-        let to_try = match player.kind {
-            AiKind::Raider => player.personality.raider_upgrades(),
-            AiKind::Builder => player.personality.builder_upgrades(),
-        };
-        for &ut in to_try {
-            let idx = ut as usize;
+        // Unlock slot
+        if can_unlock && food >= SLOT_UNLOCK_COST {
+            scores.push((AiAction::UnlockSlot, 8.0));
+        }
+
+        // Upgrades
+        let uw = player.personality.upgrade_weights(player.kind);
+        for (idx, &weight) in uw.iter().enumerate() {
+            if weight <= 0.0 { continue; }
             let level = upgrades.levels.get(tdi).map(|l| l[idx]).unwrap_or(0);
             if food >= upgrade_cost(level) {
-                upgrade_queue.0.push((tdi, idx));
-                log_ai(&mut combat_log, &game_time, &town_name, pname, &format!("upgraded {:?}", ut));
-                break;
+                scores.push((AiAction::Upgrade(idx), weight));
             }
+        }
+
+        // Pick and execute
+        let Some(action) = weighted_pick(&scores) else { continue };
+        let label = execute_action(
+            action, ti, tdi, center, guard_posts,
+            &mut grid, &mut world_data, &mut farm_states, &mut food_storage,
+            &mut town_grids, &mut spawner_state, &mut upgrade_queue,
+            player.grid_idx,
+        );
+        if let Some(what) = label {
+            log_ai(&mut combat_log, &game_time, &town_name, pname, &what);
+        }
+    }
+}
+
+/// Execute the chosen action, returning a log label on success.
+#[allow(clippy::too_many_arguments)]
+fn execute_action(
+    action: AiAction, ti: u32, tdi: usize, center: Vec2, guard_posts: usize,
+    grid: &mut WorldGrid, world_data: &mut WorldData, farm_states: &mut FarmStates,
+    food_storage: &mut FoodStorage, town_grids: &mut TownGrids,
+    spawner_state: &mut SpawnerState, upgrade_queue: &mut UpgradeQueue,
+    grid_idx: usize,
+) -> Option<String> {
+    match action {
+        AiAction::BuildTent => {
+            let tg = town_grids.grids.get(grid_idx)?;
+            let (row, col) = find_inner_slot(tg, center, grid)?;
+            try_build(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::Tent { town_idx: ti }, 2, tdi, row, col, center, TENT_BUILD_COST)
+                .then_some("built tent".into())
+        }
+        AiAction::BuildFarm => {
+            let tg = town_grids.grids.get(grid_idx)?;
+            let (row, col) = find_inner_slot(tg, center, grid)?;
+            try_build(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::Farm { town_idx: ti }, -1, tdi, row, col, center, FARM_BUILD_COST)
+                .then_some("built farm".into())
+        }
+        AiAction::BuildHouse => {
+            let tg = town_grids.grids.get(grid_idx)?;
+            let (row, col) = find_inner_slot(tg, center, grid)?;
+            try_build(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::House { town_idx: ti }, 0, tdi, row, col, center, HOUSE_BUILD_COST)
+                .then_some("built house".into())
+        }
+        AiAction::BuildBarracks => {
+            let tg = town_grids.grids.get(grid_idx)?;
+            let (row, col) = find_inner_slot(tg, center, grid)?;
+            try_build(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::Barracks { town_idx: ti }, 1, tdi, row, col, center, BARRACKS_BUILD_COST)
+                .then_some("built barracks".into())
+        }
+        AiAction::BuildGuardPost => {
+            let tg = town_grids.grids.get(grid_idx)?;
+            let (row, col) = find_guard_post_slot(tg, center, grid, world_data, ti)?;
+            try_build(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
+                -1, tdi, row, col, center, GUARD_POST_BUILD_COST)
+                .then_some("built guard post".into())
+        }
+        AiAction::UnlockSlot => {
+            let tg = town_grids.grids.get(grid_idx)?;
+            let adjacent = world::get_adjacent_locked_slots(tg);
+            let &(row, col) = adjacent.first()?;
+            let f = food_storage.food.get(tdi).copied().unwrap_or(0);
+            if f < SLOT_UNLOCK_COST { return None; }
+            if let Some(f) = food_storage.food.get_mut(tdi) { *f -= SLOT_UNLOCK_COST; }
+            let slot_pos = world::town_grid_to_world(center, row, col);
+            let (gc, gr) = grid.world_to_grid(slot_pos);
+            if let Some(cell) = grid.cell_mut(gc, gr) {
+                cell.terrain = world::Biome::Dirt;
+            }
+            if let Some(tg) = town_grids.grids.get_mut(grid_idx) {
+                tg.unlocked.insert((row, col));
+            }
+            Some("unlocked slot".into())
+        }
+        AiAction::Upgrade(idx) => {
+            upgrade_queue.0.push((tdi, idx));
+            let name = match idx {
+                0 => "GuardHealth", 1 => "GuardAttack", 2 => "GuardRange",
+                3 => "GuardSize", 4 => "AttackSpeed", 5 => "MoveSpeed",
+                6 => "AlertRadius", 7 => "FarmYield", 8 => "FarmerHp",
+                9 => "HealingRate", 10 => "FoodEfficiency", 11 => "FountainRadius",
+                _ => "Unknown",
+            };
+            Some(format!("upgraded {name}"))
         }
     }
 }

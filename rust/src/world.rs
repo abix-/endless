@@ -526,6 +526,7 @@ impl Biome {
 pub enum TileSpec {
     Single(u32, u32),
     Quad([(u32, u32); 4]),  // [TL, TR, BL, BR]
+    External(usize),        // index into extra images slice
 }
 
 /// Atlas (col, row) positions for the 11 terrain tiles used in the TilemapChunk tileset.
@@ -547,11 +548,11 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
 pub const BUILDING_TILES: [TileSpec; 8] = [
     TileSpec::Single(50, 9),  // 0: Fountain
     TileSpec::Single(15, 2),  // 1: Bed
-    TileSpec::Single(20, 20), // 2: Guard Post
+    TileSpec::External(2),    // 2: Guard Post (guard_post.png)
     TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]), // 3: Farm
     TileSpec::Quad([(46, 10), (47, 10), (46, 11), (47, 11)]), // 4: Camp (center)
-    TileSpec::Single(13, 2),  // 5: House
-    TileSpec::Single(14, 2),  // 6: Barracks (castle)
+    TileSpec::External(0),    // 5: House (house.png)
+    TileSpec::External(1),    // 6: Barracks (barracks.png)
     TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]), // 7: Tent (raider spawner)
 ];
 
@@ -559,7 +560,7 @@ pub const BUILDING_TILES: [TileSpec; 8] = [
 /// Each layer is 32x32 pixels. Single sprites are nearest-neighbor 2x upscaled.
 /// Quad sprites composite four 16x16 sprites into quadrants.
 /// The atlas has 1px margins (17px cells).
-pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], images: &mut Assets<Image>) -> Handle<Image> {
+pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images: &mut Assets<Image>) -> Handle<Image> {
     let sprite = SPRITE_SIZE as u32;    // 16
     let out_size = sprite * 2;          // 32
     let cell_size = CELL as u32;        // 17
@@ -608,6 +609,14 @@ pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], images: &mut Assets<Imag
                 blit(&mut data, l, q[1].0, q[1].1, sprite, 0);         // TR
                 blit(&mut data, l, q[2].0, q[2].1, 0, sprite);         // BL
                 blit(&mut data, l, q[3].0, q[3].1, sprite, sprite);    // BR
+            }
+            TileSpec::External(idx) => {
+                let ext = extra[idx];
+                let ext_data = ext.data.as_ref().expect("external image has no data");
+                let layer_offset = (l * out_size * out_size * 4) as usize;
+                let layer_bytes = (out_size * out_size * 4) as usize;
+                data[layer_offset..layer_offset + layer_bytes]
+                    .copy_from_slice(&ext_data[..layer_bytes]);
             }
         }
     }

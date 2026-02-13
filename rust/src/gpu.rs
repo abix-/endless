@@ -285,10 +285,10 @@ pub fn sync_visual_sprites(
         // Color: raiders use faction palette, others use job color
         let c = idx * 4;
         if c + 3 < buffer.colors.len() {
-            let (r, g, b, a) = if *job == Job::Raider {
-                crate::constants::raider_faction_color(faction.0)
-            } else {
+            let (r, g, b, a) = if faction.0 == 0 {
                 job.color()
+            } else {
+                crate::constants::raider_faction_color(faction.0)
             };
             buffer.colors[c] = r;
             buffer.colors[c + 1] = g;

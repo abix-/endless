@@ -125,7 +125,7 @@ Execution order is **chained** — each system completes before the next starts.
 ### 7. guard_post_attack_system (combat.rs)
 - Iterates `WorldData.guard_posts` with `GuardPostState` per-post timers and enabled flags
 - State length auto-syncs with guard post count (handles runtime building)
-- For each enabled post with cooldown ready: looks up owning faction from `world_data.towns[post.town_idx]`, scans `GpuReadState.positions`+`factions` for nearest enemy (different faction) within `GUARD_POST_RANGE` (250px)
+- For each enabled post with cooldown ready: looks up owning faction from `world_data.towns[post.town_idx]`, scans `GpuReadState.positions`+`factions` (using `gpu_state.npc_count` for bounds) for nearest enemy (different faction) within `GUARD_POST_RANGE` (250px)
 - Fires projectile via `PROJ_GPU_UPDATE_QUEUE` with `shooter: -1` (building, not NPC) and post's owning faction
 - Constants: range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s
 - Turret toggle: `GuardPostState.attack_enabled[i]` toggled via build menu UI

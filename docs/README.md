@@ -169,7 +169,7 @@ rust/
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, respawning, building spawners, squad cleanup
-    ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), smart slot selection, build/unlock/upgrade
+    ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), weighted random scoring (like NPC behavior), smart slot selection
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 
@@ -183,5 +183,8 @@ assets/
   roguelikeSheet_transparent.png  # World sprites (57x31 grid, 16px + 1px margin)
   heal.png                        # Heal halo sprite (single 16x16, atlas_id=2.0)
   sleep.png                       # Sleep icon sprite (single 16x16, atlas_id=3.0)
+  house.png                       # House building sprite (32x32, External tileset)
+  barracks.png                    # Barracks building sprite (32x32, External tileset)
+  guard_post.png                  # Guard post building sprite (32x32, External tileset)
 ```
 

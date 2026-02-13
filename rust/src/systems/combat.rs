@@ -260,7 +260,7 @@ pub fn guard_post_attack_system(
     let dt = time.delta_secs();
     let positions = &gpu_state.positions;
     let factions = &gpu_state.factions;
-    let npc_count = positions.len() / 2;
+    let npc_count = gpu_state.npc_count;
 
     // Sync state length with guard post count (handles new builds)
     while gp_state.timers.len() < world_data.guard_posts.len() {

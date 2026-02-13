@@ -43,6 +43,10 @@ pub struct SpriteAssets {
     /// World sprite sheet (terrain, buildings)
     pub world_texture: Handle<Image>,
     pub world_atlas: Handle<TextureAtlasLayout>,
+    /// External building sprites (32x32 PNGs)
+    pub house_texture: Handle<Image>,
+    pub barracks_texture: Handle<Image>,
+    pub guard_post_texture: Handle<Image>,
     /// Whether assets are loaded
     pub loaded: bool,
 }
@@ -129,6 +133,9 @@ fn load_sprites(
 
     // Load world sprite sheet
     assets.world_texture = asset_server.load("assets/roguelikeSheet_transparent.png");
+    assets.house_texture = asset_server.load("assets/house.png");
+    assets.barracks_texture = asset_server.load("assets/barracks.png");
+    assets.guard_post_texture = asset_server.load("assets/guard_post.png");
     npc_sprite_tex.world_handle = Some(assets.world_texture.clone());
 
     // Load heal halo sprite (single 16x16 texture)
@@ -375,9 +382,12 @@ fn spawn_world_tilemap(
 ) {
     if spawned.0 || grid.width == 0 { return; }
     let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
+    let Some(house_img) = images.get(&assets.house_texture).cloned() else { return; };
+    let Some(barracks_img) = images.get(&assets.barracks_texture).cloned() else { return; };
+    let Some(guard_post_img) = images.get(&assets.guard_post_texture).cloned() else { return; };
 
     // Terrain layer: every cell filled, opaque. Tagged with TerrainChunk for runtime sync.
-    let terrain_tileset = build_tileset(&atlas, &TERRAIN_TILES, &mut images);
+    let terrain_tileset = build_tileset(&atlas, &TERRAIN_TILES, &[], &mut images);
     let terrain_tiles: Vec<Option<TileData>> = grid.cells.iter().enumerate()
         .map(|(i, cell)| Some(TileData::from_tileset_index(cell.terrain.tileset_index(i))))
         .collect();
@@ -397,7 +407,7 @@ fn spawn_world_tilemap(
 
     // Building layer: None for empty cells, building tile where placed.
     // Spawned with BuildingChunk marker for runtime tile updates.
-    let building_tileset = build_tileset(&atlas, &BUILDING_TILES, &mut images);
+    let building_tileset = build_tileset(&atlas, &BUILDING_TILES, &[&house_img, &barracks_img, &guard_post_img], &mut images);
     let building_tiles: Vec<Option<TileData>> = grid.cells.iter()
         .map(|cell| cell.building.as_ref().map(|b| TileData::from_tileset_index(b.tileset_index())))
         .collect();
