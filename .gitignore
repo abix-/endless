@@ -9,3 +9,4 @@ rust/target/
 *.import
 gdextension_interface.h
 *.tmp
+/dist
