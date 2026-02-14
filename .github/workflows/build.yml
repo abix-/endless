@@ -1,136 +1,56 @@
-name: build
+name: manual-build
 
 on:
-  pull_request:
-  push:
-    branches: ["main"]
-    tags: ["v*"]
-  schedule:
-    - cron: "0 3 * * *" # nightly @ 03:00 UTC
   workflow_dispatch:
+    inputs:
+      target:
+        description: Which builds to run?
+        type: choice
+        required: true
+        default: windows
+        options:
+          - windows
+          - macos
+          - linux
+          - all
+
+  # Optional: also build automatically when you create a version tag
+  push:
+    tags: ["v*"]
 
 permissions:
-  contents: write # needed for Release uploads on tag builds
+  contents: write # only needed for tag->Release uploads
 
 jobs:
-  windows:
-    runs-on: windows-latest
-
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
-      cancel-in-progress: true
-
-    defaults:
-      run:
-        working-directory: rust
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "rust -> target"
-          # restore always; only SAVE on nightly/tags
-          save-if: ${{ github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/v') }}
-
-      - name: Build (release)
-        run: cargo build --release
-
-      - name: Should package?
-        id: pkg
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Tags always package
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "do_package=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # PRs never package
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "do_package=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Nightly: only package if main changed in last 24h
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            git fetch --no-tags --prune origin main
-            if git log -1 --since="24 hours ago" --format=%H origin/main | grep -q .; then
-              echo "do_package=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "do_package=false" >> "$GITHUB_OUTPUT"
-            fi
-            exit 0
-          fi
-
-          # Push to main: build only (no zip)
-          echo "do_package=false" >> "$GITHUB_OUTPUT"
-
-      - name: Setup 7-Zip
-        if: steps.pkg.outputs.do_package == 'true'
-        uses: milliewalky/setup-7-zip@v2
-
-      - name: Package (max)
-        if: steps.pkg.outputs.do_package == 'true'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          New-Item -ItemType Directory -Force dist | Out-Null
-
-          $exe = Get-ChildItem -Path "target/release" -Filter "*.exe" |
-                 Sort-Object Length -Descending |
-                 Select-Object -First 1
-          if (-not $exe) { throw "No .exe found in rust/target/release" }
-
-          Copy-Item $exe.FullName "dist/endless.exe" -Force
-
-          if (Test-Path "../assets") { Copy-Item "../assets" "dist/assets" -Recurse -Force }
-          if (Test-Path "assets")    { Copy-Item "assets"    "dist/assets" -Recurse -Force }
-
-          if (Test-Path "endless-windows.zip") { Remove-Item "endless-windows.zip" -Force }
-          7z a -tzip -mx=9 "endless-windows.zip" ".\dist\*"
-
-      - name: Upload artifact
-        if: steps.pkg.outputs.do_package == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: endless-windows
-          path: rust/endless-windows.zip
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload to GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: rust/endless-windows.zip
-
-  unix:
-    # Only run macOS+Linux on nightly or tags
-    if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ${{ matrix.os }}
-
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}-${{ matrix.os }}
-      cancel-in-progress: true
-
+  build:
     strategy:
       fail-fast: false
       matrix:
         include:
+          - os: windows-latest
+            key: windows
+            artifact: endless-windows
+            out_zip: endless-windows.zip
           - os: macos-latest
+            key: macos
             artifact: endless-macos
-            zip_name: endless-macos.zip
+            out_zip: endless-macos.zip
           - os: ubuntu-latest
+            key: linux
             artifact: endless-linux
-            zip_name: endless-linux.zip
+            out_zip: endless-linux.zip
+
+    # Run only the selected OS (or all). For tag builds, run all.
+    if: |
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.event.inputs.target == 'all' ||
+      github.event.inputs.target == matrix.key
+
+    runs-on: ${{ matrix.os }}
+
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.os }}
+      cancel-in-progress: true
 
     defaults:
       run:
@@ -138,15 +58,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
-          save-if: true
 
       - name: Install Linux deps
         if: runner.os == 'Linux'
@@ -162,36 +79,41 @@ jobs:
       - name: Build (release)
         run: cargo build --release
 
-      - name: Should package?
-        id: pkg
-        shell: bash
+      # Windows: max zip compression via 7-Zip
+      - name: Setup 7-Zip (Windows)
+        if: runner.os == 'Windows'
+        uses: milliewalky/setup-7-zip@v2
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          set -euo pipefail
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force dist | Out-Null
 
-          # Tags always package
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "do_package=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          $exe = Get-ChildItem -Path "target/release" -Filter "*.exe" |
+                 Sort-Object Length -Descending |
+                 Select-Object -First 1
+          if (-not $exe) { throw "No .exe found in rust/target/release" }
 
-          # Nightly: only package if main changed in last 24h
-          git fetch --no-tags --prune origin main
-          if git log -1 --since="24 hours ago" --format=%H origin/main | grep -q .; then
-            echo "do_package=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "do_package=false" >> "$GITHUB_OUTPUT"
-          fi
+          Copy-Item $exe.FullName "dist/endless.exe" -Force
 
-      - name: Package (macOS/Linux, max)
-        if: steps.pkg.outputs.do_package == 'true'
+          if (Test-Path "../assets") { Copy-Item "../assets" "dist/assets" -Recurse -Force }
+          if (Test-Path "assets")    { Copy-Item "assets"    "dist/assets" -Recurse -Force }
+
+          if (Test-Path "${{ matrix.out_zip }}") { Remove-Item "${{ matrix.out_zip }}" -Force }
+          7z a -tzip -mx=9 "${{ matrix.out_zip }}" ".\dist\*"
+
+      # macOS/Linux: zip -9
+      - name: Package (macOS/Linux)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
 
           BIN="$(find target/release -maxdepth 1 -type f -perm -111 -print0 \
-                | xargs -0 ls -S \
-                | head -n 1)"
+                | xargs -0 ls -S | head -n 1)"
           [[ -n "${BIN:-}" ]] || { echo "No executable found in rust/target/release"; exit 1; }
 
           cp "$BIN" "dist/endless"
@@ -200,20 +122,20 @@ jobs:
           [[ -d "../assets" ]] && cp -R "../assets" "dist/assets" || true
           [[ -d "assets" ]] && cp -R "assets" "dist/assets" || true
 
-          rm -f "${{ matrix.zip_name }}"
-          (cd dist && zip -9 -r "../${{ matrix.zip_name }}" .)
+          rm -f "${{ matrix.out_zip }}"
+          (cd dist && zip -9 -r "../${{ matrix.out_zip }}" .)
 
       - name: Upload artifact
-        if: steps.pkg.outputs.do_package == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: rust/${{ matrix.zip_name }}
+          path: rust/${{ matrix.out_zip }}
           if-no-files-found: error
           retention-days: 7
 
+      # Optional: if you pushed a v* tag, also attach artifacts to the GitHub Release
       - name: Upload to GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v') && steps.pkg.outputs.do_package == 'true'
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: rust/${{ matrix.zip_name }}
+          files: rust/${{ matrix.out_zip }}
