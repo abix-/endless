@@ -14,78 +14,37 @@ on:
           - linux
           - all
 
-  # Optional: also build automatically when you create a version tag
+  # Optional: also build automatically when you push a version tag like v0.2
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write # only needed for tag->Release uploads
+  contents: write # only needed for tag -> Release uploads
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            key: windows
-            artifact: endless-windows
-            out_zip: endless-windows.zip
-          - os: macos-latest
-            key: macos
-            artifact: endless-macos
-            out_zip: endless-macos.zip
-          - os: ubuntu-latest
-            key: linux
-            artifact: endless-linux
-            out_zip: endless-linux.zip
-
-    # Run only the selected OS (or all). For tag builds, run all.
-    if: |
-      startsWith(github.ref, 'refs/tags/v') ||
-      github.event.inputs.target == 'all' ||
-      github.event.inputs.target == matrix.key
-
-    runs-on: ${{ matrix.os }}
-
+  windows:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'windows' || github.event.inputs.target == 'all'
+    runs-on: windows-latest
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.os }}
+      group: ${{ github.workflow }}-${{ github.ref }}-windows
       cancel-in-progress: true
-
     defaults:
       run:
         working-directory: rust
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
 
-      - name: Install Linux deps
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
-            g++ pkg-config \
-            libx11-dev libasound2-dev libudev-dev \
-            libwayland-dev libxkbcommon-dev
-
       - name: Build (release)
         run: cargo build --release
 
-      # Windows: max zip compression via 7-Zip
-      - name: Setup 7-Zip (Windows)
-        if: runner.os == 'Windows'
+      - name: Setup 7-Zip
         uses: milliewalky/setup-7-zip@v2
 
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
+      - name: Package (Windows, max)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -101,41 +60,123 @@ jobs:
           if (Test-Path "../assets") { Copy-Item "../assets" "dist/assets" -Recurse -Force }
           if (Test-Path "assets")    { Copy-Item "assets"    "dist/assets" -Recurse -Force }
 
-          if (Test-Path "${{ matrix.out_zip }}") { Remove-Item "${{ matrix.out_zip }}" -Force }
-          7z a -tzip -mx=9 "${{ matrix.out_zip }}" ".\dist\*"
-
-      # macOS/Linux: zip -9
-      - name: Package (macOS/Linux)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-
-          BIN="$(find target/release -maxdepth 1 -type f -perm -111 -print0 \
-                | xargs -0 ls -S | head -n 1)"
-          [[ -n "${BIN:-}" ]] || { echo "No executable found in rust/target/release"; exit 1; }
-
-          cp "$BIN" "dist/endless"
-          chmod +x "dist/endless"
-
-          [[ -d "../assets" ]] && cp -R "../assets" "dist/assets" || true
-          [[ -d "assets" ]] && cp -R "assets" "dist/assets" || true
-
-          rm -f "${{ matrix.out_zip }}"
-          (cd dist && zip -9 -r "../${{ matrix.out_zip }}" .)
+          if (Test-Path "endless-windows.zip") { Remove-Item "endless-windows.zip" -Force }
+          7z a -tzip -mx=9 "endless-windows.zip" ".\dist\*"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: rust/${{ matrix.out_zip }}
+          name: endless-windows
+          path: rust/endless-windows.zip
           if-no-files-found: error
           retention-days: 7
 
-      # Optional: if you pushed a v* tag, also attach artifacts to the GitHub Release
       - name: Upload to GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: rust/${{ matrix.out_zip }}
+          files: rust/endless-windows.zip
+
+  macos:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'macos' || github.event.inputs.target == 'all'
+    runs-on: macos-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-macos
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "rust -> target"
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Package (macOS, max)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          BIN="$(find target/release -maxdepth 1 -type f -perm -111 -print0 | xargs -0 ls -S | head -n 1)"
+          [[ -n "${BIN:-}" ]] || { echo "No executable found in rust/target/release"; exit 1; }
+          cp "$BIN" "dist/endless"
+          chmod +x "dist/endless"
+          [[ -d "../assets" ]] && cp -R "../assets" "dist/assets" || true
+          [[ -d "assets" ]] && cp -R "assets" "dist/assets" || true
+          rm -f endless-macos.zip
+          (cd dist && zip -9 -r ../endless-macos.zip .)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: endless-macos
+          path: rust/endless-macos.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: rust/endless-macos.zip
+
+  linux:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'linux' || github.event.inputs.target == 'all'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-linux
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "rust -> target"
+
+      - name: Install Linux deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            g++ pkg-config \
+            libx11-dev libasound2-dev libudev-dev \
+            libwayland-dev libxkbcommon-dev
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Package (Linux, max)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          BIN="$(find target/release -maxdepth 1 -type f -perm -111 -print0 | xargs -0 ls -S | head -n 1)"
+          [[ -n "${BIN:-}" ]] || { echo "No executable found in rust/target/release"; exit 1; }
+          cp "$BIN" "dist/endless"
+          chmod +x "dist/endless"
+          [[ -d "../assets" ]] && cp -R "../assets" "dist/assets" || true
+          [[ -d "assets" ]] && cp -R "assets" "dist/assets" || true
+          rm -f endless-linux.zip
+          (cd dist && zip -9 -r ../endless-linux.zip .)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: endless-linux
+          path: rust/endless-linux.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: rust/endless-linux.zip
