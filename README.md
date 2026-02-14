@@ -10,22 +10,20 @@ A real-time kingdom builder inspired by [Lords of the Realm 2](https://en.wikipe
 
 > *Early development — core loop works: farming, combat, upgrades, building, policies. [Roadmap](docs/roadmap.md)*
 
-## Download (v0.1)
+## Download
 
-**Windows build:** https://github.com/abix-/endless/releases/tag/v0.1
-
+**Windows:** https://github.com/abix-/endless/releases/tag/v0.1
 1. Download the `.zip` from the release page.
 2. Extract it.
 3. Run `Endless.exe`
 
-## Getting Started (Build from Source)
+## Build from Source
 
 Requires [Rust](https://rustup.rs/) and a GPU with Vulkan, DX12, or Metal support. First build takes 2-5 minutes. Subsequent builds ~15 seconds.
 
 ### Windows
 
 1. Install [Rust](https://rustup.rs/) + [Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
-
 ```bash
 git clone https://github.com/abix-/endless.git
 cd endless/rust
@@ -45,7 +43,6 @@ cargo run --release
 ### Linux
 
 1. Install [Rust](https://rustup.rs/) + Bevy dependencies:
-
    ```bash
    # Ubuntu/Debian
    sudo apt install g++ pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
