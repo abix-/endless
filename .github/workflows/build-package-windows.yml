@@ -1,0 +1,80 @@
+name: build-and-package
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed only for uploading to Releases on tag builds
+  actions: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: rust
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install Rust toolchain (stable)
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Cache cargo registry + build artifacts to speed up repeat builds
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "rust -> target"
+
+      # Build (CI should build, not run)
+      - name: Build release
+        run: cargo build --release
+
+      # Install 7-Zip so we can do max zip compression (-mx=9)
+      - name: Setup 7-Zip
+        uses: milliewalky/setup-7-zip@v2
+
+      # Package exactly what you want to ship into a zip (max compression)
+      - name: Package (max compression zip)
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          # Find the built exe (crate name could be endless.exe, etc.)
+          $exe = Get-ChildItem -Path "target/release" -Filter "*.exe" |
+                 Sort-Object Length -Descending |
+                 Select-Object -First 1
+
+          if (-not $exe) { throw "No .exe found in rust/target/release" }
+
+          New-Item -ItemType Directory -Force dist | Out-Null
+
+          # Rename to Endless.exe for consistency with your release instructions
+          Copy-Item $exe.FullName "dist/Endless.exe" -Force
+
+          # Optional: include assets if they exist (adjust paths if yours differ)
+          if (Test-Path "../assets") { Copy-Item "../assets" "dist/assets" -Recurse -Force }
+          if (Test-Path "assets")    { Copy-Item "assets"    "dist/assets" -Recurse -Force }
+
+          # Create zip with maximum compression
+          if (Test-Path "Endless-windows.zip") { Remove-Item "Endless-windows.zip" -Force }
+          7z a -tzip -mx=9 "Endless-windows.zip" ".\dist\*"
+
+      # Always upload as a workflow artifact (download from Actions UI)
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Endless-windows
+          path: rust/Endless-windows.zip
+          if-no-files-found: error
+
+      # If this run was triggered by a tag like v0.2, attach the zip to the GitHub Release
+      - name: Upload to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: rust/Endless-windows.zip
