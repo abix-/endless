@@ -15,6 +15,7 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 - `FarmParams`: farm states, `BuildingOccupancy` tracking, world data
 - `EconomyParams`: food storage, food events, population stats
 - `DecisionExtras`: npc logs, raid queue, combat log, policies, squad state, timings
+- `Res<BuildingSpatialGrid>`: CPU-side spatial grid for O(1) building lookups (farms, guard posts, towns, gold mines)
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 

@@ -21,7 +21,7 @@ use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
 use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings};
 use crate::systems::economy::*;
-use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos};
+use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -300,6 +300,7 @@ pub fn decision_system(
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
     npc_config: Res<crate::resources::NpcDecisionConfig>,
+    bgrid: Res<BuildingSpatialGrid>,
 ) {
     let _t = extras.timings.scope("decision");
     let profiling = extras.timings.enabled;
@@ -369,12 +370,12 @@ pub fn decision_system(
                                 }
                             });
 
-                        if let Some((farm_idx, farm_pos)) = find_within_radius(search_pos, &farms.world.farms, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
+                        if let Some((farm_idx, farm_pos)) = find_within_radius(search_pos, &bgrid, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
                             let occupied = farms.occupancy.is_occupied(farm_pos);
 
                             if occupied {
                                 // Farm already has a farmer — find a free one in own town
-                                if let Some(free_pos) = find_nearest_free(search_pos, &farms.world.farms, &farms.occupancy, Some(town_id.0 as u32)) {
+                                if let Some(free_pos) = find_nearest_free(search_pos, &bgrid, BuildingKind::Farm, &farms.occupancy, Some(town_id.0 as u32)) {
                                     *activity = Activity::GoingToWork;
                                     commands.entity(entity).insert(WorkPosition(free_pos));
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: free_pos.x, y: free_pos.y }));
@@ -433,7 +434,7 @@ pub fn decision_system(
                     if idx * 2 + 1 < positions.len() {
                         let pos = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
-                        let ready_farm = find_location_within_radius(pos, &farms.world, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
+                        let ready_farm = find_location_within_radius(pos, &bgrid, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
                             .filter(|(farm_idx, _)| {
                                 *farm_idx < farms.states.states.len()
                                     && farms.states.states[*farm_idx] == FarmGrowthState::Ready
@@ -916,7 +917,7 @@ pub fn decision_system(
                                 home.0
                             };
 
-                            if let Some(farm_pos) = find_nearest_location(pos, &farms.world, LocationKind::Farm) {
+                            if let Some(farm_pos) = find_nearest_location(pos, &bgrid, LocationKind::Farm) {
                                 let group_size = queue.len();
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                                     format!("Raid group of {} dispatched!", group_size));
@@ -976,12 +977,12 @@ pub fn decision_system(
     // Record sub-profiling results
     if profiling {
         let t = &extras.timings;
-        t.record("d.arrival", t_arrival.as_secs_f32() * 1000.0);
-        t.record("d.combat", t_combat.as_secs_f32() * 1000.0);
-        t.record("d.idle", t_idle.as_secs_f32() * 1000.0);
-        t.record("d.n_arrival", n_arrival as f32);
-        t.record("d.n_combat", n_combat as f32);
-        t.record("d.n_idle", n_idle as f32);
+        t.record("decision/arrival", t_arrival.as_secs_f32() * 1000.0);
+        t.record("decision/combat", t_combat.as_secs_f32() * 1000.0);
+        t.record("decision/idle", t_idle.as_secs_f32() * 1000.0);
+        t.record("decision/n_arrival", n_arrival as f32);
+        t.record("decision/n_combat", n_combat as f32);
+        t.record("decision/n_idle", n_idle as f32);
     }
 }
 

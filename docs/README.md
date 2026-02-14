@@ -134,7 +134,7 @@ rust/
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, MinerTarget, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
-  src/world.rs          # World data structs (GoldMine), world grid (Building::GoldMine), procedural generation (mine placement), tileset builder, town grid, building placement/removal
+  src/world.rs          # World data structs (GoldMine), world grid (Building::GoldMine), procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups)
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings), escape/time controls, keyboard toggles (Q=squads), slot right-click, slot indicators
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence

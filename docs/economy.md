@@ -69,7 +69,7 @@ game_time_system (every frame)
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- House → Farmer (nearest **free** farm in own town via `find_nearest_free` — skips occupied farms), Barracks → Guard (nearest guard post, home = building position), Tent → Raider (home = tent position). All spawner types look up faction from `world_data.towns[town_idx].faction`.
+- House → Farmer (nearest **free** farm in own town via `find_nearest_free` on `BuildingSpatialGrid` — skips occupied farms), Barracks → Guard (nearest guard post via `find_location_within_radius` on `BuildingSpatialGrid`, home = building position), Tent → Raider (home = tent position). All spawner types look up faction from `world_data.towns[town_idx].faction`.
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -232,7 +232,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 - Reads `MinerTarget` resource (per-town desired miner count)
 - Counts current miners per town, compares to target
 - **diff > 0** (need more miners): converts idle/resting farmers → miners. Removes `Farmer`/`WorkPosition`/`AssignedFarm`, inserts `Miner`, updates sprite to `SPRITE_MINER`, updates `NpcMetaCache.job`
-- **diff < 0** (need fewer miners): converts idle/resting miners → farmers. Removes `Miner`, inserts `Farmer` + `WorkPosition` (nearest free farm), updates sprite to `SPRITE_FARMER`, updates `NpcMetaCache.job`
+- **diff < 0** (need fewer miners): converts idle/resting miners → farmers. Removes `Miner`, inserts `Farmer` + `WorkPosition` (nearest free farm via `BuildingSpatialGrid`), updates sprite to `SPRITE_FARMER`, updates `NpcMetaCache.job`
 - Only touches NPCs in `Activity::Idle` or `Activity::Resting` — never interrupts working/mining/fighting NPCs
 - Updates `BuildingOccupancy` when releasing mine positions or assigning farm positions
 

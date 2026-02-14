@@ -1,5 +1,6 @@
 //! Left panel — tabbed container for Roster, Upgrades, Policies, and Patrols.
 
+use std::collections::HashMap;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -1010,16 +1011,29 @@ fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings) {
     ui.label(egui::RichText::new(format!("Frame: {:.2} ms", frame_ms)).strong());
     ui.separator();
 
-    let mut entries: Vec<_> = timings.get_timings().into_iter().collect();
-    entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-    if entries.is_empty() {
+    let all = timings.get_timings();
+    if all.is_empty() {
         ui.label("Enable profiler in pause menu settings");
         return;
     }
 
+    // Separate timings from counts (keys containing "/n_")
+    let mut timing_entries: Vec<(&str, f32)> = Vec::new();
+    let mut count_map: HashMap<&str, f32> = HashMap::new();
+    for (&name, &val) in &all {
+        if name.contains("/n_") {
+            count_map.insert(name, val);
+        } else {
+            timing_entries.push((name, val));
+        }
+    }
+    timing_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Check if any entry has a paired count
+    let has_counts = !count_map.is_empty();
+
     if ui.button("Copy Top 10").clicked() {
-        let top10: String = entries.iter().take(10)
+        let top10: String = timing_entries.iter().take(10)
             .map(|(name, ms)| format!("{}: {:.3} ms", name, ms))
             .collect::<Vec<_>>()
             .join("\n");
@@ -1028,12 +1042,36 @@ fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings) {
     }
     ui.separator();
 
-    egui::Grid::new("profiler_grid").striped(true).show(ui, |ui| {
-        for (name, ms) in &entries {
+    let cols = if has_counts { 3 } else { 2 };
+    egui::Grid::new("profiler_grid").num_columns(cols).striped(true).show(ui, |ui| {
+        // Header
+        ui.label(egui::RichText::new("system").strong());
+        ui.label(egui::RichText::new("ms").strong());
+        if has_counts { ui.label(egui::RichText::new("count").strong()); }
+        ui.end_row();
+
+        for (name, ms) in &timing_entries {
             ui.label(*name);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(format!("{:.3} ms", ms));
+                ui.label(egui::RichText::new(format!("{:.3}", ms)).monospace());
             });
+            if has_counts {
+                // Look for paired count: "decision/arrival" → "decision/n_arrival"
+                let count_key = if let Some(slash) = name.rfind('/') {
+                    let (prefix, suffix) = name.split_at(slash + 1);
+                    let candidate = format!("{prefix}n_{suffix}");
+                    count_map.iter().find(|(k, _)| **k == candidate).map(|(_, &v)| v)
+                } else {
+                    None
+                };
+                if let Some(c) = count_key {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(format!("{:.0}", c)).monospace());
+                    });
+                } else {
+                    ui.label("");
+                }
+            }
             ui.end_row();
         }
     });

@@ -113,6 +113,7 @@ struct StartupExtra<'w> {
     mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
     miner_target: ResMut<'w, MinerTarget>,
+    bgrid: ResMut<'w, world::BuildingSpatialGrid>,
 }
 
 /// Initialize the world and spawn NPCs when entering Playing state.
@@ -138,6 +139,9 @@ fn game_startup_system(
     // Generate world (populates grid + world_data + farm_states + houses/barracks + town_grids)
     town_grids.grids.clear();
     world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states, &mut extra.mine_states, &mut town_grids);
+
+    // Build spatial grid for startup find calls
+    extra.bgrid.rebuild(&world_data, grid.width as f32 * grid.cell_size);
 
     // Load saved policies for player's town
     let saved = crate::settings::load_settings();
@@ -213,7 +217,7 @@ fn game_startup_system(
             0 => {
                 // House -> Farmer: find nearest FREE farm in own town
                 let farm = world::find_nearest_free(
-                    entry.position, &world_data.farms, &startup_claimed, Some(entry.town_idx as u32),
+                    entry.position, &extra.bgrid, world::BuildingKind::Farm, &startup_claimed, Some(entry.town_idx as u32),
                 ).unwrap_or(entry.position);
                 // Mark in local tracker so next farmer picks a different farm
                 startup_claimed.claim(farm);
@@ -222,7 +226,7 @@ fn game_startup_system(
             1 => {
                 // Barracks -> Guard: find nearest guard post
                 let post_idx = world::find_location_within_radius(
-                    entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
+                    entry.position, &extra.bgrid, world::LocationKind::GuardPost, f32::MAX,
                 ).map(|(idx, _)| idx as i32).unwrap_or(-1);
                 (1, town_faction, -1.0, -1.0, post_idx, 1)
             }

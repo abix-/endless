@@ -222,6 +222,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<RaidQueue>()
        .init_resource::<SystemTimings>()
        .init_resource::<world::WorldGrid>()
+       .init_resource::<world::BuildingSpatialGrid>()
        .init_resource::<world::WorldGenConfig>()
        .init_resource::<UiState>()
        .init_resource::<CombatLog>()
@@ -274,6 +275,7 @@ pub fn build_app(app: &mut App) {
        ).chain().in_set(Step::Combat))
        // Behavior
        .add_systems(Update, (
+           world::rebuild_building_grid_system.before(decision_system).before(spawner_respawn_system),
            arrival_system,
            energy_system,
            healing_system,

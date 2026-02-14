@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::*;
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS, SPRITE_FARMER, SPRITE_MINER};
-use crate::world::{self, WorldData, BuildingOccupancy};
+use crate::world::{self, WorldData, BuildingOccupancy, BuildingSpatialGrid, BuildingKind};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
 
@@ -275,6 +275,7 @@ pub fn spawner_respawn_system(
     mut combat_log: ResMut<CombatLog>,
     farm_occupancy: Res<BuildingOccupancy>,
     timings: Res<SystemTimings>,
+    bgrid: Res<BuildingSpatialGrid>,
 ) {
     let _t = timings.scope("spawner_respawn");
     if !game_time.hour_ticked {
@@ -311,14 +312,14 @@ pub fn spawner_respawn_system(
                         0 => {
                             // House -> Farmer: find nearest FREE farm in own town
                             let farm = world::find_nearest_free(
-                                entry.position, &world_data.farms, &farm_occupancy, Some(entry.town_idx as u32),
+                                entry.position, &bgrid, BuildingKind::Farm, &farm_occupancy, Some(entry.town_idx as u32),
                             ).unwrap_or(entry.position);
                             (0, town_faction, farm.x, farm.y, -1, 0, "Farmer", "House")
                         }
                         1 => {
                             // Barracks -> Guard
                             let post_idx = world::find_location_within_radius(
-                                entry.position, &world_data, world::LocationKind::GuardPost, f32::MAX,
+                                entry.position, &bgrid, world::LocationKind::GuardPost, f32::MAX,
                             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
                             (1, town_faction, -1.0, -1.0, post_idx, 1, "Guard", "Barracks")
                         }
@@ -389,9 +390,10 @@ pub fn job_reassign_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut npc_logs: ResMut<NpcLogCache>,
     mut occupancy: ResMut<BuildingOccupancy>,
-    world_data: Res<WorldData>,
+    _world_data: Res<WorldData>,
     game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
+    bgrid: Res<BuildingSpatialGrid>,
 ) {
     let _t = timings.scope("job_reassign");
     if miner_target.targets.is_empty() { return; }
@@ -468,7 +470,7 @@ pub fn job_reassign_system(
             for (entity, idx, home_pos) in to_convert {
                 // Find nearest free farm for this town
                 let farm_pos = world::find_nearest_free(
-                    home_pos, &world_data.farms, &occupancy, Some(town_idx as u32),
+                    home_pos, &bgrid, BuildingKind::Farm, &occupancy, Some(town_idx as u32),
                 ).unwrap_or(home_pos);
 
                 commands.entity(entity)

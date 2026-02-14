@@ -380,37 +380,37 @@ pub enum LocationKind {
 }
 
 /// Find nearest location of a given kind (no radius limit, position only).
-pub fn find_nearest_location(from: Vec2, world: &WorldData, kind: LocationKind) -> Option<Vec2> {
-    find_location_within_radius(from, world, kind, f32::MAX).map(|(_, pos)| pos)
+pub fn find_nearest_location(from: Vec2, bgrid: &BuildingSpatialGrid, kind: LocationKind) -> Option<Vec2> {
+    find_location_within_radius(from, bgrid, kind, f32::MAX).map(|(_, pos)| pos)
 }
 
 /// Find nearest location of a given kind within radius. Returns (index, position).
-/// Core function used by both internal Rust code and FFI functions.
 pub fn find_location_within_radius(
     from: Vec2,
-    world: &WorldData,
+    bgrid: &BuildingSpatialGrid,
     kind: LocationKind,
     radius: f32,
 ) -> Option<(usize, Vec2)> {
-    let mut best: Option<(f32, usize, Vec2)> = None;
-
-    let positions: Vec<Vec2> = match kind {
-        LocationKind::Farm => world.farms.iter().map(|f| f.position).collect(),
-        LocationKind::GuardPost => world.guard_posts.iter().map(|g| g.position).collect(),
-        LocationKind::Town => world.towns.iter().map(|t| t.center).collect(),
-        LocationKind::GoldMine => world.gold_mines.iter().map(|m| m.position).collect(),
+    let bkind = match kind {
+        LocationKind::Farm => BuildingKind::Farm,
+        LocationKind::GuardPost => BuildingKind::GuardPost,
+        LocationKind::Town => BuildingKind::Town,
+        LocationKind::GoldMine => BuildingKind::GoldMine,
     };
-
-    for (idx, pos) in positions.iter().enumerate() {
-        let dx = pos.x - from.x;
-        let dy = pos.y - from.y;
-        let dist = (dx * dx + dy * dy).sqrt();
-        if dist <= radius && (best.is_none() || dist < best.unwrap().0) {
-            best = Some((dist, idx, *pos));
+    let r2 = radius * radius;
+    let mut best_d2 = f32::MAX;
+    let mut result: Option<(usize, Vec2)> = None;
+    bgrid.for_each_nearby(from, radius, |bref| {
+        if bref.kind != bkind { return; }
+        let dx = bref.position.x - from.x;
+        let dy = bref.position.y - from.y;
+        let d2 = dx * dx + dy * dy;
+        if d2 <= r2 && d2 < best_d2 {
+            best_d2 = d2;
+            result = Some((bref.index, bref.position));
         }
-    }
-
-    best.map(|(_, idx, pos)| (idx, pos))
+    });
+    result
 }
 
 /// Convert Vec2 to integer key for HashMap lookup.
@@ -456,49 +456,162 @@ impl Worksite for Farm {
     fn town_idx(&self) -> u32 { self.town_idx }
 }
 
-/// Find nearest unoccupied worksite, optionally filtered by town.
-pub fn find_nearest_free<W: Worksite>(
+/// Find nearest unoccupied building of `kind`, optionally filtered by town.
+pub fn find_nearest_free(
     from: Vec2,
-    sites: &[W],
+    bgrid: &BuildingSpatialGrid,
+    kind: BuildingKind,
     occupancy: &BuildingOccupancy,
     town_idx: Option<u32>,
 ) -> Option<Vec2> {
-    let mut best: Option<(f32, Vec2)> = None;
-    for site in sites {
+    let mut best_d2 = f32::MAX;
+    let mut result: Option<Vec2> = None;
+    bgrid.for_each_nearby(from, f32::MAX, |bref| {
+        if bref.kind != kind { return; }
         if let Some(tid) = town_idx {
-            if site.town_idx() != tid { continue; }
+            if bref.town_idx != tid { return; }
         }
-        if occupancy.is_occupied(site.position()) { continue; }
-        let dist = from.distance(site.position());
-        if best.is_none() || dist < best.unwrap().0 {
-            best = Some((dist, site.position()));
+        if occupancy.is_occupied(bref.position) { return; }
+        let dx = bref.position.x - from.x;
+        let dy = bref.position.y - from.y;
+        let d2 = dx * dx + dy * dy;
+        if d2 < best_d2 {
+            best_d2 = d2;
+            result = Some(bref.position);
         }
-    }
-    best.map(|(_, pos)| pos)
+    });
+    result
 }
 
-/// Find nearest worksite within radius, filtered by town. Returns (index, position).
-pub fn find_within_radius<W: Worksite>(
+/// Find nearest building of `kind` within radius, filtered by town. Returns (index, position).
+pub fn find_within_radius(
     from: Vec2,
-    sites: &[W],
+    bgrid: &BuildingSpatialGrid,
+    kind: BuildingKind,
     radius: f32,
     town_idx: u32,
 ) -> Option<(usize, Vec2)> {
-    let mut best: Option<(f32, usize, Vec2)> = None;
-    for (idx, site) in sites.iter().enumerate() {
-        if site.town_idx() != town_idx { continue; }
-        let dist = from.distance(site.position());
-        if dist <= radius && (best.is_none() || dist < best.unwrap().0) {
-            best = Some((dist, idx, site.position()));
+    let r2 = radius * radius;
+    let mut best_d2 = f32::MAX;
+    let mut result: Option<(usize, Vec2)> = None;
+    bgrid.for_each_nearby(from, radius, |bref| {
+        if bref.kind != kind || bref.town_idx != town_idx { return; }
+        let dx = bref.position.x - from.x;
+        let dy = bref.position.y - from.y;
+        let d2 = dx * dx + dy * dy;
+        if d2 <= r2 && d2 < best_d2 {
+            best_d2 = d2;
+            result = Some((bref.index, bref.position));
         }
-    }
-    best.map(|(_, idx, pos)| (idx, pos))
+    });
+    result
 }
 
 /// Find worksite index by position.
 pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
     let key = pos_to_key(pos);
     sites.iter().position(|s| pos_to_key(s.position()) == key)
+}
+
+// ============================================================================
+// BUILDING SPATIAL GRID
+// ============================================================================
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BuildingKind { Farm, GuardPost, Town, GoldMine }
+
+#[derive(Clone, Copy)]
+pub struct BuildingRef {
+    pub kind: BuildingKind,
+    pub index: usize,
+    pub town_idx: u32,
+    pub position: Vec2,
+}
+
+/// CPU-side spatial grid for O(1) building lookups.
+/// Cell size 256px → 31×31 cells for an 8000px world.
+#[derive(Resource, Default)]
+pub struct BuildingSpatialGrid {
+    cell_size: f32,
+    width: usize,
+    height: usize,
+    cells: Vec<Vec<BuildingRef>>,
+}
+
+impl BuildingSpatialGrid {
+    /// Rebuild grid from current WorldData. Called once per frame.
+    pub fn rebuild(&mut self, world: &WorldData, world_size_px: f32) {
+        self.cell_size = 256.0;
+        self.width = (world_size_px / self.cell_size).ceil() as usize + 1;
+        self.height = self.width;
+        let total = self.width * self.height;
+        self.cells.resize_with(total, Vec::new);
+        for cell in &mut self.cells { cell.clear(); }
+
+        for (i, farm) in world.farms.iter().enumerate() {
+            if farm.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::Farm, index: i,
+                town_idx: farm.town_idx, position: farm.position,
+            });
+        }
+        for (i, gp) in world.guard_posts.iter().enumerate() {
+            if gp.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::GuardPost, index: i,
+                town_idx: gp.town_idx, position: gp.position,
+            });
+        }
+        for (i, town) in world.towns.iter().enumerate() {
+            self.insert(BuildingRef {
+                kind: BuildingKind::Town, index: i,
+                town_idx: i as u32, position: town.center,
+            });
+        }
+        for (i, mine) in world.gold_mines.iter().enumerate() {
+            if mine.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::GoldMine, index: i,
+                town_idx: u32::MAX, position: mine.position,
+            });
+        }
+    }
+
+    fn insert(&mut self, bref: BuildingRef) {
+        let cx = (bref.position.x / self.cell_size) as usize;
+        let cy = (bref.position.y / self.cell_size) as usize;
+        if cx < self.width && cy < self.height {
+            self.cells[cy * self.width + cx].push(bref);
+        }
+    }
+
+    /// Iterate all buildings in cells overlapping the AABB (pos ± radius).
+    /// Caller must do fine distance check in the closure if needed.
+    pub fn for_each_nearby(&self, pos: Vec2, radius: f32, mut f: impl FnMut(&BuildingRef)) {
+        if self.width == 0 || self.height == 0 { return; }
+        let min_cx = ((pos.x - radius).max(0.0) / self.cell_size) as usize;
+        let max_cx = (((pos.x + radius) / self.cell_size) as usize).min(self.width - 1);
+        let min_cy = ((pos.y - radius).max(0.0) / self.cell_size) as usize;
+        let max_cy = (((pos.y + radius) / self.cell_size) as usize).min(self.height - 1);
+        for cy in min_cy..=max_cy {
+            let row = cy * self.width;
+            for cx in min_cx..=max_cx {
+                for bref in &self.cells[row + cx] {
+                    f(bref);
+                }
+            }
+        }
+    }
+}
+
+/// Rebuild building spatial grid from WorldData. Runs once per frame before decision_system.
+pub fn rebuild_building_grid_system(
+    mut bgrid: ResMut<BuildingSpatialGrid>,
+    world_data: Res<WorldData>,
+    grid: Res<WorldGrid>,
+) {
+    if grid.width == 0 { return; }
+    bgrid.rebuild(&world_data, grid.width as f32 * grid.cell_size);
 }
 
 // ============================================================================

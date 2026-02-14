@@ -50,6 +50,7 @@ Static world data, immutable after initialization.
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
+| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines) | O(1) spatial queries for building find functions; rebuilt once per frame by `rebuild_building_grid_system` |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 
 ### WorldData Structs
@@ -65,7 +66,7 @@ Static world data, immutable after initialization.
 | Tent | position (Vec2), town_idx |
 | GoldMine | position (Vec2) |
 
-Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `find_nearest_free()` (generic via `Worksite` trait), `find_within_radius()`, `find_by_pos()`.
+Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `find_nearest_free()`, `find_within_radius()`, `find_by_pos()`. The first four use `BuildingSpatialGrid` for O(1) cell lookups instead of linear scans. `find_by_pos` still uses the `Worksite` trait directly on slices.
 
 ### World Grid
 
