@@ -1,80 +1,188 @@
-name: build-and-package-windows
+name: build
 
 on:
+  pull_request:
   push:
     branches: ["main"]
     tags: ["v*"]
-  pull_request:
+  schedule:
+    - cron: "0 3 * * *" # nightly @ 03:00 UTC
   workflow_dispatch:
 
 permissions:
-  contents: write   # needed only for uploading to Releases on tag builds
-  actions: read
+  contents: write # needed for Release uploads on tag builds
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    # Prevent overlapping jobs per branch/tag + OS (stops cache “reserve” collisions)
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.os }}
+      cancel-in-progress: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Always run Windows
+          - os: windows-latest
+            artifact: endless-windows
+            zip_name: endless-windows.zip
+
+          # Only run mac/linux on nightly or tags (skip on normal pushes/PRs)
+          - os: macos-latest
+            artifact: endless-macos
+            zip_name: endless-macos.zip
+            gated: true
+          - os: ubuntu-latest
+            artifact: endless-linux
+            zip_name: endless-linux.zip
+            gated: true
+
+    # Gate mac/linux unless nightly or tag
+    if: |
+      matrix.gated != true ||
+      github.event_name == 'schedule' ||
+      startsWith(github.ref, 'refs/tags/v')
+
+    runs-on: ${{ matrix.os }}
 
     defaults:
       run:
-        shell: pwsh
         working-directory: rust
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed for "did main change in last 24h?" logic
 
-      # Install Rust toolchain (stable)
       - uses: dtolnay/rust-toolchain@stable
-
-      # Cache cargo registry + build artifacts to speed up repeat builds
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
 
-      # Build (CI should build, not run)
-      - name: Build release
+      # Bevy deps for Linux builds
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            g++ pkg-config \
+            libx11-dev libasound2-dev libudev-dev \
+            libwayland-dev libxkbcommon-dev
+
+      - name: Build (release)
         run: cargo build --release
 
-      # Install 7-Zip so we can do max zip compression (-mx=9)
-      - name: Setup 7-Zip
+      #
+      # Package + Upload policy:
+      # - PRs: build only (no zips)
+      # - Push to main: build only (no zips)
+      # - Nightly: package + upload ONLY if main changed in last 24h
+      # - Tags v*: package + upload + attach to Release
+      #
+      - name: Should package?
+        id: pkg
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Tag builds always package (release assets)
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "do_package=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # PRs never package
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "do_package=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Nightly: only package if main had a commit in the last 24 hours
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            git fetch --no-tags --prune origin main
+            if git log -1 --since="24 hours ago" --format=%H origin/main | grep -q .; then
+              echo "do_package=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "do_package=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # Push to main: no packaging (change to true if you want zips on every main push)
+          echo "do_package=false" >> "$GITHUB_OUTPUT"
+
+      # -----------------------
+      # Package: Windows (max zip compression via 7-Zip)
+      # -----------------------
+      - name: Setup 7-Zip (Windows)
+        if: runner.os == 'Windows' && steps.pkg.outputs.do_package == 'true'
         uses: milliewalky/setup-7-zip@v2
 
-      # Package exactly what you want to ship into a zip (max compression)
-      - name: Package (max compression zip)
+      - name: Package (Windows, max)
+        if: runner.os == 'Windows' && steps.pkg.outputs.do_package == 'true'
+        shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          # Find the built exe (crate name could be endless.exe, etc.)
+          New-Item -ItemType Directory -Force dist | Out-Null
+
           $exe = Get-ChildItem -Path "target/release" -Filter "*.exe" |
                  Sort-Object Length -Descending |
                  Select-Object -First 1
-
           if (-not $exe) { throw "No .exe found in rust/target/release" }
 
-          New-Item -ItemType Directory -Force dist | Out-Null
+          # Normalize shipped filename to lowercase: endless.exe
+          Copy-Item $exe.FullName "dist/endless.exe" -Force
 
-          # Rename to Endless.exe for consistency with your release instructions
-          Copy-Item $exe.FullName "dist/Endless.exe" -Force
-
-          # Optional: include assets if they exist (adjust paths if yours differ)
           if (Test-Path "../assets") { Copy-Item "../assets" "dist/assets" -Recurse -Force }
           if (Test-Path "assets")    { Copy-Item "assets"    "dist/assets" -Recurse -Force }
 
-          # Create zip with maximum compression
-          if (Test-Path "Endless-windows.zip") { Remove-Item "Endless-windows.zip" -Force }
-          7z a -tzip -mx=9 "Endless-windows.zip" ".\dist\*"
+          if (Test-Path "${{ matrix.zip_name }}") { Remove-Item "${{ matrix.zip_name }}" -Force }
+          7z a -tzip -mx=9 "${{ matrix.zip_name }}" ".\dist\*"
 
-      # Always upload as a workflow artifact (download from Actions UI)
+      # -----------------------
+      # Package: macOS + Linux (zip -9 = max)
+      # -----------------------
+      - name: Package (macOS/Linux, max)
+        if: runner.os != 'Windows' && steps.pkg.outputs.do_package == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          BIN="$(find target/release -maxdepth 1 -type f -perm -111 -print0 \
+                | xargs -0 ls -S \
+                | head -n 1)"
+
+          [[ -n "${BIN:-}" ]] || { echo "No executable found in rust/target/release"; exit 1; }
+
+          # Normalize shipped filename to lowercase: endless
+          cp "$BIN" "dist/endless"
+          chmod +x "dist/endless"
+
+          [[ -d "../assets" ]] && cp -R "../assets" "dist/assets" || true
+          [[ -d "assets" ]] && cp -R "assets" "dist/assets" || true
+
+          rm -f "${{ matrix.zip_name }}"
+          (cd dist && zip -9 -r "../${{ matrix.zip_name }}" .)
+
+      # Upload as Actions artifact (nightly when changed + tags only)
       - name: Upload artifact
+        if: steps.pkg.outputs.do_package == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Endless-windows
-          path: rust/Endless-windows.zip
+          name: ${{ matrix.artifact }}
+          path: rust/${{ matrix.zip_name }}
           if-no-files-found: error
+          retention-days: 7
 
-      # If this run was triggered by a tag like v0.2, attach the zip to the GitHub Release
+      # Attach to GitHub Release (tags only)
       - name: Upload to GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: rust/Endless-windows.zip
+          files: rust/${{ matrix.zip_name }}
