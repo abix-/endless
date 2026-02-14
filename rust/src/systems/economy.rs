@@ -361,15 +361,58 @@ pub fn spawner_respawn_system(
     }
 }
 
-/// Remove dead NPCs from squad member lists.
+/// Remove dead NPCs from squad member lists, auto-recruit to target_size,
+/// and dismiss excess if over target.
 pub fn squad_cleanup_system(
+    mut commands: Commands,
     mut squad_state: ResMut<SquadState>,
     npc_map: Res<NpcEntityMap>,
+    available_guards: Query<(Entity, &NpcIndex, &TownId), (With<Guard>, Without<Dead>, Without<SquadId>)>,
+    world_data: Res<WorldData>,
+    squad_guards: Query<(Entity, &NpcIndex, &SquadId), (With<Guard>, Without<Dead>)>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("squad_cleanup");
+
+    // Phase 1: remove dead members
     for squad in squad_state.squads.iter_mut() {
         squad.members.retain(|&slot| npc_map.0.contains_key(&slot));
+    }
+
+    // Phase 2: dismiss excess (target_size > 0 and members > target_size)
+    for (si, squad) in squad_state.squads.iter_mut().enumerate() {
+        if squad.target_size > 0 && squad.members.len() > squad.target_size {
+            let excess = squad.members.len() - squad.target_size;
+            let to_dismiss: Vec<usize> = squad.members.drain(squad.target_size..).collect();
+            for slot in &to_dismiss {
+                for (entity, npc_idx, sid) in squad_guards.iter() {
+                    if npc_idx.0 == *slot && sid.0 == si as i32 {
+                        commands.entity(entity).remove::<SquadId>();
+                        break;
+                    }
+                }
+            }
+            let _ = excess; // suppress unused
+        }
+    }
+
+    // Phase 3: auto-recruit to fill target_size
+    let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
+    let mut pool: Vec<(Entity, usize)> = available_guards.iter()
+        .filter(|(_, _, town)| town.0 == player_town)
+        .map(|(e, ni, _)| (e, ni.0))
+        .collect();
+
+    for (si, squad) in squad_state.squads.iter_mut().enumerate() {
+        if squad.target_size == 0 { continue; }
+        while squad.members.len() < squad.target_size {
+            if let Some((entity, slot)) = pool.pop() {
+                commands.entity(entity).insert(SquadId(si as i32));
+                squad.members.push(slot);
+            } else {
+                break; // no more available guards
+            }
+        }
     }
 }
 

@@ -1,5 +1,7 @@
 //! Endless - Colony sim with Bevy ECS and GPU compute.
 
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use bevy::prelude::*;
 use bevy::asset::AssetPlugin;
 
@@ -18,7 +20,7 @@ fn main() {
             ..default()
         })
         .set(AssetPlugin {
-            file_path: "..".to_string(),
+            file_path: if cfg!(debug_assertions) { ".." } else { "." }.to_string(),
             ..default()
         })
     );

@@ -251,9 +251,9 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| SquadState | `squads: Vec<Squad>` (10), `selected: i32`, `placing_target: bool` | left_panel (recruit/dismiss), click_to_select (target placement), game_escape (cancel placement) | decision_system, squad_overlay_system, squad_cleanup_system |
+| SquadState | `squads: Vec<Squad>` (10), `selected: i32`, `placing_target: bool` | left_panel (target_size DragValue, dismiss), click_to_select (target placement), game_escape (cancel placement), squad_cleanup_system (auto-recruit/dismiss) | decision_system, squad_overlay_system, squad_cleanup_system |
 
-`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None).
+`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss).
 
 `SquadId(i32)` component (0-9) added to guards when recruited into a squad. Removed on dismiss. Guards with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-14
+
+- **squad auto-replenish** — squads now have a `target_size` field; set via DragValue in Squads tab instead of +1/+2/+4 recruit buttons; `squad_cleanup_system` auto-recruits unsquadded player guards when members drop below target (e.g. death) and dismisses excess when target is lowered; target_size=0 disables auto-recruit (manual mode); Dismiss All resets target_size to 0
+- **profiler columns** — profiler panel now uses 3-column grid (system | ms | count); count entries (`decision/n_*`) paired to their timing row instead of mixed in as fake millisecond values; renamed `d.*` keys to `decision/*` for readability
+
 ## 2026-02-13
 
 - **building spatial grid** — CPU-side spatial grid (`BuildingSpatialGrid`) for O(1) building lookups; 256px cells, rebuilt once per frame by `rebuild_building_grid_system` (before `decision_system`); replaces linear scans + Vec allocation in `find_location_within_radius`, `find_within_radius`, `find_nearest_free`, `find_nearest_location`; all use `distance_squared` instead of `sqrt`; `for_each_nearby` closure pattern avoids intermediate allocations; indexes farms, guard posts, towns, and gold mines; `d.arrival` should drop from ~2ms to ~0.1-0.3ms at 4700 NPCs

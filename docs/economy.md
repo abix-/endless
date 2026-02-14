@@ -36,7 +36,9 @@ game_time_system (every frame)
     │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated, personality-driven)
     │
     └─ squad_cleanup_system (every frame)
-        └─ Removes dead NPC slots from Squad.members via NpcEntityMap check
+        └─ Phase 1: remove dead slots from Squad.members
+        └─ Phase 2: dismiss excess if members > target_size (remove SquadId)
+        └─ Phase 3: auto-recruit unsquadded player guards if members < target_size (insert SquadId)
 ```
 
 ## Systems
@@ -238,8 +240,9 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 
 ### squad_cleanup_system
 - Runs every frame in `Step::Behavior`
-- Iterates all squads, retains only members whose slot is still in `NpcEntityMap` (alive)
-- Lightweight scan — no allocation, just `Vec::retain`
+- **Phase 1**: retains only members whose slot is still in `NpcEntityMap` (alive)
+- **Phase 2**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` component, pops from members)
+- **Phase 3**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction guards (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
 
 ## Known Issues
 

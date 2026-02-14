@@ -908,6 +908,8 @@ pub struct Squad {
     pub members: Vec<usize>,
     /// Squad target position. None = no target, guards patrol normally.
     pub target: Option<Vec2>,
+    /// Desired member count. 0 = manual mode (no auto-recruit).
+    pub target_size: usize,
 }
 
 /// All squads + UI state. 10 squads, pre-initialized.

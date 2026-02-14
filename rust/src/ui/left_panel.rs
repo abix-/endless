@@ -734,41 +734,33 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &World
 
     ui.add_space(4.0);
 
+    // Count available unsquadded guards
+    let avail_count = squad.available_guards.iter()
+        .filter(|(_, _, town)| town.0 == player_town)
+        .count();
+    let max_size = member_count + avail_count;
+
+    // Target size control
+    let mut target_size = squad.squad_state.squads[si].target_size;
+    ui.horizontal(|ui| {
+        ui.label("Size:");
+        ui.add(egui::DragValue::new(&mut target_size).range(0..=max_size));
+        ui.small(format!("{} / {} available", member_count, avail_count));
+    });
+    squad.squad_state.squads[si].target_size = target_size;
+
     // Dismiss all
     if member_count > 0 {
         if ui.button("Dismiss All").clicked() {
-            // Remove SquadId from all members
             for (entity, _, sid) in squad.squad_guards.iter() {
                 if sid.0 == selected {
                     commands.entity(entity).remove::<SquadId>();
                 }
             }
             squad.squad_state.squads[si].members.clear();
+            squad.squad_state.squads[si].target_size = 0;
         }
     }
-
-    ui.add_space(4.0);
-
-    // Recruit buttons
-    let available: Vec<(Entity, usize)> = squad.available_guards.iter()
-        .filter(|(_, _, town)| town.0 == player_town)
-        .map(|(e, ni, _)| (e, ni.0))
-        .collect();
-    let avail_count = available.len();
-
-    ui.label(format!("Recruit ({} available):", avail_count));
-    ui.horizontal_wrapped(|ui| {
-        for n in [1, 2, 4, 8, 16, 32] {
-            let can_recruit = avail_count >= n;
-            if ui.add_enabled(can_recruit, egui::Button::new(format!("+{}", n))).clicked() {
-                let to_recruit: Vec<(Entity, usize)> = available.iter().take(n).copied().collect();
-                for (entity, slot) in to_recruit {
-                    commands.entity(entity).insert(SquadId(selected));
-                    squad.squad_state.squads[si].members.push(slot);
-                }
-            }
-        }
-    });
 
     ui.separator();
 
