@@ -16,7 +16,7 @@ use crate::world::WorldData;
 // Name generation word lists
 const ADJECTIVES: &[&str] = &["Swift", "Brave", "Calm", "Bold", "Sharp", "Quick", "Stern", "Wise", "Keen", "Strong"];
 const FARMER_NOUNS: &[&str] = &["Tiller", "Sower", "Reaper", "Plower", "Grower"];
-const GUARD_NOUNS: &[&str] = &["Shield", "Sword", "Watcher", "Sentinel", "Defender"];
+const ARCHER_NOUNS: &[&str] = &["Shield", "Sword", "Watcher", "Sentinel", "Defender"];
 const RAIDER_NOUNS: &[&str] = &["Blade", "Fang", "Shadow", "Claw", "Storm"];
 const MINER_NOUNS: &[&str] = &["Digger", "Pickaxe", "Prospector", "Delver", "Stonecutter"];
 
@@ -25,7 +25,7 @@ fn generate_name(job: Job, slot: usize) -> String {
     let adj = ADJECTIVES[slot % ADJECTIVES.len()];
     let noun = match job {
         Job::Farmer => FARMER_NOUNS[(slot / ADJECTIVES.len()) % FARMER_NOUNS.len()],
-        Job::Guard => GUARD_NOUNS[(slot / ADJECTIVES.len()) % GUARD_NOUNS.len()],
+        Job::Archer => ARCHER_NOUNS[(slot / ADJECTIVES.len()) % ARCHER_NOUNS.len()],
         Job::Raider => RAIDER_NOUNS[(slot / ADJECTIVES.len()) % RAIDER_NOUNS.len()],
         Job::Fighter => "Fighter",
         Job::Miner => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
@@ -106,7 +106,7 @@ pub fn spawn_npc_system(
         };
         let (sprite_col, sprite_row) = match job {
             Job::Farmer => SPRITE_FARMER,
-            Job::Guard => SPRITE_GUARD,
+            Job::Archer => SPRITE_ARCHER,
             Job::Raider => SPRITE_RAIDER,
             Job::Fighter => SPRITE_FIGHTER,
             Job::Miner => SPRITE_MINER,
@@ -138,10 +138,10 @@ pub fn spawn_npc_system(
 
         // Job template — determines component bundle
         match job {
-            Job::Guard => {
+            Job::Archer => {
                 ec.insert(Energy::default());
                 ec.insert(AttackTimer(0.0));
-                ec.insert(Guard);
+                ec.insert(Archer);
                 ec.insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)));
                 if msg.starting_post >= 0 {
                     let patrol_posts = build_patrol_route(&world_data, msg.town_idx as u32);

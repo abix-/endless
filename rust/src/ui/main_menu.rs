@@ -15,7 +15,7 @@ pub struct MenuState {
     pub towns: f32,
     pub farms: f32,
     pub farmers: f32,
-    pub guards: f32,
+    pub archers: f32,
     pub raiders: f32,
     pub ai_towns: f32,
     pub raider_camps: f32,
@@ -57,7 +57,7 @@ pub fn main_menu_system(
         state.towns = saved.towns as f32;
         state.farms = saved.farms as f32;
         state.farmers = saved.farmers as f32;
-        state.guards = saved.guards as f32;
+        state.archers = saved.archers as f32;
         state.raiders = saved.raiders as f32;
         state.ai_towns = saved.ai_towns as f32;
         state.raider_camps = saved.raider_camps as f32;
@@ -198,7 +198,7 @@ pub fn main_menu_system(
                 wg_config.num_towns = state.towns as usize;
                 wg_config.farms_per_town = state.farms as usize;
                 wg_config.farmers_per_town = state.farmers as usize;
-                wg_config.guards_per_town = state.guards as usize;
+                wg_config.archers_per_town = state.archers as usize;
                 wg_config.raiders_per_camp = state.raiders as usize;
                 wg_config.ai_towns = state.ai_towns as usize;
                 wg_config.raider_camps = state.raider_camps as usize;
@@ -211,7 +211,7 @@ pub fn main_menu_system(
                 saved.towns = state.towns as usize;
                 saved.farms = state.farms as usize;
                 saved.farmers = state.farmers as usize;
-                saved.guards = state.guards as usize;
+                saved.archers = state.archers as usize;
                 saved.raiders = state.raiders as usize;
                 saved.ai_towns = state.ai_towns as usize;
                 saved.raider_camps = state.raider_camps as usize;
@@ -246,9 +246,9 @@ pub fn main_menu_system(
 
                     ui.add_space(4.0);
 
-                    // Houses per town (each supports 1 farmer)
+                    // Farmer homes per town (each supports 1 farmer)
                     ui.horizontal(|ui| {
-                        ui.label("Houses:");
+                        ui.label("Farmer Homes:");
                         ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
                             .step_by(1.0)
                             .show_value(false));
@@ -260,15 +260,15 @@ pub fn main_menu_system(
 
                     ui.add_space(4.0);
 
-                    // Barracks per town (each supports 1 guard)
+                    // Archer homes per town (each supports 1 archer)
                     ui.horizontal(|ui| {
-                        ui.label("Barracks:");
-                        ui.add(egui::Slider::new(&mut state.guards, 0.0..=5000.0)
+                        ui.label("Archer Homes:");
+                        ui.add(egui::Slider::new(&mut state.archers, 0.0..=5000.0)
                             .step_by(1.0)
                             .show_value(false));
-                        let mut g = state.guards as i32;
+                        let mut g = state.archers as i32;
                         if ui.add(egui::DragValue::new(&mut g).range(0..=5000).suffix(" /town")).changed() {
-                            state.guards = g as f32;
+                            state.archers = g as f32;
                         }
                     });
 
@@ -292,7 +292,7 @@ pub fn main_menu_system(
                     let player_towns = state.towns as i32;
                     let ai_towns = state.ai_towns as i32;
                     let camps = state.raider_camps as i32;
-                    let per_town = state.farmers as i32 + state.guards as i32;
+                    let per_town = state.farmers as i32 + state.archers as i32;
                     let villagers = (player_towns + ai_towns) * per_town;
                     let raiders = camps * state.raiders as i32;
                     let total = villagers + raiders;
@@ -311,7 +311,7 @@ pub fn main_menu_system(
                             state.towns = defaults.towns as f32;
                             state.farms = defaults.farms as f32;
                             state.farmers = defaults.farmers as f32;
-                            state.guards = defaults.guards as f32;
+                            state.archers = defaults.archers as f32;
                             state.raiders = defaults.raiders as f32;
                             state.ai_towns = defaults.ai_towns as f32;
                             state.raider_camps = defaults.raider_camps as f32;

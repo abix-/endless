@@ -26,7 +26,6 @@ pub fn top_bar_system(
     slots: Res<SlotAllocator>,
     world_data: Res<WorldData>,
     mut ui_state: ResMut<UiState>,
-    mut build_ctx: ResMut<BuildMenuContext>,
     spawner_state: Res<SpawnerState>,
     catalog: Res<HelpCatalog>,
 ) -> Result {
@@ -61,16 +60,6 @@ pub fn top_bar_system(
                 }
                 if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Profiler, "Profiler").clicked() {
                     ui_state.toggle_left_tab(LeftPanelTab::Profiler);
-                }
-                let placing = build_ctx.selected_build.is_some();
-                if ui.selectable_label(ui_state.build_menu_open, "Build").clicked() {
-                    ui_state.build_menu_open = !ui_state.build_menu_open;
-                    if ui_state.build_menu_open {
-                        build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == 0);
-                    }
-                }
-                if placing {
-                    ui.colored_label(egui::Color32::from_rgb(220, 210, 120), "Placing");
                 }
                 ui.separator();
                 help_tip(ui, &catalog, "getting_started");
@@ -108,7 +97,7 @@ pub fn top_bar_system(
                     // Raider camp is town_data_idx 1 (first odd index)
                     let raiders = pop_stats.0.get(&(2, 1)).map(|s| s.alive).unwrap_or(0);
                     let tents = spawner_state.0.iter().filter(|s| s.building_kind == 2 && s.town_idx == 1 && s.position.x > -9000.0).count();
-                    tipped(ui, format!("Guards: {}/{}", guards, barracks), catalog.0.get("guards").unwrap_or(&""));
+                    tipped(ui, format!("Archers: {}/{}", guards, barracks), catalog.0.get("archers").unwrap_or(&""));
                     tipped(ui, format!("Farmers: {}/{}", farmers, houses), catalog.0.get("farmers").unwrap_or(&""));
                     tipped(ui, format!("Raiders: {}/{}", raiders, tents), catalog.0.get("raiders").unwrap_or(&""));
                     let total_alive = slots.alive();
@@ -557,11 +546,11 @@ fn building_name(building: &Building) -> &'static str {
         Building::Bed { .. } => "Bed",
         Building::GuardPost { .. } => "Guard Post",
         Building::Camp { .. } => "Camp",
-        Building::House { .. } => "House",
-        Building::Barracks { .. } => "Barracks",
+        Building::FarmerHome { .. } => "Farmer Home",
+        Building::ArcherHome { .. } => "Archer Home",
         Building::Tent { .. } => "Tent",
         Building::GoldMine => "Gold Mine",
-        Building::MineShaft { .. } => "Mine Shaft",
+        Building::MinerHome { .. } => "Miner Home",
     }
 }
 
@@ -572,10 +561,10 @@ pub fn building_town_idx(building: &Building) -> u32 {
         | Building::Bed { town_idx }
         | Building::GuardPost { town_idx, .. }
         | Building::Camp { town_idx }
-        | Building::House { town_idx }
-        | Building::Barracks { town_idx }
+        | Building::FarmerHome { town_idx }
+        | Building::ArcherHome { town_idx }
         | Building::Tent { town_idx }
-        | Building::MineShaft { town_idx } => *town_idx,
+        | Building::MinerHome { town_idx } => *town_idx,
         Building::GoldMine => 0, // mines are unowned
     }
 }
@@ -638,11 +627,11 @@ fn building_inspector_content(
             }
         }
 
-        Building::House { .. } | Building::Barracks { .. } | Building::Tent { .. } | Building::MineShaft { .. } => {
+        Building::FarmerHome { .. } | Building::ArcherHome { .. } | Building::Tent { .. } | Building::MinerHome { .. } => {
             let (kind, spawns_label) = match building {
-                Building::House { .. } => (0, "Farmer"),
-                Building::Barracks { .. } => (1, "Guard"),
-                Building::MineShaft { .. } => (3, "Miner"),
+                Building::FarmerHome { .. } => (0, "Farmer"),
+                Building::ArcherHome { .. } => (1, "Archer"),
+                Building::MinerHome { .. } => (3, "Miner"),
                 _ => (2, "Raider"),
             };
             let world_pos = bld.grid.grid_to_world(col, row);

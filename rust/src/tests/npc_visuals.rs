@@ -30,15 +30,15 @@ const COL_FULL: usize = 6;
 const NUM_COLS: usize = 7;
 
 // Row indices
-const ROW_GUARD: usize = 0;
+const ROW_ARCHER: usize = 0;
 const ROW_FARMER: usize = 1;
 const ROW_RAIDER: usize = 2;
 const ROW_FIGHTER: usize = 3;
 const NUM_ROWS: usize = 4;
 
-const ROW_LABELS: [&str; NUM_ROWS] = ["Guard", "Farmer", "Raider", "Fighter"];
+const ROW_LABELS: [&str; NUM_ROWS] = ["Archer", "Farmer", "Raider", "Fighter"];
 const COL_LABELS: [&str; NUM_COLS] = ["Body", "+Weapon", "+Helmet", "Item", "Sleep", "Heal", "Full"];
-const ROW_JOBS: [i32; NUM_ROWS] = [1, 0, 2, 3]; // Guard, Farmer, Raider, Fighter
+const ROW_JOBS: [i32; NUM_ROWS] = [1, 0, 2, 3]; // Archer, Farmer, Raider, Fighter
 
 fn grid_pos(row: usize, col: usize) -> Vec2 {
     Vec2::new(
@@ -233,7 +233,7 @@ pub fn tick(
             .interactable(false)
             .show(ctx, |ui| {
                 let color = match row {
-                    ROW_GUARD => egui::Color32::from_rgb(77, 102, 255),
+                    ROW_ARCHER => egui::Color32::from_rgb(77, 102, 255),
                     ROW_FARMER => egui::Color32::from_rgb(102, 255, 102),
                     ROW_RAIDER => egui::Color32::from_rgb(255, 102, 102),
                     ROW_FIGHTER => egui::Color32::from_rgb(255, 255, 102),
@@ -253,7 +253,7 @@ pub fn tick(
             let info = match col {
                 COL_BODY => {
                     let (sc, sr) = match row {
-                        ROW_GUARD => SPRITE_GUARD,
+                        ROW_ARCHER => SPRITE_ARCHER,
                         ROW_FARMER => SPRITE_FARMER,
                         ROW_RAIDER => SPRITE_RAIDER,
                         ROW_FIGHTER => SPRITE_FIGHTER,

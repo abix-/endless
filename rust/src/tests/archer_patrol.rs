@@ -1,4 +1,4 @@
-//! Guard Patrol Cycle Test (5 phases)
+//! Archer Patrol Cycle Test (5 phases)
 //! Validates: OnDuty → Patrolling → OnDuty → rest when tired → resume when rested.
 
 use bevy::prelude::*;
@@ -8,7 +8,7 @@ use crate::constants::{ENERGY_HUNGRY, ENERGY_WAKE_THRESHOLD};
 use super::{TestState, TestSetupParams};
 
 pub fn setup(mut params: TestSetupParams) {
-    params.add_town("GuardTown");
+    params.add_town("ArcherTown");
     // 4 guard posts (square patrol)
     for (order, &(gx, gy)) in [(300.0, 300.0), (500.0, 300.0), (500.0, 500.0), (300.0, 500.0)].iter().enumerate() {
         params.world_data.guard_posts.push(crate::world::GuardPost {
@@ -24,7 +24,7 @@ pub fn setup(mut params: TestSetupParams) {
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
 
-    // Spawn 1 guard at post 0 (job=1, starting_post=0)
+    // Spawn 1 archer at post 0 (job=1, starting_post=0)
     let slot = params.slot_alloc.alloc().expect("slot alloc");
     params.spawn_events.write(crate::messages::SpawnNpcMsg {
         slot_idx: slot,
@@ -36,19 +36,19 @@ pub fn setup(mut params: TestSetupParams) {
         attack_type: 0,
     });
 
-    params.test_state.phase_name = "Waiting for guard spawn...".into();
-    info!("guard-patrol: setup — 1 guard, 4 posts");
+    params.test_state.phase_name = "Waiting for archer spawn...".into();
+    info!("archer-patrol: setup — 1 archer, 4 guard posts");
 }
 
 pub fn tick(
-    activity_query: Query<&Activity, (With<Guard>, Without<Dead>)>,
-    mut energy_query: Query<&mut Energy, (With<Guard>, Without<Dead>)>,
-    guard_query: Query<(), (With<Guard>, Without<Dead>)>,
+    activity_query: Query<&Activity, (With<Archer>, Without<Dead>)>,
+    mut energy_query: Query<&mut Energy, (With<Archer>, Without<Dead>)>,
+    archer_query: Query<(), (With<Archer>, Without<Dead>)>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
-    if !test.require_entity(guard_query.iter().count(), elapsed, "guard") { return; }
+    if !test.require_entity(archer_query.iter().count(), elapsed, "archer") { return; }
 
     // Start energy near tired threshold so rest triggers within 30s
     if !test.get_flag("energy_set") {
@@ -63,7 +63,7 @@ pub fn tick(
     let going_rest = activity_query.iter().filter(|a| matches!(a, Activity::GoingToRest)).count();
 
     match test.phase {
-        // Phase 1: Guard starts OnDuty at post 0
+        // Phase 1: Archer starts OnDuty at post 0
         1 => {
             test.phase_name = format!("on_duty={} patrolling={}", on_duty, patrolling);
             if on_duty > 0 {
@@ -72,7 +72,7 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("on_duty=0 patrolling={}", patrolling));
             }
         }
-        // Phase 2: After GUARD_PATROL_WAIT ticks → Patrolling
+        // Phase 2: After ARCHER_PATROL_WAIT ticks → Patrolling
         2 => {
             test.phase_name = format!("patrolling={} on_duty={} e={:.0}", patrolling, on_duty, energy);
             if patrolling > 0 {
@@ -104,7 +104,7 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("energy={:.0} never reached hungry", energy));
             }
         }
-        // Phase 5: Energy recovers → guard wakes from rest
+        // Phase 5: Energy recovers → archer wakes from rest
         5 => {
             test.phase_name = format!("e={:.0} on_duty={} patrolling={} resting={}", energy, on_duty, patrolling, resting);
             if energy >= ENERGY_WAKE_THRESHOLD && resting == 0 {

@@ -77,7 +77,7 @@ pub fn derive_npc_state(world: &World, entity: Entity) -> &'static str {
 pub fn job_name(job: i32) -> &'static str {
     match job {
         0 => "Farmer",
-        1 => "Guard",
+        1 => "Archer",
         2 => "Raider",
         3 => "Fighter",
         4 => "Miner",

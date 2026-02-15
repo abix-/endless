@@ -24,7 +24,7 @@ const TERRAIN_LABELS: [&str; GRID_COLS] = [
 // Building row (row 1 in grid)
 const BUILDING_ROW: usize = 1;
 const BUILDING_LABELS: [&str; 8] = [
-    "Fountain", "Bed", "GuardPost", "Farm", "Camp", "House", "Barracks", "Tent",
+    "Fountain", "Bed", "GuardPost", "Farm", "Camp", "FarmerHome", "ArcherHome", "Tent",
 ];
 
 pub fn setup(
@@ -61,8 +61,8 @@ pub fn setup(
         Building::GuardPost { town_idx: 0, patrol_order: 0 },
         Building::Farm { town_idx: 0 },
         Building::Camp { town_idx: 0 },
-        Building::House { town_idx: 0 },
-        Building::Barracks { town_idx: 0 },
+        Building::FarmerHome { town_idx: 0 },
+        Building::ArcherHome { town_idx: 0 },
         Building::Tent { town_idx: 0 },
     ];
     for (col, building) in buildings.iter().enumerate() {

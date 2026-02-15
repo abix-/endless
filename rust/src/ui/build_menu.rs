@@ -19,10 +19,10 @@ struct BuildOption {
 
 const PLAYER_BUILD_OPTIONS: &[BuildOption] = &[
     BuildOption { kind: BuildKind::Farm, label: "Farm", cost: FARM_BUILD_COST, help: "Grows food over time" },
-    BuildOption { kind: BuildKind::House, label: "House", cost: HOUSE_BUILD_COST, help: "Spawns 1 farmer" },
-    BuildOption { kind: BuildKind::Barracks, label: "Barracks", cost: BARRACKS_BUILD_COST, help: "Spawns 1 guard" },
+    BuildOption { kind: BuildKind::FarmerHome, label: "Farmer Home", cost: FARMER_HOME_BUILD_COST, help: "Spawns 1 farmer" },
+    BuildOption { kind: BuildKind::ArcherHome, label: "Archer Home", cost: ARCHER_HOME_BUILD_COST, help: "Spawns 1 archer" },
     BuildOption { kind: BuildKind::GuardPost, label: "Guard Post", cost: GUARD_POST_BUILD_COST, help: "Patrol point + turret" },
-    BuildOption { kind: BuildKind::MineShaft, label: "Mine Shaft", cost: MINE_SHAFT_BUILD_COST, help: "Spawns 1 miner" },
+    BuildOption { kind: BuildKind::MinerHome, label: "Miner Home", cost: MINER_HOME_BUILD_COST, help: "Spawns 1 miner" },
 ];
 
 const CAMP_BUILD_OPTIONS: &[BuildOption] = &[
@@ -33,10 +33,10 @@ pub(crate) fn build_kind_name(kind: BuildKind) -> &'static str {
     match kind {
         BuildKind::Farm => "Farm",
         BuildKind::GuardPost => "Guard Post",
-        BuildKind::House => "House",
-        BuildKind::Barracks => "Barracks",
+        BuildKind::FarmerHome => "Farmer Home",
+        BuildKind::ArcherHome => "Archer Home",
         BuildKind::Tent => "Tent",
-        BuildKind::MineShaft => "Mine Shaft",
+        BuildKind::MinerHome => "Miner Home",
         BuildKind::Destroy => "Destroy",
     }
 }
@@ -153,11 +153,11 @@ fn init_sprite_cache(
     // Register all 6 with egui
     let registrations: [(BuildKind, &Handle<Image>); 6] = [
         (BuildKind::Farm, &farm_handle),
-        (BuildKind::House, &sprites.house_texture),
-        (BuildKind::Barracks, &sprites.barracks_texture),
+        (BuildKind::FarmerHome, &sprites.house_texture),
+        (BuildKind::ArcherHome, &sprites.barracks_texture),
         (BuildKind::GuardPost, &sprites.guard_post_texture),
         (BuildKind::Tent, &tent_handle),
-        (BuildKind::MineShaft, &mine_shaft_handle),
+        (BuildKind::MinerHome, &mine_shaft_handle),
     ];
 
     for (kind, handle) in registrations {
@@ -178,12 +178,30 @@ pub(crate) fn build_menu_system(
     mut images: ResMut<Assets<Image>>,
     mut cache: Local<BuildSpriteCache>,
 ) -> Result {
-    if !ui_state.build_menu_open { return Ok(()); }
-
     // Initialize sprite cache (one-time, before borrowing egui context)
     init_sprite_cache(&mut cache, &mut contexts, &sprites, &mut images);
 
     let ctx = contexts.ctx_mut()?;
+
+    // Bottom-center Build toggle button (always visible)
+    let btn_offset = if ui_state.build_menu_open { -110.0 } else { -2.0 };
+    egui::Area::new(egui::Id::new("build_toggle_btn"))
+        .anchor(egui::Align2::CENTER_BOTTOM, [0.0, btn_offset])
+        .show(ctx, |ui| {
+            let label = if ui_state.build_menu_open { "▼ Build" } else { "▲ Build" };
+            let btn = egui::Button::new(egui::RichText::new(label).size(14.0))
+                .fill(egui::Color32::from_rgb(50, 50, 60));
+            if ui.add(btn).clicked() {
+                ui_state.build_menu_open = !ui_state.build_menu_open;
+                if ui_state.build_menu_open {
+                    build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == 0);
+                } else {
+                    build_ctx.selected_build = None;
+                }
+            }
+        });
+
+    if !ui_state.build_menu_open { return Ok(()); }
 
     if build_ctx.town_data_idx.is_none() {
         build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == 0);

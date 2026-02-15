@@ -491,12 +491,12 @@ pub fn decision_system(
             let town_idx_usize = town_id.0 as usize;
             let flee_pct = match job {
                 Job::Raider => 0.50, // raiders always flee at 50%
-                Job::Guard => {
+                Job::Archer => {
                     let p = policies.policies.get(town_idx_usize);
-                    if p.is_some_and(|p| p.guard_aggressive) {
+                    if p.is_some_and(|p| p.archer_aggressive) {
                         0.0 // aggressive guards never flee
                     } else {
-                        p.map(|p| p.guard_flee_hp).unwrap_or(0.15)
+                        p.map(|p| p.archer_flee_hp).unwrap_or(0.15)
                     }
                 }
                 Job::Farmer | Job::Miner => {
@@ -531,9 +531,9 @@ pub fn decision_system(
                 }
             }
 
-            // Priority 2: Should leash? (per-entity LeashRange or policy guard_leash)
+            // Priority 2: Should leash? (per-entity LeashRange or policy archer_leash)
             let should_leash = match job {
-                Job::Guard => policies.policies.get(town_idx_usize).is_none_or(|p| p.guard_leash),
+                Job::Archer => policies.policies.get(town_idx_usize).is_none_or(|p| p.archer_leash),
                 _ => leash_query.get(entity).is_ok(),
             };
             if should_leash {
@@ -685,7 +685,7 @@ pub fn decision_system(
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Left post");
                 // Fall through to idle scoring — Rest will win
             } else {
-                if ticks >= GUARD_PATROL_WAIT {
+                if ticks >= ARCHER_PATROL_WAIT {
                     if let Ok(mut patrol) = patrol_query.get_mut(entity) {
                         if !patrol.posts.is_empty() {
                             patrol.current = (patrol.current + 1) % patrol.posts.len();
@@ -745,7 +745,7 @@ pub fn decision_system(
         // Work schedule gate: per-job schedule
         let schedule = match job {
             Job::Farmer | Job::Miner => policy.map(|p| p.farmer_schedule).unwrap_or(WorkSchedule::Both),
-            Job::Guard => policy.map(|p| p.guard_schedule).unwrap_or(WorkSchedule::Both),
+            Job::Archer => policy.map(|p| p.archer_schedule).unwrap_or(WorkSchedule::Both),
             _ => WorkSchedule::Both,
         };
         let work_allowed = match schedule {
@@ -757,7 +757,7 @@ pub fn decision_system(
         let can_work = work_allowed && match job {
             Job::Farmer => work_query.get(entity).is_ok(),
             Job::Miner => true,  // miners always have work (find nearest mine dynamically)
-            Job::Guard => patrol_query.get(entity).is_ok(),
+            Job::Archer => patrol_query.get(entity).is_ok(),
             Job::Raider => true,
             Job::Fighter => false,
         };
@@ -772,7 +772,7 @@ pub fn decision_system(
         if !work_allowed {
             let off_duty = match job {
                 Job::Farmer | Job::Miner => policy.map(|p| p.farmer_off_duty).unwrap_or(OffDutyBehavior::GoToBed),
-                Job::Guard => policy.map(|p| p.guard_off_duty).unwrap_or(OffDutyBehavior::GoToBed),
+                Job::Archer => policy.map(|p| p.archer_off_duty).unwrap_or(OffDutyBehavior::GoToBed),
                 _ => OffDutyBehavior::GoToBed,
             };
             match off_duty {
@@ -850,7 +850,7 @@ pub fn decision_system(
                         }
                         // No mines available — stay idle
                     }
-                    Job::Guard => {
+                    Job::Archer => {
                         // Squad override: go to squad target instead of patrolling
                         if let Some(sid) = squad_id {
                             if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
@@ -981,7 +981,7 @@ pub fn rebuild_patrol_routes_system(
     let _t = timings.scope("rebuild_patrol_routes");
     if !world_data.is_changed() { return; }
     for (mut route, town_id, job) in guards.iter_mut() {
-        if *job != Job::Guard { continue; }
+        if *job != Job::Archer { continue; }
         let new_posts = crate::systems::spawn::build_patrol_route(&world_data, town_id.0 as u32);
         if new_posts.is_empty() { continue; }
         // Clamp current index to new route length

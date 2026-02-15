@@ -343,9 +343,9 @@ pub fn squad_cleanup_system(
     mut commands: Commands,
     mut squad_state: ResMut<SquadState>,
     npc_map: Res<NpcEntityMap>,
-    available_guards: Query<(Entity, &NpcIndex, &TownId), (With<Guard>, Without<Dead>, Without<SquadId>)>,
+    available_guards: Query<(Entity, &NpcIndex, &TownId), (With<Archer>, Without<Dead>, Without<SquadId>)>,
     world_data: Res<WorldData>,
-    squad_guards: Query<(Entity, &NpcIndex, &SquadId), (With<Guard>, Without<Dead>)>,
+    squad_guards: Query<(Entity, &NpcIndex, &SquadId), (With<Archer>, Without<Dead>)>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("squad_cleanup");

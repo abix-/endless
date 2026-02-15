@@ -86,10 +86,10 @@ pub struct SquadParams<'w, 's> {
     squad_state: ResMut<'w, SquadState>,
     meta_cache: Res<'w, NpcMetaCache>,
     gpu_state: Res<'w, GpuReadState>,
-    // Query: alive guards without SquadId (available for recruitment)
-    available_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static TownId), (With<Guard>, Without<Dead>, Without<SquadId>)>,
-    // Query: guards with SquadId (for dismiss)
-    squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId), (With<Guard>, Without<Dead>)>,
+    // Query: alive archers without SquadId (available for recruitment)
+    available_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static TownId), (With<Archer>, Without<Dead>, Without<SquadId>)>,
+    // Query: archers with SquadId (for dismiss)
+    squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId), (With<Archer>, Without<Dead>)>,
 }
 
 // ============================================================================
@@ -112,13 +112,13 @@ struct AiSnapshot {
     personality_name: &'static str,
     food: i32,
     farmers: usize,
-    guards: usize,
+    archers: usize,
     raiders: usize,
     miners: usize,
-    houses: usize,
-    barracks: usize,
+    farmer_homes: usize,
+    archer_homes: usize,
     tents: usize,
-    mine_shafts: usize,
+    miner_homes: usize,
     farms: usize,
     guard_posts: usize,
     alive: i32,
@@ -126,9 +126,9 @@ struct AiSnapshot {
     kills: i32,
     upgrades: [u8; UPGRADE_COUNT],
     last_actions: Vec<String>,
-    guard_aggressive: bool,
-    guard_leash: bool,
-    guard_flee_hp: f32,
+    archer_aggressive: bool,
+    archer_leash: bool,
+    archer_flee_hp: f32,
     farmer_flee_hp: f32,
     prioritize_healing: bool,
     center: Vec2,
@@ -200,7 +200,7 @@ pub fn left_panel_system(
         .show(ctx, |ui| {
             // Inline help text at the top of every tab
             if let Some(tip) = catalog.0.get(tab_help_key) {
-                ui.small(*tip);
+                ui.label(egui::RichText::new(*tip).size(settings.help_text_size));
                 ui.separator();
             }
 
@@ -305,7 +305,7 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
             state.job_filter = 0;
             state.frame_counter = 0;
         }
-        if ui.selectable_label(state.job_filter == 1, "Guards").clicked() {
+        if ui.selectable_label(state.job_filter == 1, "Archers").clicked() {
             state.job_filter = 1;
             state.frame_counter = 0;
         }
@@ -373,7 +373,7 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
             let is_selected = selected_idx == row.slot as i32;
             let job_color = match row.job {
                 0 => egui::Color32::from_rgb(80, 200, 80),   // Farmer green
-                1 => egui::Color32::from_rgb(80, 100, 220),  // Guard blue
+                1 => egui::Color32::from_rgb(80, 100, 220),  // Archer blue
                 2 => egui::Color32::from_rgb(220, 80, 80),   // Raider red
                 4 => egui::Color32::from_rgb(160, 110, 60),  // Miner brown
                 _ => egui::Color32::from_rgb(220, 220, 80),
@@ -524,39 +524,39 @@ fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: 
     });
     policy.recovery_hp = recovery_pct / 100.0;
 
-    // -- Guards --
+    // -- Archers --
     ui.add_space(8.0);
-    ui.label(egui::RichText::new("Guards").strong());
-    ui.checkbox(&mut policy.guard_aggressive, "Aggressive")
-        .on_hover_text("Guards never flee combat");
-    ui.checkbox(&mut policy.guard_leash, "Leash")
-        .on_hover_text("Guards return home if too far from post");
-    let mut guard_flee_pct = policy.guard_flee_hp * 100.0;
+    ui.label(egui::RichText::new("Archers").strong());
+    ui.checkbox(&mut policy.archer_aggressive, "Aggressive")
+        .on_hover_text("Archers never flee combat");
+    ui.checkbox(&mut policy.archer_leash, "Leash")
+        .on_hover_text("Archers return home if too far from post");
+    let mut archer_flee_pct = policy.archer_flee_hp * 100.0;
     ui.horizontal(|ui| {
         ui.label("Flee HP:");
-        ui.add(egui::Slider::new(&mut guard_flee_pct, 0.0..=100.0).suffix("%"));
+        ui.add(egui::Slider::new(&mut archer_flee_pct, 0.0..=100.0).suffix("%"));
     });
-    policy.guard_flee_hp = guard_flee_pct / 100.0;
-    let mut guard_sched_idx = policy.guard_schedule as usize;
+    policy.archer_flee_hp = archer_flee_pct / 100.0;
+    let mut archer_sched_idx = policy.archer_schedule as usize;
     ui.horizontal(|ui| {
         ui.label("Schedule:");
-        egui::ComboBox::from_id_salt("guard_schedule")
-            .selected_text(SCHEDULE_OPTIONS[guard_sched_idx])
-            .show_index(ui, &mut guard_sched_idx, SCHEDULE_OPTIONS.len(), |i| SCHEDULE_OPTIONS[i]);
+        egui::ComboBox::from_id_salt("archer_schedule")
+            .selected_text(SCHEDULE_OPTIONS[archer_sched_idx])
+            .show_index(ui, &mut archer_sched_idx, SCHEDULE_OPTIONS.len(), |i| SCHEDULE_OPTIONS[i]);
     });
-    policy.guard_schedule = match guard_sched_idx {
+    policy.archer_schedule = match archer_sched_idx {
         1 => WorkSchedule::DayOnly,
         2 => WorkSchedule::NightOnly,
         _ => WorkSchedule::Both,
     };
-    let mut guard_off_idx = policy.guard_off_duty as usize;
+    let mut archer_off_idx = policy.archer_off_duty as usize;
     ui.horizontal(|ui| {
         ui.label("Off-duty:");
-        egui::ComboBox::from_id_salt("guard_off_duty")
-            .selected_text(OFF_DUTY_OPTIONS[guard_off_idx])
-            .show_index(ui, &mut guard_off_idx, OFF_DUTY_OPTIONS.len(), |i| OFF_DUTY_OPTIONS[i]);
+        egui::ComboBox::from_id_salt("archer_off_duty")
+            .selected_text(OFF_DUTY_OPTIONS[archer_off_idx])
+            .show_index(ui, &mut archer_off_idx, OFF_DUTY_OPTIONS.len(), |i| OFF_DUTY_OPTIONS[i]);
     });
-    policy.guard_off_duty = match guard_off_idx {
+    policy.archer_off_duty = match archer_off_idx {
         1 => OffDutyBehavior::StayAtFountain,
         2 => OffDutyBehavior::WanderTown,
         _ => OffDutyBehavior::GoToBed,
@@ -684,7 +684,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &World
     let si = selected as usize;
     let member_count = squad.squad_state.squads[si].members.len();
 
-    ui.strong(format!("Squad {} — {} guards", si + 1, member_count));
+    ui.strong(format!("Squad {} — {} archers", si + 1, member_count));
 
     // Target controls
     ui.horizontal(|ui| {
@@ -793,18 +793,18 @@ fn rebuild_intel_cache(
 
         let alive_check = |pos: Vec2, idx: u32| idx == ti && pos.x > -9000.0;
         let farms = world_data.farms.iter().filter(|f| alive_check(f.position, f.town_idx)).count();
-        let houses = world_data.houses.iter().filter(|h| alive_check(h.position, h.town_idx)).count();
-        let barracks = world_data.barracks.iter().filter(|b| alive_check(b.position, b.town_idx)).count();
+        let farmer_homes = world_data.farmer_homes.iter().filter(|h| alive_check(h.position, h.town_idx)).count();
+        let archer_homes = world_data.archer_homes.iter().filter(|b| alive_check(b.position, b.town_idx)).count();
         let guard_posts = world_data.guard_posts.iter().filter(|g| alive_check(g.position, g.town_idx)).count();
         let tents = world_data.tents.iter().filter(|t| alive_check(t.position, t.town_idx)).count();
-        let mine_shafts = world_data.mine_shafts.iter().filter(|ms| alive_check(ms.position, ms.town_idx)).count();
+        let miner_homes = world_data.miner_homes.iter().filter(|ms| alive_check(ms.position, ms.town_idx)).count();
 
         // Count alive NPCs by job from spawner state
         let ti_i32 = tdi as i32;
         let alive_spawner = |kind: i32| intel.spawner_state.0.iter()
             .filter(|s| s.building_kind == kind && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
         let farmers = alive_spawner(0);
-        let guards = alive_spawner(1);
+        let archers = alive_spawner(1);
         let raiders = alive_spawner(2);
         let miners = alive_spawner(3);
 
@@ -819,9 +819,9 @@ fn rebuild_intel_cache(
         let last_actions: Vec<String> = player.last_actions.iter().rev().cloned().collect();
 
         let policy = policies.policies.get(tdi);
-        let guard_aggressive = policy.map(|p| p.guard_aggressive).unwrap_or(false);
-        let guard_leash = policy.map(|p| p.guard_leash).unwrap_or(true);
-        let guard_flee_hp = policy.map(|p| p.guard_flee_hp).unwrap_or(0.15);
+        let archer_aggressive = policy.map(|p| p.archer_aggressive).unwrap_or(false);
+        let archer_leash = policy.map(|p| p.archer_leash).unwrap_or(true);
+        let archer_flee_hp = policy.map(|p| p.archer_flee_hp).unwrap_or(0.15);
         let farmer_flee_hp = policy.map(|p| p.farmer_flee_hp).unwrap_or(0.30);
         let prioritize_healing = policy.map(|p| p.prioritize_healing).unwrap_or(true);
 
@@ -831,13 +831,13 @@ fn rebuild_intel_cache(
             personality_name: player.personality.name(),
             food,
             farmers,
-            guards,
+            archers,
             raiders,
             miners,
-            houses,
-            barracks,
+            farmer_homes,
+            archer_homes,
             tents,
-            mine_shafts,
+            miner_homes,
             farms,
             guard_posts,
             alive,
@@ -845,9 +845,9 @@ fn rebuild_intel_cache(
             kills,
             upgrades,
             last_actions,
-            guard_aggressive,
-            guard_leash,
-            guard_flee_hp,
+            archer_aggressive,
+            archer_leash,
+            archer_flee_hp,
             farmer_flee_hp,
             prioritize_healing,
             center,
@@ -905,17 +905,17 @@ fn intel_content(
 
                     // NPCs by type
                     ui.horizontal(|ui| {
-                        if snap.farmers > 0 || snap.houses > 0 {
-                            ui.label(format!("Farmers: {}/{}", snap.farmers, snap.houses));
+                        if snap.farmers > 0 || snap.farmer_homes > 0 {
+                            ui.label(format!("Farmers: {}/{}", snap.farmers, snap.farmer_homes));
                         }
-                        if snap.guards > 0 || snap.barracks > 0 {
-                            ui.label(format!("Guards: {}/{}", snap.guards, snap.barracks));
+                        if snap.archers > 0 || snap.archer_homes > 0 {
+                            ui.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
                         }
                         if snap.raiders > 0 || snap.tents > 0 {
                             ui.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
                         }
-                        if snap.miners > 0 || snap.mine_shafts > 0 {
-                            ui.label(format!("Miners: {}/{}", snap.miners, snap.mine_shafts));
+                        if snap.miners > 0 || snap.miner_homes > 0 {
+                            ui.label(format!("Miners: {}/{}", snap.miners, snap.miner_homes));
                         }
                     });
 
@@ -952,16 +952,16 @@ fn intel_content(
                     // Key policies
                     ui.add_space(2.0);
                     ui.horizontal_wrapped(|ui| {
-                        if snap.guard_aggressive {
+                        if snap.archer_aggressive {
                             ui.small(egui::RichText::new("Aggressive").color(egui::Color32::from_rgb(220, 80, 80)));
                         }
-                        if !snap.guard_leash {
+                        if !snap.archer_leash {
                             ui.small(egui::RichText::new("No Leash").color(egui::Color32::from_rgb(220, 160, 40)));
                         }
                         if snap.prioritize_healing {
                             ui.small(egui::RichText::new("Heal First").color(egui::Color32::from_rgb(80, 200, 80)));
                         }
-                        ui.small(format!("Flee: G{:.0}% F{:.0}%", snap.guard_flee_hp * 100.0, snap.farmer_flee_hp * 100.0));
+                        ui.small(format!("Flee: A{:.0}% F{:.0}%", snap.archer_flee_hp * 100.0, snap.farmer_flee_hp * 100.0));
                     });
 
                     ui.add_space(4.0);

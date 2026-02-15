@@ -1050,22 +1050,6 @@ fn write_npc_buffers(
         return;
     }
 
-    // Debug: log first 5 NPCs data once
-    static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        for i in 0..5 {
-            let px = writes.positions.get(i * 2).copied().unwrap_or(-1.0);
-            let py = writes.positions.get(i * 2 + 1).copied().unwrap_or(-1.0);
-            let sc = writes.sprite_indices.get(i * 4).copied().unwrap_or(-1.0);
-            let sr = writes.sprite_indices.get(i * 4 + 1).copied().unwrap_or(-1.0);
-            let cr = writes.colors.get(i * 4).copied().unwrap_or(-1.0);
-            let cg = writes.colors.get(i * 4 + 1).copied().unwrap_or(-1.0);
-            let cb = writes.colors.get(i * 4 + 2).copied().unwrap_or(-1.0);
-            info!("NPC[{}] pos=({:.0},{:.0}) sprite=({:.0},{:.0}) color=({:.2},{:.2},{:.2})",
-                  i, px, py, sc, sr, cr, cg, cb);
-        }
-    }
-
     // Per-index uploads — only write the NPC slots that actually changed
     for &idx in &writes.position_dirty_indices {
         let start = idx * 2;

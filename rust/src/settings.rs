@@ -6,16 +6,21 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
+const SETTINGS_VERSION: u32 = 1;
+
 /// Persisted user settings. Saved to `Documents\Endless\settings.json`.
 #[derive(Resource, Serialize, Deserialize, Clone)]
 pub struct UserSettings {
+    #[serde(default)]
+    pub version: u32,
     // World gen (main menu sliders)
     pub world_size: f32,
     pub towns: usize,
     #[serde(default = "default_farms")]
     pub farms: usize,
     pub farmers: usize,
-    pub guards: usize,
+    #[serde(alias = "guards")]
+    pub archers: usize,
     pub raiders: usize,
     // Camera
     pub scroll_speed: f32,
@@ -72,6 +77,8 @@ pub struct UserSettings {
     pub npc_interval: f32,
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
+    #[serde(default = "default_help_text_size")]
+    pub help_text_size: f32,
 }
 
 fn default_gold_mines() -> usize { 2 }
@@ -81,16 +88,18 @@ fn default_farms() -> usize { 2 }
 fn default_one() -> usize { 1 }
 fn default_ai_interval() -> f32 { 5.0 }
 fn default_npc_interval() -> f32 { 2.0 }
-fn default_ui_scale() -> f32 { 1.2 }
+fn default_ui_scale() -> f32 { 1.0 }
+fn default_help_text_size() -> f32 { 10.0 }
 
 impl Default for UserSettings {
     fn default() -> Self {
         Self {
+            version: SETTINGS_VERSION,
             world_size: 8000.0,
             towns: 2,
             farms: 2,
             farmers: 2,
-            guards: 2,
+            archers: 2,
             raiders: 1,
             scroll_speed: 400.0,
             log_kills: true,
@@ -115,7 +124,8 @@ impl Default for UserSettings {
             ai_interval: 5.0,
             gold_mines_per_town: 2,
             npc_interval: 2.0,
-            ui_scale: 1.2,
+            ui_scale: 1.0,
+            help_text_size: 10.0,
         }
     }
 }
@@ -144,7 +154,18 @@ pub fn save_settings(settings: &UserSettings) {
 pub fn load_settings() -> UserSettings {
     let Some(path) = settings_path() else { return UserSettings::default() };
     match std::fs::read_to_string(&path) {
-        Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+        Ok(json) => {
+            let mut settings: UserSettings = serde_json::from_str(&json).unwrap_or_default();
+            if settings.version < SETTINGS_VERSION {
+                warn!(
+                    "Settings version {} is outdated (current: {}), resetting to defaults",
+                    settings.version, SETTINGS_VERSION
+                );
+                settings = UserSettings::default();
+                save_settings(&settings);
+            }
+            settings
+        }
         Err(_) => UserSettings::default(),
     }
 }

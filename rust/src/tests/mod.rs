@@ -7,7 +7,7 @@ pub mod vertical_slice;
 pub mod spawning;
 pub mod energy;
 pub mod movement;
-pub mod guard_patrol;
+pub mod archer_patrol;
 pub mod farmer_cycle;
 pub mod raider_cycle;
 pub mod combat;
@@ -371,19 +371,19 @@ pub fn register_tests(app: &mut App) {
             .run_if(test_is("movement"))
             .after(Step::Behavior));
 
-    // guard-patrol
+    // archer-patrol
     registry.tests.push(TestEntry {
-        name: "guard-patrol".into(),
-        description: "Guard: OnDuty → Patrol → OnDuty → rest → resume".into(),
+        name: "archer-patrol".into(),
+        description: "Archer: OnDuty → Patrol → OnDuty → rest → resume".into(),
         phase_count: 5,
         time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
-        guard_patrol::setup.run_if(test_is("guard-patrol")));
+        archer_patrol::setup.run_if(test_is("archer-patrol")));
     app.add_systems(Update,
-        guard_patrol::tick
+        archer_patrol::tick
             .run_if(in_state(AppState::Running))
-            .run_if(test_is("guard-patrol"))
+            .run_if(test_is("archer-patrol"))
             .after(Step::Behavior));
 
     // farmer-cycle

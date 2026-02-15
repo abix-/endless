@@ -30,7 +30,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system |
 | **CPU-Only** (never sent to GPU) ||||
 | NpcIndex | CPU | Internal | Links Bevy entity to GPU slot index |
-| Job | CPU | Internal | Guard, Farmer, Raider, Fighter — determines behavior |
+| Job | CPU | Internal | Archer, Farmer, Raider, Fighter, Miner — determines behavior |
 | Energy | CPU | Internal | Drives tired/rest decisions (drain/recover rates) |
 | State markers | CPU | Internal | Dead, InCombat, Patrolling, OnDuty, Resting, Raiding, etc. |
 | Config components | CPU | Internal | FleeThreshold, LeashRange, WoundedThreshold, Stealer |

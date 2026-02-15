@@ -37,7 +37,7 @@ Priority order (first match wins), with three-tier throttling via `NpcDecisionCo
 
 Bucketing uses `(idx + frame) % bucket_count` where `bucket_count = interval × 60fps`. With 5100 NPCs at 2s default, only ~42 NPCs evaluate Tier 3 per frame.
 
-All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `guard_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
+All checks are **policy-driven per town**. Flee thresholds come from `TownPolicies` resource (indexed by `TownId`), not per-entity `FleeThreshold` components. Raiders use a hardcoded 0.50 threshold. `archer_aggressive` and `farmer_fight_back` policies disable flee entirely for their respective jobs.
 
 ## Utility AI (Weighted Random Decisions)
 
@@ -89,7 +89,7 @@ Same situation, different outcomes. That's emergent behavior.
 Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` (fighting status). Activity is preserved through combat.
 
 ```
-    Guard:                Farmer:               Miner:                Stealer (Raider):
+    Archer:               Farmer:               Miner:                Stealer (Raider):
     ┌──────────┐         ┌──────────┐         ┌──────────┐          ┌──────────┐
     │  OnDuty  │ spawn   │GoingToWork│ spawn  │  Idle    │ spawn   │  Idle    │ spawns idle
     │{ticks: 0}│         └────┬─────┘         └────┬─────┘          └────┬─────┘
@@ -163,13 +163,13 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | Starving | marker | NPC energy at zero (50% HP cap, 50% speed) |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
-| Home | `{ x, y }` | NPC's spawner building position (house/barracks/tent) — rest destination |
+| Home | `{ x, y }` | NPC's spawner building position (FarmerHome/ArcherHome/Tent) — rest destination |
 | WorkPosition | `{ x, y }` | Farmer's field position |
-| PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Guard's ordered patrol posts |
+| PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Archer's ordered patrol posts |
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
 | LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin (raiders only) |
-| SquadId | `i32` (0-9) | Squad assignment — guards with this follow squad target instead of patrolling |
+| SquadId | `i32` (0-9) | Squad assignment — archers with this follow squad target instead of patrolling |
 
 ## Systems
 
@@ -192,8 +192,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
-- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — guards use `guard_flee_hp`, farmers and miners use `farmer_flee_hp`, raiders hardcoded 0.50. `guard_aggressive` disables guard flee, `farmer_fight_back` disables farmer/miner flee. Dynamic threat assessment via `count_nearby_factions()` (enemies vs allies within 200px, throttled every 30 frames) — reads `GpuReadState.factions` and `GpuReadState.health` from GPU readback
-- If `CombatState::Fighting` + should leash: guards check `guard_leash` policy (if disabled, guards chase freely), raiders use per-entity `LeashRange` component
+- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — archers use `archer_flee_hp`, farmers and miners use `farmer_flee_hp`, raiders hardcoded 0.50. `archer_aggressive` disables archer flee, `farmer_fight_back` disables farmer/miner flee. Dynamic threat assessment via `count_nearby_factions()` (enemies vs allies within 200px, throttled every 30 frames) — reads `GpuReadState.factions` and `GpuReadState.health` from GPU readback
+- If `CombatState::Fighting` + should leash: archers check `archer_leash` policy (if disabled, archers chase freely), raiders use per-entity `LeashRange` component
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
 
 **Early arrival: GoingToHeal proximity check** (before transit skip)
@@ -214,9 +214,9 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `Activity::OnDuty { ticks_waiting }` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, set `Activity::Patrolling`
 
 **Priority 7: Idle scoring (Utility AI)**
-- **Squad override** (guards only): Guards with a `SquadId` component check `SquadState.squads[id].target` before normal patrol logic. If squad has a target, guard walks to squad target instead of patrol posts. Falls through to normal patrol if no target is set.
+- **Squad override** (archers only): Archers with a `SquadId` component check `SquadState.squads[id].target` before normal patrol logic. If squad has a target, archer walks to squad target instead of patrol posts. Falls through to normal patrol if no target is set.
 - **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → `GoingToHeal` targeting fountain. Applies to all jobs (including raiders — they heal at their camp center). Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
-- **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers and miners use `farmer_schedule`, guards use `guard_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
+- **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers and miners use `farmer_schedule`, archers use `archer_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
 - **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
@@ -273,7 +273,7 @@ Rest is scored when energy < `ENERGY_HUNGRY` (50), Eat only when energy < `ENERG
 
 ## Patrol Cycle
 
-Guards have a `PatrolRoute` with ordered posts (built from WorldData at spawn). The cycle:
+Archers have a `PatrolRoute` with ordered posts (built from WorldData at spawn). The cycle:
 
 1. Spawn → walk to post 0 (`Patrolling`)
 2. Arrive → stand at post (`OnDuty`, ticks counting)
@@ -281,17 +281,17 @@ Guards have a `PatrolRoute` with ordered posts (built from WorldData at spawn). 
 4. Arrive → `OnDuty` again
 5. After last post, wrap to post 0
 
-Each town has 4 guard posts at corners. Guards cycle clockwise. Patrol routes are rebuilt dynamically by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) when `WorldData` changes — e.g. guard posts added, removed, or reordered via the Patrols tab. The system clamps the current patrol index to the new route length.
+Each town has 4 guard posts at corners. Archers cycle clockwise. Patrol routes are rebuilt dynamically by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) when `WorldData` changes — e.g. guard posts added, removed, or reordered via the Patrols tab. The system clamps the current patrol index to the new route length.
 
 ## Squads
 
-Player-directed guard groups. 10 squads available, each with a target position on the map. Guards are reassigned (not spawned) — existing patrol guards get a `SquadId` component and follow squad orders instead of patrolling.
+Player-directed archer groups. 10 squads available, each with a target position on the map. Archers are reassigned (not spawned) — existing patrol archers get a `SquadId` component and follow squad orders instead of patrolling.
 
-**Behavior override**: In `decision_system`'s `Action::Work` → `Job::Guard` branch, guards with `SquadId` check `SquadState.squads[id].target`. If a target exists, the guard walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as guard post). If no target is set, falls through to normal patrol.
+**Behavior override**: In `decision_system`'s `Action::Work` → `Job::Archer` branch, archers with `SquadId` check `SquadState.squads[id].target`. If a target exists, the archer walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as guard post). If no target is set, falls through to normal patrol.
 
-**All survival behavior preserved**: Squad guards still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities.
+**All survival behavior preserved**: Squad archers still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities.
 
-**Recruitment**: UI queries alive guards without `SquadId` in the player's town. +N buttons insert `SquadId(squad_idx)` on up to N guards. "Dismiss All" removes `SquadId` from all squad members — guards resume patrol.
+**Recruitment**: UI queries alive archers without `SquadId` in the player's town. +N buttons insert `SquadId(squad_idx)` on up to N archers. "Dismiss All" removes `SquadId` from all squad members — archers resume patrol.
 
 **Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `NpcEntityMap`.
 

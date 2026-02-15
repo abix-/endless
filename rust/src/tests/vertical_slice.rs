@@ -1,6 +1,6 @@
 //! Vertical Slice Test (relocated Test12)
 //! Validates full core loop: spawn → work → raid → combat → death → respawn.
-//! 5 farmers + 2 guards + 5 raiders, phased assertions with time gates.
+//! 5 farmers + 2 archers + 5 raiders, phased assertions with time gates.
 
 use bevy::prelude::*;
 use crate::components::*;

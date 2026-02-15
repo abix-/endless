@@ -130,7 +130,7 @@ pub struct PopulationStats(pub HashMap<(i32, i32), PopStats>);
 #[derive(Resource)]
 pub struct GameConfig {
     pub farmers_per_town: i32,
-    pub guards_per_town: i32,
+    pub archers_per_town: i32,
     pub raiders_per_camp: i32,
     pub spawn_interval_hours: i32,
     pub food_per_work_hour: i32,
@@ -140,7 +140,7 @@ impl Default for GameConfig {
     fn default() -> Self {
         Self {
             farmers_per_town: 2,
-            guards_per_town: 500,
+            archers_per_town: 500,
             raiders_per_camp: 500,
             spawn_interval_hours: 4,
             food_per_work_hour: 1,
@@ -210,8 +210,8 @@ pub struct RespawnTimers(pub HashMap<i32, i32>);
 /// Kill statistics for UI display.
 #[derive(Resource, Clone, Default)]
 pub struct KillStats {
-    pub guard_kills: i32,      // Raiders killed by guards
-    pub villager_kills: i32,   // Villagers (farmers/guards) killed by raiders
+    pub archer_kills: i32,      // Raiders killed by archers
+    pub villager_kills: i32,   // Villagers (farmers/archers) killed by raiders
 }
 
 /// Currently selected NPC index (-1 = none).
@@ -755,10 +755,10 @@ impl UiState {
 pub enum BuildKind {
     Farm,
     GuardPost,
-    House,
-    Barracks,
+    FarmerHome,
+    ArcherHome,
     Tent,
-    MineShaft,
+    MinerHome,
     Destroy,
 }
 
@@ -836,17 +836,17 @@ pub struct GuardPostState {
 // BUILDING SPAWNERS
 // ============================================================================
 
-/// Tracks one building spawner (House, Barracks, or Tent) and its linked NPC.
+/// Tracks one building spawner (FarmerHome, ArcherHome, Tent, or MinerHome) and its linked NPC.
 #[derive(Clone, Default)]
 pub struct SpawnerEntry {
-    pub building_kind: i32,   // derived from Building::spawner_kind(): 0=House, 1=Barracks, 2=Tent, 3=MineShaft
+    pub building_kind: i32,   // derived from Building::spawner_kind(): 0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome
     pub town_idx: i32,        // town data index (villager or raider camp)
     pub position: Vec2,       // building world position
     pub npc_slot: i32,        // linked NPC slot (-1 = no NPC alive)
     pub respawn_timer: f32,   // game hours remaining (-1 = not respawning)
 }
 
-/// All building spawners in the world. Each House/Barracks gets one entry.
+/// All building spawners in the world. Each FarmerHome/ArcherHome/Tent/MinerHome gets one entry.
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 
@@ -887,34 +887,39 @@ pub enum OffDutyBehavior {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PolicySet {
     pub eat_food: bool,
-    pub guard_aggressive: bool,
-    pub guard_leash: bool,
+    #[serde(alias = "guard_aggressive")]
+    pub archer_aggressive: bool,
+    #[serde(alias = "guard_leash")]
+    pub archer_leash: bool,
     pub farmer_fight_back: bool,
     pub prioritize_healing: bool,
     pub farmer_flee_hp: f32,     // 0.0-1.0 percentage
-    pub guard_flee_hp: f32,
+    #[serde(alias = "guard_flee_hp")]
+    pub archer_flee_hp: f32,
     pub recovery_hp: f32,        // 0.0-1.0 — go rest/heal when below this
     pub farmer_schedule: WorkSchedule,
-    pub guard_schedule: WorkSchedule,
+    #[serde(alias = "guard_schedule")]
+    pub archer_schedule: WorkSchedule,
     pub farmer_off_duty: OffDutyBehavior,
-    pub guard_off_duty: OffDutyBehavior,
+    #[serde(alias = "guard_off_duty")]
+    pub archer_off_duty: OffDutyBehavior,
 }
 
 impl Default for PolicySet {
     fn default() -> Self {
         Self {
             eat_food: true,
-            guard_aggressive: false,
-            guard_leash: true,
+            archer_aggressive: false,
+            archer_leash: true,
             farmer_fight_back: false,
             prioritize_healing: true,
             farmer_flee_hp: 0.30,
-            guard_flee_hp: 0.15,
+            archer_flee_hp: 0.15,
             recovery_hp: 0.80,
             farmer_schedule: WorkSchedule::Both,
-            guard_schedule: WorkSchedule::Both,
+            archer_schedule: WorkSchedule::Both,
             farmer_off_duty: OffDutyBehavior::GoToBed,
-            guard_off_duty: OffDutyBehavior::GoToBed,
+            archer_off_duty: OffDutyBehavior::GoToBed,
         }
     }
 }
@@ -935,10 +940,10 @@ impl Default for TownPolicies {
 // SQUADS
 // ============================================================================
 
-/// A player-controlled squad of guards.
+/// A player-controlled squad of archers.
 #[derive(Clone, Default)]
 pub struct Squad {
-    /// NPC slot indices of guards in this squad.
+    /// NPC slot indices of archers in this squad.
     pub members: Vec<usize>,
     /// Squad target position. None = no target, guards patrol normally.
     pub target: Option<Vec2>,
@@ -982,28 +987,28 @@ impl HelpCatalog {
         // Top bar stats
         m.insert("food", "Farmers grow food at farms. Spend it on buildings (right-click green '+' slots) and upgrades (U key). Build more Houses to get more farmers.");
         m.insert("gold", "Gold mines appear between towns. Set your miner count in the Roster tab (R key) using the Miners slider. Miners walk to the nearest mine, dig gold, and bring it back.");
-        m.insert("pop", "Living NPCs / spawner buildings. Build Houses (farmers) and Barracks (guards) to grow your town. Dead NPCs respawn after 12 game-hours.");
-        m.insert("farmers", "Each House spawns 1 farmer who works at the nearest free farm. Build farms first, then Houses to staff them.");
-        m.insert("guards", "Each Barracks spawns 1 guard who patrols guard posts. Build Guard Posts to create a patrol route, then Barracks to staff them.");
-        m.insert("raiders", "Enemy raiders steal food from your farms. Build guards and guard posts near farms to defend them.");
+        m.insert("pop", "Living NPCs / spawner buildings. Build Farmer Homes and Archer Homes to grow your town. Dead NPCs respawn after 12 game-hours.");
+        m.insert("farmers", "Each Farmer Home spawns 1 farmer who works at the nearest free farm. Build farms first, then Farmer Homes to staff them.");
+        m.insert("archers", "Each Archer Home spawns 1 archer who patrols guard posts. Build Guard Posts to create a patrol route, then Archer Homes to staff them.");
+        m.insert("raiders", "Enemy raiders steal food from your farms. Build archers and guard posts near farms to defend them.");
         m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0.25x to 128x). Day/Night affects work schedules set in Policies (P key).");
 
         // Left panel tabs
-        m.insert("tab_roster", "Your NPCs. Click a row to select and inspect. F = follow camera. Use the Miners slider to reassign farmers as gold miners.");
+        m.insert("tab_roster", "Your NPCs. Click a row to select and inspect. F = follow camera.");
         m.insert("tab_upgrades", "Spend food to permanently boost your town. Each level doubles in cost. Upgrades affect all NPCs of that type in this town.");
         m.insert("tab_policies", "Control NPC behavior. Changes take effect immediately.\n\u{2022} Flee HP: when NPCs run from combat\n\u{2022} Work Schedule: day only, night only, or both\n\u{2022} Off-duty: where NPCs go when not working");
         m.insert("tab_patrols", "Guard patrol route. Guards visit posts top-to-bottom, then loop. Use arrows to reorder.\nBuild more Guard Posts (right-click a green '+' slot) to extend the route.");
-        m.insert("tab_squads", "Group guards into squads for attack orders.\n1. Select a squad\n2. Set target size (recruits idle guards)\n3. Click 'Set Target' then click the map\nGuards march to the target location together.");
+        m.insert("tab_squads", "Group archers into squads for attack orders.\n1. Select a squad\n2. Set target size (recruits idle archers)\n3. Click 'Set Target' then click the map\nArchers march to the target location together.");
         m.insert("tab_intel", "Intelligence on AI towns and raider camps. Shows their food, buildings, upgrades, and recent actions. Click a row to jump the camera there.");
         m.insert("tab_profiler", "System performance timings. Enable in Settings (ESC) under Debug > System Profiler.");
 
         // Build menu
-        m.insert("build_farm", "Grows food over time. Build a House nearby to assign a farmer to harvest it.");
-        m.insert("build_house", "Spawns 1 farmer. Farmer works at the nearest free farm. Build farms first!");
-        m.insert("build_barracks", "Spawns 1 guard. Guard patrols nearby guard posts and fights enemies.");
+        m.insert("build_farm", "Grows food over time. Build a Farmer Home nearby to assign a farmer to harvest it.");
+        m.insert("build_farmer_home", "Spawns 1 farmer. Farmer works at the nearest free farm. Build farms first!");
+        m.insert("build_archer_home", "Spawns 1 archer. Archer patrols nearby guard posts and fights enemies.");
         m.insert("build_guard_post", "Patrol waypoint for guards. Can toggle turret mode (auto-shoots enemies). Right-click an existing post to toggle.");
         m.insert("build_tent", "Spawns 1 raider. Raiders steal food from enemy farms and bring it back to camp.");
-        m.insert("build_mine", "Gold mine building. Set miner count in Roster tab to assign workers.");
+        m.insert("build_miner_home", "Spawns 1 miner. Miner works at the nearest gold mine.");
         m.insert("unlock_slot", "Pay food to unlock this grid slot. Then right-click it again to build.");
         m.insert("destroy", "Remove this building. Its NPC dies and the slot becomes empty.");
 
@@ -1011,10 +1016,10 @@ impl HelpCatalog {
         m.insert("npc_state", "What this NPC is currently doing. Working = at their job. Resting = recovering energy at home. Fighting = in combat.");
         m.insert("npc_energy", "Energy drains while active, recovers while resting at home. NPCs go rest when energy drops below 50, resume at 80.");
         m.insert("npc_trait", "Personality trait. 40% of NPCs spawn with one. Brave = never flees. Swift = +25% speed. Hardy = +25% HP.");
-        m.insert("npc_level", "Guards level up from kills. +1% all stats per level. XP needed = (level+1)\u{00b2} \u{00d7} 100.");
+        m.insert("npc_level", "Archers level up from kills. +1% all stats per level. XP needed = (level+1)\u{00b2} \u{00d7} 100.");
 
         // Getting started
-        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Houses for food\n\u{2022} Build Guard Posts + Barracks for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads");
+        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Farmer Homes for food\n\u{2022} Build Guard Posts + Archer Homes for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads");
 
         Self(m)
     }

@@ -13,7 +13,7 @@ pub struct SpawnNpcMsg {
     pub slot_idx: usize,
     pub x: f32,
     pub y: f32,
-    pub job: i32,           // 0=Farmer, 1=Guard, 2=Raider
+    pub job: i32,           // 0=Farmer, 1=Archer, 2=Raider
     pub faction: i32,       // 0=Villager, 1=Raider
     pub town_idx: i32,      // -1 = none
     pub home_x: f32,
@@ -36,7 +36,7 @@ pub struct DamageMsg {
 #[derive(Message, Clone)]
 pub struct ReassignMsg {
     pub npc_index: usize,
-    pub new_job: i32, // 0=Farmer, 1=Guard
+    pub new_job: i32, // 0=Farmer, 1=Archer
 }
 
 

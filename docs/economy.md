@@ -18,7 +18,7 @@ game_time_system (every frame)
     │   └─ Each raider camp gains CAMP_FORAGE_RATE food
     │
     ├─ spawner_respawn_system (hourly)
-    │   └─ Detects dead NPCs linked to House/Barracks/Tent/MineShaft, counts down 12h timer, spawns replacement
+    │   └─ Detects dead NPCs linked to FarmerHome/ArcherHome/Tent/MinerHome, counts down 12h timer, spawns replacement
     │
     ├─ starvation_system (hourly)
     │   └─ NPCs with zero energy → Starving marker
@@ -35,7 +35,7 @@ game_time_system (every frame)
     └─ squad_cleanup_system (every frame)
         └─ Phase 1: remove dead slots from Squad.members
         └─ Phase 2: dismiss excess if members > target_size (remove SquadId)
-        └─ Phase 3: auto-recruit unsquadded player guards if members < target_size (insert SquadId)
+        └─ Phase 3: auto-recruit unsquadded player archers if members < target_size (insert SquadId)
 ```
 
 ## Systems
@@ -63,12 +63,12 @@ game_time_system (every frame)
 
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Each `SpawnerEntry` in `SpawnerState` links a House (farmer), Barracks (guard), Tent (raider), or MineShaft (miner) to an NPC slot
+- Each `SpawnerEntry` in `SpawnerState` links a FarmerHome (farmer), ArcherHome (archer), Tent (raider), or MinerHome (miner) to an NPC slot
 - If `npc_slot >= 0` and NPC is dead (not in `NpcEntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth): House → Farmer (nearest **free** farm via `find_nearest_free`), Barracks → Guard (nearest guard post via `find_location_within_radius`), Tent → Raider (home = tent position), MineShaft → Miner (nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Same function used by `game_startup_system` for initial NPC spawns.
+- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth): FarmerHome → Farmer (nearest **free** farm via `find_nearest_free`), ArcherHome → Archer (nearest guard post via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Same function used by `game_startup_system` for initial NPC spawns.
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -135,7 +135,7 @@ Speed restored to CachedStats.speed
 
 **Recovery paths:**
 - **Eat**: consumes 1 food from town storage, instantly restores energy to 100. No travel required.
-- **Rest**: walk home to spawner building (House/Barracks), recover energy slowly (6 hours 0→100). Works even when starving.
+- **Rest**: walk home to spawner building (FarmerHome/ArcherHome), recover energy slowly (6 hours 0→100). Works even when starving.
 
 **Constants:**
 - `STARVING_HP_CAP`: 0.5 (50% of MaxHealth)
@@ -214,9 +214,9 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | STARVING_HP_CAP | 0.5 | 50% MaxHealth cap while starving |
 | STARVING_SPEED_MULT | 0.5 | 50% speed while starving |
 | RAID_GROUP_SIZE | 5 | Min raiders to form a raid group |
-| HOUSE_BUILD_COST | 1 | Food cost to build a House |
-| BARRACKS_BUILD_COST | 1 | Food cost to build a Barracks |
-| MINE_SHAFT_BUILD_COST | 1 | Food cost to build a Mine Shaft |
+| FARMER_HOME_BUILD_COST | 1 | Food cost to build a Farmer Home |
+| ARCHER_HOME_BUILD_COST | 1 | Food cost to build an Archer Home |
+| MINER_HOME_BUILD_COST | 1 | Food cost to build a Miner Home |
 | SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
 | MINE_MAX_GOLD | 200.0 | Maximum gold a mine can hold |
 | MINE_REGEN_RATE | 2.0/hour | Gold regeneration rate (when unoccupied) |
@@ -234,7 +234,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 - Runs every frame in `Step::Behavior`
 - **Phase 1**: retains only members whose slot is still in `NpcEntityMap` (alive)
 - **Phase 2**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` component, pops from members)
-- **Phase 3**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction guards (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
+- **Phase 3**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction archers (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
 
 ## Known Issues
 
@@ -242,4 +242,4 @@ None currently.
 
 ## Rating: 8/10
 
-Farm growth cycle creates meaningful gameplay loop — farmers tend crops, raiders steal harvests, camps forage passively. Group raid coordination prevents solo suicide runs. Starvation adds survival pressure to both factions. Game time system is clean with single `hour_ticked` flag. FarmYield upgrade scales per-town via `TownUpgrades`. Starvation uses resolved `CachedStats.speed` instead of hardcoded constants. Unified spawner system handles all four NPC types (farmer/guard/raider/miner) through a single `spawner_respawn_system` with `resolve_spawner_npc()` as single source of truth. Weaknesses: no visual feedback for farm state, population helpers use raw `(job, town)` tuple keys.
+Farm growth cycle creates meaningful gameplay loop — farmers tend crops, raiders steal harvests, camps forage passively. Group raid coordination prevents solo suicide runs. Starvation adds survival pressure to both factions. Game time system is clean with single `hour_ticked` flag. FarmYield upgrade scales per-town via `TownUpgrades`. Starvation uses resolved `CachedStats.speed` instead of hardcoded constants. Unified spawner system handles all four NPC types (farmer/archer/raider/miner) through a single `spawner_respawn_system` with `resolve_spawner_npc()` as single source of truth. Weaknesses: no visual feedback for farm state, population helpers use raw `(job, town)` tuple keys.

@@ -35,7 +35,7 @@ UI-selectable integration tests run inside the full Bevy app via a bevy_egui men
 | `spawning` | 4 | Spawn entities, kill via health=0, slot freed, slot reused |
 | `energy` | 3 | Energy starts at 100, drains over time, reaches ENERGY_HUNGRY |
 | `movement` | 3 | Transit activity set, GPU positions update, AtDestination on arrival |
-| `guard-patrol` | 5 | OnDuty → Patrolling → OnDuty → rest when tired → resume |
+| `archer-patrol` | 5 | OnDuty → Patrolling → OnDuty → rest when tired → resume |
 | `farmer-cycle` | 5 | GoingToWork → Working → tired → rest → recover → return |
 | `raider-cycle` | 5 | Dispatch group → arrive at farm → steal → return → deliver |
 | `combat` | 6 | GPU targeting → Fighting → damage → health drop → death → slot freed |
@@ -110,7 +110,7 @@ Frame execution order ───────────────────�
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
-| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (House/Barracks/Tent/MineShaft), FarmYield upgrade | 8/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (FarmerHome/ArcherHome/Tent/MinerHome), FarmYield upgrade | 8/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 8/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
@@ -130,11 +130,11 @@ rust/
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Miner marker)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, HelpCatalog, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
-  src/world.rs          # World data structs (GoldMine, MineShaft), world grid (Building::GoldMine, Building::MineShaft), procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), Building::spawner_kind()
+  src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), Building::spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale), escape/time controls, keyboard toggles (Q=squads), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
@@ -147,7 +147,7 @@ rust/
     spawning.rs         # Spawn + slot reuse test (4 phases)
     energy.rs           # Energy drain test (3 phases)
     movement.rs         # Movement + arrival test (3 phases)
-    guard_patrol.rs     # Guard patrol cycle (5 phases)
+    archer_patrol.rs    # Archer patrol cycle (5 phases)
     farmer_cycle.rs     # Farmer work cycle (5 phases)
     raider_cycle.rs     # Raider raid cycle (5 phases)
     combat.rs           # Combat pipeline test (6 phases)
@@ -180,8 +180,8 @@ rust/
       heal.png                        # Heal halo sprite (single 16x16, atlas_id=2.0)
       sleep.png                       # Sleep icon sprite (single 16x16, atlas_id=3.0)
       arrow.png                       # Arrow projectile sprite (single texture, white)
-      house.png                       # House building sprite (32x32, External tileset)
-      barracks.png                    # Barracks building sprite (32x32, External tileset)
+      house.png                       # Farmer Home building sprite (32x32, External tileset)
+      barracks.png                    # Archer Home building sprite (32x32, External tileset)
       guard_post.png                  # Guard post building sprite (32x32, External tileset)
     shaders/
       npc_compute.wgsl      # WGSL compute shader (movement + spatial grid + combat targeting)

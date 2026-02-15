@@ -55,16 +55,16 @@ pub struct GuardPost {
     pub patrol_order: u32,
 }
 
-/// A house that supports 1 farmer (building spawner).
+/// A farmer home that supports 1 farmer (building spawner).
 #[derive(Clone, Debug)]
-pub struct House {
+pub struct FarmerHome {
     pub position: Vec2,
     pub town_idx: u32,
 }
 
-/// A barracks that supports 1 guard (building spawner).
+/// An archer home that supports 1 archer (building spawner).
 #[derive(Clone, Debug)]
-pub struct Barracks {
+pub struct ArcherHome {
     pub position: Vec2,
     pub town_idx: u32,
 }
@@ -76,9 +76,9 @@ pub struct Tent {
     pub town_idx: u32,
 }
 
-/// A mine shaft that supports 1 miner (building spawner).
+/// A miner home that supports 1 miner (building spawner).
 #[derive(Clone, Debug)]
-pub struct MineShaft {
+pub struct MinerHome {
     pub position: Vec2,
     pub town_idx: u32,
 }
@@ -100,10 +100,10 @@ pub struct WorldData {
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub guard_posts: Vec<GuardPost>,
-    pub houses: Vec<House>,
-    pub barracks: Vec<Barracks>,
+    pub farmer_homes: Vec<FarmerHome>,
+    pub archer_homes: Vec<ArcherHome>,
     pub tents: Vec<Tent>,
-    pub mine_shafts: Vec<MineShaft>,
+    pub miner_homes: Vec<MinerHome>,
     pub gold_mines: Vec<GoldMine>,
 }
 
@@ -248,17 +248,17 @@ pub fn place_building(
                 patrol_order,
             });
         }
-        Building::House { town_idx } => {
-            world_data.houses.push(House { position: snapped_pos, town_idx });
+        Building::FarmerHome { town_idx } => {
+            world_data.farmer_homes.push(FarmerHome { position: snapped_pos, town_idx });
         }
-        Building::Barracks { town_idx } => {
-            world_data.barracks.push(Barracks { position: snapped_pos, town_idx });
+        Building::ArcherHome { town_idx } => {
+            world_data.archer_homes.push(ArcherHome { position: snapped_pos, town_idx });
         }
         Building::Tent { town_idx } => {
             world_data.tents.push(Tent { position: snapped_pos, town_idx });
         }
-        Building::MineShaft { town_idx } => {
-            world_data.mine_shafts.push(MineShaft { position: snapped_pos, town_idx });
+        Building::MinerHome { town_idx } => {
+            world_data.miner_homes.push(MinerHome { position: snapped_pos, town_idx });
         }
         _ => {} // Fountain, Camp, GoldMine not player-placeable
     }
@@ -279,18 +279,18 @@ pub fn resolve_spawner_npc(
 
     match entry.building_kind {
         0 => {
-            // House -> Farmer: find nearest free farm in own town
+            // FarmerHome -> Farmer: find nearest free farm in own town
             let farm = find_nearest_free(
                 entry.position, bgrid, BuildingKind::Farm, occupancy, Some(entry.town_idx as u32),
             ).unwrap_or(entry.position);
-            (0, town_faction, farm.x, farm.y, -1, 0, "Farmer", "House")
+            (0, town_faction, farm.x, farm.y, -1, 0, "Farmer", "Farmer Home")
         }
         1 => {
-            // Barracks -> Guard: find nearest guard post
+            // ArcherHome -> Archer: find nearest guard post
             let post_idx = find_location_within_radius(
                 entry.position, bgrid, LocationKind::GuardPost, f32::MAX,
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-            (1, town_faction, -1.0, -1.0, post_idx, 1, "Guard", "Barracks")
+            (1, town_faction, -1.0, -1.0, post_idx, 1, "Archer", "Archer Home")
         }
         2 => {
             // Tent -> Raider
@@ -299,11 +299,11 @@ pub fn resolve_spawner_npc(
             (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Tent")
         }
         3 => {
-            // MineShaft -> Miner: find nearest gold mine
+            // MinerHome -> Miner: find nearest gold mine
             let mine = find_nearest_free(
                 entry.position, bgrid, BuildingKind::GoldMine, occupancy, None,
             ).unwrap_or(entry.position);
-            (4, town_faction, mine.x, mine.y, -1, 0, "Miner", "Mine Shaft")
+            (4, town_faction, mine.x, mine.y, -1, 0, "Miner", "Miner Home")
         }
         _ => {
             // Unknown building kind — fallback to Raider
@@ -454,18 +454,18 @@ pub fn remove_building(
                 post.position = tombstone;
             }
         }
-        Building::House { .. } => {
-            if let Some(house) = world_data.houses.iter_mut().find(|h| {
+        Building::FarmerHome { .. } => {
+            if let Some(h) = world_data.farmer_homes.iter_mut().find(|h| {
                 (h.position - snapped_pos).length() < 1.0
             }) {
-                house.position = tombstone;
+                h.position = tombstone;
             }
         }
-        Building::Barracks { .. } => {
-            if let Some(b) = world_data.barracks.iter_mut().find(|b| {
-                (b.position - snapped_pos).length() < 1.0
+        Building::ArcherHome { .. } => {
+            if let Some(a) = world_data.archer_homes.iter_mut().find(|a| {
+                (a.position - snapped_pos).length() < 1.0
             }) {
-                b.position = tombstone;
+                a.position = tombstone;
             }
         }
         Building::Tent { .. } => {
@@ -475,11 +475,11 @@ pub fn remove_building(
                 t.position = tombstone;
             }
         }
-        Building::MineShaft { .. } => {
-            if let Some(ms) = world_data.mine_shafts.iter_mut().find(|ms| {
-                (ms.position - snapped_pos).length() < 1.0
+        Building::MinerHome { .. } => {
+            if let Some(m) = world_data.miner_homes.iter_mut().find(|m| {
+                (m.position - snapped_pos).length() < 1.0
             }) {
-                ms.position = tombstone;
+                m.position = tombstone;
             }
         }
         _ => {}
@@ -791,8 +791,8 @@ pub const BUILDING_TILES: [TileSpec; 10] = [
     TileSpec::External(2),    // 2: Guard Post (guard_post.png)
     TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]), // 3: Farm
     TileSpec::Quad([(46, 10), (47, 10), (46, 11), (47, 11)]), // 4: Camp (center)
-    TileSpec::External(0),    // 5: House (house.png)
-    TileSpec::External(1),    // 6: Barracks (barracks.png)
+    TileSpec::External(0),    // 5: FarmerHome (house.png)
+    TileSpec::External(1),    // 6: ArcherHome (barracks.png)
     TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]), // 7: Tent (raider spawner)
     TileSpec::Single(43, 11), // 8: Gold Mine
     TileSpec::Single(43, 11), // 9: Mine Shaft (reuses gold mine sprite)
@@ -887,23 +887,23 @@ pub enum Building {
     Bed { town_idx: u32 },
     GuardPost { town_idx: u32, patrol_order: u32 },
     Camp { town_idx: u32 },
-    House { town_idx: u32 },
-    Barracks { town_idx: u32 },
+    FarmerHome { town_idx: u32 },
+    ArcherHome { town_idx: u32 },
     Tent { town_idx: u32 },
     GoldMine,
-    MineShaft { town_idx: u32 },
+    MinerHome { town_idx: u32 },
 }
 
 impl Building {
-    /// Returns the spawner building_kind (0=House, 1=Barracks, 2=Tent, 3=MineShaft),
+    /// Returns the spawner building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome),
     /// or None for non-spawner buildings (Farm, GuardPost, etc.).
     /// Single source of truth for the building→spawner mapping.
     pub fn spawner_kind(&self) -> Option<i32> {
         match self {
-            Building::House { .. } => Some(0),
-            Building::Barracks { .. } => Some(1),
+            Building::FarmerHome { .. } => Some(0),
+            Building::ArcherHome { .. } => Some(1),
             Building::Tent { .. } => Some(2),
-            Building::MineShaft { .. } => Some(3),
+            Building::MinerHome { .. } => Some(3),
             _ => None,
         }
     }
@@ -916,11 +916,11 @@ impl Building {
             Building::GuardPost { .. } => 2,
             Building::Farm { .. } => 3,
             Building::Camp { .. } => 4,
-            Building::House { .. } => 5,
-            Building::Barracks { .. } => 6,
+            Building::FarmerHome { .. } => 5,
+            Building::ArcherHome { .. } => 6,
             Building::Tent { .. } => 7,
             Building::GoldMine => 8,
-            Building::MineShaft { .. } => 9,
+            Building::MinerHome { .. } => 9,
         }
     }
 }
@@ -1012,7 +1012,7 @@ pub struct WorldGenConfig {
     pub camp_distance: f32,
     pub farms_per_town: usize,
     pub farmers_per_town: usize,
-    pub guards_per_town: usize,
+    pub archers_per_town: usize,
     pub raiders_per_camp: usize,
     pub ai_towns: usize,
     pub raider_camps: usize,
@@ -1033,7 +1033,7 @@ impl Default for WorldGenConfig {
             camp_distance: 3500.0,
             farms_per_town: 2,
             farmers_per_town: 2,
-            guards_per_town: 2,
+            archers_per_town: 2,
             raiders_per_camp: 1,
             ai_towns: 1,
             raider_camps: 1,
@@ -1237,7 +1237,7 @@ pub fn generate_world(
         if is_continents { "continents" } else { "classic" });
 }
 
-/// Place buildings for one town on the grid: fountain, farms, houses, barracks, guard posts.
+/// Place buildings for one town on the grid: fountain, farms, farmer homes, archer homes, guard posts.
 /// Uses grid-relative offsets from center, snapped to grid cells.
 fn place_town_buildings(
     grid: &mut WorldGrid,
@@ -1268,8 +1268,8 @@ fn place_town_buildings(
     // Fountain at (0, 0) = town center
     place(0, 0, Building::Fountain { town_idx }, &mut occupied, town_grid);
 
-    // All buildings spiral outward from center: farms first (closest), then houses, then barracks
-    let needed = config.farms_per_town + config.farmers_per_town + config.guards_per_town;
+    // All buildings spiral outward from center: farms first (closest), then farmer homes, then archer homes
+    let needed = config.farms_per_town + config.farmers_per_town + config.archers_per_town;
     let slots = spiral_slots(&occupied, needed);
     let mut slot_iter = slots.into_iter();
 
@@ -1282,14 +1282,14 @@ fn place_town_buildings(
 
     for _ in 0..config.farmers_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::House { town_idx }, &mut occupied, town_grid);
-        world_data.houses.push(House { position: pos, town_idx });
+        let pos = place(row, col, Building::FarmerHome { town_idx }, &mut occupied, town_grid);
+        world_data.farmer_homes.push(FarmerHome { position: pos, town_idx });
     }
 
-    for _ in 0..config.guards_per_town {
+    for _ in 0..config.archers_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::Barracks { town_idx }, &mut occupied, town_grid);
-        world_data.barracks.push(Barracks { position: pos, town_idx });
+        let pos = place(row, col, Building::ArcherHome { town_idx }, &mut occupied, town_grid);
+        world_data.archer_homes.push(ArcherHome { position: pos, town_idx });
     }
 
     // 4 guard posts: at the outer corners of all placed buildings (clockwise patrol: TL → TR → BR → BL)

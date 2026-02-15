@@ -175,7 +175,7 @@ The fragment shader dispatches texture sampling by `atlas_id` in descending orde
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
-- Guard: (0, 0)
+- Archer: (0, 0)
 - Raider: (0, 6)
 - Fighter: (1, 9)
 
@@ -307,8 +307,8 @@ let ndc = offset / (camera.viewport * 0.5);
 | World | `roguelikeSheet_transparent.png` | 968×526 | 57×31 (16px + 1px margin) | Building/terrain sprites |
 | Heal halo | `heal.png` | 16×16 | 1×1 (single sprite) | Healing overlay |
 | Sleep icon | `sleep.png` | 16×16 | 1×1 (single sprite) | Sleep indicator overlay |
-| House | `house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
-| Barracks | `barracks.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
+| Farmer Home | `house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
+| Archer Home | `barracks.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Guard Post | `guard_post.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 
 `SpriteAssets` holds handles for all loaded textures including the three external building sprites (`house_texture`, `barracks_texture`, `guard_post_texture`). NPC instanced rendering textures are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon), extracted to render world for quad bind group creation.
@@ -346,13 +346,13 @@ Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase a
 
 **Slot Indicators** (`ui/mod.rs`): Building grid indicators use Sprite entities at z=-0.3 with a `SlotIndicator` marker component — not gizmos, because Bevy gizmos render in a separate pass after all Transparent2d items and can't be z-sorted with them. Green "+" crosshairs mark empty unlocked slots, dim bracket corners mark adjacent locked slots. Indicators are rebuilt when `TownGrids` or `WorldGrid` changes, and despawned on game cleanup.
 
-**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(usize)` for a standalone 32×32 PNG (index into extra images slice). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad; House, Barracks, and GuardPost use External (dedicated PNGs).
+**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(usize)` for a standalone 32×32 PNG (index into extra images slice). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad; FarmerHome, ArcherHome, and GuardPost use External (dedicated PNGs).
 
 **`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array`. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images directly into the layer. Called twice — once with `TERRAIN_TILES` (11 tiles, no extras) and once with `BUILDING_TILES` (8 tiles, extras: house.png, barracks.png, guard_post.png).
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
-**`Building::tileset_index()`**: Maps building variant to building tileset array index (0-7). Fountain=0, Bed=1, GuardPost=2, Farm=3, Camp=4, House=5, Barracks=6, Tent=7.
+**`Building::tileset_index()`**: Maps building variant to building tileset array index (0-7). Fountain=0, Bed=1, GuardPost=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7.
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 

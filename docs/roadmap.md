@@ -178,7 +178,7 @@ Rules:
 
 ### Tests (one file each in `src/tests/`, all pass)
 - [x] `movement` — Movement & Arrival (3 phases): spawn, move toward target, arrive
-- [x] `guard-patrol` — Guard Patrol Cycle (5 phases): OnDuty → Patrolling → OnDuty → rest → resume
+- [x] `archer-patrol` — Archer Patrol Cycle (5 phases): OnDuty → Patrolling → OnDuty → rest → resume
 - [x] `farmer-cycle` — Farmer Work Cycle (5 phases): GoingToWork → Working → tired → rest → resume
 - [x] `raider-cycle` — Raider Raid Cycle (5 phases): dispatch → arrive → steal → return → deliver
 - [x] `combat` — Combat Pipeline (6 phases): targeting → InCombat → projectile → damage → death → cleanup
@@ -338,7 +338,7 @@ Rules:
 
 **NEXT: DRY + Single Source of Truth hardening (before feature parity leftovers)**
 
-- [ ] Rename role spawner buildings to `HomeFarmer` / `HomeMiner` / `HomeGuard` (UI labels: `Home - Farmer`, `Home - Miner`, `Home - Guard`) for unambiguous 1:1 NPC-home semantics
+- [x] Rename role spawner buildings to `FarmerHome` / `ArcherHome` / `MinerHome` + rename `Job::Guard` → `Job::Archer` and all associated types/fields/UI labels
 - [x] Consolidate farm harvest transitions into one authoritative path (currently split across `arrival_system` and `decision_system`)
 - [x] Consolidate building placement side effects (place + food spend + spawner entry) into one shared helper used by player + AI
 - [x] Consolidate spawner spawn mapping (`building_kind` -> `SpawnNpcMsg` fields) into one shared helper used by startup + respawn systems
@@ -658,15 +658,15 @@ Steps 1-6 (completed) replaced hand-rolled staging buffers with Bevy's async `Re
 | Idle | All | Between decisions |
 | Resting | All | At home/camp, recovering energy |
 | Off Duty | All | At home/camp, awake |
-| Fighting | Guard, Raider | In combat |
+| Fighting | Archer, Raider | In combat |
 | Fleeing | All | Running from combat |
-| Walking | Farmer, Guard | Moving to destination |
+| Walking | Farmer, Archer | Moving to destination |
 | Working | Farmer | At farm, producing food |
-| On Duty | Guard | Stationed at post |
-| Patrolling | Guard | Moving between posts |
+| On Duty | Archer | Stationed at post |
+| Patrolling | Archer | Moving between posts |
 | Raiding | Raider | Going to/at farm to steal |
 | Returning | Raider | Heading back to camp |
-| Wandering | Farmer, Guard | Off-duty wandering |
+| Wandering | Farmer, Archer | Off-duty wandering |
 
 ### Chunked Tilemap
 

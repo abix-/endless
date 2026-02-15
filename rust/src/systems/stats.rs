@@ -42,7 +42,7 @@ impl Default for CombatConfig {
     fn default() -> Self {
         let mut jobs = HashMap::new();
         // All jobs: 100 HP, 100 speed. Damage varies.
-        jobs.insert(Job::Guard, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
+        jobs.insert(Job::Archer, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
         jobs.insert(Job::Raider, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
         jobs.insert(Job::Farmer, JobStats { max_health: 100.0, damage: 0.0, speed: 100.0 });
         jobs.insert(Job::Miner, JobStats { max_health: 100.0, damage: 0.0, speed: 100.0 });
@@ -69,14 +69,14 @@ pub const UPGRADE_COUNT: usize = 13;
 #[derive(Clone, Copy, Debug)]
 #[repr(usize)]
 pub enum UpgradeType {
-    GuardHealth = 0, GuardAttack = 1, GuardRange = 2, GuardSize = 3,
+    ArcherHealth = 0, ArcherAttack = 1, ArcherRange = 2, ArcherSize = 3,
     AttackSpeed = 4, MoveSpeed = 5, AlertRadius = 6,
     FarmYield = 7, FarmerHp = 8,
     HealingRate = 9, FoodEfficiency = 10, FountainRadius = 11, TownArea = 12,
 }
 
 pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
-    0.10, 0.10, 0.05, 0.05,  // guard: health, attack, range, size
+    0.10, 0.10, 0.05, 0.05,  // archer: health, attack, range, size
     0.08, 0.05, 0.10,         // cooldown reduction, move speed, alert radius
     0.15, 0.20,               // farm yield, farmer HP
     0.20, 0.10, 0.0, 0.0,     // healing rate, food efficiency, fountain radius (flat), town area (discrete)
@@ -94,13 +94,13 @@ pub struct UpgradeNode {
 }
 
 pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
-    UpgradeNode { label: "Guard Health",    short: "G.HP",    tooltip: "+10% guard HP per level",                  category: "Guard" },
-    UpgradeNode { label: "Guard Attack",    short: "G.Atk",   tooltip: "+10% guard damage per level",              category: "Guard" },
-    UpgradeNode { label: "Guard Range",     short: "G.Rng",   tooltip: "+5% guard attack range per level",         category: "Guard" },
-    UpgradeNode { label: "Guard Size",      short: "G.Size",  tooltip: "+5% guard size per level",                 category: "Guard" },
-    UpgradeNode { label: "Attack Speed",    short: "AtkSpd",  tooltip: "-8% attack cooldown per level",            category: "Guard" },
-    UpgradeNode { label: "Move Speed",      short: "MvSpd",   tooltip: "+5% movement speed per level",             category: "Guard" },
-    UpgradeNode { label: "Alert Radius",    short: "Alert",   tooltip: "+10% alert radius per level",              category: "Guard" },
+    UpgradeNode { label: "Archer Health",   short: "A.HP",    tooltip: "+10% archer HP per level",                  category: "Archer" },
+    UpgradeNode { label: "Archer Attack",   short: "A.Atk",   tooltip: "+10% archer damage per level",              category: "Archer" },
+    UpgradeNode { label: "Archer Range",    short: "A.Rng",   tooltip: "+5% archer attack range per level",         category: "Archer" },
+    UpgradeNode { label: "Archer Size",     short: "A.Size",  tooltip: "+5% archer size per level",                 category: "Archer" },
+    UpgradeNode { label: "Attack Speed",    short: "AtkSpd",  tooltip: "-8% attack cooldown per level",            category: "Archer" },
+    UpgradeNode { label: "Move Speed",      short: "MvSpd",   tooltip: "+5% movement speed per level",             category: "Archer" },
+    UpgradeNode { label: "Alert Radius",    short: "Alert",   tooltip: "+10% alert radius per level",              category: "Archer" },
     UpgradeNode { label: "Farm Yield",      short: "FarmY",   tooltip: "+15% food production per level",           category: "Farm" },
     UpgradeNode { label: "Farmer HP",       short: "F.HP",    tooltip: "+20% farmer HP per level",                 category: "Farm" },
     UpgradeNode { label: "Healing Rate",    short: "Heal",    tooltip: "+20% HP regen at fountain per level",      category: "Town" },
@@ -149,7 +149,7 @@ pub fn upgrade_cost(level: u8) -> i32 {
 /// Which upgrades require NPC stat re-resolution (combat-affecting).
 fn is_combat_upgrade(idx: usize) -> bool {
     matches!(idx,
-        0 | 1 | 2 | 3 | // GuardHealth, GuardAttack, GuardRange, GuardSize
+        0 | 1 | 2 | 3 | // ArcherHealth, ArcherAttack, ArcherRange, ArcherSize
         4 | 5 |          // AttackSpeed, MoveSpeed
         8                // FarmerHp
     )
@@ -179,16 +179,16 @@ pub fn resolve_combat_stats(
     let town = upgrades.levels.get(town_idx_usize).copied().unwrap_or([0; UPGRADE_COUNT]);
 
     let upgrade_hp = match job {
-        Job::Guard => 1.0 + town[UpgradeType::GuardHealth as usize] as f32 * UPGRADE_PCT[0],
+        Job::Archer => 1.0 + town[UpgradeType::ArcherHealth as usize] as f32 * UPGRADE_PCT[0],
         Job::Farmer | Job::Miner => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
         _ => 1.0,
     };
     let upgrade_dmg = match job {
-        Job::Guard => 1.0 + town[UpgradeType::GuardAttack as usize] as f32 * UPGRADE_PCT[1],
+        Job::Archer => 1.0 + town[UpgradeType::ArcherAttack as usize] as f32 * UPGRADE_PCT[1],
         _ => 1.0,
     };
     let upgrade_range = match job {
-        Job::Guard => 1.0 + town[UpgradeType::GuardRange as usize] as f32 * UPGRADE_PCT[2],
+        Job::Archer => 1.0 + town[UpgradeType::ArcherRange as usize] as f32 * UPGRADE_PCT[2],
         _ => 1.0,
     };
     let upgrade_speed = 1.0 + town[UpgradeType::MoveSpeed as usize] as f32 * UPGRADE_PCT[5];

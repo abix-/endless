@@ -123,7 +123,7 @@ pub fn death_cleanup_system(
         if faction.0 == 0 {
             res.kill_stats.villager_kills += 1;
         } else {
-            res.kill_stats.guard_kills += 1;
+            res.kill_stats.archer_kills += 1;
         }
 
         // Combat log: death event

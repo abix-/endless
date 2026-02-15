@@ -20,7 +20,7 @@ pub const FLOATS_PER_INSTANCE: usize = 16;
 
 // Sprite frames (column, row) in the character sheet (17px cells with 1px margin)
 pub const SPRITE_FARMER: (f32, f32) = (1.0, 6.0);
-pub const SPRITE_GUARD: (f32, f32) = (0.0, 0.0);
+pub const SPRITE_ARCHER: (f32, f32) = (0.0, 0.0);
 pub const SPRITE_RAIDER: (f32, f32) = (0.0, 6.0);
 pub const SPRITE_FIGHTER: (f32, f32) = (1.0, 9.0);
 pub const SPRITE_MINER: (f32, f32) = (1.0, 6.0);  // Same sprite as farmer, differentiated by brown tint
@@ -68,8 +68,8 @@ pub const ENERGY_HUNGRY: f32 = 50.0;
 /// Energy threshold above which NPCs resume activity.
 pub const ENERGY_RESTED: f32 = 80.0;
 
-/// Ticks a guard waits at a post before moving to next.
-pub const GUARD_PATROL_WAIT: u32 = 60;
+/// Ticks an archer waits at a post before moving to next.
+pub const ARCHER_PATROL_WAIT: u32 = 60;
 
 /// Energy threshold to wake up from resting.
 pub const ENERGY_WAKE_THRESHOLD: f32 = 90.0;
@@ -178,17 +178,17 @@ pub const FARM_BUILD_COST: i32 = 1;
 /// Food cost to build a guard post.
 pub const GUARD_POST_BUILD_COST: i32 = 1;
 
-/// Food cost to build a house (supports 1 farmer).
-pub const HOUSE_BUILD_COST: i32 = 1;
+/// Food cost to build a farmer home (supports 1 farmer).
+pub const FARMER_HOME_BUILD_COST: i32 = 1;
 
-/// Food cost to build a barracks (supports 1 guard).
-pub const BARRACKS_BUILD_COST: i32 = 1;
+/// Food cost to build an archer home (supports 1 archer).
+pub const ARCHER_HOME_BUILD_COST: i32 = 1;
 
 /// Food cost to build a tent (supports 1 raider).
 pub const TENT_BUILD_COST: i32 = 1;
 
-/// Food cost to build a mine shaft (supports 1 miner).
-pub const MINE_SHAFT_BUILD_COST: i32 = 1;
+/// Food cost to build a miner home (supports 1 miner).
+pub const MINER_HOME_BUILD_COST: i32 = 1;
 
 /// Game hours before a dead NPC respawns from its building.
 pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;

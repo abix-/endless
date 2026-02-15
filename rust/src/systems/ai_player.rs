@@ -38,11 +38,11 @@ pub enum AiPersonality { Aggressive, Balanced, Economic }
 #[derive(Clone, Copy, Debug)]
 enum AiAction {
     BuildFarm,
-    BuildHouse,
-    BuildBarracks,
+    BuildFarmerHome,
+    BuildArcherHome,
     BuildGuardPost,
     BuildTent,
-    BuildMineShaft,
+    BuildMinerHome,
     Upgrade(usize), // upgrade index into UPGRADE_PCT
 }
 
@@ -68,19 +68,19 @@ impl AiPersonality {
     pub fn default_policies(self) -> PolicySet {
         match self {
             Self::Aggressive => PolicySet {
-                guard_aggressive: true,
-                guard_leash: false,
+                archer_aggressive: true,
+                archer_leash: false,
                 farmer_fight_back: true,
                 prioritize_healing: false,
-                guard_flee_hp: 0.0,
+                archer_flee_hp: 0.0,
                 farmer_flee_hp: 0.30,
                 ..PolicySet::default()
             },
             Self::Balanced => PolicySet::default(),
             Self::Economic => PolicySet {
-                guard_leash: true,
+                archer_leash: true,
                 prioritize_healing: true,
-                guard_flee_hp: 0.25,
+                archer_flee_hp: 0.25,
                 farmer_flee_hp: 0.50,
                 ..PolicySet::default()
             },
@@ -97,7 +97,7 @@ impl AiPersonality {
     }
 
     /// Barracks target count relative to houses.
-    fn barracks_target(self, houses: usize) -> usize {
+    fn archer_home_target(self, houses: usize) -> usize {
         match self {
             Self::Aggressive => houses.max(1),
             Self::Balanced   => (houses / 2).max(1),
@@ -266,10 +266,10 @@ pub fn ai_decision_system(
 
         let alive = |pos: Vec2, idx: u32| idx == ti && pos.x > -9000.0;
         let farms = world_data.farms.iter().filter(|f| alive(f.position, f.town_idx)).count();
-        let houses = world_data.houses.iter().filter(|h| alive(h.position, h.town_idx)).count();
-        let barracks = world_data.barracks.iter().filter(|b| alive(b.position, b.town_idx)).count();
+        let houses = world_data.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count();
+        let barracks = world_data.archer_homes.iter().filter(|b| alive(b.position, b.town_idx)).count();
         let guard_posts = world_data.guard_posts.iter().filter(|g| alive(g.position, g.town_idx)).count();
-        let mine_shafts = world_data.mine_shafts.iter().filter(|ms| alive(ms.position, ms.town_idx)).count();
+        let mine_shafts = world_data.miner_homes.iter().filter(|ms| alive(ms.position, ms.town_idx)).count();
 
         let has_slots = town_grids.grids.get(player.grid_idx)
             .map(|tg| has_empty_slot(tg, center, &grid))
@@ -287,7 +287,7 @@ pub fn ai_decision_system(
             }
             AiKind::Builder => {
                 let (fw, hw, bw, gw) = player.personality.building_weights();
-                let bt = player.personality.barracks_target(houses);
+                let bt = player.personality.archer_home_target(houses);
 
                 if has_slots {
                     // Need factors: 1.0 base + deficit (higher when behind target ratio)
@@ -297,14 +297,14 @@ pub fn ai_decision_system(
                     let gp_need = if guard_posts < barracks { 1.0 + (barracks - guard_posts) as f32 } else { 0.5 };
 
                     if food >= FARM_BUILD_COST { scores.push((AiAction::BuildFarm, fw * farm_need)); }
-                    if food >= HOUSE_BUILD_COST { scores.push((AiAction::BuildHouse, hw * house_need)); }
-                    if food >= BARRACKS_BUILD_COST { scores.push((AiAction::BuildBarracks, bw * barracks_need)); }
+                    if food >= FARMER_HOME_BUILD_COST { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
+                    if food >= ARCHER_HOME_BUILD_COST { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
                     if food >= GUARD_POST_BUILD_COST { scores.push((AiAction::BuildGuardPost, gw * gp_need)); }
                     // 1 mine shaft per 3 houses
                     let ms_target = houses / 3;
-                    if mine_shafts < ms_target && food >= MINE_SHAFT_BUILD_COST {
+                    if mine_shafts < ms_target && food >= MINER_HOME_BUILD_COST {
                         let ms_need = 1.0 + (ms_target - mine_shafts) as f32;
-                        scores.push((AiAction::BuildMineShaft, hw * ms_need));
+                        scores.push((AiAction::BuildMinerHome, hw * ms_need));
                     }
                 }
             }
@@ -369,14 +369,14 @@ fn execute_action(
         AiAction::BuildFarm => try_build_inner(
             Building::Farm { town_idx: ti }, FARM_BUILD_COST, "farm",
             tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
-        AiAction::BuildHouse => try_build_inner(
-            Building::House { town_idx: ti }, HOUSE_BUILD_COST, "house",
+        AiAction::BuildFarmerHome => try_build_inner(
+            Building::FarmerHome { town_idx: ti }, FARMER_HOME_BUILD_COST, "farmer home",
             tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
-        AiAction::BuildBarracks => try_build_inner(
-            Building::Barracks { town_idx: ti }, BARRACKS_BUILD_COST, "barracks",
+        AiAction::BuildArcherHome => try_build_inner(
+            Building::ArcherHome { town_idx: ti }, ARCHER_HOME_BUILD_COST, "archer home",
             tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
-        AiAction::BuildMineShaft => try_build_inner(
-            Building::MineShaft { town_idx: ti }, MINE_SHAFT_BUILD_COST, "mine shaft",
+        AiAction::BuildMinerHome => try_build_inner(
+            Building::MinerHome { town_idx: ti }, MINER_HOME_BUILD_COST, "miner home",
             tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
         AiAction::BuildGuardPost => {
             let tg = town_grids.grids.get(grid_idx)?;

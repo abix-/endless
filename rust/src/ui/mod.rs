@@ -13,7 +13,7 @@ use bevy_egui::{EguiContextSettings, EguiPrimaryContextPass, egui};
 use rand::Rng;
 
 use crate::AppState;
-use crate::constants::{BARRACKS_BUILD_COST, FARM_BUILD_COST, GUARD_POST_BUILD_COST, HOUSE_BUILD_COST, MINE_SHAFT_BUILD_COST, TENT_BUILD_COST, TOWN_GRID_SPACING};
+use crate::constants::{ARCHER_HOME_BUILD_COST, FARM_BUILD_COST, GUARD_POST_BUILD_COST, FARMER_HOME_BUILD_COST, MINER_HOME_BUILD_COST, TENT_BUILD_COST, TOWN_GRID_SPACING};
 use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
@@ -189,7 +189,7 @@ fn game_startup_system(
 
     // Sync GameConfig from WorldGenConfig
     game_config.farmers_per_town = config.farmers_per_town as i32;
-    game_config.guards_per_town = config.guards_per_town as i32;
+    game_config.archers_per_town = config.archers_per_town as i32;
     game_config.raiders_per_camp = config.raiders_per_camp as i32;
 
     // Reset game time
@@ -197,20 +197,20 @@ fn game_startup_system(
 
     // Build SpawnerState from world gen Houses + Barracks + Tents
     spawner_state.0.clear();
-    for house in world_data.houses.iter() {
-        world::register_spawner(&mut spawner_state, world::Building::House { town_idx: 0 },
+    for house in world_data.farmer_homes.iter() {
+        world::register_spawner(&mut spawner_state, world::Building::FarmerHome { town_idx: 0 },
             house.town_idx as i32, house.position, -1.0);
     }
-    for barracks in world_data.barracks.iter() {
-        world::register_spawner(&mut spawner_state, world::Building::Barracks { town_idx: 0 },
+    for barracks in world_data.archer_homes.iter() {
+        world::register_spawner(&mut spawner_state, world::Building::ArcherHome { town_idx: 0 },
             barracks.town_idx as i32, barracks.position, -1.0);
     }
     for tent in world_data.tents.iter() {
         world::register_spawner(&mut spawner_state, world::Building::Tent { town_idx: 0 },
             tent.town_idx as i32, tent.position, -1.0);
     }
-    for ms in world_data.mine_shafts.iter() {
-        world::register_spawner(&mut spawner_state, world::Building::MineShaft { town_idx: 0 },
+    for ms in world_data.miner_homes.iter() {
+        world::register_spawner(&mut spawner_state, world::Building::MinerHome { town_idx: 0 },
             ms.town_idx as i32, ms.position, -1.0);
     }
 
@@ -380,6 +380,8 @@ fn pause_menu_system(
                         .text("UI Scale"));
                     ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0)
                         .text("Scroll Speed"));
+                    ui.add(egui::Slider::new(&mut settings.help_text_size, 8.0..=24.0)
+                        .text("Help Text Size"));
 
                     let prev_bg_fps = settings.background_fps;
                     ui.checkbox(&mut settings.background_fps, "Full FPS in Background");
@@ -405,6 +407,9 @@ fn pause_menu_system(
 
                     ui.add_space(4.0);
                     ui.label("Debug:");
+                    let prev_debug = (settings.debug_coordinates, settings.debug_all_npcs,
+                        settings.debug_readback, settings.debug_combat,
+                        settings.debug_spawns, settings.debug_behavior, settings.debug_profiler);
                     ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
                     ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
                     ui.checkbox(&mut settings.debug_readback, "GPU Readback");
@@ -412,6 +417,12 @@ fn pause_menu_system(
                     ui.checkbox(&mut settings.debug_spawns, "Spawn Logging");
                     ui.checkbox(&mut settings.debug_behavior, "Behavior Logging");
                     ui.checkbox(&mut settings.debug_profiler, "System Profiler");
+                    let now_debug = (settings.debug_coordinates, settings.debug_all_npcs,
+                        settings.debug_readback, settings.debug_combat,
+                        settings.debug_spawns, settings.debug_behavior, settings.debug_profiler);
+                    if prev_debug != now_debug {
+                        crate::settings::save_settings(&settings);
+                    }
                 });
 
             ui.separator();
@@ -545,10 +556,10 @@ fn build_place_click_system(
                 .count() as u32;
             (world::Building::GuardPost { town_idx, patrol_order: existing_posts }, GUARD_POST_BUILD_COST, "guard post")
         }
-        BuildKind::House => (world::Building::House { town_idx }, HOUSE_BUILD_COST, "house"),
-        BuildKind::Barracks => (world::Building::Barracks { town_idx }, BARRACKS_BUILD_COST, "barracks"),
+        BuildKind::FarmerHome => (world::Building::FarmerHome { town_idx }, FARMER_HOME_BUILD_COST, "house"),
+        BuildKind::ArcherHome => (world::Building::ArcherHome { town_idx }, ARCHER_HOME_BUILD_COST, "barracks"),
         BuildKind::Tent => (world::Building::Tent { town_idx }, TENT_BUILD_COST, "tent"),
-        BuildKind::MineShaft => (world::Building::MineShaft { town_idx }, MINE_SHAFT_BUILD_COST, "mine shaft"),
+        BuildKind::MinerHome => (world::Building::MinerHome { town_idx }, MINER_HOME_BUILD_COST, "mine shaft"),
         BuildKind::Destroy => unreachable!(),
     };
 

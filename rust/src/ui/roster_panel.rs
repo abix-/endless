@@ -13,7 +13,7 @@ enum SortColumn { Name, Job, Level, Hp, State, Trait }
 pub struct RosterState {
     sort_column: Option<SortColumn>,
     sort_descending: bool,
-    job_filter: i32, // -1=all, 0=farmer, 1=guard, 2=raider
+    job_filter: i32, // -1=all, 0=farmer, 1=archer, 2=raider
     frame_counter: u32,
     /// Cached rows, rebuilt every 30 frames
     cached_rows: Vec<RosterRow>,
@@ -108,7 +108,7 @@ pub fn roster_panel_system(
                 state.job_filter = -1;
                 state.frame_counter = 0; // force refresh
             }
-            if ui.selectable_label(state.job_filter == 1, "Guards").clicked() {
+            if ui.selectable_label(state.job_filter == 1, "Archers").clicked() {
                 state.job_filter = 1;
                 state.frame_counter = 0;
             }
@@ -181,7 +181,7 @@ pub fn roster_panel_system(
                 // Job color indicator
                 let job_color = match row.job {
                     0 => egui::Color32::from_rgb(80, 200, 80),   // Farmer green
-                    1 => egui::Color32::from_rgb(80, 100, 220),  // Guard blue
+                    1 => egui::Color32::from_rgb(80, 100, 220),  // Archer blue
                     2 => egui::Color32::from_rgb(220, 80, 80),   // Raider red
                     4 => egui::Color32::from_rgb(160, 110, 60),  // Miner brown
                     _ => egui::Color32::from_rgb(220, 220, 80),

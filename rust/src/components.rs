@@ -27,22 +27,22 @@ impl Position {
 
 /// NPC's job determines behavior and color.
 /// - Farmer (green): works at farms, avoids combat
-/// - Guard (blue): patrols and fights raiders
+/// - Archer (blue): patrols and fights raiders
 /// - Raider (red): attacks guards, steals from farms
 #[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Job {
     Farmer,
-    Guard,
+    Archer,
     Raider,
     Fighter,
     Miner,
 }
 
 impl Job {
-    /// Convert from integer (0=Farmer, 1=Guard, 2=Raider, 3=Fighter, 4=Miner)
+    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner)
     pub fn from_i32(v: i32) -> Self {
         match v {
-            1 => Job::Guard,
+            1 => Job::Archer,
             2 => Job::Raider,
             3 => Job::Fighter,
             4 => Job::Miner,
@@ -54,7 +54,7 @@ impl Job {
     pub fn color(&self) -> (f32, f32, f32, f32) {
         match self {
             Job::Farmer => (0.0, 1.0, 0.0, 1.0),    // Green
-            Job::Guard => (0.0, 0.0, 1.0, 1.0),     // Blue
+            Job::Archer => (0.0, 0.0, 1.0, 1.0),     // Blue
             Job::Raider => (1.0, 0.0, 0.0, 1.0),    // Red
             Job::Fighter => (1.0, 1.0, 0.0, 1.0),   // Yellow
             Job::Miner => (0.6, 0.4, 0.2, 1.0),     // Brown
@@ -76,9 +76,9 @@ impl Default for Speed {
 // NPC TYPE MARKERS
 // ============================================================================
 
-/// Guard marker - identifies NPC as a guard (for queries).
+/// Archer marker - identifies NPC as an archer (for queries).
 #[derive(Component)]
-pub struct Guard;
+pub struct Archer;
 
 /// Farmer marker - identifies NPC as a farmer.
 #[derive(Component)]
@@ -330,8 +330,8 @@ pub struct Healing;
 #[derive(Component)]
 pub struct Starving;
 
-/// Squad assignment for guards. 0-9 = squad index.
-/// Guards with this component follow squad target instead of patrolling.
+/// Squad assignment for archers. 0-9 = squad index.
+/// Archers with this component follow squad target instead of patrolling.
 #[derive(Component)]
 pub struct SquadId(pub i32);
 
