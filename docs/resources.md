@@ -158,13 +158,15 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Defined In | Purpose |
 |----------|------|------------|---------|
 | CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats — resolved via `resolve_combat_stats()` |
-| TownUpgrades | `Vec<[u8; 12]>` per town | `systems/stats.rs` | Per-town upgrade levels, indexed by `UpgradeType` enum |
+| TownUpgrades | `Vec<[u8; 13]>` per town | `systems/stats.rs` | Per-town upgrade levels, indexed by `UpgradeType` enum. `town_levels(idx)` accessor. |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | `systems/stats.rs` | Pending upgrade purchases from UI, drained by `process_upgrades_system` |
-| AutoUpgrade | `Vec<[bool; 12]>` per town | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` queues affordable upgrades each game hour |
+| AutoUpgrade | `Vec<[bool; 13]>` per town | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` queues affordable upgrades each game hour |
 
 `CombatConfig::default()` initializes from hardcoded values (archer/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150). `resolve_combat_stats()` combines job base × upgrade mult × trait mult × level mult → `CachedStats` component.
 
-`TownUpgrades` is indexed by town, each entry is a fixed-size array of 13 upgrade levels (`UpgradeType` enum: ArcherHealth, ArcherAttack, ArcherRange, ArcherSize, AttackSpeed, MoveSpeed, AlertRadius, FarmYield, FarmerHp, HealingRate, FoodEfficiency, FountainRadius, TownArea). `UpgradeQueue` decouples the UI from stat re-resolution — `left_panel.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates food cost (`10 * 2^level`), increments level, deducts food, and re-resolves `CachedStats` for affected NPCs. `auto_upgrade_system` runs once per game hour before `process_upgrades_system`, queuing any auto-enabled upgrades the town can afford.
+`UPGRADE_REGISTRY` is the single source of truth for all upgrade metadata — an `[UpgradeNode; 13]` const array in `stats.rs`. Each `UpgradeNode` has: `label`, `short`, `tooltip`, `category`, `cost: &[(ResourceKind, i32)]` (multi-resource), `prereqs: &[(UpgradePrereq)]`. `ResourceKind { Food, Gold }` is extensible for future resource types. `UpgradePrereq { upgrade: usize, min_level: u8 }` defines dependency edges forming a tech tree.
+
+`TownUpgrades` is indexed by town, each entry is a fixed-size array of 13 upgrade levels (`UpgradeType` enum: ArcherHealth, ArcherAttack, ArcherRange, ArcherSize, AttackSpeed, MoveSpeed, AlertRadius, FarmYield, FarmerHp, HealingRate, FoodEfficiency, FountainRadius, TownArea). Shared helpers gate all purchase paths: `upgrade_unlocked(levels, idx)` checks prereqs, `upgrade_available(levels, idx, food, gold)` checks prereqs + multi-resource affordability, `deduct_upgrade_cost(idx, level, &mut food, &mut gold)` deducts from correct storages. `UpgradeQueue` decouples the UI from stat re-resolution — `left_panel.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates via `upgrade_available()`, deducts via `deduct_upgrade_cost()`, increments level, and re-resolves `CachedStats` for affected NPCs. `auto_upgrade_system` runs once per game hour, queuing auto-enabled upgrades that pass `upgrade_available()`. AI upgrade scoring in `ai_decision_system` also gates on `upgrade_available()`.
 
 **Upgrade percentages** (`UPGRADE_PCT` array in `systems/stats.rs`):
 

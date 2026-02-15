@@ -14,7 +14,7 @@ use rand::Rng;
 use crate::constants::*;
 use crate::resources::*;
 use crate::world::{self, Building, WorldData, WorldGrid, TownGrids};
-use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_cost, upgrade_node};
+use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available};
 
 /// Minimum Manhattan distance between guard posts on the town grid.
 const MIN_GUARD_POST_SPACING: i32 = 5;
@@ -242,6 +242,7 @@ pub fn ai_decision_system(
     mut spawner_state: ResMut<SpawnerState>,
     mut upgrade_queue: ResMut<UpgradeQueue>,
     upgrades: Res<TownUpgrades>,
+    gold_storage: Res<GoldStorage>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut timer: Local<f32>,
@@ -312,12 +313,12 @@ pub fn ai_decision_system(
 
         // Upgrades
         let uw = player.personality.upgrade_weights(player.kind);
+        let levels = upgrades.town_levels(tdi);
+        let gold = gold_storage.gold.get(tdi).copied().unwrap_or(0);
         for (idx, &weight) in uw.iter().enumerate() {
             if weight <= 0.0 { continue; }
-            let level = upgrades.levels.get(tdi).map(|l| l[idx]).unwrap_or(0);
-            if food >= upgrade_cost(level) {
-                scores.push((AiAction::Upgrade(idx), weight));
-            }
+            if !upgrade_available(&levels, idx, food, gold) { continue; }
+            scores.push((AiAction::Upgrade(idx), weight));
         }
 
         // Pick and execute

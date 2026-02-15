@@ -94,6 +94,7 @@ Rules:
 - [x] MinerTarget resource (per-town desired miner count, DragValue UI)
 - [x] job_reassign_system (converts idle farmers↔miners to match target)
 - [x] Population caps per town (upgradeable)
+- [x] Gold mines: wilderness resource nodes placed between towns, unowned (any faction), slow regen, mining_pct policy slider, AI personality allocation
 
 ### World Generation
 - [x] Procedural town/farm/bed/guard_post placement (2 towns default, 1200px spacing, random layout)
@@ -286,6 +287,22 @@ Rules:
 - [x] Build menu hover text (farm, house, barracks, guard post, tent)
 - [x] NPC inspector tips (level/xp, trait, energy, state)
 
+### DRY & Consolidation
+- [x] Rename role spawner buildings to `FarmerHome` / `ArcherHome` / `MinerHome` + rename `Job::Guard` → `Job::Archer` and all associated types/fields/UI labels
+- [x] Consolidate farm harvest transitions into one authoritative path (previously split across `arrival_system` and `decision_system`)
+- [x] Consolidate building placement side effects (place + food spend + spawner entry) into one shared helper used by player + AI
+- [x] Consolidate spawner spawn mapping (`building_kind` -> `SpawnNpcMsg` fields) into one shared helper used by startup + respawn systems
+
+### AI Players
+- [x] `AiPlayerConfig` resource (decision interval in real seconds, configurable from main menu)
+- [x] `AiPlayerState` resource with `Vec<AiPlayer>` — one per AI settlement
+- [x] `AiKind::Raider` AI: builds tents, unlocks slots, buys AttackSpeed/MoveSpeed upgrades
+- [x] `AiKind::Builder` AI: builds farms/houses/barracks/guard posts, buys all upgrade types
+- [x] World gen: independent placement of player towns, AI towns, and raider camps (not paired)
+- [x] Main menu sliders: AI Towns (0-10), Raider Camps (0-10), AI Speed (1-30s)
+- [x] Fix faction hardcoding: `spawner_respawn_system` + `game_startup_system` use town faction instead of 0
+- [x] Fix `NpcsByTownCache` initialization (resize to `num_towns` in `game_startup_system`)
+
 ## Stages
 
 **Stage 1: Standalone Bevy App ✓**
@@ -332,32 +349,21 @@ Rules:
 
 *Done when: each House supports 1 farmer, each Barracks supports 1 guard. Killing the NPC triggers a 12-hour respawn timer on the building. Player builds more Houses/Barracks to grow population. Menu sliders for farmers/guards removed.*
 
-**Stage 12: AI Players** (see [spec](#ai-players))
+**Stage 12: AI Players** ✓ (see [spec](#ai-players))
 
 *Done when: the player is one town in a sea of hostile AI — enemy towns build farms/guards and grow their economy, raider camps build tents and send raids, all factions fight each other, and the AI decision speed is configurable from the main menu.*
 
-**NEXT: DRY + Single Source of Truth hardening (before feature parity leftovers)**
+**Remaining: DRY + Single Source of Truth hardening**
 
-- [x] Rename role spawner buildings to `FarmerHome` / `ArcherHome` / `MinerHome` + rename `Job::Guard` → `Job::Archer` and all associated types/fields/UI labels
-- [x] Consolidate farm harvest transitions into one authoritative path (currently split across `arrival_system` and `decision_system`)
-- [x] Consolidate building placement side effects (place + food spend + spawner entry) into one shared helper used by player + AI
-- [x] Consolidate spawner spawn mapping (`building_kind` -> `SpawnNpcMsg` fields) into one shared helper used by startup + respawn systems
 - [ ] Consolidate building destroy flow (remove + spawner tombstone + combat log) into one shared helper used by click-destroy + inspector-destroy
-- [ ] Centralize upgrade metadata (name/label/tooltip/short code) so UI, AI logs, and upgrade routing use one registry
+- [x] Centralize upgrade metadata (name/label/tooltip/short code) so UI, AI logs, and upgrade routing use one registry — `UPGRADE_REGISTRY` in `stats.rs`, `UpgradeNode` struct with label/short/tooltip/category/cost/prereqs
 - [ ] Make trait display read from `Personality`/`TraitKind` instead of separate `trait_id` mapping in UI cache
 - [ ] Replace hardcoded town indices in HUD (player/camp assumptions) with faction/town lookup helpers
 - [ ] Remove stale respawn legacy resource/path leftovers (`RespawnTimers`) now that `SpawnerState` is authoritative
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
-- [x] `AiPlayerConfig` resource (decision interval in real seconds, configurable from main menu)
-- [x] `AiPlayerState` resource with `Vec<AiPlayer>` — one per AI settlement
-- [x] `AiKind::Raider` AI: builds tents, unlocks slots, buys AttackSpeed/MoveSpeed upgrades
-- [x] `AiKind::Builder` AI: builds farms/houses/barracks/guard posts, buys all upgrade types
-- [x] World gen: independent placement of player towns, AI towns, and raider camps (not paired)
-- [x] Main menu sliders: AI Towns (0-10), Raider Camps (0-10), AI Speed (1-30s)
-- [x] Fix faction hardcoding: `spawner_respawn_system` + `game_startup_system` use town faction instead of 0
-- [x] Fix `NpcsByTownCache` initialization (resize to `num_towns` in `game_startup_system`)
-- [ ] Godot parity leftovers (`ui/left_panel.gd`, `ui/upgrade_menu.gd`, `ui/combat_log.gd`, `ui/guard_post_menu.gd`, `ui/settings_menu.gd`, `tools/sprite_browser.gd`, `scenes/main.gd`):
+**Remaining: Godot parity leftovers**
+
 - [ ] NPC rename in Bevy UI (inspector/roster edit of `NpcMetaCache.name`)
 - [ ] Persist left panel UI state (active tab + expanded/collapsed sections) in `UserSettings`
 - [ ] Add `show_active_radius` debug toggle in Bevy UI (Godot `Radius` toggle parity)
@@ -378,14 +384,7 @@ Rules:
 
 *Done when: a new player can hover any UI element and understand what it does and how to use it, without reading external docs.*
 
-- [x] `HelpCatalog` resource with ~35 help entries (topic key → help text)
-- [x] `help_tip()` helper renders "?" button with rich tooltip on hover
-- [x] Top bar: "?" getting started tip + tips on Food, Gold, Pop, Farmers, Guards, Raiders
-- [x] Left panel: context help tip at top of every tab (Roster, Upgrades, Policies, Patrols, Squads, Intel, Profiler)
-- [x] Build menu: rich hover text on every build button (Farm, House, Barracks, Guard Post, Tent)
-- [x] NPC inspector: tips on Level/XP, Trait, Energy, State
-
-**Stage 13: Tension**
+**Stage 14: Tension**
 
 *Done when: a player who doesn't build or upgrade loses within 30 minutes — raids escalate, food runs out, town falls.*
 
@@ -396,7 +395,7 @@ Rules:
 - [ ] Loss condition: all town NPCs dead + no spawners → game over screen
 - [ ] Building costs rebalanced (everything=1 is not an economy)
 
-**Stage 14: Performance**
+**Stage 15: Performance**
 
 *Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250×250 world.*
 
@@ -420,7 +419,7 @@ SystemParam bundle consolidation:
 - [ ] Do NOT nest bundles (e.g. `GameLog` inside `DecisionExtras`). Flat bundles only.
 - [ ] Expected param count reductions: `arrival_system` 13→8, `spawn_npc_system` 15→13, `death_cleanup_system` 9→7, `spawner_respawn_system` 9→7, `ai_decision_system` 15→13, `xp_grant_system` 10→8, `healing_system` 10→8, `process_upgrades_system` 10→9. Pure refactor — no behavioral changes. Verify with `cargo check`.
 
-**Stage 15: Combat Depth**
+**Stage 16: Combat Depth**
 
 *Done when: two guards with different traits fight the same raider noticeably differently — one flees early, the other berserks at low HP.*
 
@@ -429,7 +428,7 @@ SystemParam bundle consolidation:
 - [ ] Trait combinations (multiple traits per NPC)
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
 
-**Stage 15b: NPC Skills & Proficiency** (see [spec](#npc-skills--proficiency))
+**Stage 16b: NPC Skills & Proficiency** (see [spec](#npc-skills--proficiency))
 
 *Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
 
@@ -442,7 +441,7 @@ SystemParam bundle consolidation:
 - [ ] Render skill/proficiency details in inspector + roster sorting/filtering support
 - [ ] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
 
-**Stage 16: Walls & Defenses**
+**Stage 17: Walls & Defenses**
 
 *Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
 
@@ -452,7 +451,7 @@ SystemParam bundle consolidation:
 - [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
 - [ ] Guard towers (upgrade from guard post — elevated, +range, requires wall adjacency)
 
-**Stage 17: Save/Load**
+**Stage 18: Save/Load**
 
 *Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off — NPCs in the same positions, same HP, same upgrades, same food.*
 
@@ -461,7 +460,7 @@ SystemParam bundle consolidation:
 - [ ] Autosave every N game-hours
 - [ ] Save slot selection (3 slots)
 
-**Stage 18: Loot & Equipment**
+**Stage 19: Loot & Equipment**
 
 *Done when: raider dies → drops loot bag → guard picks it up → item appears in town inventory → player equips it on a guard → guard's stats increase and sprite changes.*
 
@@ -472,29 +471,45 @@ SystemParam bundle consolidation:
 - [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
 - [ ] Equipped items reflected in NPC equipment sprite layers
 
-**Stage 19: Tech Trees** (see [spec](#tech-tree-upgrade-graph-v1))
+**Stage 20: Tech Trees** (see [spec](#tech-tree-upgrade-graph-v1))
 
 *Done when: player spends Food or Gold to buy tech-tree upgrades with prerequisites (no research building), and branch progression visibly unlocks stronger nodes (e.g., Barracks Lv2 unlock path, Guard damage tier path).*
 
-- [ ] `TechTree` resource with node graph (prereqs, cost, unlock effects)
-- [ ] Currency model per node: upgrades cost Food or Gold (no research timers/buildings)
-- [ ] Tech nodes unlock: new buildings, upgrade tiers, new unit types, passive bonuses
-- [ ] 3 branches: Military (guards/combat), Agriculture (farms/food), Industry (walls/buildings)
-- [ ] UI: tech tree viewer tab in left panel
-- [ ] Upgrade system migration:
-- [ ] Convert flat upgrade list into dependency graph with per-node prerequisites and multi-level nodes
-- [ ] Enforce prerequisites in purchase path (`process_upgrades_system`), auto-upgrade path (`auto_upgrade_system`), and AI planner (`ai_decision_system`)
-- [ ] Add branch-level and global level summaries in Upgrades UI (e.g., Military LvX / Economy LvY / Town LvZ, Total LvN)
-- [ ] Render node state in UI: Locked/Unlocked, current level, next cost, current effect, next-level effect
-- [ ] Add energy branch nodes as upgrade effects: guard energy efficiency + worker (farmer/miner) energy efficiency
-- [ ] Expand energy upgrades to per-NPC-type nodes (Guard, Farmer, Miner, Raider, Fighter where applicable)
-- [ ] Add dodge branch nodes to tech tree per NPC type, including dodge cooldown level upgrades
-- [ ] Keep metadata in one registry shared by UI labels, AI log names, prereq checks, and short labels in Intel panel
-- [ ] Add tech-tree unlock node for `Player AI Manager` (disabled by default until unlocked)
-- [ ] Add player-side AI manager UI panel (or left-panel section) with settings for build/upgrade automation in the player town
-- [ ] Reuse enemy AI logic for player town automation (`AiKind::Builder` behavior parity), gated by the unlock node and player toggle
+Chunk 1: Prerequisites + Currency ✓
+- [x] `UpgradeNode` extended with `prereqs: &[UpgradePrereq]` and `cost: &[(ResourceKind, i32)]` in `UPGRADE_REGISTRY` (`stats.rs`)
+- [x] `ResourceKind { Food, Gold }` enum — extensible for Stage 23 (Wood, Stone, Iron)
+- [x] Cost model: each node has `&[(ResourceKind, base_amount)]` slice, scaled by `upgrade_cost(level)`. Supports any mix of resources per node.
+- [x] Tree structure wired: Archer branch (ArcherHealth→ArcherAttack→AttackSpeed→ArcherRange→AlertRadius, ArcherHealth→MoveSpeed), Economy branch (FarmYield→FarmerHp, FarmYield→FoodEfficiency), Town branch (HealingRate→FountainRadius, FountainRadius+FoodEfficiency→TownArea)
+- [x] `upgrade_unlocked()`, `upgrade_available()`, `deduct_upgrade_cost()`, `missing_prereqs()`, `format_upgrade_cost()` — shared helpers used by all 4 systems (process_upgrades, auto_upgrade, AI, UI)
+- [x] `TownUpgrades::town_levels()` method eliminates repeated `.get().copied().unwrap_or()` pattern
+- [x] `process_upgrades_system` + `auto_upgrade_system`: prereq gate + multi-resource deduction via `GoldStorage`
+- [x] `ai_decision_system`: prereq + multi-resource affordability gate, `GoldStorage` param added
+- [x] Upgrade UI: locked nodes dimmed with prereq tooltip, cost button shows "10g" or "10+10g", auto-upgrade checkbox disabled when locked, Gold shown in header
 
-**Stage 20: Economy Depth**
+Chunk 2: UI Overhaul
+- [ ] Render upgrades by branch/tier (prereq depth indentation) instead of flat category list
+- [ ] Per node: "Now" and "Next" effect text via `upgrade_effect_summary(idx, level)` helper
+- [ ] Header summaries: branch totals (Archer/Economy/Town), overall total level
+- [ ] Add `upgrade_effect_summary()` helper to `stats.rs`
+
+Chunk 3: Energy Nodes
+- [ ] Add `UpgradeType` variants: `ArcherStamina`, `FarmerStamina`, `MinerStamina` (bump `UPGRADE_COUNT`)
+- [ ] Wire into `energy_system`: per-town per-job drain modifier based on stamina upgrade level
+- [ ] Prereqs: ArcherStamina after MoveSpeed, FarmerStamina/MinerStamina after FarmYield
+- [ ] AI weights for new nodes; resize `AutoUpgrade.flags` / `TownUpgrades.levels`
+
+Chunk 4: Dodge Nodes
+- [ ] Add per-job dodge upgrade variants + cooldown tiers
+- [ ] Wire dodge strength/cooldown into projectile avoidance path
+- [ ] Prereqs: each dodge root requires corresponding stamina node
+
+Chunk 5: Player AI Manager
+- [ ] Tech-tree unlock node for `Player AI Manager`
+- [ ] `PlayerAiManager` resource: `unlocked`, `enabled`, `build_enabled`, `upgrade_enabled`
+- [ ] Reuse `AiKind::Builder` decision logic for faction 0 town, gated by unlock + toggle
+- [ ] UI: hidden until unlocked, then show enable toggle + build/upgrade toggles + status label
+
+**Stage 21: Economy Depth**
 
 *Done when: player must choose between feeding NPCs and buying upgrades — food is a constraint, not a score.*
 
@@ -502,7 +517,7 @@ SystemParam bundle consolidation:
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 - [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
 
-**Stage 21: Diplomacy**
+**Stage 22: Diplomacy**
 
 *Done when: a raider camp sends a messenger offering a truce for 3 food/hour tribute — accepting stops raids, refusing triggers an immediate attack wave.*
 
@@ -512,20 +527,14 @@ SystemParam bundle consolidation:
 - [ ] Allied camps stop raiding, may send fighters during large attacks
 - [ ] Betrayal: allied camps can turn hostile if tribute stops or player is weak
 
-**Stage 22: World Generation** ✓ (see [spec](#continent-world-generation))
+**Stage 23: World Generation** ✓ (see [spec](#continent-world-generation))
 
 *Done when: player selects "Continents" from main menu, sees landmasses with ocean, towns only on land, biome variety across continents.*
 
-- [x] `WorldGenStyle` enum: Classic (current) / Continents (multi-octave fBm elevation + moisture noise with land/ocean)
-- [x] 3-octave elevation fBm + square-bump edge falloff + independent moisture noise for biome selection
-- [x] Town/camp placement constrained to land cells in Continents mode (5000 max attempts)
-- [x] Main menu combo box to select generation style, persisted in UserSettings
-
-**Stage 23: Resources & Jobs**
+**Stage 24: Resources & Jobs**
 
 *Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food — multi-resource economy with job specialization.*
 
-- [x] Gold mines: wilderness resource nodes placed between towns, unowned (any faction), slow regen, mining_pct policy slider, AI personality allocation
 - [ ] Resource types: wood (Forest biome), stone (Rock biome), iron (ore nodes, rare)
 - [ ] Harvester buildings: lumber mill, quarry (same spawner pattern as House/Barracks, 1 worker each)
 - [ ] Resource storage per town (like FoodStorage but for each type — gold already done via GoldStorage)
@@ -533,7 +542,7 @@ SystemParam bundle consolidation:
 - [ ] Crafting: blacksmith building consumes iron → produces weapons/armor (feeds into Stage 18 loot system)
 - [ ] Villager job assignment UI (drag workers between roles — farming, woodcutting, mining, smithing, military)
 
-**Stage 24: Armies & Marching**
+**Stage 25: Armies & Marching**
 
 *Done when: player recruits 15 guards into an army, gives a march order to a neighboring camp, and the army walks across the map as a formation — arriving ready to fight.*
 
@@ -543,7 +552,7 @@ SystemParam bundle consolidation:
 - [ ] Army supply: marching armies consume food from origin town's storage, starve without supply
 - [ ] Field battles: two armies in proximity → combat triggers (existing combat system handles it)
 
-**Stage 25: Conquest**
+**Stage 26: Conquest**
 
 *Done when: player marches an army to a raider camp, defeats defenders, and claims the town — camp converts to player-owned town with buildings intact, player now manages two towns.*
 
@@ -553,7 +562,7 @@ SystemParam bundle consolidation:
 - [ ] AI expansion: AI players can attack each other and the player (not just raid — full conquest attempts)
 - [ ] Victory condition: control all settlements on the map
 
-**Stage 26: World Map**
+**Stage 27: World Map**
 
 *Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI and more camps — campaign progression.*
 
@@ -562,7 +571,7 @@ SystemParam bundle consolidation:
 - [ ] Persistent bonuses between regions (tech carries over, starting resources from tribute)
 - [ ] "Country" = set of regions. "World" = set of countries. Campaign arc.
 
-**Stage 27: Tower Defense (Wintermaul Wars-inspired)**
+**Stage 28: Tower Defense (Wintermaul Wars-inspired)**
 
 *Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
 
@@ -1202,36 +1211,35 @@ Out of scope (v1):
 - Unlocking entirely new unit classes/buildings via tech research
 - Savegame schema migration beyond additive fields
 
-Data model (`systems/stats.rs`):
-- Add a static registry for upgrade nodes (single source of truth):
-  `UpgradeNode { kind, label, short, category, tooltip, prereqs, effect_kind, currency }`
-- Extend node metadata for per-type effects:
-  `target_job: Option<Job>` and dodge-specific fields (`dodge_power_pct`, `dodge_cooldown_mult` or equivalent)
-- Add currency type:
-  `UpgradeCurrency { Food, Gold }`
-- Add prerequisite type:
-  `UpgradePrereq { upgrade: UpgradeType, level: u8 }`
-- Add helpers:
-  `upgrade_node(idx)`, `upgrade_unlocked(levels, idx)`, `upgrade_effect_summary(idx, level)`, `upgrade_total_levels(levels)`
-- Keep `TownUpgrades.levels` shape compatible (`[u8; UPGRADE_COUNT]`), expanding count only if new nodes are added
+Data model (`systems/stats.rs`) — **IMPLEMENTED (Chunk 1)**:
+- `UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT]` — single source of truth with `label`, `short`, `tooltip`, `category`, `cost: &[(ResourceKind, i32)]`, `prereqs: &[(UpgradePrereq)]`
+- `ResourceKind { Food, Gold }` — extensible for Stage 23 (Wood, Stone, Iron)
+- `UpgradePrereq { upgrade: usize, min_level: u8 }` — each node can require multiple prereqs at specific levels
+- Cost model: `&[(ResourceKind, base_amount)]` per node, scaled by `upgrade_cost(level)`. Supports any mix (food-only, gold-only, food+gold, etc.)
+- Helpers: `upgrade_node(idx)`, `upgrade_unlocked(levels, idx)`, `upgrade_available(levels, idx, food, gold)`, `deduct_upgrade_cost(idx, level, &mut food, &mut gold)`, `missing_prereqs(levels, idx)`, `format_upgrade_cost(idx, level)`
+- `TownUpgrades::town_levels(town_idx)` method — DRY accessor
+- `can_afford_upgrade()` is private — all callers use `upgrade_available()` (prereqs + cost in one call)
+- `TownUpgrades.levels` shape unchanged (`[u8; UPGRADE_COUNT]`), expanding count only when new nodes are added
 
-Suggested v1 tree (uses existing + energy nodes):
-- Military branch:
-  Guard Health (root) -> Guard Attack -> Attack Speed -> Guard Range -> Alert Radius
-  Guard Health -> Move Speed -> Guard Stamina
+Implemented v1 tree (existing 13 nodes, prereqs + currency):
+- Archer branch:
+  Archer Health (root, food) -> Archer Attack (food) -> Attack Speed (food) -> Archer Range (gold) -> Alert Radius (gold)
+  Archer Health -> Move Speed (food)
+  Archer Size (standalone, food)
 - Economy branch:
-  Farm Yield (root) -> Farmer HP
-  Farm Yield -> Worker Stamina
-  Farm Yield -> Food Efficiency
+  Farm Yield (root, food) -> Farmer HP (food)
+  Farm Yield -> Food Efficiency (food)
 - Town branch:
-  Healing Rate (root) -> Fountain Radius
-  Fountain Radius + Food Efficiency -> Town Area
-- Dodge branch (per type, examples):
-  Guard Dodge I -> Guard Dodge Cooldown I/II/III
-  Farmer Dodge I -> Farmer Dodge Cooldown I/II
-  Raider Dodge I -> Raider Dodge Cooldown I/II/III
+  Healing Rate (root, food) -> Fountain Radius (gold)
+  Fountain Radius + Food Efficiency -> Town Area (food+gold)
 
-System wiring:
+Remaining v1 tree additions (Chunks 3-4):
+- Archer branch: Move Speed -> Archer Stamina
+- Economy branch: Farm Yield -> Farmer Stamina, Farm Yield -> Miner Stamina
+- Dodge branch (per type): Archer Dodge I -> Archer Dodge Cooldown I/II/III, etc.
+- Extend node metadata for per-type effects: `target_job: Option<Job>` and dodge-specific fields
+
+System wiring (**`process_upgrades_system`, `auto_upgrade_system`, `ai_decision_system` all updated for prereqs + multi-resource in Chunk 1**):
 - `process_upgrades_system`:
   reject queued upgrades if prerequisites are not met
   validate and deduct the correct currency (`FoodStorage` or `GoldStorage`) by node
@@ -1261,27 +1269,21 @@ Player AI manager model:
 - Keep enemy AI resources unchanged; player manager should call shared decision helpers so behavior parity is maintained
 - Safety guard: player manager only manages player town (`faction == 0`) and never controls enemy settlements
 
-UI (`ui/left_panel.rs`):
-- Replace local hardcoded upgrade array with registry-driven rendering
-- Render by branch + depth/tier (prereq depth)
-- Per node row:
-  auto-toggle checkbox
-  label + current level
-  lock reason (missing prereqs)
-  buy button with currency tag (e.g., `Food 40`, `Gold 25`), disabled when locked/unaffordable
-  "Now" and "Next" effect text
-- Header summaries:
-  town food + town gold
-  branch totals (Military/Economy/Town)
-  overall total level
+UI (`ui/left_panel.rs`) — **partially done (Chunk 1)**:
+- [x] Registry-driven rendering (reads from `UPGRADE_REGISTRY`)
+- [x] Per node row: auto-toggle checkbox (disabled when locked), label (dimmed when locked), lock reason tooltip (`missing_prereqs`), buy button with multi-resource cost tag (`format_upgrade_cost`), disabled when locked/unaffordable
+- [x] Header: town food + town gold + villager count
+- [ ] Render by branch + depth/tier (prereq depth indentation) — **Chunk 2**
+- [ ] "Now" and "Next" effect text — **Chunk 2**
+- [ ] Branch totals (Archer/Economy/Town), overall total level — **Chunk 2**
 - Player AI manager controls:
   hidden/disabled until `Player AI Manager` node is unlocked
   once unlocked: show enable toggle + core settings (build/upgrade toggles, interval/profile)
   show status label (Disabled / Active) for quick feedback
 
-Intel + HUD consistency:
-- Intel tab upgrade chips should use shared `short` labels from registry
-- Any building inspector text that references upgrade names should use same registry labels where practical
+Intel + HUD consistency — **done (DRY task)**:
+- [x] Intel tab upgrade chips use `UPGRADE_REGISTRY[i].short`
+- [x] AI combat log uses `upgrade_node(idx).label`
 
 Files to change (v1):
 - `rust/src/systems/stats.rs`

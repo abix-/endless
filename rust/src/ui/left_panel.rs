@@ -8,7 +8,7 @@ use bevy_egui::egui;
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, UPGRADE_REGISTRY, upgrade_cost};
+use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, UPGRADE_REGISTRY, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost};
 use crate::systems::{AiPlayerState, AiKind};
 use crate::world::WorldData;
 
@@ -71,6 +71,7 @@ pub struct RosterParams<'w, 's> {
 #[derive(SystemParam)]
 pub struct UpgradeParams<'w> {
     food_storage: Res<'w, FoodStorage>,
+    gold_storage: Res<'w, GoldStorage>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     queue: ResMut<'w, UpgradeQueue>,
@@ -445,11 +446,14 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
 fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &WorldData) {
     let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
     let food = upgrade.food_storage.food.get(town_idx).copied().unwrap_or(0);
+    let gold = upgrade.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
     let villager_stats = upgrade.faction_stats.stats.first();
     let alive = villager_stats.map(|s| s.alive).unwrap_or(0);
 
     ui.horizontal(|ui| {
         ui.label(format!("Food: {}", food));
+        ui.separator();
+        ui.label(format!("Gold: {}", gold));
         ui.separator();
         ui.label(format!("Villagers: {}", alive));
     });
@@ -458,7 +462,7 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
     }
     ui.separator();
 
-    let levels = upgrade.upgrades.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT]);
+    let levels = upgrade.upgrades.town_levels(town_idx);
 
     let mut last_category = "";
     for (i, upg) in UPGRADE_REGISTRY.iter().enumerate() {
@@ -470,25 +474,41 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
             last_category = upg.category;
         }
 
-        let level = levels[i];
-        let cost = upgrade_cost(level);
-        let can_afford = food >= cost;
+        let unlocked = upgrade_unlocked(&levels, i);
+        let available = upgrade_available(&levels, i, food, gold);
 
         ui.horizontal(|ui| {
-            // Auto-upgrade checkbox
+            // Auto-upgrade checkbox (disabled when locked)
             if upgrade.auto.flags.len() <= town_idx {
                 upgrade.auto.flags.resize(town_idx + 1, [false; UPGRADE_COUNT]);
             }
             let auto_flag = &mut upgrade.auto.flags[town_idx][i];
-            ui.checkbox(auto_flag, "").on_hover_text("Auto-buy each game hour");
+            ui.add_enabled(unlocked, egui::Checkbox::new(auto_flag, ""))
+                .on_hover_text("Auto-buy each game hour");
 
-            ui.label(upg.label);
+            // Label (dimmed when locked)
+            let label_text = egui::RichText::new(upg.label);
+            ui.label(if unlocked { label_text } else { label_text.weak() });
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let btn = egui::Button::new(format!("{}", cost));
-                if ui.add_enabled(can_afford, btn).on_hover_text(upg.tooltip).clicked() {
+                let cost_text = format_upgrade_cost(i, levels[i]);
+                let response = ui.add_enabled(available, egui::Button::new(&cost_text));
+
+                // Tooltip: prereq info when locked, normal tooltip when unlocked
+                let response = if !unlocked {
+                    if let Some(msg) = missing_prereqs(&levels, i) {
+                        response.on_hover_text(msg)
+                    } else {
+                        response
+                    }
+                } else {
+                    response.on_hover_text(upg.tooltip)
+                };
+                if response.clicked() {
                     upgrade.queue.0.push((town_idx, i));
                 }
-                ui.label(format!("Lv{}", level));
+
+                ui.label(format!("Lv{}", levels[i]));
             });
         });
     }

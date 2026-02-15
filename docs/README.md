@@ -162,7 +162,7 @@ rust/
     terrain_visual.rs # Terrain + building visual showcase — all biomes and building types (1 phase)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
-    stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system
+    stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, UPGRADE_REGISTRY (prereqs + multi-resource cost), resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system, upgrade helpers (upgrade_unlocked/upgrade_available/deduct_upgrade_cost/format_upgrade_cost/missing_prereqs)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
     combat.rs           # Attack cooldown, targeting, guard post turret auto-attack (faction-aware)

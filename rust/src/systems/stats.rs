@@ -86,27 +86,56 @@ pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
 // UPGRADE REGISTRY (single source of truth for all upgrade metadata)
 // ============================================================================
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceKind { Food, Gold }
+
+#[derive(Clone, Copy, Debug)]
+pub struct UpgradePrereq {
+    pub upgrade: usize,
+    pub min_level: u8,
+}
+
 pub struct UpgradeNode {
     pub label: &'static str,
     pub short: &'static str,
     pub tooltip: &'static str,
     pub category: &'static str,
+    pub cost: &'static [(ResourceKind, i32)],
+    pub prereqs: &'static [UpgradePrereq],
+}
+
+use ResourceKind::{Food as F, Gold as G};
+const fn prereq(upgrade: usize, min_level: u8) -> UpgradePrereq {
+    UpgradePrereq { upgrade, min_level }
 }
 
 pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
-    UpgradeNode { label: "Archer Health",   short: "A.HP",    tooltip: "+10% archer HP per level",                  category: "Archer" },
-    UpgradeNode { label: "Archer Attack",   short: "A.Atk",   tooltip: "+10% archer damage per level",              category: "Archer" },
-    UpgradeNode { label: "Archer Range",    short: "A.Rng",   tooltip: "+5% archer attack range per level",         category: "Archer" },
-    UpgradeNode { label: "Archer Size",     short: "A.Size",  tooltip: "+5% archer size per level",                 category: "Archer" },
-    UpgradeNode { label: "Attack Speed",    short: "AtkSpd",  tooltip: "-8% attack cooldown per level",            category: "Archer" },
-    UpgradeNode { label: "Move Speed",      short: "MvSpd",   tooltip: "+5% movement speed per level",             category: "Archer" },
-    UpgradeNode { label: "Alert Radius",    short: "Alert",   tooltip: "+10% alert radius per level",              category: "Archer" },
-    UpgradeNode { label: "Farm Yield",      short: "FarmY",   tooltip: "+15% food production per level",           category: "Farm" },
-    UpgradeNode { label: "Farmer HP",       short: "F.HP",    tooltip: "+20% farmer HP per level",                 category: "Farm" },
-    UpgradeNode { label: "Healing Rate",    short: "Heal",    tooltip: "+20% HP regen at fountain per level",      category: "Town" },
-    UpgradeNode { label: "Food Efficiency", short: "FoodEff", tooltip: "10% chance per level to not consume food", category: "Town" },
-    UpgradeNode { label: "Fountain Radius", short: "Fount",   tooltip: "+24px fountain healing range per level",   category: "Town" },
-    UpgradeNode { label: "Town Area",       short: "Area",    tooltip: "+1 buildable radius per level",            category: "Town" },
+    // 0: ArcherHealth — root
+    UpgradeNode { label: "Archer Health",   short: "A.HP",    tooltip: "+10% archer HP per level",                  category: "Archer", cost: &[(F, 1)], prereqs: &[] },
+    // 1: ArcherAttack — requires ArcherHealth
+    UpgradeNode { label: "Archer Attack",   short: "A.Atk",   tooltip: "+10% archer damage per level",              category: "Archer", cost: &[(F, 1)], prereqs: &[prereq(0, 1)] },
+    // 2: ArcherRange — requires AttackSpeed, costs gold
+    UpgradeNode { label: "Archer Range",    short: "A.Rng",   tooltip: "+5% archer attack range per level",         category: "Archer", cost: &[(G, 1)], prereqs: &[prereq(4, 1)] },
+    // 3: ArcherSize — standalone cosmetic
+    UpgradeNode { label: "Archer Size",     short: "A.Size",  tooltip: "+5% archer size per level",                 category: "Archer", cost: &[(F, 1)], prereqs: &[] },
+    // 4: AttackSpeed — requires ArcherAttack
+    UpgradeNode { label: "Attack Speed",    short: "AtkSpd",  tooltip: "-8% attack cooldown per level",            category: "Archer", cost: &[(F, 1)], prereqs: &[prereq(1, 1)] },
+    // 5: MoveSpeed — requires ArcherHealth
+    UpgradeNode { label: "Move Speed",      short: "MvSpd",   tooltip: "+5% movement speed per level",             category: "Archer", cost: &[(F, 1)], prereqs: &[prereq(0, 1)] },
+    // 6: AlertRadius — requires ArcherRange, costs gold
+    UpgradeNode { label: "Alert Radius",    short: "Alert",   tooltip: "+10% alert radius per level",              category: "Archer", cost: &[(G, 1)], prereqs: &[prereq(2, 1)] },
+    // 7: FarmYield — root
+    UpgradeNode { label: "Farm Yield",      short: "FarmY",   tooltip: "+15% food production per level",           category: "Farm",   cost: &[(F, 1)], prereqs: &[] },
+    // 8: FarmerHp — requires FarmYield
+    UpgradeNode { label: "Farmer HP",       short: "F.HP",    tooltip: "+20% farmer HP per level",                 category: "Farm",   cost: &[(F, 1)], prereqs: &[prereq(7, 1)] },
+    // 9: HealingRate — root
+    UpgradeNode { label: "Healing Rate",    short: "Heal",    tooltip: "+20% HP regen at fountain per level",      category: "Town",   cost: &[(F, 1)], prereqs: &[] },
+    // 10: FoodEfficiency — requires FarmYield
+    UpgradeNode { label: "Food Efficiency", short: "FoodEff", tooltip: "10% chance per level to not consume food", category: "Town",   cost: &[(F, 1)], prereqs: &[prereq(7, 1)] },
+    // 11: FountainRadius — requires HealingRate, costs gold
+    UpgradeNode { label: "Fountain Radius", short: "Fount",   tooltip: "+24px fountain healing range per level",   category: "Town",   cost: &[(G, 1)], prereqs: &[prereq(9, 1)] },
+    // 12: TownArea — requires FountainRadius + FoodEfficiency, costs food + gold
+    UpgradeNode { label: "Town Area",       short: "Area",    tooltip: "+1 buildable radius per level",            category: "Town",   cost: &[(F, 1), (G, 1)], prereqs: &[prereq(11, 1), prereq(10, 1)] },
 ];
 
 /// Look up upgrade metadata by index.
@@ -120,9 +149,15 @@ pub struct TownUpgrades {
     pub levels: Vec<[u8; UPGRADE_COUNT]>,
 }
 
+impl TownUpgrades {
+    pub fn town_levels(&self, town_idx: usize) -> [u8; UPGRADE_COUNT] {
+        self.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT])
+    }
+}
+
 impl Default for TownUpgrades {
     fn default() -> Self {
-        Self { levels: vec![[0; UPGRADE_COUNT]; 16] } // pre-alloc for 16 towns
+        Self { levels: vec![[0; UPGRADE_COUNT]; 16] }
     }
 }
 
@@ -140,10 +175,69 @@ pub fn level_from_xp(xp: i32) -> i32 {
     (xp as f32 / 100.0).sqrt().floor() as i32
 }
 
-/// Upgrade cost: base 10, doubles each level. Caps at level 20 to avoid overflow.
+/// Upgrade cost scale factor: base 10, doubles each level. Caps at level 20 to avoid overflow.
 pub fn upgrade_cost(level: u8) -> i32 {
     let clamped = (level as u32).min(20);
     10 * (1_i32 << clamped)
+}
+
+/// Check if all prerequisites for an upgrade are met.
+pub fn upgrade_unlocked(levels: &[u8; UPGRADE_COUNT], idx: usize) -> bool {
+    UPGRADE_REGISTRY[idx].prereqs.iter().all(|p| levels[p.upgrade] >= p.min_level)
+}
+
+/// Full purchasability check: prereqs met AND can afford all costs.
+/// Single gate used by process_upgrades, auto_upgrade, AI, and UI.
+pub fn upgrade_available(levels: &[u8; UPGRADE_COUNT], idx: usize, food: i32, gold: i32) -> bool {
+    upgrade_unlocked(levels, idx) && can_afford_upgrade(idx, levels[idx], food, gold)
+}
+
+/// Check if a town can afford an upgrade at the given level.
+fn can_afford_upgrade(idx: usize, level: u8, food: i32, gold: i32) -> bool {
+    let scale = upgrade_cost(level);
+    UPGRADE_REGISTRY[idx].cost.iter().all(|&(kind, base)| {
+        let total = base * scale;
+        match kind {
+            ResourceKind::Food => food >= total,
+            ResourceKind::Gold => gold >= total,
+        }
+    })
+}
+
+/// Deduct upgrade cost from storages. Caller must verify upgrade_available first.
+pub fn deduct_upgrade_cost(idx: usize, level: u8, food: &mut i32, gold: &mut i32) {
+    let scale = upgrade_cost(level);
+    for &(kind, base) in UPGRADE_REGISTRY[idx].cost {
+        let total = base * scale;
+        match kind {
+            ResourceKind::Food => *food -= total,
+            ResourceKind::Gold => *gold -= total,
+        }
+    }
+}
+
+/// Format missing prereqs as human-readable string.
+pub fn missing_prereqs(levels: &[u8; UPGRADE_COUNT], idx: usize) -> Option<String> {
+    let missing: Vec<_> = UPGRADE_REGISTRY[idx].prereqs.iter()
+        .filter(|p| levels[p.upgrade] < p.min_level)
+        .map(|p| format!("{} Lv{}", UPGRADE_REGISTRY[p.upgrade].label, p.min_level))
+        .collect();
+    if missing.is_empty() { None } else { Some(format!("Requires: {}", missing.join(", "))) }
+}
+
+/// Format cost for UI display (e.g. "10+10g").
+pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
+    let scale = upgrade_cost(level);
+    UPGRADE_REGISTRY[idx].cost.iter()
+        .map(|&(kind, base)| {
+            let total = base * scale;
+            match kind {
+                ResourceKind::Food => format!("{total}"),
+                ResourceKind::Gold => format!("{total}g"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+")
 }
 
 /// Which upgrades require NPC stat re-resolution (combat-affecting).
@@ -214,6 +308,7 @@ pub fn process_upgrades_system(
     mut queue: ResMut<UpgradeQueue>,
     mut upgrades: ResMut<TownUpgrades>,
     mut food_storage: ResMut<FoodStorage>,
+    mut gold_storage: ResMut<crate::resources::GoldStorage>,
     npcs_by_town: Res<NpcsByTownCache>,
     npc_map: Res<NpcEntityMap>,
     config: Res<CombatConfig>,
@@ -230,17 +325,17 @@ pub fn process_upgrades_system(
         if upgrade_idx >= UPGRADE_COUNT { continue; }
         if town_idx >= upgrades.levels.len() { continue; }
 
-        let level = upgrades.levels[town_idx][upgrade_idx];
-        let cost = upgrade_cost(level);
+        // Prereq + affordability gate
+        let levels = upgrades.town_levels(town_idx);
+        let mut food = food_storage.food.get(town_idx).copied().unwrap_or(0);
+        let mut gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+        if !upgrade_available(&levels, upgrade_idx, food, gold) { continue; }
 
-        // Check food
-        let food = food_storage.food.get(town_idx).copied().unwrap_or(0);
-        if food < cost { continue; }
-
-        // Deduct food and increment level
-        if let Some(f) = food_storage.food.get_mut(town_idx) {
-            *f -= cost;
-        }
+        // Deduct cost and increment level
+        let level = levels[upgrade_idx];
+        deduct_upgrade_cost(upgrade_idx, level, &mut food, &mut gold);
+        if let Some(f) = food_storage.food.get_mut(town_idx) { *f = food; }
+        if let Some(g) = gold_storage.gold.get_mut(town_idx) { *g = gold; }
         upgrades.levels[town_idx][upgrade_idx] = level.saturating_add(1);
 
         if upgrade_idx == UpgradeType::TownArea as usize {
@@ -289,6 +384,7 @@ pub fn auto_upgrade_system(
     auto: Res<crate::resources::AutoUpgrade>,
     upgrades: Res<TownUpgrades>,
     food_storage: Res<crate::resources::FoodStorage>,
+    gold_storage: Res<crate::resources::GoldStorage>,
     mut queue: ResMut<UpgradeQueue>,
     timings: Res<SystemTimings>,
 ) {
@@ -296,10 +392,12 @@ pub fn auto_upgrade_system(
     if !game_time.hour_ticked { return; }
 
     for (town_idx, flags) in auto.flags.iter().enumerate() {
+        let levels = upgrades.town_levels(town_idx);
         let food = food_storage.food.get(town_idx).copied().unwrap_or(0);
-        let levels = upgrades.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT]);
+        let gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
         for (i, &enabled) in flags.iter().enumerate() {
-            if enabled && food >= upgrade_cost(levels[i]) {
+            if !enabled { continue; }
+            if upgrade_available(&levels, i, food, gold) {
                 queue.0.push((town_idx, i));
             }
         }
