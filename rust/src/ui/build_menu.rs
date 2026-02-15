@@ -150,11 +150,11 @@ pub(crate) fn build_menu_system(
     let ctx = contexts.ctx_mut()?;
 
     // Bottom-center Build toggle button (always visible)
-    let btn_offset = if ui_state.build_menu_open { -102.0 } else { -2.0 };
+    let btn_offset = if ui_state.build_menu_open { -100.0 } else { 0.0 };
     egui::Area::new(egui::Id::new("build_toggle_btn"))
         .anchor(egui::Align2::CENTER_BOTTOM, [0.0, btn_offset])
         .show(ctx, |ui| {
-            let label = if ui_state.build_menu_open { "v Build" } else { "^ Build" };
+            let label = "Build";
             let btn = egui::Button::new(egui::RichText::new(label).size(14.0))
                 .fill(egui::Color32::from_rgb(50, 50, 60));
             if ui.add(btn).clicked() {

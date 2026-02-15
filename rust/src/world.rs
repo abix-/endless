@@ -113,14 +113,14 @@ pub struct WorldData {
 
 /// Per-town building area configuration.
 /// Grid uses (row, col) relative to town center with TOWN_GRID_SPACING.
-/// Base grid: (-2,-2) to (3,3) = 6x6. `area_level` expands bounds by 1 per level.
+/// Base grid: (-3,-3) to (3,3) = 7x7. `area_level` expands bounds by 1 per level.
 pub struct TownGrid {
     pub town_data_idx: usize,
     pub area_level: i32,
 }
 
 impl TownGrid {
-    /// Create with base 6x6 build area for the given town data index.
+    /// Create with base 7x7 build area for the given town data index.
     pub fn new_base(town_data_idx: usize) -> Self {
         Self { town_data_idx, area_level: 0 }
     }
