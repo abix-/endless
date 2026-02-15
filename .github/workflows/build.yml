@@ -8,7 +8,11 @@ on:
         type: choice
         required: true
         default: windows
-        options: [windows, macos, linux, all]
+        options:
+          - windows
+          - macos
+          - linux
+          - all
       release_tag:
         description: Optional. If set (example: v0.2), upload built zips to that tag's GitHub Release (overwrite existing assets).
         type: string
@@ -17,7 +21,8 @@ on:
 
   # Optional: pushing a version tag automatically builds+uploads to that tag's Release
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -73,9 +78,7 @@ jobs:
           retention-days: 7
 
       - name: Upload to GitHub Release (overwrite)
-        if: |
-          startsWith(github.ref, 'refs/tags/v') ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
@@ -124,9 +127,7 @@ jobs:
           retention-days: 7
 
       - name: Upload to GitHub Release (overwrite)
-        if: |
-          startsWith(github.ref, 'refs/tags/v') ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
@@ -185,9 +186,7 @@ jobs:
           retention-days: 7
 
       - name: Upload to GitHub Release (overwrite)
-        if: |
-          startsWith(github.ref, 'refs/tags/v') ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
