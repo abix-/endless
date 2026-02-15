@@ -12,49 +12,11 @@ A real-time kingdom builder inspired by [Lords of the Realm 2](https://en.wikipe
 
 ## Download
 
-**Windows:** https://github.com/abix-/endless/releases/tag/v0.1
-1. Download the `.zip` from the release page.
-2. Extract it.
-3. Run `Endless.exe`
+Release assets (`.zip`): https://github.com/abix-/endless/releases/tag/v0.1
 
-## Build from Source
-
-Requires [Rust](https://rustup.rs/) and a GPU with Vulkan, DX12, or Metal support. First build takes 2-5 minutes. Subsequent builds ~15 seconds.
-
-### Windows
-
-1. Install [Rust](https://rustup.rs/) + [Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
-```bash
-git clone https://github.com/abix-/endless.git
-cd endless/rust
-cargo run --release
-````
-
-### macOS
-
-1. Install [Rust](https://rustup.rs/). Xcode Command Line Tools install automatically if missing.
-
-```bash
-git clone https://github.com/abix-/endless.git
-cd endless/rust
-cargo run --release
-```
-
-### Linux
-
-1. Install [Rust](https://rustup.rs/) + Bevy dependencies:
-   ```bash
-   # Ubuntu/Debian
-   sudo apt install g++ pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-   # Fedora
-   sudo dnf install gcc-c++ libX11-devel alsa-lib-devel systemd-devel wayland-devel libxkbcommon-devel
-   ```
-
-```bash
-git clone https://github.com/abix-/endless.git
-cd endless/rust
-cargo run --release
-```
+- **Windows:** Download the Windows `.zip`, extract, then run `endless.exe`.
+- **macOS:** Download the macOS `.zip`, extract, then run `endless`.
+- **Linux:** Download the Linux `.zip`, extract, then run `endless`.
 
 ## Controls
 
@@ -87,3 +49,10 @@ Built with [Bevy 0.18](https://bevyengine.org/) ECS + GPU compute shaders (WGSL)
 
 - Engine: [Bevy 0.18](https://bevyengine.org/)
 - Sprites: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
+
+
+
+
+
+
+
