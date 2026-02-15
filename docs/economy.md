@@ -31,6 +31,7 @@ game_time_system (every frame)
     │
     ├─ ai_decision_system (real-time interval, default 5s)
     │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated, personality-driven)
+    │   └─ Uses AiBuildRes SystemParam bundle (8 mutable resources) to stay under Bevy's 16-param limit
     │
     └─ squad_cleanup_system (every frame)
         └─ Phase 1: remove dead slots from Squad.members

@@ -250,3 +250,17 @@ pub const MINE_MIN_SETTLEMENT_DIST: f32 = 300.0;
 
 /// Minimum distance between gold mines.
 pub const MINE_MIN_SPACING: f32 = 400.0;
+
+// ============================================================================
+// BUILDING HP
+// ============================================================================
+
+pub const GUARD_POST_HP: f32 = 200.0;
+pub const ARCHER_HOME_HP: f32 = 150.0;
+pub const FARMER_HOME_HP: f32 = 100.0;
+pub const MINER_HOME_HP: f32 = 100.0;
+pub const TENT_HP: f32 = 100.0;
+pub const FARM_HP: f32 = 80.0;
+
+/// Radius for projectile-vs-building collision detection on CPU.
+pub const BUILDING_HIT_RADIUS: f32 = 20.0;

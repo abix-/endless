@@ -866,6 +866,76 @@ pub struct SpawnerEntry {
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 
+/// Hit points for all destroyable buildings. Each Vec is parallel to the matching Vec in WorldData.
+#[derive(Resource, Default)]
+pub struct BuildingHpState {
+    pub guard_posts: Vec<f32>,
+    pub farmer_homes: Vec<f32>,
+    pub archer_homes: Vec<f32>,
+    pub tents: Vec<f32>,
+    pub miner_homes: Vec<f32>,
+    pub farms: Vec<f32>,
+}
+
+impl BuildingHpState {
+    /// Push a new HP entry for a newly placed building.
+    pub fn push_for(&mut self, building: &crate::world::Building) {
+        use crate::constants::*;
+        match building {
+            crate::world::Building::GuardPost { .. } => self.guard_posts.push(GUARD_POST_HP),
+            crate::world::Building::FarmerHome { .. } => self.farmer_homes.push(FARMER_HOME_HP),
+            crate::world::Building::ArcherHome { .. } => self.archer_homes.push(ARCHER_HOME_HP),
+            crate::world::Building::Tent { .. } => self.tents.push(TENT_HP),
+            crate::world::Building::MinerHome { .. } => self.miner_homes.push(MINER_HOME_HP),
+            crate::world::Building::Farm { .. } => self.farms.push(FARM_HP),
+            _ => {} // Fountain, Camp, Bed, GoldMine — no HP
+        }
+    }
+
+    /// Get mutable HP for a building by kind and index. Returns None for indestructible types.
+    pub fn get_mut(&mut self, kind: crate::world::BuildingKind, index: usize) -> Option<&mut f32> {
+        use crate::world::BuildingKind;
+        match kind {
+            BuildingKind::GuardPost => self.guard_posts.get_mut(index),
+            BuildingKind::FarmerHome => self.farmer_homes.get_mut(index),
+            BuildingKind::ArcherHome => self.archer_homes.get_mut(index),
+            BuildingKind::Tent => self.tents.get_mut(index),
+            BuildingKind::MinerHome => self.miner_homes.get_mut(index),
+            BuildingKind::Farm => self.farms.get_mut(index),
+            _ => None,
+        }
+    }
+
+    /// Get current HP for a building by kind and index.
+    pub fn get(&self, kind: crate::world::BuildingKind, index: usize) -> Option<f32> {
+        use crate::world::BuildingKind;
+        match kind {
+            BuildingKind::GuardPost => self.guard_posts.get(index).copied(),
+            BuildingKind::FarmerHome => self.farmer_homes.get(index).copied(),
+            BuildingKind::ArcherHome => self.archer_homes.get(index).copied(),
+            BuildingKind::Tent => self.tents.get(index).copied(),
+            BuildingKind::MinerHome => self.miner_homes.get(index).copied(),
+            BuildingKind::Farm => self.farms.get(index).copied(),
+            _ => None,
+        }
+    }
+
+    /// Get max HP for a building by kind.
+    pub fn max_hp(kind: crate::world::BuildingKind) -> f32 {
+        use crate::constants::*;
+        use crate::world::BuildingKind;
+        match kind {
+            BuildingKind::GuardPost => GUARD_POST_HP,
+            BuildingKind::FarmerHome => FARMER_HOME_HP,
+            BuildingKind::ArcherHome => ARCHER_HOME_HP,
+            BuildingKind::Tent => TENT_HP,
+            BuildingKind::MinerHome => MINER_HOME_HP,
+            BuildingKind::Farm => FARM_HP,
+            _ => 0.0,
+        }
+    }
+}
+
 /// Per-town auto-upgrade flags. When enabled, upgrades are purchased automatically
 /// once per game hour whenever the town has enough food.
 #[derive(Resource)]
@@ -1027,11 +1097,10 @@ impl HelpCatalog {
 
         // Left panel tabs
         m.insert("tab_roster", "Your NPC list. Filter, sort, select. Press F to follow.");
-        m.insert("tab_upgrades", "Buy town upgrades. Costs scale by level. Auto-buy optional.");
-        m.insert("tab_policies", "Live behavior rules: combat stance, flee %, schedule, and off-duty.");
+        m.insert("tab_upgrades", "Upgrade your town to improve combat, economy, and growth");
+        m.insert("tab_policies", "Behavior rules to change how your NPCs fight, rest, and work");
         m.insert("tab_patrols", "Guard post patrol order. Use arrows to reorder.");
-        m.insert("tab_squads", "Move archers from Default Squad with +1/+2/+4/+8/+16/+32. Set target on map. Toggle patrol.");
-        m.insert("tab_intel", "AI settlement stats. Expand rows, then Jump to camera.");
+        m.insert("tab_squads", "Organize archer squads: move archers from Default Squad, set or clear map targets, and control patrol/rest behavior");
         m.insert("tab_profiler", "Per-system timings. Enable in ESC > Settings > Debug.");
 
         // Build menu

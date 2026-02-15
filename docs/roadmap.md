@@ -297,8 +297,21 @@ Rules:
 ### DRY & Consolidation
 - [x] Rename role spawner buildings to `FarmerHome` / `ArcherHome` / `MinerHome` + rename `Job::Guard` → `Job::Archer` and all associated types/fields/UI labels
 - [x] Consolidate farm harvest transitions into one authoritative path (previously split across `arrival_system` and `decision_system`)
-- [x] Consolidate building placement side effects (place + food spend + spawner entry) into one shared helper used by player + AI
+- [x] Consolidate building placement side effects (place + food spend + spawner entry + HP push) into one shared helper used by player + AI
 - [x] Consolidate spawner spawn mapping (`building_kind` -> `SpawnNpcMsg` fields) into one shared helper used by startup + respawn systems
+- [x] Consolidate building destroy flow into `destroy_building()` (grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log) — used by click-destroy, inspector-destroy, building_damage_system
+
+### Building HP & NPC Building Attacks
+- [x] `BuildingHpState` resource with parallel Vecs per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms)
+- [x] Building HP constants: GuardPost=200, ArcherHome=150, FarmerHome=100, MinerHome=100, Tent=100, Farm=80
+- [x] `BuildingDamageMsg` message type (kind, index, amount) — direct damage on fire
+- [x] `BuildingSpatialGrid` extended with ArcherHome, FarmerHome, Tent, MinerHome + `faction` field on `BuildingRef`
+- [x] `Building::kind()` helper mapping Building → BuildingKind
+- [x] `find_nearest_enemy_building()` — spatial grid query filtered by faction and job type
+- [x] attack_system building fallback: archers/raiders fire at enemy buildings when no NPC target, raiders only target military buildings
+- [x] `building_damage_system` in Step::Behavior: decrement HP, destroy on HP≤0, kill linked NPC
+- [x] `AiBuildRes` SystemParam bundle (8 resources) in ai_player.rs — fixes 16-param limit on `ai_decision_system`
+- [x] Init/cleanup BuildingHpState in game_startup/cleanup systems
 
 ### AI Players
 - [x] `AiPlayerConfig` resource (decision interval in real seconds, configurable from main menu)
@@ -362,7 +375,7 @@ Rules:
 
 **Remaining: DRY + Single Source of Truth hardening**
 
-- [ ] Consolidate building destroy flow (remove + spawner tombstone + combat log) into one shared helper used by click-destroy + inspector-destroy
+- [x] Consolidate building destroy flow (remove + spawner tombstone + combat log + HP zero) into `destroy_building()` shared helper used by click-destroy + inspector-destroy + building_damage_system
 - [x] Centralize upgrade metadata (name/label/tooltip/short code) so UI, AI logs, and upgrade routing use one registry — `UPGRADE_REGISTRY` in `stats.rs`, `UpgradeNode` struct with label/short/tooltip/category/cost/prereqs
 - [ ] Make trait display read from `Personality`/`TraitKind` instead of separate `trait_id` mapping in UI cache
 - [ ] Replace hardcoded town indices in HUD (player/camp assumptions) with faction/town lookup helpers

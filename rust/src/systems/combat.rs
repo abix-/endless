@@ -3,10 +3,10 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{GUARD_POST_RANGE, GUARD_POST_DAMAGE, GUARD_POST_COOLDOWN, GUARD_POST_PROJ_SPEED, GUARD_POST_PROJ_LIFETIME};
-use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, SystemTimings};
+use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, FarmStates, SpawnerState};
 use crate::gpu::ProjBufferWrites;
-use crate::world::WorldData;
+use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, WorldGrid};
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
@@ -40,11 +40,13 @@ pub fn cooldown_system(
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
-    mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
+    mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
+    bgrid: Res<BuildingSpatialGrid>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
 ) {
@@ -64,7 +66,7 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (_entity, npc_idx, cached, mut timer, faction, mut combat_state, activity) in query.iter_mut() {
+    for (_entity, npc_idx, cached, mut timer, faction, mut combat_state, activity, job) in query.iter_mut() {
         attackers += 1;
         let i = npc_idx.0;
 
@@ -82,10 +84,58 @@ pub fn attack_system(
             sample_target = target_idx;
         }
 
-        // No combat target - clear combat state, activity preserved so NPC resumes
+        // No NPC combat target — try opportunistic building attack
         if target_idx < 0 {
             if combat_state.is_fighting() {
                 *combat_state = CombatState::None;
+            }
+            // Only ranged NPCs (archers/raiders) attack buildings
+            let job_id = match job {
+                Job::Archer => 1,
+                Job::Raider => 2,
+                _ => { continue; }
+            };
+            if i * 2 + 1 >= positions.len() { continue; }
+            let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
+            if x < -9000.0 { continue; } // dead/hidden
+
+            if let Some((bkind, bidx, bpos)) = world::find_nearest_enemy_building(
+                Vec2::new(x, y), &bgrid, faction.0, job_id, cached.range,
+            ) {
+                // In range and cooldown ready — fire at building
+                if timer.0 <= 0.0 {
+                    let dx = bpos.x - x;
+                    let dy = bpos.y - y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    if dist > 1.0 {
+                        // Stand ground while shooting building
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
+                        if let Some(proj_slot) = proj_alloc.alloc() {
+                            let dir_x = dx / dist;
+                            let dir_y = dy / dist;
+                            if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                                queue.push(ProjGpuUpdate::Spawn {
+                                    idx: proj_slot,
+                                    x, y,
+                                    vx: dir_x * cached.projectile_speed,
+                                    vy: dir_y * cached.projectile_speed,
+                                    damage: cached.damage,
+                                    faction: faction.0,
+                                    shooter: i as i32,
+                                    lifetime: cached.projectile_lifetime,
+                                });
+                            }
+                        }
+                        // Also send direct damage msg to building (projectile may miss on GPU)
+                        building_damage_events.write(BuildingDamageMsg {
+                            kind: bkind,
+                            index: bidx,
+                            amount: cached.damage,
+                        });
+                        timer.0 = cached.cooldown;
+                        attacks += 1;
+                    }
+                }
             }
             continue;
         }
@@ -339,6 +389,75 @@ pub fn guard_post_attack_system(
                 }
             }
             gp_state.timers[i] = GUARD_POST_COOLDOWN;
+        }
+    }
+}
+
+/// Process building damage messages: decrement HP, destroy when HP reaches 0.
+pub fn building_damage_system(
+    mut damage_reader: MessageReader<BuildingDamageMsg>,
+    mut building_hp: ResMut<BuildingHpState>,
+    mut grid: ResMut<WorldGrid>,
+    mut world_data: ResMut<WorldData>,
+    mut farm_states: ResMut<FarmStates>,
+    mut spawner_state: ResMut<SpawnerState>,
+    mut combat_log: ResMut<CombatLog>,
+    game_time: Res<GameTime>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    timings: Res<SystemTimings>,
+) {
+    let _t = timings.scope("building_damage");
+    for msg in damage_reader.read() {
+        let Some(hp) = building_hp.get_mut(msg.kind, msg.index) else { continue };
+        if *hp <= 0.0 { continue; } // already dead
+
+        *hp -= msg.amount;
+        if *hp > 0.0 { continue; } // still alive
+        *hp = 0.0;
+
+        // Building destroyed — find its position and town to call destroy_building
+        let (pos, town_idx) = match msg.kind {
+            BuildingKind::GuardPost => world_data.guard_posts.get(msg.index)
+                .map(|g| (g.position, g.town_idx as usize)),
+            BuildingKind::FarmerHome => world_data.farmer_homes.get(msg.index)
+                .map(|h| (h.position, h.town_idx as usize)),
+            BuildingKind::ArcherHome => world_data.archer_homes.get(msg.index)
+                .map(|a| (a.position, a.town_idx as usize)),
+            BuildingKind::Tent => world_data.tents.get(msg.index)
+                .map(|t| (t.position, t.town_idx as usize)),
+            BuildingKind::MinerHome => world_data.miner_homes.get(msg.index)
+                .map(|m| (m.position, m.town_idx as usize)),
+            BuildingKind::Farm => world_data.farms.get(msg.index)
+                .map(|f| (f.position, f.town_idx as usize)),
+            _ => None,
+        }.unwrap_or((Vec2::ZERO, 0));
+
+        if pos.x < -9000.0 { continue; } // already tombstoned
+
+        let center = world_data.towns.get(town_idx)
+            .map(|t| t.center).unwrap_or_default();
+        let town_name = world_data.towns.get(town_idx)
+            .map(|t| t.name.clone()).unwrap_or_default();
+        let (trow, tcol) = world::world_to_town_grid(center, pos);
+
+        // Capture linked NPC slot BEFORE destroy_building tombstones the spawner
+        let npc_slot = spawner_state.0.iter()
+            .find(|s| (s.position - pos).length() < 1.0)
+            .map(|s| s.npc_slot)
+            .unwrap_or(-1);
+
+        let _ = world::destroy_building(
+            &mut grid, &mut world_data, &mut farm_states,
+            &mut spawner_state, &mut building_hp,
+            &mut combat_log, &game_time,
+            trow, tcol, center,
+            &format!("{:?} destroyed in {}", msg.kind, town_name),
+        );
+
+        // Kill the linked NPC if alive
+        if npc_slot >= 0 {
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: npc_slot as usize }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_slot as usize, health: 0.0 }));
         }
     }
 }

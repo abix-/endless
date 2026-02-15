@@ -24,7 +24,7 @@ pub mod world;
 
 use bevy::prelude::*;
 
-use messages::{SpawnNpcMsg, DamageMsg, GpuUpdateMsg};
+use messages::{SpawnNpcMsg, DamageMsg, BuildingDamageMsg, GpuUpdateMsg};
 use resources::{
     NpcEntityMap, PopulationStats, GameConfig, GameTime, RespawnTimers,
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
@@ -33,7 +33,7 @@ use resources::{
     FoodStorage, GoldStorage, MineStates, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
-    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest,
+    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -186,6 +186,7 @@ pub fn build_app(app: &mut App) {
        // Events
        .add_message::<SpawnNpcMsg>()
        .add_message::<DamageMsg>()
+       .add_message::<BuildingDamageMsg>()
        .add_message::<GpuUpdateMsg>()
        // Resources
        .init_resource::<NpcEntityMap>()
@@ -230,6 +231,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<DestroyRequest>()
        .init_resource::<GuardPostState>()
        .init_resource::<SpawnerState>()
+       .init_resource::<BuildingHpState>()
        .init_resource::<SquadState>()
        .insert_resource(HelpCatalog::new())
        .init_resource::<AiPlayerState>()
@@ -294,6 +296,7 @@ pub fn build_app(app: &mut App) {
            ai_decision_system,
            (rebuild_patrol_routes_system, squad_cleanup_system),
        ).in_set(Step::Behavior))
+       .add_systems(Update, building_damage_system.in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, frame_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))

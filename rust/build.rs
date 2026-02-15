@@ -2,16 +2,21 @@
 use std::process::Command;
 
 fn main() {
-    // Get current timestamp (works on Windows via PowerShell)
+    // Get current timestamp in Eastern time for dev/release labeling.
     let timestamp = if cfg!(windows) {
         Command::new("powershell")
-            .args(["-Command", "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'"])
+            .args([
+                "-Command",
+                "$tz=[System.TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time');\
+                 [System.TimeZoneInfo]::ConvertTimeFromUtc((Get-Date).ToUniversalTime(),$tz).ToString('yyyy-MM-dd HH:mm:ss')",
+            ])
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_else(|| "unknown".to_string())
     } else {
         Command::new("date")
+            .env("TZ", "America/New_York")
             .args(["+%Y-%m-%d %H:%M:%S"])
             .output()
             .ok()

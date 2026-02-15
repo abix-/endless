@@ -9,12 +9,26 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use rand::Rng;
 
 use crate::constants::*;
 use crate::resources::*;
 use crate::world::{self, Building, WorldData, WorldGrid, TownGrids};
 use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, UPGRADE_COUNT};
+
+/// Mutable world resources needed for AI building. Bundled to stay under Bevy's 16-param limit.
+#[derive(SystemParam)]
+pub struct AiBuildRes<'w> {
+    grid: ResMut<'w, WorldGrid>,
+    world_data: ResMut<'w, WorldData>,
+    farm_states: ResMut<'w, FarmStates>,
+    food_storage: ResMut<'w, FoodStorage>,
+    town_grids: ResMut<'w, TownGrids>,
+    spawner_state: ResMut<'w, SpawnerState>,
+    building_hp: ResMut<'w, BuildingHpState>,
+    upgrade_queue: ResMut<'w, UpgradeQueue>,
+}
 
 /// Minimum Manhattan distance between guard posts on the town grid.
 const MIN_GUARD_POST_SPACING: i32 = 5;
@@ -233,13 +247,7 @@ pub fn ai_decision_system(
     time: Res<Time>,
     config: Res<AiPlayerConfig>,
     mut ai_state: ResMut<AiPlayerState>,
-    mut grid: ResMut<WorldGrid>,
-    mut world_data: ResMut<WorldData>,
-    mut farm_states: ResMut<FarmStates>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut town_grids: ResMut<TownGrids>,
-    mut spawner_state: ResMut<SpawnerState>,
-    mut upgrade_queue: ResMut<UpgradeQueue>,
+    mut res: AiBuildRes,
     upgrades: Res<TownUpgrades>,
     gold_storage: Res<GoldStorage>,
     mut combat_log: ResMut<CombatLog>,
@@ -255,24 +263,24 @@ pub fn ai_decision_system(
     for pi in 0..ai_state.players.len() {
         let player = &ai_state.players[pi];
         let tdi = player.town_data_idx;
-        let food = food_storage.food.get(tdi).copied().unwrap_or(0);
+        let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let reserve = player.personality.food_reserve();
         if food <= reserve { continue; }
 
-        let center = world_data.towns.get(tdi).map(|t| t.center).unwrap_or_default();
-        let town_name = world_data.towns.get(tdi).map(|t| t.name.clone()).unwrap_or_default();
+        let center = res.world_data.towns.get(tdi).map(|t| t.center).unwrap_or_default();
+        let town_name = res.world_data.towns.get(tdi).map(|t| t.name.clone()).unwrap_or_default();
         let pname = player.personality.name();
         let ti = tdi as u32;
 
         let alive = |pos: Vec2, idx: u32| idx == ti && pos.x > -9000.0;
-        let farms = world_data.farms.iter().filter(|f| alive(f.position, f.town_idx)).count();
-        let houses = world_data.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count();
-        let barracks = world_data.archer_homes.iter().filter(|b| alive(b.position, b.town_idx)).count();
-        let guard_posts = world_data.guard_posts.iter().filter(|g| alive(g.position, g.town_idx)).count();
-        let mine_shafts = world_data.miner_homes.iter().filter(|ms| alive(ms.position, ms.town_idx)).count();
+        let farms = res.world_data.farms.iter().filter(|f| alive(f.position, f.town_idx)).count();
+        let houses = res.world_data.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count();
+        let barracks = res.world_data.archer_homes.iter().filter(|b| alive(b.position, b.town_idx)).count();
+        let guard_posts = res.world_data.guard_posts.iter().filter(|g| alive(g.position, g.town_idx)).count();
+        let mine_shafts = res.world_data.miner_homes.iter().filter(|ms| alive(ms.position, ms.town_idx)).count();
 
-        let has_slots = town_grids.grids.get(player.grid_idx)
-            .map(|tg| has_empty_slot(tg, center, &grid))
+        let has_slots = res.town_grids.grids.get(player.grid_idx)
+            .map(|tg| has_empty_slot(tg, center, &res.grid))
             .unwrap_or(false);
 
         // Score all eligible actions
@@ -323,9 +331,7 @@ pub fn ai_decision_system(
         // Pick and execute
         let Some(action) = weighted_pick(&scores) else { continue };
         let label = execute_action(
-            action, ti, tdi, center, guard_posts,
-            &mut grid, &mut world_data, &mut farm_states, &mut food_storage,
-            &mut town_grids, &mut spawner_state, &mut upgrade_queue,
+            action, ti, tdi, center, guard_posts, &mut res,
             player.grid_idx,
         );
         if let Some(what) = label {
@@ -338,56 +344,50 @@ pub fn ai_decision_system(
 }
 
 /// Try to build a standard building at the nearest inner slot.
-#[allow(clippy::too_many_arguments)]
 fn try_build_inner(
     building: Building, cost: i32, label: &str,
-    tdi: usize, center: Vec2,
-    grid: &mut WorldGrid, world_data: &mut WorldData, farm_states: &mut FarmStates,
-    food_storage: &mut FoodStorage, town_grids: &mut TownGrids,
-    spawner_state: &mut SpawnerState, grid_idx: usize,
+    tdi: usize, center: Vec2, res: &mut AiBuildRes, grid_idx: usize,
 ) -> Option<String> {
-    let tg = town_grids.grids.get(grid_idx)?;
-    let (row, col) = find_inner_slot(tg, center, grid)?;
-    world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
+    let tg = res.town_grids.grids.get(grid_idx)?;
+    let (row, col) = find_inner_slot(tg, center, &res.grid)?;
+    world::build_and_pay(&mut res.grid, &mut res.world_data, &mut res.farm_states,
+        &mut res.food_storage, &mut res.spawner_state, &mut res.building_hp,
         building, tdi, row, col, center, cost)
         .then_some(format!("built {label}"))
 }
 
 /// Execute the chosen action, returning a log label on success.
-#[allow(clippy::too_many_arguments)]
 fn execute_action(
     action: AiAction, ti: u32, tdi: usize, center: Vec2, guard_posts: usize,
-    grid: &mut WorldGrid, world_data: &mut WorldData, farm_states: &mut FarmStates,
-    food_storage: &mut FoodStorage, town_grids: &mut TownGrids,
-    spawner_state: &mut SpawnerState, upgrade_queue: &mut UpgradeQueue,
-    grid_idx: usize,
+    res: &mut AiBuildRes, grid_idx: usize,
 ) -> Option<String> {
     match action {
         AiAction::BuildTent => try_build_inner(
             Building::Tent { town_idx: ti }, TENT_BUILD_COST, "tent",
-            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+            tdi, center, res, grid_idx),
         AiAction::BuildFarm => try_build_inner(
             Building::Farm { town_idx: ti }, FARM_BUILD_COST, "farm",
-            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+            tdi, center, res, grid_idx),
         AiAction::BuildFarmerHome => try_build_inner(
             Building::FarmerHome { town_idx: ti }, FARMER_HOME_BUILD_COST, "farmer home",
-            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+            tdi, center, res, grid_idx),
         AiAction::BuildArcherHome => try_build_inner(
             Building::ArcherHome { town_idx: ti }, ARCHER_HOME_BUILD_COST, "archer home",
-            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+            tdi, center, res, grid_idx),
         AiAction::BuildMinerHome => try_build_inner(
             Building::MinerHome { town_idx: ti }, MINER_HOME_BUILD_COST, "miner home",
-            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+            tdi, center, res, grid_idx),
         AiAction::BuildGuardPost => {
-            let tg = town_grids.grids.get(grid_idx)?;
-            let (row, col) = find_guard_post_slot(tg, center, grid, world_data, ti)?;
-            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
+            let tg = res.town_grids.grids.get(grid_idx)?;
+            let (row, col) = find_guard_post_slot(tg, center, &res.grid, &res.world_data, ti)?;
+            world::build_and_pay(&mut res.grid, &mut res.world_data, &mut res.farm_states,
+                &mut res.food_storage, &mut res.spawner_state, &mut res.building_hp,
                 Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
                 tdi, row, col, center, GUARD_POST_BUILD_COST)
                 .then_some("built guard post".into())
         }
         AiAction::Upgrade(idx) => {
-            upgrade_queue.0.push((tdi, idx));
+            res.upgrade_queue.0.push((tdi, idx));
             let name = upgrade_node(idx).label;
             Some(format!("upgraded {name}"))
         }

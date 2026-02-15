@@ -131,10 +131,10 @@ rust/
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers)
-  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining)
-  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, HelpCatalog, etc.)
+  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP)
+  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, BuildingHpState, HelpCatalog, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration, auto_upgrades)
-  src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), Building::spawner_kind()
+  src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale), escape/time controls, keyboard toggles (Q=squads), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
@@ -165,11 +165,11 @@ rust/
     stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, UPGRADE_REGISTRY (16 upgrades, prereqs + multi-resource cost), UPGRADE_RENDER_ORDER (tree UI layout), resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system, upgrade helpers (upgrade_unlocked/upgrade_available/deduct_upgrade_cost/format_upgrade_cost/missing_prereqs/upgrade_effect_summary/branch_total/expansion_cost)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
-    combat.rs           # Attack cooldown, targeting, guard post turret auto-attack (faction-aware)
+    combat.rs           # Attack cooldown, targeting, building attack fallback, guard post turret, building_damage_system
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, mine regen, respawning, building spawners, squad cleanup
-    ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), weighted random scoring (like NPC behavior), smart slot selection
+    ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), weighted random scoring, AiBuildRes SystemParam bundle
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 

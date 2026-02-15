@@ -167,6 +167,7 @@ struct StartupExtra<'w> {
     gold_storage: ResMut<'w, GoldStorage>,
     bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
+    building_hp: ResMut<'w, BuildingHpState>,
 }
 
 /// Initialize the world and spawn NPCs when entering Playing state.
@@ -242,6 +243,19 @@ fn game_startup_system(
     for ms in world_data.miner_homes.iter() {
         world::register_spawner(&mut spawner_state, world::Building::MinerHome { town_idx: 0 },
             ms.town_idx as i32, ms.position, -1.0);
+    }
+
+    // Initialize building HP for all world-gen buildings
+    {
+        use crate::constants::*;
+        let hp = &mut extra.building_hp;
+        **hp = BuildingHpState::default();
+        for _ in &world_data.guard_posts { hp.guard_posts.push(GUARD_POST_HP); }
+        for _ in &world_data.farmer_homes { hp.farmer_homes.push(FARMER_HOME_HP); }
+        for _ in &world_data.archer_homes { hp.archer_homes.push(ARCHER_HOME_HP); }
+        for _ in &world_data.tents { hp.tents.push(TENT_HP); }
+        for _ in &world_data.miner_homes { hp.miner_homes.push(MINER_HOME_HP); }
+        for _ in &world_data.farms { hp.farms.push(FARM_HP); }
     }
 
     // Reset farm occupancy for fresh game
@@ -524,6 +538,7 @@ fn build_place_click_system(
     mut food_storage: ResMut<FoodStorage>,
     town_grids: Res<world::TownGrids>,
     mut spawner_state: ResMut<SpawnerState>,
+    mut building_hp: ResMut<BuildingHpState>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
 ) {
@@ -560,22 +575,13 @@ fn build_place_click_system(
             .unwrap_or(false);
         if !is_destructible { return; }
 
-        if world::remove_building(
-            &mut grid, &mut world_data, &mut farm_states, row, col, center,
-        ).is_ok() {
-            // Tombstone matching spawner entry
-            let snapped = grid.grid_to_world(gc, gr);
-            if let Some(se) = spawner_state.0.iter_mut().find(|s| {
-                (s.position - snapped).length() < 1.0
-            }) {
-                se.position = Vec2::new(-99999.0, -99999.0);
-            }
-            combat_log.push(
-                CombatEventKind::Harvest,
-                game_time.day(), game_time.hour(), game_time.minute(),
-                format!("Destroyed building at ({},{}) in {}", row, col, town_name),
-            );
-        }
+        let _ = world::destroy_building(
+            &mut grid, &mut world_data, &mut farm_states,
+            &mut spawner_state, &mut building_hp,
+            &mut combat_log, &game_time,
+            row, col, center,
+            &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
+        );
         return;
     }
 
@@ -605,7 +611,7 @@ fn build_place_click_system(
 
     if !world::build_and_pay(
         &mut grid, &mut world_data, &mut farm_states,
-        &mut food_storage, &mut spawner_state,
+        &mut food_storage, &mut spawner_state, &mut building_hp,
         building, town_data_idx,
         row, col, center, cost,
     ) { return; }
@@ -814,6 +820,7 @@ fn process_destroy_system(
     mut world_data: ResMut<world::WorldData>,
     mut farm_states: ResMut<FarmStates>,
     mut spawner_state: ResMut<SpawnerState>,
+    mut building_hp: ResMut<BuildingHpState>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
@@ -842,21 +849,13 @@ fn process_destroy_system(
     let world_pos = grid.grid_to_world(col, row);
     let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
-    if world::remove_building(
-        &mut grid, &mut world_data, &mut farm_states, trow, tcol, center,
+    if world::destroy_building(
+        &mut grid, &mut world_data, &mut farm_states,
+        &mut spawner_state, &mut building_hp,
+        &mut combat_log, &game_time,
+        trow, tcol, center,
+        &format!("Destroyed building in {}", town_name),
     ).is_ok() {
-        // Tombstone matching spawner entry
-        let snapped = grid.grid_to_world(col, row);
-        if let Some(se) = spawner_state.0.iter_mut().find(|s| {
-            (s.position - snapped).length() < 1.0
-        }) {
-            se.position = Vec2::new(-99999.0, -99999.0);
-        }
-        combat_log.push(
-            CombatEventKind::Harvest,
-            game_time.day(), game_time.hour(), game_time.minute(),
-            format!("Destroyed building in {}", town_name),
-        );
         selected_building.active = false;
     }
 }
@@ -883,6 +882,7 @@ struct CleanupWorld<'w> {
     ai_state: ResMut<'w, AiPlayerState>,
     mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
+    building_hp: ResMut<'w, BuildingHpState>,
 }
 
 #[derive(SystemParam)]
@@ -944,6 +944,7 @@ fn game_cleanup_system(
     *world.ai_state = Default::default();
     *world.mine_states = Default::default();
     *world.gold_storage = Default::default();
+    *world.building_hp = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();

@@ -7,7 +7,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
-use crate::resources::{FarmStates, FoodStorage, SpawnerState, SpawnerEntry};
+use crate::resources::{FarmStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime};
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -343,6 +343,7 @@ pub fn build_and_pay(
     farm_states: &mut FarmStates,
     food_storage: &mut FoodStorage,
     spawner_state: &mut SpawnerState,
+    building_hp: &mut BuildingHpState,
     building: Building,
     town_data_idx: usize,
     row: i32, col: i32,
@@ -357,6 +358,7 @@ pub fn build_and_pay(
     let (gc, gr) = grid.world_to_grid(pos);
     let snapped = grid.grid_to_world(gc, gr);
     register_spawner(spawner_state, building, town_data_idx as i32, snapped, 0.0);
+    building_hp.push_for(&building);
     true
 }
 
@@ -488,6 +490,69 @@ pub fn remove_building(
     Ok(())
 }
 
+/// Find the index of a building in its WorldData vec by position match.
+fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec2) -> Option<usize> {
+    let near = |p: Vec2| (p - pos).length() < 1.0;
+    match building {
+        Building::Farm { .. } => world_data.farms.iter().position(|f| near(f.position)),
+        Building::GuardPost { .. } => world_data.guard_posts.iter().position(|g| near(g.position)),
+        Building::FarmerHome { .. } => world_data.farmer_homes.iter().position(|h| near(h.position)),
+        Building::ArcherHome { .. } => world_data.archer_homes.iter().position(|a| near(a.position)),
+        Building::Tent { .. } => world_data.tents.iter().position(|t| near(t.position)),
+        Building::MinerHome { .. } => world_data.miner_homes.iter().position(|m| near(m.position)),
+        _ => None,
+    }
+}
+
+/// Consolidated building destruction: grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log.
+/// Used by click-destroy, inspector-destroy, and building_damage_system (HP→0).
+pub fn destroy_building(
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    farm_states: &mut FarmStates,
+    spawner_state: &mut SpawnerState,
+    building_hp: &mut BuildingHpState,
+    combat_log: &mut CombatLog,
+    game_time: &GameTime,
+    row: i32, col: i32,
+    town_center: Vec2,
+    reason: &str,
+) -> Result<(), &'static str> {
+    let world_pos = town_grid_to_world(town_center, row, col);
+    let (gc, gr) = grid.world_to_grid(world_pos);
+    let snapped = grid.grid_to_world(gc, gr);
+
+    // Capture building info BEFORE remove_building clears the grid cell
+    let building = grid.cell(gc, gr)
+        .and_then(|c| c.building)
+        .ok_or("no building")?;
+    let hp_index = find_building_data_index(world_data, building, snapped);
+
+    // Grid clear + WorldData tombstone
+    remove_building(grid, world_data, farm_states, row, col, town_center)?;
+
+    // Tombstone matching spawner entry
+    if let Some(se) = spawner_state.0.iter_mut().find(|s| (s.position - snapped).length() < 1.0) {
+        se.position = Vec2::new(-99999.0, -99999.0);
+    }
+
+    // Zero HP entry
+    if let (Some(kind), Some(idx)) = (building.kind(), hp_index) {
+        if let Some(hp) = building_hp.get_mut(kind, idx) {
+            *hp = 0.0;
+        }
+    }
+
+    // Combat log
+    combat_log.push(
+        CombatEventKind::Harvest,
+        game_time.day(), game_time.hour(), game_time.minute(),
+        reason.to_string(),
+    );
+
+    Ok(())
+}
+
 /// Location types for find_nearest_location.
 #[derive(Clone, Copy, Debug)]
 pub enum LocationKind {
@@ -526,6 +591,39 @@ pub fn find_location_within_radius(
         if d2 <= r2 && d2 < best_d2 {
             best_d2 = d2;
             result = Some((bref.index, bref.position));
+        }
+    });
+    result
+}
+
+/// Find the nearest enemy building within radius that the NPC wants to attack.
+/// Raiders: only ArcherHome, GuardPost. Archers/others: any enemy building.
+/// Returns (kind, index, position) of nearest enemy building.
+pub fn find_nearest_enemy_building(
+    from: Vec2, bgrid: &BuildingSpatialGrid, npc_faction: i32, npc_job: i32, radius: f32,
+) -> Option<(BuildingKind, usize, Vec2)> {
+    let r2 = radius * radius;
+    let mut best_d2 = f32::MAX;
+    let mut result: Option<(BuildingKind, usize, Vec2)> = None;
+    let is_raider = npc_job == 2;
+    bgrid.for_each_nearby(from, radius, |bref| {
+        if bref.faction == npc_faction { return; } // same faction
+        if bref.faction < 0 { return; } // no faction (gold mines)
+        // Skip non-targetable building types
+        match bref.kind {
+            BuildingKind::Town | BuildingKind::GoldMine => return,
+            _ => {}
+        }
+        // Raiders only target military buildings
+        if is_raider && !matches!(bref.kind, BuildingKind::ArcherHome | BuildingKind::GuardPost) {
+            return;
+        }
+        let dx = bref.position.x - from.x;
+        let dy = bref.position.y - from.y;
+        let d2 = dx * dx + dy * dy;
+        if d2 <= r2 && d2 < best_d2 {
+            best_d2 = d2;
+            result = Some((bref.kind, bref.index, bref.position));
         }
     });
     result
@@ -635,14 +733,15 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // BUILDING SPATIAL GRID
 // ============================================================================
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum BuildingKind { Farm, GuardPost, Town, GoldMine }
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BuildingKind { Farm, GuardPost, Town, GoldMine, ArcherHome, FarmerHome, Tent, MinerHome }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {
     pub kind: BuildingKind,
     pub index: usize,
     pub town_idx: u32,
+    pub faction: i32,
     pub position: Vec2,
 }
 
@@ -666,31 +765,64 @@ impl BuildingSpatialGrid {
         self.cells.resize_with(total, Vec::new);
         for cell in &mut self.cells { cell.clear(); }
 
+        // Helper: look up faction from town_idx
+        let faction_of = |tidx: u32| -> i32 {
+            world.towns.get(tidx as usize).map(|t| t.faction).unwrap_or(0)
+        };
+
         for (i, farm) in world.farms.iter().enumerate() {
             if farm.position.x < -9000.0 { continue; }
             self.insert(BuildingRef {
                 kind: BuildingKind::Farm, index: i,
-                town_idx: farm.town_idx, position: farm.position,
+                town_idx: farm.town_idx, faction: faction_of(farm.town_idx), position: farm.position,
             });
         }
         for (i, gp) in world.guard_posts.iter().enumerate() {
             if gp.position.x < -9000.0 { continue; }
             self.insert(BuildingRef {
                 kind: BuildingKind::GuardPost, index: i,
-                town_idx: gp.town_idx, position: gp.position,
+                town_idx: gp.town_idx, faction: faction_of(gp.town_idx), position: gp.position,
             });
         }
         for (i, town) in world.towns.iter().enumerate() {
             self.insert(BuildingRef {
                 kind: BuildingKind::Town, index: i,
-                town_idx: i as u32, position: town.center,
+                town_idx: i as u32, faction: town.faction, position: town.center,
             });
         }
         for (i, mine) in world.gold_mines.iter().enumerate() {
             if mine.position.x < -9000.0 { continue; }
             self.insert(BuildingRef {
                 kind: BuildingKind::GoldMine, index: i,
-                town_idx: u32::MAX, position: mine.position,
+                town_idx: u32::MAX, faction: -1, position: mine.position,
+            });
+        }
+        for (i, h) in world.archer_homes.iter().enumerate() {
+            if h.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::ArcherHome, index: i,
+                town_idx: h.town_idx, faction: faction_of(h.town_idx), position: h.position,
+            });
+        }
+        for (i, h) in world.farmer_homes.iter().enumerate() {
+            if h.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::FarmerHome, index: i,
+                town_idx: h.town_idx, faction: faction_of(h.town_idx), position: h.position,
+            });
+        }
+        for (i, t) in world.tents.iter().enumerate() {
+            if t.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::Tent, index: i,
+                town_idx: t.town_idx, faction: faction_of(t.town_idx), position: t.position,
+            });
+        }
+        for (i, h) in world.miner_homes.iter().enumerate() {
+            if h.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::MinerHome, index: i,
+                town_idx: h.town_idx, faction: faction_of(h.town_idx), position: h.position,
             });
         }
     }
@@ -927,6 +1059,19 @@ impl Building {
             Building::ArcherHome { .. } => Some(1),
             Building::Tent { .. } => Some(2),
             Building::MinerHome { .. } => Some(3),
+            _ => None,
+        }
+    }
+
+    /// Map to BuildingKind (returns None for Fountain, Camp, Bed — no HP tracking).
+    pub fn kind(&self) -> Option<BuildingKind> {
+        match self {
+            Building::Farm { .. } => Some(BuildingKind::Farm),
+            Building::GuardPost { .. } => Some(BuildingKind::GuardPost),
+            Building::FarmerHome { .. } => Some(BuildingKind::FarmerHome),
+            Building::ArcherHome { .. } => Some(BuildingKind::ArcherHome),
+            Building::Tent { .. } => Some(BuildingKind::Tent),
+            Building::MinerHome { .. } => Some(BuildingKind::MinerHome),
             _ => None,
         }
     }

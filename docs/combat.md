@@ -2,7 +2,7 @@
 
 ## Overview
 
-Eight chained Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks, damage application, death detection, XP-on-kill grant, cleanup with slot recycling, and guard post turret auto-attack. All run sequentially in `Step::Combat`.
+Nine Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (with building fallback), damage application, death detection, XP-on-kill grant, cleanup with slot recycling, guard post turret auto-attack, and building damage processing. Eight run chained in `Step::Combat`; `building_damage_system` runs in `Step::Behavior`.
 
 ## Data Flow
 
@@ -85,7 +85,14 @@ Execution order is **chained** — each system completes before the next starts.
   - **In range**: sets `SetTarget` to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
   - **Out of range**: pushes `GpuUpdate::SetTarget` to chase
-- If no target: sets `CombatState::None` (Activity is preserved — e.g. Raiding NPC stays Raiding so decision_system can re-target farm)
+- If no NPC target: sets `CombatState::None`, then checks for opportunistic building attack:
+  - Only **archers** and **raiders** attempt building attacks (farmers/miners/fighters skip)
+  - Queries `BuildingSpatialGrid` via `find_nearest_enemy_building()` for enemy buildings within `CachedStats.range`
+  - **Raiders**: only target ArcherHome, GuardPost (leave FarmerHome/MinerHome alone for farm raiding)
+  - **Archers**: target any enemy building type
+  - "Enemy" = building faction != NPC faction (uses `BuildingRef.faction` field)
+  - If found and cooldown ready: stand ground (SetTarget to own pos), fire projectile, send `BuildingDamageMsg` (direct damage — buildings aren't in GPU spatial grid), reset cooldown
+  - NPCs don't chase buildings — pure attack of opportunity when nearby with nothing better to do
 
 ### 3. damage_system (health.rs)
 - Drains `DamageMsg` events from Bevy MessageReader
@@ -125,12 +132,23 @@ Execution order is **chained** — each system completes before the next starts.
   9. `SlotAllocator.free(idx)` — recycle slot for future spawns
 
 ### 7. guard_post_attack_system (combat.rs)
+
 - Iterates `WorldData.guard_posts` with `GuardPostState` per-post timers and enabled flags
 - State length auto-syncs with guard post count (handles runtime building)
 - For each enabled post with cooldown ready: looks up owning faction from `world_data.towns[post.town_idx]`, scans `GpuReadState.positions`+`factions` (using `gpu_state.npc_count` for bounds) for nearest enemy (different faction) within `GUARD_POST_RANGE` (250px)
 - Fires projectile via `PROJ_GPU_UPDATE_QUEUE` with `shooter: -1` (building, not NPC) and post's owning faction
 - Constants: range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s
 - Turret toggle: `GuardPostState.attack_enabled[i]` toggled via build menu UI
+
+### 8. building_damage_system (combat.rs, Step::Behavior)
+- Reads `BuildingDamageMsg` events via `MessageReader`
+- Decrements `BuildingHpState` by `msg.amount` for the target building kind + index
+- Skips already-dead buildings (HP <= 0)
+- When HP reaches 0:
+  1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
+  2. Calls `destroy_building()` shared helper (grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log)
+  3. Kills linked NPC via `GpuUpdate::HideNpc` + `SetHealth(0.0)`
+- Profiled under `"building_damage"` scope
 
 ## Slot Recycling
 
@@ -157,7 +175,8 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
 | CPU → GPU | Stand ground | `GpuUpdate::SetTarget` to own position when in attack range (stops movement, allows proj dodge) |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
-| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + guard_post_attack_system) |
+| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + guard_post_attack_system + building attack fallback) |
+| CPU only | Building damage | `BuildingDamageMsg` via `MessageWriter` → `building_damage_system` (direct damage on fire, no GPU collision) |
 
 ## Debug
 
@@ -177,7 +196,8 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
 - **KillStats naming inverted**: `guard_kills` tracks raiders killed (by guards), `villager_kills` tracks villagers killed (by raiders). The names describe the victim, not the killer.
+- **Building damage is direct-on-fire**: `BuildingDamageMsg` sent when projectile is fired, not on collision. The visual arrow is purely cosmetic. Buildings aren't in the GPU spatial grid, so CPU-side instant damage is simpler. May look odd if arrow visually misses but building takes damage.
 
 ## Rating: 8/10
 
-Full combat loop: GPU targeting → attack → damage (with last-hit tracking) → death → XP grant → cleanup. Chained execution guarantees safety. O(1) entity lookup via NpcEntityMap. XP-on-kill grants 100 XP to last attacker with level-up stat re-resolution and proportional HP rescale. death_cleanup_system is thorough (releases farm occupancy, clears raid queue, updates all stat resources). Projectile slot recycling handles both collisions and expired projectiles via sentinel.
+Full combat loop: GPU targeting → attack → damage (with last-hit tracking) → death → XP grant → cleanup. Chained execution guarantees safety. O(1) entity lookup via NpcEntityMap. XP-on-kill grants 100 XP to last attacker with level-up stat re-resolution and proportional HP rescale. death_cleanup_system is thorough (releases farm occupancy, clears raid queue, updates all stat resources). Projectile slot recycling handles both collisions and expired projectiles via sentinel. Building attacks are opportunistic (no new Activity variant) — minimal complexity addition.

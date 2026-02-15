@@ -32,6 +32,14 @@ pub struct DamageMsg {
     pub attacker: i32,  // NPC slot index of last attacker (-1 = no attacker, e.g. guard post)
 }
 
+/// Damage applied to a building by a projectile or direct attack.
+#[derive(Message, Clone)]
+pub struct BuildingDamageMsg {
+    pub kind: crate::world::BuildingKind,
+    pub index: usize,
+    pub amount: f32,
+}
+
 /// Reassign an NPC to a different job (Farmer <-> Guard).
 #[derive(Message, Clone)]
 pub struct ReassignMsg {

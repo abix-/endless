@@ -8,7 +8,7 @@ use bevy_egui::egui;
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UpgradeType, UPGRADE_COUNT, UPGRADE_PCT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total};
 use crate::systems::{AiPlayerState, AiKind};
 use crate::world::WorldData;
 
@@ -102,6 +102,7 @@ pub struct IntelParams<'w> {
     spawner_state: Res<'w, SpawnerState>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
+    combat_config: Res<'w, CombatConfig>,
 }
 
 #[derive(Clone)]
@@ -209,7 +210,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
-                LeftPanelTab::Patrols => patrols_content(ui, &mut world_data),
+                LeftPanelTab::Patrols => patrols_content(ui, &mut world_data, &mut jump_target),
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &world_data, &mut commands),
                 LeftPanelTab::Intel => intel_content(ui, &intel, &world_data, &policies, &mut intel_cache, &mut jump_target),
                 LeftPanelTab::Profiler => profiler_content(ui, &timings),
@@ -644,7 +645,7 @@ fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: 
 // PATROLS CONTENT
 // ============================================================================
 
-fn patrols_content(ui: &mut egui::Ui, world_data: &mut WorldData) {
+fn patrols_content(ui: &mut egui::Ui, world_data: &mut WorldData, jump_target: &mut Option<Vec2>) {
     let town_pair_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as u32;
 
     if let Some(town) = world_data.towns.get(town_pair_idx as usize) {
@@ -667,15 +668,17 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &mut WorldData) {
         for (list_idx, &(data_idx, order, pos)) in posts.iter().enumerate() {
             ui.horizontal(|ui| {
                 ui.label(format!("#{}", order));
-                ui.label(format!("({:.0}, {:.0})", pos.x, pos.y));
+                if ui.button(format!("({:.0}, {:.0})", pos.x, pos.y)).on_hover_text("Jump to this post").clicked() {
+                    *jump_target = Some(pos);
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if list_idx + 1 < posts.len() {
-                        if ui.small_button("\u{25BC}").on_hover_text("Move down").clicked() {
+                        if ui.small_button("Down").on_hover_text("Move down").clicked() {
                             swap = Some((data_idx, posts[list_idx + 1].0));
                         }
                     }
                     if list_idx > 0 {
-                        if ui.small_button("\u{25B2}").on_hover_text("Move up").clicked() {
+                        if ui.small_button("Up").on_hover_text("Move up").clicked() {
                             swap = Some((data_idx, posts[list_idx - 1].0));
                         }
                     }
@@ -854,20 +857,22 @@ fn rebuild_intel_cache(
     policies: &TownPolicies,
     cache: &mut IntelCache,
 ) {
-    cache.snapshots.clear();
-    for player in intel.ai_state.players.iter() {
-        let tdi = player.town_data_idx;
+    fn push_snapshot(
+        intel: &IntelParams,
+        world_data: &WorldData,
+        policies: &TownPolicies,
+        cache: &mut IntelCache,
+        tdi: usize,
+        kind_name: &'static str,
+        personality_name: &'static str,
+        last_actions: Vec<String>,
+    ) {
         let ti = tdi as u32;
-
         let town_name = world_data.towns.get(tdi)
             .map(|t| t.name.clone()).unwrap_or_default();
         let center = world_data.towns.get(tdi)
             .map(|t| t.center).unwrap_or_default();
-
-        let kind_name = match player.kind {
-            AiKind::Builder => "Builder",
-            AiKind::Raider => "Raider",
-        };
+        let faction = world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
 
         let alive_check = |pos: Vec2, idx: u32| idx == ti && pos.x > -9000.0;
         let farms = world_data.farms.iter().filter(|f| alive_check(f.position, f.town_idx)).count();
@@ -877,7 +882,6 @@ fn rebuild_intel_cache(
         let tents = world_data.tents.iter().filter(|t| alive_check(t.position, t.town_idx)).count();
         let miner_homes = world_data.miner_homes.iter().filter(|ms| alive_check(ms.position, ms.town_idx)).count();
 
-        // Count alive NPCs by job from spawner state
         let ti_i32 = tdi as i32;
         let alive_spawner = |kind: i32| intel.spawner_state.0.iter()
             .filter(|s| s.building_kind == kind && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
@@ -887,14 +891,10 @@ fn rebuild_intel_cache(
         let miners = alive_spawner(3);
 
         let food = intel.food_storage.food.get(tdi).copied().unwrap_or(0);
-        let faction = world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
         let (alive, dead, kills) = intel.faction_stats.stats.get(faction as usize)
             .map(|s| (s.alive, s.dead, s.kills))
             .unwrap_or((0, 0, 0));
-
         let upgrades = intel.upgrades.levels.get(tdi).copied().unwrap_or([0; UPGRADE_COUNT]);
-
-        let last_actions: Vec<String> = player.last_actions.iter().rev().cloned().collect();
 
         let policy = policies.policies.get(tdi);
         let archer_aggressive = policy.map(|p| p.archer_aggressive).unwrap_or(false);
@@ -907,7 +907,7 @@ fn rebuild_intel_cache(
             faction,
             town_name,
             kind_name,
-            personality_name: player.personality.name(),
+            personality_name,
             food,
             farmers,
             archers,
@@ -931,6 +931,34 @@ fn rebuild_intel_cache(
             prioritize_healing,
             center,
         });
+    }
+
+    cache.snapshots.clear();
+
+    // Include player faction (faction 0) in Intel view.
+    if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
+        push_snapshot(intel, world_data, policies, cache, player_tdi, "Player", "Human", Vec::new());
+    }
+
+    for player in intel.ai_state.players.iter() {
+        let tdi = player.town_data_idx;
+
+        let kind_name = match player.kind {
+            AiKind::Builder => "Builder",
+            AiKind::Raider => "Raider",
+        };
+
+        let last_actions: Vec<String> = player.last_actions.iter().rev().cloned().collect();
+        push_snapshot(
+            intel,
+            world_data,
+            policies,
+            cache,
+            tdi,
+            kind_name,
+            player.personality.name(),
+            last_actions,
+        );
     }
 }
 
@@ -989,46 +1017,186 @@ fn intel_content(
     ui.label(format!("Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills));
     ui.separator();
 
-    ui.label("Units");
-    ui.label(format!("Farmers: {}/{}", snap.farmers, snap.farmer_homes));
-    ui.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
-    ui.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
-    ui.label(format!("Miners: {}/{}", snap.miners, snap.miner_homes));
-    ui.separator();
+    let lv = &snap.upgrades;
+    let archer_base = intel.combat_config.jobs.get(&Job::Archer);
+    let farmer_base = intel.combat_config.jobs.get(&Job::Farmer);
+    let miner_base = intel.combat_config.jobs.get(&Job::Miner);
+    let ranged_base = intel.combat_config.attacks.get(&BaseAttackType::Ranged);
+    let melee_base = intel.combat_config.attacks.get(&BaseAttackType::Melee);
 
-    ui.label("Buildings");
-    ui.label(format!("Farms: {}", snap.farms));
-    ui.label(format!("Guard Posts: {}", snap.guard_posts));
-    ui.label(format!("Farmer Homes: {}", snap.farmer_homes));
-    ui.label(format!("Archer Homes: {}", snap.archer_homes));
-    ui.label(format!("Tents: {}", snap.tents));
-    ui.label(format!("Miner Homes: {}", snap.miner_homes));
-    ui.separator();
+    let military_hp_mult = 1.0 + lv[UpgradeType::MilitaryHp as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryHp as usize];
+    let military_dmg_mult = 1.0 + lv[UpgradeType::MilitaryAttack as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryAttack as usize];
+    let military_range_mult = 1.0 + lv[UpgradeType::MilitaryRange as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryRange as usize];
+    let military_speed_mult = 1.0 + lv[UpgradeType::MilitaryMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryMoveSpeed as usize];
+    let cooldown_mult = 1.0 / (1.0 + lv[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::AttackSpeed as usize]);
+    let cooldown_reduction = (1.0 - cooldown_mult) * 100.0;
+    let alert_mult = 1.0 + lv[UpgradeType::AlertRadius as usize] as f32 * UPGRADE_PCT[UpgradeType::AlertRadius as usize];
 
-    ui.label("Upgrades");
-    egui::Grid::new("intel_upgrades_grid").num_columns(2).striped(true).show(ui, |ui| {
-        for (j, &level) in snap.upgrades.iter().enumerate() {
-            let label = UPGRADE_REGISTRY.get(j).map(|n| n.label).unwrap_or("?");
-            ui.label(label);
-            ui.label(format!("Lv{}", level));
+    let farmer_hp_mult = 1.0 + lv[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmerHp as usize];
+    let farmer_speed_mult = 1.0 + lv[UpgradeType::FarmerMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmerMoveSpeed as usize];
+    let farm_yield_mult = 1.0 + lv[UpgradeType::FarmYield as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmYield as usize];
+
+    let miner_hp_mult = 1.0 + lv[UpgradeType::MinerHp as usize] as f32 * UPGRADE_PCT[UpgradeType::MinerHp as usize];
+    let miner_speed_mult = 1.0 + lv[UpgradeType::MinerMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::MinerMoveSpeed as usize];
+    let gold_yield_mult = 1.0 + lv[UpgradeType::GoldYield as usize] as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize];
+
+    let healing_mult = 1.0 + lv[UpgradeType::HealingRate as usize] as f32 * UPGRADE_PCT[UpgradeType::HealingRate as usize];
+    let fountain_bonus = lv[UpgradeType::FountainRadius as usize] as f32 * 24.0;
+
+    ui.columns(2, |columns| {
+        let (left_slice, right_slice) = columns.split_at_mut(1);
+        let left = &mut left_slice[0];
+        let right = &mut right_slice[0];
+
+        left.label("Units");
+        left.label(format!("Farmers: {}/{}", snap.farmers, snap.farmer_homes));
+        left.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
+        left.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
+        left.label(format!("Miners: {}/{}", snap.miners, snap.miner_homes));
+        left.separator();
+
+        left.label("Buildings");
+        left.label(format!("Farms: {}", snap.farms));
+        left.label(format!("Guard Posts: {}", snap.guard_posts));
+        left.label(format!("Farmer Homes: {}", snap.farmer_homes));
+        left.label(format!("Archer Homes: {}", snap.archer_homes));
+        left.label(format!("Tents: {}", snap.tents));
+        left.label(format!("Miner Homes: {}", snap.miner_homes));
+        left.separator();
+
+        left.label("Upgrade Categories");
+        for (branch, nodes) in UPGRADE_RENDER_ORDER {
+            let total = branch_total(&snap.upgrades, branch);
+            left.collapsing(format!("{} (Total Lv{})", branch, total), |ui| {
+                let grid_id = format!("intel_upgrades_{}_{}", branch, cache.selected_idx);
+                egui::Grid::new(grid_id).num_columns(3).striped(true).show(ui, |ui| {
+                    for &(idx, depth) in *nodes {
+                        let Some(upg) = UPGRADE_REGISTRY.get(idx) else { continue };
+                        let level = snap.upgrades[idx];
+                        let (now_effect, _next_effect) = upgrade_effect_summary(idx, level);
+                        let indented_name = format!("{}{}", "  ".repeat(depth as usize), upg.label);
+
+                        ui.label(indented_name);
+                        ui.label(format!("Lv{}", level));
+                        ui.label(now_effect);
+                        ui.end_row();
+                    }
+                });
+            });
+        }
+
+        right.label("Effective Stats");
+        egui::Grid::new("intel_effective_stats_grid").num_columns(2).striped(true).show(right, |ui| {
+            ui.strong("Military");
+            ui.label("");
             ui.end_row();
+
+            if let Some(base) = archer_base {
+                ui.label("HP (Archer/Raider)");
+                ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * military_hp_mult));
+                ui.end_row();
+
+                ui.label("Damage (Archer/Raider)");
+                ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * military_dmg_mult));
+                ui.end_row();
+
+                ui.label("Move Speed (Archer/Raider)");
+                ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * military_speed_mult));
+                ui.end_row();
+            }
+
+            if let Some(base) = ranged_base {
+                ui.label("Range (Ranged)");
+                ui.label(format!("{:.0} -> {:.0}", base.range, base.range * military_range_mult));
+                ui.end_row();
+
+                ui.label("Attack Cooldown (Ranged)");
+                ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
+                ui.end_row();
+            }
+
+            if let Some(base) = melee_base {
+                ui.label("Attack Cooldown (Melee)");
+                ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
+                ui.end_row();
+            }
+
+            ui.label("Alert Radius");
+            ui.label(format!("{:.0}% of base", alert_mult * 100.0));
+            ui.end_row();
+
+            ui.label("Dodge");
+            ui.label(if lv[UpgradeType::Dodge as usize] > 0 { "Unlocked" } else { "Locked" });
+            ui.end_row();
+
+            ui.strong("Farmer");
+            ui.label("");
+            ui.end_row();
+
+            if let Some(base) = farmer_base {
+                ui.label("HP");
+                ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * farmer_hp_mult));
+                ui.end_row();
+
+                ui.label("Move Speed");
+                ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * farmer_speed_mult));
+                ui.end_row();
+            }
+
+            ui.label("Food Yield");
+            ui.label(format!("{:.0}% of base", farm_yield_mult * 100.0));
+            ui.end_row();
+
+            ui.strong("Miner");
+            ui.label("");
+            ui.end_row();
+
+            if let Some(base) = miner_base {
+                ui.label("HP");
+                ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * miner_hp_mult));
+                ui.end_row();
+
+                ui.label("Move Speed");
+                ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * miner_speed_mult));
+                ui.end_row();
+            }
+
+            ui.label("Gold Yield");
+            ui.label(format!("{:.0}% of base", gold_yield_mult * 100.0));
+            ui.end_row();
+
+            ui.strong("Town");
+            ui.label("");
+            ui.end_row();
+
+            ui.label("Healing Rate");
+            ui.label(format!("{:.1}/s -> {:.1}/s", intel.combat_config.heal_rate, intel.combat_config.heal_rate * healing_mult));
+            ui.end_row();
+
+            ui.label("Fountain Radius");
+            ui.label(format!("{:.0}px -> {:.0}px", intel.combat_config.heal_radius, intel.combat_config.heal_radius + fountain_bonus));
+            ui.end_row();
+
+            ui.label("Build Area Expansion");
+            ui.label(format!("+{}", lv[UpgradeType::TownArea as usize]));
+            ui.end_row();
+        });
+
+        right.separator();
+        right.label("Policies");
+        right.label(format!("Archer Aggressive: {}", if snap.archer_aggressive { "On" } else { "Off" }));
+        right.label(format!("Archer Leash: {}", if snap.archer_leash { "On" } else { "Off" }));
+        right.label(format!("Prioritize Healing: {}", if snap.prioritize_healing { "On" } else { "Off" }));
+        right.label(format!("Flee HP: Archer {:.0}% / Farmer {:.0}%", snap.archer_flee_hp * 100.0, snap.farmer_flee_hp * 100.0));
+
+        if !snap.last_actions.is_empty() {
+            right.separator();
+            right.label("Recent Actions");
+            for action in &snap.last_actions {
+                right.small(action);
+            }
         }
     });
-
-    ui.separator();
-    ui.label("Policies");
-    ui.label(format!("Archer Aggressive: {}", if snap.archer_aggressive { "On" } else { "Off" }));
-    ui.label(format!("Archer Leash: {}", if snap.archer_leash { "On" } else { "Off" }));
-    ui.label(format!("Prioritize Healing: {}", if snap.prioritize_healing { "On" } else { "Off" }));
-    ui.label(format!("Flee HP: Archer {:.0}% / Farmer {:.0}%", snap.archer_flee_hp * 100.0, snap.farmer_flee_hp * 100.0));
-
-    if !snap.last_actions.is_empty() {
-        ui.separator();
-        ui.label("Recent Actions");
-        for action in &snap.last_actions {
-            ui.small(action);
-        }
-    }
 }
 
 // ============================================================================

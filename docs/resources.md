@@ -50,7 +50,8 @@ Static world data, immutable after initialization.
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines) | O(1) spatial queries for building find functions; rebuilt once per frame by `rebuild_building_grid_system` |
+| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt once per frame by `rebuild_building_grid_system` |
+| BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms) | Tracks current HP for all destroyable buildings; initialized on game startup, pushed on build, zeroed on destroy |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 
 ### WorldData Structs
@@ -102,7 +103,7 @@ Per-town slot tracking for the building system. Each town (villager and raider c
 
 Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `build_bounds(grid) -> (min_row, max_row, min_col, max_col)`, `is_slot_buildable(grid, row, col)`, `find_town_slot(world_pos, towns, grids)`.
 
-Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. Tombstone deletion preserves parallel Vec indices (FarmStates). Fountains, camps, and gold mines cannot be destroyed.
+Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `build_and_pay()` additionally deducts food, registers spawner, and pushes HP entry to `BuildingHpState`. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. `destroy_building()` shared helper consolidates all destroy side effects: `remove_building()` + spawner tombstone + HP zero + combat log — used by click-destroy, inspector-destroy, and `building_damage_system` (HP→0). Tombstone deletion preserves parallel Vec indices (FarmStates, BuildingHpState). Fountains, camps, and gold mines cannot be destroyed.
 
 Building costs (from constants.rs): Farm=1, GuardPost=1, FarmerHome=1, ArcherHome=1, Tent=1, MinerHome=1 food.
 
