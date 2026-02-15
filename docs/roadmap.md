@@ -138,6 +138,8 @@ Rules:
 - [x] Slot indicators (green "+" empty, dim brackets locked, gold ring town center)
 - [x] NPCs claim new buildings (existing decision system finds nearest bed/farm)
 - [x] Right-click to build and destroy buildings (context menu)
+- [x] Miner Home uses dedicated external sprite (`miner_house.png`) across tilemap, build menu, and placement ghost
+- [x] Build menu order/polish updates (Farmer Home → Miner Home → Archer Home, larger Destroy tile, flush Build toggle button)
 
 ### Visual Feedback
 - [x] Camera uniform buffer (replaces hardcoded CAMERA_POS/VIEWPORT in npc_render.wgsl)
@@ -155,6 +157,7 @@ Rules:
 - [x] Healing indicator on healing NPCs (HEAL_SPRITE on healing layer via sync_visual_sprites)
 - [x] Carried item icon (food sprite on returning raiders)
 - [x] Farm growth state visible (Growing → Ready sprite change via farm-visual test)
+- [x] Build cursor hint sprite hides while snapped over a valid build slot (shows only when placement is invalid/outside)
 
 ### Events
 - [x] Death events emitted to CombatLog (Kill kind, NPC name/job/level)
@@ -211,6 +214,7 @@ Rules:
 - [x] User settings persistence (serde JSON, scroll speed + world gen sliders)
 - [x] Cross-platform settings path (USERPROFILE on Windows, HOME fallback on macOS/Linux)
 - [x] Main menu DragValue widgets alongside sliders for typeable config inputs
+- [x] Build menu text scale setting (`build_menu_text_scale`) with pause-menu slider
 
 ### Guard Post Turrets
 - [x] Guard post auto-attack (turret behavior, fires projectiles at enemies within 250px)

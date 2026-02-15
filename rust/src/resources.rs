@@ -763,7 +763,7 @@ pub enum BuildKind {
 }
 
 /// Context for build palette + placement mode.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct BuildMenuContext {
     /// Which town in WorldData.towns this placement targets.
     pub town_data_idx: Option<usize>,
@@ -771,6 +771,22 @@ pub struct BuildMenuContext {
     pub selected_build: Option<BuildKind>,
     /// Last hovered snapped world position (for indicators/tooltips).
     pub hover_world_pos: Vec2,
+    /// Show the mouse-follow build hint sprite (hidden when snapped over a valid build slot).
+    pub show_cursor_hint: bool,
+    /// Bevy image handles for ghost preview sprites (populated by build_menu init).
+    pub ghost_sprites: std::collections::HashMap<BuildKind, Handle<Image>>,
+}
+
+impl Default for BuildMenuContext {
+    fn default() -> Self {
+        Self {
+            town_data_idx: None,
+            selected_build: None,
+            hover_world_pos: Vec2::ZERO,
+            show_cursor_hint: true,
+            ghost_sprites: std::collections::HashMap::new(),
+        }
+    }
 }
 
 /// Request to destroy a building at a specific world grid cell. Set by inspector, processed by system.
@@ -994,13 +1010,13 @@ impl HelpCatalog {
         m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0.25x to 128x). Day/Night affects work schedules set in Policies (P key).");
 
         // Left panel tabs
-        m.insert("tab_roster", "Your NPCs. Click a row to select and inspect. F = follow camera.");
-        m.insert("tab_upgrades", "Spend food to permanently boost your town. Each level doubles in cost. Upgrades affect all NPCs of that type in this town.");
-        m.insert("tab_policies", "Control NPC behavior. Changes take effect immediately.\n\u{2022} Flee HP: when NPCs run from combat\n\u{2022} Work Schedule: day only, night only, or both\n\u{2022} Off-duty: where NPCs go when not working");
-        m.insert("tab_patrols", "Guard patrol route. Guards visit posts top-to-bottom, then loop. Use arrows to reorder.\nBuild more Guard Posts (right-click a green '+' slot) to extend the route.");
-        m.insert("tab_squads", "Group archers into squads for attack orders.\n1. Select a squad\n2. Set target size (recruits idle archers)\n3. Click 'Set Target' then click the map\nArchers march to the target location together.");
-        m.insert("tab_intel", "Intelligence on AI towns and raider camps. Shows their food, buildings, upgrades, and recent actions. Click a row to jump the camera there.");
-        m.insert("tab_profiler", "System performance timings. Enable in Settings (ESC) under Debug > System Profiler.");
+        m.insert("tab_roster", "List of your living NPCs. Filter by job, sort columns, click to select and inspect. Press F to follow the selected NPC with the camera.");
+        m.insert("tab_upgrades", "Spend food on permanent town-wide buffs. Each level doubles in cost. Check the auto-buy box to purchase automatically each game-hour. Hover a cost button for details.");
+        m.insert("tab_policies", "Fine-tune NPC behavior \u{2014} changes apply instantly.\n\u{2022} Eat Food / Prioritize Healing: survival basics\n\u{2022} Aggressive / Fight Back: combat stance\n\u{2022} Flee HP: retreat threshold\n\u{2022} Schedule: day, night, or both shifts\n\u{2022} Off-duty: rest at bed, fountain, or wander");
+        m.insert("tab_patrols", "Archers walk this route in order, then loop. Reorder with arrows to control where they patrol first. Build more Guard Posts to extend coverage.");
+        m.insert("tab_squads", "Organize archers into squads for coordinated attacks.\n1. Select a squad and set target size (pulls idle archers)\n2. Click 'Set Target' then click the map\nSquad archers march together. Clear the target to release them back to patrol.");
+        m.insert("tab_intel", "Scout report on AI towns and raider camps. Expand any settlement to see food, population, buildings, and upgrades. Click Jump to move the camera there.");
+        m.insert("tab_profiler", "Per-system frame timings. Enable the profiler in Settings (ESC) under Debug. Useful for spotting performance bottlenecks.");
 
         // Build menu
         m.insert("build_farm", "Grows food over time. Build a Farmer Home nearby to assign a farmer to harvest it.");

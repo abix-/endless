@@ -795,7 +795,7 @@ pub const BUILDING_TILES: [TileSpec; 10] = [
     TileSpec::External(1),    // 6: ArcherHome (barracks.png)
     TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]), // 7: Tent (raider spawner)
     TileSpec::Single(43, 11), // 8: Gold Mine
-    TileSpec::Single(43, 11), // 9: Mine Shaft (reuses gold mine sprite)
+    TileSpec::External(3),    // 9: MinerHome (miner_house.png)
 ];
 
 /// Extract tiles from the world atlas and build a texture_2d_array for TilemapChunk.
@@ -853,12 +853,35 @@ pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images
                 blit(&mut data, l, q[3].0, q[3].1, sprite, sprite);    // BR
             }
             TileSpec::External(idx) => {
-                let ext = extra[idx];
+                let Some(ext) = extra.get(idx).copied() else { continue; };
                 let ext_data = ext.data.as_ref().expect("external image has no data");
                 let layer_offset = (l * out_size * out_size * 4) as usize;
-                let layer_bytes = (out_size * out_size * 4) as usize;
-                data[layer_offset..layer_offset + layer_bytes]
-                    .copy_from_slice(&ext_data[..layer_bytes]);
+                let ext_w = ext.width();
+                let ext_h = ext.height();
+
+                // External sprites may be authored at 16x16 or 32x32.
+                // The tileset layer is always 32x32, so 16x16 inputs are 2x upscaled.
+                if ext_w == out_size && ext_h == out_size {
+                    let layer_bytes = (out_size * out_size * 4) as usize;
+                    if ext_data.len() >= layer_bytes {
+                        data[layer_offset..layer_offset + layer_bytes]
+                            .copy_from_slice(&ext_data[..layer_bytes]);
+                    }
+                } else {
+                    let src_w = ext_w.max(1);
+                    let src_h = ext_h.max(1);
+                    for y in 0..out_size {
+                        for x in 0..out_size {
+                            let sx = (x * src_w / out_size).min(src_w - 1);
+                            let sy = (y * src_h / out_size).min(src_h - 1);
+                            let si = ((sy * src_w + sx) * 4) as usize;
+                            let di = (layer_offset as u32 + ((y * out_size + x) * 4)) as usize;
+                            if si + 4 <= ext_data.len() && di + 4 <= data.len() {
+                                data[di..di + 4].copy_from_slice(&ext_data[si..si + 4]);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -298,6 +298,7 @@ fn game_escape_system(
     mut game_time: ResMut<GameTime>,
     mut squad_state: ResMut<SquadState>,
     mut build_ctx: ResMut<BuildMenuContext>,
+    settings: Res<crate::settings::UserSettings>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         // Cancel squad target placement first
@@ -312,9 +313,13 @@ fn game_escape_system(
         if ui_state.build_menu_open {
             ui_state.build_menu_open = false;
         } else {
+            let was_open = ui_state.pause_menu_open;
             ui_state.pause_menu_open = !ui_state.pause_menu_open;
             // Auto-pause when opening, unpause when closing
             game_time.paused = ui_state.pause_menu_open;
+            if was_open && !ui_state.pause_menu_open {
+                crate::settings::save_settings(&settings);
+            }
         }
     }
     // Time controls only when pause menu is closed
@@ -382,6 +387,8 @@ fn pause_menu_system(
                         .text("Scroll Speed"));
                     ui.add(egui::Slider::new(&mut settings.help_text_size, 8.0..=24.0)
                         .text("Help Text Size"));
+                    ui.add(egui::Slider::new(&mut settings.build_menu_text_scale, 0.7..=2.0)
+                        .text("Build Menu Text Scale"));
 
                     let prev_bg_fps = settings.background_fps;
                     ui.checkbox(&mut settings.background_fps, "Full FPS in Background");
@@ -604,6 +611,7 @@ fn build_ghost_system(
 
     // Despawn ghost if no selection
     if !has_selection {
+        build_ctx.show_cursor_hint = true;
         for (entity, _, _) in ghost_query.iter() {
             commands.entity(entity).despawn();
         }
@@ -619,6 +627,7 @@ fn build_ghost_system(
     // Don't show ghost when hovering UI
     if let Ok(ctx) = egui_contexts.ctx_mut() {
         if ctx.is_pointer_over_area() {
+            build_ctx.show_cursor_hint = true;
             for (_, _, mut sprite) in ghost_query.iter_mut() {
                 sprite.color = Color::NONE;
             }
@@ -660,26 +669,38 @@ fn build_ghost_system(
         let v = in_bounds && !is_center && !has_building;
         (v, in_bounds && !is_center)
     };
+    // Hide mouse-follow sprite when we're snapped to a valid build slot.
+    build_ctx.show_cursor_hint = kind == BuildKind::Destroy || !valid;
 
+    let is_destroy = kind == BuildKind::Destroy;
     let color = if !visible {
         Color::NONE
+    } else if is_destroy {
+        if valid { Color::srgba(0.8, 0.2, 0.2, 0.6) } else { Color::NONE }
     } else if valid {
-        Color::srgba(0.2, 0.8, 0.2, 0.45)
+        Color::srgba(1.0, 1.0, 1.0, 0.7)
     } else {
-        Color::srgba(0.8, 0.2, 0.2, 0.45)
+        Color::srgba(0.8, 0.2, 0.2, 0.5)
     };
 
     let snapped = grid.grid_to_world(gc, gr);
     let ghost_z = 0.5;
+    let ghost_image = if is_destroy {
+        Handle::default()
+    } else {
+        build_ctx.ghost_sprites.get(&kind).cloned().unwrap_or_default()
+    };
 
     if let Some((_, mut transform, mut sprite)) = ghost_query.iter_mut().next() {
         transform.translation = Vec3::new(snapped.x, snapped.y, ghost_z);
         sprite.color = color;
+        sprite.image = ghost_image;
     } else {
         // Spawn ghost
         commands.spawn((
             Sprite {
                 color,
+                image: ghost_image,
                 custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)),
                 ..default()
             },

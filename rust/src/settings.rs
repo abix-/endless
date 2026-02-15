@@ -79,6 +79,8 @@ pub struct UserSettings {
     pub ui_scale: f32,
     #[serde(default = "default_help_text_size")]
     pub help_text_size: f32,
+    #[serde(default = "default_build_menu_text_scale")]
+    pub build_menu_text_scale: f32,
 }
 
 fn default_gold_mines() -> usize { 2 }
@@ -89,7 +91,8 @@ fn default_one() -> usize { 1 }
 fn default_ai_interval() -> f32 { 5.0 }
 fn default_npc_interval() -> f32 { 2.0 }
 fn default_ui_scale() -> f32 { 1.0 }
-fn default_help_text_size() -> f32 { 10.0 }
+fn default_help_text_size() -> f32 { 14.0 }
+fn default_build_menu_text_scale() -> f32 { 1.2 }
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -125,7 +128,8 @@ impl Default for UserSettings {
             gold_mines_per_town: 2,
             npc_interval: 2.0,
             ui_scale: 1.0,
-            help_text_size: 10.0,
+            help_text_size: 14.0,
+            build_menu_text_scale: 1.2,
         }
     }
 }

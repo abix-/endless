@@ -47,6 +47,7 @@ pub struct SpriteAssets {
     pub house_texture: Handle<Image>,
     pub barracks_texture: Handle<Image>,
     pub guard_post_texture: Handle<Image>,
+    pub miner_house_texture: Handle<Image>,
     /// Whether assets are loaded
     pub loaded: bool,
 }
@@ -136,6 +137,7 @@ fn load_sprites(
     assets.house_texture = asset_server.load("sprites/house.png");
     assets.barracks_texture = asset_server.load("sprites/barracks.png");
     assets.guard_post_texture = asset_server.load("sprites/guard_post.png");
+    assets.miner_house_texture = asset_server.load("sprites/miner_house.png");
     npc_sprite_tex.world_handle = Some(assets.world_texture.clone());
 
     // Load heal halo sprite (single 16x16 texture)
@@ -391,6 +393,7 @@ fn spawn_world_tilemap(
     let Some(house_img) = images.get(&assets.house_texture).cloned() else { return; };
     let Some(barracks_img) = images.get(&assets.barracks_texture).cloned() else { return; };
     let Some(guard_post_img) = images.get(&assets.guard_post_texture).cloned() else { return; };
+    let Some(miner_house_img) = images.get(&assets.miner_house_texture).cloned() else { return; };
 
     // Terrain layer: every cell filled, opaque. Tagged with TerrainChunk for runtime sync.
     let terrain_tileset = build_tileset(&atlas, &TERRAIN_TILES, &[], &mut images);
@@ -413,7 +416,12 @@ fn spawn_world_tilemap(
 
     // Building layer: None for empty cells, building tile where placed.
     // Spawned with BuildingChunk marker for runtime tile updates.
-    let building_tileset = build_tileset(&atlas, &BUILDING_TILES, &[&house_img, &barracks_img, &guard_post_img], &mut images);
+    let building_tileset = build_tileset(
+        &atlas,
+        &BUILDING_TILES,
+        &[&house_img, &barracks_img, &guard_post_img, &miner_house_img],
+        &mut images,
+    );
     let building_tiles: Vec<Option<TileData>> = grid.cells.iter()
         .map(|cell| cell.building.as_ref().map(|b| TileData::from_tileset_index(b.tileset_index())))
         .collect();
