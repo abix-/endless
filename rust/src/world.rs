@@ -103,24 +103,18 @@ pub struct WorldData {
 // TOWN BUILDING GRID
 // ============================================================================
 
-/// Per-town building grid. Tracks which slots are unlocked.
+/// Per-town building area configuration.
 /// Grid uses (row, col) relative to town center with TOWN_GRID_SPACING.
-/// Base grid: (-2,-2) to (3,3) = 6x6, expandable by unlocking adjacent slots.
+/// Base grid: (-2,-2) to (3,3) = 6x6. `area_level` expands bounds by 1 per level.
 pub struct TownGrid {
     pub town_data_idx: usize,
-    pub unlocked: HashSet<(i32, i32)>,
+    pub area_level: i32,
 }
 
 impl TownGrid {
-    /// Create with base 6x6 grid unlocked for the given town data index.
+    /// Create with base 6x6 build area for the given town data index.
     pub fn new_base(town_data_idx: usize) -> Self {
-        let mut unlocked = HashSet::new();
-        for row in BASE_GRID_MIN..=BASE_GRID_MAX {
-            for col in BASE_GRID_MIN..=BASE_GRID_MAX {
-                unlocked.insert((row, col));
-            }
-        }
-        Self { town_data_idx, unlocked }
+        Self { town_data_idx, area_level: 0 }
     }
 }
 
@@ -146,26 +140,21 @@ pub fn world_to_town_grid(center: Vec2, world_pos: Vec2) -> (i32, i32) {
     (row, col)
 }
 
-/// Get all locked slots orthogonally adjacent to any unlocked slot.
-/// These are the slots the player can unlock next.
-pub fn get_adjacent_locked_slots(grid: &TownGrid) -> Vec<(i32, i32)> {
-    let mut adjacent = HashSet::new();
-    for &(row, col) in &grid.unlocked {
-        for &(dr, dc) in &[(-1, 0), (1, 0), (0, -1), (0, 1)] {
-            let nr = row + dr;
-            let nc = col + dc;
-            if nr < -MAX_GRID_EXTENT || nr > MAX_GRID_EXTENT + 1 { continue; }
-            if nc < -MAX_GRID_EXTENT || nc > MAX_GRID_EXTENT + 1 { continue; }
-            if !grid.unlocked.contains(&(nr, nc)) {
-                adjacent.insert((nr, nc));
-            }
-        }
-    }
-    adjacent.into_iter().collect()
+/// Buildable slot bounds for a town grid (inclusive): min_row, max_row, min_col, max_col.
+pub fn build_bounds(grid: &TownGrid) -> (i32, i32, i32, i32) {
+    let min = (BASE_GRID_MIN - grid.area_level).max(-MAX_GRID_EXTENT);
+    let max = (BASE_GRID_MAX + grid.area_level).min(MAX_GRID_EXTENT + 1);
+    (min, max, min, max)
 }
 
-/// Find which town (villager or camp) has a slot matching the given grid coords.
-/// Returns the grid index, town data index, and whether the slot is unlocked/locked.
+/// True if (row, col) is currently inside this town's buildable area.
+pub fn is_slot_buildable(grid: &TownGrid, row: i32, col: i32) -> bool {
+    let (min_row, max_row, min_col, max_col) = build_bounds(grid);
+    row >= min_row && row <= max_row && col >= min_col && col <= max_col
+}
+
+/// Find which town (villager or camp) has a buildable slot matching the given grid coords.
+/// Returns the grid index and town data index.
 pub fn find_town_slot(
     world_pos: Vec2,
     towns: &[Town],
@@ -183,23 +172,11 @@ pub fn find_town_slot(
         let click_radius = TOWN_GRID_SPACING * 0.7;
         if world_pos.distance(slot_pos) > click_radius { continue; }
 
-        if town_grid.unlocked.contains(&(row, col)) {
+        if is_slot_buildable(town_grid, row, col) {
             return Some(TownSlotInfo {
                 grid_idx,
                 town_data_idx,
                 row, col,
-                slot_state: SlotState::Unlocked,
-            });
-        }
-
-        // Check if it's an adjacent locked slot
-        let adjacent = get_adjacent_locked_slots(town_grid);
-        if adjacent.contains(&(row, col)) {
-            return Some(TownSlotInfo {
-                grid_idx,
-                town_data_idx,
-                row, col,
-                slot_state: SlotState::Locked,
             });
         }
     }
@@ -212,13 +189,6 @@ pub struct TownSlotInfo {
     pub town_data_idx: usize,  // Index into WorldData.towns
     pub row: i32,
     pub col: i32,
-    pub slot_state: SlotState,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SlotState {
-    Unlocked,
-    Locked,
 }
 
 // ============================================================================
@@ -280,6 +250,42 @@ pub fn place_building(
             world_data.tents.push(Tent { position: snapped_pos, town_idx });
         }
         _ => {} // Fountain and Camp not player-placeable
+    }
+
+    Ok(())
+}
+
+/// Expand one town's buildable area by one ring and convert new ring terrain to Dirt.
+pub fn expand_town_build_area(
+    grid: &mut WorldGrid,
+    towns: &[Town],
+    town_grids: &mut TownGrids,
+    grid_idx: usize,
+) -> Result<(), &'static str> {
+    let Some(town_grid) = town_grids.grids.get_mut(grid_idx) else {
+        return Err("invalid town grid index");
+    };
+    let town_data_idx = town_grid.town_data_idx;
+    let Some(town) = towns.get(town_data_idx) else {
+        return Err("invalid town data index");
+    };
+
+    let (old_min_row, old_max_row, old_min_col, old_max_col) = build_bounds(town_grid);
+    town_grid.area_level += 1;
+    let (new_min_row, new_max_row, new_min_col, new_max_col) = build_bounds(town_grid);
+
+    for row in new_min_row..=new_max_row {
+        for col in new_min_col..=new_max_col {
+            let is_old = row >= old_min_row && row <= old_max_row && col >= old_min_col && col <= old_max_col;
+            if is_old {
+                continue;
+            }
+            let slot_pos = town_grid_to_world(town.center, row, col);
+            let (gc, gr) = grid.world_to_grid(slot_pos);
+            if let Some(cell) = grid.cell_mut(gc, gr) {
+                cell.terrain = Biome::Dirt;
+            }
+        }
     }
 
     Ok(())
@@ -1118,7 +1124,7 @@ fn place_town_buildings(
     let mut occupied = HashSet::new();
 
     // Helper: place building at town grid (row, col), return snapped world position
-    let mut place = |row: i32, col: i32, building: Building, occ: &mut HashSet<(i32, i32)>, tg: &mut TownGrid| -> Vec2 {
+    let mut place = |row: i32, col: i32, building: Building, occ: &mut HashSet<(i32, i32)>, _tg: &mut TownGrid| -> Vec2 {
         let world_pos = town_grid_to_world(center, row, col);
         let (gc, gr) = grid.world_to_grid(world_pos);
         let snapped_pos = grid.grid_to_world(gc, gr);
@@ -1128,7 +1134,6 @@ fn place_town_buildings(
             }
         }
         occ.insert((row, col));
-        tg.unlocked.insert((row, col));
         snapped_pos
     };
 
@@ -1179,6 +1184,14 @@ fn place_town_buildings(
             patrol_order: order as u32,
         });
     }
+
+    // Ensure generated buildings are always inside the buildable area.
+    let required = occupied.iter().fold(0, |acc, &(row, col)| {
+        let row_need = (BASE_GRID_MIN - row).max(row - BASE_GRID_MAX).max(0);
+        let col_need = (BASE_GRID_MIN - col).max(col - BASE_GRID_MAX).max(0);
+        acc.max(row_need).max(col_need)
+    });
+    town_grid.area_level = town_grid.area_level.max(required);
 }
 
 /// Place buildings for a raider camp: camp center + tents in spiral.
@@ -1199,7 +1212,6 @@ fn place_camp_buildings(
         cell.building = Some(Building::Camp { town_idx });
     }
     occupied.insert((0, 0));
-    town_grid.unlocked.insert((0, 0));
 
     // Place tents in spiral around camp center
     let slots = spiral_slots(&occupied, config.raiders_per_camp);
@@ -1213,9 +1225,16 @@ fn place_camp_buildings(
             }
         }
         occupied.insert((row, col));
-        town_grid.unlocked.insert((row, col));
         world_data.tents.push(Tent { position: snapped, town_idx });
     }
+
+    // Ensure generated tents are always inside the buildable area.
+    let required = occupied.iter().fold(0, |acc, &(row, col)| {
+        let row_need = (BASE_GRID_MIN - row).max(row - BASE_GRID_MAX).max(0);
+        let col_need = (BASE_GRID_MIN - col).max(col - BASE_GRID_MAX).max(0);
+        acc.max(row_need).max(col_need)
+    });
+    town_grid.area_level = town_grid.area_level.max(required);
 }
 
 /// Generate `count` grid positions in a spiral pattern outward from (0,0), skipping occupied cells.

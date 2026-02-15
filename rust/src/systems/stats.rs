@@ -64,7 +64,7 @@ impl Default for CombatConfig {
 // TOWN UPGRADES
 // ============================================================================
 
-pub const UPGRADE_COUNT: usize = 12;
+pub const UPGRADE_COUNT: usize = 13;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(usize)]
@@ -72,14 +72,14 @@ pub enum UpgradeType {
     GuardHealth = 0, GuardAttack = 1, GuardRange = 2, GuardSize = 3,
     AttackSpeed = 4, MoveSpeed = 5, AlertRadius = 6,
     FarmYield = 7, FarmerHp = 8,
-    HealingRate = 9, FoodEfficiency = 10, FountainRadius = 11,
+    HealingRate = 9, FoodEfficiency = 10, FountainRadius = 11, TownArea = 12,
 }
 
 pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
     0.10, 0.10, 0.05, 0.05,  // guard: health, attack, range, size
     0.08, 0.05, 0.10,         // cooldown reduction, move speed, alert radius
     0.15, 0.20,               // farm yield, farmer HP
-    0.20, 0.10, 0.0,          // healing rate, food efficiency, fountain radius (flat)
+    0.20, 0.10, 0.0, 0.0,     // healing rate, food efficiency, fountain radius (flat), town area (discrete)
 ];
 
 /// Per-town upgrade levels.
@@ -188,6 +188,9 @@ pub fn process_upgrades_system(
     meta_cache: Res<NpcMetaCache>,
     mut npc_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut world_grid: ResMut<crate::world::WorldGrid>,
+    world_data: Res<crate::world::WorldData>,
+    mut town_grids: ResMut<crate::world::TownGrids>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_upgrades");
@@ -207,6 +210,18 @@ pub fn process_upgrades_system(
             *f -= cost;
         }
         upgrades.levels[town_idx][upgrade_idx] = level.saturating_add(1);
+
+        if upgrade_idx == UpgradeType::TownArea as usize {
+            if let Some(grid_idx) = town_grids.grids.iter().position(|g| g.town_data_idx == town_idx) {
+                let _ = crate::world::expand_town_build_area(
+                    &mut world_grid,
+                    &world_data.towns,
+                    &mut town_grids,
+                    grid_idx,
+                );
+            }
+            continue;
+        }
 
         // Re-resolve NPC stats if this is a combat-affecting upgrade
         if !is_combat_upgrade(upgrade_idx) { continue; }

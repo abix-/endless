@@ -13,20 +13,26 @@ use bevy_egui::{EguiPrimaryContextPass, egui};
 use rand::Rng;
 
 use crate::AppState;
+use crate::constants::{BARRACKS_BUILD_COST, FARM_BUILD_COST, GUARD_POST_BUILD_COST, HOUSE_BUILD_COST, TENT_BUILD_COST};
 use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality};
 use crate::world::{self, WorldGenConfig};
 
-/// Render a small "?" label that shows help text on hover.
+/// Render a small "?" button (frameless) that shows help text on hover.
 pub fn help_tip(ui: &mut egui::Ui, catalog: &HelpCatalog, key: &str) {
     if let Some(text) = catalog.0.get(key) {
-        ui.add(egui::Label::new(
-            egui::RichText::new("?").color(egui::Color32::from_rgb(120, 120, 180))
-        ).sense(egui::Sense::hover()))
+        ui.add(egui::Button::new(
+            egui::RichText::new("?").color(egui::Color32::from_rgb(120, 120, 180)).small()
+        ).frame(false))
         .on_hover_text(*text);
     }
+}
+
+/// Render a label that shows a tooltip on hover (frameless button trick).
+pub fn tipped(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, tip: &str) -> egui::Response {
+    ui.add(egui::Button::new(text).frame(false)).on_hover_text(tip)
 }
 
 /// Register all UI systems.
@@ -59,6 +65,7 @@ pub fn register_ui(app: &mut App) {
 
     // Building slot click detection + visual indicators
     app.add_systems(Update, (
+        build_place_click_system,
         slot_right_click_system,
         slot_double_click_system,
         draw_slot_indicators,
@@ -313,11 +320,16 @@ fn game_escape_system(
     mut ui_state: ResMut<UiState>,
     mut game_time: ResMut<GameTime>,
     mut squad_state: ResMut<SquadState>,
+    mut build_ctx: ResMut<BuildMenuContext>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         // Cancel squad target placement first
         if squad_state.placing_target {
             squad_state.placing_target = false;
+            return;
+        }
+        if build_ctx.selected_build.is_some() {
+            build_ctx.selected_build = None;
             return;
         }
         if ui_state.build_menu_open {
@@ -463,63 +475,104 @@ fn screen_to_world(
     position + mouse_offset / zoom
 }
 
-/// Right-click on a town grid slot opens the build menu with appropriate options.
+/// Right-click cancels active build placement.
 fn slot_right_click_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut build_ctx: ResMut<BuildMenuContext>,
+) {
+    if !mouse.just_pressed(MouseButton::Right) { return; }
+    build_ctx.selected_build = None;
+}
+
+/// Left-click places the currently selected building into any valid slot in buildable area.
+fn build_place_click_system(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     mut egui_contexts: bevy_egui::EguiContexts,
-    world_data: Res<world::WorldData>,
-    town_grids: Res<world::TownGrids>,
-    grid: Res<world::WorldGrid>,
     mut build_ctx: ResMut<BuildMenuContext>,
-    mut ui_state: ResMut<UiState>,
+    mut grid: ResMut<world::WorldGrid>,
+    mut world_data: ResMut<world::WorldData>,
+    mut farm_states: ResMut<FarmStates>,
+    mut food_storage: ResMut<FoodStorage>,
+    town_grids: Res<world::TownGrids>,
+    mut spawner_state: ResMut<SpawnerState>,
+    mut combat_log: ResMut<CombatLog>,
+    game_time: Res<GameTime>,
 ) {
-    if !mouse.just_pressed(MouseButton::Right) { return; }
+    let Some(kind) = build_ctx.selected_build else { return };
+    if !mouse.just_pressed(MouseButton::Left) { return; }
 
-    // Don't steal clicks from egui — but only block on left panel, not the whole screen
     if let Ok(ctx) = egui_contexts.ctx_mut() {
-        if ctx.wants_pointer_input() { return; }
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
     }
+
+    let Some(town_data_idx) = build_ctx.town_data_idx else { return };
+    let Some(town) = world_data.towns.get(town_data_idx) else { return };
+    let center = town.center;
+    let town_name = town.name.clone();
+    let town_idx = town_data_idx as u32;
 
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
     let Ok((transform, projection)) = camera_query.single() else { return };
-
     let world_pos = screen_to_world(cursor_pos, transform, projection, window);
+    let (row, col) = world::world_to_town_grid(center, world_pos);
+    let slot_pos = world::town_grid_to_world(center, row, col);
+    build_ctx.hover_world_pos = slot_pos;
 
-    // Find which town slot was clicked
-    let Some(info) = world::find_town_slot(world_pos, &world_data.towns, &town_grids) else {
+    let Some(town_grid) = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return };
+    if !world::is_slot_buildable(town_grid, row, col) { return; }
+    if row == 0 && col == 0 { return; }
+
+    let (gc, gr) = grid.world_to_grid(slot_pos);
+    if grid.cell(gc, gr).map(|c| c.building.is_some()) != Some(false) { return; }
+
+    let (building, cost, label, spawner_kind) = match kind {
+        BuildKind::Farm => (world::Building::Farm { town_idx }, FARM_BUILD_COST, "farm", -1),
+        BuildKind::GuardPost => {
+            let existing_posts = world_data.guard_posts.iter()
+                .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
+                .count() as u32;
+            (world::Building::GuardPost { town_idx, patrol_order: existing_posts }, GUARD_POST_BUILD_COST, "guard post", -1)
+        }
+        BuildKind::House => (world::Building::House { town_idx }, HOUSE_BUILD_COST, "house", 0),
+        BuildKind::Barracks => (world::Building::Barracks { town_idx }, BARRACKS_BUILD_COST, "barracks", 1),
+        BuildKind::Tent => (world::Building::Tent { town_idx }, TENT_BUILD_COST, "tent", 2),
+    };
+
+    let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
+    if food < cost { return; }
+
+    if world::place_building(
+        &mut grid, &mut world_data, &mut farm_states, building, row, col, center,
+    ).is_err() {
         return;
-    };
+    }
 
-    let slot_world_pos = world::town_grid_to_world(
-        world_data.towns[info.town_data_idx].center,
-        info.row, info.col,
+    if let Some(f) = food_storage.food.get_mut(town_data_idx) {
+        *f -= cost;
+    }
+
+    if spawner_kind >= 0 {
+        let (sgc, sgr) = grid.world_to_grid(slot_pos);
+        let snapped = grid.grid_to_world(sgc, sgr);
+        spawner_state.0.push(SpawnerEntry {
+            building_kind: spawner_kind,
+            town_idx: town_data_idx as i32,
+            position: snapped,
+            npc_slot: -1,
+            respawn_timer: 0.0,
+        });
+    }
+
+    combat_log.push(
+        CombatEventKind::Harvest,
+        game_time.day(), game_time.hour(), game_time.minute(),
+        format!("Built {} at ({},{}) in {}", label, row, col, town_name),
     );
-
-    // Check if slot has a building
-    let (gc, gr) = grid.world_to_grid(slot_world_pos);
-    let has_building = grid.cell(gc, gr)
-        .map(|c| c.building.is_some())
-        .unwrap_or(false);
-    let is_fountain = grid.cell(gc, gr)
-        .and_then(|c| c.building.as_ref())
-        .map(|b| matches!(b, world::Building::Fountain { .. }))
-        .unwrap_or(false);
-
-    // Populate context and open build menu
-    *build_ctx = BuildMenuContext {
-        grid_idx: Some(info.grid_idx),
-        town_data_idx: Some(info.town_data_idx),
-        slot: Some((info.row, info.col)),
-        slot_world_pos,
-        screen_pos: [cursor_pos.x, cursor_pos.y],
-        is_locked: info.slot_state == world::SlotState::Locked,
-        has_building,
-        is_fountain,
-    };
-    ui_state.build_menu_open = true;
 }
 
 /// Double-click on a locked adjacent slot to instantly unlock it.
@@ -554,72 +607,38 @@ fn draw_slot_indicators(
     let center = town.center;
 
     let green = Color::srgba(0.3, 0.7, 0.3, 0.5);
-    let locked_color = Color::srgba(0.5, 0.5, 0.5, 0.3);
     let indicator_z = -0.3;
     let line_w = 2.0;
     let line_len = 10.0;
-    let bracket_len = 5.0;
-    let half_slot = crate::constants::TOWN_GRID_SPACING * 0.4;
 
     // Green "+" on empty unlocked slots
-    for &(row, col) in &town_grid.unlocked {
-        if row == 0 && col == 0 { continue; }
+    let (min_row, max_row, min_col, max_col) = world::build_bounds(town_grid);
+    for row in min_row..=max_row {
+        for col in min_col..=max_col {
+            if row == 0 && col == 0 { continue; }
 
-        let raw_pos = world::town_grid_to_world(center, row, col);
-        let (gc, gr) = grid.world_to_grid(raw_pos);
-        let slot_pos = grid.grid_to_world(gc, gr);
+            let raw_pos = world::town_grid_to_world(center, row, col);
+            let (gc, gr) = grid.world_to_grid(raw_pos);
+            let slot_pos = grid.grid_to_world(gc, gr);
 
-        let has_building = grid.cell(gc, gr)
-            .map(|c| c.building.is_some())
-            .unwrap_or(false);
+            let has_building = grid.cell(gc, gr)
+                .map(|c| c.building.is_some())
+                .unwrap_or(false);
 
-        if !has_building {
-            // Horizontal bar
-            commands.spawn((
-                Sprite { color: green, custom_size: Some(Vec2::new(line_len, line_w)), ..default() },
-                Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
-                SlotIndicator,
-            ));
-            // Vertical bar
-            commands.spawn((
-                Sprite { color: green, custom_size: Some(Vec2::new(line_w, line_len)), ..default() },
-                Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
-                SlotIndicator,
-            ));
-        }
-    }
-
-    // Dim bracket corners on adjacent locked slots
-    let adjacent = world::get_adjacent_locked_slots(town_grid);
-    for (row, col) in adjacent {
-        let raw = world::town_grid_to_world(center, row, col);
-        let (gc, gr) = grid.world_to_grid(raw);
-        let sp = grid.grid_to_world(gc, gr);
-
-        // Each corner: one horizontal + one vertical bar
-        let corners = [
-            (sp.x - half_slot, sp.y + half_slot),  // top-left
-            (sp.x + half_slot, sp.y + half_slot),  // top-right
-            (sp.x - half_slot, sp.y - half_slot),  // bottom-left
-            (sp.x + half_slot, sp.y - half_slot),  // bottom-right
-        ];
-        let h_dirs = [1.0, -1.0, 1.0, -1.0]; // horizontal bar direction from corner
-        let v_dirs = [-1.0, -1.0, 1.0, 1.0];  // vertical bar direction from corner
-
-        for i in 0..4 {
-            let (cx, cy) = corners[i];
-            // Horizontal bracket segment
-            commands.spawn((
-                Sprite { color: locked_color, custom_size: Some(Vec2::new(bracket_len, line_w)), ..default() },
-                Transform::from_xyz(cx + h_dirs[i] * bracket_len * 0.5, cy, indicator_z),
-                SlotIndicator,
-            ));
-            // Vertical bracket segment
-            commands.spawn((
-                Sprite { color: locked_color, custom_size: Some(Vec2::new(line_w, bracket_len)), ..default() },
-                Transform::from_xyz(cx, cy + v_dirs[i] * bracket_len * 0.5, indicator_z),
-                SlotIndicator,
-            ));
+            if !has_building {
+                // Horizontal bar
+                commands.spawn((
+                    Sprite { color: green, custom_size: Some(Vec2::new(line_len, line_w)), ..default() },
+                    Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
+                    SlotIndicator,
+                ));
+                // Vertical bar
+                commands.spawn((
+                    Sprite { color: green, custom_size: Some(Vec2::new(line_w, line_len)), ..default() },
+                    Transform::from_xyz(slot_pos.x, slot_pos.y, indicator_z),
+                    SlotIndicator,
+                ));
+            }
         }
     }
 }

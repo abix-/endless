@@ -273,6 +273,7 @@ fn click_to_select_system(
     gpu_state: Res<crate::resources::GpuReadState>,
     grid: Res<WorldGrid>,
     mut squad_state: ResMut<crate::resources::SquadState>,
+    build_ctx: Res<crate::resources::BuildMenuContext>,
 ) {
     // Right-click cancels squad target placement
     if mouse.just_pressed(MouseButton::Right) && squad_state.placing_target {
@@ -281,6 +282,11 @@ fn click_to_select_system(
     }
 
     if !mouse.just_pressed(MouseButton::Left) { return; }
+
+    // Build placement owns left-click while a build is selected.
+    if build_ctx.selected_build.is_some() {
+        return;
+    }
 
     // Don't steal clicks from egui UI
     if let Ok(ctx) = egui_contexts.ctx_mut() {

@@ -722,25 +722,25 @@ impl UiState {
 // BUILD MENU STATE
 // ============================================================================
 
-/// Context for the build menu popup — populated by slot_right_click_system.
+/// Player-selected building type for placement mode.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BuildKind {
+    Farm,
+    GuardPost,
+    House,
+    Barracks,
+    Tent,
+}
+
+/// Context for build palette + placement mode.
 #[derive(Resource, Default)]
 pub struct BuildMenuContext {
-    /// Which villager town grid (index into TownGrids.grids).
-    pub grid_idx: Option<usize>,
-    /// Which town in WorldData.towns.
+    /// Which town in WorldData.towns this placement targets.
     pub town_data_idx: Option<usize>,
-    /// Grid slot (row, col) relative to town center.
-    pub slot: Option<(i32, i32)>,
-    /// World position of the slot center.
-    pub slot_world_pos: Vec2,
-    /// Screen position where right-click occurred (for menu placement).
-    pub screen_pos: [f32; 2],
-    /// True if the slot is locked (show Unlock button).
-    pub is_locked: bool,
-    /// True if the slot already has a building.
-    pub has_building: bool,
-    /// True if the slot is the fountain (indestructible).
-    pub is_fountain: bool,
+    /// Active building selection for click-to-place mode.
+    pub selected_build: Option<BuildKind>,
+    /// Last hovered snapped world position (for indicators/tooltips).
+    pub hover_world_pos: Vec2,
 }
 
 // ============================================================================

@@ -62,8 +62,10 @@ cargo run --release
 | ----------------- | ----------------------------------------------- |
 | WASD              | Move camera                                     |
 | Scroll            | Zoom                                            |
-| Left Click        | Select NPC / building                           |
-| Right Click       | Build menu                                      |
+| Left Click        | Select NPC / building (when not placing)        |
+| B / Build button  | Open build palette                              |
+| Left Click        | Place selected building                         |
+| Right Click / ESC | Cancel current building placement               |
 | Space             | Pause                                           |
 | +/-               | Time speed                                      |
 | R / U / P / T / Q | Roster / Upgrades / Policies / Patrols / Squads |

@@ -42,7 +42,6 @@ enum AiAction {
     BuildBarracks,
     BuildGuardPost,
     BuildTent,
-    UnlockSlot,
     Upgrade(usize), // upgrade index into UPGRADE_PCT
 }
 
@@ -105,20 +104,20 @@ impl AiPersonality {
         }
     }
 
-    /// Upgrade weights indexed by UpgradeType discriminant (12 entries).
+    /// Upgrade weights indexed by UpgradeType discriminant.
     /// Only entries with weight > 0 are scored.
-    fn upgrade_weights(self, kind: AiKind) -> [f32; 12] {
+    fn upgrade_weights(self, kind: AiKind) -> [f32; 13] {
         match kind {
             AiKind::Raider => match self {
-                //                           GH  GA  GR  GS  AS  MS  AR  FY  FH  HR  FE  FR
-                Self::Economic =>           [0., 0., 0., 0., 4., 6., 0., 0., 0., 0., 0., 0.],
-                _ =>                        [0., 0., 0., 0., 6., 4., 0., 0., 0., 0., 0., 0.],
+                //                           GH  GA  GR  GS  AS  MS  AR  FY  FH  HR  FE  FR  TA
+                Self::Economic =>           [0., 0., 0., 0., 4., 6., 0., 0., 0., 0., 0., 0., 2.],
+                _ =>                        [0., 0., 0., 0., 6., 4., 0., 0., 0., 0., 0., 0., 2.],
             },
             AiKind::Builder => match self {
-                //                           GH  GA  GR  GS  AS  MS  AR  FY  FH  HR  FE  FR
-                Self::Aggressive =>         [6., 8., 4., 0., 6., 4., 0., 2., 1., 1., 0., 0.],
-                Self::Balanced =>           [5., 5., 2., 0., 4., 3., 0., 5., 3., 3., 0., 0.],
-                Self::Economic =>           [3., 2., 1., 0., 2., 2., 0., 8., 5., 5., 0., 0.],
+                //                           GH  GA  GR  GS  AS  MS  AR  FY  FH  HR  FE  FR  TA
+                Self::Aggressive =>         [6., 8., 4., 0., 6., 4., 0., 2., 1., 1., 0., 0., 2.],
+                Self::Balanced =>           [5., 5., 2., 0., 4., 3., 0., 5., 3., 3., 0., 0., 3.],
+                Self::Economic =>           [3., 2., 1., 0., 2., 2., 0., 8., 5., 5., 0., 0., 4.],
             },
         }
     }
@@ -161,14 +160,17 @@ fn find_inner_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid,
 ) -> Option<(i32, i32)> {
     let mut best: Option<((i32, i32), i32)> = None;
-    for &(r, c) in &tg.unlocked {
-        if r == 0 && c == 0 { continue; }
-        let pos = world::town_grid_to_world(center, r, c);
-        let (gc, gr) = grid.world_to_grid(pos);
-        if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
-        let dist_sq = r * r + c * c;
-        if best.map_or(true, |(_, d)| dist_sq < d) {
-            best = Some(((r, c), dist_sq));
+    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
+    for r in min_row..=max_row {
+        for c in min_col..=max_col {
+            if r == 0 && c == 0 { continue; }
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
+            let dist_sq = r * r + c * c;
+            if best.map_or(true, |(_, d)| dist_sq < d) {
+                best = Some(((r, c), dist_sq));
+            }
         }
     }
     best.map(|(slot, _)| slot)
@@ -185,19 +187,22 @@ fn find_guard_post_slot(
         .collect();
 
     let mut best: Option<((i32, i32), i32)> = None;
-    for &(r, c) in &tg.unlocked {
-        if r == 0 && c == 0 { continue; }
-        let pos = world::town_grid_to_world(center, r, c);
-        let (gc, gr) = grid.world_to_grid(pos);
-        if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
-        // Skip slots too close to existing guard posts
-        let too_close = existing.iter().any(|&(er, ec)| {
-            (r - er).abs() + (c - ec).abs() < MIN_GUARD_POST_SPACING
-        });
-        if too_close { continue; }
-        let dist_sq = r * r + c * c;
-        if best.map_or(true, |(_, d)| dist_sq > d) {
-            best = Some(((r, c), dist_sq));
+    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
+    for r in min_row..=max_row {
+        for c in min_col..=max_col {
+            if r == 0 && c == 0 { continue; }
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
+            // Skip slots too close to existing guard posts
+            let too_close = existing.iter().any(|&(er, ec)| {
+                (r - er).abs() + (c - ec).abs() < MIN_GUARD_POST_SPACING
+            });
+            if too_close { continue; }
+            let dist_sq = r * r + c * c;
+            if best.map_or(true, |(_, d)| dist_sq > d) {
+                best = Some(((r, c), dist_sq));
+            }
         }
     }
     best.map(|(slot, _)| slot)
@@ -205,12 +210,18 @@ fn find_guard_post_slot(
 
 /// Check if any empty slot exists in the town grid.
 fn has_empty_slot(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> bool {
-    tg.unlocked.iter().any(|&(r, c)| {
-        if r == 0 && c == 0 { return false; }
-        let pos = world::town_grid_to_world(center, r, c);
-        let (gc, gr) = grid.world_to_grid(pos);
-        grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true)
-    })
+    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
+    for r in min_row..=max_row {
+        for c in min_col..=max_col {
+            if r == 0 && c == 0 { continue; }
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // ============================================================================
@@ -262,10 +273,6 @@ pub fn ai_decision_system(
         let has_slots = town_grids.grids.get(player.grid_idx)
             .map(|tg| has_empty_slot(tg, center, &grid))
             .unwrap_or(false);
-        let can_unlock = !has_slots && town_grids.grids.get(player.grid_idx)
-            .map(|tg| !world::get_adjacent_locked_slots(tg).is_empty())
-            .unwrap_or(false);
-
         // Set miner target based on personality and house count
         if player.kind == AiKind::Builder && tdi < miner_target.targets.len() {
             let target = match player.personality {
@@ -303,11 +310,6 @@ pub fn ai_decision_system(
                     if food >= GUARD_POST_BUILD_COST { scores.push((AiAction::BuildGuardPost, gw * gp_need)); }
                 }
             }
-        }
-
-        // Unlock slot
-        if can_unlock && food >= SLOT_UNLOCK_COST {
-            scores.push((AiAction::UnlockSlot, 8.0));
         }
 
         // Upgrades
@@ -383,23 +385,6 @@ fn execute_action(
                 -1, tdi, row, col, center, GUARD_POST_BUILD_COST)
                 .then_some("built guard post".into())
         }
-        AiAction::UnlockSlot => {
-            let tg = town_grids.grids.get(grid_idx)?;
-            let adjacent = world::get_adjacent_locked_slots(tg);
-            let &(row, col) = adjacent.first()?;
-            let f = food_storage.food.get(tdi).copied().unwrap_or(0);
-            if f < SLOT_UNLOCK_COST { return None; }
-            if let Some(f) = food_storage.food.get_mut(tdi) { *f -= SLOT_UNLOCK_COST; }
-            let slot_pos = world::town_grid_to_world(center, row, col);
-            let (gc, gr) = grid.world_to_grid(slot_pos);
-            if let Some(cell) = grid.cell_mut(gc, gr) {
-                cell.terrain = world::Biome::Dirt;
-            }
-            if let Some(tg) = town_grids.grids.get_mut(grid_idx) {
-                tg.unlocked.insert((row, col));
-            }
-            Some("unlocked slot".into())
-        }
         AiAction::Upgrade(idx) => {
             upgrade_queue.0.push((tdi, idx));
             let name = match idx {
@@ -407,6 +392,7 @@ fn execute_action(
                 3 => "GuardSize", 4 => "AttackSpeed", 5 => "MoveSpeed",
                 6 => "AlertRadius", 7 => "FarmYield", 8 => "FarmerHp",
                 9 => "HealingRate", 10 => "FoodEfficiency", 11 => "FountainRadius",
+                12 => "TownArea",
                 _ => "Unknown",
             };
             Some(format!("upgraded {name}"))

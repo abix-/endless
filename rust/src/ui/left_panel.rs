@@ -10,7 +10,6 @@ use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, upgrade_cost};
 use crate::systems::{AiPlayerState, AiKind};
-use crate::ui::help_tip;
 use crate::world::WorldData;
 
 // ============================================================================
@@ -64,6 +63,7 @@ const UPGRADES: &[UpgradeDef] = &[
     UpgradeDef { label: "Healing Rate",    tooltip: "+20% HP regen at fountain per level",      category: "Town" },
     UpgradeDef { label: "Food Efficiency", tooltip: "10% chance per level to not consume food", category: "Town" },
     UpgradeDef { label: "Fountain Radius", tooltip: "+24px fountain healing range per level",   category: "Town" },
+    UpgradeDef { label: "Town Area",       tooltip: "+1 buildable radius per level",            category: "Town" },
 ];
 
 // ============================================================================
@@ -222,12 +222,11 @@ pub fn left_panel_system(
         .default_width(340.0)
         .anchor(egui::Align2::LEFT_TOP, [4.0, 30.0])
         .show(ctx, |ui| {
-            // Help tip at the top of every tab
-            ui.horizontal(|ui| {
-                help_tip(ui, &catalog, tab_help_key);
-                ui.small(format!("{} - hover ? for help", tab_name));
-            });
-            ui.separator();
+            // Inline help text at the top of every tab
+            if let Some(tip) = catalog.0.get(tab_help_key) {
+                ui.small(*tip);
+                ui.separator();
+            }
 
             match ui_state.left_panel_tab {
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
@@ -817,7 +816,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &World
 
 const UPGRADE_SHORT: &[&str] = &[
     "G.HP", "G.Atk", "G.Rng", "G.Size", "AtkSpd", "MvSpd",
-    "Alert", "FarmY", "F.HP", "Heal", "FoodEff", "Fount",
+    "Alert", "FarmY", "F.HP", "Heal", "FoodEff", "Fount", "Area",
 ];
 
 fn rebuild_intel_cache(

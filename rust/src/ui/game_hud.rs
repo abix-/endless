@@ -8,7 +8,7 @@ use crate::components::*;
 use crate::gpu::NpcBufferWrites;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::ui::help_tip;
+use crate::ui::{help_tip, tipped};
 use crate::world::{WorldData, WorldGrid, Building, BuildingOccupancy};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType};
 
@@ -26,6 +26,7 @@ pub fn top_bar_system(
     slots: Res<SlotAllocator>,
     world_data: Res<WorldData>,
     mut ui_state: ResMut<UiState>,
+    mut build_ctx: ResMut<BuildMenuContext>,
     spawner_state: Res<SpawnerState>,
     catalog: Res<HelpCatalog>,
 ) -> Result {
@@ -61,6 +62,16 @@ pub fn top_bar_system(
                 if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Profiler, "Profiler").clicked() {
                     ui_state.toggle_left_tab(LeftPanelTab::Profiler);
                 }
+                let placing = build_ctx.selected_build.is_some();
+                if ui.selectable_label(ui_state.build_menu_open, "Build").clicked() {
+                    ui_state.build_menu_open = !ui_state.build_menu_open;
+                    if ui_state.build_menu_open {
+                        build_ctx.town_data_idx = world_data.towns.iter().position(|t| t.faction == 0);
+                    }
+                }
+                if placing {
+                    ui.colored_label(egui::Color32::from_rgb(220, 210, 120), "Placing");
+                }
                 ui.separator();
                 help_tip(ui, &catalog, "getting_started");
 
@@ -87,10 +98,8 @@ pub fn top_bar_system(
                     // Player stats (right-aligned) — player's town is index 0
                     let town_food = food_storage.food.first().copied().unwrap_or(0);
                     let town_gold = gold_storage.gold.first().copied().unwrap_or(0);
-                    help_tip(ui, &catalog, "food");
-                    ui.label(format!("Food: {}", town_food));
-                    help_tip(ui, &catalog, "gold");
-                    ui.colored_label(egui::Color32::from_rgb(220, 190, 50), format!("Gold: {}", town_gold));
+                    tipped(ui, format!("Food: {}", town_food), catalog.0.get("food").unwrap_or(&""));
+                    tipped(ui, egui::RichText::new(format!("Gold: {}", town_gold)).color(egui::Color32::from_rgb(220, 190, 50)), catalog.0.get("gold").unwrap_or(&""));
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
@@ -99,16 +108,12 @@ pub fn top_bar_system(
                     // Raider camp is town_data_idx 1 (first odd index)
                     let raiders = pop_stats.0.get(&(2, 1)).map(|s| s.alive).unwrap_or(0);
                     let tents = spawner_state.0.iter().filter(|s| s.building_kind == 2 && s.town_idx == 1 && s.position.x > -9000.0).count();
-                    help_tip(ui, &catalog, "guards");
-                    ui.label(format!("Guards: {}/{}", guards, barracks));
-                    help_tip(ui, &catalog, "farmers");
-                    ui.label(format!("Farmers: {}/{}", farmers, houses));
-                    help_tip(ui, &catalog, "raiders");
-                    ui.label(format!("Raiders: {}/{}", raiders, tents));
+                    tipped(ui, format!("Guards: {}/{}", guards, barracks), catalog.0.get("guards").unwrap_or(&""));
+                    tipped(ui, format!("Farmers: {}/{}", farmers, houses), catalog.0.get("farmers").unwrap_or(&""));
+                    tipped(ui, format!("Raiders: {}/{}", raiders, tents), catalog.0.get("raiders").unwrap_or(&""));
                     let total_alive = slots.alive();
                     let total_spawners = spawner_state.0.iter().filter(|s| s.position.x > -9000.0).count();
-                    help_tip(ui, &catalog, "pop");
-                    ui.label(format!("Pop: {}/{}", total_alive, total_spawners));
+                    tipped(ui, format!("Pop: {}/{}", total_alive, total_spawners), catalog.0.get("pop").unwrap_or(&""));
                 });
             });
         });
@@ -387,17 +392,11 @@ fn inspector_content(
     let meta = &data.meta_cache.0[idx];
 
     ui.strong(format!("{}", meta.name));
-    ui.horizontal(|ui| {
-        ui.label(format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, (meta.level + 1) * (meta.level + 1) * 100));
-        help_tip(ui, catalog, "npc_level");
-    });
+    tipped(ui, format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, (meta.level + 1) * (meta.level + 1) * 100), catalog.0.get("npc_level").unwrap_or(&""));
 
     let trait_str = crate::trait_name(meta.trait_id);
     if !trait_str.is_empty() {
-        ui.horizontal(|ui| {
-            ui.label(format!("Trait: {}", trait_str));
-            help_tip(ui, catalog, "npc_trait");
-        });
+        tipped(ui, format!("Trait: {}", trait_str), catalog.0.get("npc_trait").unwrap_or(&""));
     }
 
     // Find HP + energy from query
@@ -432,11 +431,10 @@ fn inspector_content(
     // Energy bar
     let energy_frac = (energy / 100.0).clamp(0.0, 1.0);
     ui.horizontal(|ui| {
-        ui.label("EN:");
+        tipped(ui, "EN:", catalog.0.get("npc_energy").unwrap_or(&""));
         ui.add(egui::ProgressBar::new(energy_frac)
             .text(format!("{:.0}", energy))
             .fill(egui::Color32::from_rgb(60, 120, 200)));
-        help_tip(ui, catalog, "npc_energy");
     });
 
     // Town name
@@ -464,10 +462,7 @@ fn inspector_content(
         state_str = parts.join(", ");
     }
 
-    ui.horizontal(|ui| {
-        ui.label(format!("State: {}", state_str));
-        help_tip(ui, catalog, "npc_state");
-    });
+    tipped(ui, format!("State: {}", state_str), catalog.0.get("npc_state").unwrap_or(&""));
 
     // Follow toggle
     ui.horizontal(|ui| {
