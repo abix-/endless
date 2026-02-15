@@ -8,7 +8,7 @@ use bevy_egui::egui;
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, UPGRADE_REGISTRY, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost};
+use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total};
 use crate::systems::{AiPlayerState, AiKind};
 use crate::world::WorldData;
 
@@ -449,7 +449,9 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
     let gold = upgrade.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
     let villager_stats = upgrade.faction_stats.stats.first();
     let alive = villager_stats.map(|s| s.alive).unwrap_or(0);
+    let levels = upgrade.upgrades.town_levels(town_idx);
 
+    // Header: resources + town name
     ui.horizontal(|ui| {
         ui.label(format!("Food: {}", food));
         ui.separator();
@@ -460,57 +462,76 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
     if let Some(town) = world_data.towns.get(town_idx) {
         ui.small(format!("Town: {}", town.name));
     }
+
+    // Branch totals + overall total
+    let total: u32 = levels.iter().map(|&l| l as u32).sum();
+    ui.horizontal(|ui| {
+        for (branch, _) in UPGRADE_RENDER_ORDER {
+            let bt = branch_total(&levels, branch);
+            ui.label(egui::RichText::new(format!("{}: {}", branch, bt)).small());
+        }
+        ui.label(egui::RichText::new(format!("Total: {}", total)).small().strong());
+    });
     ui.separator();
 
-    let levels = upgrade.upgrades.town_levels(town_idx);
+    // Tree-ordered upgrade list
+    for (branch, nodes) in UPGRADE_RENDER_ORDER {
+        let bt = branch_total(&levels, branch);
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(format!("{} ({})", branch, bt)).strong());
 
-    let mut last_category = "";
-    for (i, upg) in UPGRADE_REGISTRY.iter().enumerate() {
-        if upg.category != last_category {
-            if !last_category.is_empty() {
-                ui.add_space(4.0);
-            }
-            ui.label(egui::RichText::new(upg.category).strong());
-            last_category = upg.category;
-        }
+        for &(i, depth) in *nodes {
+            let upg = &UPGRADE_REGISTRY[i];
+            let unlocked = upgrade_unlocked(&levels, i);
+            let available = upgrade_available(&levels, i, food, gold);
+            let indent = depth as f32 * 16.0;
 
-        let unlocked = upgrade_unlocked(&levels, i);
-        let available = upgrade_available(&levels, i, food, gold);
+            ui.horizontal(|ui| {
+                ui.add_space(indent);
 
-        ui.horizontal(|ui| {
-            // Auto-upgrade checkbox (disabled when locked)
-            if upgrade.auto.flags.len() <= town_idx {
-                upgrade.auto.flags.resize(town_idx + 1, [false; UPGRADE_COUNT]);
-            }
-            let auto_flag = &mut upgrade.auto.flags[town_idx][i];
-            ui.add_enabled(unlocked, egui::Checkbox::new(auto_flag, ""))
-                .on_hover_text("Auto-buy each game hour");
-
-            // Label (dimmed when locked)
-            let label_text = egui::RichText::new(upg.label);
-            ui.label(if unlocked { label_text } else { label_text.weak() });
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let cost_text = format_upgrade_cost(i, levels[i]);
-                let response = ui.add_enabled(available, egui::Button::new(&cost_text));
-
-                // Tooltip: prereq info when locked, normal tooltip when unlocked
-                let response = if !unlocked {
-                    if let Some(msg) = missing_prereqs(&levels, i) {
-                        response.on_hover_text(msg)
-                    } else {
-                        response
-                    }
-                } else {
-                    response.on_hover_text(upg.tooltip)
-                };
-                if response.clicked() {
-                    upgrade.queue.0.push((town_idx, i));
+                // Auto-upgrade checkbox
+                if upgrade.auto.flags.len() <= town_idx {
+                    upgrade.auto.flags.resize(town_idx + 1, [false; UPGRADE_COUNT]);
+                }
+                let auto_flag = &mut upgrade.auto.flags[town_idx][i];
+                let prev_auto = *auto_flag;
+                ui.add_enabled(unlocked, egui::Checkbox::new(auto_flag, ""))
+                    .on_hover_text("Auto-buy each game hour");
+                if *auto_flag != prev_auto {
+                    let mut saved = settings::load_settings();
+                    saved.auto_upgrades = upgrade.auto.flags[town_idx].to_vec();
+                    settings::save_settings(&saved);
                 }
 
-                ui.label(format!("Lv{}", levels[i]));
+                // Label (dimmed when locked)
+                let label_text = egui::RichText::new(upg.label);
+                ui.label(if unlocked { label_text } else { label_text.weak() });
+
+                // Effect summary (now/next)
+                let (now, next) = upgrade_effect_summary(i, levels[i]);
+                ui.label(egui::RichText::new(format!("{} \u{2192} {}", now, next)).small().weak());
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let cost_text = format_upgrade_cost(i, levels[i]);
+                    let response = ui.add_enabled(available, egui::Button::new(&cost_text));
+
+                    let response = if !unlocked {
+                        if let Some(msg) = missing_prereqs(&levels, i) {
+                            response.on_hover_text(msg)
+                        } else {
+                            response
+                        }
+                    } else {
+                        response.on_hover_text(upg.tooltip)
+                    };
+                    if response.clicked() {
+                        upgrade.queue.0.push((town_idx, i));
+                    }
+
+                    ui.label(format!("Lv{}", levels[i]));
+                });
             });
-        });
+        }
     }
 }
 

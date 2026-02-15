@@ -166,6 +166,7 @@ struct StartupExtra<'w> {
     mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
     bgrid: ResMut<'w, world::BuildingSpatialGrid>,
+    auto_upgrade: ResMut<'w, AutoUpgrade>,
 }
 
 /// Initialize the world and spawn NPCs when entering Playing state.
@@ -195,11 +196,17 @@ fn game_startup_system(
     // Build spatial grid for startup find calls
     extra.bgrid.rebuild(&world_data, grid.width as f32 * grid.cell_size);
 
-    // Load saved policies for player's town
+    // Load saved policies + auto-upgrade flags for player's town
     let saved = crate::settings::load_settings();
     let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
     if town_idx < extra.policies.policies.len() {
         extra.policies.policies[town_idx] = saved.policy;
+    }
+    if !saved.auto_upgrades.is_empty() && town_idx < extra.auto_upgrade.flags.len() {
+        let flags = &mut extra.auto_upgrade.flags[town_idx];
+        for (i, &val) in saved.auto_upgrades.iter().enumerate().take(flags.len()) {
+            flags[i] = val;
+        }
     }
 
     // Init NPC tracking per town

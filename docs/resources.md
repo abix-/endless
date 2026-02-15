@@ -158,43 +158,51 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Defined In | Purpose |
 |----------|------|------------|---------|
 | CombatConfig | `HashMap<Job, JobStats>` + `HashMap<BaseAttackType, AttackTypeStats>` + heal_rate + heal_radius | `systems/stats.rs` | All NPC base stats — resolved via `resolve_combat_stats()` |
-| TownUpgrades | `Vec<[u8; 13]>` per town | `systems/stats.rs` | Per-town upgrade levels, indexed by `UpgradeType` enum. `town_levels(idx)` accessor. |
+| TownUpgrades | `Vec<[u8; 16]>` per town | `systems/stats.rs` | Per-town upgrade levels, indexed by `UpgradeType` enum. `town_levels(idx)` accessor. |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | `systems/stats.rs` | Pending upgrade purchases from UI, drained by `process_upgrades_system` |
-| AutoUpgrade | `Vec<[bool; 13]>` per town | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` queues affordable upgrades each game hour |
+| AutoUpgrade | `Vec<[bool; 16]>` per town | `resources.rs` | Per-upgrade auto-buy flags; `auto_upgrade_system` queues affordable upgrades each game hour; persisted per-player-town in `UserSettings.auto_upgrades` |
 
 `CombatConfig::default()` initializes from hardcoded values (archer/raider damage=15, speeds=100, max_health=100, heal_rate=5, heal_radius=150). `resolve_combat_stats()` combines job base × upgrade mult × trait mult × level mult → `CachedStats` component.
 
-`UPGRADE_REGISTRY` is the single source of truth for all upgrade metadata — an `[UpgradeNode; 13]` const array in `stats.rs`. Each `UpgradeNode` has: `label`, `short`, `tooltip`, `category`, `cost: &[(ResourceKind, i32)]` (multi-resource), `prereqs: &[(UpgradePrereq)]`. `ResourceKind { Food, Gold }` is extensible for future resource types. `UpgradePrereq { upgrade: usize, min_level: u8 }` defines dependency edges forming a tech tree.
+`UPGRADE_REGISTRY` is the single source of truth for all upgrade metadata — an `[UpgradeNode; 16]` const array in `stats.rs`. Each `UpgradeNode` has: `label`, `short`, `tooltip`, `category`, `cost: &[(ResourceKind, i32)]` (multi-resource), `prereqs: &[(UpgradePrereq)]`. `ResourceKind { Food, Gold }` is extensible for future resource types. `UpgradePrereq { upgrade: usize, min_level: u8 }` defines dependency edges forming a tech tree.
 
-`TownUpgrades` is indexed by town, each entry is a fixed-size array of 13 upgrade levels (`UpgradeType` enum: ArcherHealth, ArcherAttack, ArcherRange, ArcherSize, AttackSpeed, MoveSpeed, AlertRadius, FarmYield, FarmerHp, HealingRate, FoodEfficiency, FountainRadius, TownArea). Shared helpers gate all purchase paths: `upgrade_unlocked(levels, idx)` checks prereqs, `upgrade_available(levels, idx, food, gold)` checks prereqs + multi-resource affordability, `deduct_upgrade_cost(idx, level, &mut food, &mut gold)` deducts from correct storages. `UpgradeQueue` decouples the UI from stat re-resolution — `left_panel.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates via `upgrade_available()`, deducts via `deduct_upgrade_cost()`, increments level, and re-resolves `CachedStats` for affected NPCs. `auto_upgrade_system` runs once per game hour, queuing auto-enabled upgrades that pass `upgrade_available()`. AI upgrade scoring in `ai_decision_system` also gates on `upgrade_available()`.
+`TownUpgrades` is indexed by town, each entry is a fixed-size array of 16 upgrade levels (`UpgradeType` enum — Military: MilitaryHp, MilitaryAttack, MilitaryRange, AttackSpeed, MilitaryMoveSpeed, AlertRadius, Dodge; Farmer: FarmYield, FarmerHp, FarmerMoveSpeed; Miner: MinerHp, MinerMoveSpeed, GoldYield; Town: HealingRate, FountainRadius, TownArea). Shared helpers gate all purchase paths: `upgrade_unlocked(levels, idx)` checks prereqs, `upgrade_available(levels, idx, food, gold)` checks prereqs + multi-resource affordability, `deduct_upgrade_cost(idx, level, &mut food, &mut gold)` deducts from correct storages. `UpgradeQueue` decouples the UI from stat re-resolution — `left_panel.rs` pushes `(town, upgrade)` tuples, `process_upgrades_system` validates via `upgrade_available()`, deducts via `deduct_upgrade_cost()`, increments level, and re-resolves `CachedStats` for affected NPCs. `auto_upgrade_system` runs once per game hour, queuing auto-enabled upgrades that pass `upgrade_available()`. AI upgrade scoring in `ai_decision_system` also gates on `upgrade_available()`.
+
+`UPGRADE_RENDER_ORDER` defines the UI tree layout — `&[(&str, &[(usize, u8)])]` where each entry is a branch label with ordered `(upgrade_index, depth)` pairs. Depth controls indentation in the upgrade panel. `branch_total()` sums levels per category. `upgrade_effect_summary()` returns `(now_text, next_text)` for UI display (handles multiplicative, reciprocal, unlock, flat, and discrete types).
 
 **Upgrade percentages** (`UPGRADE_PCT` array in `systems/stats.rs`):
 
-| Index | Upgrade | % per level | Type |
-|-------|---------|-------------|------|
-| 0 | ArcherHealth | +10% | Multiplicative |
-| 1 | ArcherAttack | +10% | Multiplicative |
-| 2 | ArcherRange | +5% | Multiplicative |
-| 3 | ArcherSize | +5% | Multiplicative |
-| 4 | AttackSpeed | -8% cooldown | Reciprocal: `1/(1+level*0.08)` |
-| 5 | MoveSpeed | +5% | Multiplicative |
-| 6 | AlertRadius | +10% | Multiplicative |
-| 7 | FarmYield | +15% | Multiplicative |
-| 8 | FarmerHp | +20% | Multiplicative |
-| 9 | HealingRate | +20% | Multiplicative |
-| 10 | FoodEfficiency | +10% | Multiplicative |
-| 11 | FountainRadius | +24px flat | Flat: `base_radius + level * 24.0` |
-
+| Index | Upgrade | Category | % per level | Type |
+|-------|---------|----------|-------------|------|
+| 0 | MilitaryHp | Military | +10% | Multiplicative |
+| 1 | MilitaryAttack | Military | +10% | Multiplicative |
+| 2 | MilitaryRange | Military | +5% | Multiplicative |
+| 3 | AttackSpeed | Military | -8% cooldown | Reciprocal: `1/(1+level*0.08)` |
+| 4 | MilitaryMoveSpeed | Military | +5% | Multiplicative |
+| 5 | AlertRadius | Military | +10% | Multiplicative |
+| 6 | Dodge | Military | unlock | Unlock: projectile dodging |
+| 7 | FarmYield | Farmer | +15% | Multiplicative |
+| 8 | FarmerHp | Farmer | +20% | Multiplicative |
+| 9 | FarmerMoveSpeed | Farmer | +5% | Multiplicative |
+| 10 | MinerHp | Miner | +20% | Multiplicative |
+| 11 | MinerMoveSpeed | Miner | +5% | Multiplicative |
+| 12 | GoldYield | Miner | +15% | Multiplicative |
+| 13 | HealingRate | Town | +20% | Multiplicative |
+| 14 | FountainRadius | Town | +24px flat | Flat: `base_radius + level * 24.0` |
+| 15 | TownArea | Town | +1 radius | Discrete: custom slot-based cost via `expansion_cost()` |
 **Upgrade applicability by job** — not all upgrades flow through `resolve_combat_stats()`:
 
 | Upgrade | Applies to | Notes |
 |---------|-----------|-------|
-| ArcherHealth, ArcherAttack, ArcherRange, ArcherSize, AlertRadius | Archer only | Combat resolver |
-| AttackSpeed, MoveSpeed | All combatants (Archer, Raider, Fighter) | Combat resolver |
-| FarmerHp | Farmer and Miner | Combat resolver |
+| MilitaryHp, MilitaryAttack, MilitaryRange, MilitaryMoveSpeed, AlertRadius | Archer, Raider, Fighter | Combat resolver |
+| AttackSpeed | Archer, Raider, Fighter | Combat resolver (reciprocal) |
+| Dodge | Archer, Raider, Fighter | Unlock flag checked by `dodge_unlocked()` |
+| FarmerHp, FarmerMoveSpeed | Farmer | Combat resolver |
+| MinerHp, MinerMoveSpeed | Miner | Combat resolver |
 | FarmYield | `farm_growth_system` reads directly | Not combat resolver |
+| GoldYield | `decision_system` mining extraction | Not combat resolver |
 | HealingRate, FountainRadius | `healing_system` reads directly | Not combat resolver |
-| FoodEfficiency | `decision_system` eat logic | Not combat resolver |
+| TownArea | `world.rs` build area expansion | Not combat resolver; custom cost via `expansion_cost()` |
 
 ## Town Policies
 

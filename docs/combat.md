@@ -79,6 +79,7 @@ Execution order is **chained** — each system completes before the next starts.
 
 ### 2. attack_system (combat.rs)
 - Reads `GpuReadState.combat_targets` for each NPC with CachedStats + BaseAttackType
+- **Skips** NPCs with `Activity::Returning` or `Activity::GoingToRest` (prevents target override for NPCs heading home to deliver food or rest)
 - If target is valid (not -1) and in bounds:
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range**: sets `SetTarget` to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.

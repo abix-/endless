@@ -21,6 +21,7 @@ use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
 use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings};
 use crate::systems::economy::*;
+use crate::systems::stats::{UpgradeType, UPGRADE_PCT};
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
 
 // ============================================================================
@@ -56,6 +57,7 @@ pub struct DecisionExtras<'w> {
     pub policies: Res<'w, TownPolicies>,
     pub squad_state: Res<'w, SquadState>,
     pub timings: Res<'w, SystemTimings>,
+    pub town_upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
 }
 
 /// Arrival system: proximity checks for returning raiders and working farmers.
@@ -329,6 +331,22 @@ pub fn decision_system(
 
             match &*activity {
                 Activity::Patrolling => {
+                    // Squad rest: tired archers go home instead of entering OnDuty
+                    if *job == Job::Archer {
+                        if let Some(sid) = squad_id {
+                            if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
+                                if squad.rest_when_tired && energy.0 < ENERGY_TIRED_THRESHOLD && home.is_valid() {
+                                    *activity = Activity::GoingToRest;
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                        idx, x: home.0.x, y: home.0.y
+                                    }));
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Rest (squad)");
+                                    if let Some(s) = _ps { t_arrival += s.elapsed(); n_arrival += 1; }
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     *activity = Activity::OnDuty { ticks_waiting: 0 };
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ OnDuty");
                 }
@@ -479,6 +497,32 @@ pub fn decision_system(
         }
 
         // ====================================================================
+        // Squad policy hard gate: if tired, go rest before any combat/transit
+        // early-returns so squad rest policy is always respected.
+        // ====================================================================
+        if *job == Job::Archer {
+            if let Some(sid) = squad_id {
+                if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
+                    let squad_needs_rest = energy.0 < ENERGY_TIRED_THRESHOLD
+                        || (energy.0 < ENERGY_WAKE_THRESHOLD
+                            && matches!(*activity, Activity::GoingToRest | Activity::Resting));
+                    if squad.rest_when_tired && squad_needs_rest && home.is_valid() {
+                        if combat_state.is_fighting() {
+                            *combat_state = CombatState::None;
+                        }
+                        if !matches!(*activity, Activity::GoingToRest | Activity::Resting) {
+                            *activity = Activity::GoingToRest;
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx, x: home.0.x, y: home.0.y
+                            }));
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
         // Priority 1-3: Combat decisions (flee/leash/skip)
         // Runs BEFORE transit skip so fighting NPCs in transit (e.g. Raiding)
         // can still flee or leash back. Tier 2: every COMBAT_INTERVAL frames.
@@ -568,18 +612,44 @@ pub fn decision_system(
             if let Some(sid) = squad_id {
                 if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
                     if let Some(target) = squad.target {
-                        if squad.rest_when_tired && energy.0 < ENERGY_TIRED_THRESHOLD && home.is_valid() {
-                            *activity = Activity::GoingToRest;
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                idx, x: home.0.x, y: home.0.y
-                            }));
+                        let squad_needs_rest = energy.0 < ENERGY_TIRED_THRESHOLD
+                            || (energy.0 < ENERGY_WAKE_THRESHOLD
+                                && matches!(*activity, Activity::GoingToRest | Activity::Resting));
+                        if squad.rest_when_tired && squad_needs_rest && home.is_valid() {
+                            if !matches!(*activity, Activity::GoingToRest | Activity::Resting) {
+                                *activity = Activity::GoingToRest;
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                    idx, x: home.0.x, y: home.0.y
+                                }));
+                            }
                             continue;
                         }
-                        // Squad target always overrides patrol route.
-                        if !matches!(*activity, Activity::Patrolling) {
-                            *activity = Activity::Patrolling;
+                        // Squad target — only redirect when needed (no per-frame GPU writes)
+                        match *activity {
+                            Activity::OnDuty { .. } => {
+                                // At a position — redirect only if squad target moved
+                                if idx * 2 + 1 < positions.len() {
+                                    let dx = positions[idx * 2] - target.x;
+                                    let dy = positions[idx * 2 + 1] - target.y;
+                                    if dx * dx + dy * dy > 100.0 * 100.0 {
+                                        *activity = Activity::Patrolling;
+                                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                            idx, x: target.x, y: target.y
+                                        }));
+                                    }
+                                }
+                            }
+                            Activity::Patrolling | Activity::GoingToRest | Activity::Resting => {
+                                // Already heading to target or resting — no GPU write
+                            }
+                            _ => {
+                                // Idle/Wandering/other — redirect to squad target
+                                *activity = Activity::Patrolling;
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                    idx, x: target.x, y: target.y
+                                }));
+                            }
                         }
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target.x, y: target.y }));
                     } else if !squad.patrol_enabled {
                         // Patrol disabled and no squad target: stop moving now.
                         if matches!(*activity, Activity::Patrolling | Activity::OnDuty { .. }) {
@@ -683,7 +753,10 @@ pub fn decision_system(
         if matches!(*activity, Activity::MiningAtMine) {
             if energy.0 < ENERGY_TIRED_THRESHOLD {
                 // Extract gold before leaving
-                let gold_amount = crate::constants::MINE_EXTRACT_PER_CYCLE;
+                let yield_level = extras.town_upgrades.levels.get(town_id.0 as usize)
+                    .map(|l| l[UpgradeType::GoldYield as usize]).unwrap_or(0);
+                let gold_amount = ((crate::constants::MINE_EXTRACT_PER_CYCLE as f32)
+                    * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize])) as i32;
                 if let Ok(wp) = work_query.get(entity) {
                     let mine_pos = wp.0;
                     // Deduct from mine

@@ -14,7 +14,7 @@ use rand::Rng;
 use crate::constants::*;
 use crate::resources::*;
 use crate::world::{self, Building, WorldData, WorldGrid, TownGrids};
-use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available};
+use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, UPGRADE_COUNT};
 
 /// Minimum Manhattan distance between guard posts on the town grid.
 const MIN_GUARD_POST_SPACING: i32 = 5;
@@ -105,20 +105,19 @@ impl AiPersonality {
         }
     }
 
-    /// Upgrade weights indexed by UpgradeType discriminant.
+    /// Upgrade weights indexed by UpgradeType discriminant (16 entries).
     /// Only entries with weight > 0 are scored.
-    fn upgrade_weights(self, kind: AiKind) -> [f32; 13] {
+    fn upgrade_weights(self, kind: AiKind) -> [f32; UPGRADE_COUNT] {
         match kind {
+            //                             MHP MAt MRn AS  MMS Alt Ddg FYd FHP FMS mHP mMS GYd Hel Fnt Exp
             AiKind::Raider => match self {
-                //                           GH  GA  GR  GS  AS  MS  AR  FY  FH  HR  FE  FR  TA
-                Self::Economic =>           [0., 0., 0., 0., 4., 6., 0., 0., 0., 0., 0., 0., 2.],
-                _ =>                        [0., 0., 0., 0., 6., 4., 0., 0., 0., 0., 0., 0., 2.],
+                Self::Economic =>         [4., 4., 0., 4., 6., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2.],
+                _ =>                      [4., 6., 2., 6., 4., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2.],
             },
             AiKind::Builder => match self {
-                //                           GH  GA  GR  GS  AS  MS  AR  FY  FH  HR  FE  FR  TA
-                Self::Aggressive =>         [6., 8., 4., 0., 6., 4., 0., 2., 1., 1., 0., 0., 2.],
-                Self::Balanced =>           [5., 5., 2., 0., 4., 3., 0., 5., 3., 3., 0., 0., 3.],
-                Self::Economic =>           [3., 2., 1., 0., 2., 2., 0., 8., 5., 5., 0., 0., 4.],
+                Self::Aggressive =>       [6., 8., 4., 6., 4., 0., 0., 2., 1., 0., 1., 0., 1., 1., 0., 2.],
+                Self::Balanced =>         [5., 5., 2., 4., 3., 0., 0., 5., 3., 1., 3., 1., 2., 3., 0., 3.],
+                Self::Economic =>         [3., 2., 1., 2., 2., 0., 0., 8., 5., 2., 5., 2., 4., 5., 0., 4.],
             },
         }
     }

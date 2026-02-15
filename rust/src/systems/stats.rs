@@ -64,23 +64,29 @@ impl Default for CombatConfig {
 // TOWN UPGRADES
 // ============================================================================
 
-pub const UPGRADE_COUNT: usize = 14;
+pub const UPGRADE_COUNT: usize = 16;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(usize)]
 pub enum UpgradeType {
-    ArcherHealth = 0, ArcherAttack = 1, ArcherRange = 2, ArcherSize = 3,
-    AttackSpeed = 4, MoveSpeed = 5, AlertRadius = 6,
-    FarmYield = 7, FarmerHp = 8,
-    HealingRate = 9, FoodEfficiency = 10, FountainRadius = 11, TownArea = 12,
-    EvasionTraining = 13,
+    // Military (applies to Archer + Raider)
+    MilitaryHp = 0, MilitaryAttack = 1, MilitaryRange = 2, AttackSpeed = 3,
+    MilitaryMoveSpeed = 4, AlertRadius = 5, Dodge = 6,
+    // Farmer
+    FarmYield = 7, FarmerHp = 8, FarmerMoveSpeed = 9,
+    // Miner
+    MinerHp = 10, MinerMoveSpeed = 11, GoldYield = 12,
+    // Town
+    HealingRate = 13, FountainRadius = 14, TownArea = 15,
 }
 
 pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
-    0.10, 0.10, 0.05, 0.05,  // archer: health, attack, range, size
-    0.08, 0.05, 0.10,         // cooldown reduction, move speed, alert radius
-    0.15, 0.20,               // farm yield, farmer HP
-    0.20, 0.10, 0.0, 0.0, 0.0, // healing rate, food efficiency, fountain radius (flat), town area (discrete), evasion training (unlock)
+    0.10, 0.10, 0.05,  // military: hp, attack, range
+    0.08, 0.05, 0.10,  // attack speed (cooldown), military move speed, alert radius
+    0.0,               // dodge (unlock)
+    0.15, 0.20, 0.05,  // farm yield, farmer hp, farmer move speed
+    0.20, 0.05, 0.15,  // miner hp, miner move speed, gold yield
+    0.20, 0.0, 0.0,    // healing rate, fountain radius (flat), town area (discrete)
 ];
 
 // ============================================================================
@@ -111,44 +117,136 @@ const fn prereq(upgrade: usize, min_level: u8) -> UpgradePrereq {
 }
 
 pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
-    // 0: ArcherHealth — root
-    UpgradeNode { label: "Archer Health",   short: "A.HP",    tooltip: "+10% archer HP per level",                  category: "Archer", cost: &[(F, 1)], prereqs: &[] },
-    // 1: ArcherAttack — requires ArcherHealth
-    UpgradeNode { label: "Archer Attack",   short: "A.Atk",   tooltip: "+10% archer damage per level",              category: "Archer", cost: &[(F, 1)], prereqs: &[prereq(0, 1)] },
-    // 2: ArcherRange — requires AttackSpeed, costs gold
-    UpgradeNode { label: "Archer Range",    short: "A.Rng",   tooltip: "+5% archer attack range per level",         category: "Archer", cost: &[(G, 1)], prereqs: &[prereq(4, 1)] },
-    // 3: ArcherSize — standalone cosmetic
-    UpgradeNode { label: "Archer Size",     short: "A.Size",  tooltip: "+5% archer size per level",                 category: "Archer", cost: &[(F, 1)], prereqs: &[] },
-    // 4: AttackSpeed — requires ArcherAttack
-    UpgradeNode { label: "Attack Speed",    short: "AtkSpd",  tooltip: "-8% attack cooldown per level",            category: "Archer", cost: &[(F, 1)], prereqs: &[prereq(1, 1)] },
-    // 5: MoveSpeed — requires ArcherHealth
-    UpgradeNode { label: "Move Speed",      short: "MvSpd",   tooltip: "+5% movement speed per level",             category: "Archer", cost: &[(F, 1)], prereqs: &[prereq(0, 1)] },
-    // 6: AlertRadius — requires ArcherRange, costs gold
-    UpgradeNode { label: "Alert Radius",    short: "Alert",   tooltip: "+10% alert radius per level",              category: "Archer", cost: &[(G, 1)], prereqs: &[prereq(2, 1)] },
-    // 7: FarmYield — root
-    UpgradeNode { label: "Farm Yield",      short: "FarmY",   tooltip: "+15% food production per level",           category: "Farm",   cost: &[(F, 1)], prereqs: &[] },
-    // 8: FarmerHp — requires FarmYield
-    UpgradeNode { label: "Farmer HP",       short: "F.HP",    tooltip: "+20% farmer HP per level",                 category: "Farm",   cost: &[(F, 1)], prereqs: &[prereq(7, 1)] },
-    // 9: HealingRate — root
-    UpgradeNode { label: "Healing Rate",    short: "Heal",    tooltip: "+20% HP regen at fountain per level",      category: "Town",   cost: &[(F, 1)], prereqs: &[] },
-    // 10: FoodEfficiency — requires FarmYield
-    UpgradeNode { label: "Food Efficiency", short: "FoodEff", tooltip: "10% chance per level to not consume food", category: "Town",   cost: &[(F, 1)], prereqs: &[prereq(7, 1)] },
-    // 11: FountainRadius — requires HealingRate, costs gold
-    UpgradeNode { label: "Fountain Radius", short: "Fount",   tooltip: "+24px fountain healing range per level",   category: "Town",   cost: &[(G, 1)], prereqs: &[prereq(9, 1)] },
-    // 12: TownArea — requires FountainRadius + FoodEfficiency, costs food + gold
-    UpgradeNode { label: "Town Area",       short: "Area",    tooltip: "+1 buildable radius per level",            category: "Town",   cost: &[(F, 1), (G, 1)], prereqs: &[prereq(11, 1), prereq(10, 1)] },
-    // 13: EvasionTraining — requires AlertRadius, unlocks projectile dodge
-    UpgradeNode { label: "Evasion Training", short: "Dodge", tooltip: "Unlocks NPC projectile dodging",            category: "Archer", cost: &[(G, 20)], prereqs: &[prereq(6, 1)] },
+    // Military (0-6): applies to Archer + Raider
+    // 0: HP — root
+    UpgradeNode { label: "HP",           short: "HP",     tooltip: "+10% HP per level",              category: "Military", cost: &[(F, 1)], prereqs: &[] },
+    // 1: Attack — root
+    UpgradeNode { label: "Attack",       short: "Atk",    tooltip: "+10% damage per level",          category: "Military", cost: &[(F, 1)], prereqs: &[] },
+    // 2: Range — requires Attack Lv1
+    UpgradeNode { label: "Range",        short: "Rng",    tooltip: "+5% attack range per level",     category: "Military", cost: &[(G, 1)], prereqs: &[prereq(1, 1)] },
+    // 3: Attack Speed — requires Attack Lv1
+    UpgradeNode { label: "Attack Speed", short: "AtkSpd", tooltip: "-8% attack cooldown per level",  category: "Military", cost: &[(F, 1)], prereqs: &[prereq(1, 1)] },
+    // 4: Move Speed — root
+    UpgradeNode { label: "Move Speed",   short: "MvSpd",  tooltip: "+5% movement speed per level",   category: "Military", cost: &[(F, 1)], prereqs: &[] },
+    // 5: Alert — requires Move Speed Lv1
+    UpgradeNode { label: "Alert",        short: "Alert",  tooltip: "+10% alert radius per level",    category: "Military", cost: &[(G, 1)], prereqs: &[prereq(4, 1)] },
+    // 6: Dodge — requires Move Speed Lv5
+    UpgradeNode { label: "Dodge",        short: "Dodge",  tooltip: "Unlocks projectile dodging",     category: "Military", cost: &[(G, 20)], prereqs: &[prereq(4, 5)] },
+
+    // Farmer (7-9)
+    // 7: Yield — root
+    UpgradeNode { label: "Yield",        short: "Yield",  tooltip: "+15% food production per level", category: "Farmer",   cost: &[(F, 1)], prereqs: &[] },
+    // 8: HP — root
+    UpgradeNode { label: "HP",           short: "HP",     tooltip: "+20% farmer HP per level",       category: "Farmer",   cost: &[(F, 1)], prereqs: &[] },
+    // 9: Move Speed — root
+    UpgradeNode { label: "Move Speed",   short: "MvSpd",  tooltip: "+5% farmer speed per level",     category: "Farmer",   cost: &[(F, 1)], prereqs: &[] },
+
+    // Miner (10-12)
+    // 10: HP — root
+    UpgradeNode { label: "HP",           short: "HP",     tooltip: "+20% miner HP per level",        category: "Miner",    cost: &[(F, 1)], prereqs: &[] },
+    // 11: Move Speed — root
+    UpgradeNode { label: "Move Speed",   short: "MvSpd",  tooltip: "+5% miner speed per level",      category: "Miner",    cost: &[(F, 1)], prereqs: &[] },
+    // 12: Yield — root
+    UpgradeNode { label: "Yield",        short: "Yield",  tooltip: "+15% gold yield per level",      category: "Miner",    cost: &[(G, 1)], prereqs: &[] },
+
+    // Town (13-15)
+    // 13: Healing — root
+    UpgradeNode { label: "Healing",      short: "Heal",   tooltip: "+20% HP regen at fountain",      category: "Town",     cost: &[(F, 1)], prereqs: &[] },
+    // 14: Fountain — requires Healing Lv1
+    UpgradeNode { label: "Fountain",     short: "Fount",  tooltip: "+24px fountain range per level",  category: "Town",    cost: &[(G, 1)], prereqs: &[prereq(13, 1)] },
+    // 15: Expansion — requires Fountain Lv1, custom slot-based cost
+    UpgradeNode { label: "Expansion",    short: "Area",   tooltip: "+1 buildable radius per level",  category: "Town",     cost: &[(F, 1), (G, 1)], prereqs: &[prereq(14, 1)] },
 ];
 
 /// True if this town has unlocked projectile dodge.
 pub fn dodge_unlocked(levels: &[u8; UPGRADE_COUNT]) -> bool {
-    levels[UpgradeType::EvasionTraining as usize] > 0
+    levels[UpgradeType::Dodge as usize] > 0
 }
 
 /// Look up upgrade metadata by index.
 pub fn upgrade_node(idx: usize) -> &'static UpgradeNode {
     &UPGRADE_REGISTRY[idx]
+}
+
+/// Render order for the upgrade tree UI. Each entry: (branch_label, &[(upgrade_index, depth)]).
+/// Depth controls indentation. Nodes within a branch are listed in tree traversal order.
+pub const UPGRADE_RENDER_ORDER: &[(&str, &[(usize, u8)])] = &[
+    ("Military", &[
+        (1, 0),   // Attack (root)
+        (2, 1),   // Range (req Attack)
+        (3, 1),   // Attack Speed (req Attack)
+        (4, 0),   // Move Speed (root)
+        (5, 1),   // Alert (req Move Speed)
+        (6, 1),   // Dodge (req Move Speed Lv5)
+        (0, 0),   // HP (standalone root)
+    ]),
+    ("Farmer", &[
+        (7, 0),   // Yield (root)
+        (8, 0),   // HP (root)
+        (9, 0),   // Move Speed (root)
+    ]),
+    ("Miner", &[
+        (10, 0),  // HP (root)
+        (11, 0),  // Move Speed (root)
+        (12, 0),  // Yield (root)
+    ]),
+    ("Town", &[
+        (13, 0),  // Healing (root)
+        (14, 1),  // Fountain (req Healing)
+        (15, 2),  // Expansion (req Fountain)
+    ]),
+];
+
+/// Sum of upgrade levels for all nodes in a given category.
+pub fn branch_total(levels: &[u8; UPGRADE_COUNT], category: &str) -> u32 {
+    UPGRADE_REGISTRY.iter().enumerate()
+        .filter(|(_, n)| n.category == category)
+        .map(|(i, _)| levels[i] as u32)
+        .sum()
+}
+
+/// Effect summary for a given upgrade at its current level.
+/// Returns (now_text, next_text) for display in the upgrade UI.
+pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
+    let pct = UPGRADE_PCT[idx];
+    let lv = level as f32;
+    match idx {
+        // Multiplicative: +X% per level
+        0 | 1 | 2 | 4 | 5 | 7 | 8 | 9 | 10 | 11 | 12 | 13 => {
+            let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{:.0}%", lv * pct * 100.0) };
+            let next = format!("+{:.0}%", (lv + 1.0) * pct * 100.0);
+            (now, next)
+        }
+        // Reciprocal: attack cooldown reduction (idx 3)
+        3 => {
+            let now = if level == 0 { "\u{2014}".to_string() } else {
+                let reduction = (1.0 - 1.0 / (1.0 + lv * pct)) * 100.0;
+                format!("-{:.0}%", reduction)
+            };
+            let next_reduction = (1.0 - 1.0 / (1.0 + (lv + 1.0) * pct)) * 100.0;
+            let next = format!("-{:.0}%", next_reduction);
+            (now, next)
+        }
+        // Unlock: Dodge (idx 6)
+        6 => {
+            let now = if level == 0 { "Locked".to_string() } else { "Unlocked".to_string() };
+            let next = if level == 0 { "Unlocks dodge".to_string() } else { "Unlocked".to_string() };
+            (now, next)
+        }
+        // Flat: Fountain +24px per level (idx 14)
+        14 => {
+            let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}px", level as i32 * 24) };
+            let next = format!("+{}px", (level as i32 + 1) * 24);
+            (now, next)
+        }
+        // Discrete: Expansion +1 radius per level (idx 15)
+        15 => {
+            let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}", level) };
+            let next = format!("+{}", level + 1);
+            (now, next)
+        }
+        _ => ("\u{2014}".to_string(), "\u{2014}".to_string()),
+    }
 }
 
 /// Per-town upgrade levels.
@@ -189,6 +287,13 @@ pub fn upgrade_cost(level: u8) -> i32 {
     10 * (1_i32 << clamped)
 }
 
+/// Custom cost for TownArea/Expansion: proportional to new building slots unlocked.
+/// Each level adds (24 + 8*level) new slots. Cost = base_per_slot * new_slots.
+pub fn expansion_cost(level: u8) -> (i32, i32) {
+    let new_slots = 24 + 8 * level as i32;
+    (new_slots, new_slots) // food, gold
+}
+
 /// Check if all prerequisites for an upgrade are met.
 pub fn upgrade_unlocked(levels: &[u8; UPGRADE_COUNT], idx: usize) -> bool {
     UPGRADE_REGISTRY[idx].prereqs.iter().all(|p| levels[p.upgrade] >= p.min_level)
@@ -202,6 +307,10 @@ pub fn upgrade_available(levels: &[u8; UPGRADE_COUNT], idx: usize, food: i32, go
 
 /// Check if a town can afford an upgrade at the given level.
 fn can_afford_upgrade(idx: usize, level: u8, food: i32, gold: i32) -> bool {
+    if idx == UpgradeType::TownArea as usize {
+        let (fc, gc) = expansion_cost(level);
+        return food >= fc && gold >= gc;
+    }
     let scale = upgrade_cost(level);
     UPGRADE_REGISTRY[idx].cost.iter().all(|&(kind, base)| {
         let total = base * scale;
@@ -214,6 +323,12 @@ fn can_afford_upgrade(idx: usize, level: u8, food: i32, gold: i32) -> bool {
 
 /// Deduct upgrade cost from storages. Caller must verify upgrade_available first.
 pub fn deduct_upgrade_cost(idx: usize, level: u8, food: &mut i32, gold: &mut i32) {
+    if idx == UpgradeType::TownArea as usize {
+        let (fc, gc) = expansion_cost(level);
+        *food -= fc;
+        *gold -= gc;
+        return;
+    }
     let scale = upgrade_cost(level);
     for &(kind, base) in UPGRADE_REGISTRY[idx].cost {
         let total = base * scale;
@@ -235,6 +350,10 @@ pub fn missing_prereqs(levels: &[u8; UPGRADE_COUNT], idx: usize) -> Option<Strin
 
 /// Format cost for UI display (e.g. "10+10g").
 pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
+    if idx == UpgradeType::TownArea as usize {
+        let (fc, gc) = expansion_cost(level);
+        return format!("{fc}+{gc}g");
+    }
     let scale = upgrade_cost(level);
     UPGRADE_REGISTRY[idx].cost.iter()
         .map(|&(kind, base)| {
@@ -251,9 +370,9 @@ pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
 /// Which upgrades require NPC stat re-resolution (combat-affecting).
 fn is_combat_upgrade(idx: usize) -> bool {
     matches!(idx,
-        0 | 1 | 2 | 3 | // ArcherHealth, ArcherAttack, ArcherRange, ArcherSize
-        4 | 5 |          // AttackSpeed, MoveSpeed
-        8                // FarmerHp
+        0 | 1 | 2 | 3 | 4 | // Military: HP, Attack, Range, AttackSpeed, MoveSpeed
+        8 | 9 |              // Farmer: HP, MoveSpeed
+        10 | 11              // Miner: HP, MoveSpeed
     )
 }
 
@@ -281,20 +400,24 @@ pub fn resolve_combat_stats(
     let town = upgrades.levels.get(town_idx_usize).copied().unwrap_or([0; UPGRADE_COUNT]);
 
     let upgrade_hp = match job {
-        Job::Archer => 1.0 + town[UpgradeType::ArcherHealth as usize] as f32 * UPGRADE_PCT[0],
-        Job::Farmer | Job::Miner => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
-        _ => 1.0,
+        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryHp as usize] as f32 * UPGRADE_PCT[0],
+        Job::Farmer => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
+        Job::Miner  => 1.0 + town[UpgradeType::MinerHp as usize] as f32 * UPGRADE_PCT[10],
     };
     let upgrade_dmg = match job {
-        Job::Archer => 1.0 + town[UpgradeType::ArcherAttack as usize] as f32 * UPGRADE_PCT[1],
+        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryAttack as usize] as f32 * UPGRADE_PCT[1],
         _ => 1.0,
     };
     let upgrade_range = match job {
-        Job::Archer => 1.0 + town[UpgradeType::ArcherRange as usize] as f32 * UPGRADE_PCT[2],
+        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryRange as usize] as f32 * UPGRADE_PCT[2],
         _ => 1.0,
     };
-    let upgrade_speed = 1.0 + town[UpgradeType::MoveSpeed as usize] as f32 * UPGRADE_PCT[5];
-    let cooldown_mult = 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[4]);
+    let upgrade_speed = match job {
+        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryMoveSpeed as usize] as f32 * UPGRADE_PCT[4],
+        Job::Farmer => 1.0 + town[UpgradeType::FarmerMoveSpeed as usize] as f32 * UPGRADE_PCT[9],
+        Job::Miner  => 1.0 + town[UpgradeType::MinerMoveSpeed as usize] as f32 * UPGRADE_PCT[11],
+    };
+    let cooldown_mult = 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[3]);
 
     CachedStats {
         damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,

@@ -14,7 +14,7 @@ Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding`
 The system uses **SystemParam bundles** for farm and economy parameters:
 - `FarmParams`: farm states, `BuildingOccupancy` tracking, world data
 - `EconomyParams`: food storage, food events, population stats
-- `DecisionExtras`: npc logs, raid queue, combat log, policies, squad state, timings
+- `DecisionExtras`: npc logs, raid queue, combat log, policies, squad state, timings, town upgrades
 - `Res<BuildingSpatialGrid>`: CPU-side spatial grid for O(1) building lookups (farms, guard posts, towns, gold mines)
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
@@ -180,9 +180,13 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Three-tier throttling: arrivals every frame, combat every 8 frames, decisions bucketed by interval
 - Matches on Activity and CombatState enums in priority order:
 
+**Squad policy hard gate** (before combat, after arrivals):
+- Archers with `SquadId` and squad `rest_when_tired` enabled: if energy < `ENERGY_TIRED_THRESHOLD` (30) OR (energy < `ENERGY_WAKE_THRESHOLD` (90) AND already `GoingToRest`/`Resting`), set `GoingToRest` targeting home. Hysteresis prevents oscillation — once resting, stays resting until 90% energy.
+- Clears `CombatState::Fighting` if active.
+
 **Priority 0: Arrival transitions**
 - If `AtDestination`: match on Activity variant
-  - `Patrolling` → `Activity::OnDuty { ticks_waiting: 0 }`
+  - `Patrolling` → check squad rest first (tired squad archers → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
   - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
@@ -287,7 +291,11 @@ Each town has 4 guard posts at corners. Archers cycle clockwise. Patrol routes a
 
 Player-directed archer groups. 10 squads available, each with a target position on the map. Archers are reassigned (not spawned) — existing patrol archers get a `SquadId` component and follow squad orders instead of patrolling.
 
-**Behavior override**: In `decision_system`'s `Action::Work` → `Job::Archer` branch, archers with `SquadId` check `SquadState.squads[id].target`. If a target exists, the archer walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as guard post). If no target is set, falls through to normal patrol.
+**Behavior override**: In `decision_system`'s squad sync block, archers with `SquadId` check `SquadState.squads[id].target`. If a target exists, the archer walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as guard post). If no target is set, falls through to normal patrol.
+
+**Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` archers are redirected only when the squad target moves >100px from the archer's position. `Patrolling`, `GoingToRest`, and `Resting` archers are left alone (already heading to target or resting). Other activities (`Idle`, `Wandering`) get redirected immediately.
+
+**Rest-when-tired**: Squad archers respect `rest_when_tired` flag via three gates: (1) arrival handler catches tired archers before `OnDuty`, (2) hard gate before combat priorities forces `GoingToRest`, (3) squad sync block skips resting archers. All three use hysteresis (enter at energy < 30, stay until energy ≥ 90). `attack_system` skips `GoingToRest` NPCs to prevent GPU target override.
 
 **All survival behavior preserved**: Squad archers still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities.
 

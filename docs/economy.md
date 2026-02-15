@@ -220,7 +220,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
 | MINE_MAX_GOLD | 200.0 | Maximum gold a mine can hold |
 | MINE_REGEN_RATE | 2.0/hour | Gold regeneration rate (when unoccupied) |
-| MINE_EXTRACT_PER_CYCLE | 5 | Gold extracted per mining work cycle |
+| MINE_EXTRACT_PER_CYCLE | 5 | Base gold per mining cycle (scaled by GoldYield upgrade: `base * (1 + level * 0.15)`) |
 | MINE_MIN_SETTLEMENT_DIST | 300.0px | Minimum distance from mine to any town/camp center |
 | MINE_MIN_SPACING | 400.0px | Minimum distance between mines |
 

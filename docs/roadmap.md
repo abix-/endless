@@ -486,31 +486,32 @@ Chunk 1: Prerequisites + Currency ✓
 - [x] `UpgradeNode` extended with `prereqs: &[UpgradePrereq]` and `cost: &[(ResourceKind, i32)]` in `UPGRADE_REGISTRY` (`stats.rs`)
 - [x] `ResourceKind { Food, Gold }` enum — extensible for Stage 23 (Wood, Stone, Iron)
 - [x] Cost model: each node has `&[(ResourceKind, base_amount)]` slice, scaled by `upgrade_cost(level)`. Supports any mix of resources per node.
-- [x] Tree structure wired: Archer branch (ArcherHealth→ArcherAttack→AttackSpeed→ArcherRange→AlertRadius, ArcherHealth→MoveSpeed), Economy branch (FarmYield→FarmerHp, FarmYield→FoodEfficiency), Town branch (HealingRate→FountainRadius, FountainRadius+FoodEfficiency→TownArea)
 - [x] `upgrade_unlocked()`, `upgrade_available()`, `deduct_upgrade_cost()`, `missing_prereqs()`, `format_upgrade_cost()` — shared helpers used by all 4 systems (process_upgrades, auto_upgrade, AI, UI)
 - [x] `TownUpgrades::town_levels()` method eliminates repeated `.get().copied().unwrap_or()` pattern
 - [x] `process_upgrades_system` + `auto_upgrade_system`: prereq gate + multi-resource deduction via `GoldStorage`
 - [x] `ai_decision_system`: prereq + multi-resource affordability gate, `GoldStorage` param added
 - [x] Upgrade UI: locked nodes dimmed with prereq tooltip, cost button shows "10g" or "10+10g", auto-upgrade checkbox disabled when locked, Gold shown in header
 
-Chunk 2: UI Overhaul
-- [ ] Render upgrades by branch/tier (prereq depth indentation) instead of flat category list
-- [ ] Per node: "Now" and "Next" effect text via `upgrade_effect_summary(idx, level)` helper
-- [ ] Header summaries: branch totals (Archer/Economy/Town), overall total level
-- [ ] Add `upgrade_effect_summary()` helper to `stats.rs`
+Chunk 2: Per-NPC-Type Redesign ✓
+- [x] Redesigned from 14 nodes to 16 per-NPC-type nodes in 4 categories: Military (7), Farmer (3), Miner (3), Town (3)
+- [x] Military upgrades (HP, Attack, Range, Attack Speed, Move Speed, Alert, Dodge) shared by archer/raider/fighter
+- [x] Farmer upgrades (Yield, HP, Move Speed) affect only farmers
+- [x] Miner upgrades (HP, Move Speed, Gold Yield) affect only miners
+- [x] Town upgrades (Healing Rate, Fountain Radius, Expansion) affect town-wide systems
+- [x] `resolve_combat_stats()` dispatches HP/Attack/Range/MoveSpeed by job type
+- [x] GoldYield multiplier wired into miner extraction (`behavior.rs`)
+- [x] TownArea (Expansion) uses slot-proportional cost: `expansion_cost()` = 24+8*level
+- [x] Render by branch/tier with depth indentation, "Now"/"Next" effect text, branch totals
+- [x] AI upgrade weights resized to 16 per personality
+- [x] Shallow logical prerequisites (max depth 2): Attack→Range, Attack→AttackSpeed, MoveSpeed Lv1→Alert, MoveSpeed Lv5→Dodge, Healing→Fountain, Fountain→Expansion
 
 Chunk 3: Energy Nodes
-- [ ] Add `UpgradeType` variants: `ArcherStamina`, `FarmerStamina`, `MinerStamina` (bump `UPGRADE_COUNT`)
+- [ ] Add `UpgradeType` variants: `MilitaryStamina`, `FarmerStamina`, `MinerStamina` (bump `UPGRADE_COUNT`)
 - [ ] Wire into `energy_system`: per-town per-job drain modifier based on stamina upgrade level
-- [ ] Prereqs: ArcherStamina after MoveSpeed, FarmerStamina/MinerStamina after FarmYield
-- [ ] AI weights for new nodes; resize `AutoUpgrade.flags` / `TownUpgrades.levels`
+- [ ] Prereqs: MilitaryStamina after MoveSpeed, FarmerStamina after FarmerMoveSpeed, MinerStamina after MinerMoveSpeed
+- [ ] AI weights for new nodes
 
-Chunk 4: Dodge Nodes
-- [ ] Add per-job dodge upgrade variants + cooldown tiers
-- [ ] Wire dodge strength/cooldown into projectile avoidance path
-- [ ] Prereqs: each dodge root requires corresponding stamina node
-
-Chunk 5: Player AI Manager
+Chunk 4: Player AI Manager
 - [ ] Tech-tree unlock node for `Player AI Manager`
 - [ ] `PlayerAiManager` resource: `unlocked`, `enabled`, `build_enabled`, `upgrade_enabled`
 - [ ] Reuse `AiKind::Builder` decision logic for faction 0 town, gated by unlock + toggle
@@ -1228,23 +1229,21 @@ Data model (`systems/stats.rs`) — **IMPLEMENTED (Chunk 1)**:
 - `can_afford_upgrade()` is private — all callers use `upgrade_available()` (prereqs + cost in one call)
 - `TownUpgrades.levels` shape unchanged (`[u8; UPGRADE_COUNT]`), expanding count only when new nodes are added
 
-Implemented v1 tree (existing 13 nodes, prereqs + currency):
-- Archer branch:
-  Archer Health (root, food) -> Archer Attack (food) -> Attack Speed (food) -> Archer Range (gold) -> Alert Radius (gold)
-  Archer Health -> Move Speed (food)
-  Archer Size (standalone, food)
-- Economy branch:
-  Farm Yield (root, food) -> Farmer HP (food)
-  Farm Yield -> Food Efficiency (food)
-- Town branch:
-  Healing Rate (root, food) -> Fountain Radius (gold)
-  Fountain Radius + Food Efficiency -> Town Area (food+gold)
+Implemented v1 tree (16 per-NPC-type nodes):
+- Military (shared by archer/raider/fighter):
+  HP (root, food), Attack (root, food), Move Speed (root, food)
+  Attack Lv1 -> Range (gold), Attack Lv1 -> Attack Speed (food)
+  Move Speed Lv1 -> Alert Radius (gold), Move Speed Lv5 -> Dodge (unlock, gold)
+- Farmer:
+  Yield (root, food), HP (root, food), Move Speed (root, food)
+- Miner:
+  HP (root, food), Move Speed (root, food), Gold Yield (root, gold)
+- Town:
+  Healing Rate (root, food) -> Fountain Radius (gold) -> Expansion (slot-proportional cost)
 
-Remaining v1 tree additions (Chunks 3-4):
-- Archer branch: Move Speed -> Archer Stamina
-- Economy branch: Farm Yield -> Farmer Stamina, Farm Yield -> Miner Stamina
-- Dodge branch (per type): Archer Dodge I -> Archer Dodge Cooldown I/II/III, etc.
-- Extend node metadata for per-type effects: `target_job: Option<Job>` and dodge-specific fields
+Remaining v1 tree additions (Chunk 3):
+- Per-type stamina nodes: MilitaryStamina, FarmerStamina, MinerStamina
+- Prereqs: each stamina after corresponding MoveSpeed
 
 System wiring (**`process_upgrades_system`, `auto_upgrade_system`, `ai_decision_system` all updated for prereqs + multi-resource in Chunk 1**):
 - `process_upgrades_system`:
@@ -1280,9 +1279,9 @@ UI (`ui/left_panel.rs`) — **partially done (Chunk 1)**:
 - [x] Registry-driven rendering (reads from `UPGRADE_REGISTRY`)
 - [x] Per node row: auto-toggle checkbox (disabled when locked), label (dimmed when locked), lock reason tooltip (`missing_prereqs`), buy button with multi-resource cost tag (`format_upgrade_cost`), disabled when locked/unaffordable
 - [x] Header: town food + town gold + villager count
-- [ ] Render by branch + depth/tier (prereq depth indentation) — **Chunk 2**
-- [ ] "Now" and "Next" effect text — **Chunk 2**
-- [ ] Branch totals (Archer/Economy/Town), overall total level — **Chunk 2**
+- [x] Render by branch + depth/tier (prereq depth indentation) — **Chunk 2**
+- [x] "Now" and "Next" effect text — **Chunk 2**
+- [x] Branch totals (Military/Farmer/Miner/Town), overall total level — **Chunk 2**
 - Player AI manager controls:
   hidden/disabled until `Player AI Manager` node is unlocked
   once unlocked: show enable toggle + core settings (build/upgrade toggles, interval/profile)

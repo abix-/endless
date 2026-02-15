@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 1;
+const SETTINGS_VERSION: u32 = 2;
 
 /// Persisted user settings. Saved to `Documents\Endless\settings.json`.
 #[derive(Resource, Serialize, Deserialize, Clone)]
@@ -83,6 +83,9 @@ pub struct UserSettings {
     pub build_menu_text_scale: f32,
     #[serde(default)]
     pub raider_passive_forage: bool,
+    // Per-upgrade auto-buy flags (player town only)
+    #[serde(default)]
+    pub auto_upgrades: Vec<bool>,
 }
 
 fn default_gold_mines() -> usize { 2 }
@@ -133,6 +136,7 @@ impl Default for UserSettings {
             help_text_size: 14.0,
             build_menu_text_scale: 1.2,
             raider_passive_forage: false,
+            auto_upgrades: Vec::new(),
         }
     }
 }
@@ -164,11 +168,11 @@ pub fn load_settings() -> UserSettings {
         Ok(json) => {
             let mut settings: UserSettings = serde_json::from_str(&json).unwrap_or_default();
             if settings.version < SETTINGS_VERSION {
-                warn!(
-                    "Settings version {} is outdated (current: {}), resetting to defaults",
+                info!(
+                    "Settings version {} → {}, new fields use defaults",
                     settings.version, SETTINGS_VERSION
                 );
-                settings = UserSettings::default();
+                settings.version = SETTINGS_VERSION;
                 save_settings(&settings);
             }
             settings

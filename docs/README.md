@@ -133,7 +133,7 @@ rust/
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, HelpCatalog, etc.)
-  src/settings.rs       # UserSettings persistence (serde JSON save/load)
+  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration, auto_upgrades)
   src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), Building::spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale), escape/time controls, keyboard toggles (Q=squads), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
@@ -162,7 +162,7 @@ rust/
     terrain_visual.rs # Terrain + building visual showcase — all biomes and building types (1 phase)
   src/systems/
     spawn.rs            # Spawn system (MessageReader<SpawnNpcMsg>)
-    stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, UPGRADE_REGISTRY (prereqs + multi-resource cost), resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system, upgrade helpers (upgrade_unlocked/upgrade_available/deduct_upgrade_cost/format_upgrade_cost/missing_prereqs)
+    stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, UPGRADE_REGISTRY (16 upgrades, prereqs + multi-resource cost), UPGRADE_RENDER_ORDER (tree UI layout), resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system, upgrade helpers (upgrade_unlocked/upgrade_available/deduct_upgrade_cost/format_upgrade_cost/missing_prereqs/upgrade_effect_summary/branch_total/expansion_cost)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
     combat.rs           # Attack cooldown, targeting, guard post turret auto-attack (faction-aware)
