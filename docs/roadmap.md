@@ -343,7 +343,21 @@ Rules:
 - [x] World gen: independent placement of player towns, AI towns, and raider camps (not paired)
 - [x] Main menu sliders: AI Towns (0-10), Raider Camps (0-10), AI Speed (1-30s)
 - [x] Fix faction hardcoding: `spawner_respawn_system` + `game_startup_system` use town faction instead of 0
-- [x] Fix `NpcsByTownCache` initialization (resize to num_towns in `game_startup_system`)
+- [x] Fix `NpcsByTownCache` initialization (resize to `num_towns` in `game_startup_system`)
+- [ ] Godot parity leftovers (`ui/left_panel.gd`, `ui/upgrade_menu.gd`, `ui/combat_log.gd`, `ui/guard_post_menu.gd`, `ui/settings_menu.gd`, `tools/sprite_browser.gd`, `scenes/main.gd`):
+- [ ] NPC rename in Bevy UI (inspector/roster edit of `NpcMetaCache.name`)
+- [ ] Persist left panel UI state (active tab + expanded/collapsed sections) in `UserSettings`
+- [ ] Add `show_active_radius` debug toggle in Bevy UI (Godot `Radius` toggle parity)
+- [ ] Upgrade tab town snapshot parity: show `farmers/guards/farms/next spawn` summary
+- [ ] Persist auto-upgrade checkbox state in `UserSettings` (currently resets each run)
+- [ ] Combat log window sizing parity: allow resize + persist width/height in `UserSettings`
+- [ ] Guard post menu parity: per-post turret upgrades (`range_level`, `damage_level`) with food costs
+- [ ] Settings parity: HP bar display mode toggle (Off / When Damaged / Always)
+- [ ] Settings parity: combat log scope/timestamp modes (Off/Own/All + Off/Time/Day+Time)
+- [ ] Optional dev parity: sprite atlas browser tool (or confirm intentional removal of `tools/sprite_browser.gd`)
+- [ ] Main scene UX parity: double-click locked slot to unlock (alternative to context action)
+- [ ] Main scene UX parity: terrain tile click inspector (biome/tile coordinates)
+- [ ] Main scene UX parity: world-space town/camp labels (or confirm intentional removal)
 
 **Stage 13: In-game Help** ✓
 
@@ -1135,3 +1149,10 @@ pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
 - [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) — compute + render pipeline
 - [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) — sprite batching, per-layer draw queues
 - [Factorio FFF #421](https://www.factorio.com/blog/post/fff-421) — entity update optimization, lazy activation
+
+
+
+
+
+
+
