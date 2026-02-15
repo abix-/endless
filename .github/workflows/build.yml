@@ -1,10 +1,9 @@
-name: build
+name: manual-build
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: Which builds to run?
         type: choice
         required: true
         default: windows
@@ -77,12 +76,14 @@ jobs:
           retention-days: 7
 
       - name: Upload to GitHub Release (overwrite)
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+        if: |
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           files: rust/endless-windows.zip
-          overwrite: true
+          overwrite_files: true
 
   macos:
     if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'macos' || github.event.inputs.target == 'all'
@@ -126,12 +127,14 @@ jobs:
           retention-days: 7
 
       - name: Upload to GitHub Release (overwrite)
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+        if: |
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           files: rust/endless-macos.zip
-          overwrite: true
+          overwrite_files: true
 
   linux:
     if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'linux' || github.event.inputs.target == 'all'
@@ -176,18 +179,4 @@ jobs:
           rm -f endless-linux.zip
           (cd dist && zip -9 -r ../endless-linux.zip .)
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: endless-linux
-          path: rust/endless-linux.zip
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload to GitHub Release (overwrite)
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
-          files: rust/endless-linux.zip
-          overwrite: true
+      - name: Upload ar
