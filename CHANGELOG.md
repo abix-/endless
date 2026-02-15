@@ -2,6 +2,8 @@
 
 ## 2026-02-15
 
+- **build placement overhaul** — replaced right-click context menu with bottom-center horizontal build bar showing building sprites (cached atlas extraction) + concise help text; click-to-place with grid-snapped ghost preview (green=valid, red=invalid); destroy mode in build bar and inspector; `TownGrid.area_level` replaces `HashSet<(i32,i32)>` for expandable build area; `BuildKind::Destroy` + `DestroyRequest` resource for inspector→system destroy flow; slot indicators only visible during active placement
+- **UI scale** — `ui_scale` setting (default 1.2, range 0.8-2.5) persisted in `UserSettings`; applied via `EguiContextSettings.scale_factor`; slider in pause menu Settings
 - **in-game help tooltips** — `HelpCatalog` resource with ~35 help entries; `help_tip()` renders "?" buttons with rich hover tooltips; top bar has getting-started tip + tips on every stat (Food, Gold, Pop, Farmers, Guards, Raiders); every left panel tab (Roster, Upgrades, Policies, Patrols, Squads, Intel, Profiler) shows contextual help at top; build menu buttons have detailed hover text; NPC inspector shows tips on Level/XP, Trait, Energy, State; all help text answers "what is this?" AND "how do I use it?"
 - **embedded assets** — release builds embed all assets (sprites + shaders) in the binary via `bevy_embedded_assets` v0.15; standalone 81MB exe runs without any external files; `ReplaceAndFallback` mode allows asset modding by placing files next to exe; assets restructured into standard Bevy layout (`rust/assets/sprites/`, `rust/assets/shaders/`); debug builds still load from disk for hot-reload
 

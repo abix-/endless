@@ -9,11 +9,11 @@ use std::collections::VecDeque;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy_egui::{EguiPrimaryContextPass, egui};
+use bevy_egui::{EguiContextSettings, EguiPrimaryContextPass, egui};
 use rand::Rng;
 
 use crate::AppState;
-use crate::constants::{BARRACKS_BUILD_COST, FARM_BUILD_COST, GUARD_POST_BUILD_COST, HOUSE_BUILD_COST, TENT_BUILD_COST};
+use crate::constants::{BARRACKS_BUILD_COST, FARM_BUILD_COST, GUARD_POST_BUILD_COST, HOUSE_BUILD_COST, TENT_BUILD_COST, TOWN_GRID_SPACING};
 use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
@@ -35,9 +35,21 @@ pub fn tipped(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, tip: &str) -
     ui.add(egui::Button::new(text).frame(false)).on_hover_text(tip)
 }
 
+/// Apply user's UI scale to all egui contexts via EguiContextSettings.
+fn apply_ui_scale(
+    settings: Res<crate::settings::UserSettings>,
+    mut egui_settings: Query<&mut EguiContextSettings>,
+) {
+    if !settings.is_changed() { return; }
+    for mut s in egui_settings.iter_mut() {
+        s.scale_factor = settings.ui_scale;
+    }
+}
+
 /// Register all UI systems.
 pub fn register_ui(app: &mut App) {
-    // Global overlays (all states)
+    // Global: UI scale + overlays (all states)
+    app.add_systems(Update, apply_ui_scale);
     app.add_systems(EguiPrimaryContextPass, game_hud::fps_display_system);
 
     // Main menu (egui)
@@ -63,12 +75,13 @@ pub fn register_ui(app: &mut App) {
         game_escape_system,
     ).run_if(in_state(AppState::Playing)));
 
-    // Building slot click detection + visual indicators
+    // Building slot click detection + visual indicators + ghost
     app.add_systems(Update, (
         build_place_click_system,
         slot_right_click_system,
-        slot_double_click_system,
+        build_ghost_system,
         draw_slot_indicators,
+        process_destroy_system,
     ).run_if(in_state(AppState::Playing)));
 
     // Cleanup when leaving Playing
@@ -399,6 +412,8 @@ fn pause_menu_system(
             egui::CollapsingHeader::new("Settings")
                 .default_open(true)
                 .show(ui, |ui| {
+                    ui.add(egui::Slider::new(&mut settings.ui_scale, 0.8..=2.5)
+                        .text("UI Scale"));
                     ui.add(egui::Slider::new(&mut settings.scroll_speed, 100.0..=2000.0)
                         .text("Scroll Speed"));
 
@@ -523,11 +538,39 @@ fn build_place_click_system(
     let slot_pos = world::town_grid_to_world(center, row, col);
     build_ctx.hover_world_pos = slot_pos;
 
+    let (gc, gr) = grid.world_to_grid(slot_pos);
+
+    // Destroy mode: remove building at clicked cell
+    if kind == BuildKind::Destroy {
+        let is_destructible = grid.cell(gc, gr)
+            .and_then(|c| c.building.as_ref())
+            .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
+            .unwrap_or(false);
+        if !is_destructible { return; }
+
+        if world::remove_building(
+            &mut grid, &mut world_data, &mut farm_states, row, col, center,
+        ).is_ok() {
+            // Tombstone matching spawner entry
+            let snapped = grid.grid_to_world(gc, gr);
+            if let Some(se) = spawner_state.0.iter_mut().find(|s| {
+                (s.position - snapped).length() < 1.0
+            }) {
+                se.position = Vec2::new(-99999.0, -99999.0);
+            }
+            combat_log.push(
+                CombatEventKind::Harvest,
+                game_time.day(), game_time.hour(), game_time.minute(),
+                format!("Destroyed building at ({},{}) in {}", row, col, town_name),
+            );
+        }
+        return;
+    }
+
+    // Build mode: place building on empty slot
     let Some(town_grid) = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return };
     if !world::is_slot_buildable(town_grid, row, col) { return; }
     if row == 0 && col == 0 { return; }
-
-    let (gc, gr) = grid.world_to_grid(slot_pos);
     if grid.cell(gc, gr).map(|c| c.building.is_some()) != Some(false) { return; }
 
     let (building, cost, label, spawner_kind) = match kind {
@@ -541,6 +584,7 @@ fn build_place_click_system(
         BuildKind::House => (world::Building::House { town_idx }, HOUSE_BUILD_COST, "house", 0),
         BuildKind::Barracks => (world::Building::Barracks { town_idx }, BARRACKS_BUILD_COST, "barracks", 1),
         BuildKind::Tent => (world::Building::Tent { town_idx }, TENT_BUILD_COST, "tent", 2),
+        BuildKind::Destroy => unreachable!(),
     };
 
     let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
@@ -575,13 +619,114 @@ fn build_place_click_system(
     );
 }
 
-/// Double-click on a locked adjacent slot to instantly unlock it.
-/// TODO: Bevy lacks native double-click — needs Local<f64> timer. Using right-click menu for now.
-fn slot_double_click_system() {}
-
 /// Marker component for slot indicator sprite entities.
 #[derive(Component)]
 struct SlotIndicator;
+
+/// Marker for the build ghost preview sprite.
+#[derive(Component)]
+struct BuildGhost;
+
+/// Update or spawn/despawn the ghost sprite to preview building placement.
+fn build_ghost_system(
+    mut commands: Commands,
+    windows: Query<&Window>,
+    camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
+    mut egui_contexts: bevy_egui::EguiContexts,
+    mut build_ctx: ResMut<BuildMenuContext>,
+    grid: Res<world::WorldGrid>,
+    world_data: Res<world::WorldData>,
+    town_grids: Res<world::TownGrids>,
+    mut ghost_query: Query<(Entity, &mut Transform, &mut Sprite), (With<BuildGhost>, Without<crate::render::MainCamera>)>,
+) {
+    let has_selection = build_ctx.selected_build.is_some();
+
+    // Despawn ghost if no selection
+    if !has_selection {
+        for (entity, _, _) in ghost_query.iter() {
+            commands.entity(entity).despawn();
+        }
+        return;
+    }
+
+    let kind = build_ctx.selected_build.unwrap();
+
+    // Get cursor world position
+    let Ok(window) = windows.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+
+    // Don't show ghost when hovering UI
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        if ctx.is_pointer_over_area() {
+            for (_, _, mut sprite) in ghost_query.iter_mut() {
+                sprite.color = Color::NONE;
+            }
+            return;
+        }
+    }
+
+    let Ok((cam_transform, projection)) = camera_query.single() else { return };
+    let world_pos = screen_to_world(cursor_pos, cam_transform, projection, window);
+
+    // Snap to town grid
+    let Some(town_data_idx) = build_ctx.town_data_idx else { return };
+    let Some(town) = world_data.towns.get(town_data_idx) else { return };
+    let center = town.center;
+    let (row, col) = world::world_to_town_grid(center, world_pos);
+    let slot_pos = world::town_grid_to_world(center, row, col);
+    build_ctx.hover_world_pos = slot_pos;
+
+    // Determine validity
+    let (gc, gr) = grid.world_to_grid(slot_pos);
+    let cell = grid.cell(gc, gr);
+    let has_building = cell.map(|c| c.building.is_some()).unwrap_or(false);
+    let is_fountain = cell
+        .and_then(|c| c.building.as_ref())
+        .map(|b| matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
+        .unwrap_or(false);
+
+    let town_grid = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx);
+    let in_bounds = town_grid
+        .map(|tg| world::is_slot_buildable(tg, row, col))
+        .unwrap_or(false);
+    let is_center = row == 0 && col == 0;
+
+    let (valid, visible) = if kind == BuildKind::Destroy {
+        // Destroy: valid over destructible buildings, invisible over empty/fountain
+        (has_building && !is_fountain, has_building && !is_fountain)
+    } else {
+        // Build: valid on empty buildable non-center slots
+        let v = in_bounds && !is_center && !has_building;
+        (v, in_bounds && !is_center)
+    };
+
+    let color = if !visible {
+        Color::NONE
+    } else if valid {
+        Color::srgba(0.2, 0.8, 0.2, 0.45)
+    } else {
+        Color::srgba(0.8, 0.2, 0.2, 0.45)
+    };
+
+    let snapped = grid.grid_to_world(gc, gr);
+    let ghost_z = 0.5;
+
+    if let Some((_, mut transform, mut sprite)) = ghost_query.iter_mut().next() {
+        transform.translation = Vec3::new(snapped.x, snapped.y, ghost_z);
+        sprite.color = color;
+    } else {
+        // Spawn ghost
+        commands.spawn((
+            Sprite {
+                color,
+                custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)),
+                ..default()
+            },
+            Transform::from_xyz(snapped.x, snapped.y, ghost_z),
+            BuildGhost,
+        ));
+    }
+}
 
 /// Spawn/rebuild slot indicator sprites when the town grid or world grid changes.
 /// Uses actual Sprite entities at z=-0.3 so they render between buildings and NPCs.
@@ -591,14 +736,21 @@ fn draw_slot_indicators(
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
     grid: Res<world::WorldGrid>,
+    build_ctx: Res<BuildMenuContext>,
 ) {
-    // Only rebuild when grid state changes
-    if !town_grids.is_changed() && !grid.is_changed() { return; }
+    // Only rebuild when grid state changes or build selection changes
+    if !town_grids.is_changed() && !grid.is_changed() && !build_ctx.is_changed() { return; }
 
     // Despawn old indicators
     for entity in existing.iter() {
         commands.entity(entity).despawn();
     }
+
+    // Only show indicators when a build type is selected (not Destroy)
+    let show = build_ctx.selected_build
+        .map(|k| k != BuildKind::Destroy)
+        .unwrap_or(false);
+    if !show { return; }
 
     // Only show indicators for the player's villager town (first grid)
     let Some(town_grid) = town_grids.grids.first() else { return };
@@ -640,6 +792,60 @@ fn draw_slot_indicators(
                 ));
             }
         }
+    }
+}
+
+/// Process destroy requests from the building inspector.
+fn process_destroy_system(
+    mut request: ResMut<DestroyRequest>,
+    mut grid: ResMut<world::WorldGrid>,
+    mut world_data: ResMut<world::WorldData>,
+    mut farm_states: ResMut<FarmStates>,
+    mut spawner_state: ResMut<SpawnerState>,
+    mut combat_log: ResMut<CombatLog>,
+    game_time: Res<GameTime>,
+    mut selected_building: ResMut<SelectedBuilding>,
+) {
+    let Some((col, row)) = request.0.take() else { return };
+
+    let cell = grid.cell(col, row);
+    let is_destructible = cell
+        .and_then(|c| c.building.as_ref())
+        .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
+        .unwrap_or(false);
+    if !is_destructible { return; }
+
+    // Find which town this building belongs to, derive town center
+    let town_idx = cell
+        .and_then(|c| c.building.as_ref())
+        .map(|b| crate::ui::game_hud::building_town_idx(b) as usize)
+        .unwrap_or(0);
+    let center = world_data.towns.get(town_idx)
+        .map(|t| t.center)
+        .unwrap_or_default();
+    let town_name = world_data.towns.get(town_idx)
+        .map(|t| t.name.clone())
+        .unwrap_or_default();
+
+    let world_pos = grid.grid_to_world(col, row);
+    let (trow, tcol) = world::world_to_town_grid(center, world_pos);
+
+    if world::remove_building(
+        &mut grid, &mut world_data, &mut farm_states, trow, tcol, center,
+    ).is_ok() {
+        // Tombstone matching spawner entry
+        let snapped = grid.grid_to_world(col, row);
+        if let Some(se) = spawner_state.0.iter_mut().find(|s| {
+            (s.position - snapped).length() < 1.0
+        }) {
+            se.position = Vec2::new(-99999.0, -99999.0);
+        }
+        combat_log.push(
+            CombatEventKind::Harvest,
+            game_time.day(), game_time.hour(), game_time.minute(),
+            format!("Destroyed building in {}", town_name),
+        );
+        selected_building.active = false;
     }
 }
 
@@ -686,6 +892,7 @@ fn game_cleanup_system(
     npc_query: Query<Entity, With<NpcIndex>>,
     marker_query: Query<Entity, With<FarmReadyMarker>>,
     indicator_query: Query<Entity, With<SlotIndicator>>,
+    ghost_query: Query<Entity, With<BuildGhost>>,
     tilemap_query: Query<Entity, With<bevy::sprite_render::TilemapChunk>>,
     mut world: CleanupWorld,
     mut debug: CleanupDebug,
@@ -701,6 +908,9 @@ fn game_cleanup_system(
         commands.entity(entity).despawn();
     }
     for entity in indicator_query.iter() {
+        commands.entity(entity).despawn();
+    }
+    for entity in ghost_query.iter() {
         commands.entity(entity).despawn();
     }
     for entity in tilemap_query.iter() {

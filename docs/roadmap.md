@@ -336,6 +336,18 @@ Rules:
 
 *Done when: the player is one town in a sea of hostile AI — enemy towns build farms/guards and grow their economy, raider camps build tents and send raids, all factions fight each other, and the AI decision speed is configurable from the main menu.*
 
+**NEXT: DRY + Single Source of Truth hardening (before feature parity leftovers)**
+
+- [ ] Consolidate farm harvest transitions into one authoritative path (currently split across `arrival_system` and `decision_system`)
+- [ ] Consolidate building placement side effects (place + food spend + spawner entry) into one shared helper used by player + AI
+- [ ] Consolidate spawner spawn mapping (`building_kind` -> `SpawnNpcMsg` fields) into one shared helper used by startup + respawn systems
+- [ ] Consolidate building destroy flow (remove + spawner tombstone + combat log) into one shared helper used by click-destroy + inspector-destroy
+- [ ] Centralize upgrade metadata (name/label/tooltip/short code) so UI, AI logs, and upgrade routing use one registry
+- [ ] Make trait display read from `Personality`/`TraitKind` instead of separate `trait_id` mapping in UI cache
+- [ ] Replace hardcoded town indices in HUD (player/camp assumptions) with faction/town lookup helpers
+- [ ] Remove stale respawn legacy resource/path leftovers (`RespawnTimers`) now that `SpawnerState` is authoritative
+- [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
+
 - [x] `AiPlayerConfig` resource (decision interval in real seconds, configurable from main menu)
 - [x] `AiPlayerState` resource with `Vec<AiPlayer>` — one per AI settlement
 - [x] `AiKind::Raider` AI: builds tents, unlocks slots, buys AttackSpeed/MoveSpeed upgrades

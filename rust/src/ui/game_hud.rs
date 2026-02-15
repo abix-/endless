@@ -188,6 +188,7 @@ pub fn bottom_panel_system(
     mut follow: ResMut<FollowSelected>,
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
+    mut destroy_request: ResMut<DestroyRequest>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -212,6 +213,21 @@ pub fn bottom_panel_system(
                     ui, &data, &bld_data, &world_data, &health_query, &npc_states,
                     &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                 );
+                // Destroy button for selected buildings (not fountains/camps)
+                if has_building && !has_npc {
+                    let col = bld_data.selected_building.col;
+                    let row = bld_data.selected_building.row;
+                    let is_destructible = bld_data.grid.cell(col, row)
+                        .and_then(|c| c.building.as_ref())
+                        .map(|b| !matches!(b, Building::Fountain { .. } | Building::Camp { .. } | Building::GoldMine))
+                        .unwrap_or(false);
+                    if is_destructible {
+                        ui.separator();
+                        if ui.button(egui::RichText::new("Destroy").color(egui::Color32::from_rgb(220, 80, 80))).clicked() {
+                            destroy_request.0 = Some((col, row));
+                        }
+                    }
+                }
             });
     }
 
@@ -548,7 +564,7 @@ fn building_name(building: &Building) -> &'static str {
     }
 }
 
-fn building_town_idx(building: &Building) -> u32 {
+pub fn building_town_idx(building: &Building) -> u32 {
     match building {
         Building::Fountain { town_idx }
         | Building::Farm { town_idx }

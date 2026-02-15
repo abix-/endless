@@ -89,21 +89,21 @@ Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `f
 
 ### Town Building Grid
 
-Per-town slot tracking for the building system. Each town (villager and raider camp) has a `TownGrid` with a `HashSet<(i32, i32)>` of unlocked (row, col) slots and a `town_data_idx` linking to its `WorldData.towns` entry. Initial base grid is 6x6 (rows/cols -2 to +3), expandable to 100x100 by unlocking adjacent slots.
+Per-town slot tracking for the building system. Each town (villager and raider camp) has a `TownGrid` with an `area_level: i32` controlling the buildable radius and a `town_data_idx` linking to its `WorldData.towns` entry. Initial base grid is 6x6 (rows/cols -2 to +3), expandable via `expand_town_build_area()` which increments `area_level` (max 50x50 extent).
 
 | Struct | Fields |
 |--------|--------|
-| TownGrid | town_data_idx: usize, unlocked: `HashSet<(i32, i32)>` |
+| TownGrid | town_data_idx: usize, area_level: i32 |
 | TownGrids | grids: `Vec<TownGrid>` (one per town — villager + camp) |
-| TownSlotInfo | grid_idx, town_data_idx, row, col, slot_state |
-| SlotState | Unlocked, Locked |
-| BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, is_locked, has_building, is_fountain |
+| BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildKind>`, hover_world_pos: Vec2 |
+| BuildKind | Farm, GuardPost, House, Barracks, Tent, Destroy |
+| DestroyRequest | `Option<(usize, usize)>` — (grid_col, grid_row), set by inspector, processed by `process_destroy_system` |
 
-Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `get_adjacent_locked_slots(grid)`, `find_town_slot(world_pos, towns, grids)`.
+Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `build_bounds(grid) -> (min_row, max_row, min_col, max_col)`, `is_slot_buildable(grid, row, col)`, `find_town_slot(world_pos, towns, grids)`.
 
-Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. Tombstone deletion preserves parallel Vec indices (FarmStates). Fountains and camps cannot be removed.
+Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. Tombstone deletion preserves parallel Vec indices (FarmStates). Fountains, camps, and gold mines cannot be destroyed.
 
-Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, Tent=1, SlotUnlock=1 food.
+Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, Tent=1 food.
 
 ## Food & Economy
 
@@ -235,11 +235,12 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 |----------|------|---------|---------|
 | UiState | build_menu_open, pause_menu_open, left_panel_open, left_panel_tab (LeftPanelTab enum) | ui_toggle_system (keyboard), top_bar (buttons), left_panel tabs, pause_menu | All panel systems |
 | CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system | bottom_panel_system |
-| BuildMenuContext | grid_idx, town_data_idx, slot, slot_world_pos, screen_pos, is_locked, has_building, is_fountain | slot_right_click_system | build_menu_system |
+| BuildMenuContext | town_data_idx, selected_build (`Option<BuildKind>`), hover_world_pos | build_menu_system, build_ghost_system | build_place_click_system, draw_slot_indicators |
+| DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=Hut, 1=Barracks, 2=Tent), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
-| UserSettings | world_size, towns, farmers, guards, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_enemy_info/coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
+| UserSettings | world_size, towns, farmers, guards, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 

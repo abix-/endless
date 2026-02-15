@@ -33,7 +33,7 @@ use resources::{
     FoodStorage, GoldStorage, MineStates, MinerTarget, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
-    AutoUpgrade, SquadState, HelpCatalog,
+    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -228,6 +228,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CombatLog>()
        .init_resource::<world::TownGrids>()
        .init_resource::<BuildMenuContext>()
+       .init_resource::<DestroyRequest>()
        .init_resource::<GuardPostState>()
        .init_resource::<SpawnerState>()
        .init_resource::<SquadState>()

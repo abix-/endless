@@ -723,13 +723,14 @@ impl UiState {
 // ============================================================================
 
 /// Player-selected building type for placement mode.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum BuildKind {
     Farm,
     GuardPost,
     House,
     Barracks,
     Tent,
+    Destroy,
 }
 
 /// Context for build palette + placement mode.
@@ -742,6 +743,10 @@ pub struct BuildMenuContext {
     /// Last hovered snapped world position (for indicators/tooltips).
     pub hover_world_pos: Vec2,
 }
+
+/// Request to destroy a building at a specific world grid cell. Set by inspector, processed by system.
+#[derive(Resource, Default)]
+pub struct DestroyRequest(pub Option<(usize, usize)>); // (grid_col, grid_row)
 
 // ============================================================================
 // COMBAT LOG
