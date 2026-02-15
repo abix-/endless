@@ -7,7 +7,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
-use crate::resources::FarmStates;
+use crate::resources::{FarmStates, FoodStorage, SpawnerState, SpawnerEntry};
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -253,6 +253,87 @@ pub fn place_building(
     }
 
     Ok(())
+}
+
+/// Resolve SpawnNpcMsg fields from a spawner entry's building_kind.
+/// Single source of truth for the building_kind → NPC mapping used by startup and respawn.
+pub fn resolve_spawner_npc(
+    entry: &SpawnerEntry,
+    towns: &[Town],
+    bgrid: &BuildingSpatialGrid,
+    occupancy: &BuildingOccupancy,
+) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
+    let town_faction = towns.get(entry.town_idx as usize)
+        .map(|t| t.faction).unwrap_or(0);
+
+    match entry.building_kind {
+        0 => {
+            // House -> Farmer: find nearest free farm in own town
+            let farm = find_nearest_free(
+                entry.position, bgrid, BuildingKind::Farm, occupancy, Some(entry.town_idx as u32),
+            ).unwrap_or(entry.position);
+            (0, town_faction, farm.x, farm.y, -1, 0, "Farmer", "House")
+        }
+        1 => {
+            // Barracks -> Guard: find nearest guard post
+            let post_idx = find_location_within_radius(
+                entry.position, bgrid, LocationKind::GuardPost, f32::MAX,
+            ).map(|(idx, _)| idx as i32).unwrap_or(-1);
+            (1, town_faction, -1.0, -1.0, post_idx, 1, "Guard", "Barracks")
+        }
+        _ => {
+            // Tent -> Raider
+            let camp_faction = towns.get(entry.town_idx as usize)
+                .map(|t| t.faction).unwrap_or(1);
+            (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Tent")
+        }
+    }
+}
+
+/// Push a SpawnerEntry for a spawner building. No-op for non-spawner buildings.
+/// Single construction site for all SpawnerEntry structs.
+pub fn register_spawner(
+    spawner_state: &mut SpawnerState,
+    building: Building,
+    town_idx: i32,
+    position: Vec2,
+    respawn_timer: f32,
+) {
+    if let Some(sk) = building.spawner_kind() {
+        spawner_state.0.push(SpawnerEntry {
+            building_kind: sk,
+            town_idx,
+            position,
+            npc_slot: -1,
+            respawn_timer,
+        });
+    }
+}
+
+/// Place a building, deduct food, and push a spawner entry if applicable.
+/// Shared by player build menu and AI. Spawner kind is derived from
+/// `Building::spawner_kind()` — callers never pass magic numbers.
+pub fn build_and_pay(
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    farm_states: &mut FarmStates,
+    food_storage: &mut FoodStorage,
+    spawner_state: &mut SpawnerState,
+    building: Building,
+    town_data_idx: usize,
+    row: i32, col: i32,
+    town_center: Vec2,
+    cost: i32,
+) -> bool {
+    if place_building(grid, world_data, farm_states, building, row, col, town_center).is_err() {
+        return false;
+    }
+    if let Some(f) = food_storage.food.get_mut(town_data_idx) { *f -= cost; }
+    let pos = town_grid_to_world(town_center, row, col);
+    let (gc, gr) = grid.world_to_grid(pos);
+    let snapped = grid.grid_to_world(gc, gr);
+    register_spawner(spawner_state, building, town_data_idx as i32, snapped, 0.0);
+    true
 }
 
 /// Expand one town's buildable area by one ring and convert new ring terrain to Dirt.
@@ -781,6 +862,18 @@ pub enum Building {
 }
 
 impl Building {
+    /// Returns the spawner building_kind (0=House, 1=Barracks, 2=Tent),
+    /// or None for non-spawner buildings (Farm, GuardPost, etc.).
+    /// Single source of truth for the building→spawner mapping.
+    pub fn spawner_kind(&self) -> Option<i32> {
+        match self {
+            Building::House { .. } => Some(0),
+            Building::Barracks { .. } => Some(1),
+            Building::Tent { .. } => Some(2),
+            _ => None,
+        }
+    }
+
     /// Map building variant to tileset array index (matches BUILDING_TILES order).
     pub fn tileset_index(&self) -> u16 {
         match self {

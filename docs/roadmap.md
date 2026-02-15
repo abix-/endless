@@ -338,9 +338,9 @@ Rules:
 
 **NEXT: DRY + Single Source of Truth hardening (before feature parity leftovers)**
 
-- [ ] Consolidate farm harvest transitions into one authoritative path (currently split across `arrival_system` and `decision_system`)
-- [ ] Consolidate building placement side effects (place + food spend + spawner entry) into one shared helper used by player + AI
-- [ ] Consolidate spawner spawn mapping (`building_kind` -> `SpawnNpcMsg` fields) into one shared helper used by startup + respawn systems
+- [x] Consolidate farm harvest transitions into one authoritative path (currently split across `arrival_system` and `decision_system`)
+- [x] Consolidate building placement side effects (place + food spend + spawner entry) into one shared helper used by player + AI
+- [x] Consolidate spawner spawn mapping (`building_kind` -> `SpawnNpcMsg` fields) into one shared helper used by startup + respawn systems
 - [ ] Consolidate building destroy flow (remove + spawner tombstone + combat log) into one shared helper used by click-destroy + inspector-destroy
 - [ ] Centralize upgrade metadata (name/label/tooltip/short code) so UI, AI logs, and upgrade routing use one registry
 - [ ] Make trait display read from `Personality`/`TraitKind` instead of separate `trait_id` mapping in UI cache
@@ -426,6 +426,19 @@ SystemParam bundle consolidation:
 - [ ] Trait combinations (multiple traits per NPC)
 - [ ] Target switching (prefer non-fleeing enemies, prioritize low-HP targets)
 
+**Stage 15b: NPC Skills & Proficiency** (see [spec](#npc-skills--proficiency))
+
+*Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
+
+- [ ] Add per-NPC skill set with proficiency values (0-100) keyed by role/action
+- [ ] Skill growth from doing the work (farming raises farming, combat raises combat, dodging raises dodge)
+- [ ] Proficiency modifies effectiveness:
+- [ ] Farming proficiency affects farm growth/harvest efficiency
+- [ ] Combat proficiency affects attack efficiency (accuracy/damage/cooldown contribution)
+- [ ] Dodge proficiency affects projectile avoidance / survival in combat
+- [ ] Render skill/proficiency details in inspector + roster sorting/filtering support
+- [ ] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
+
 **Stage 16: Walls & Defenses**
 
 *Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
@@ -456,15 +469,25 @@ SystemParam bundle consolidation:
 - [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
 - [ ] Equipped items reflected in NPC equipment sprite layers
 
-**Stage 19: Tech Trees**
+**Stage 19: Tech Trees** (see [spec](#tech-tree-upgrade-graph-v1))
 
-*Done when: player researches "Iron Working" which unlocks Barracks Lv2 and Guard damage upgrade tier 2 — visible tech tree with branching paths and resource costs.*
+*Done when: player spends Food or Gold to buy tech-tree upgrades with prerequisites (no research building), and branch progression visibly unlocks stronger nodes (e.g., Barracks Lv2 unlock path, Guard damage tier path).*
 
 - [ ] `TechTree` resource with node graph (prereqs, cost, unlock effects)
-- [ ] Research building (Library/Workshop — 1 per town, consumes food over time to research)
+- [ ] Currency model per node: upgrades cost Food or Gold (no research timers/buildings)
 - [ ] Tech nodes unlock: new buildings, upgrade tiers, new unit types, passive bonuses
 - [ ] 3 branches: Military (guards/combat), Agriculture (farms/food), Industry (walls/buildings)
 - [ ] UI: tech tree viewer tab in left panel
+- [ ] Upgrade system migration:
+- [ ] Convert flat upgrade list into dependency graph with per-node prerequisites and multi-level nodes
+- [ ] Enforce prerequisites in purchase path (`process_upgrades_system`), auto-upgrade path (`auto_upgrade_system`), and AI planner (`ai_decision_system`)
+- [ ] Add branch-level and global level summaries in Upgrades UI (e.g., Military LvX / Economy LvY / Town LvZ, Total LvN)
+- [ ] Render node state in UI: Locked/Unlocked, current level, next cost, current effect, next-level effect
+- [ ] Add energy branch nodes as upgrade effects: guard energy efficiency + worker (farmer/miner) energy efficiency
+- [ ] Keep metadata in one registry shared by UI labels, AI log names, prereq checks, and short labels in Intel panel
+- [ ] Add tech-tree unlock node for `Player AI Manager` (disabled by default until unlocked)
+- [ ] Add player-side AI manager UI panel (or left-panel section) with settings for build/upgrade automation in the player town
+- [ ] Reuse enemy AI logic for player town automation (`AiKind::Builder` behavior parity), gated by the unlock node and player toggle
 
 **Stage 20: Economy Depth**
 
@@ -1154,6 +1177,211 @@ pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
 10. Enemy town NPCs have correct faction (not 0) — click an enemy farmer in roster, verify faction color is different from player
 11. Multiple AI towns + camps: set 3 AI towns + 3 raider camps. All factions distinct. Multi-faction wars emerge.
 
+### Tech Tree Upgrade Graph (v1)
+
+Goal: convert the current flat upgrade list into a dependency-based tech tree with multi-level nodes, explicit effect previews, and energy upgrades for jobs. This is a staged migration that keeps existing save compatibility and preserves current economy pacing unless intentionally retuned.
+
+Scope (v1):
+- Replace linear upgrade UI with graph-driven rendering (tree-like branches/tier rows)
+- Add prerequisite gating for upgrade purchases
+- Expose aggregate level summaries (branch and total)
+- Add job energy upgrades and wire effects into runtime systems
+- Support per-node payment in Food or Gold (no research-building loop)
+- Add a tech-tree node that unlocks a player-owned AI manager for the player town
+- Keep queue-driven purchase model (`UpgradeQueue`) and exponential level scaling (cost doubles by level)
+
+Out of scope (v1):
+- Any research building / research timer loop
+- Unlocking entirely new unit classes/buildings via tech research
+- Savegame schema migration beyond additive fields
+
+Data model (`systems/stats.rs`):
+- Add a static registry for upgrade nodes (single source of truth):
+  `UpgradeNode { kind, label, short, category, tooltip, prereqs, effect_kind, currency }`
+- Add currency type:
+  `UpgradeCurrency { Food, Gold }`
+- Add prerequisite type:
+  `UpgradePrereq { upgrade: UpgradeType, level: u8 }`
+- Add helpers:
+  `upgrade_node(idx)`, `upgrade_unlocked(levels, idx)`, `upgrade_effect_summary(idx, level)`, `upgrade_total_levels(levels)`
+- Keep `TownUpgrades.levels` shape compatible (`[u8; UPGRADE_COUNT]`), expanding count only if new nodes are added
+
+Suggested v1 tree (uses existing + energy nodes):
+- Military branch:
+  Guard Health (root) -> Guard Attack -> Attack Speed -> Guard Range -> Alert Radius
+  Guard Health -> Move Speed -> Guard Stamina
+- Economy branch:
+  Farm Yield (root) -> Farmer HP
+  Farm Yield -> Worker Stamina
+  Farm Yield -> Food Efficiency
+- Town branch:
+  Healing Rate (root) -> Fountain Radius
+  Fountain Radius + Food Efficiency -> Town Area
+
+System wiring:
+- `process_upgrades_system`:
+  reject queued upgrades if prerequisites are not met
+  validate and deduct the correct currency (`FoodStorage` or `GoldStorage`) by node
+  keep TownArea side-effects unchanged (build area expansion)
+  re-resolve affected NPC stats only for relevant upgrade types
+- `auto_upgrade_system`:
+  only queue auto-purchases when node is unlocked and town can afford that node's currency
+- `ai_decision_system`:
+  evaluate candidate upgrades only if unlocked and affordable in required currency
+  read upgrade names/short labels from shared registry (remove hardcoded match table)
+  when `Player AI Manager` is unlocked + enabled, run the same builder AI decision flow for faction 0 town (player town) using separate player-facing settings
+- `energy_system`:
+  apply per-town energy modifiers by job
+  Guard Stamina: reduce energy drain for `Job::Guard`
+  Worker Stamina: reduce energy drain for `Job::Farmer` and `Job::Miner`
+  keep clamp behavior (`0..100`) and starvation interaction unchanged
+
+Player AI manager model:
+- Add `PlayerAiManager` resource (or equivalent) with:
+  `unlocked: bool` (derived from tech tree node),
+  `enabled: bool`,
+  `build_enabled: bool`,
+  `upgrade_enabled: bool`,
+  `aggression/defense/economy bias` controls (or simple profile enum)
+- Keep enemy AI resources unchanged; player manager should call shared decision helpers so behavior parity is maintained
+- Safety guard: player manager only manages player town (`faction == 0`) and never controls enemy settlements
+
+UI (`ui/left_panel.rs`):
+- Replace local hardcoded upgrade array with registry-driven rendering
+- Render by branch + depth/tier (prereq depth)
+- Per node row:
+  auto-toggle checkbox
+  label + current level
+  lock reason (missing prereqs)
+  buy button with currency tag (e.g., `Food 40`, `Gold 25`), disabled when locked/unaffordable
+  "Now" and "Next" effect text
+- Header summaries:
+  town food + town gold
+  branch totals (Military/Economy/Town)
+  overall total level
+- Player AI manager controls:
+  hidden/disabled until `Player AI Manager` node is unlocked
+  once unlocked: show enable toggle + core settings (build/upgrade toggles, interval/profile)
+  show status label (Disabled / Active) for quick feedback
+
+Intel + HUD consistency:
+- Intel tab upgrade chips should use shared `short` labels from registry
+- Any building inspector text that references upgrade names should use same registry labels where practical
+
+Files to change (v1):
+- `rust/src/systems/stats.rs`
+- `rust/src/systems/energy.rs`
+- `rust/src/systems/ai_player.rs`
+- `rust/src/ui/left_panel.rs`
+- `rust/src/ui/game_hud.rs` (if label wiring is needed)
+- `rust/src/resources.rs` (`AutoUpgrade` sizing stays tied to `UPGRADE_COUNT`)
+- `rust/src/systems/mod.rs` (re-export helpers if needed)
+- `rust/src/settings.rs` (persist player AI manager UI settings/toggles if desired)
+
+Validation checklist:
+1. `cargo check` passes
+2. Can only buy a node when all prerequisites are satisfied
+3. Auto-upgrade never buys locked nodes
+4. AI never queues locked nodes
+5. Upgrades tab shows:
+   locked state, prereq text, current+next effects, branch totals, total levels
+6. Guard Stamina changes observed guard energy drain over identical time window
+7. Worker Stamina changes farmer/miner energy drain over identical time window
+8. Existing tests still pass; add targeted tests below
+9. `Player AI Manager` is unavailable before unlock, then becomes configurable after unlock
+10. With manager enabled, player town performs the same automation class as enemy builder AI (build + upgrade), constrained to faction 0
+
+Test additions:
+- `tests/tech_tree.rs`:
+  prerequisites block purchase until required levels are reached
+  queue entries for locked nodes are ignored
+- `tests/energy_upgrades.rs`:
+  guard drain with/without Guard Stamina differs as expected
+  farmer/miner drain with/without Worker Stamina differs as expected
+- `tests/ai_upgrades.rs`:
+  AI upgrade choice skips locked nodes and buys unlocked affordable nodes
+- `tests/player_ai_manager.rs`:
+  unlock gating works (no controls/effects before unlock)
+  enabling manager triggers player-town AI actions after unlock
+  manager never issues actions for non-player towns
+
+### NPC Skills & Proficiency
+
+Goal: add persistent, per-NPC proficiency that improves with experience and directly impacts how well NPCs perform their work (farm, fight, dodge, etc.).
+
+Design constraints:
+- Job determines what an NPC can do. Skills determine how well they do it.
+- Proficiency is additive/scalar, not a replacement for existing job stats/upgrades/traits.
+- Keep deterministic enough for tests and profiling; avoid expensive per-frame randomness.
+
+Data model:
+- Add `NpcSkills` component (or resource-backed cache keyed by `NpcIndex`):
+  `farm: u16`, `combat: u16`, `dodge: u16`, optional future fields (`craft`, `leadership`, etc.)
+- Range:
+  store as integer points 0..1000 internally; expose as 0.0..100.0 in UI
+- Add helper functions:
+  `skill_to_pct(points) -> f32`
+  `skill_multiplier(points, max_bonus) -> f32`
+  `add_skill_xp(points, delta_xp)`
+- Persist across respawn only if desired by design; default v1 behavior:
+  skill belongs to NPC instance (newly spawned replacement starts at baseline)
+
+Suggested v1 math (safe, bounded):
+- Farming:
+  `farm_mult = 1.0 + farm_prof * 0.005` (max +50%)
+  apply to tended farm growth/harvest throughput
+- Combat:
+  `combat_mult = 1.0 + combat_prof * 0.004` (max +40%)
+  apply to effective damage and/or cooldown efficiency (choose one first, then expand)
+- Dodge:
+  `dodge_mult = 1.0 + dodge_prof * 0.006` (max +60%)
+  apply to dodge decision weight / projectile avoidance strength
+
+XP gain model:
+- Farming XP:
+  gain when farm work ticks and on successful harvest
+- Combat XP:
+  gain on attack attempts and bonus on confirmed hit/kill
+- Dodge XP:
+  gain when near-miss/projectile avoidance logic triggers
+- Diminishing returns:
+  scale XP gain by `(1.0 - proficiency_pct)` so early growth is faster than late growth
+
+System integration points:
+- `systems/economy.rs`:
+  farm growth/harvest uses farming proficiency multiplier
+- `systems/stats.rs` / combat pipeline:
+  incorporate combat proficiency in resolved/effective combat output path
+- GPU dodge path (`gpu/npc_compute.wgsl` + sync path):
+  pass dodge proficiency signal into avoidance weighting (or CPU-side precomputed dodge factor buffer)
+- `systems/spawn.rs`:
+  initialize `NpcSkills` baseline by job
+- `systems/health.rs` and `systems/behavior.rs`:
+  optional hooks for dodge/combat XP triggers
+
+UI/UX:
+- Inspector (`ui/game_hud.rs`):
+  show Skill panel: Farm / Combat / Dodge proficiency bars + numeric values
+- Roster (`ui/left_panel.rs`):
+  optional columns/sort for top relevant proficiency by job
+- Tooltip copy:
+  explain that proficiency increases with activity and improves effectiveness
+
+Balancing guidance:
+- Keep proficiency impact weaker than major tech-tree upgrades at low-mid values
+- Cap total stacked multipliers (traits + upgrades + proficiency) to avoid runaway scaling
+- Profile impact under high NPC counts; prefer cached multipliers updated on skill change, not recomputed everywhere each frame
+
+Testing plan:
+- `tests/skills_progression.rs`:
+  verifies farming/combat/dodge proficiency increases under expected actions
+- `tests/skills_effects.rs`:
+  higher farm proficiency yields faster output than baseline
+  higher combat proficiency yields better duel outcome over fixed window
+  higher dodge proficiency reduces projectile hits over fixed scenario
+- Regression:
+  ensure no-skill baseline behavior remains close to current gameplay
+
 ## References
 
 - [Simon Green's CUDA Particles](https://developer.download.nvidia.com/assets/cuda/files/particles.pdf) — GPU spatial grid approach
@@ -1161,10 +1389,4 @@ pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
 - [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) — compute + render pipeline
 - [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) — sprite batching, per-layer draw queues
 - [Factorio FFF #421](https://www.factorio.com/blog/post/fff-421) — entity update optimization, lazy activation
-
-
-
-
-
-
 

@@ -71,7 +71,7 @@ game_time_system (every frame)
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- House → Farmer (nearest **free** farm in own town via `find_nearest_free` on `BuildingSpatialGrid` — skips occupied farms), Barracks → Guard (nearest guard post via `find_location_within_radius` on `BuildingSpatialGrid`, home = building position), Tent → Raider (home = tent position). All spawner types look up faction from `world_data.towns[town_idx].faction`.
+- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth): House → Farmer (nearest **free** farm via `find_nearest_free`), Barracks → Guard (nearest guard post via `find_location_within_radius`), Tent → Raider (home = tent position). All types look up faction from `world_data.towns[town_idx].faction`. Same function used by `game_startup_system` for initial NPC spawns.
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -98,14 +98,18 @@ Farms have a growth cycle instead of infinite food:
 
 ```
 
+**Farm harvest** uses `FarmStates::harvest()` (single source of truth for Ready → Growing transition):
+- `harvest(farm_idx, Some(town_idx), ...)` = farmer harvest: add food to town, emit FoodConsumed event, log to CombatLog, reset to Growing
+- `harvest(farm_idx, None, ...)` = raider theft: reset to Growing only (no food credit — raider carries food home via `Activity::Returning`)
+- Called from 3 sites: arrival_system (tending check), decision_system (farmer work arrival), decision_system (raider steal)
+
 **Farmer harvest** (decision_system, GoingToWork → Working arrival):
-- Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS (20px) of **WorkPosition** (not current position)
-- If farm is Ready: add food to town storage, reset farm to Growing
+- If farm is Ready: `harvest(Some(town_idx))` adds food + resets farm
 - Logs "Harvested → Working" vs "→ Working (tending)"
 
 **Raider steal** (decision_system, Raiding arrival):
 - Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS
-- Only steals if farm is Ready — reset farm to Growing, set CarryingFood + Returning
+- Only steals if farm is Ready — `harvest(None)` resets farm, set CarryingFood + Returning
 - If farm not ready: find a different farm (excludes current position, skips tombstoned); if no other farm found, return home
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another" vs "No other farms, returning"
 

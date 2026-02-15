@@ -573,6 +573,41 @@ impl FarmStates {
         self.progress.push(0.0);
         self.positions.push(pos);
     }
+
+    /// Harvest a Ready farm: reset to Growing, optionally credit food to a town.
+    /// `credit_town`: Some(idx) = farmer harvest (add food + event + log), None = raider theft (state reset only).
+    pub fn harvest(
+        &mut self,
+        farm_idx: usize,
+        credit_town: Option<usize>,
+        food_storage: &mut FoodStorage,
+        food_events: &mut FoodEvents,
+        combat_log: &mut CombatLog,
+        game_time: &GameTime,
+    ) -> bool {
+        if farm_idx >= self.states.len()
+            || self.states[farm_idx] != FarmGrowthState::Ready
+        {
+            return false;
+        }
+        if let Some(town_idx) = credit_town {
+            if town_idx < food_storage.food.len() {
+                food_storage.food[town_idx] += 1;
+                food_events.consumed.push(FoodConsumed {
+                    location_idx: farm_idx as u32,
+                    is_camp: false,
+                });
+            }
+            combat_log.push(
+                CombatEventKind::Harvest,
+                game_time.day(), game_time.hour(), game_time.minute(),
+                format!("Farm #{} harvested", farm_idx),
+            );
+        }
+        self.states[farm_idx] = FarmGrowthState::Growing;
+        self.progress[farm_idx] = 0.0;
+        true
+    }
 }
 
 /// Per-faction statistics.
@@ -810,7 +845,7 @@ pub struct GuardPostState {
 /// Tracks one building spawner (House, Barracks, or Tent) and its linked NPC.
 #[derive(Clone, Default)]
 pub struct SpawnerEntry {
-    pub building_kind: i32,   // 0=House (farmer), 1=Barracks (guard), 2=Tent (raider)
+    pub building_kind: i32,   // derived from Building::spawner_kind(): 0=House, 1=Barracks, 2=Tent
     pub town_idx: i32,        // town data index (villager or raider camp)
     pub position: Vec2,       // building world position
     pub npc_slot: i32,        // linked NPC slot (-1 = no NPC alive)

@@ -200,31 +200,16 @@ fn game_startup_system(
     // Build SpawnerState from world gen Houses + Barracks + Tents
     spawner_state.0.clear();
     for house in world_data.houses.iter() {
-        spawner_state.0.push(SpawnerEntry {
-            building_kind: 0,
-            town_idx: house.town_idx as i32,
-            position: house.position,
-            npc_slot: -1,
-            respawn_timer: -1.0,
-        });
+        world::register_spawner(&mut spawner_state, world::Building::House { town_idx: 0 },
+            house.town_idx as i32, house.position, -1.0);
     }
     for barracks in world_data.barracks.iter() {
-        spawner_state.0.push(SpawnerEntry {
-            building_kind: 1,
-            town_idx: barracks.town_idx as i32,
-            position: barracks.position,
-            npc_slot: -1,
-            respawn_timer: -1.0,
-        });
+        world::register_spawner(&mut spawner_state, world::Building::Barracks { town_idx: 0 },
+            barracks.town_idx as i32, barracks.position, -1.0);
     }
     for tent in world_data.tents.iter() {
-        spawner_state.0.push(SpawnerEntry {
-            building_kind: 2,
-            town_idx: tent.town_idx as i32,
-            position: tent.position,
-            npc_slot: -1,
-            respawn_timer: -1.0,
-        });
+        world::register_spawner(&mut spawner_state, world::Building::Tent { town_idx: 0 },
+            tent.town_idx as i32, tent.position, -1.0);
     }
 
     // Reset farm occupancy for fresh game
@@ -240,33 +225,10 @@ fn game_startup_system(
         let Some(slot) = slots.alloc() else { break };
         let town_data_idx = entry.town_idx as usize;
 
-        let town_faction = world_data.towns.get(entry.town_idx as usize)
-            .map(|t| t.faction).unwrap_or(0);
-
-        let (job, faction, work_x, work_y, starting_post, attack_type) = match entry.building_kind {
-            0 => {
-                // House -> Farmer: find nearest FREE farm in own town
-                let farm = world::find_nearest_free(
-                    entry.position, &extra.bgrid, world::BuildingKind::Farm, &startup_claimed, Some(entry.town_idx as u32),
-                ).unwrap_or(entry.position);
-                // Mark in local tracker so next farmer picks a different farm
-                startup_claimed.claim(farm);
-                (0, town_faction, farm.x, farm.y, -1, 0)
-            }
-            1 => {
-                // Barracks -> Guard: find nearest guard post
-                let post_idx = world::find_location_within_radius(
-                    entry.position, &extra.bgrid, world::LocationKind::GuardPost, f32::MAX,
-                ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-                (1, town_faction, -1.0, -1.0, post_idx, 1)
-            }
-            _ => {
-                // Tent -> Raider: home = camp center
-                let camp_faction = world_data.towns.get(town_data_idx)
-                    .map(|t| t.faction).unwrap_or(1);
-                (2, camp_faction, -1.0, -1.0, -1, 0)
-            }
-        };
+        let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
+            world::resolve_spawner_npc(entry, &world_data.towns, &extra.bgrid, &startup_claimed);
+        // Mark farm as claimed so next farmer picks a different one
+        if work_x > 0.0 { startup_claimed.claim(Vec2::new(work_x, work_y)); }
 
         // Home = spawner building position (house/barracks/tent)
         let (home_x, home_y) = (entry.position.x, entry.position.y);
@@ -573,44 +535,29 @@ fn build_place_click_system(
     if row == 0 && col == 0 { return; }
     if grid.cell(gc, gr).map(|c| c.building.is_some()) != Some(false) { return; }
 
-    let (building, cost, label, spawner_kind) = match kind {
-        BuildKind::Farm => (world::Building::Farm { town_idx }, FARM_BUILD_COST, "farm", -1),
+    let (building, cost, label) = match kind {
+        BuildKind::Farm => (world::Building::Farm { town_idx }, FARM_BUILD_COST, "farm"),
         BuildKind::GuardPost => {
             let existing_posts = world_data.guard_posts.iter()
                 .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
                 .count() as u32;
-            (world::Building::GuardPost { town_idx, patrol_order: existing_posts }, GUARD_POST_BUILD_COST, "guard post", -1)
+            (world::Building::GuardPost { town_idx, patrol_order: existing_posts }, GUARD_POST_BUILD_COST, "guard post")
         }
-        BuildKind::House => (world::Building::House { town_idx }, HOUSE_BUILD_COST, "house", 0),
-        BuildKind::Barracks => (world::Building::Barracks { town_idx }, BARRACKS_BUILD_COST, "barracks", 1),
-        BuildKind::Tent => (world::Building::Tent { town_idx }, TENT_BUILD_COST, "tent", 2),
+        BuildKind::House => (world::Building::House { town_idx }, HOUSE_BUILD_COST, "house"),
+        BuildKind::Barracks => (world::Building::Barracks { town_idx }, BARRACKS_BUILD_COST, "barracks"),
+        BuildKind::Tent => (world::Building::Tent { town_idx }, TENT_BUILD_COST, "tent"),
         BuildKind::Destroy => unreachable!(),
     };
 
     let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
     if food < cost { return; }
 
-    if world::place_building(
-        &mut grid, &mut world_data, &mut farm_states, building, row, col, center,
-    ).is_err() {
-        return;
-    }
-
-    if let Some(f) = food_storage.food.get_mut(town_data_idx) {
-        *f -= cost;
-    }
-
-    if spawner_kind >= 0 {
-        let (sgc, sgr) = grid.world_to_grid(slot_pos);
-        let snapped = grid.grid_to_world(sgc, sgr);
-        spawner_state.0.push(SpawnerEntry {
-            building_kind: spawner_kind,
-            town_idx: town_data_idx as i32,
-            position: snapped,
-            npc_slot: -1,
-            respawn_timer: 0.0,
-        });
-    }
+    if !world::build_and_pay(
+        &mut grid, &mut world_data, &mut farm_states,
+        &mut food_storage, &mut spawner_state,
+        building, town_data_idx,
+        row, col, center, cost,
+    ) { return; }
 
     combat_log.push(
         CombatEventKind::Harvest,

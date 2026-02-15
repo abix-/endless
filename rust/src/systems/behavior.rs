@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, FoodConsumed, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings};
+use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings};
 use crate::systems::economy::*;
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
 
@@ -151,22 +151,8 @@ pub fn arrival_system(
 
         // Harvest check: if farm became Ready while working, harvest it
         if let Some(farm_idx) = find_by_pos(&world_data.farms, farm_pos) {
-            if farm_idx < farm_states.states.len()
-                && farm_states.states[farm_idx] == FarmGrowthState::Ready
-            {
-                let town_idx = town.0 as usize;
-                if town_idx < food_storage.food.len() {
-                    food_storage.food[town_idx] += 1;
-                    food_events.consumed.push(FoodConsumed {
-                        location_idx: farm_idx as u32,
-                        is_camp: false,
-                    });
-                }
-                farm_states.states[farm_idx] = FarmGrowthState::Growing;
-                farm_states.progress[farm_idx] = 0.0;
+            if farm_states.harvest(farm_idx, Some(town.0 as usize), &mut food_storage, &mut food_events, &mut combat_log, &game_time) {
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)");
-                combat_log.push(CombatEventKind::Harvest, game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("Farm #{} harvested", farm_idx));
             }
         }
     }
@@ -393,22 +379,8 @@ pub fn decision_system(
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
 
                                 // Check if farm is ready to harvest
-                                if farm_idx < farms.states.states.len()
-                                    && farms.states.states[farm_idx] == FarmGrowthState::Ready
-                                {
-                                    let town_idx = town_id.0 as usize;
-                                    if town_idx < economy.food_storage.food.len() {
-                                        economy.food_storage.food[town_idx] += 1;
-                                        economy.food_events.consumed.push(FoodConsumed {
-                                            location_idx: farm_idx as u32,
-                                            is_camp: false,
-                                        });
-                                    }
-                                    farms.states.states[farm_idx] = FarmGrowthState::Growing;
-                                    farms.states.progress[farm_idx] = 0.0;
+                                if farms.states.harvest(farm_idx, Some(town_id.0 as usize), &mut economy.food_storage, &mut economy.food_events, combat_log, &game_time) {
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working");
-                                    combat_log.push(CombatEventKind::Harvest, game_time.day(), game_time.hour(), game_time.minute(),
-                                        format!("Farm #{} harvested", farm_idx));
                                 } else {
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)");
                                 }
@@ -441,8 +413,7 @@ pub fn decision_system(
                             });
 
                         if let Some((farm_idx, _)) = ready_farm {
-                            farms.states.states[farm_idx] = FarmGrowthState::Growing;
-                            farms.states.progress[farm_idx] = 0.0;
+                            farms.states.harvest(farm_idx, None, &mut economy.food_storage, &mut economy.food_events, combat_log, &game_time);
 
                             *activity = Activity::Returning { has_food: true, gold: 0 };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));

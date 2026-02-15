@@ -231,7 +231,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 ### arrival_system (Proximity Checks)
 - **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (150px), sets `Activity::Idle`. Gold delivered to `GoldStorage` per town.
-- **Working farmer drift check** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm
+- **Working farmer drift check + harvest** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm; checks if farm became Ready while tending and harvests via `FarmStates::harvest(Some(town_idx))`
 - **Healing drift check** in decision_system: `HealingAtFountain` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
 - **GoingToHeal early arrival** in decision_system: NPCs transition to `HealingAtFountain` as soon as they're within 100px of town center, before reaching the exact pixel
 - Arrival detection (`is_transit()` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs

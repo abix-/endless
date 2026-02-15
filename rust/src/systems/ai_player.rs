@@ -352,37 +352,37 @@ fn execute_action(
         AiAction::BuildTent => {
             let tg = town_grids.grids.get(grid_idx)?;
             let (row, col) = find_inner_slot(tg, center, grid)?;
-            try_build(grid, world_data, farm_states, food_storage, spawner_state,
-                Building::Tent { town_idx: ti }, 2, tdi, row, col, center, TENT_BUILD_COST)
+            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::Tent { town_idx: ti }, tdi, row, col, center, TENT_BUILD_COST)
                 .then_some("built tent".into())
         }
         AiAction::BuildFarm => {
             let tg = town_grids.grids.get(grid_idx)?;
             let (row, col) = find_inner_slot(tg, center, grid)?;
-            try_build(grid, world_data, farm_states, food_storage, spawner_state,
-                Building::Farm { town_idx: ti }, -1, tdi, row, col, center, FARM_BUILD_COST)
+            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::Farm { town_idx: ti }, tdi, row, col, center, FARM_BUILD_COST)
                 .then_some("built farm".into())
         }
         AiAction::BuildHouse => {
             let tg = town_grids.grids.get(grid_idx)?;
             let (row, col) = find_inner_slot(tg, center, grid)?;
-            try_build(grid, world_data, farm_states, food_storage, spawner_state,
-                Building::House { town_idx: ti }, 0, tdi, row, col, center, HOUSE_BUILD_COST)
+            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::House { town_idx: ti }, tdi, row, col, center, HOUSE_BUILD_COST)
                 .then_some("built house".into())
         }
         AiAction::BuildBarracks => {
             let tg = town_grids.grids.get(grid_idx)?;
             let (row, col) = find_inner_slot(tg, center, grid)?;
-            try_build(grid, world_data, farm_states, food_storage, spawner_state,
-                Building::Barracks { town_idx: ti }, 1, tdi, row, col, center, BARRACKS_BUILD_COST)
+            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
+                Building::Barracks { town_idx: ti }, tdi, row, col, center, BARRACKS_BUILD_COST)
                 .then_some("built barracks".into())
         }
         AiAction::BuildGuardPost => {
             let tg = town_grids.grids.get(grid_idx)?;
             let (row, col) = find_guard_post_slot(tg, center, grid, world_data, ti)?;
-            try_build(grid, world_data, farm_states, food_storage, spawner_state,
+            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
                 Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
-                -1, tdi, row, col, center, GUARD_POST_BUILD_COST)
+                tdi, row, col, center, GUARD_POST_BUILD_COST)
                 .then_some("built guard post".into())
         }
         AiAction::Upgrade(idx) => {
@@ -400,29 +400,6 @@ fn execute_action(
     }
 }
 
-/// Place building, deduct food, push spawner entry if applicable.
-#[allow(clippy::too_many_arguments)]
-fn try_build(
-    grid: &mut WorldGrid, world_data: &mut WorldData, farm_states: &mut FarmStates,
-    food_storage: &mut FoodStorage, spawner_state: &mut SpawnerState,
-    building: Building, spawner_kind: i32, tdi: usize,
-    row: i32, col: i32, center: Vec2, cost: i32,
-) -> bool {
-    if world::place_building(grid, world_data, farm_states, building, row, col, center).is_err() {
-        return false;
-    }
-    if let Some(f) = food_storage.food.get_mut(tdi) { *f -= cost; }
-    if spawner_kind >= 0 {
-        let pos = world::town_grid_to_world(center, row, col);
-        let (gc, gr) = grid.world_to_grid(pos);
-        let snapped = grid.grid_to_world(gc, gr);
-        spawner_state.0.push(SpawnerEntry {
-            building_kind: spawner_kind, town_idx: tdi as i32,
-            position: snapped, npc_slot: -1, respawn_timer: 0.0,
-        });
-    }
-    true
-}
 
 fn log_ai(log: &mut CombatLog, gt: &GameTime, town: &str, personality: &str, what: &str) {
     log.push(CombatEventKind::Ai, gt.day(), gt.hour(), gt.minute(),
