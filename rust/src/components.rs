@@ -331,7 +331,7 @@ pub struct Healing;
 pub struct Starving;
 
 /// Squad assignment for archers. 0-9 = squad index.
-/// Archers with this component follow squad target instead of patrolling.
+/// Behavior is controlled by SquadState (target + patrol toggle).
 #[derive(Component)]
 pub struct SquadId(pub i32);
 

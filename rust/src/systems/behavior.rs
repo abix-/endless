@@ -561,6 +561,36 @@ pub fn decision_system(
         }
 
         // ====================================================================
+        // Squad sync: apply squad target/patrol policy changes immediately
+        // (before transit skip) so archers react by next decision tick.
+        // ====================================================================
+        if *job == Job::Archer {
+            if let Some(sid) = squad_id {
+                if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
+                    if let Some(target) = squad.target {
+                        // Squad target always overrides patrol route.
+                        if !matches!(*activity, Activity::Patrolling) {
+                            *activity = Activity::Patrolling;
+                        }
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target.x, y: target.y }));
+                    } else if !squad.patrol_enabled {
+                        // Patrol disabled and no squad target: stop moving now.
+                        if matches!(*activity, Activity::Patrolling | Activity::OnDuty { .. }) {
+                            *activity = Activity::Idle;
+                            if idx * 2 + 1 < positions.len() {
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                    idx,
+                                    x: positions[idx * 2],
+                                    y: positions[idx * 2 + 1],
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
         // Skip NPCs in transit states (they're walking to their destination)
         // GoingToHeal proximity check runs at combat cadence (every 8 frames).
         // ====================================================================
@@ -685,7 +715,10 @@ pub fn decision_system(
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Left post");
                 // Fall through to idle scoring — Rest will win
             } else {
-                if ticks >= ARCHER_PATROL_WAIT {
+                let squad_patrol_enabled = squad_id
+                    .and_then(|sid| squad_state.squads.get(sid.0 as usize))
+                    .is_none_or(|s| s.patrol_enabled);
+                if ticks >= ARCHER_PATROL_WAIT && squad_patrol_enabled {
                     if let Ok(mut patrol) = patrol_query.get_mut(entity) {
                         if !patrol.posts.is_empty() {
                             patrol.current = (patrol.current + 1) % patrol.posts.len();
@@ -859,6 +892,10 @@ pub fn decision_system(
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target.x, y: target.y }));
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                                         format!("Squad {} → target", sid.0 + 1));
+                                    if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
+                                    continue;
+                                }
+                                if !squad.patrol_enabled {
                                     if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                                     continue;
                                 }

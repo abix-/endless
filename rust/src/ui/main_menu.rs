@@ -23,6 +23,7 @@ pub struct MenuState {
     pub npc_interval: f32,
     pub gen_style: i32,
     pub gold_mines: f32,
+    pub raider_passive_forage: bool,
     pub initialized: bool,
 }
 
@@ -46,6 +47,7 @@ pub fn main_menu_system(
     mut wg_config: ResMut<WorldGenConfig>,
     mut ai_config: ResMut<AiPlayerConfig>,
     mut npc_config: ResMut<crate::resources::NpcDecisionConfig>,
+    mut user_settings: ResMut<settings::UserSettings>,
     mut state: Local<MenuState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
@@ -65,6 +67,7 @@ pub fn main_menu_system(
         state.npc_interval = saved.npc_interval;
         state.gen_style = saved.gen_style as i32;
         state.gold_mines = saved.gold_mines_per_town as f32;
+        state.raider_passive_forage = saved.raider_passive_forage;
         state.initialized = true;
     }
 
@@ -168,6 +171,13 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
+            ui.horizontal(|ui| {
+                ui.label("Raider Passive Forage:");
+                ui.checkbox(&mut state.raider_passive_forage, "Enabled");
+            });
+
+            ui.add_space(4.0);
+
             // AI Speed
             ui.horizontal(|ui| {
                 ui.label("AI Speed:");
@@ -219,7 +229,9 @@ pub fn main_menu_system(
                 saved.npc_interval = state.npc_interval;
                 saved.gen_style = state.gen_style as u8;
                 saved.gold_mines_per_town = state.gold_mines as usize;
+                saved.raider_passive_forage = state.raider_passive_forage;
                 settings::save_settings(&saved);
+                user_settings.raider_passive_forage = state.raider_passive_forage;
 
                 next_state.set(AppState::Playing);
             }
@@ -319,6 +331,7 @@ pub fn main_menu_system(
                             state.npc_interval = defaults.npc_interval;
                             state.gen_style = defaults.gen_style as i32;
                             state.gold_mines = defaults.gold_mines_per_town as f32;
+                            state.raider_passive_forage = defaults.raider_passive_forage;
                             settings::save_settings(&defaults);
                         }
                     });

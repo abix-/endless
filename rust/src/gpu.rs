@@ -33,6 +33,8 @@ use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapo
 use crate::constants::FOOD_SPRITE;
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
 use crate::resources::{GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, SystemTimings};
+use crate::systems::stats::{self, TownUpgrades};
+use crate::world::WorldData;
 
 // =============================================================================
 // CONSTANTS
@@ -87,6 +89,7 @@ pub struct NpcComputeParams {
     pub mode: u32,
     pub combat_range: f32,
     pub proj_max_per_cell: u32,
+    pub dodge_unlocked: u32,
 }
 
 impl Default for NpcComputeParams {
@@ -104,6 +107,7 @@ impl Default for NpcComputeParams {
             mode: 0,
             combat_range: 300.0,
             proj_max_per_cell: MAX_PER_CELL,
+            dodge_unlocked: 0,
         }
     }
 }
@@ -710,11 +714,17 @@ fn update_gpu_data(
     mut params: ResMut<NpcComputeParams>,
     slots: Res<SlotAllocator>,
     time: Res<Time>,
+    upgrades: Res<TownUpgrades>,
+    world_data: Res<WorldData>,
 ) {
     gpu_data.npc_count = slots.count() as u32;
     gpu_data.delta = time.delta_secs();
     params.delta = time.delta_secs();
     params.count = slots.count() as u32;
+
+    let player_town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+    let levels = upgrades.town_levels(player_town_idx);
+    params.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };
 }
 
 // =============================================================================

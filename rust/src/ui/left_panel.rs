@@ -87,8 +87,6 @@ pub struct SquadParams<'w, 's> {
     squad_state: ResMut<'w, SquadState>,
     meta_cache: Res<'w, NpcMetaCache>,
     gpu_state: Res<'w, GpuReadState>,
-    // Query: alive archers without SquadId (available for recruitment)
-    available_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static TownId), (With<Archer>, Without<Dead>, Without<SquadId>)>,
     // Query: archers with SquadId (for dismiss)
     squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId), (With<Archer>, Without<Dead>)>,
 }
@@ -676,18 +674,20 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &mut WorldData) {
 // SQUADS CONTENT
 // ============================================================================
 
-fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &WorldData, commands: &mut Commands) {
-    let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
+fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, _world_data: &WorldData, commands: &mut Commands) {
     let selected = squad.squad_state.selected;
 
     // Squad list
     for i in 0..squad.squad_state.squads.len() {
         let count = squad.squad_state.squads[i].members.len();
         let has_target = squad.squad_state.squads[i].target.is_some();
+        let patrol_on = squad.squad_state.squads[i].patrol_enabled;
         let is_selected = selected == i as i32;
 
         let target_str = if has_target { "target set" } else { "---" };
-        let label = format!("{}. Squad {}  [{}]  {}", i + 1, i + 1, count, target_str);
+        let patrol_str = if patrol_on { "patrol:on" } else { "patrol:off" };
+        let squad_name = if i == 0 { "Default Squad" } else { "Squad" };
+        let label = format!("{}. {} {}  [{}]  {}  {}", i + 1, squad_name, i + 1, count, target_str, patrol_str);
 
         if ui.selectable_label(is_selected, label).clicked() {
             squad.squad_state.selected = if is_selected { -1 } else { i as i32 };
@@ -704,7 +704,8 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &World
     let si = selected as usize;
     let member_count = squad.squad_state.squads[si].members.len();
 
-    ui.strong(format!("Squad {} — {} archers", si + 1, member_count));
+    let header_name = if si == 0 { "Default Squad" } else { "Squad" };
+    ui.strong(format!("{} {} — {} archers", header_name, si + 1, member_count));
 
     // Target controls
     ui.horizontal(|ui| {
@@ -726,22 +727,50 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &World
         ui.small(format!("Target: ({:.0}, {:.0})", target.x, target.y));
     }
 
+    let mut patrol_enabled = squad.squad_state.squads[si].patrol_enabled;
+    if ui.checkbox(&mut patrol_enabled, "Patrol when no target").changed() {
+        squad.squad_state.squads[si].patrol_enabled = patrol_enabled;
+    }
+
     ui.add_space(4.0);
 
-    // Count available unsquadded guards
-    let avail_count = squad.available_guards.iter()
-        .filter(|(_, _, town)| town.0 == player_town)
-        .count();
-    let max_size = member_count + avail_count;
+    // Recruit controls: move archers from Default Squad (1) into selected squad.
+    let default_count = squad.squad_state.squads.first().map(|s| s.members.len()).unwrap_or(0);
+    if si == 0 {
+        ui.small(format!("Default squad pool: {} archers", default_count));
+    } else {
+        ui.small(format!("Default squad pool: {} archers", default_count));
+        ui.horizontal_wrapped(|ui| {
+            for amount in [1usize, 2, 4, 8, 16, 32] {
+                let enabled = default_count >= amount;
+                if ui.add_enabled(enabled, egui::Button::new(format!("+{}", amount))).clicked() {
+                    // Pick first N members from default squad and transfer to selected squad.
+                    let recruits: Vec<usize> = squad.squad_state.squads[0].members.iter().copied().take(amount).collect();
 
-    // Target size control
-    let mut target_size = squad.squad_state.squads[si].target_size;
-    ui.horizontal(|ui| {
-        ui.label("Size:");
-        ui.add(egui::DragValue::new(&mut target_size).range(0..=max_size));
-        ui.small(format!("{} / {} available", member_count, avail_count));
-    });
-    squad.squad_state.squads[si].target_size = target_size;
+                    for slot in &recruits {
+                        for (entity, npc_idx, sid) in squad.squad_guards.iter() {
+                            if sid.0 == 0 && npc_idx.0 == *slot {
+                                commands.entity(entity).insert(SquadId(si as i32));
+                                break;
+                            }
+                        }
+                    }
+
+                    squad.squad_state.squads[0].members.retain(|slot| !recruits.contains(slot));
+                    for slot in recruits {
+                        if !squad.squad_state.squads[si].members.contains(&slot) {
+                            squad.squad_state.squads[si].members.push(slot);
+                        }
+                    }
+
+                    // Keep auto-recruit logic from immediately dismissing newly added members.
+                    let selected_len = squad.squad_state.squads[si].members.len();
+                    let selected_target = squad.squad_state.squads[si].target_size;
+                    squad.squad_state.squads[si].target_size = selected_target.max(selected_len);
+                }
+            }
+        });
+    }
 
     // Dismiss all
     if member_count > 0 {

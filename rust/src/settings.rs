@@ -81,6 +81,8 @@ pub struct UserSettings {
     pub help_text_size: f32,
     #[serde(default = "default_build_menu_text_scale")]
     pub build_menu_text_scale: f32,
+    #[serde(default)]
+    pub raider_passive_forage: bool,
 }
 
 fn default_gold_mines() -> usize { 2 }
@@ -130,6 +132,7 @@ impl Default for UserSettings {
             ui_scale: 1.0,
             help_text_size: 14.0,
             build_menu_text_scale: 1.2,
+            raider_passive_forage: false,
         }
     }
 }

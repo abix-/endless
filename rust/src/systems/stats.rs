@@ -64,7 +64,7 @@ impl Default for CombatConfig {
 // TOWN UPGRADES
 // ============================================================================
 
-pub const UPGRADE_COUNT: usize = 13;
+pub const UPGRADE_COUNT: usize = 14;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(usize)]
@@ -73,13 +73,14 @@ pub enum UpgradeType {
     AttackSpeed = 4, MoveSpeed = 5, AlertRadius = 6,
     FarmYield = 7, FarmerHp = 8,
     HealingRate = 9, FoodEfficiency = 10, FountainRadius = 11, TownArea = 12,
+    EvasionTraining = 13,
 }
 
 pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
     0.10, 0.10, 0.05, 0.05,  // archer: health, attack, range, size
     0.08, 0.05, 0.10,         // cooldown reduction, move speed, alert radius
     0.15, 0.20,               // farm yield, farmer HP
-    0.20, 0.10, 0.0, 0.0,     // healing rate, food efficiency, fountain radius (flat), town area (discrete)
+    0.20, 0.10, 0.0, 0.0, 0.0, // healing rate, food efficiency, fountain radius (flat), town area (discrete), evasion training (unlock)
 ];
 
 // ============================================================================
@@ -136,7 +137,14 @@ pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
     UpgradeNode { label: "Fountain Radius", short: "Fount",   tooltip: "+24px fountain healing range per level",   category: "Town",   cost: &[(G, 1)], prereqs: &[prereq(9, 1)] },
     // 12: TownArea — requires FountainRadius + FoodEfficiency, costs food + gold
     UpgradeNode { label: "Town Area",       short: "Area",    tooltip: "+1 buildable radius per level",            category: "Town",   cost: &[(F, 1), (G, 1)], prereqs: &[prereq(11, 1), prereq(10, 1)] },
+    // 13: EvasionTraining — requires AlertRadius, unlocks projectile dodge
+    UpgradeNode { label: "Evasion Training", short: "Dodge", tooltip: "Unlocks NPC projectile dodging",            category: "Archer", cost: &[(G, 20)], prereqs: &[prereq(6, 1)] },
 ];
+
+/// True if this town has unlocked projectile dodge.
+pub fn dodge_unlocked(levels: &[u8; UPGRADE_COUNT]) -> bool {
+    levels[UpgradeType::EvasionTraining as usize] > 0
+}
 
 /// Look up upgrade metadata by index.
 pub fn upgrade_node(idx: usize) -> &'static UpgradeNode {

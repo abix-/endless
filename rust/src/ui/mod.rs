@@ -93,6 +93,8 @@ fn ui_toggle_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<UiState>,
     mut follow: ResMut<FollowSelected>,
+    mut squad_state: ResMut<SquadState>,
+    mut build_ctx: ResMut<BuildMenuContext>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
         ui_state.toggle_left_tab(LeftPanelTab::Roster);
@@ -120,6 +122,27 @@ fn ui_toggle_system(
     }
     if keys.just_pressed(KeyCode::KeyF) {
         follow.0 = !follow.0;
+    }
+    // Squad target hotkeys: 1-9,0 => squads 1-10 and enter set-target mode.
+    let squad_hotkey = if keys.just_pressed(KeyCode::Digit1) { Some(0) }
+        else if keys.just_pressed(KeyCode::Digit2) { Some(1) }
+        else if keys.just_pressed(KeyCode::Digit3) { Some(2) }
+        else if keys.just_pressed(KeyCode::Digit4) { Some(3) }
+        else if keys.just_pressed(KeyCode::Digit5) { Some(4) }
+        else if keys.just_pressed(KeyCode::Digit6) { Some(5) }
+        else if keys.just_pressed(KeyCode::Digit7) { Some(6) }
+        else if keys.just_pressed(KeyCode::Digit8) { Some(7) }
+        else if keys.just_pressed(KeyCode::Digit9) { Some(8) }
+        else if keys.just_pressed(KeyCode::Digit0) { Some(9) }
+        else { None };
+    if let Some(si) = squad_hotkey {
+        if si < squad_state.squads.len() {
+            build_ctx.selected_build = None;
+            ui_state.left_panel_open = true;
+            ui_state.left_panel_tab = LeftPanelTab::Squads;
+            squad_state.selected = si as i32;
+            squad_state.placing_target = true;
+        }
     }
     // WASD cancels follow — user wants manual control
     if follow.0 && (keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::KeyA)

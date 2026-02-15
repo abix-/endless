@@ -1,6 +1,7 @@
 //! Economy systems - Game time, population tracking, farm growth, camp foraging, respawning
 
 use bevy::prelude::*;
+use std::collections::HashSet;
 
 use crate::components::*;
 use crate::resources::*;
@@ -176,10 +177,11 @@ pub fn camp_forage_system(
     game_time: Res<GameTime>,
     mut food_storage: ResMut<FoodStorage>,
     world_data: Res<WorldData>,
+    user_settings: Res<crate::settings::UserSettings>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("camp_forage");
-    if !game_time.hour_ticked {
+    if !game_time.hour_ticked || !user_settings.raider_passive_forage {
         return;
     }
 
@@ -349,13 +351,25 @@ pub fn squad_cleanup_system(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("squad_cleanup");
+    let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
 
     // Phase 1: remove dead members
     for squad in squad_state.squads.iter_mut() {
         squad.members.retain(|&slot| npc_map.0.contains_key(&slot));
     }
 
-    // Phase 2: dismiss excess (target_size > 0 and members > target_size)
+    // Phase 2: keep Default Squad (1) as the live pool of unsquadded player archers.
+    if let Some(default_squad) = squad_state.squads.get_mut(0) {
+        for (entity, npc_idx, town) in available_guards.iter() {
+            if town.0 != player_town { continue; }
+            commands.entity(entity).insert(SquadId(0));
+            if !default_squad.members.contains(&npc_idx.0) {
+                default_squad.members.push(npc_idx.0);
+            }
+        }
+    }
+
+    // Phase 3: dismiss excess (target_size > 0 and members > target_size)
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
         if squad.target_size > 0 && squad.members.len() > squad.target_size {
             let excess = squad.members.len() - squad.target_size;
@@ -372,10 +386,12 @@ pub fn squad_cleanup_system(
         }
     }
 
-    // Phase 3: auto-recruit to fill target_size
-    let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
+    // Phase 4: auto-recruit to fill target_size
+    let assigned_slots: HashSet<usize> = squad_state.squads.iter()
+        .flat_map(|s| s.members.iter().copied())
+        .collect();
     let mut pool: Vec<(Entity, usize)> = available_guards.iter()
-        .filter(|(_, _, town)| town.0 == player_town)
+        .filter(|(_, npc_idx, town)| town.0 == player_town && !assigned_slots.contains(&npc_idx.0))
         .map(|(e, ni, _)| (e, ni.0))
         .collect();
 
@@ -391,4 +407,3 @@ pub fn squad_cleanup_system(
         }
     }
 }
-

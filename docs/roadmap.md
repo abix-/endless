@@ -70,6 +70,7 @@ Rules:
 
 ### NPC Behaviors
 - [x] Guards: patrol posts clockwise, rest when tired (energy < 50), resume when rested (energy > 80)
+- [x] Per-squad patrol policy (`patrol_enabled`) with immediate next-decision enforcement for squad archers
 - [x] Farmers: work at assigned farm, rest when tired
 - [x] Raiders: steal food from farms, flee when wounded, return to camp, recover
 - [x] Energy system (drain while active, recover while resting)
@@ -84,6 +85,7 @@ Rules:
 ### Economy
 - [x] Food production (farmers generate food per hour)
 - [x] Food theft (raiders steal and deliver to camp)
+- [x] Raider passive forage is runtime-toggleable from menu settings (default OFF)
 - [x] Respawning (dead NPCs respawn after cooldown via RespawnTimers)
 - [x] Per-town food storage (FoodStorage resource)
 - [x] GameTime resource (time_scale, pause, hourly tick events)
@@ -131,6 +133,7 @@ Rules:
 - [x] Building inspector (click building → farm growth/occupancy, spawner NPC status/respawn timer, guard post patrol order/turret, fountain heal radius/food)
 - [x] Patrols tab (T) — view and reorder guard post patrol routes, swap buttons mutate WorldData
 - [x] Left panel (renamed from right_panel): Roster / Upgrades / Policies / Patrols tabs
+- [x] Squads tab updates: visible Default Squad, recruit transfer buttons (+1/+2/+4/+8/+16/+32), and hotkeys `1..9,0` to arm squad target placement for squads 1..10
 
 ### Building System
 - [x] Runtime add/remove farm/bed/guard_post (place_building/remove_building with tombstone deletion)

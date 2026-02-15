@@ -19,6 +19,7 @@ struct Params {
     mode: u32,
     combat_range: f32,
     proj_max_per_cell: u32,
+    dodge_unlocked: u32,
 }
 
 // Storage buffers matching Rust bind group layout
@@ -229,49 +230,51 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // --- Projectile dodge: strafe away from incoming arrows (spatial grid) ---
     var proj_dodge = vec2<f32>(0.0, 0.0);
-    let dodge_radius = 60.0;
-    let dodge_radius_sq = dodge_radius * dodge_radius;
-    let pmpc = i32(params.proj_max_per_cell);
+    if (params.dodge_unlocked != 0u) {
+        let dodge_radius = 60.0;
+        let dodge_radius_sq = dodge_radius * dodge_radius;
+        let pmpc = i32(params.proj_max_per_cell);
 
-    for (var pdy: i32 = -1; pdy <= 1; pdy++) {
-        let pny = cy + pdy;
-        if (pny < 0 || pny >= gh) { continue; }
-        for (var pdx: i32 = -1; pdx <= 1; pdx++) {
-            let pnx = cx + pdx;
-            if (pnx < 0 || pnx >= gw) { continue; }
-            let pcell = pny * gw + pnx;
-            let pcount = min(proj_grid_counts[pcell], pmpc);
-            let pbase = pcell * pmpc;
-            for (var pn: i32 = 0; pn < pcount; pn++) {
-                let pi = proj_grid_data[pbase + pn];
-                if (pi < 0) { continue; }
-                if (proj_factions[pi] == my_faction) { continue; }
+        for (var pdy: i32 = -1; pdy <= 1; pdy++) {
+            let pny = cy + pdy;
+            if (pny < 0 || pny >= gh) { continue; }
+            for (var pdx: i32 = -1; pdx <= 1; pdx++) {
+                let pnx = cx + pdx;
+                if (pnx < 0 || pnx >= gw) { continue; }
+                let pcell = pny * gw + pnx;
+                let pcount = min(proj_grid_counts[pcell], pmpc);
+                let pbase = pcell * pmpc;
+                for (var pn: i32 = 0; pn < pcount; pn++) {
+                    let pi = proj_grid_data[pbase + pn];
+                    if (pi < 0) { continue; }
+                    if (proj_factions[pi] == my_faction) { continue; }
 
-                let pp = proj_positions[pi];
-                let pv = proj_velocities[pi];
-                let to_me = pos - pp;
-                let dist_sq = dot(to_me, to_me);
-                if (dist_sq > dodge_radius_sq || dist_sq < 1.0) { continue; }
+                    let pp = proj_positions[pi];
+                    let pv = proj_velocities[pi];
+                    let to_me = pos - pp;
+                    let dist_sq = dot(to_me, to_me);
+                    if (dist_sq > dodge_radius_sq || dist_sq < 1.0) { continue; }
 
-                // Is projectile heading toward me?
-                let pspd_sq = dot(pv, pv);
-                if (pspd_sq < 1.0) { continue; }
-                let pdir = pv / sqrt(pspd_sq);
-                let approach = dot(pdir, to_me / sqrt(dist_sq));
-                if (approach < 0.3) { continue; }
+                    // Is projectile heading toward me?
+                    let pspd_sq = dot(pv, pv);
+                    if (pspd_sq < 1.0) { continue; }
+                    let pdir = pv / sqrt(pspd_sq);
+                    let approach = dot(pdir, to_me / sqrt(dist_sq));
+                    if (approach < 0.3) { continue; }
 
-                // Dodge perpendicular to projectile direction
-                let pperp = vec2<f32>(-pdir.y, pdir.x);
-                let pside = dot(to_me, pperp);
-                let ddir = select(-1.0, 1.0, pside >= 0.0);
-                let urgency = 1.0 - sqrt(dist_sq) / dodge_radius;
-                proj_dodge += pperp * ddir * urgency;
+                    // Dodge perpendicular to projectile direction
+                    let pperp = vec2<f32>(-pdir.y, pdir.x);
+                    let pside = dot(to_me, pperp);
+                    let ddir = select(-1.0, 1.0, pside >= 0.0);
+                    let urgency = 1.0 - sqrt(dist_sq) / dodge_radius;
+                    proj_dodge += pperp * ddir * urgency;
+                }
             }
         }
-    }
-    let pdlen = length(proj_dodge);
-    if (pdlen > 0.0) {
-        proj_dodge = (proj_dodge / pdlen) * speed * 1.5;
+        let pdlen = length(proj_dodge);
+        if (pdlen > 0.0) {
+            proj_dodge = (proj_dodge / pdlen) * speed * 1.5;
+        }
     }
 
     // --- STEP 3: Movement toward goal + lateral steering when blocked ---

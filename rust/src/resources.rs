@@ -957,7 +957,7 @@ impl Default for TownPolicies {
 // ============================================================================
 
 /// A player-controlled squad of archers.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Squad {
     /// NPC slot indices of archers in this squad.
     pub members: Vec<usize>,
@@ -965,6 +965,19 @@ pub struct Squad {
     pub target: Option<Vec2>,
     /// Desired member count. 0 = manual mode (no auto-recruit).
     pub target_size: usize,
+    /// If true, squad members patrol guard posts when no squad target is set.
+    pub patrol_enabled: bool,
+}
+
+impl Default for Squad {
+    fn default() -> Self {
+        Self {
+            members: Vec::new(),
+            target: None,
+            target_size: 0,
+            patrol_enabled: true,
+        }
+    }
 }
 
 /// All squads + UI state. 10 squads, pre-initialized.
@@ -981,7 +994,7 @@ impl Default for SquadState {
     fn default() -> Self {
         Self {
             squads: (0..crate::constants::MAX_SQUADS).map(|_| Squad::default()).collect(),
-            selected: -1,
+            selected: 0,
             placing_target: false,
         }
     }
@@ -1014,7 +1027,7 @@ impl HelpCatalog {
         m.insert("tab_upgrades", "Spend food on permanent town-wide buffs. Each level doubles in cost. Check the auto-buy box to purchase automatically each game-hour. Hover a cost button for details.");
         m.insert("tab_policies", "Fine-tune NPC behavior \u{2014} changes apply instantly.\n\u{2022} Eat Food / Prioritize Healing: survival basics\n\u{2022} Aggressive / Fight Back: combat stance\n\u{2022} Flee HP: retreat threshold\n\u{2022} Schedule: day, night, or both shifts\n\u{2022} Off-duty: rest at bed, fountain, or wander");
         m.insert("tab_patrols", "Archers walk this route in order, then loop. Reorder with arrows to control where they patrol first. Build more Guard Posts to extend coverage.");
-        m.insert("tab_squads", "Organize archers into squads for coordinated attacks.\n1. Select a squad and set target size (pulls idle archers)\n2. Click 'Set Target' then click the map\nSquad archers march together. Clear the target to release them back to patrol.");
+        m.insert("tab_squads", "Organize archers into squads for coordinated attacks.\n1. Select a squad\n2. Use +1/+2/+4/+8/+16/+32 to move archers from Default Squad\n3. Click 'Set Target' then click the map\n4. Toggle 'Patrol when no target' per squad\nSquad archers march together. Clear the target to release them back to patrol (if enabled).");
         m.insert("tab_intel", "Scout report on AI towns and raider camps. Expand any settlement to see food, population, buildings, and upgrades. Click Jump to move the camera there.");
         m.insert("tab_profiler", "Per-system frame timings. Enable the profiler in Settings (ESC) under Debug. Useful for spotting performance bottlenecks.");
 
