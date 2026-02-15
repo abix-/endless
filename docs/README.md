@@ -123,8 +123,8 @@ Ratings reflect system quality, not doc accuracy.
 
 ```
 rust/
-  Cargo.toml            # Pure Bevy 0.18 + bevy_egui + bytemuck + rand + noise
-  src/main.rs           # Bevy App entry point, asset root = project root, maximize window on startup
+  Cargo.toml            # Pure Bevy 0.18 + bevy_egui + bytemuck + rand + noise + bevy_embedded_assets
+  src/main.rs           # Bevy App entry point, EmbeddedAssetPlugin (release), maximize window on startup
   src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
@@ -132,7 +132,7 @@ rust/
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Miner marker)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining)
-  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, MinerTarget, etc.)
+  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, MinerTarget, HelpCatalog, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
   src/world.rs          # World data structs (GoldMine), world grid (Building::GoldMine), procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups)
   src/ui/
@@ -173,18 +173,19 @@ rust/
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 
-shaders/
-  npc_compute.wgsl      # WGSL compute shader (movement + spatial grid + combat targeting)
-  npc_render.wgsl       # WGSL render shader (instanced quad + sprite atlas)
-  projectile_compute.wgsl # WGSL compute shader (projectile movement + collision)
-
-assets/
-  roguelikeChar_transparent.png   # Character sprites (54x12 grid, 16px + 1px margin)
-  roguelikeSheet_transparent.png  # World sprites (57x31 grid, 16px + 1px margin)
-  heal.png                        # Heal halo sprite (single 16x16, atlas_id=2.0)
-  sleep.png                       # Sleep icon sprite (single 16x16, atlas_id=3.0)
-  house.png                       # House building sprite (32x32, External tileset)
-  barracks.png                    # Barracks building sprite (32x32, External tileset)
-  guard_post.png                  # Guard post building sprite (32x32, External tileset)
+  assets/                 # Standard Bevy asset dir (embedded in release builds via bevy_embedded_assets)
+    sprites/
+      roguelikeChar_transparent.png   # Character sprites (54x12 grid, 16px + 1px margin)
+      roguelikeSheet_transparent.png  # World sprites (57x31 grid, 16px + 1px margin)
+      heal.png                        # Heal halo sprite (single 16x16, atlas_id=2.0)
+      sleep.png                       # Sleep icon sprite (single 16x16, atlas_id=3.0)
+      arrow.png                       # Arrow projectile sprite (single texture, white)
+      house.png                       # House building sprite (32x32, External tileset)
+      barracks.png                    # Barracks building sprite (32x32, External tileset)
+      guard_post.png                  # Guard post building sprite (32x32, External tileset)
+    shaders/
+      npc_compute.wgsl      # WGSL compute shader (movement + spatial grid + combat targeting)
+      npc_render.wgsl       # WGSL render shader (instanced quad + sprite atlas)
+      projectile_compute.wgsl # WGSL compute shader (projectile movement + collision)
 ```
 

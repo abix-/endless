@@ -19,6 +19,16 @@ use crate::resources::*;
 use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality};
 use crate::world::{self, WorldGenConfig};
 
+/// Render a small "?" label that shows help text on hover.
+pub fn help_tip(ui: &mut egui::Ui, catalog: &HelpCatalog, key: &str) {
+    if let Some(text) = catalog.0.get(key) {
+        ui.add(egui::Label::new(
+            egui::RichText::new("?").color(egui::Color32::from_rgb(120, 120, 180))
+        ).sense(egui::Sense::hover()))
+        .on_hover_text(*text);
+    }
+}
+
 /// Register all UI systems.
 pub fn register_ui(app: &mut App) {
     // Global overlays (all states)

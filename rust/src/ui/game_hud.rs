@@ -8,6 +8,7 @@ use crate::components::*;
 use crate::gpu::NpcBufferWrites;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
+use crate::ui::help_tip;
 use crate::world::{WorldData, WorldGrid, Building, BuildingOccupancy};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType};
 
@@ -26,6 +27,7 @@ pub fn top_bar_system(
     world_data: Res<WorldData>,
     mut ui_state: ResMut<UiState>,
     spawner_state: Res<SpawnerState>,
+    catalog: Res<HelpCatalog>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -59,6 +61,8 @@ pub fn top_bar_system(
                 if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Profiler, "Profiler").clicked() {
                     ui_state.toggle_left_tab(LeftPanelTab::Profiler);
                 }
+                ui.separator();
+                help_tip(ui, &catalog, "getting_started");
 
                 // CENTER: town name + time (painted at true center of bar)
                 let town_name = world_data.towns.first()
@@ -83,7 +87,9 @@ pub fn top_bar_system(
                     // Player stats (right-aligned) — player's town is index 0
                     let town_food = food_storage.food.first().copied().unwrap_or(0);
                     let town_gold = gold_storage.gold.first().copied().unwrap_or(0);
+                    help_tip(ui, &catalog, "food");
                     ui.label(format!("Food: {}", town_food));
+                    help_tip(ui, &catalog, "gold");
                     ui.colored_label(egui::Color32::from_rgb(220, 190, 50), format!("Gold: {}", town_gold));
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
@@ -93,11 +99,15 @@ pub fn top_bar_system(
                     // Raider camp is town_data_idx 1 (first odd index)
                     let raiders = pop_stats.0.get(&(2, 1)).map(|s| s.alive).unwrap_or(0);
                     let tents = spawner_state.0.iter().filter(|s| s.building_kind == 2 && s.town_idx == 1 && s.position.x > -9000.0).count();
+                    help_tip(ui, &catalog, "guards");
                     ui.label(format!("Guards: {}/{}", guards, barracks));
+                    help_tip(ui, &catalog, "farmers");
                     ui.label(format!("Farmers: {}/{}", farmers, houses));
+                    help_tip(ui, &catalog, "raiders");
                     ui.label(format!("Raiders: {}/{}", raiders, tents));
                     let total_alive = slots.alive();
                     let total_spawners = spawner_state.0.iter().filter(|s| s.position.x > -9000.0).count();
+                    help_tip(ui, &catalog, "pop");
                     ui.label(format!("Pop: {}/{}", total_alive, total_spawners));
                 });
             });
@@ -172,6 +182,7 @@ pub fn bottom_panel_system(
     buffer_writes: Res<NpcBufferWrites>,
     mut follow: ResMut<FollowSelected>,
     settings: Res<UserSettings>,
+    catalog: Res<HelpCatalog>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -194,7 +205,7 @@ pub fn bottom_panel_system(
             .show(ctx, |ui| {
                 inspector_content(
                     ui, &data, &bld_data, &world_data, &health_query, &npc_states,
-                    &gpu_state, &buffer_writes, &mut follow, &settings, &mut copy_text,
+                    &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                 );
             });
     }
@@ -358,6 +369,7 @@ fn inspector_content(
     buffer_writes: &NpcBufferWrites,
     follow: &mut FollowSelected,
     settings: &UserSettings,
+    catalog: &HelpCatalog,
     copy_text: &mut Option<String>,
 ) {
     let sel = data.selected.0;
@@ -375,12 +387,17 @@ fn inspector_content(
     let meta = &data.meta_cache.0[idx];
 
     ui.strong(format!("{}", meta.name));
-    let next_level_xp = (meta.level + 1) * (meta.level + 1) * 100;
-    ui.label(format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, next_level_xp));
+    ui.horizontal(|ui| {
+        ui.label(format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, (meta.level + 1) * (meta.level + 1) * 100));
+        help_tip(ui, catalog, "npc_level");
+    });
 
     let trait_str = crate::trait_name(meta.trait_id);
     if !trait_str.is_empty() {
-        ui.label(format!("Trait: {}", trait_str));
+        ui.horizontal(|ui| {
+            ui.label(format!("Trait: {}", trait_str));
+            help_tip(ui, catalog, "npc_trait");
+        });
     }
 
     // Find HP + energy from query
@@ -419,6 +436,7 @@ fn inspector_content(
         ui.add(egui::ProgressBar::new(energy_frac)
             .text(format!("{:.0}", energy))
             .fill(egui::Color32::from_rgb(60, 120, 200)));
+        help_tip(ui, catalog, "npc_energy");
     });
 
     // Town name
@@ -446,7 +464,10 @@ fn inspector_content(
         state_str = parts.join(", ");
     }
 
-    ui.label(format!("State: {}", state_str));
+    ui.horizontal(|ui| {
+        ui.label(format!("State: {}", state_str));
+        help_tip(ui, catalog, "npc_state");
+    });
 
     // Follow toggle
     ui.horizontal(|ui| {

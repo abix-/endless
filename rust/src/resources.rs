@@ -932,4 +932,58 @@ impl Default for SquadState {
     }
 }
 
+// ============================================================================
+// HELP CATALOG
+// ============================================================================
+
+/// In-game help tooltips. Flat map of topic key → help text.
+/// Single source of truth for all "?" tooltip content.
+#[derive(Resource)]
+pub struct HelpCatalog(pub HashMap<&'static str, &'static str>);
+
+impl HelpCatalog {
+    pub fn new() -> Self {
+        let mut m = HashMap::new();
+
+        // Top bar stats
+        m.insert("food", "Farmers grow food at farms. Spend it on buildings (right-click green '+' slots) and upgrades (U key). Build more Houses to get more farmers.");
+        m.insert("gold", "Gold mines appear between towns. Set your miner count in the Roster tab (R key) using the Miners slider. Miners walk to the nearest mine, dig gold, and bring it back.");
+        m.insert("pop", "Living NPCs / spawner buildings. Build Houses (farmers) and Barracks (guards) to grow your town. Dead NPCs respawn after 12 game-hours.");
+        m.insert("farmers", "Each House spawns 1 farmer who works at the nearest free farm. Build farms first, then Houses to staff them.");
+        m.insert("guards", "Each Barracks spawns 1 guard who patrols guard posts. Build Guard Posts to create a patrol route, then Barracks to staff them.");
+        m.insert("raiders", "Enemy raiders steal food from your farms. Build guards and guard posts near farms to defend them.");
+        m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0.25x to 128x). Day/Night affects work schedules set in Policies (P key).");
+
+        // Left panel tabs
+        m.insert("tab_roster", "Your NPCs. Click a row to select and inspect. F = follow camera. Use the Miners slider to reassign farmers as gold miners.");
+        m.insert("tab_upgrades", "Spend food to permanently boost your town. Each level doubles in cost. Upgrades affect all NPCs of that type in this town.");
+        m.insert("tab_policies", "Control NPC behavior. Changes take effect immediately.\n\u{2022} Flee HP: when NPCs run from combat\n\u{2022} Work Schedule: day only, night only, or both\n\u{2022} Off-duty: where NPCs go when not working");
+        m.insert("tab_patrols", "Guard patrol route. Guards visit posts top-to-bottom, then loop. Use arrows to reorder.\nBuild more Guard Posts (right-click a green '+' slot) to extend the route.");
+        m.insert("tab_squads", "Group guards into squads for attack orders.\n1. Select a squad\n2. Set target size (recruits idle guards)\n3. Click 'Set Target' then click the map\nGuards march to the target location together.");
+        m.insert("tab_intel", "Intelligence on AI towns and raider camps. Shows their food, buildings, upgrades, and recent actions. Click a row to jump the camera there.");
+        m.insert("tab_profiler", "System performance timings. Enable in Settings (ESC) under Debug > System Profiler.");
+
+        // Build menu
+        m.insert("build_farm", "Grows food over time. Build a House nearby to assign a farmer to harvest it.");
+        m.insert("build_house", "Spawns 1 farmer. Farmer works at the nearest free farm. Build farms first!");
+        m.insert("build_barracks", "Spawns 1 guard. Guard patrols nearby guard posts and fights enemies.");
+        m.insert("build_guard_post", "Patrol waypoint for guards. Can toggle turret mode (auto-shoots enemies). Right-click an existing post to toggle.");
+        m.insert("build_tent", "Spawns 1 raider. Raiders steal food from enemy farms and bring it back to camp.");
+        m.insert("build_mine", "Gold mine building. Set miner count in Roster tab to assign workers.");
+        m.insert("unlock_slot", "Pay food to unlock this grid slot. Then right-click it again to build.");
+        m.insert("destroy", "Remove this building. Its NPC dies and the slot becomes empty.");
+
+        // Inspector (NPC)
+        m.insert("npc_state", "What this NPC is currently doing. Working = at their job. Resting = recovering energy at home. Fighting = in combat.");
+        m.insert("npc_energy", "Energy drains while active, recovers while resting at home. NPCs go rest when energy drops below 50, resume at 80.");
+        m.insert("npc_trait", "Personality trait. 40% of NPCs spawn with one. Brave = never flees. Swift = +25% speed. Hardy = +25% HP.");
+        m.insert("npc_level", "Guards level up from kills. +1% all stats per level. XP needed = (level+1)\u{00b2} \u{00d7} 100.");
+
+        // Getting started
+        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Houses for food\n\u{2022} Build Guard Posts + Barracks for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads");
+
+        Self(m)
+    }
+}
+
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

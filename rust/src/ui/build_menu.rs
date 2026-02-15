@@ -21,6 +21,7 @@ pub fn build_menu_system(
     game_time: Res<GameTime>,
     mut gp_state: ResMut<GuardPostState>,
     mut spawner_state: ResMut<SpawnerState>,
+    catalog: Res<HelpCatalog>,
 ) -> Result {
     if !ui_state.build_menu_open {
         return Ok(());
@@ -170,7 +171,7 @@ pub fn build_menu_system(
                     let can_tent = food >= TENT_BUILD_COST;
                     if ui.add_enabled(can_tent, egui::Button::new(
                         format!("Tent ({} food)", TENT_BUILD_COST)
-                    )).on_hover_text("Supports 1 raider. Respawns after 12h if killed.")
+                    )).on_hover_text(catalog.0.get("build_tent").copied().unwrap_or(""))
                     .clicked() {
                         let building = Building::Tent { town_idx };
                         if let Ok(()) = world::place_building(
@@ -206,7 +207,7 @@ pub fn build_menu_system(
                     let can_farm = food >= FARM_BUILD_COST;
                     if ui.add_enabled(can_farm, egui::Button::new(
                         format!("Farm ({} food)", FARM_BUILD_COST)
-                    )).on_hover_text("Produces food when tended by farmers")
+                    )).on_hover_text(catalog.0.get("build_farm").copied().unwrap_or(""))
                     .clicked() {
                         let building = Building::Farm { town_idx };
                         if let Ok(()) = world::place_building(
@@ -228,7 +229,7 @@ pub fn build_menu_system(
                     let can_post = food >= GUARD_POST_BUILD_COST;
                     if ui.add_enabled(can_post, egui::Button::new(
                         format!("Guard Post ({} food)", GUARD_POST_BUILD_COST)
-                    )).on_hover_text("Guards patrol between posts")
+                    )).on_hover_text(catalog.0.get("build_guard_post").copied().unwrap_or(""))
                     .clicked() {
                         let existing_posts = world_data.guard_posts.iter()
                             .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
@@ -253,7 +254,7 @@ pub fn build_menu_system(
                     let can_house = food >= HOUSE_BUILD_COST;
                     if ui.add_enabled(can_house, egui::Button::new(
                         format!("House ({} food)", HOUSE_BUILD_COST)
-                    )).on_hover_text("Supports 1 farmer. Respawns after 12h if killed.")
+                    )).on_hover_text(catalog.0.get("build_house").copied().unwrap_or(""))
                     .clicked() {
                         let building = Building::House { town_idx };
                         if let Ok(()) = world::place_building(
@@ -285,7 +286,7 @@ pub fn build_menu_system(
                     let can_barracks = food >= BARRACKS_BUILD_COST;
                     if ui.add_enabled(can_barracks, egui::Button::new(
                         format!("Barracks ({} food)", BARRACKS_BUILD_COST)
-                    )).on_hover_text("Supports 1 guard. Respawns after 12h if killed.")
+                    )).on_hover_text(catalog.0.get("build_barracks").copied().unwrap_or(""))
                     .clicked() {
                         let building = Building::Barracks { town_idx };
                         if let Ok(()) = world::place_building(

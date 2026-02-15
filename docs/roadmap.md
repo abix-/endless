@@ -278,6 +278,14 @@ Rules:
 - [x] All state as Bevy Resources (WorldData, Debug, KillStats, NpcMeta, FoodEvents, etc.)
 - [x] GpuUpdateMsg batching via collect_gpu_updates
 
+### In-Game Help
+- [x] `HelpCatalog` resource (~35 entries, HashMap keyed by topic ID)
+- [x] `help_tip()` helper: small "?" button with rich tooltip on hover
+- [x] Top bar tips (getting started, food, gold, pop, farmers, guards, raiders)
+- [x] Left panel tab tips (roster, upgrades, policies, patrols, squads, intel, profiler)
+- [x] Build menu hover text (farm, house, barracks, guard post, tent)
+- [x] NPC inspector tips (level/xp, trait, energy, state)
+
 ## Stages
 
 **Stage 1: Standalone Bevy App ✓**
@@ -336,6 +344,17 @@ Rules:
 - [x] Main menu sliders: AI Towns (0-10), Raider Camps (0-10), AI Speed (1-30s)
 - [x] Fix faction hardcoding: `spawner_respawn_system` + `game_startup_system` use town faction instead of 0
 - [x] Fix `NpcsByTownCache` initialization (resize to num_towns in `game_startup_system`)
+
+**Stage 13: In-game Help** ✓
+
+*Done when: a new player can hover any UI element and understand what it does and how to use it, without reading external docs.*
+
+- [x] `HelpCatalog` resource with ~35 help entries (topic key → help text)
+- [x] `help_tip()` helper renders "?" button with rich tooltip on hover
+- [x] Top bar: "?" getting started tip + tips on Food, Gold, Pop, Farmers, Guards, Raiders
+- [x] Left panel: context help tip at top of every tab (Roster, Upgrades, Policies, Patrols, Squads, Intel, Profiler)
+- [x] Build menu: rich hover text on every build button (Farm, House, Barracks, Guard Post, Tent)
+- [x] NPC inspector: tips on Level/XP, Trait, Energy, State
 
 **Stage 13: Tension**
 

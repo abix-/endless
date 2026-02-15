@@ -3,13 +3,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use bevy::prelude::*;
-use bevy::asset::AssetPlugin;
 
 fn main() {
     let mut app = App::new();
 
-    // Configure asset path relative to Cargo.toml (rust/)
-    // Assets are at ../assets/ from the rust/ directory
+    // Release: embed assets in binary, fallback to disk for modding
+    #[cfg(not(debug_assertions))]
+    app.add_plugins(bevy_embedded_assets::EmbeddedAssetPlugin {
+        mode: bevy_embedded_assets::PluginMode::ReplaceAndFallback {
+            path: "assets".to_string(),
+        },
+    });
+
     app.add_plugins(DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(Window {
@@ -17,10 +22,6 @@ fn main() {
                 resolution: (1280, 720).into(),
                 ..default()
             }),
-            ..default()
-        })
-        .set(AssetPlugin {
-            file_path: if cfg!(debug_assertions) { ".." } else { "." }.to_string(),
             ..default()
         })
     );

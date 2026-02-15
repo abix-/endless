@@ -747,6 +747,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_embedded_assets"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30eaae6bc9988370cb08f32ed2df25b7b8c20473d8eedb778c2d781fb8153eea"
+dependencies = [
+ "bevy_app",
+ "bevy_asset",
+ "bevy_ecs",
+ "cargo-emit",
+ "futures-io",
+ "futures-lite",
+ "log",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "bevy_encase_derive"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1810,6 +1826,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cargo-emit"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1582e1c9e755dd6ad6b224dcffb135d199399a4568d454bd89fe515ca8425695"
+
+[[package]]
 name = "cc"
 version = "1.2.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2348,6 +2370,7 @@ dependencies = [
  "arboard",
  "bevy",
  "bevy_egui",
+ "bevy_embedded_assets",
  "bytemuck",
  "crossbeam-channel",
  "noise",
@@ -2663,8 +2686,8 @@ dependencies = [
  "libc",
  "log",
  "rustversion",
- "windows-link 0.1.3",
- "windows-result 0.3.4",
+ "windows-link 0.2.1",
+ "windows-result 0.4.1",
 ]
 
 [[package]]

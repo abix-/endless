@@ -33,7 +33,7 @@ use resources::{
     FoodStorage, GoldStorage, MineStates, MinerTarget, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
-    AutoUpgrade, SquadState,
+    AutoUpgrade, SquadState, HelpCatalog,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -231,6 +231,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GuardPostState>()
        .init_resource::<SpawnerState>()
        .init_resource::<SquadState>()
+       .insert_resource(HelpCatalog::new())
        .init_resource::<AiPlayerState>()
        .init_resource::<AiPlayerConfig>()
        .init_resource::<resources::NpcDecisionConfig>()

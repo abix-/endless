@@ -116,7 +116,7 @@ fn load_sprites(
     mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     // Load character sprite sheet
-    assets.char_texture = asset_server.load("assets/roguelikeChar_transparent.png");
+    assets.char_texture = asset_server.load("sprites/roguelikeChar_transparent.png");
 
     // Share texture handles with instanced renderer
     npc_sprite_tex.handle = Some(assets.char_texture.clone());
@@ -132,20 +132,20 @@ fn load_sprites(
     assets.char_atlas = texture_atlases.add(char_layout);
 
     // Load world sprite sheet
-    assets.world_texture = asset_server.load("assets/roguelikeSheet_transparent.png");
-    assets.house_texture = asset_server.load("assets/house.png");
-    assets.barracks_texture = asset_server.load("assets/barracks.png");
-    assets.guard_post_texture = asset_server.load("assets/guard_post.png");
+    assets.world_texture = asset_server.load("sprites/roguelikeSheet_transparent.png");
+    assets.house_texture = asset_server.load("sprites/house.png");
+    assets.barracks_texture = asset_server.load("sprites/barracks.png");
+    assets.guard_post_texture = asset_server.load("sprites/guard_post.png");
     npc_sprite_tex.world_handle = Some(assets.world_texture.clone());
 
     // Load heal halo sprite (single 16x16 texture)
-    npc_sprite_tex.heal_handle = Some(asset_server.load("assets/heal.png"));
+    npc_sprite_tex.heal_handle = Some(asset_server.load("sprites/heal.png"));
 
     // Load sleep icon sprite (single 16x16 texture)
-    npc_sprite_tex.sleep_handle = Some(asset_server.load("assets/sleep.png"));
+    npc_sprite_tex.sleep_handle = Some(asset_server.load("sprites/sleep.png"));
 
     // Load arrow projectile sprite (single texture, white, points up)
-    npc_sprite_tex.arrow_handle = Some(asset_server.load("assets/arrow.png"));
+    npc_sprite_tex.arrow_handle = Some(asset_server.load("sprites/arrow.png"));
 
     // Create atlas layout for world sprites
     let world_layout = TextureAtlasLayout::from_grid(

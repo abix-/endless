@@ -10,6 +10,7 @@ use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, upgrade_cost};
 use crate::systems::{AiPlayerState, AiKind};
+use crate::ui::help_tip;
 use crate::world::WorldData;
 
 // ============================================================================
@@ -181,6 +182,7 @@ pub fn left_panel_system(
     mut roster_state: Local<RosterState>,
     mut intel_cache: Local<IntelCache>,
     settings: Res<UserSettings>,
+    catalog: Res<HelpCatalog>,
     mut prev_tab: Local<LeftPanelTab>,
 ) -> Result {
     if !ui_state.left_panel_open {
@@ -201,6 +203,17 @@ pub fn left_panel_system(
         LeftPanelTab::Profiler => "Profiler",
     };
 
+    // Look up the help key for the current tab
+    let tab_help_key = match ui_state.left_panel_tab {
+        LeftPanelTab::Roster => "tab_roster",
+        LeftPanelTab::Upgrades => "tab_upgrades",
+        LeftPanelTab::Policies => "tab_policies",
+        LeftPanelTab::Patrols => "tab_patrols",
+        LeftPanelTab::Squads => "tab_squads",
+        LeftPanelTab::Intel => "tab_intel",
+        LeftPanelTab::Profiler => "tab_profiler",
+    };
+
     let mut open = ui_state.left_panel_open;
     let mut jump_target: Option<Vec2> = None;
     egui::Window::new(tab_name)
@@ -209,6 +222,13 @@ pub fn left_panel_system(
         .default_width(340.0)
         .anchor(egui::Align2::LEFT_TOP, [4.0, 30.0])
         .show(ctx, |ui| {
+            // Help tip at the top of every tab
+            ui.horizontal(|ui| {
+                help_tip(ui, &catalog, tab_help_key);
+                ui.small(format!("{} - hover ? for help", tab_name));
+            });
+            ui.separator();
+
             match ui_state.left_panel_tab {
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),

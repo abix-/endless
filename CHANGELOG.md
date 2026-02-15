@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-15
+
+- **in-game help tooltips** — `HelpCatalog` resource with ~35 help entries; `help_tip()` renders "?" buttons with rich hover tooltips; top bar has getting-started tip + tips on every stat (Food, Gold, Pop, Farmers, Guards, Raiders); every left panel tab (Roster, Upgrades, Policies, Patrols, Squads, Intel, Profiler) shows contextual help at top; build menu buttons have detailed hover text; NPC inspector shows tips on Level/XP, Trait, Energy, State; all help text answers "what is this?" AND "how do I use it?"
+- **embedded assets** — release builds embed all assets (sprites + shaders) in the binary via `bevy_embedded_assets` v0.15; standalone 81MB exe runs without any external files; `ReplaceAndFallback` mode allows asset modding by placing files next to exe; assets restructured into standard Bevy layout (`rust/assets/sprites/`, `rust/assets/shaders/`); debug builds still load from disk for hot-reload
+
 ## 2026-02-14
 
 - **squad auto-replenish** — squads now have a `target_size` field; set via DragValue in Squads tab instead of +1/+2/+4 recruit buttons; `squad_cleanup_system` auto-recruits unsquadded player guards when members drop below target (e.g. death) and dismisses excess when target is lowered; target_size=0 disables auto-recruit (manual mode); Dismiss All resets target_size to 0

@@ -22,3 +22,4 @@ wgpu = { version = "27", default-features = false }
 rand = "0.9"
 noise = "0.9"
 arboard = "3"
+bevy_embedded_assets = "0.15"
