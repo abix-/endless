@@ -1,9 +1,10 @@
-name: manual-build
+name: build
 
 on:
   workflow_dispatch:
     inputs:
       target:
+        description: Which builds to run?
         type: choice
         required: true
         default: windows
@@ -13,11 +14,11 @@ on:
           - linux
           - all
       release_tag:
+        description: "Optional. If set (example: v0.2), upload the zip(s) to that tag GitHub Release. Zip filename will include the tag."
         type: string
         required: false
         default: ""
 
-  # Optional: pushing a version tag automatically builds+uploads to that tag's Release
   push:
     tags:
       - "v*"
@@ -27,20 +28,43 @@ permissions:
 
 jobs:
   windows:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'windows' || github.event.inputs.target == 'all'
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'windows' || github.event.inputs.target == 'all'))
     runs-on: windows-latest
+
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-windows
       cancel-in-progress: true
+
     defaults:
       run:
         working-directory: rust
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
+
+      - name: Compute names
+        id: vars
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $tag = ""
+
+          if ("${{ github.ref }}" -like "refs/tags/v*") {
+            $tag = "${{ github.ref_name }}"
+          } elseif ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ github.event.inputs.release_tag }}" -ne "") {
+            $tag = "${{ github.event.inputs.release_tag }}"
+          }
+
+          $zip = if ($tag -ne "") { "endless-windows-$tag.zip" } else { "endless-windows.zip" }
+          "zip_name=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag_name=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Build (release)
         run: cargo build --release
@@ -52,6 +76,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $zip = "${{ steps.vars.outputs.zip_name }}"
+
           New-Item -ItemType Directory -Force dist | Out-Null
 
           $exe = Get-ChildItem -Path "target/release" -Filter "*.exe" |
@@ -64,42 +90,64 @@ jobs:
           if (Test-Path "../assets") { Copy-Item "../assets" "dist/assets" -Recurse -Force }
           if (Test-Path "assets")    { Copy-Item "assets"    "dist/assets" -Recurse -Force }
 
-          if (Test-Path "endless-windows.zip") { Remove-Item "endless-windows.zip" -Force }
-          7z a -tzip -mx=9 "endless-windows.zip" ".\dist\*"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          7z a -tzip -mx=9 $zip ".\dist\*"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: endless-windows
-          path: rust/endless-windows.zip
+          path: rust/${{ steps.vars.outputs.zip_name }}
           if-no-files-found: error
           retention-days: 7
 
       - name: Upload to GitHub Release (overwrite)
-        if: |
-          startsWith(github.ref, 'refs/tags/v') ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
-          files: rust/endless-windows.zip
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          files: rust/${{ steps.vars.outputs.zip_name }}
           overwrite_files: true
+          fail_on_unmatched_files: true
 
   macos:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'macos' || github.event.inputs.target == 'all'
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'macos' || github.event.inputs.target == 'all'))
     runs-on: macos-latest
+
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-macos
       cancel-in-progress: true
+
     defaults:
       run:
         working-directory: rust
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
+
+      - name: Compute names
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag=""
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            tag="${{ github.ref_name }}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.release_tag }}" ]]; then
+            tag="${{ github.event.inputs.release_tag }}"
+          fi
+
+          if [[ -n "$tag" ]]; then
+            echo "zip_name=endless-macos-$tag.zip" >> "$GITHUB_OUTPUT"
+          else
+            echo "zip_name=endless-macos.zip" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Build (release)
         run: cargo build --release
@@ -108,49 +156,76 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          ZIP_NAME="${{ steps.vars.outputs.zip_name }}"
+
           mkdir -p dist
           BIN="$(find target/release -maxdepth 1 -type f -perm -111 -print0 | xargs -0 ls -S | head -n 1)"
           [[ -n "${BIN:-}" ]] || { echo "No executable found in rust/target/release"; exit 1; }
+
           cp "$BIN" "dist/endless"
           chmod +x "dist/endless"
+
           [[ -d "../assets" ]] && cp -R "../assets" "dist/assets" || true
           [[ -d "assets" ]] && cp -R "assets" "dist/assets" || true
-          rm -f endless-macos.zip
-          (cd dist && zip -9 -r ../endless-macos.zip .)
+
+          rm -f "$ZIP_NAME"
+          (cd dist && zip -9 -r "../$ZIP_NAME" .)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: endless-macos
-          path: rust/endless-macos.zip
+          path: rust/${{ steps.vars.outputs.zip_name }}
           if-no-files-found: error
           retention-days: 7
 
       - name: Upload to GitHub Release (overwrite)
-        if: |
-          startsWith(github.ref, 'refs/tags/v') ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
-          files: rust/endless-macos.zip
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          files: rust/${{ steps.vars.outputs.zip_name }}
           overwrite_files: true
+          fail_on_unmatched_files: true
 
   linux:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'linux' || github.event.inputs.target == 'all'
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'linux' || github.event.inputs.target == 'all'))
     runs-on: ubuntu-latest
+
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-linux
       cancel-in-progress: true
+
     defaults:
       run:
         working-directory: rust
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
+
+      - name: Compute names
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag=""
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            tag="${{ github.ref_name }}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.release_tag }}" ]]; then
+            tag="${{ github.event.inputs.release_tag }}"
+          fi
+
+          if [[ -n "$tag" ]]; then
+            echo "zip_name=endless-linux-$tag.zip" >> "$GITHUB_OUTPUT"
+          else
+            echo "zip_name=endless-linux.zip" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux deps
         shell: bash
@@ -169,14 +244,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          ZIP_NAME="${{ steps.vars.outputs.zip_name }}"
+
           mkdir -p dist
           BIN="$(find target/release -maxdepth 1 -type f -perm -111 -print0 | xargs -0 ls -S | head -n 1)"
           [[ -n "${BIN:-}" ]] || { echo "No executable found in rust/target/release"; exit 1; }
+
           cp "$BIN" "dist/endless"
           chmod +x "dist/endless"
+
           [[ -d "../assets" ]] && cp -R "../assets" "dist/assets" || true
           [[ -d "assets" ]] && cp -R "assets" "dist/assets" || true
-          rm -f endless-linux.zip
-          (cd dist && zip -9 -r ../endless-linux.zip .)
 
-      - name: Upload ar
+          rm -f "$ZIP_NAME"
+          (cd dist && zip -9 -r "../$ZIP_NAME" .)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: endless-linux
+          path: rust/${{ steps.vars.outputs.zip_name }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload to GitHub Release (overwrite)
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          files: rust/${{ steps.vars.outputs.zip_name }}
+          overwrite_files: true
+          fail_on_unmatched_files: true
