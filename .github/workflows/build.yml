@@ -1,4 +1,4 @@
-name: build
+name: manual-build
 
 on:
   workflow_dispatch:
@@ -8,18 +8,19 @@ on:
         type: choice
         required: true
         default: windows
-        options:
-          - windows
-          - macos
-          - linux
-          - all
+        options: [windows, macos, linux, all]
+      release_tag:
+        description: Optional. If set (example: v0.2), upload built zips to that tag's GitHub Release (overwrite existing assets).
+        type: string
+        required: false
+        default: ""
 
-  # Optional: also build automatically when you push a version tag like v0.2
+  # Optional: pushing a version tag automatically builds+uploads to that tag's Release
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write # only needed for tag -> Release uploads
+  contents: write
 
 jobs:
   windows:
@@ -71,11 +72,15 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload to GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Upload to GitHub Release (overwrite)
+        if: |
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           files: rust/endless-windows.zip
+          overwrite: true
 
   macos:
     if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'macos' || github.event.inputs.target == 'all'
@@ -118,11 +123,15 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload to GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Upload to GitHub Release (overwrite)
+        if: |
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           files: rust/endless-macos.zip
+          overwrite: true
 
   linux:
     if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.target == 'linux' || github.event.inputs.target == 'all'
@@ -175,8 +184,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload to GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Upload to GitHub Release (overwrite)
+        if: |
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           files: rust/endless-linux.zip
+          overwrite: true
