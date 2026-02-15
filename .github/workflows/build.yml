@@ -14,7 +14,7 @@ on:
           - linux
           - all
       release_tag:
-        description: Optional. If set (example: v0.2), upload built zips to that tag's GitHub Release (overwrite existing assets).
+        description: Optional. If set (example: v0.2), upload built zips to that tag GitHub Release (overwrite existing assets).
         type: string
         required: false
         default: ""
