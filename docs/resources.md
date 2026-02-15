@@ -96,7 +96,7 @@ Per-town slot tracking for the building system. Each town (villager and raider c
 |--------|--------|
 | TownGrid | town_data_idx: usize, area_level: i32 |
 | TownGrids | grids: `Vec<TownGrid>` (one per town — villager + camp) |
-| BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildKind>`, hover_world_pos: Vec2 |
+| BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildKind>`, hover_world_pos: Vec2, ghost_sprites: `HashMap<BuildKind, Handle<Image>>` |
 | BuildKind | Farm, GuardPost, FarmerHome, ArcherHome, Tent, MinerHome, Destroy |
 | DestroyRequest | `Option<(usize, usize)>` — (grid_col, grid_row), set by inspector, processed by `process_destroy_system` |
 
@@ -237,7 +237,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 |----------|------|---------|---------|
 | UiState | build_menu_open, pause_menu_open, left_panel_open, left_panel_tab (LeftPanelTab enum) | ui_toggle_system (keyboard), top_bar (buttons), left_panel tabs, pause_menu | All panel systems |
 | CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system | bottom_panel_system |
-| BuildMenuContext | town_data_idx, selected_build (`Option<BuildKind>`), hover_world_pos | build_menu_system, build_ghost_system | build_place_click_system, draw_slot_indicators |
+| BuildMenuContext | town_data_idx, selected_build (`Option<BuildKind>`), hover_world_pos, ghost_sprites (`HashMap<BuildKind, Handle<Image>>`) | build_menu_system (init_sprite_cache populates ghost_sprites), build_ghost_system | build_place_click_system, draw_slot_indicators |
 | DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
