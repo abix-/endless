@@ -6,7 +6,7 @@ on:
       target:
         type: choice
         required: true
-        default: windows
+        default: all
         options:
           - windows
           - macos
@@ -15,7 +15,7 @@ on:
       release_channel:
         type: choice
         required: true
-        default: none
+        default: dev
         options:
           - none
           - dev
