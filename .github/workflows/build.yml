@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: Which builds to run?
         type: choice
         required: true
         default: windows
@@ -14,7 +13,6 @@ on:
           - linux
           - all
       release_tag:
-        description: "Optional. If set (example: v0.2), upload the zip(s) to that tag GitHub Release. Zip filename will include the tag."
         type: string
         required: false
         default: ""
