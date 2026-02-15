@@ -967,6 +967,8 @@ pub struct Squad {
     pub target_size: usize,
     /// If true, squad members patrol guard posts when no squad target is set.
     pub patrol_enabled: bool,
+    /// If true, squad members go home to rest when tired.
+    pub rest_when_tired: bool,
 }
 
 impl Default for Squad {
@@ -976,6 +978,7 @@ impl Default for Squad {
             target: None,
             target_size: 0,
             patrol_enabled: true,
+            rest_when_tired: true,
         }
     }
 }
@@ -1023,13 +1026,13 @@ impl HelpCatalog {
         m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0.25x to 128x). Day/Night affects work schedules set in Policies (P key).");
 
         // Left panel tabs
-        m.insert("tab_roster", "List of your living NPCs. Filter by job, sort columns, click to select and inspect. Press F to follow the selected NPC with the camera.");
-        m.insert("tab_upgrades", "Spend food on permanent town-wide buffs. Each level doubles in cost. Check the auto-buy box to purchase automatically each game-hour. Hover a cost button for details.");
-        m.insert("tab_policies", "Fine-tune NPC behavior \u{2014} changes apply instantly.\n\u{2022} Eat Food / Prioritize Healing: survival basics\n\u{2022} Aggressive / Fight Back: combat stance\n\u{2022} Flee HP: retreat threshold\n\u{2022} Schedule: day, night, or both shifts\n\u{2022} Off-duty: rest at bed, fountain, or wander");
-        m.insert("tab_patrols", "Archers walk this route in order, then loop. Reorder with arrows to control where they patrol first. Build more Guard Posts to extend coverage.");
-        m.insert("tab_squads", "Organize archers into squads for coordinated attacks.\n1. Select a squad\n2. Use +1/+2/+4/+8/+16/+32 to move archers from Default Squad\n3. Click 'Set Target' then click the map\n4. Toggle 'Patrol when no target' per squad\nSquad archers march together. Clear the target to release them back to patrol (if enabled).");
-        m.insert("tab_intel", "Scout report on AI towns and raider camps. Expand any settlement to see food, population, buildings, and upgrades. Click Jump to move the camera there.");
-        m.insert("tab_profiler", "Per-system frame timings. Enable the profiler in Settings (ESC) under Debug. Useful for spotting performance bottlenecks.");
+        m.insert("tab_roster", "Your NPC list. Filter, sort, select. Press F to follow.");
+        m.insert("tab_upgrades", "Buy town upgrades. Costs scale by level. Auto-buy optional.");
+        m.insert("tab_policies", "Live behavior rules: combat stance, flee %, schedule, and off-duty.");
+        m.insert("tab_patrols", "Guard post patrol order. Use arrows to reorder.");
+        m.insert("tab_squads", "Move archers from Default Squad with +1/+2/+4/+8/+16/+32. Set target on map. Toggle patrol.");
+        m.insert("tab_intel", "AI settlement stats. Expand rows, then Jump to camera.");
+        m.insert("tab_profiler", "Per-system timings. Enable in ESC > Settings > Debug.");
 
         // Build menu
         m.insert("build_farm", "Grows food over time. Build a Farmer Home nearby to assign a farmer to harvest it.");

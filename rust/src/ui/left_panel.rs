@@ -106,6 +106,7 @@ pub struct IntelParams<'w> {
 
 #[derive(Clone)]
 struct AiSnapshot {
+    faction: i32,
     town_name: String,
     kind_name: &'static str,
     personality_name: &'static str,
@@ -137,6 +138,7 @@ struct AiSnapshot {
 pub struct IntelCache {
     frame_counter: u32,
     snapshots: Vec<AiSnapshot>,
+    selected_idx: usize,
 }
 
 // ============================================================================
@@ -682,12 +684,14 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, _world_data: &Worl
         let count = squad.squad_state.squads[i].members.len();
         let has_target = squad.squad_state.squads[i].target.is_some();
         let patrol_on = squad.squad_state.squads[i].patrol_enabled;
+        let rest_on = squad.squad_state.squads[i].rest_when_tired;
         let is_selected = selected == i as i32;
 
         let target_str = if has_target { "target set" } else { "---" };
         let patrol_str = if patrol_on { "patrol:on" } else { "patrol:off" };
+        let rest_str = if rest_on { "rest:on" } else { "rest:off" };
         let squad_name = if i == 0 { "Default Squad" } else { "Squad" };
-        let label = format!("{}. {} {}  [{}]  {}  {}", i + 1, squad_name, i + 1, count, target_str, patrol_str);
+        let label = format!("{}. {} {}  [{}]  {}  {}  {}", i + 1, squad_name, i + 1, count, target_str, patrol_str, rest_str);
 
         if ui.selectable_label(is_selected, label).clicked() {
             squad.squad_state.selected = if is_selected { -1 } else { i as i32 };
@@ -730,6 +734,10 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, _world_data: &Worl
     let mut patrol_enabled = squad.squad_state.squads[si].patrol_enabled;
     if ui.checkbox(&mut patrol_enabled, "Patrol when no target").changed() {
         squad.squad_state.squads[si].patrol_enabled = patrol_enabled;
+    }
+    let mut rest_when_tired = squad.squad_state.squads[si].rest_when_tired;
+    if ui.checkbox(&mut rest_when_tired, "Go home to rest when tired").changed() {
+        squad.squad_state.squads[si].rest_when_tired = rest_when_tired;
     }
 
     ui.add_space(4.0);
@@ -875,6 +883,7 @@ fn rebuild_intel_cache(
         let prioritize_healing = policy.map(|p| p.prioritize_healing).unwrap_or(true);
 
         cache.snapshots.push(AiSnapshot {
+            faction,
             town_name,
             kind_name,
             personality_name: player.personality.name(),
@@ -923,100 +932,82 @@ fn intel_content(
         return;
     }
 
-    ui.label(format!("{} AI settlements", cache.snapshots.len()));
+    if cache.selected_idx >= cache.snapshots.len() {
+        cache.selected_idx = 0;
+    }
+
+    ui.horizontal(|ui| {
+        ui.label("Faction:");
+        egui::ComboBox::from_id_salt("intel_faction_select")
+            .selected_text({
+                let s = &cache.snapshots[cache.selected_idx];
+                format!("F{} {} [{} {}]", s.faction, s.town_name, s.personality_name, s.kind_name)
+            })
+            .show_ui(ui, |ui| {
+                for (i, s) in cache.snapshots.iter().enumerate() {
+                    let label = format!("F{} {} [{} {}]", s.faction, s.town_name, s.personality_name, s.kind_name);
+                    ui.selectable_value(&mut cache.selected_idx, i, label);
+                }
+            });
+    });
     ui.separator();
 
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        for (i, snap) in cache.snapshots.iter().enumerate() {
-            let header = format!("{} [{} {}]", snap.town_name, snap.personality_name, snap.kind_name);
-            let kind_color = match snap.kind_name {
-                "Builder" => egui::Color32::from_rgb(80, 180, 255),
-                _ => egui::Color32::from_rgb(220, 80, 80),
-            };
+    let snap = &cache.snapshots[cache.selected_idx];
+    let kind_color = match snap.kind_name {
+        "Builder" => egui::Color32::from_rgb(80, 180, 255),
+        _ => egui::Color32::from_rgb(220, 80, 80),
+    };
+    ui.colored_label(kind_color, format!("F{} {} [{} {}]", snap.faction, snap.town_name, snap.personality_name, snap.kind_name));
 
-            let id = egui::Id::new("ai_intel").with(i);
-            egui::CollapsingHeader::new(egui::RichText::new(&header).color(kind_color))
-                .id_salt(id)
-                .default_open(cache.snapshots.len() <= 4)
-                .show(ui, |ui| {
-                    // Jump + Food
-                    ui.horizontal(|ui| {
-                        if ui.small_button("Jump").clicked() {
-                            *jump_target = Some(snap.center);
-                        }
-                        ui.label(format!("Food: {}", snap.food));
-                    });
+    ui.horizontal(|ui| {
+        if ui.small_button("Jump").clicked() {
+            *jump_target = Some(snap.center);
+        }
+        ui.label(format!("Food: {}", snap.food));
+    });
+    ui.label(format!("Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills));
+    ui.separator();
 
-                    // Population
-                    ui.horizontal(|ui| {
-                        ui.label(format!("Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills));
-                    });
+    ui.label("Units");
+    ui.label(format!("Farmers: {}/{}", snap.farmers, snap.farmer_homes));
+    ui.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
+    ui.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
+    ui.label(format!("Miners: {}/{}", snap.miners, snap.miner_homes));
+    ui.separator();
 
-                    // NPCs by type
-                    ui.horizontal(|ui| {
-                        if snap.farmers > 0 || snap.farmer_homes > 0 {
-                            ui.label(format!("Farmers: {}/{}", snap.farmers, snap.farmer_homes));
-                        }
-                        if snap.archers > 0 || snap.archer_homes > 0 {
-                            ui.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
-                        }
-                        if snap.raiders > 0 || snap.tents > 0 {
-                            ui.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
-                        }
-                        if snap.miners > 0 || snap.miner_homes > 0 {
-                            ui.label(format!("Miners: {}/{}", snap.miners, snap.miner_homes));
-                        }
-                    });
+    ui.label("Buildings");
+    ui.label(format!("Farms: {}", snap.farms));
+    ui.label(format!("Guard Posts: {}", snap.guard_posts));
+    ui.label(format!("Farmer Homes: {}", snap.farmer_homes));
+    ui.label(format!("Archer Homes: {}", snap.archer_homes));
+    ui.label(format!("Tents: {}", snap.tents));
+    ui.label(format!("Miner Homes: {}", snap.miner_homes));
+    ui.separator();
 
-                    // Buildings
-                    ui.horizontal(|ui| {
-                        if snap.farms > 0 { ui.label(format!("Farms: {}", snap.farms)); }
-                        if snap.guard_posts > 0 { ui.label(format!("Posts: {}", snap.guard_posts)); }
-                    });
-
-                    // Upgrades — compact grid, only show non-zero
-                    let has_upgrades = snap.upgrades.iter().any(|&l| l > 0);
-                    if has_upgrades {
-                        ui.add_space(2.0);
-                        ui.horizontal_wrapped(|ui| {
-                            for (j, &level) in snap.upgrades.iter().enumerate() {
-                                if level == 0 { continue; }
-                                let label = UPGRADE_REGISTRY.get(j).map(|n| n.short).unwrap_or("?");
-                                ui.small(format!("{} {}", label, level));
-                            }
-                        });
-                    }
-
-                    // Last 3 actions (most recent first)
-                    if !snap.last_actions.is_empty() {
-                        ui.add_space(2.0);
-                        for action in &snap.last_actions {
-                            ui.colored_label(
-                                egui::Color32::from_rgb(180, 120, 220),
-                                format!("  {}", action),
-                            );
-                        }
-                    }
-
-                    // Key policies
-                    ui.add_space(2.0);
-                    ui.horizontal_wrapped(|ui| {
-                        if snap.archer_aggressive {
-                            ui.small(egui::RichText::new("Aggressive").color(egui::Color32::from_rgb(220, 80, 80)));
-                        }
-                        if !snap.archer_leash {
-                            ui.small(egui::RichText::new("No Leash").color(egui::Color32::from_rgb(220, 160, 40)));
-                        }
-                        if snap.prioritize_healing {
-                            ui.small(egui::RichText::new("Heal First").color(egui::Color32::from_rgb(80, 200, 80)));
-                        }
-                        ui.small(format!("Flee: A{:.0}% F{:.0}%", snap.archer_flee_hp * 100.0, snap.farmer_flee_hp * 100.0));
-                    });
-
-                    ui.add_space(4.0);
-                });
+    ui.label("Upgrades");
+    egui::Grid::new("intel_upgrades_grid").num_columns(2).striped(true).show(ui, |ui| {
+        for (j, &level) in snap.upgrades.iter().enumerate() {
+            let label = UPGRADE_REGISTRY.get(j).map(|n| n.label).unwrap_or("?");
+            ui.label(label);
+            ui.label(format!("Lv{}", level));
+            ui.end_row();
         }
     });
+
+    ui.separator();
+    ui.label("Policies");
+    ui.label(format!("Archer Aggressive: {}", if snap.archer_aggressive { "On" } else { "Off" }));
+    ui.label(format!("Archer Leash: {}", if snap.archer_leash { "On" } else { "Off" }));
+    ui.label(format!("Prioritize Healing: {}", if snap.prioritize_healing { "On" } else { "Off" }));
+    ui.label(format!("Flee HP: Archer {:.0}% / Farmer {:.0}%", snap.archer_flee_hp * 100.0, snap.farmer_flee_hp * 100.0));
+
+    if !snap.last_actions.is_empty() {
+        ui.separator();
+        ui.label("Recent Actions");
+        for action in &snap.last_actions {
+            ui.small(action);
+        }
+    }
 }
 
 // ============================================================================

@@ -568,6 +568,13 @@ pub fn decision_system(
             if let Some(sid) = squad_id {
                 if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
                     if let Some(target) = squad.target {
+                        if squad.rest_when_tired && energy.0 < ENERGY_TIRED_THRESHOLD && home.is_valid() {
+                            *activity = Activity::GoingToRest;
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx, x: home.0.x, y: home.0.y
+                            }));
+                            continue;
+                        }
                         // Squad target always overrides patrol route.
                         if !matches!(*activity, Activity::Patrolling) {
                             *activity = Activity::Patrolling;
