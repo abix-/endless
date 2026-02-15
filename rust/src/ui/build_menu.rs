@@ -22,6 +22,7 @@ const PLAYER_BUILD_OPTIONS: &[BuildOption] = &[
     BuildOption { kind: BuildKind::House, label: "House", cost: HOUSE_BUILD_COST, help: "Spawns 1 farmer" },
     BuildOption { kind: BuildKind::Barracks, label: "Barracks", cost: BARRACKS_BUILD_COST, help: "Spawns 1 guard" },
     BuildOption { kind: BuildKind::GuardPost, label: "Guard Post", cost: GUARD_POST_BUILD_COST, help: "Patrol point + turret" },
+    BuildOption { kind: BuildKind::MineShaft, label: "Mine Shaft", cost: MINE_SHAFT_BUILD_COST, help: "Spawns 1 miner" },
 ];
 
 const CAMP_BUILD_OPTIONS: &[BuildOption] = &[
@@ -35,8 +36,46 @@ pub(crate) fn build_kind_name(kind: BuildKind) -> &'static str {
         BuildKind::House => "House",
         BuildKind::Barracks => "Barracks",
         BuildKind::Tent => "Tent",
+        BuildKind::MineShaft => "Mine Shaft",
         BuildKind::Destroy => "Destroy",
     }
+}
+
+/// Extract a single 16x16 sprite from the world atlas, 2x nearest-neighbor upscaled to 32x32.
+fn extract_single_tile(atlas: &Image, col: u32, row: u32) -> Image {
+    let sprite = SPRITE_SIZE as u32; // 16
+    let out_size = sprite * 2;       // 32
+    let cell_size = CELL as u32;     // 17
+    let atlas_width = atlas.width();
+    let atlas_data = atlas.data.as_ref().expect("atlas image has no data");
+
+    let mut data = vec![0u8; (out_size * out_size * 4) as usize];
+    let src_x = col * cell_size;
+    let src_y = row * cell_size;
+    for ty in 0..sprite {
+        for tx in 0..sprite {
+            let si = ((src_y + ty) * atlas_width + (src_x + tx)) as usize * 4;
+            if si + 4 > atlas_data.len() { continue; }
+            for oy in 0..2u32 {
+                for ox in 0..2u32 {
+                    let di = ((ty * 2 + oy) * out_size + (tx * 2 + ox)) as usize * 4;
+                    data[di..di + 4].copy_from_slice(&atlas_data[si..si + 4]);
+                }
+            }
+        }
+    }
+
+    Image::new(
+        bevy::render::render_resource::Extent3d {
+            width: out_size,
+            height: out_size,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        data,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD | bevy::asset::RenderAssetUsages::MAIN_WORLD,
+    )
 }
 
 /// Extract a single 32x32 image from the world atlas for a Quad tile spec.
@@ -107,13 +146,18 @@ fn init_sprite_cache(
     let farm_handle = images.add(farm_img);
     let tent_handle = images.add(tent_img);
 
-    // Register all 5 with egui
-    let registrations: [(BuildKind, &Handle<Image>); 5] = [
+    // Mine shaft: extract single tile (43,11) as 2x upscaled 32x32 image
+    let mine_shaft_img = extract_single_tile(&atlas, 43, 11);
+    let mine_shaft_handle = images.add(mine_shaft_img);
+
+    // Register all 6 with egui
+    let registrations: [(BuildKind, &Handle<Image>); 6] = [
         (BuildKind::Farm, &farm_handle),
         (BuildKind::House, &sprites.house_texture),
         (BuildKind::Barracks, &sprites.barracks_texture),
         (BuildKind::GuardPost, &sprites.guard_post_texture),
         (BuildKind::Tent, &tent_handle),
+        (BuildKind::MineShaft, &mine_shaft_handle),
     ];
 
     for (kind, handle) in registrations {

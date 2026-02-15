@@ -76,6 +76,13 @@ pub struct Tent {
     pub town_idx: u32,
 }
 
+/// A mine shaft that supports 1 miner (building spawner).
+#[derive(Clone, Debug)]
+pub struct MineShaft {
+    pub position: Vec2,
+    pub town_idx: u32,
+}
+
 /// A gold mine in the wilderness (unowned, any faction can mine).
 #[derive(Clone, Debug)]
 pub struct GoldMine {
@@ -96,6 +103,7 @@ pub struct WorldData {
     pub houses: Vec<House>,
     pub barracks: Vec<Barracks>,
     pub tents: Vec<Tent>,
+    pub mine_shafts: Vec<MineShaft>,
     pub gold_mines: Vec<GoldMine>,
 }
 
@@ -249,7 +257,10 @@ pub fn place_building(
         Building::Tent { town_idx } => {
             world_data.tents.push(Tent { position: snapped_pos, town_idx });
         }
-        _ => {} // Fountain and Camp not player-placeable
+        Building::MineShaft { town_idx } => {
+            world_data.mine_shafts.push(MineShaft { position: snapped_pos, town_idx });
+        }
+        _ => {} // Fountain, Camp, GoldMine not player-placeable
     }
 
     Ok(())
@@ -281,11 +292,24 @@ pub fn resolve_spawner_npc(
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
             (1, town_faction, -1.0, -1.0, post_idx, 1, "Guard", "Barracks")
         }
-        _ => {
+        2 => {
             // Tent -> Raider
             let camp_faction = towns.get(entry.town_idx as usize)
                 .map(|t| t.faction).unwrap_or(1);
             (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Tent")
+        }
+        3 => {
+            // MineShaft -> Miner: find nearest gold mine
+            let mine = find_nearest_free(
+                entry.position, bgrid, BuildingKind::GoldMine, occupancy, None,
+            ).unwrap_or(entry.position);
+            (4, town_faction, mine.x, mine.y, -1, 0, "Miner", "Mine Shaft")
+        }
+        _ => {
+            // Unknown building kind — fallback to Raider
+            let camp_faction = towns.get(entry.town_idx as usize)
+                .map(|t| t.faction).unwrap_or(1);
+            (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown")
         }
     }
 }
@@ -449,6 +473,13 @@ pub fn remove_building(
                 (t.position - snapped_pos).length() < 1.0
             }) {
                 t.position = tombstone;
+            }
+        }
+        Building::MineShaft { .. } => {
+            if let Some(ms) = world_data.mine_shafts.iter_mut().find(|ms| {
+                (ms.position - snapped_pos).length() < 1.0
+            }) {
+                ms.position = tombstone;
             }
         }
         _ => {}
@@ -754,7 +785,7 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
 ];
 
 /// Atlas (col, row) positions for the 8 building tiles used in the building TilemapChunk layer.
-pub const BUILDING_TILES: [TileSpec; 9] = [
+pub const BUILDING_TILES: [TileSpec; 10] = [
     TileSpec::Single(50, 9),  // 0: Fountain
     TileSpec::Single(15, 2),  // 1: Bed
     TileSpec::External(2),    // 2: Guard Post (guard_post.png)
@@ -764,6 +795,7 @@ pub const BUILDING_TILES: [TileSpec; 9] = [
     TileSpec::External(1),    // 6: Barracks (barracks.png)
     TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]), // 7: Tent (raider spawner)
     TileSpec::Single(43, 11), // 8: Gold Mine
+    TileSpec::Single(43, 11), // 9: Mine Shaft (reuses gold mine sprite)
 ];
 
 /// Extract tiles from the world atlas and build a texture_2d_array for TilemapChunk.
@@ -859,10 +891,11 @@ pub enum Building {
     Barracks { town_idx: u32 },
     Tent { town_idx: u32 },
     GoldMine,
+    MineShaft { town_idx: u32 },
 }
 
 impl Building {
-    /// Returns the spawner building_kind (0=House, 1=Barracks, 2=Tent),
+    /// Returns the spawner building_kind (0=House, 1=Barracks, 2=Tent, 3=MineShaft),
     /// or None for non-spawner buildings (Farm, GuardPost, etc.).
     /// Single source of truth for the building→spawner mapping.
     pub fn spawner_kind(&self) -> Option<i32> {
@@ -870,6 +903,7 @@ impl Building {
             Building::House { .. } => Some(0),
             Building::Barracks { .. } => Some(1),
             Building::Tent { .. } => Some(2),
+            Building::MineShaft { .. } => Some(3),
             _ => None,
         }
     }
@@ -886,6 +920,7 @@ impl Building {
             Building::Barracks { .. } => 6,
             Building::Tent { .. } => 7,
             Building::GoldMine => 8,
+            Building::MineShaft { .. } => 9,
         }
     }
 }

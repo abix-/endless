@@ -528,13 +528,6 @@ impl GoldStorage {
     }
 }
 
-/// Per-town miner target count. Player/AI sets how many villagers should be miners.
-/// The job_reassign_system converts idle farmers↔miners to match these targets.
-#[derive(Resource, Default)]
-pub struct MinerTarget {
-    pub targets: Vec<i32>, // per-town desired miner count (index = town_data_idx)
-}
-
 /// Per-mine gold tracking. Mirrors FarmStates pattern.
 #[derive(Resource, Default, Clone)]
 pub struct MineStates {
@@ -765,6 +758,7 @@ pub enum BuildKind {
     House,
     Barracks,
     Tent,
+    MineShaft,
     Destroy,
 }
 
@@ -845,7 +839,7 @@ pub struct GuardPostState {
 /// Tracks one building spawner (House, Barracks, or Tent) and its linked NPC.
 #[derive(Clone, Default)]
 pub struct SpawnerEntry {
-    pub building_kind: i32,   // derived from Building::spawner_kind(): 0=House, 1=Barracks, 2=Tent
+    pub building_kind: i32,   // derived from Building::spawner_kind(): 0=House, 1=Barracks, 2=Tent, 3=MineShaft
     pub town_idx: i32,        // town data index (villager or raider camp)
     pub position: Vec2,       // building world position
     pub npc_slot: i32,        // linked NPC slot (-1 = no NPC alive)

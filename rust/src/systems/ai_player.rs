@@ -14,7 +14,7 @@ use rand::Rng;
 use crate::constants::*;
 use crate::resources::*;
 use crate::world::{self, Building, WorldData, WorldGrid, TownGrids};
-use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_cost};
+use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_cost, upgrade_node};
 
 /// Minimum Manhattan distance between guard posts on the town grid.
 const MIN_GUARD_POST_SPACING: i32 = 5;
@@ -42,6 +42,7 @@ enum AiAction {
     BuildBarracks,
     BuildGuardPost,
     BuildTent,
+    BuildMineShaft,
     Upgrade(usize), // upgrade index into UPGRADE_PCT
 }
 
@@ -243,7 +244,6 @@ pub fn ai_decision_system(
     upgrades: Res<TownUpgrades>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
-    mut miner_target: ResMut<crate::resources::MinerTarget>,
     mut timer: Local<f32>,
     timings: Res<SystemTimings>,
 ) {
@@ -269,19 +269,11 @@ pub fn ai_decision_system(
         let houses = world_data.houses.iter().filter(|h| alive(h.position, h.town_idx)).count();
         let barracks = world_data.barracks.iter().filter(|b| alive(b.position, b.town_idx)).count();
         let guard_posts = world_data.guard_posts.iter().filter(|g| alive(g.position, g.town_idx)).count();
+        let mine_shafts = world_data.mine_shafts.iter().filter(|ms| alive(ms.position, ms.town_idx)).count();
 
         let has_slots = town_grids.grids.get(player.grid_idx)
             .map(|tg| has_empty_slot(tg, center, &grid))
             .unwrap_or(false);
-        // Set miner target based on personality and house count
-        if player.kind == AiKind::Builder && tdi < miner_target.targets.len() {
-            let target = match player.personality {
-                AiPersonality::Aggressive => (houses / 3) as i32,   // 1 miner per 3 houses
-                AiPersonality::Balanced   => (houses / 2) as i32,   // 1 miner per 2 houses
-                AiPersonality::Economic   => ((houses * 2) / 3) as i32, // 2 miners per 3 houses
-            };
-            miner_target.targets[tdi] = target;
-        }
 
         // Score all eligible actions
         let mut scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
@@ -308,6 +300,12 @@ pub fn ai_decision_system(
                     if food >= HOUSE_BUILD_COST { scores.push((AiAction::BuildHouse, hw * house_need)); }
                     if food >= BARRACKS_BUILD_COST { scores.push((AiAction::BuildBarracks, bw * barracks_need)); }
                     if food >= GUARD_POST_BUILD_COST { scores.push((AiAction::BuildGuardPost, gw * gp_need)); }
+                    // 1 mine shaft per 3 houses
+                    let ms_target = houses / 3;
+                    if mine_shafts < ms_target && food >= MINE_SHAFT_BUILD_COST {
+                        let ms_need = 1.0 + (ms_target - mine_shafts) as f32;
+                        scores.push((AiAction::BuildMineShaft, hw * ms_need));
+                    }
                 }
             }
         }
@@ -339,6 +337,22 @@ pub fn ai_decision_system(
     }
 }
 
+/// Try to build a standard building at the nearest inner slot.
+#[allow(clippy::too_many_arguments)]
+fn try_build_inner(
+    building: Building, cost: i32, label: &str,
+    tdi: usize, center: Vec2,
+    grid: &mut WorldGrid, world_data: &mut WorldData, farm_states: &mut FarmStates,
+    food_storage: &mut FoodStorage, town_grids: &mut TownGrids,
+    spawner_state: &mut SpawnerState, grid_idx: usize,
+) -> Option<String> {
+    let tg = town_grids.grids.get(grid_idx)?;
+    let (row, col) = find_inner_slot(tg, center, grid)?;
+    world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
+        building, tdi, row, col, center, cost)
+        .then_some(format!("built {label}"))
+}
+
 /// Execute the chosen action, returning a log label on success.
 #[allow(clippy::too_many_arguments)]
 fn execute_action(
@@ -349,34 +363,21 @@ fn execute_action(
     grid_idx: usize,
 ) -> Option<String> {
     match action {
-        AiAction::BuildTent => {
-            let tg = town_grids.grids.get(grid_idx)?;
-            let (row, col) = find_inner_slot(tg, center, grid)?;
-            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
-                Building::Tent { town_idx: ti }, tdi, row, col, center, TENT_BUILD_COST)
-                .then_some("built tent".into())
-        }
-        AiAction::BuildFarm => {
-            let tg = town_grids.grids.get(grid_idx)?;
-            let (row, col) = find_inner_slot(tg, center, grid)?;
-            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
-                Building::Farm { town_idx: ti }, tdi, row, col, center, FARM_BUILD_COST)
-                .then_some("built farm".into())
-        }
-        AiAction::BuildHouse => {
-            let tg = town_grids.grids.get(grid_idx)?;
-            let (row, col) = find_inner_slot(tg, center, grid)?;
-            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
-                Building::House { town_idx: ti }, tdi, row, col, center, HOUSE_BUILD_COST)
-                .then_some("built house".into())
-        }
-        AiAction::BuildBarracks => {
-            let tg = town_grids.grids.get(grid_idx)?;
-            let (row, col) = find_inner_slot(tg, center, grid)?;
-            world::build_and_pay(grid, world_data, farm_states, food_storage, spawner_state,
-                Building::Barracks { town_idx: ti }, tdi, row, col, center, BARRACKS_BUILD_COST)
-                .then_some("built barracks".into())
-        }
+        AiAction::BuildTent => try_build_inner(
+            Building::Tent { town_idx: ti }, TENT_BUILD_COST, "tent",
+            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+        AiAction::BuildFarm => try_build_inner(
+            Building::Farm { town_idx: ti }, FARM_BUILD_COST, "farm",
+            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+        AiAction::BuildHouse => try_build_inner(
+            Building::House { town_idx: ti }, HOUSE_BUILD_COST, "house",
+            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+        AiAction::BuildBarracks => try_build_inner(
+            Building::Barracks { town_idx: ti }, BARRACKS_BUILD_COST, "barracks",
+            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
+        AiAction::BuildMineShaft => try_build_inner(
+            Building::MineShaft { town_idx: ti }, MINE_SHAFT_BUILD_COST, "mine shaft",
+            tdi, center, grid, world_data, farm_states, food_storage, town_grids, spawner_state, grid_idx),
         AiAction::BuildGuardPost => {
             let tg = town_grids.grids.get(grid_idx)?;
             let (row, col) = find_guard_post_slot(tg, center, grid, world_data, ti)?;
@@ -387,14 +388,7 @@ fn execute_action(
         }
         AiAction::Upgrade(idx) => {
             upgrade_queue.0.push((tdi, idx));
-            let name = match idx {
-                0 => "GuardHealth", 1 => "GuardAttack", 2 => "GuardRange",
-                3 => "GuardSize", 4 => "AttackSpeed", 5 => "MoveSpeed",
-                6 => "AlertRadius", 7 => "FarmYield", 8 => "FarmerHp",
-                9 => "HealingRate", 10 => "FoodEfficiency", 11 => "FountainRadius",
-                12 => "TownArea",
-                _ => "Unknown",
-            };
+            let name = upgrade_node(idx).label;
             Some(format!("upgraded {name}"))
         }
     }

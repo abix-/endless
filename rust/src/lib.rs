@@ -30,7 +30,7 @@ use resources::{
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
-    FoodStorage, GoldStorage, MineStates, MinerTarget, FactionStats, CampState, RaidQueue, SystemTimings,
+    FoodStorage, GoldStorage, MineStates, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest,
@@ -215,7 +215,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<ProjSlotAllocator>()
        .init_resource::<FoodStorage>()
        .init_resource::<GoldStorage>()
-       .init_resource::<MinerTarget>()
        .init_resource::<MineStates>()
        .init_resource::<FactionStats>()
        .init_resource::<CampState>()
@@ -294,7 +293,6 @@ pub fn build_app(app: &mut App) {
            process_upgrades_system.after(auto_upgrade_system),
            ai_decision_system,
            (rebuild_patrol_routes_system, squad_cleanup_system),
-           job_reassign_system.after(decision_system),
        ).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))

@@ -110,7 +110,7 @@ Frame execution order ───────────────────�
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
-| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (House/Barracks/Tent), FarmYield upgrade | 8/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (House/Barracks/Tent/MineShaft), FarmYield upgrade | 8/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 8/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
@@ -132,14 +132,14 @@ rust/
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Miner marker)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining)
-  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, MinerTarget, HelpCatalog, etc.)
+  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, HelpCatalog, etc.)
   src/settings.rs       # UserSettings persistence (serde JSON save/load)
-  src/world.rs          # World data structs (GoldMine), world grid (Building::GoldMine), procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), Building::spawner_kind()
+  src/world.rs          # World data structs (GoldMine, MineShaft), world grid (Building::GoldMine, Building::MineShaft), procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), Building::spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale), escape/time controls, keyboard toggles (Q=squads), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
     main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
     game_hud.rs         # Top bar (food + gold), floating inspector (bottom-left, incl. mine inspector) + combat log (bottom-right), target overlay, squad overlay, FPS counter
-    left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) — policy persistence on tab leave, miner count DragValue
+    left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) — policy persistence on tab leave
     build_menu.rs       # Bottom-center build bar: building sprites with cached atlas extraction, click-to-place, destroy mode, cursor hint
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
@@ -168,7 +168,7 @@ rust/
     combat.rs           # Attack cooldown, targeting, guard post turret auto-attack (faction-aware)
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
-    economy.rs          # Game time, farm growth, mine regen, respawning, building spawners, squad cleanup, job reassignment (farmer↔miner)
+    economy.rs          # Game time, farm growth, mine regen, respawning, building spawners, squad cleanup
     ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), weighted random scoring (like NPC behavior), smart slot selection
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync

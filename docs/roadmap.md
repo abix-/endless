@@ -338,6 +338,7 @@ Rules:
 
 **NEXT: DRY + Single Source of Truth hardening (before feature parity leftovers)**
 
+- [ ] Rename role spawner buildings to `HomeFarmer` / `HomeMiner` / `HomeGuard` (UI labels: `Home - Farmer`, `Home - Miner`, `Home - Guard`) for unambiguous 1:1 NPC-home semantics
 - [x] Consolidate farm harvest transitions into one authoritative path (currently split across `arrival_system` and `decision_system`)
 - [x] Consolidate building placement side effects (place + food spend + spawner entry) into one shared helper used by player + AI
 - [x] Consolidate spawner spawn mapping (`building_kind` -> `SpawnNpcMsg` fields) into one shared helper used by startup + respawn systems
@@ -370,6 +371,8 @@ Rules:
 - [ ] Main scene UX parity: double-click locked slot to unlock (alternative to context action)
 - [ ] Main scene UX parity: terrain tile click inspector (biome/tile coordinates)
 - [ ] Main scene UX parity: world-space town/camp labels (or confirm intentional removal)
+- [ ] Squad behavior fix: add option for squad-assigned guards to ignore patrol responsibilities
+- [ ] When "Ignore Patrol" is enabled, guards with `SquadId` must never enter `OnDuty`/patrol route flow; they only follow squad target (or squad-idle behavior) while still respecting survival rules (combat/flee/rest/heal)
 
 **Stage 13: In-game Help** ✓
 
@@ -484,6 +487,8 @@ SystemParam bundle consolidation:
 - [ ] Add branch-level and global level summaries in Upgrades UI (e.g., Military LvX / Economy LvY / Town LvZ, Total LvN)
 - [ ] Render node state in UI: Locked/Unlocked, current level, next cost, current effect, next-level effect
 - [ ] Add energy branch nodes as upgrade effects: guard energy efficiency + worker (farmer/miner) energy efficiency
+- [ ] Expand energy upgrades to per-NPC-type nodes (Guard, Farmer, Miner, Raider, Fighter where applicable)
+- [ ] Add dodge branch nodes to tech tree per NPC type, including dodge cooldown level upgrades
 - [ ] Keep metadata in one registry shared by UI labels, AI log names, prereq checks, and short labels in Intel panel
 - [ ] Add tech-tree unlock node for `Player AI Manager` (disabled by default until unlocked)
 - [ ] Add player-side AI manager UI panel (or left-panel section) with settings for build/upgrade automation in the player town
@@ -1186,6 +1191,8 @@ Scope (v1):
 - Add prerequisite gating for upgrade purchases
 - Expose aggregate level summaries (branch and total)
 - Add job energy upgrades and wire effects into runtime systems
+- Add per-NPC-type energy upgrade variants (not one shared worker bucket)
+- Add per-NPC-type dodge upgrades, including cooldown level scaling
 - Support per-node payment in Food or Gold (no research-building loop)
 - Add a tech-tree node that unlocks a player-owned AI manager for the player town
 - Keep queue-driven purchase model (`UpgradeQueue`) and exponential level scaling (cost doubles by level)
@@ -1198,6 +1205,8 @@ Out of scope (v1):
 Data model (`systems/stats.rs`):
 - Add a static registry for upgrade nodes (single source of truth):
   `UpgradeNode { kind, label, short, category, tooltip, prereqs, effect_kind, currency }`
+- Extend node metadata for per-type effects:
+  `target_job: Option<Job>` and dodge-specific fields (`dodge_power_pct`, `dodge_cooldown_mult` or equivalent)
 - Add currency type:
   `UpgradeCurrency { Food, Gold }`
 - Add prerequisite type:
@@ -1217,6 +1226,10 @@ Suggested v1 tree (uses existing + energy nodes):
 - Town branch:
   Healing Rate (root) -> Fountain Radius
   Fountain Radius + Food Efficiency -> Town Area
+- Dodge branch (per type, examples):
+  Guard Dodge I -> Guard Dodge Cooldown I/II/III
+  Farmer Dodge I -> Farmer Dodge Cooldown I/II
+  Raider Dodge I -> Raider Dodge Cooldown I/II/III
 
 System wiring:
 - `process_upgrades_system`:
@@ -1231,10 +1244,12 @@ System wiring:
   read upgrade names/short labels from shared registry (remove hardcoded match table)
   when `Player AI Manager` is unlocked + enabled, run the same builder AI decision flow for faction 0 town (player town) using separate player-facing settings
 - `energy_system`:
-  apply per-town energy modifiers by job
-  Guard Stamina: reduce energy drain for `Job::Guard`
-  Worker Stamina: reduce energy drain for `Job::Farmer` and `Job::Miner`
+  apply per-town energy modifiers by exact job type
+  per-type stamina nodes reduce drain for their target job only
   keep clamp behavior (`0..100`) and starvation interaction unchanged
+- Dodge runtime wiring:
+  map dodge node levels to per-job dodge strength and dodge cooldown multipliers
+  apply in projectile avoidance/dodge path (GPU or CPU path), with explicit cooldown reduction by level
 
 Player AI manager model:
 - Add `PlayerAiManager` resource (or equivalent) with:
@@ -1288,6 +1303,8 @@ Validation checklist:
 6. Guard Stamina changes observed guard energy drain over identical time window
 7. Worker Stamina changes farmer/miner energy drain over identical time window
 8. Existing tests still pass; add targeted tests below
+9. Per-type stamina upgrades affect only their target NPC type
+10. Per-type dodge cooldown upgrades reduce dodge cooldown as levels increase for that type only
 9. `Player AI Manager` is unavailable before unlock, then becomes configurable after unlock
 10. With manager enabled, player town performs the same automation class as enemy builder AI (build + upgrade), constrained to faction 0
 
@@ -1298,6 +1315,9 @@ Test additions:
 - `tests/energy_upgrades.rs`:
   guard drain with/without Guard Stamina differs as expected
   farmer/miner drain with/without Worker Stamina differs as expected
+- `tests/dodge_upgrades.rs`:
+  dodge cooldown level upgrades decrease effective dodge cooldown
+  upgrades apply only to the targeted NPC type
 - `tests/ai_upgrades.rs`:
   AI upgrade choice skips locked nodes and buys unlocked affordable nodes
 - `tests/player_ai_manager.rs`:
@@ -1389,4 +1409,3 @@ Testing plan:
 - [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) — compute + render pipeline
 - [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) — sprite batching, per-layer draw queues
 - [Factorio FFF #421](https://www.factorio.com/blog/post/fff-421) — entity update optimization, lazy activation
-

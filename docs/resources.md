@@ -45,8 +45,8 @@ Static world data, immutable after initialization.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| WorldData | towns, farms, beds, guard_posts, huts, barracks, tents, gold_mines | All building positions and metadata |
-| SpawnerState | `Vec<SpawnerEntry>` — one per Hut/Barracks/Tent | Building→NPC links + respawn timers |
+| WorldData | towns, farms, beds, guard_posts, huts, barracks, tents, mine_shafts, gold_mines | All building positions and metadata |
+| SpawnerState | `Vec<SpawnerEntry>` — one per Hut/Barracks/Tent/MineShaft | Building→NPC links + respawn timers |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
@@ -64,6 +64,7 @@ Static world data, immutable after initialization.
 | Hut | position (Vec2), town_idx |
 | Barracks | position (Vec2), town_idx |
 | Tent | position (Vec2), town_idx |
+| MineShaft | position (Vec2), town_idx |
 | GoldMine | position (Vec2) |
 
 Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `find_nearest_free()`, `find_within_radius()`, `find_by_pos()`. The first four use `BuildingSpatialGrid` for O(1) cell lookups instead of linear scans. `find_by_pos` still uses the `Worksite` trait directly on slices.
@@ -79,7 +80,7 @@ Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `f
 
 **WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<Building>`.
 
-**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `GuardPost { town_idx, patrol_order }`, `Camp { town_idx }`, `Hut { town_idx }`, `Barracks { town_idx }`, `Tent { town_idx }`, `GoldMine` (unowned — no town_idx).
+**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `GuardPost { town_idx, patrol_order }`, `Camp { town_idx }`, `Hut { town_idx }`, `Barracks { town_idx }`, `Tent { town_idx }`, `MineShaft { town_idx }`, `GoldMine` (unowned — no town_idx).
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
@@ -96,14 +97,14 @@ Per-town slot tracking for the building system. Each town (villager and raider c
 | TownGrid | town_data_idx: usize, area_level: i32 |
 | TownGrids | grids: `Vec<TownGrid>` (one per town — villager + camp) |
 | BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildKind>`, hover_world_pos: Vec2 |
-| BuildKind | Farm, GuardPost, House, Barracks, Tent, Destroy |
+| BuildKind | Farm, GuardPost, House, Barracks, Tent, MineShaft, Destroy |
 | DestroyRequest | `Option<(usize, usize)>` — (grid_col, grid_row), set by inspector, processed by `process_destroy_system` |
 
 Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `build_bounds(grid) -> (min_row, max_row, min_col, max_col)`, `is_slot_buildable(grid, row, col)`, `find_town_slot(world_pos, towns, grids)`.
 
 Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. Tombstone deletion preserves parallel Vec indices (FarmStates). Fountains, camps, and gold mines cannot be destroyed.
 
-Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, Tent=1 food.
+Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, Tent=1, MineShaft=1 food.
 
 ## Food & Economy
 
@@ -111,7 +112,6 @@ Building costs (from constants.rs): Farm=1, GuardPost=1, Hut=1, Barracks=1, Tent
 |----------|------|---------|---------|
 | FoodStorage | `Vec<i32>` — food count per town/camp | economy systems (arrival, eating) | economy systems, UI |
 | GoldStorage | `Vec<i32>` — gold count per town/camp | mining delivery (arrival_system) | UI (top bar) |
-| MinerTarget | `Vec<i32>` — desired miner count per town | left_panel (UI), ai_decision_system | job_reassign_system |
 | FoodEvents | delivered: `Vec<FoodDelivered>`, consumed: `Vec<FoodConsumed>` | behavior systems | UI (poll and drain) |
 
 `FoodStorage.init(count)` initializes per-town counters. Villager towns and raider camps share the same indexing.
@@ -239,7 +239,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
-| SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=Hut, 1=Barracks, 2=Tent), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
+| SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=Hut, 1=Barracks, 2=Tent, 3=MineShaft), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, guards, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
@@ -270,10 +270,10 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
-Personality drives build order, upgrade priority, food reserve, town policies, and miner allocation:
-- **Aggressive**: military first (barracks → guard posts → economy), zero food reserve, combat upgrades prioritized, miners = 1/3 of houses
-- **Balanced**: economy and military in tandem (farm → house → barracks → guard post), 10 food reserve, miners = 1/2 of houses
-- **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized, miners = 2/3 of houses
+Personality drives build order, upgrade priority, food reserve, and town policies:
+- **Aggressive**: military first (barracks → guard posts → economy), zero food reserve, combat upgrades prioritized, mine shafts = 1/3 of houses
+- **Balanced**: economy and military in tandem (farm → house → barracks → guard post), 10 food reserve, mine shafts = 1/2 of houses
+- **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized, mine shafts = 2/3 of houses
 
 Slot selection: economy buildings (farms, houses, barracks) prefer inner slots (closest to center). Guard posts prefer outer slots (farthest from center) with minimum Manhattan distance of 5 between posts. Raider tents cluster around camp center (inner slots).
 

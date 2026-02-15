@@ -8,7 +8,7 @@ use bevy_egui::egui;
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, upgrade_cost};
+use crate::systems::stats::{TownUpgrades, UpgradeQueue, UPGRADE_COUNT, UPGRADE_REGISTRY, upgrade_cost};
 use crate::systems::{AiPlayerState, AiKind};
 use crate::world::WorldData;
 
@@ -40,31 +40,6 @@ struct RosterRow {
     trait_name: String,
 }
 
-// ============================================================================
-// UPGRADE TYPES
-// ============================================================================
-
-struct UpgradeDef {
-    label: &'static str,
-    tooltip: &'static str,
-    category: &'static str,
-}
-
-const UPGRADES: &[UpgradeDef] = &[
-    UpgradeDef { label: "Guard Health",    tooltip: "+10% guard HP per level",                  category: "Guard" },
-    UpgradeDef { label: "Guard Attack",    tooltip: "+10% guard damage per level",              category: "Guard" },
-    UpgradeDef { label: "Guard Range",     tooltip: "+5% guard attack range per level",         category: "Guard" },
-    UpgradeDef { label: "Guard Size",      tooltip: "+5% guard size per level",                 category: "Guard" },
-    UpgradeDef { label: "Attack Speed",    tooltip: "-8% attack cooldown per level",            category: "Guard" },
-    UpgradeDef { label: "Move Speed",      tooltip: "+5% movement speed per level",             category: "Guard" },
-    UpgradeDef { label: "Alert Radius",    tooltip: "+10% alert radius per level",              category: "Guard" },
-    UpgradeDef { label: "Farm Yield",      tooltip: "+15% food production per level",           category: "Farm" },
-    UpgradeDef { label: "Farmer HP",       tooltip: "+20% farmer HP per level",                 category: "Farm" },
-    UpgradeDef { label: "Healing Rate",    tooltip: "+20% HP regen at fountain per level",      category: "Town" },
-    UpgradeDef { label: "Food Efficiency", tooltip: "10% chance per level to not consume food", category: "Town" },
-    UpgradeDef { label: "Fountain Radius", tooltip: "+24px fountain healing range per level",   category: "Town" },
-    UpgradeDef { label: "Town Area",       tooltip: "+1 buildable radius per level",            category: "Town" },
-];
 
 // ============================================================================
 // POLICIES CONSTANTS
@@ -91,7 +66,6 @@ pub struct RosterParams<'w, 's> {
     ), Without<Dead>>,
     camera_query: Query<'w, 's, &'static mut Transform, With<crate::render::MainCamera>>,
     gpu_state: Res<'w, GpuReadState>,
-    miner_target: ResMut<'w, MinerTarget>,
 }
 
 #[derive(SystemParam)]
@@ -140,9 +114,11 @@ struct AiSnapshot {
     farmers: usize,
     guards: usize,
     raiders: usize,
+    miners: usize,
     houses: usize,
     barracks: usize,
     tents: usize,
+    mine_shafts: usize,
     farms: usize,
     guard_posts: usize,
     alive: i32,
@@ -346,27 +322,6 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
     });
 
     // Miner target control — set how many villagers should be miners
-    let player_town_idx = roster.meta_cache.0.iter()
-        .position(|m| m.job == 0 || m.job == 4) // find any farmer/miner
-        .and_then(|idx| {
-            let ti = roster.meta_cache.0[idx].town_id;
-            if ti >= 0 { Some(ti as usize) } else { None }
-        })
-        .unwrap_or(0);
-    if player_town_idx < roster.miner_target.targets.len() {
-        // Count total villagers (farmers + miners) for this town as max
-        let total_villagers = roster.meta_cache.0.iter()
-            .filter(|m| m.town_id == player_town_idx as i32 && (m.job == 0 || m.job == 4) && !m.name.is_empty())
-            .count() as i32;
-        let mut target = roster.miner_target.targets[player_town_idx];
-        ui.horizontal(|ui| {
-            ui.label("Miners:");
-            ui.add(egui::DragValue::new(&mut target).range(0..=total_villagers));
-            ui.small(format!("/ {} villagers", total_villagers));
-        });
-        roster.miner_target.targets[player_town_idx] = target;
-    }
-
     ui.label(format!("{} NPCs", state.cached_rows.len()));
     ui.separator();
 
@@ -506,7 +461,7 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
     let levels = upgrade.upgrades.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT]);
 
     let mut last_category = "";
-    for (i, upg) in UPGRADES.iter().enumerate() {
+    for (i, upg) in UPGRADE_REGISTRY.iter().enumerate() {
         if upg.category != last_category {
             if !last_category.is_empty() {
                 ui.add_space(4.0);
@@ -814,10 +769,6 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, world_data: &World
 // INTEL CONTENT
 // ============================================================================
 
-const UPGRADE_SHORT: &[&str] = &[
-    "G.HP", "G.Atk", "G.Rng", "G.Size", "AtkSpd", "MvSpd",
-    "Alert", "FarmY", "F.HP", "Heal", "FoodEff", "Fount", "Area",
-];
 
 fn rebuild_intel_cache(
     intel: &IntelParams,
@@ -846,15 +797,16 @@ fn rebuild_intel_cache(
         let barracks = world_data.barracks.iter().filter(|b| alive_check(b.position, b.town_idx)).count();
         let guard_posts = world_data.guard_posts.iter().filter(|g| alive_check(g.position, g.town_idx)).count();
         let tents = world_data.tents.iter().filter(|t| alive_check(t.position, t.town_idx)).count();
+        let mine_shafts = world_data.mine_shafts.iter().filter(|ms| alive_check(ms.position, ms.town_idx)).count();
 
         // Count alive NPCs by job from spawner state
         let ti_i32 = tdi as i32;
-        let farmers = intel.spawner_state.0.iter()
-            .filter(|s| s.building_kind == 0 && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
-        let guards = intel.spawner_state.0.iter()
-            .filter(|s| s.building_kind == 1 && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
-        let raiders = intel.spawner_state.0.iter()
-            .filter(|s| s.building_kind == 2 && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
+        let alive_spawner = |kind: i32| intel.spawner_state.0.iter()
+            .filter(|s| s.building_kind == kind && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
+        let farmers = alive_spawner(0);
+        let guards = alive_spawner(1);
+        let raiders = alive_spawner(2);
+        let miners = alive_spawner(3);
 
         let food = intel.food_storage.food.get(tdi).copied().unwrap_or(0);
         let faction = world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
@@ -881,9 +833,11 @@ fn rebuild_intel_cache(
             farmers,
             guards,
             raiders,
+            miners,
             houses,
             barracks,
             tents,
+            mine_shafts,
             farms,
             guard_posts,
             alive,
@@ -960,6 +914,9 @@ fn intel_content(
                         if snap.raiders > 0 || snap.tents > 0 {
                             ui.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
                         }
+                        if snap.miners > 0 || snap.mine_shafts > 0 {
+                            ui.label(format!("Miners: {}/{}", snap.miners, snap.mine_shafts));
+                        }
                     });
 
                     // Buildings
@@ -975,7 +932,7 @@ fn intel_content(
                         ui.horizontal_wrapped(|ui| {
                             for (j, &level) in snap.upgrades.iter().enumerate() {
                                 if level == 0 { continue; }
-                                let label = UPGRADE_SHORT.get(j).unwrap_or(&"?");
+                                let label = UPGRADE_REGISTRY.get(j).map(|n| n.short).unwrap_or("?");
                                 ui.small(format!("{} {}", label, level));
                             }
                         });

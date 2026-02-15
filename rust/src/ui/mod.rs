@@ -13,7 +13,7 @@ use bevy_egui::{EguiContextSettings, EguiPrimaryContextPass, egui};
 use rand::Rng;
 
 use crate::AppState;
-use crate::constants::{BARRACKS_BUILD_COST, FARM_BUILD_COST, GUARD_POST_BUILD_COST, HOUSE_BUILD_COST, TENT_BUILD_COST, TOWN_GRID_SPACING};
+use crate::constants::{BARRACKS_BUILD_COST, FARM_BUILD_COST, GUARD_POST_BUILD_COST, HOUSE_BUILD_COST, MINE_SHAFT_BUILD_COST, TENT_BUILD_COST, TOWN_GRID_SPACING};
 use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
@@ -142,7 +142,6 @@ struct StartupExtra<'w> {
     combat_log: ResMut<'w, CombatLog>,
     mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
-    miner_target: ResMut<'w, MinerTarget>,
     bgrid: ResMut<'w, world::BuildingSpatialGrid>,
 }
 
@@ -185,7 +184,6 @@ fn game_startup_system(
     extra.npcs_by_town.0.resize(num_towns, Vec::new());
     food_storage.init(num_towns);
     extra.gold_storage.init(num_towns);
-    extra.miner_target.targets = vec![0; num_towns];
     faction_stats.init(num_towns); // one per settlement (player + AI + camps)
     camp_state.init(num_towns, 10);
 
@@ -210,6 +208,10 @@ fn game_startup_system(
     for tent in world_data.tents.iter() {
         world::register_spawner(&mut spawner_state, world::Building::Tent { town_idx: 0 },
             tent.town_idx as i32, tent.position, -1.0);
+    }
+    for ms in world_data.mine_shafts.iter() {
+        world::register_spawner(&mut spawner_state, world::Building::MineShaft { town_idx: 0 },
+            ms.town_idx as i32, ms.position, -1.0);
     }
 
     // Reset farm occupancy for fresh game
@@ -546,6 +548,7 @@ fn build_place_click_system(
         BuildKind::House => (world::Building::House { town_idx }, HOUSE_BUILD_COST, "house"),
         BuildKind::Barracks => (world::Building::Barracks { town_idx }, BARRACKS_BUILD_COST, "barracks"),
         BuildKind::Tent => (world::Building::Tent { town_idx }, TENT_BUILD_COST, "tent"),
+        BuildKind::MineShaft => (world::Building::MineShaft { town_idx }, MINE_SHAFT_BUILD_COST, "mine shaft"),
         BuildKind::Destroy => unreachable!(),
     };
 
@@ -818,7 +821,6 @@ struct CleanupWorld<'w> {
     ai_state: ResMut<'w, AiPlayerState>,
     mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
-    miner_target: ResMut<'w, MinerTarget>,
 }
 
 #[derive(SystemParam)]
@@ -880,7 +882,6 @@ fn game_cleanup_system(
     *world.ai_state = Default::default();
     *world.mine_states = Default::default();
     *world.gold_storage = Default::default();
-    *world.miner_target = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();

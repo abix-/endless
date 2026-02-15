@@ -561,6 +561,7 @@ fn building_name(building: &Building) -> &'static str {
         Building::Barracks { .. } => "Barracks",
         Building::Tent { .. } => "Tent",
         Building::GoldMine => "Gold Mine",
+        Building::MineShaft { .. } => "Mine Shaft",
     }
 }
 
@@ -573,7 +574,8 @@ pub fn building_town_idx(building: &Building) -> u32 {
         | Building::Camp { town_idx }
         | Building::House { town_idx }
         | Building::Barracks { town_idx }
-        | Building::Tent { town_idx } => *town_idx,
+        | Building::Tent { town_idx }
+        | Building::MineShaft { town_idx } => *town_idx,
         Building::GoldMine => 0, // mines are unowned
     }
 }
@@ -636,10 +638,11 @@ fn building_inspector_content(
             }
         }
 
-        Building::House { .. } | Building::Barracks { .. } | Building::Tent { .. } => {
+        Building::House { .. } | Building::Barracks { .. } | Building::Tent { .. } | Building::MineShaft { .. } => {
             let (kind, spawns_label) = match building {
                 Building::House { .. } => (0, "Farmer"),
                 Building::Barracks { .. } => (1, "Guard"),
+                Building::MineShaft { .. } => (3, "Miner"),
                 _ => (2, "Raider"),
             };
             let world_pos = bld.grid.grid_to_world(col, row);

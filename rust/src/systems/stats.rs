@@ -82,6 +82,38 @@ pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
     0.20, 0.10, 0.0, 0.0,     // healing rate, food efficiency, fountain radius (flat), town area (discrete)
 ];
 
+// ============================================================================
+// UPGRADE REGISTRY (single source of truth for all upgrade metadata)
+// ============================================================================
+
+pub struct UpgradeNode {
+    pub label: &'static str,
+    pub short: &'static str,
+    pub tooltip: &'static str,
+    pub category: &'static str,
+}
+
+pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
+    UpgradeNode { label: "Guard Health",    short: "G.HP",    tooltip: "+10% guard HP per level",                  category: "Guard" },
+    UpgradeNode { label: "Guard Attack",    short: "G.Atk",   tooltip: "+10% guard damage per level",              category: "Guard" },
+    UpgradeNode { label: "Guard Range",     short: "G.Rng",   tooltip: "+5% guard attack range per level",         category: "Guard" },
+    UpgradeNode { label: "Guard Size",      short: "G.Size",  tooltip: "+5% guard size per level",                 category: "Guard" },
+    UpgradeNode { label: "Attack Speed",    short: "AtkSpd",  tooltip: "-8% attack cooldown per level",            category: "Guard" },
+    UpgradeNode { label: "Move Speed",      short: "MvSpd",   tooltip: "+5% movement speed per level",             category: "Guard" },
+    UpgradeNode { label: "Alert Radius",    short: "Alert",   tooltip: "+10% alert radius per level",              category: "Guard" },
+    UpgradeNode { label: "Farm Yield",      short: "FarmY",   tooltip: "+15% food production per level",           category: "Farm" },
+    UpgradeNode { label: "Farmer HP",       short: "F.HP",    tooltip: "+20% farmer HP per level",                 category: "Farm" },
+    UpgradeNode { label: "Healing Rate",    short: "Heal",    tooltip: "+20% HP regen at fountain per level",      category: "Town" },
+    UpgradeNode { label: "Food Efficiency", short: "FoodEff", tooltip: "10% chance per level to not consume food", category: "Town" },
+    UpgradeNode { label: "Fountain Radius", short: "Fount",   tooltip: "+24px fountain healing range per level",   category: "Town" },
+    UpgradeNode { label: "Town Area",       short: "Area",    tooltip: "+1 buildable radius per level",            category: "Town" },
+];
+
+/// Look up upgrade metadata by index.
+pub fn upgrade_node(idx: usize) -> &'static UpgradeNode {
+    &UPGRADE_REGISTRY[idx]
+}
+
 /// Per-town upgrade levels.
 #[derive(Resource)]
 pub struct TownUpgrades {
