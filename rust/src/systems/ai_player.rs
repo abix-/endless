@@ -157,6 +157,7 @@ pub struct AiPlayer {
     pub kind: AiKind,
     pub personality: AiPersonality,
     pub last_actions: VecDeque<String>,
+    pub active: bool,
 }
 
 const MAX_ACTION_HISTORY: usize = 3;
@@ -264,6 +265,7 @@ pub fn ai_decision_system(
 
     for pi in 0..ai_state.players.len() {
         let player = &ai_state.players[pi];
+        if !player.active { continue; }
         let tdi = player.town_data_idx;
         let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let reserve = player.personality.food_reserve();

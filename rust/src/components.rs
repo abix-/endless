@@ -330,6 +330,11 @@ pub struct Healing;
 #[derive(Component)]
 pub struct Starving;
 
+/// Marker: raider is part of an unsettled migrating group.
+/// Removed when the group settles into a camp.
+#[derive(Component)]
+pub struct Migrating;
+
 /// Squad assignment for archers. 0-9 = squad index.
 /// Behavior is controlled by SquadState (target + patrol toggle).
 #[derive(Component)]

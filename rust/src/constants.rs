@@ -159,6 +159,22 @@ pub const RAID_GROUP_SIZE: i32 = 3;
 pub const VILLAGERS_PER_CAMP: i32 = 20;
 
 // ============================================================================
+// MIGRATION CONSTANTS
+// ============================================================================
+
+/// Game hours between migration trigger checks.
+pub const CAMP_SPAWN_CHECK_HOURS: f32 = 12.0;
+
+/// Maximum dynamically-spawned camps.
+pub const MAX_DYNAMIC_CAMPS: usize = 20;
+
+/// Distance from a town at which migrating raiders settle (~30s walk at 100px/s).
+pub const CAMP_SETTLE_RADIUS: f32 = 3000.0;
+
+/// Minimum raiders in a migrating group.
+pub const MIGRATION_BASE_SIZE: usize = 3;
+
+// ============================================================================
 // STARVATION CONSTANTS
 // ============================================================================
 

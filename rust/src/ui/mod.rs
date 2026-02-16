@@ -218,6 +218,7 @@ fn game_load_system(
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.guard_post_state, &mut fs.camp_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
+        &mut fs.migration_state,
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 
@@ -232,6 +233,15 @@ fn game_load_system(
         &mut tracking.npcs_by_town, &mut gpu_updates,
         &ws.world_data, &combat_config, &ws.upgrades,
     );
+
+    // Re-attach Migrating component to migration group members
+    if let Some(mg) = &fs.migration_state.active {
+        for &slot in &mg.member_slots {
+            if let Some(&entity) = tracking.npc_map.0.get(&slot) {
+                commands.entity(entity).insert(crate::components::Migrating);
+            }
+        }
+    }
 
     // Center camera on first town
     if let Some(first_town) = ws.world_data.towns.first() {
@@ -399,7 +409,7 @@ fn game_startup_system(
                 if let Some(policy) = extra.policies.policies.get_mut(tdi) {
                     *policy = personality.default_policies();
                 }
-                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality, last_actions: VecDeque::new() });
+                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality, last_actions: VecDeque::new(), active: true });
                 // Log AI player joining
                 extra.combat_log.push(CombatEventKind::Ai, 1, 6, 0,
                     format!("{} [{}] joined the game", town.name, personality.name()));

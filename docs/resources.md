@@ -107,7 +107,7 @@ Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(
 
 Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `build_and_pay()` additionally deducts food, registers spawner, and pushes HP entry to `BuildingHpState`. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. `destroy_building()` shared helper consolidates all destroy side effects: `remove_building()` + spawner tombstone + HP zero + combat log — used by click-destroy, inspector-destroy, and `building_damage_system` (HP→0). Tombstone deletion preserves parallel Vec indices (FarmStates, BuildingHpState). Fountains, camps, and gold mines cannot be destroyed.
 
-Building costs: `building_cost(kind, difficulty)` in `constants.rs`. Base costs (Normal): Farm=3, FarmerHome=5, MinerHome=5, ArcherHome=8, GuardPost=10, Tent=3. Easy=~half, Hard=double.
+Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=4, MinerHome=4, ArcherHome=4, GuardPost=1, Tent=3.
 
 ## Food & Economy
 
@@ -282,7 +282,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | AiPlayerState | `players: Vec<AiPlayer>` — one per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
 | NpcDecisionConfig | `interval: f32` (seconds between Tier 3 decisions, default 2.0) | main_menu (from settings) | decision_system |
 
-`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
+`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until camp settles). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
 Personality drives build order, upgrade priority, food reserve, and town policies:
 - **Aggressive**: military first (archer homes → guard posts → economy), zero food reserve, combat upgrades prioritized, miner homes = 1/3 of farmer homes
@@ -292,6 +292,16 @@ Personality drives build order, upgrade priority, food reserve, and town policie
 Slot selection: economy buildings (farms, farmer homes, archer homes) prefer inner slots (closest to center). Guard posts prefer outer slots (farthest from center) with minimum Manhattan distance of 5 between posts. Raider tents cluster around camp center (inner slots).
 
 Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus food. Combat log shows personality tag: `"Town [Balanced] built farm"`.
+
+## Migration
+
+| Resource | Data | Writers | Readers |
+|----------|------|---------|---------|
+| MigrationState | `active: Option<MigrationGroup>`, `check_timer: f32` | migration_spawn_system, migration_settle_system | migration_attach_system, migration_settle_system, save/load |
+
+`MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the camp-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders).
+
+`Migrating` component: marker on NPC entities that are part of an active migration group. Attached by `migration_attach_system`, removed by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-attached on load.
 
 ## Debug Resources
 

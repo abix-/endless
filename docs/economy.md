@@ -221,18 +221,18 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 
 ### Building Costs
 
-Building costs are computed by `building_cost(kind, difficulty)` in `constants.rs`:
+Flat costs via `building_cost(kind)` in `constants.rs` (no difficulty scaling):
 
-| Building | Easy | Normal | Hard |
-|----------|------|--------|------|
-| Farm | 2 | 3 | 6 |
-| FarmerHome | 3 | 5 | 10 |
-| MinerHome | 3 | 5 | 10 |
-| ArcherHome | 4 | 8 | 16 |
-| GuardPost | 5 | 10 | 20 |
-| Tent | 2 | 3 | 6 |
+| Building | Cost |
+|----------|------|
+| Farm | 2 |
+| FarmerHome | 4 |
+| MinerHome | 4 |
+| ArcherHome | 4 |
+| GuardPost | 1 |
+| Tent | 3 |
 
-`Difficulty` enum (Easy/Normal/Hard) selected on main menu, stored in `UserSettings`, inserted as `Res<Difficulty>`. Both player build menu and AI player use `building_cost()` for affordability checks.
+Both player build menu and AI player use `building_cost()` for affordability checks.
 | SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
 | MINE_MAX_GOLD | 200.0 | Maximum gold a mine can hold |
 | MINE_REGEN_RATE | 2.0/hour | Gold regeneration rate (when unoccupied) |
@@ -253,6 +253,68 @@ Building costs are computed by `building_cost(kind, difficulty)` in `constants.r
 - **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player archers (inserts `SquadId(0)`)
 - **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` component, pops from members)
 - **Phase 4**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction archers (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
+
+## Dynamic Raider Camp Migration
+
+New raider camps spawn organically as the player grows. Three systems in `economy.rs` handle the lifecycle:
+
+```
+migration_spawn_system (hourly check)
+        │
+        ▼ check_timer >= CAMP_SPAWN_CHECK_HOURS (12h)?
+        │ player_alive >= VILLAGERS_PER_CAMP * (camp_count + 1)?
+        │ no active migration? camps < MAX_DYNAMIC_CAMPS (20)?
+        │
+        ▼ YES: spawn group at random map edge
+        │
+        ├─ Create Town entry (faction = max+1, sprite_type = 1)
+        ├─ Create TownGrid, extend all per-town resources (food, gold, factions, camp, policies)
+        ├─ Create inactive AiPlayer (active: false, kind: Raider, random personality)
+        ├─ Spawn N raiders via SpawnNpcMsg with Home = player town center
+        │   Group size: MIGRATION_BASE_SIZE (3) + player_alive / difficulty.migration_scaling()
+        │   (Easy=6, Normal=4, Hard=2), capped at 20
+        └─ Store MigrationGroup in MigrationState resource
+           Combat log: "A raider band approaches from the {direction}!"
+
+migration_attach_system (after Step::Spawn, before Step::Combat)
+        │
+        ▼ if migration active: attach Migrating component to spawned entities
+           (bridges 1-frame gap between SpawnNpcMsg and entity creation)
+
+migration_settle_system (every frame, early-returns if no active migration)
+        │
+        ▼ read GPU positions for group members
+        │ compute average position
+        │
+        ▼ within CAMP_SETTLE_RADIUS (3000px, ~30s walk) of any town?
+        │
+        ▼ YES: settle camp
+        ├─ Update Town.center to average group position
+        ├─ place_camp_buildings() — camp center + tents in spiral
+        ├─ register_spawner() for each tent
+        ├─ stamp_dirt() around camp
+        ├─ Activate AiPlayer (active = true)
+        ├─ Remove Migrating from members, update Home to camp center
+        ├─ Force tilemap rebuild (TilemapSpawned = false)
+        └─ Clear MigrationState.active
+           Combat log: "A raider band has settled nearby!"
+```
+
+**Movement**: Raiders use the existing `Home` component + `Action::Wander` behavior. Setting `Home` to the player's town center makes them naturally walk there — no custom pathfinding needed.
+
+**Save/load**: `MigrationState` serialized as `Option<MigrationSave>` in `SaveData`. On load, `Migrating` component re-attached to saved member slot entities.
+
+**AiPlayer.active**: New `bool` field. `ai_decision_system` skips inactive players. All existing AiPlayer creation sites set `active: true`. Migration creates with `active: false`, activated on settlement.
+
+### Migration Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| CAMP_SPAWN_CHECK_HOURS | 12.0 | Game hours between migration trigger checks |
+| MAX_DYNAMIC_CAMPS | 20 | Maximum number of dynamic camps |
+| CAMP_SETTLE_RADIUS | 3000.0px | Distance to any town that triggers settlement (~30s walk at 100px/s) |
+| MIGRATION_BASE_SIZE | 3 | Base raiders per migration group |
+| VILLAGERS_PER_CAMP | 20 | Player alive NPCs per raider camp threshold |
 
 ## Known Issues
 

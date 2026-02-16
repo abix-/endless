@@ -1,14 +1,17 @@
 //! Economy systems - Game time, population tracking, farm growth, camp foraging, respawning
 
 use bevy::prelude::*;
+use rand::Rng;
 use std::collections::HashSet;
 
 use crate::components::*;
 use crate::resources::*;
-use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS};
-use crate::world::{self, WorldData, BuildingOccupancy, BuildingSpatialGrid};
+use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
+    CAMP_SPAWN_CHECK_HOURS, MAX_DYNAMIC_CAMPS, CAMP_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_CAMP};
+use crate::world::{self, WorldData, WorldGrid, BuildingOccupancy, BuildingSpatialGrid, TownGrids};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
+use crate::systems::ai_player::{AiPlayer, AiPlayerState, AiKind, AiPersonality};
 
 // ============================================================================
 // POPULATION TRACKING HELPERS
@@ -411,4 +414,268 @@ pub fn squad_cleanup_system(
             }
         }
     }
+}
+
+// ============================================================================
+// MIGRATION SYSTEMS
+// ============================================================================
+
+/// Check trigger conditions and spawn a migrating raider group at a map edge.
+/// Runs every CAMP_SPAWN_CHECK_HOURS game hours. Group walks toward nearest player town
+/// via Home + Wander behavior, then settles when close enough (handled by migration_settle_system).
+pub fn migration_spawn_system(
+    game_time: Res<GameTime>,
+    mut migration_state: ResMut<MigrationState>,
+    mut world_data: ResMut<WorldData>,
+    mut town_grids: ResMut<TownGrids>,
+    mut food_storage: ResMut<FoodStorage>,
+    mut gold_storage: ResMut<GoldStorage>,
+    mut faction_stats: ResMut<FactionStats>,
+    mut camp_state: ResMut<CampState>,
+    mut npcs_by_town: ResMut<NpcsByTownCache>,
+    mut policies: ResMut<TownPolicies>,
+    mut ai_state: ResMut<AiPlayerState>,
+    mut slots: ResMut<SlotAllocator>,
+    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
+    mut combat_log: ResMut<CombatLog>,
+    grid: Res<WorldGrid>,
+    difficulty: Res<Difficulty>,
+) {
+    if !game_time.hour_ticked { return; }
+    if migration_state.active.is_some() { return; }
+
+    migration_state.check_timer += 1.0;
+    if migration_state.check_timer < CAMP_SPAWN_CHECK_HOURS { return; }
+    migration_state.check_timer = 0.0;
+
+    // Count player alive NPCs and existing camps
+    let player_town = world_data.towns.iter().position(|t| t.faction == 0);
+    let Some(player_idx) = player_town else { return };
+    let player_alive = faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
+
+    let camp_count = world_data.towns.iter().filter(|t| t.sprite_type == 1).count();
+    let needed_camps = (player_alive as i32 / VILLAGERS_PER_CAMP) as usize;
+    if camp_count >= needed_camps { return; }
+    if camp_count >= MAX_DYNAMIC_CAMPS { return; }
+
+    // Determine group size
+    let scaling = difficulty.migration_scaling().max(1);
+    let group_size = MIGRATION_BASE_SIZE + (player_alive as usize / scaling as usize);
+    let group_size = group_size.min(20); // cap at 20 raiders per group
+
+    // Pick random edge position
+    let world_w = grid.width as f32 * grid.cell_size;
+    let world_h = grid.height as f32 * grid.cell_size;
+    let mut rng = rand::rng();
+    let edge: u8 = rng.random_range(0..4);
+    let (spawn_x, spawn_y) = match edge {
+        0 => (rng.random_range(0.0..world_w), 50.0),                // top
+        1 => (rng.random_range(0.0..world_w), world_h - 50.0),      // bottom
+        2 => (50.0, rng.random_range(0.0..world_h)),                 // left
+        _ => (world_w - 50.0, rng.random_range(0.0..world_h)),      // right
+    };
+    let direction = match edge { 0 => "north", 1 => "south", 2 => "west", _ => "east" };
+
+    // Create new faction (next unique ID)
+    let next_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0) + 1;
+
+    // Create Town entry
+    world_data.towns.push(world::Town {
+        name: "Raider Camp".into(),
+        center: Vec2::new(spawn_x, spawn_y), // temporary center — updated on settle
+        faction: next_faction,
+        sprite_type: 1,
+    });
+    let town_data_idx = world_data.towns.len() - 1;
+
+    // Create TownGrid
+    town_grids.grids.push(world::TownGrid::new_base(town_data_idx));
+    let grid_idx = town_grids.grids.len() - 1;
+
+    // Extend per-town resources
+    let num_towns = world_data.towns.len();
+    food_storage.food.resize(num_towns, 0);
+    gold_storage.gold.resize(num_towns, 0);
+    faction_stats.stats.resize(num_towns, FactionStat::default());
+    camp_state.max_pop.resize(num_towns, 10);
+    camp_state.respawn_timers.resize(num_towns, 0.0);
+    camp_state.forage_timers.resize(num_towns, 0.0);
+    npcs_by_town.0.resize(num_towns, Vec::new());
+    policies.policies.resize(num_towns, PolicySet::default());
+
+    // Create inactive AiPlayer (activated on settlement)
+    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
+    let personality = personalities[rng.random_range(0..personalities.len())];
+    ai_state.players.push(AiPlayer {
+        town_data_idx,
+        grid_idx,
+        kind: AiKind::Raider,
+        personality,
+        last_actions: std::collections::VecDeque::new(),
+        active: false,
+    });
+
+    // Find nearest player town center as wander target
+    let player_center = world_data.towns[player_idx].center;
+
+    // Spawn raiders via SpawnNpcMsg with Home = player town center
+    let mut member_slots = Vec::with_capacity(group_size);
+    for _ in 0..group_size {
+        let Some(slot) = slots.alloc() else { break };
+        // Slight jitter around spawn point
+        let jx = spawn_x + rng.random_range(-30.0..30.0);
+        let jy = spawn_y + rng.random_range(-30.0..30.0);
+        spawn_writer.write(SpawnNpcMsg {
+            slot_idx: slot,
+            x: jx,
+            y: jy,
+            job: 2,              // Raider
+            faction: next_faction,
+            town_idx: town_data_idx as i32,
+            home_x: player_center.x,
+            home_y: player_center.y,
+            work_x: -1.0,
+            work_y: -1.0,
+            starting_post: -1,
+            attack_type: 0,      // melee
+        });
+        member_slots.push(slot);
+    }
+
+    migration_state.active = Some(MigrationGroup {
+        town_data_idx,
+        grid_idx,
+        member_slots,
+    });
+
+    combat_log.push(CombatEventKind::Raid, game_time.day(), game_time.hour(), game_time.minute(),
+        format!("A raider band approaches from the {}!", direction));
+    info!("Migration spawned: {} raiders from {} edge, faction {}", group_size, direction, next_faction);
+}
+
+/// Attach Migrating component to newly spawned migration group members.
+/// Runs after spawn_npc_system so entities exist before we try to tag them.
+pub fn migration_attach_system(
+    mut commands: Commands,
+    migration_state: Res<MigrationState>,
+    npc_map: Res<NpcEntityMap>,
+    existing: Query<&Migrating>,
+) {
+    let Some(mg) = &migration_state.active else { return };
+    for &slot in &mg.member_slots {
+        if let Some(&entity) = npc_map.0.get(&slot) {
+            if existing.get(entity).is_err() {
+                commands.entity(entity).insert(Migrating);
+            }
+        }
+    }
+}
+
+/// Check if the migrating raider group has reached near a town and should settle.
+/// When within CAMP_SETTLE_RADIUS of any town, places camp buildings and activates the AI player.
+pub fn migration_settle_system(
+    mut commands: Commands,
+    mut migration_state: ResMut<MigrationState>,
+    mut world_data: ResMut<WorldData>,
+    mut grid: ResMut<WorldGrid>,
+    mut town_grids: ResMut<TownGrids>,
+    mut spawner_state: ResMut<SpawnerState>,
+    mut building_hp: ResMut<BuildingHpState>,
+    mut ai_state: ResMut<AiPlayerState>,
+    mut dirty: ResMut<DirtyFlags>,
+    mut combat_log: ResMut<CombatLog>,
+    mut tilemap_spawned: ResMut<crate::render::TilemapSpawned>,
+    gpu_state: Res<GpuReadState>,
+    game_time: Res<GameTime>,
+    npc_map: Res<NpcEntityMap>,
+    config: Res<world::WorldGenConfig>,
+    migrating_query: Query<(Entity, &NpcIndex), With<Migrating>>,
+) {
+    let Some(mg) = &migration_state.active else { return };
+
+    // Compute average position of living migration group members from GPU readback
+    let mut sum_x = 0.0f32;
+    let mut sum_y = 0.0f32;
+    let mut count = 0u32;
+    for &slot in &mg.member_slots {
+        let x = gpu_state.positions.get(slot * 2).copied().unwrap_or(-9999.0);
+        let y = gpu_state.positions.get(slot * 2 + 1).copied().unwrap_or(-9999.0);
+        if x > -9000.0 {
+            sum_x += x;
+            sum_y += y;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        // All members dead — cancel migration
+        migration_state.active = None;
+        return;
+    }
+    let avg_x = sum_x / count as f32;
+    let avg_y = sum_y / count as f32;
+    let avg_pos = Vec2::new(avg_x, avg_y);
+
+    // Check distance to any town (player or AI)
+    let near_town = world_data.towns.iter().enumerate().any(|(i, t)| {
+        // Skip our own temporary town entry
+        i != mg.town_data_idx && avg_pos.distance(t.center) < CAMP_SETTLE_RADIUS
+    });
+    if !near_town { return; }
+
+    // === SETTLE ===
+    let town_data_idx = mg.town_data_idx;
+    let grid_idx = mg.grid_idx;
+    let member_slots = mg.member_slots.clone();
+
+    // Update town center to average group position
+    if let Some(town) = world_data.towns.get_mut(town_data_idx) {
+        town.center = avg_pos;
+    }
+
+    // Place camp buildings (camp center + tents in spiral)
+    if let Some(town_grid) = town_grids.grids.get_mut(grid_idx) {
+        world::place_camp_buildings(&mut grid, &mut world_data, avg_pos, town_data_idx as u32, &config, town_grid);
+    }
+
+    // Register tent spawners
+    for tent in world_data.tents.iter() {
+        if tent.town_idx == town_data_idx as u32 {
+            world::register_spawner(&mut spawner_state, world::Building::Tent { town_idx: 0 },
+                town_data_idx as i32, tent.position, -1.0);
+            building_hp.tents.push(crate::constants::TENT_HP);
+        }
+    }
+
+    // Add town center HP
+    building_hp.towns.push(crate::constants::TOWN_HP);
+
+    // Stamp dirt around the new camp
+    world::stamp_dirt(&mut grid, &[avg_pos]);
+
+    // Activate the AiPlayer for this camp
+    if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_data_idx) {
+        player.active = true;
+    }
+
+    // Remove Migrating from all group members and update their Home to camp center
+    for &slot in &member_slots {
+        if let Some(&entity) = npc_map.0.get(&slot) {
+            // Check if entity still has Migrating (may have died)
+            if migrating_query.get(entity).is_ok() {
+                commands.entity(entity).remove::<Migrating>();
+                commands.entity(entity).insert(Home(avg_pos));
+            }
+        }
+    }
+
+    // Mark dirty for building grid + tilemap rebuild
+    dirty.building_grid = true;
+    dirty.guard_post_slots = true;
+    tilemap_spawned.0 = false; // force tilemap rebuild with new terrain + buildings
+
+    combat_log.push(CombatEventKind::Raid, game_time.day(), game_time.hour(), game_time.minute(),
+        format!("A raider band has settled nearby!"));
+    info!("Migration settled at ({:.0}, {:.0}), town_data_idx={}", avg_x, avg_y, town_data_idx);
+
+    migration_state.active = None;
 }

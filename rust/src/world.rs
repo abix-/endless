@@ -1506,7 +1506,7 @@ fn place_town_buildings(
 }
 
 /// Place buildings for a raider camp: camp center + tents in spiral.
-fn place_camp_buildings(
+pub fn place_camp_buildings(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     center: Vec2,
@@ -1625,7 +1625,7 @@ fn generate_terrain(
 }
 
 /// Overwrite terrain near settlements with Dirt (clearing for buildings).
-fn stamp_dirt(grid: &mut WorldGrid, positions: &[Vec2]) {
+pub fn stamp_dirt(grid: &mut WorldGrid, positions: &[Vec2]) {
     let clear_radius = 6.0 * grid.cell_size;
     for row in 0..grid.height {
         for col in 0..grid.width {

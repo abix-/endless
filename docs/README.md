@@ -92,7 +92,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Combat pipeline ────────────────▶ [combat.md]
     │   ├─ Behavior systems ───────────────▶ [behavior.md]
     │   ├─ Economy systems ────────────────▶ [economy.md]
-    │   ├─ AI player system ─────────────▶ personality-driven build/unlock/upgrade for non-player factions
+    │   ├─ AI player system ─────────────▶ personality-driven build/unlock/upgrade for non-player factions; active flag for deferred migration camps
     │   └─ Audio (systems/audio.rs) ───▶ music jukebox (22 tracks, random no-repeat, speed control), SFX scaffold
     │
     └─ Test Framework (tests/)
@@ -113,7 +113,7 @@ Frame execution order ───────────────────�
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 7/10 |
-| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (FarmerHome/ArcherHome/Tent/MinerHome), FarmYield upgrade | 7/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners, dynamic raider camp migration (spawn→wander→settle) | 7/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
 | [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
@@ -133,7 +133,7 @@ rust/
   src/npc_render.rs     # GPU NPC rendering (storage buffers) + misc/projectile rendering (instance buffers)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers, Migrating)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP, building costs, 8x8 base build area)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, BuildingHpState, HelpCatalog, etc.)
   src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
@@ -173,7 +173,7 @@ rust/
     combat.rs           # Attack cooldown, targeting, building attack fallback, guard post turret, building_damage_system
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
-    economy.rs          # Game time, farm growth, mine regen, respawning, building spawners, squad cleanup
+    economy.rs          # Game time, farm growth, mine regen, respawning, building spawners, squad cleanup, migration spawn/attach/settle
     ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), weighted random scoring, AiBuildRes SystemParam bundle
     audio.rs            # Music jukebox (22 tracks, random no-repeat, volume + speed control), SFX scaffold
     energy.rs           # Energy drain/recovery

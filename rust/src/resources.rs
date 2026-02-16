@@ -1105,6 +1105,15 @@ impl Difficulty {
             Difficulty::Hard   => (1, 0, 2, 2, 10, 10, 1),
         }
     }
+
+    /// Migration group scaling: extra raiders per N player villagers.
+    pub fn migration_scaling(self) -> i32 {
+        match self {
+            Difficulty::Easy => 6,
+            Difficulty::Normal => 4,
+            Difficulty::Hard => 2,
+        }
+    }
 }
 
 /// Per-town policy settings. Index matches WorldData.towns.
@@ -1251,6 +1260,24 @@ impl Default for TutorialState {
             camera_start: Vec2::ZERO,
         }
     }
+}
+
+// ============================================================================
+// MIGRATION STATE
+// ============================================================================
+
+/// Active migration group: raiders walking from map edge toward a town.
+pub struct MigrationGroup {
+    pub town_data_idx: usize,
+    pub grid_idx: usize,
+    pub member_slots: Vec<usize>,
+}
+
+/// Tracks dynamic raider camp migrations.
+#[derive(Resource, Default)]
+pub struct MigrationState {
+    pub active: Option<MigrationGroup>,
+    pub check_timer: f32,
 }
 
 /// Pre-computed healing zone per town, indexed by faction for O(1) lookup.

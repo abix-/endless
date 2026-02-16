@@ -27,6 +27,7 @@ use bevy::prelude::*;
 
 use messages::{SpawnNpcMsg, DamageMsg, BuildingDamageMsg, GpuUpdateMsg};
 use resources::{
+    MigrationState,
     NpcEntityMap, PopulationStats, GameConfig, GameTime,
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
@@ -240,6 +241,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<SquadState>()
        .insert_resource(HelpCatalog::new())
        .init_resource::<TutorialState>()
+       .init_resource::<MigrationState>()
        .init_resource::<AiPlayerState>()
        .init_resource::<AiPlayerConfig>()
        .init_resource::<resources::NpcDecisionConfig>()
@@ -312,8 +314,11 @@ pub fn build_app(app: &mut App) {
            auto_upgrade_system,
            process_upgrades_system.after(auto_upgrade_system),
            ai_decision_system,
+           migration_spawn_system,
+           migration_settle_system,
            (rebuild_patrol_routes_system, squad_cleanup_system),
        ).in_set(Step::Behavior))
+       .add_systems(Update, migration_attach_system.after(Step::Spawn).before(Step::Combat).run_if(game_active.clone()))
        .add_systems(Update, (building_damage_system, sync_building_hp_render).chain().in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))

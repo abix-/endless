@@ -101,6 +101,10 @@ pub struct SaveData {
 
     // AI players
     pub ai_players: Vec<AiPlayerSave>,
+
+    // Migration state
+    #[serde(default)]
+    pub migration: Option<MigrationSave>,
 }
 
 // Sub-structs
@@ -182,7 +186,19 @@ pub struct AiPlayerSave {
     pub grid_idx: usize,
     pub kind: u8,         // 0=Raider, 1=Builder
     pub personality: u8,  // 0=Aggressive, 1=Balanced, 2=Economic
+    #[serde(default = "default_true")]
+    pub active: bool,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MigrationSave {
+    pub town_data_idx: usize,
+    pub grid_idx: usize,
+    pub member_slots: Vec<usize>,
+    pub check_timer: f32,
+}
+
+fn default_true() -> bool { true }
 
 // Building save (mirrors world::Building)
 #[derive(Serialize, Deserialize, Clone)]
@@ -455,6 +471,7 @@ pub fn collect_save_data(
     faction_stats: &FactionStats,
     kill_stats: &KillStats,
     ai_state: &AiPlayerState,
+    migration_state: &MigrationState,
     npcs: Vec<NpcSaveData>,
 ) -> SaveData {
     // Terrain + buildings
@@ -565,6 +582,7 @@ pub fn collect_save_data(
                 AiPersonality::Balanced => 1,
                 AiPersonality::Economic => 2,
             },
+            active: p.active,
         }
     }).collect();
 
@@ -608,6 +626,12 @@ pub fn collect_save_data(
         kill_stats: [kill_stats.archer_kills, kill_stats.villager_kills],
         npcs,
         ai_players,
+        migration: migration_state.active.as_ref().map(|g| MigrationSave {
+            town_data_idx: g.town_data_idx,
+            grid_idx: g.grid_idx,
+            member_slots: g.member_slots.clone(),
+            check_timer: migration_state.check_timer,
+        }),
     }
 }
 
@@ -699,6 +723,7 @@ pub fn apply_save(
     faction_stats: &mut FactionStats,
     kill_stats: &mut KillStats,
     ai_state: &mut AiPlayerState,
+    migration_state: &mut MigrationState,
     npcs_by_town: &mut NpcsByTownCache,
     slots: &mut SlotAllocator,
 ) {
@@ -865,7 +890,20 @@ pub fn apply_save(
                 _ => AiPersonality::Balanced,
             },
             last_actions: VecDeque::new(),
+            active: p.active,
         }).collect();
+    }
+
+    // Migration state
+    if let Some(ms) = &save.migration {
+        migration_state.active = Some(MigrationGroup {
+            town_data_idx: ms.town_data_idx,
+            grid_idx: ms.grid_idx,
+            member_slots: ms.member_slots.clone(),
+        });
+        migration_state.check_timer = ms.check_timer;
+    } else {
+        *migration_state = MigrationState::default();
     }
 
     // NPC tracking
@@ -1029,6 +1067,7 @@ pub struct SaveFactionState<'w> {
     pub faction_stats: ResMut<'w, FactionStats>,
     pub kill_stats: ResMut<'w, KillStats>,
     pub ai_state: ResMut<'w, AiPlayerState>,
+    pub migration_state: ResMut<'w, MigrationState>,
 }
 
 /// NPC tracking resources for load.
@@ -1085,7 +1124,7 @@ pub fn save_game_system(
         &ws.food_storage, &ws.gold_storage, &ws.farm_states, &ws.mine_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &ws.guard_post_state, &fs.camp_state, &fs.faction_stats,
-        &fs.kill_stats, &fs.ai_state, npcs,
+        &fs.kill_stats, &fs.ai_state, &fs.migration_state, npcs,
     );
 
     match write_save(&data) {
@@ -1129,7 +1168,7 @@ pub fn autosave_system(
         &ws.food_storage, &ws.gold_storage, &ws.farm_states, &ws.mine_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &ws.guard_post_state, &fs.camp_state, &fs.faction_stats,
-        &fs.kill_stats, &fs.ai_state, npcs,
+        &fs.kill_stats, &fs.ai_state, &fs.migration_state, npcs,
     );
 
     match write_save_to(&data, &path) {
@@ -1333,6 +1372,7 @@ pub fn load_game_system(
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.guard_post_state, &mut fs.camp_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
+        &mut fs.migration_state,
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 
@@ -1345,6 +1385,15 @@ pub fn load_game_system(
         &mut tracking.npcs_by_town, &mut gpu_updates,
         &ws.world_data, &combat_config, &ws.upgrades,
     );
+
+    // 6. Re-attach Migrating component to migration group members
+    if let Some(mg) = &fs.migration_state.active {
+        for &slot in &mg.member_slots {
+            if let Some(&entity) = tracking.npc_map.0.get(&slot) {
+                commands.entity(entity).insert(Migrating);
+            }
+        }
+    }
 
     toast.message = format!("Game Loaded ({} NPCs)", save.npcs.len());
     toast.timer = 2.0;
