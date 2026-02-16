@@ -8,7 +8,7 @@ use crate::components::*;
 use crate::gpu::NpcBufferWrites;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::ui::{help_tip, tipped};
+use crate::ui::tipped;
 use crate::world::{WorldData, WorldGrid, Building, BuildingOccupancy};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType};
 
@@ -28,6 +28,9 @@ pub fn top_bar_system(
     mut ui_state: ResMut<UiState>,
     spawner_state: Res<SpawnerState>,
     catalog: Res<HelpCatalog>,
+    time: Res<Time>,
+    mut avg_fps: Local<f32>,
+    settings: Res<crate::settings::UserSettings>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -55,17 +58,17 @@ pub fn top_bar_system(
                 if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Squads, "Squads").clicked() {
                     ui_state.toggle_left_tab(LeftPanelTab::Squads);
                 }
-                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Intel, "Intel").clicked() {
-                    ui_state.toggle_left_tab(LeftPanelTab::Intel);
-                }
-                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Profiler, "Profiler").clicked() {
-                    ui_state.toggle_left_tab(LeftPanelTab::Profiler);
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Factions, "Factions").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Factions);
                 }
                 if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Help, "Help").clicked() {
                     ui_state.toggle_left_tab(LeftPanelTab::Help);
                 }
-                ui.separator();
-                help_tip(ui, &catalog, "getting_started");
+                if settings.debug_profiler {
+                    if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Profiler, "Profiler").clicked() {
+                        ui_state.toggle_left_tab(LeftPanelTab::Profiler);
+                    }
+                }
 
                 // CENTER: town name + time (painted at true center of bar)
                 let town_name = world_data.towns.first()
@@ -87,22 +90,28 @@ pub fn top_bar_system(
 
                 // RIGHT: stats pushed to the right edge
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // FPS (far right)
+                    let dt = time.delta_secs();
+                    if dt > 0.0 {
+                        let fps = 1.0 / dt;
+                        *avg_fps = if *avg_fps == 0.0 { fps } else { *avg_fps * 0.95 + fps * 0.05 };
+                    }
+                    ui.label(egui::RichText::new(format!("FPS: {:.0}", *avg_fps))
+                        .size(12.0).strong());
+                    ui.separator();
+
                     // Player stats (right-aligned) — player's town is index 0
                     let town_food = food_storage.food.first().copied().unwrap_or(0);
                     let town_gold = gold_storage.gold.first().copied().unwrap_or(0);
-                    tipped(ui, format!("Food: {}", town_food), catalog.0.get("food").unwrap_or(&""));
                     tipped(ui, egui::RichText::new(format!("Gold: {}", town_gold)).color(egui::Color32::from_rgb(220, 190, 50)), catalog.0.get("gold").unwrap_or(&""));
+                    tipped(ui, format!("Food: {}", town_food), catalog.0.get("food").unwrap_or(&""));
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
                     let houses = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.town_idx == 0 && s.position.x > -9000.0).count();
                     let barracks = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.town_idx == 0 && s.position.x > -9000.0).count();
-                    // Raider camp is town_data_idx 1 (first odd index)
-                    let raiders = pop_stats.0.get(&(2, 1)).map(|s| s.alive).unwrap_or(0);
-                    let tents = spawner_state.0.iter().filter(|s| s.building_kind == 2 && s.town_idx == 1 && s.position.x > -9000.0).count();
                     tipped(ui, format!("Archers: {}/{}", guards, barracks), catalog.0.get("archers").unwrap_or(&""));
                     tipped(ui, format!("Farmers: {}/{}", farmers, houses), catalog.0.get("farmers").unwrap_or(&""));
-                    tipped(ui, format!("Raiders: {}/{}", raiders, tents), catalog.0.get("raiders").unwrap_or(&""));
                     let total_alive = slots.alive();
                     let total_spawners = spawner_state.0.iter().filter(|s| s.position.x > -9000.0).count();
                     tipped(ui, format!("Pop: {}/{}", total_alive, total_spawners), catalog.0.get("pop").unwrap_or(&""));
@@ -1040,30 +1049,71 @@ pub fn squad_overlay_system(
 }
 
 // ============================================================================
-// FPS DISPLAY
+// JUKEBOX UI
 // ============================================================================
 
-/// Always-visible FPS counter at top-right. Smoothed with exponential moving average.
-pub fn fps_display_system(
+/// Small overlay at top-right (below top bar) showing current track + pause/skip/loop.
+pub fn jukebox_ui_system(
     mut contexts: EguiContexts,
-    time: Res<Time>,
-    mut avg_fps: Local<f32>,
+    mut audio: ResMut<GameAudio>,
+    mut commands: Commands,
+    music_query: Query<(Entity, &AudioSink), With<MusicTrack>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
-    let dt = time.delta_secs();
-    if dt > 0.0 {
-        let fps = 1.0 / dt;
-        // EMA smoothing: 5% weight on new sample
-        *avg_fps = if *avg_fps == 0.0 { fps } else { *avg_fps * 0.95 + fps * 0.05 };
-    }
+    let Some(track_idx) = audio.last_track else { return Ok(()) };
 
-    egui::Area::new(egui::Id::new("fps_display"))
+    let frame = egui::Frame::new()
+        .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 220))
+        .inner_margin(egui::Margin::same(6));
+
+    egui::Area::new(egui::Id::new("jukebox"))
         .anchor(egui::Align2::RIGHT_TOP, [-8.0, 30.0])
         .show(ctx, |ui| {
-            ui.label(egui::RichText::new(format!("FPS: {:.0}", *avg_fps))
-                .size(14.0)
-                .strong()
-                .color(egui::Color32::BLACK));
+            frame.show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // Track picker dropdown
+                    let current_name = crate::systems::audio::track_display_name(track_idx);
+                    let mut selected = track_idx;
+                    egui::ComboBox::from_id_salt("jukebox_track")
+                        .selected_text(format!("♪ {}", current_name))
+                        .width(160.0)
+                        .show_ui(ui, |ui| {
+                            for i in 0..crate::systems::audio::track_count() {
+                                ui.selectable_value(&mut selected, i, crate::systems::audio::track_display_name(i));
+                            }
+                        });
+                    // Switch track if user picked a different one
+                    if selected != track_idx {
+                        audio.last_track = Some(selected);
+                        if let Ok((entity, _)) = music_query.single() {
+                            commands.entity(entity).despawn();
+                        }
+                    }
+
+                    if let Ok((entity, sink)) = music_query.single() {
+                        let paused = sink.is_paused();
+                        if ui.small_button(if paused { "▶" } else { "⏸" }).clicked() {
+                            if paused { sink.play() } else { sink.pause() }
+                        }
+                        if ui.small_button("⏭").clicked() {
+                            commands.entity(entity).despawn();
+                        }
+                    }
+
+                    // Loop toggle
+                    let btn = egui::Button::new(egui::RichText::new("🔁").size(12.0));
+                    let resp = ui.add(btn);
+                    if resp.clicked() {
+                        audio.loop_current = !audio.loop_current;
+                    }
+                    if resp.hovered() {
+                        resp.clone().show_tooltip_text(if audio.loop_current { "Loop: ON" } else { "Loop: OFF" });
+                    }
+                    if audio.loop_current {
+                        resp.highlight();
+                    }
+                });
+            });
         });
 
     Ok(())

@@ -33,6 +33,17 @@ const MUSIC_TRACKS: &[&str] = &[
     "sounds/music/not-jam-music/VictoryLap.ogg",
 ];
 
+/// Number of available tracks.
+pub fn track_count() -> usize { MUSIC_TRACKS.len() }
+
+/// Human-readable track name from index (strips path + extension).
+pub fn track_display_name(idx: usize) -> &'static str {
+    MUSIC_TRACKS.get(idx)
+        .and_then(|p| p.rsplit('/').next())
+        .and_then(|f| f.strip_suffix(".ogg"))
+        .unwrap_or("Unknown")
+}
+
 /// Load all music track handles at startup.
 pub fn load_music(mut audio: ResMut<GameAudio>, server: Res<AssetServer>) {
     for path in MUSIC_TRACKS {
@@ -76,7 +87,11 @@ pub fn jukebox_system(
     mut audio: ResMut<GameAudio>,
 ) {
     if !query.is_empty() || audio.tracks.is_empty() { return; }
-    let idx = pick_track(&audio);
+    let idx = if audio.loop_current {
+        audio.last_track.unwrap_or_else(|| pick_track(&audio))
+    } else {
+        pick_track(&audio)
+    };
     audio.last_track = Some(idx);
     commands.spawn((
         AudioPlayer::new(audio.tracks[idx].clone()),

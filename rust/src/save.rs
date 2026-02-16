@@ -630,15 +630,47 @@ fn autosave_path(slot: u8) -> Option<std::path::PathBuf> {
     save_dir().map(|d| d.join(format!("autosave_{}.json", slot + 1)))
 }
 
-/// Read SaveData from the quicksave file.
-pub fn read_save() -> Result<SaveData, String> {
-    let path = quicksave_path().ok_or("cannot determine save directory")?;
-    let json = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+/// Info about a save file on disk.
+pub struct SaveFileInfo {
+    pub filename: String,
+    pub path: std::path::PathBuf,
+    pub modified: std::time::SystemTime,
+}
+
+/// List all save files in the save directory, sorted newest first.
+pub fn list_saves() -> Vec<SaveFileInfo> {
+    let Some(dir) = save_dir() else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let mut saves: Vec<SaveFileInfo> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            Some(SaveFileInfo {
+                filename: e.file_name().to_string_lossy().into_owned(),
+                path: e.path(),
+                modified: meta.modified().ok()?,
+            })
+        })
+        .collect();
+    saves.sort_by(|a, b| b.modified.cmp(&a.modified));
+    saves
+}
+
+/// Read SaveData from an arbitrary path.
+pub fn read_save_from(path: &std::path::Path) -> Result<SaveData, String> {
+    let json = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let data: SaveData = serde_json::from_str(&json).map_err(|e| format!("deserialize: {e}"))?;
     if data.version > SAVE_VERSION {
         return Err(format!("save version {} > supported {}", data.version, SAVE_VERSION));
     }
     Ok(data)
+}
+
+/// Read SaveData from the quicksave file.
+pub fn read_save() -> Result<SaveData, String> {
+    let path = quicksave_path().ok_or("cannot determine save directory")?;
+    read_save_from(&path)
 }
 
 // ============================================================================
@@ -867,6 +899,8 @@ pub struct SaveLoadRequest {
     pub load_requested: bool,
     /// Set by main menu "Load Game" — tells game_startup_system to load instead of world gen.
     pub load_on_enter: bool,
+    /// When set, load from this path instead of quicksave.
+    pub load_path: Option<std::path::PathBuf>,
     /// Autosave interval in game-hours (0 = disabled). Set from settings on game start.
     pub autosave_hours: i32,
     /// Last game-hour when autosave triggered (to detect interval crossing).
@@ -1257,8 +1291,12 @@ pub fn load_game_system(
     if !request.load_requested { return; }
     request.load_requested = false;
 
-    // Read save file
-    let save = match read_save() {
+    // Read save file (from explicit path or quicksave)
+    let save = match if let Some(path) = request.load_path.take() {
+        read_save_from(&path)
+    } else {
+        read_save()
+    } {
         Ok(data) => data,
         Err(e) => {
             error!("Load failed: {e}");

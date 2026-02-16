@@ -35,7 +35,7 @@ NPC state is derived at query time via `derive_npc_state()` which checks ECS com
 |----------|------|---------|---------|
 | PopulationStats | `HashMap<(job, town), PopStats>` — alive, working, dead | spawn/death/state systems | UI |
 | KillStats | archer_kills, villager_kills | death_cleanup_system | UI |
-| FactionStats | `Vec<FactionStat>` — alive, dead, kills per faction | spawn/death systems | UI |
+| FactionStats | `Vec<FactionStat>` — alive, dead, kills per faction | spawn/death/xp_grant systems | UI |
 
 `FactionStats` — one entry per settlement (player towns + AI towns + raider camps). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`.
 
@@ -54,7 +54,7 @@ Static world data, immutable after initialization.
 | BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |
 | DirtyFlags | `building_grid`, `patrols`, `healing_zones`, `guard_post_slots` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds; `guard_post_slots` triggers NPC slot alloc/free in `sync_guard_post_slots`; `patrol_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
-| GameAudio | `music_volume: f32`, `sfx_volume: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; volume synced from UserSettings |
+| GameAudio | `music_volume: f32`, `sfx_volume: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; volume synced from UserSettings |
 
 ### WorldData Structs
 
@@ -256,7 +256,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
-`UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
+`UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads, Factions, Help. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 
 `CombatLog` is a ring buffer of global events with 6 kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity. AI entries (purple in HUD) log build/unlock/upgrade actions.
 

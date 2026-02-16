@@ -7,7 +7,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
-use crate::resources::{FarmStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime, DirtyFlags};
+use crate::resources::{FarmStates, FarmGrowthState, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime, DirtyFlags};
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -405,7 +405,7 @@ pub fn expand_town_build_area(
 pub fn remove_building(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    _farm_states: &mut FarmStates,
+    farm_states: &mut FarmStates,
     row: i32,
     col: i32,
     town_center: Vec2,
@@ -438,12 +438,18 @@ pub fn remove_building(
     let tombstone = Vec2::new(-99999.0, -99999.0);
     match building {
         Building::Farm { .. } => {
-            if let Some(farm) = world_data.farms.iter_mut().find(|f| {
+            if let Some(farm_idx) = world_data.farms.iter().position(|f| {
                 (f.position - snapped_pos).length() < 1.0
             }) {
-                farm.position = tombstone;
+                world_data.farms[farm_idx].position = tombstone;
+                // Reset crop — triggers FarmReadyMarker despawn via farm_visual_system
+                if let Some(state) = farm_states.states.get_mut(farm_idx) {
+                    *state = FarmGrowthState::Growing;
+                }
+                if let Some(progress) = farm_states.progress.get_mut(farm_idx) {
+                    *progress = 0.0;
+                }
             }
-            // FarmStates entry stays but is inert (farm at -99999 won't be tended)
         }
         Building::Bed { .. } => {
             if let Some(bed) = world_data.beds.iter_mut().find(|b| {

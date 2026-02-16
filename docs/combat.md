@@ -117,6 +117,7 @@ Execution order is **chained** — each system completes before the next starts.
 - Queries entities `With<Dead>` that have `Option<&LastHitBy>`
 - If `LastHitBy` present, looks up killer entity via `NpcEntityMap`
 - Grants 100 XP to killer's `NpcMetaCache` entry
+- Increments `FactionStats.inc_kills()` for the killer's faction
 - Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`
 - On level-up: re-resolves `CachedStats`, updates `Speed` component, rescales HP proportionally (`hp * new_max / old_max`), sends `GpuUpdate::SetSpeed` and `GpuUpdate::SetHealth`, emits `CombatEventKind::LevelUp` to `CombatLog`
 - XP formula: `level = floor(sqrt(xp / 100))`, level multiplier = `1.0 + level * 0.01`

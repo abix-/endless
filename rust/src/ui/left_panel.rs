@@ -98,7 +98,7 @@ pub struct SquadParams<'w, 's> {
 // ============================================================================
 
 #[derive(SystemParam)]
-pub struct IntelParams<'w> {
+pub struct FactionsParams<'w> {
     ai_state: Res<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
     spawner_state: Res<'w, SpawnerState>,
@@ -138,7 +138,7 @@ struct AiSnapshot {
 }
 
 #[derive(Default)]
-pub struct IntelCache {
+pub struct FactionsCache {
     frame_counter: u32,
     snapshots: Vec<AiSnapshot>,
     selected_idx: usize,
@@ -156,11 +156,11 @@ pub fn left_panel_system(
     mut roster: RosterParams,
     mut upgrade: UpgradeParams,
     mut squad: SquadParams,
-    intel: IntelParams,
+    factions: FactionsParams,
     timings: Res<SystemTimings>,
     mut commands: Commands,
     mut roster_state: Local<RosterState>,
-    mut intel_cache: Local<IntelCache>,
+    mut factions_cache: Local<FactionsCache>,
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
     mut prev_tab: Local<LeftPanelTab>,
@@ -180,7 +180,7 @@ pub fn left_panel_system(
         LeftPanelTab::Policies => "Policies",
         LeftPanelTab::Patrols => "Patrols",
         LeftPanelTab::Squads => "Squads",
-        LeftPanelTab::Intel => "Intel",
+        LeftPanelTab::Factions => "Factions",
         LeftPanelTab::Profiler => "Profiler",
         LeftPanelTab::Help => "Help",
     };
@@ -192,7 +192,7 @@ pub fn left_panel_system(
         LeftPanelTab::Policies => "tab_policies",
         LeftPanelTab::Patrols => "tab_patrols",
         LeftPanelTab::Squads => "tab_squads",
-        LeftPanelTab::Intel => "tab_intel",
+        LeftPanelTab::Factions => "tab_factions",
         LeftPanelTab::Profiler => "tab_profiler",
         LeftPanelTab::Help => "tab_help",
     };
@@ -218,7 +218,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands),
-                LeftPanelTab::Intel => intel_content(ui, &intel, &world_data, &policies, &mut intel_cache, &mut jump_target),
+                LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &mut factions_cache, &mut jump_target),
                 LeftPanelTab::Profiler => profiler_content(ui, &timings),
                 LeftPanelTab::Help => help_content(ui),
             }
@@ -230,7 +230,7 @@ pub fn left_panel_system(
         dirty.patrols = true;
     }
 
-    // Apply camera jump from Intel panel
+    // Apply camera jump from Factions panel
     if let Some(target) = jump_target {
         if let Ok(mut transform) = roster.camera_query.single_mut() {
             transform.translation.x = target.x;
@@ -890,17 +890,17 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
 // ============================================================================
 
 
-fn rebuild_intel_cache(
-    intel: &IntelParams,
+fn rebuild_factions_cache(
+    factions: &FactionsParams,
     world_data: &WorldData,
     policies: &TownPolicies,
-    cache: &mut IntelCache,
+    cache: &mut FactionsCache,
 ) {
     fn push_snapshot(
-        intel: &IntelParams,
+        factions: &FactionsParams,
         world_data: &WorldData,
         policies: &TownPolicies,
-        cache: &mut IntelCache,
+        cache: &mut FactionsCache,
         tdi: usize,
         kind_name: &'static str,
         personality_name: &'static str,
@@ -922,18 +922,18 @@ fn rebuild_intel_cache(
         let miner_homes = world_data.miner_homes.iter().filter(|ms| alive_check(ms.position, ms.town_idx)).count();
 
         let ti_i32 = tdi as i32;
-        let alive_spawner = |kind: i32| intel.spawner_state.0.iter()
+        let alive_spawner = |kind: i32| factions.spawner_state.0.iter()
             .filter(|s| s.building_kind == kind && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
         let farmers = alive_spawner(0);
         let archers = alive_spawner(1);
         let raiders = alive_spawner(2);
         let miners = alive_spawner(3);
 
-        let food = intel.food_storage.food.get(tdi).copied().unwrap_or(0);
-        let (alive, dead, kills) = intel.faction_stats.stats.get(faction as usize)
+        let food = factions.food_storage.food.get(tdi).copied().unwrap_or(0);
+        let (alive, dead, kills) = factions.faction_stats.stats.get(faction as usize)
             .map(|s| (s.alive, s.dead, s.kills))
             .unwrap_or((0, 0, 0));
-        let upgrades = intel.upgrades.levels.get(tdi).copied().unwrap_or([0; UPGRADE_COUNT]);
+        let upgrades = factions.upgrades.levels.get(tdi).copied().unwrap_or([0; UPGRADE_COUNT]);
 
         let policy = policies.policies.get(tdi);
         let archer_aggressive = policy.map(|p| p.archer_aggressive).unwrap_or(false);
@@ -974,12 +974,12 @@ fn rebuild_intel_cache(
 
     cache.snapshots.clear();
 
-    // Include player faction (faction 0) in Intel view.
+    // Include player faction (faction 0) in Factions view.
     if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
-        push_snapshot(intel, world_data, policies, cache, player_tdi, "Player", "Human", Vec::new());
+        push_snapshot(factions, world_data, policies, cache, player_tdi, "Player", "Human", Vec::new());
     }
 
-    for player in intel.ai_state.players.iter() {
+    for player in factions.ai_state.players.iter() {
         let tdi = player.town_data_idx;
 
         let kind_name = match player.kind {
@@ -989,7 +989,7 @@ fn rebuild_intel_cache(
 
         let last_actions: Vec<String> = player.last_actions.iter().rev().cloned().collect();
         push_snapshot(
-            intel,
+            factions,
             world_data,
             policies,
             cache,
@@ -1001,18 +1001,18 @@ fn rebuild_intel_cache(
     }
 }
 
-fn intel_content(
+fn factions_content(
     ui: &mut egui::Ui,
-    intel: &IntelParams,
+    factions: &FactionsParams,
     world_data: &WorldData,
     policies: &TownPolicies,
-    cache: &mut IntelCache,
+    cache: &mut FactionsCache,
     jump_target: &mut Option<Vec2>,
 ) {
     // Rebuild cache every 30 frames
     cache.frame_counter += 1;
     if cache.frame_counter % 30 == 1 || cache.snapshots.is_empty() {
-        rebuild_intel_cache(intel, world_data, policies, cache);
+        rebuild_factions_cache(factions, world_data, policies, cache);
     }
 
     if cache.snapshots.is_empty() {
@@ -1057,11 +1057,11 @@ fn intel_content(
     ui.separator();
 
     let lv = &snap.upgrades;
-    let archer_base = intel.combat_config.jobs.get(&Job::Archer);
-    let farmer_base = intel.combat_config.jobs.get(&Job::Farmer);
-    let miner_base = intel.combat_config.jobs.get(&Job::Miner);
-    let ranged_base = intel.combat_config.attacks.get(&BaseAttackType::Ranged);
-    let melee_base = intel.combat_config.attacks.get(&BaseAttackType::Melee);
+    let archer_base = factions.combat_config.jobs.get(&Job::Archer);
+    let farmer_base = factions.combat_config.jobs.get(&Job::Farmer);
+    let miner_base = factions.combat_config.jobs.get(&Job::Miner);
+    let ranged_base = factions.combat_config.attacks.get(&BaseAttackType::Ranged);
+    let melee_base = factions.combat_config.attacks.get(&BaseAttackType::Melee);
 
     let military_hp_mult = 1.0 + lv[UpgradeType::MilitaryHp as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryHp as usize];
     let military_dmg_mult = 1.0 + lv[UpgradeType::MilitaryAttack as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryAttack as usize];
@@ -1209,11 +1209,11 @@ fn intel_content(
             ui.end_row();
 
             ui.label("Healing Rate");
-            ui.label(format!("{:.1}/s -> {:.1}/s", intel.combat_config.heal_rate, intel.combat_config.heal_rate * healing_mult));
+            ui.label(format!("{:.1}/s -> {:.1}/s", factions.combat_config.heal_rate, factions.combat_config.heal_rate * healing_mult));
             ui.end_row();
 
             ui.label("Fountain Radius");
-            ui.label(format!("{:.0}px -> {:.0}px", intel.combat_config.heal_radius, intel.combat_config.heal_radius + fountain_bonus));
+            ui.label(format!("{:.0}px -> {:.0}px", factions.combat_config.heal_radius, factions.combat_config.heal_radius + fountain_bonus));
             ui.end_row();
 
             ui.label("Build Area Expansion");
@@ -1319,91 +1319,50 @@ fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings) {
 
 fn help_content(ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        egui::CollapsingHeader::new(egui::RichText::new("Getting Started").strong())
+        egui::CollapsingHeader::new(egui::RichText::new("Quick Start").strong())
             .default_open(true)
             .show(ui, |ui| {
-                ui.label("1. Press B to open the Build menu");
-                ui.label("2. Build Farms to grow food");
-                ui.label("3. Build Farmer Homes next to farms — each spawns 1 farmer");
-                ui.label("4. Build Guard Posts to create patrol routes");
-                ui.label("5. Build Archer Homes — each spawns 1 archer who patrols guard posts");
-                ui.label("6. Raiders from enemy camps will attack your farms — defend them!");
-                ui.add_space(4.0);
-                ui.label("Click any NPC or building to inspect it. Press H to close this panel.");
-            });
-
-        egui::CollapsingHeader::new(egui::RichText::new("Core Gameplay Loop").strong())
-            .show(ui, |ui| {
-                ui.label("Grow food  \u{2192}  Build buildings  \u{2192}  Spawn NPCs  \u{2192}  Defend  \u{2192}  Upgrade  \u{2192}  Expand");
-                ui.add_space(4.0);
-                ui.label("Food is your main currency. Farms produce it, farmers harvest it, and you spend it on buildings and upgrades.");
-                ui.label("As your town grows, enemy raiders will attack more aggressively. Build defenses and upgrade your archers to survive.");
-                ui.label("Use the Upgrades tab (U) to spend food and gold on permanent improvements.");
+                ui.label("1. B > build Farms, then Farmer Homes");
+                ui.label("2. Guard Posts near farms, then Archer Homes");
+                ui.label("3. Food buys buildings + upgrades (U). Gold for advanced upgrades.");
+                ui.label("4. Click to inspect. ESC for settings.");
             });
 
         egui::CollapsingHeader::new(egui::RichText::new("Economy").strong())
             .show(ui, |ui| {
-                ui.label("\u{2022} Farms grow food over time. When ready, a farmer harvests and adds to your food stockpile.");
-                ui.label("\u{2022} Each Farmer Home spawns 1 farmer who works the nearest free farm.");
-                ui.label("\u{2022} Build farms FIRST, then Farmer Homes to staff them.");
-                ui.label("\u{2022} Gold Mines appear between towns. Build Miner Homes to spawn miners who collect gold.");
-                ui.label("\u{2022} Gold is used for advanced upgrades in the Upgrades tab.");
-                ui.label("\u{2022} Food pays for all buildings and most upgrades.");
+                ui.label("- Farms grow food. Farmer Homes spawn farmers to harvest them.");
+                ui.label("- Gold Mines between towns. Miner Homes spawn miners.");
+                ui.label("- Food = buildings + upgrades. Gold = advanced upgrades.");
+                ui.label("- Dead NPCs respawn after 12 game-hours.");
             });
 
-        egui::CollapsingHeader::new(egui::RichText::new("Military & Defense").strong())
+        egui::CollapsingHeader::new(egui::RichText::new("Military").strong())
             .show(ui, |ui| {
-                ui.label("\u{2022} Guard Posts create a patrol route. Archers walk between them.");
-                ui.label("\u{2022} Each Archer Home spawns 1 archer who patrols guard posts.");
-                ui.label("\u{2022} Guard Posts have a turret that auto-shoots nearby enemies.");
-                ui.label("\u{2022} Place guard posts near your farms to intercept raiders.");
-                ui.label("\u{2022} Squads (Q): group archers and assign manual attack targets.");
-                ui.label("\u{2022} Use hotkeys 1-9 to select a squad, then click the map to set its target.");
-                ui.label("\u{2022} Archers level up from kills, gaining +1% stats per level.");
-            });
-
-        egui::CollapsingHeader::new(egui::RichText::new("Building").strong())
-            .show(ui, |ui| {
-                ui.label("\u{2022} Press B to open the build bar at the bottom of the screen.");
-                ui.label("\u{2022} Click a building type, then click a green '+' slot to place it.");
-                ui.label("\u{2022} Right-click or press ESC to cancel placement.");
-                ui.label("\u{2022} Use the Destroy tool (skull icon) to remove buildings.");
-                ui.label("\u{2022} You can also destroy buildings from the Inspector (click a building, then Destroy).");
-                ui.label("\u{2022} Dead NPCs respawn from their building after 12 game-hours.");
+                ui.label("- Guard Posts form patrol routes. Archer Homes spawn archers.");
+                ui.label("- Guard Post turrets auto-shoot enemies.");
+                ui.label("- Archers level up from kills (+1% stats/level).");
+                ui.label("- Policies (P): set work schedules, off-duty behavior, flee/aggro.");
+                ui.label("- Squads (Q): all archers join Squad 1. Set sizes for 2-9 to split into groups.");
+                ui.label("- Press 1-9 to pick a squad, click the map to send them.");
+                ui.label("- Patrols (T): reorder guard post patrol routes.");
             });
 
         egui::CollapsingHeader::new(egui::RichText::new("Controls").strong())
             .show(ui, |ui| {
-                ui.label("Camera:");
-                ui.label("  WASD / Arrow Keys — scroll");
-                ui.label("  Mouse Wheel — zoom in/out");
-                ui.label("  Click NPC/Building — select and inspect");
-                ui.add_space(4.0);
-                ui.label("Time:");
-                ui.label("  Space — pause / unpause");
-                ui.label("  + / - — speed up / slow down (0.25x to 128x)");
-                ui.add_space(4.0);
-                ui.label("Panels:");
-                ui.label("  R — Roster    U — Upgrades    P — Policies");
-                ui.label("  T — Patrols   Q — Squads      I — Intel");
-                ui.label("  B — Build     L — Combat Log   H — Help");
-                ui.label("  F — Follow selected NPC");
-                ui.label("  1-9 — Select squad + set target mode");
-                ui.add_space(4.0);
-                ui.label("Save/Load:");
-                ui.label("  F5 — Quicksave    F9 — Quickload");
-                ui.label("  ESC — Pause menu (settings, exit)");
+                ui.label("WASD - scroll    Wheel - zoom    Click - select");
+                ui.label("Space - pause    +/- - speed (0.25x-128x)");
+                ui.label("B - Build   R - Roster   U - Upgrades   P - Policies");
+                ui.label("T - Patrols   Q - Squads   I - Factions   L - Log   H - Help");
+                ui.label("F - Follow NPC   1-9 - Squad target   ESC - Menu");
+                ui.label("F5 - Quicksave   F9 - Quickload");
             });
 
         egui::CollapsingHeader::new(egui::RichText::new("Tips").strong())
             .show(ui, |ui| {
-                ui.label("\u{2022} Always build farms before Farmer Homes — homeless farmers have nothing to harvest.");
-                ui.label("\u{2022} Place guard posts between your farms and enemy camps.");
-                ui.label("\u{2022} Use Policies (P) to control work schedules and off-duty behavior.");
-                ui.label("\u{2022} Night raiders are more dangerous — consider Day Only schedules for farmers.");
-                ui.label("\u{2022} Check the Combat Log (L) to see what's happening across your kingdom.");
-                ui.label("\u{2022} Click an NPC and press F to follow them around the map.");
-                ui.label("\u{2022} Upgrade Fountain Radius early to heal archers faster after fights.");
+                ui.label("- Build farms before homes -- no farm, no work.");
+                ui.label("- Guard posts between farms and enemy camps.");
+                ui.label("- Day Only schedule (P) keeps farmers safe at night.");
+                ui.label("- Upgrade Fountain Radius early for faster healing.");
             });
     });
 }

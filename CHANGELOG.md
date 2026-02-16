@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-16c
+
+- **jukebox UI** — top-right overlay with track picker dropdown (ComboBox), pause/play, skip, loop toggle; dark semi-transparent background frame; FPS counter moved from standalone overlay into top bar right section
+- **faction kills fix** — `xp_grant_system` now calls `FactionStats.inc_kills()` for the killer's faction (was never called, kills stuck at 0)
+- **Intel → Factions rename** — `LeftPanelTab::Intel` → `Factions`, `IntelParams` → `FactionsParams`, `IntelCache` → `FactionsCache`, `intel_content()` → `factions_content()`, keyboard shortcut I unchanged
+- **save file picker** — main menu "Load Game" collapsible section lists all `*.json` saves from save directory sorted newest first; shows filename + relative age ("3m ago"); click to load; `list_saves()`, `read_save_from()`, `SaveLoadRequest.load_path`
+
 ## 2026-02-16b
 
 - **music jukebox** — 22-track soundtrack (Not Jam Music Pack, CC0) with random no-repeat playback; `GameAudio` resource + `MusicTrack` marker; `load_music` at Startup, `start_music` on OnEnter(Playing), `stop_music` on OnExit(Playing), `jukebox_system` auto-advances when track despawns; music/SFX volume sliders in pause menu Settings (persisted in UserSettings v3); `PlaySfxMsg` + `SfxKind` scaffold for future SFX; `play_sfx_system` drains messages (no .ogg files wired yet)

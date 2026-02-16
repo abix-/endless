@@ -245,17 +245,40 @@ pub fn main_menu_system(
 
             ui.add_space(8.0);
 
-            // Load Game button — grayed out if no save file
-            let has_save = crate::save::has_quicksave();
-            ui.add_enabled_ui(has_save, |ui| {
-                if ui.button(egui::RichText::new("Load Game").size(18.0)).clicked() {
-                    save_request.load_on_enter = true;
-                    save_request.autosave_hours = state.autosave_hours;
-                    next_state.set(AppState::Playing);
-                }
-            });
-            if !has_save {
-                ui.label(egui::RichText::new("No save file found").size(12.0).weak());
+            // Load Game — collapsible save file picker
+            let saves = crate::save::list_saves();
+            if saves.is_empty() {
+                ui.add_enabled_ui(false, |ui| {
+                    let _ = ui.button(egui::RichText::new("Load Game").size(18.0));
+                });
+                ui.label(egui::RichText::new("No save files found").size(12.0).weak());
+            } else {
+                egui::CollapsingHeader::new(egui::RichText::new("Load Game").size(18.0))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        for save_info in &saves {
+                            ui.horizontal(|ui| {
+                                let elapsed = save_info.modified.elapsed().unwrap_or_default();
+                                let age = if elapsed.as_secs() < 60 {
+                                    "just now".to_string()
+                                } else if elapsed.as_secs() < 3600 {
+                                    format!("{}m ago", elapsed.as_secs() / 60)
+                                } else if elapsed.as_secs() < 86400 {
+                                    format!("{}h ago", elapsed.as_secs() / 3600)
+                                } else {
+                                    format!("{}d ago", elapsed.as_secs() / 86400)
+                                };
+                                let name = save_info.filename.trim_end_matches(".json");
+                                if ui.button(name).clicked() {
+                                    save_request.load_on_enter = true;
+                                    save_request.load_path = Some(save_info.path.clone());
+                                    save_request.autosave_hours = state.autosave_hours;
+                                    next_state.set(AppState::Playing);
+                                }
+                                ui.label(egui::RichText::new(age).size(12.0).weak());
+                            });
+                        }
+                    });
             }
 
             ui.add_space(20.0);

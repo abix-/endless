@@ -51,7 +51,7 @@ fn apply_ui_scale(
 pub fn register_ui(app: &mut App) {
     // Global: UI scale + overlays (all states)
     app.add_systems(Update, apply_ui_scale);
-    app.add_systems(EguiPrimaryContextPass, game_hud::fps_display_system);
+    app.add_systems(EguiPrimaryContextPass, game_hud::jukebox_ui_system);
 
     // Main menu (egui)
     app.add_systems(EguiPrimaryContextPass,
@@ -117,7 +117,7 @@ fn ui_toggle_system(
         ui_state.toggle_left_tab(LeftPanelTab::Squads);
     }
     if keys.just_pressed(KeyCode::KeyI) {
-        ui_state.toggle_left_tab(LeftPanelTab::Intel);
+        ui_state.toggle_left_tab(LeftPanelTab::Factions);
     }
     if keys.just_pressed(KeyCode::KeyH) {
         ui_state.toggle_left_tab(LeftPanelTab::Help);
@@ -192,7 +192,11 @@ fn game_load_system(
     if !save_request.load_on_enter { return; }
     save_request.load_on_enter = false;
 
-    let save = match crate::save::read_save() {
+    let save = match if let Some(path) = save_request.load_path.take() {
+        crate::save::read_save_from(&path)
+    } else {
+        crate::save::read_save()
+    } {
         Ok(data) => data,
         Err(e) => {
             error!("Load from menu failed: {e}");

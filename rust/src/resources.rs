@@ -706,7 +706,7 @@ pub enum LeftPanelTab {
     Policies,
     Patrols,
     Squads,
-    Intel,
+    Factions,
     Profiler,
     Help,
 }
@@ -1169,11 +1169,11 @@ impl HelpCatalog {
         m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0.25x to 128x). Day/Night affects work schedules set in Policies (P key).");
 
         // Left panel tabs
-        m.insert("tab_roster", "Your NPC list. Filter, sort, select. Press F to follow.");
-        m.insert("tab_upgrades", "Upgrade your town to improve combat, economy, and growth");
-        m.insert("tab_policies", "Behavior rules to change how your NPCs fight, rest, and work");
+        m.insert("tab_roster", "Filter, sort, click to inspect. F to follow.");
+        m.insert("tab_upgrades", "Spend food and gold on permanent upgrades.");
+        m.insert("tab_policies", "Work schedules, off-duty behavior, flee and aggro settings.");
         m.insert("tab_patrols", "Guard post patrol order. Use arrows to reorder.");
-        m.insert("tab_squads", "Organize archer squads: move archers from Default Squad, set or clear map targets, and control patrol/rest behavior");
+        m.insert("tab_squads", "Set squad sizes and map targets. 1-9 hotkeys.");
         m.insert("tab_profiler", "Per-system timings. Enable in ESC > Settings > Debug.");
 
         // Build menu
@@ -1194,9 +1194,6 @@ impl HelpCatalog {
 
         // Getting started
         m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Farmer Homes for food\n\u{2022} Build Guard Posts + Archer Homes for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads, H=help");
-
-        // Help tab
-        m.insert("tab_help", "How to play Endless. Expand a section below to learn more.");
 
         Self(m)
     }
@@ -1242,11 +1239,12 @@ pub struct GameAudio {
     pub sfx_volume: f32,
     pub tracks: Vec<Handle<AudioSource>>,
     pub last_track: Option<usize>,
+    pub loop_current: bool,
 }
 
 impl Default for GameAudio {
     fn default() -> Self {
-        Self { music_volume: 0.3, sfx_volume: 0.5, tracks: Vec::new(), last_track: None }
+        Self { music_volume: 0.3, sfx_volume: 0.5, tracks: Vec::new(), last_track: None, loop_current: false }
     }
 }
 

@@ -60,12 +60,12 @@ Bevy ECS (lib.rs build_app)
     ├─ AppState: MainMenu → Playing | TestMenu → Running
     │
     ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, panels, startup, cleanup
-    │   ├─ Main menu: world config sliders (gold mines, AI speed, NPC think, etc.) + Play / Debug Tests
+    │   ├─ Main menu: world config sliders + Play / Load Game (save file picker) / Debug Tests
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
-    │   ├─ Top bar: panel toggles left, town name + time center, stats (food + gold) right
+    │   ├─ Top bar: panel toggles left, town name + time center, stats (food + gold) + FPS right
     │   ├─ Floating windows: NPC/building inspector (bottom-left) + combat log with filters (bottom-right)
-    │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Help (H)
-    │   ├─ FPS overlay: bottom-right corner, EMA-smoothed, always visible (all states)
+    │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Factions (I) / Help (H)
+    │   ├─ Jukebox overlay: top-right, track picker dropdown + pause/skip/loop controls
     │   ├─ Build menu: bottom-center horizontal bar with building sprites + help text; click-to-place with grid-snapped ghost preview; destroy mode in bar + inspector
     │   ├─ Pause menu (ESC): Resume, Settings (UI scale, scroll speed, background FPS, music/SFX volume, log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
@@ -134,14 +134,14 @@ rust/
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, BuildingHpState, HelpCatalog, etc.)
-  src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, load-from-menu, SaveData serialization, SystemParam bundles)
+  src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
   src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v3, auto_upgrades, autosave_hours, music/sfx volume)
   src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale + audio volume), escape/time controls, keyboard toggles (Q=squads, H=help), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
-    main_menu.rs        # Main menu with world config sliders + Play / Load Game / Debug Tests buttons + autosave interval + settings persistence
-    game_hud.rs         # Top bar (food + gold), floating inspector (bottom-left, incl. mine inspector) + combat log (bottom-right), target overlay, squad overlay, FPS counter
-    left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Help (H) — policy persistence on tab leave
+    main_menu.rs        # Main menu with world config sliders + Play / Load Game (save file picker) / Debug Tests buttons + autosave interval + settings persistence
+    game_hud.rs         # Top bar (food + gold + FPS), jukebox overlay (track picker + pause/skip/loop), floating inspector (bottom-left) + combat log (bottom-right), target overlay, squad overlay
+    left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Factions (I) / Help (H) — policy persistence on tab leave
     build_menu.rs       # Bottom-center build bar: building sprites with cached atlas extraction, click-to-place, destroy mode, cursor hint
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)

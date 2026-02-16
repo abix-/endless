@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 use bevy::prelude::*;
-use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId};
+use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, CombatLog, CombatEventKind, GameTime, SystemTimings, DirtyFlags};
+use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings, DirtyFlags};
 
 // ============================================================================
 // COMBAT CONFIG (replaces scattered constants)
@@ -154,8 +154,8 @@ pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
     UpgradeNode { label: "Healing",      short: "Heal",   tooltip: "+20% HP regen at fountain",      category: "Town",     cost: &[(F, 1)], prereqs: &[] },
     // 14: Fountain — requires Healing Lv1
     UpgradeNode { label: "Fountain",     short: "Fount",  tooltip: "+24px fountain range per level",  category: "Town",    cost: &[(G, 1)], prereqs: &[prereq(13, 1)] },
-    // 15: Expansion — requires Fountain Lv1, custom slot-based cost
-    UpgradeNode { label: "Expansion",    short: "Area",   tooltip: "+1 buildable radius per level",  category: "Town",     cost: &[(F, 1), (G, 1)], prereqs: &[prereq(14, 1)] },
+    // 15: Expansion — root, custom slot-based cost
+    UpgradeNode { label: "Expansion",    short: "Area",   tooltip: "+1 buildable radius per level",  category: "Town",     cost: &[(F, 1), (G, 1)], prereqs: &[] },
 ];
 
 /// True if this town has unlocked projectile dodge.
@@ -193,7 +193,7 @@ pub const UPGRADE_RENDER_ORDER: &[(&str, &[(usize, u8)])] = &[
     ("Town", &[
         (13, 0),  // Healing (root)
         (14, 1),  // Fountain (req Healing)
-        (15, 2),  // Expansion (req Fountain)
+        (15, 0),  // Expansion (root)
     ]),
 ];
 
@@ -548,9 +548,10 @@ pub fn auto_upgrade_system(
 /// Grant XP to killers when NPCs die. Runs between death_system and death_cleanup_system.
 pub fn xp_grant_system(
     dead_query: Query<(&NpcIndex, Option<&LastHitBy>), With<Dead>>,
-    mut killer_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
+    mut killer_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed, &Faction), Without<Dead>>,
     npc_map: Res<NpcEntityMap>,
     mut npc_meta: ResMut<NpcMetaCache>,
+    mut faction_stats: ResMut<FactionStats>,
     config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
     mut combat_log: ResMut<CombatLog>,
@@ -565,8 +566,9 @@ pub fn xp_grant_system(
         let killer_slot = last_hit.0 as usize;
 
         let Some(&killer_entity) = npc_map.0.get(&killer_slot) else { continue };
-        let Ok((npc_idx, job, town_id, atk_type, personality, mut health, mut cached, mut speed)) = killer_query.get_mut(killer_entity) else { continue };
+        let Ok((npc_idx, job, town_id, atk_type, personality, mut health, mut cached, mut speed, killer_faction)) = killer_query.get_mut(killer_entity) else { continue };
 
+        faction_stats.inc_kills(killer_faction.0);
         let idx = npc_idx.0;
         let meta = &mut npc_meta.0[idx];
         let old_xp = meta.xp;

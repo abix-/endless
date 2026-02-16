@@ -8,7 +8,7 @@ A real-time kingdom builder inspired by [Lords of the Realm 2](https://en.wikipe
 
 <!-- TODO: Add screenshot/GIF here -->
 
-> *Early development — core loop works: farming, combat, upgrades, building, policies. [Roadmap](docs/roadmap.md)*
+> *Active development — GPU compute powering 10K+ NPCs, full economy with tech tree, AI opponents, save/load, 15 automated tests. [Roadmap](docs/roadmap.md)*
 
 ## Download
 
