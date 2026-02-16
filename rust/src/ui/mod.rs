@@ -19,6 +19,7 @@ use crate::constants::TOWN_GRID_SPACING;
 use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
+use crate::systemparams::WorldState;
 use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality};
 use crate::world::{self, WorldGenConfig};
 

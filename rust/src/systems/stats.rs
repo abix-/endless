@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
+use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
+use crate::systemparams::{EconomyState, WorldState};
 
 // ============================================================================
 // COMBAT CONFIG (replaces scattered constants)
@@ -438,14 +439,14 @@ pub fn resolve_combat_stats(
 pub fn process_upgrades_system(
     mut queue: ResMut<UpgradeQueue>,
     mut upgrades: ResMut<TownUpgrades>,
-    mut economy: crate::resources::EconomyState,
+    mut economy: EconomyState,
     npcs_by_town: Res<NpcsByTownCache>,
     npc_map: Res<NpcEntityMap>,
     config: Res<CombatConfig>,
     meta_cache: Res<NpcMetaCache>,
     mut npc_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut world_state: crate::resources::WorldState,
+    mut world_state: WorldState,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_upgrades");

@@ -128,7 +128,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 7 | factions | i32 | 4B | NpcGpuState.factions | 0=Villager, 1+=Raider camps (COPY_SRC for readback) |
 | 8 | healths | f32 | 4B | NpcGpuState.healths | Current HP (COPY_SRC for readback) |
 | 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader, init -1) |
-| 10 | params | Params (uniform) | — | NpcComputeParams | Count, delta, grid config, thresholds |
+| 10 | params | Params (uniform) | — | NpcComputeParams | Count, delta (0 when paused), grid config, thresholds |
 | 11 | proj_grid_counts | i32[] | — | ProjGpuBuffers.grid_counts (read) | Projectile spatial grid cell counts |
 | 12 | proj_grid_data | i32[] | — | ProjGpuBuffers.grid_data (read) | Projectile indices per cell |
 | 13 | proj_positions | vec2\<f32\>[] | — | ProjGpuBuffers.positions (read) | Projectile positions for dodge |

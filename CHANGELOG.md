@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-16l
+
+- **fix: pause freezes GPU compute** — spacebar pause now sets delta=0 in `update_gpu_data` and `update_proj_gpu_data`, stopping NPC movement and projectile physics on the GPU; previously only ECS systems checked `game_time.paused` while the compute shader kept running
+- cleanup: remove unused imports in behavior.rs, combat.rs, stats.rs
+
 ## 2026-02-16k
 
 - **GpuReadState extraction deleted** — removed `ExtractResourcePlugin::<GpuReadState>` (nothing in render world read it); saves ~1.2MB/frame clone

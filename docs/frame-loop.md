@@ -45,7 +45,7 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │     build_visual_upload
 │       ECS query + NpcGpuState → NpcVisualUpload (GPU-ready packed visual + equip)
 │
-├─ update_gpu_data (sync npc_count + delta → NpcGpuData)
+├─ update_gpu_data (sync npc_count + delta → NpcGpuData; delta=0 when paused)
 │
 ╞══════════════════════════════════════════════════════════════
 │  EXTRACT BARRIER — zero-clone reads + clones to render world

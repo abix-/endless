@@ -82,12 +82,14 @@ Every-frame review backlog:
 - [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.
 
 SystemParam bundle consolidation:
-- [ ] Create `GameLog` bundle in `resources.rs`: `{ combat_log: ResMut<CombatLog>, game_time: Res<GameTime>, timings: Res<SystemTimings> }`. This triple appears in 8+ systems: `arrival_system`, `spawn_npc_system`, `death_cleanup_system`, `spawner_respawn_system`, `ai_decision_system`, `xp_grant_system`, `healing_system`, `process_upgrades_system`. Each system drops its 3 direct params in favor of `log: GameLog`.
-- [ ] Move `FarmParams` and `EconomyParams` from `systems/behavior.rs` to `resources.rs` (they're `pub` but only imported by behavior.rs today). Update imports in behavior.rs.
-- [ ] Adopt `FarmParams` + `EconomyParams` in `arrival_system` (13->8 params): replace direct `farm_states`, `world_data`, `food_storage`, `gold_storage`, `food_events` with the two bundles. Access via `farms.states`, `economy.food_storage`, etc.
-- [ ] Do NOT refactor systems where `WorldData` mutability mismatches - `ai_decision_system` and `build_menu_system` need `ResMut<WorldData>` but `FarmParams` has `Res<WorldData>`. Leave those as-is.
-- [ ] Do NOT nest bundles (e.g. `GameLog` inside `DecisionExtras`). Flat bundles only.
-- [ ] Expected param count reductions: `arrival_system` 13->8, `spawn_npc_system` 15->13, `death_cleanup_system` 9->7, `spawner_respawn_system` 9->7, `ai_decision_system` 15->13, `xp_grant_system` 10->8, `healing_system` 10->8, `process_upgrades_system` 10->9. Pure refactor - no behavioral changes. Verify with `cargo check`.
+- [x] Add shared `WorldState` bundle in `resources.rs` for world/grid/building mutation paths.
+- [x] Adopt `WorldState` in high-churn systems: `ai_decision_system`, `building_damage_system`, `sync_guard_post_slots`, `build_place_click_system`, `process_destroy_system`, `game_startup_system`, `game_cleanup_system`, `migration_settle_system`, `process_upgrades_system`.
+- [x] Add shared `EconomyState` bundle in `resources.rs` for food/gold/mine/events/population mutation.
+- [x] Adopt `EconomyState` in core paths: `decision_system`, `arrival_system`, `camp_forage_system`, `process_upgrades_system`.
+- [ ] Create `GameLog` bundle in `resources.rs`: `{ combat_log: ResMut<CombatLog>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
+- [ ] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (keep only bundles with genuine local-only value; shared bundles live in `resources.rs`).
+- [ ] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
+- [ ] Re-baseline and document actual parameter-count reductions after refactor, then verify with `cargo check`.
 
 **Stage 16: Combat Depth**
 

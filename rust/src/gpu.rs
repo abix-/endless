@@ -34,7 +34,7 @@ use std::borrow::Cow;
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
 use crate::constants::FOOD_SPRITE;
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, SystemTimings};
+use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, SystemTimings};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
 
@@ -736,12 +736,14 @@ fn update_gpu_data(
     mut params: ResMut<NpcComputeParams>,
     slots: Res<SlotAllocator>,
     time: Res<Time>,
+    game_time: Res<GameTime>,
     upgrades: Res<TownUpgrades>,
     world_data: Res<WorldData>,
 ) {
+    let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
     gpu_data.npc_count = slots.count() as u32;
-    gpu_data.delta = time.delta_secs();
-    params.delta = time.delta_secs();
+    gpu_data.delta = dt;
+    params.delta = dt;
     params.count = slots.count() as u32;
 
     let player_town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
@@ -1244,10 +1246,11 @@ fn update_proj_gpu_data(
     slots: Res<SlotAllocator>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
+    game_time: Res<GameTime>,
 ) {
     let pc = proj_alloc.next as u32;
     let nc = slots.count() as u32;
-    let dt = time.delta_secs();
+    let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
     proj_data.proj_count = pc;
     proj_data.npc_count = nc;
     proj_data.delta = dt;
