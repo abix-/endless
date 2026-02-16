@@ -251,12 +251,7 @@ fn camera_edge_pan_system(
     time: Res<Time>,
     mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
     user_settings: Res<UserSettings>,
-    mut egui_contexts: bevy_egui::EguiContexts,
 ) {
-    if let Ok(ctx) = egui_contexts.ctx_mut() {
-        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() { return; }
-    }
-
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
     let w = window.width();
