@@ -199,10 +199,6 @@ impl Default for GameTime {
     }
 }
 
-/// Per-clan respawn cooldowns. Maps clan_id -> hours until next spawn check.
-#[derive(Resource, Default)]
-pub struct RespawnTimers(pub HashMap<i32, i32>);
-
 // ============================================================================
 // UI STATE RESOURCES
 // ============================================================================
@@ -866,7 +862,7 @@ pub struct SpawnerEntry {
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 
-/// Hit points for all destroyable buildings. Each Vec is parallel to the matching Vec in WorldData.
+/// Hit points for all buildings. Each Vec is parallel to the matching Vec in WorldData.
 #[derive(Resource, Default)]
 pub struct BuildingHpState {
     pub guard_posts: Vec<f32>,
@@ -875,6 +871,9 @@ pub struct BuildingHpState {
     pub tents: Vec<f32>,
     pub miner_homes: Vec<f32>,
     pub farms: Vec<f32>,
+    pub towns: Vec<f32>,      // indexed by town_data_idx (covers Fountain + Camp)
+    pub beds: Vec<f32>,
+    pub gold_mines: Vec<f32>,
 }
 
 impl BuildingHpState {
@@ -888,11 +887,14 @@ impl BuildingHpState {
             crate::world::Building::Tent { .. } => self.tents.push(TENT_HP),
             crate::world::Building::MinerHome { .. } => self.miner_homes.push(MINER_HOME_HP),
             crate::world::Building::Farm { .. } => self.farms.push(FARM_HP),
-            _ => {} // Fountain, Camp, Bed, GoldMine — no HP
+            crate::world::Building::Fountain { .. } |
+            crate::world::Building::Camp { .. } => self.towns.push(TOWN_HP),
+            crate::world::Building::Bed { .. } => self.beds.push(BED_HP),
+            crate::world::Building::GoldMine => self.gold_mines.push(GOLD_MINE_HP),
         }
     }
 
-    /// Get mutable HP for a building by kind and index. Returns None for indestructible types.
+    /// Get mutable HP for a building by kind and index.
     pub fn get_mut(&mut self, kind: crate::world::BuildingKind, index: usize) -> Option<&mut f32> {
         use crate::world::BuildingKind;
         match kind {
@@ -902,7 +904,9 @@ impl BuildingHpState {
             BuildingKind::Tent => self.tents.get_mut(index),
             BuildingKind::MinerHome => self.miner_homes.get_mut(index),
             BuildingKind::Farm => self.farms.get_mut(index),
-            _ => None,
+            BuildingKind::Town => self.towns.get_mut(index),
+            BuildingKind::Bed => self.beds.get_mut(index),
+            BuildingKind::GoldMine => self.gold_mines.get_mut(index),
         }
     }
 
@@ -916,7 +920,9 @@ impl BuildingHpState {
             BuildingKind::Tent => self.tents.get(index).copied(),
             BuildingKind::MinerHome => self.miner_homes.get(index).copied(),
             BuildingKind::Farm => self.farms.get(index).copied(),
-            _ => None,
+            BuildingKind::Town => self.towns.get(index).copied(),
+            BuildingKind::Bed => self.beds.get(index).copied(),
+            BuildingKind::GoldMine => self.gold_mines.get(index).copied(),
         }
     }
 
@@ -931,9 +937,48 @@ impl BuildingHpState {
             BuildingKind::Tent => TENT_HP,
             BuildingKind::MinerHome => MINER_HOME_HP,
             BuildingKind::Farm => FARM_HP,
-            _ => 0.0,
+            BuildingKind::Town => TOWN_HP,
+            BuildingKind::Bed => BED_HP,
+            BuildingKind::GoldMine => GOLD_MINE_HP,
         }
     }
+
+    /// Iterate all damaged buildings: yields (position, hp_pct).
+    pub fn iter_damaged<'a>(&'a self, world_data: &'a crate::world::WorldData) -> impl Iterator<Item = (bevy::prelude::Vec2, f32)> + 'a {
+        use crate::constants::*;
+        macro_rules! chain_buildings {
+            ($buildings:expr, $hps:expr, $max:expr) => {
+                $buildings.iter().zip($hps.iter()).filter_map(move |(b, &hp)| {
+                    if b.position.x > -9000.0 && hp < $max && hp > 0.0 {
+                        Some((b.position, hp / $max))
+                    } else { None }
+                })
+            }
+        }
+        chain_buildings!(world_data.farms, self.farms, FARM_HP)
+            .chain(chain_buildings!(world_data.guard_posts, self.guard_posts, GUARD_POST_HP))
+            .chain(chain_buildings!(world_data.farmer_homes, self.farmer_homes, FARMER_HOME_HP))
+            .chain(chain_buildings!(world_data.archer_homes, self.archer_homes, ARCHER_HOME_HP))
+            .chain(chain_buildings!(world_data.tents, self.tents, TENT_HP))
+            .chain(chain_buildings!(world_data.miner_homes, self.miner_homes, MINER_HOME_HP))
+            .chain(chain_buildings!(world_data.beds, self.beds, BED_HP))
+            .chain(chain_buildings!(world_data.gold_mines, self.gold_mines, GOLD_MINE_HP))
+            .chain(
+                // Towns use .center instead of .position
+                world_data.towns.iter().zip(self.towns.iter()).filter_map(move |(t, &hp)| {
+                    if hp < TOWN_HP && hp > 0.0 {
+                        Some((t.center, hp / TOWN_HP))
+                    } else { None }
+                })
+            )
+    }
+}
+
+/// Building HP render data extracted to render world. Only contains damaged buildings.
+#[derive(Resource, Default, Clone, ExtractResource)]
+pub struct BuildingHpRender {
+    pub positions: Vec<Vec2>,
+    pub health_pcts: Vec<f32>,
 }
 
 /// Per-town auto-upgrade flags. When enabled, upgrades are purchased automatically
@@ -1124,6 +1169,14 @@ impl HelpCatalog {
 
         Self(m)
     }
+}
+
+/// Flag: patrol routes need rebuilding (guard post added/removed/reordered).
+#[derive(Resource, Default)]
+pub struct PatrolsDirty {
+    pub dirty: bool,
+    /// Pending patrol order swap from UI (guard_post indices).
+    pub pending_swap: Option<(usize, usize)>,
 }
 
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

@@ -28,6 +28,7 @@ pub struct AiBuildRes<'w> {
     spawner_state: ResMut<'w, SpawnerState>,
     building_hp: ResMut<'w, BuildingHpState>,
     upgrade_queue: ResMut<'w, UpgradeQueue>,
+    patrols_dirty: ResMut<'w, PatrolsDirty>,
 }
 
 /// Minimum Manhattan distance between guard posts on the town grid.
@@ -380,11 +381,12 @@ fn execute_action(
         AiAction::BuildGuardPost => {
             let tg = res.town_grids.grids.get(grid_idx)?;
             let (row, col) = find_guard_post_slot(tg, center, &res.grid, &res.world_data, ti)?;
-            world::build_and_pay(&mut res.grid, &mut res.world_data, &mut res.farm_states,
+            let ok = world::build_and_pay(&mut res.grid, &mut res.world_data, &mut res.farm_states,
                 &mut res.food_storage, &mut res.spawner_state, &mut res.building_hp,
                 Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
-                tdi, row, col, center, GUARD_POST_BUILD_COST)
-                .then_some("built guard post".into())
+                tdi, row, col, center, GUARD_POST_BUILD_COST);
+            if ok { res.patrols_dirty.dirty = true; }
+            ok.then_some("built guard post".into())
         }
         AiAction::Upgrade(idx) => {
             res.upgrade_queue.0.push((tdi, idx));

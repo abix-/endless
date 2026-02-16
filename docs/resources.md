@@ -52,6 +52,7 @@ Static world data, immutable after initialization.
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt once per frame by `rebuild_building_grid_system` |
 | BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms) | Tracks current HP for all destroyable buildings; initialized on game startup, pushed on build, zeroed on destroy |
+| PatrolsDirty | `dirty: bool`, `pending_swap: Option<(usize, usize)>` | Set when guard posts are built/destroyed/reordered; `pending_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 
 ### WorldData Structs

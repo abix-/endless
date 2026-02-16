@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{GUARD_POST_RANGE, GUARD_POST_DAMAGE, GUARD_POST_COOLDOWN, GUARD_POST_PROJ_SPEED, GUARD_POST_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, FarmStates, SpawnerState};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, FarmStates, SpawnerState, PatrolsDirty};
 use crate::gpu::ProjBufferWrites;
 use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, WorldGrid};
 
@@ -405,6 +405,7 @@ pub fn building_damage_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
+    mut patrols_dirty: ResMut<PatrolsDirty>,
 ) {
     let _t = timings.scope("building_damage");
     for msg in damage_reader.read() {
@@ -429,7 +430,12 @@ pub fn building_damage_system(
                 .map(|m| (m.position, m.town_idx as usize)),
             BuildingKind::Farm => world_data.farms.get(msg.index)
                 .map(|f| (f.position, f.town_idx as usize)),
-            _ => None,
+            BuildingKind::Town => world_data.towns.get(msg.index)
+                .map(|t| (t.center, msg.index)),
+            BuildingKind::Bed => world_data.beds.get(msg.index)
+                .map(|b| (b.position, b.town_idx as usize)),
+            BuildingKind::GoldMine => world_data.gold_mines.get(msg.index)
+                .map(|m| (m.position, 0)),
         }.unwrap_or((Vec2::ZERO, 0));
 
         if pos.x < -9000.0 { continue; } // already tombstoned
@@ -453,11 +459,26 @@ pub fn building_damage_system(
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
         );
+        if msg.kind == BuildingKind::GuardPost { patrols_dirty.dirty = true; }
 
         // Kill the linked NPC if alive
         if npc_slot >= 0 {
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: npc_slot as usize }));
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_slot as usize, health: 0.0 }));
         }
+    }
+}
+
+/// Populate BuildingHpRender from BuildingHpState + WorldData (only damaged buildings).
+pub fn sync_building_hp_render(
+    building_hp: Res<BuildingHpState>,
+    world_data: Res<WorldData>,
+    mut render: ResMut<crate::resources::BuildingHpRender>,
+) {
+    render.positions.clear();
+    render.health_pcts.clear();
+    for (pos, pct) in building_hp.iter_damaged(&world_data) {
+        render.positions.push(pos);
+        render.health_pcts.push(pct);
     }
 }

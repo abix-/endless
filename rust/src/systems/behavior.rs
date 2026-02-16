@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings};
+use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, PatrolsDirty};
 use crate::systems::economy::*;
 use crate::systems::stats::{UpgradeType, UPGRADE_PCT};
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
@@ -1091,18 +1091,40 @@ pub fn on_duty_tick_system(
 
 /// Rebuild all guards' patrol routes when WorldData changes (guard post added/removed/reordered).
 pub fn rebuild_patrol_routes_system(
-    world_data: Res<WorldData>,
+    mut world_data: ResMut<WorldData>,
+    mut patrols_dirty: ResMut<PatrolsDirty>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("rebuild_patrol_routes");
-    if !world_data.is_changed() { return; }
+    if !patrols_dirty.dirty { return; }
+    patrols_dirty.dirty = false;
+
+    // Apply pending patrol order swap from UI
+    if let Some((a, b)) = patrols_dirty.pending_swap.take() {
+        if a < world_data.guard_posts.len() && b < world_data.guard_posts.len() {
+            let order_a = world_data.guard_posts[a].patrol_order;
+            let order_b = world_data.guard_posts[b].patrol_order;
+            world_data.guard_posts[a].patrol_order = order_b;
+            world_data.guard_posts[b].patrol_order = order_a;
+        }
+    }
+
+    // Build routes once per town instead of per-archer
+    let mut town_routes: std::collections::HashMap<u32, Vec<Vec2>> = std::collections::HashMap::new();
+    for (_, town_id, job) in guards.iter() {
+        if *job != Job::Archer { continue; }
+        let tid = town_id.0 as u32;
+        town_routes.entry(tid).or_insert_with(|| {
+            crate::systems::spawn::build_patrol_route(&world_data, tid)
+        });
+    }
+
     for (mut route, town_id, job) in guards.iter_mut() {
         if *job != Job::Archer { continue; }
-        let new_posts = crate::systems::spawn::build_patrol_route(&world_data, town_id.0 as u32);
+        let Some(new_posts) = town_routes.get(&(town_id.0 as u32)) else { continue };
         if new_posts.is_empty() { continue; }
-        // Clamp current index to new route length
         route.current = if route.current < new_posts.len() { route.current } else { 0 };
-        route.posts = new_posts;
+        route.posts = new_posts.clone();
     }
 }

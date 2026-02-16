@@ -168,6 +168,7 @@ struct StartupExtra<'w> {
     bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     building_hp: ResMut<'w, BuildingHpState>,
+    patrols_dirty: ResMut<'w, PatrolsDirty>,
 }
 
 /// Initialize the world and spawn NPCs when entering Playing state.
@@ -256,6 +257,9 @@ fn game_startup_system(
         for _ in &world_data.tents { hp.tents.push(TENT_HP); }
         for _ in &world_data.miner_homes { hp.miner_homes.push(MINER_HOME_HP); }
         for _ in &world_data.farms { hp.farms.push(FARM_HP); }
+        for _ in &world_data.towns { hp.towns.push(TOWN_HP); }
+        for _ in &world_data.beds { hp.beds.push(BED_HP); }
+        for _ in &world_data.gold_mines { hp.gold_mines.push(GOLD_MINE_HP); }
     }
 
     // Reset farm occupancy for fresh game
@@ -326,6 +330,8 @@ fn game_startup_system(
             transform.translation.y = first_town.center.y;
         }
     }
+
+    extra.patrols_dirty.dirty = true;
 
     info!("Game startup complete: {} NPCs spawned across {} towns",
         total, config.num_towns);
@@ -541,6 +547,7 @@ fn build_place_click_system(
     mut building_hp: ResMut<BuildingHpState>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
+    mut patrols_dirty: ResMut<PatrolsDirty>,
 ) {
     let Some(kind) = build_ctx.selected_build else { return };
     if !mouse.just_pressed(MouseButton::Left) { return; }
@@ -569,11 +576,13 @@ fn build_place_click_system(
 
     // Destroy mode: remove building at clicked cell
     if kind == BuildKind::Destroy {
-        let is_destructible = grid.cell(gc, gr)
-            .and_then(|c| c.building.as_ref())
+        let cell_building = grid.cell(gc, gr).and_then(|c| c.building);
+        let is_destructible = cell_building
+            .as_ref()
             .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
             .unwrap_or(false);
         if !is_destructible { return; }
+        let is_guard_post = matches!(cell_building, Some(world::Building::GuardPost { .. }));
 
         let _ = world::destroy_building(
             &mut grid, &mut world_data, &mut farm_states,
@@ -582,6 +591,7 @@ fn build_place_click_system(
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
         );
+        if is_guard_post { patrols_dirty.dirty = true; }
         return;
     }
 
@@ -615,6 +625,8 @@ fn build_place_click_system(
         building, town_data_idx,
         row, col, center, cost,
     ) { return; }
+
+    if kind == BuildKind::GuardPost { patrols_dirty.dirty = true; }
 
     combat_log.push(
         CombatEventKind::Harvest,
@@ -824,19 +836,22 @@ fn process_destroy_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
+    mut patrols_dirty: ResMut<PatrolsDirty>,
 ) {
     let Some((col, row)) = request.0.take() else { return };
 
     let cell = grid.cell(col, row);
-    let is_destructible = cell
-        .and_then(|c| c.building.as_ref())
+    let cell_building = cell.and_then(|c| c.building);
+    let is_destructible = cell_building
+        .as_ref()
         .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
         .unwrap_or(false);
     if !is_destructible { return; }
+    let is_guard_post = matches!(cell_building, Some(world::Building::GuardPost { .. }));
 
     // Find which town this building belongs to, derive town center
-    let town_idx = cell
-        .and_then(|c| c.building.as_ref())
+    let town_idx = cell_building
+        .as_ref()
         .map(|b| crate::ui::game_hud::building_town_idx(b) as usize)
         .unwrap_or(0);
     let center = world_data.towns.get(town_idx)
@@ -857,6 +872,7 @@ fn process_destroy_system(
         &format!("Destroyed building in {}", town_name),
     ).is_ok() {
         selected_building.active = false;
+        if is_guard_post { patrols_dirty.dirty = true; }
     }
 }
 
@@ -910,6 +926,7 @@ fn game_cleanup_system(
     mut combat_log: ResMut<CombatLog>,
     mut ui_state: ResMut<UiState>,
     mut squad_state: ResMut<SquadState>,
+    mut building_hp_render: ResMut<crate::resources::BuildingHpRender>,
 ) {
     // Despawn all entities
     for entity in npc_query.iter() {
@@ -945,6 +962,7 @@ fn game_cleanup_system(
     *world.mine_states = Default::default();
     *world.gold_storage = Default::default();
     *world.building_hp = Default::default();
+    *building_hp_render = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();

@@ -26,14 +26,14 @@ use bevy::prelude::*;
 
 use messages::{SpawnNpcMsg, DamageMsg, BuildingDamageMsg, GpuUpdateMsg};
 use resources::{
-    NpcEntityMap, PopulationStats, GameConfig, GameTime, RespawnTimers,
+    NpcEntityMap, PopulationStats, GameConfig, GameTime,
     FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
     FoodStorage, GoldStorage, MineStates, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
-    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
+    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState, PatrolsDirty,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -193,7 +193,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<PopulationStats>()
        .init_resource::<GameConfig>()
        .init_resource::<GameTime>()
-       .init_resource::<RespawnTimers>()
        .init_resource::<world::WorldData>()
        .init_resource::<world::BuildingOccupancy>()
        .init_resource::<FarmStates>()
@@ -219,6 +218,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<MineStates>()
        .init_resource::<FactionStats>()
        .init_resource::<CampState>()
+       .init_resource::<PatrolsDirty>()
        .init_resource::<RaidQueue>()
        .init_resource::<SystemTimings>()
        .init_resource::<world::WorldGrid>()
@@ -232,6 +232,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GuardPostState>()
        .init_resource::<SpawnerState>()
        .init_resource::<BuildingHpState>()
+       .init_resource::<resources::BuildingHpRender>()
        .init_resource::<SquadState>()
        .insert_resource(HelpCatalog::new())
        .init_resource::<AiPlayerState>()
@@ -296,7 +297,7 @@ pub fn build_app(app: &mut App) {
            ai_decision_system,
            (rebuild_patrol_routes_system, squad_cleanup_system),
        ).in_set(Step::Behavior))
-       .add_systems(Update, building_damage_system.in_set(Step::Behavior))
+       .add_systems(Update, (building_damage_system, sync_building_hp_render).chain().in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, frame_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))

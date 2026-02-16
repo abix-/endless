@@ -26,6 +26,8 @@ pub struct RosterState {
     job_filter: i32,
     frame_counter: u32,
     cached_rows: Vec<RosterRow>,
+    rename_slot: i32,
+    rename_text: String,
 }
 
 #[derive(Clone)]
@@ -55,11 +57,12 @@ const OFF_DUTY_OPTIONS: &[&str] = &["Go to Bed", "Stay at Fountain", "Wander Tow
 #[derive(SystemParam)]
 pub struct RosterParams<'w, 's> {
     selected: ResMut<'w, SelectedNpc>,
-    meta_cache: Res<'w, NpcMetaCache>,
+    meta_cache: ResMut<'w, NpcMetaCache>,
     health_query: Query<'w, 's, (
         &'static NpcIndex,
         &'static Health,
         &'static CachedStats,
+        &'static Personality,
         &'static Activity,
         &'static CombatState,
         &'static Faction,
@@ -149,7 +152,7 @@ pub struct IntelCache {
 pub fn left_panel_system(
     mut contexts: bevy_egui::EguiContexts,
     mut ui_state: ResMut<UiState>,
-    mut world_data: ResMut<WorldData>,
+    world_data: Res<WorldData>,
     mut policies: ResMut<TownPolicies>,
     mut roster: RosterParams,
     mut upgrade: UpgradeParams,
@@ -162,6 +165,7 @@ pub fn left_panel_system(
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
     mut prev_tab: Local<LeftPanelTab>,
+    mut patrols_dirty: ResMut<PatrolsDirty>,
 ) -> Result {
     if !ui_state.left_panel_open {
         *prev_tab = LeftPanelTab::Roster;
@@ -194,6 +198,7 @@ pub fn left_panel_system(
 
     let mut open = ui_state.left_panel_open;
     let mut jump_target: Option<Vec2> = None;
+    let mut patrol_swap: Option<(usize, usize)> = None;
     egui::Window::new(tab_name)
         .open(&mut open)
         .resizable(false)
@@ -210,12 +215,18 @@ pub fn left_panel_system(
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
-                LeftPanelTab::Patrols => patrols_content(ui, &mut world_data, &mut jump_target),
+                LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &world_data, &mut commands),
                 LeftPanelTab::Intel => intel_content(ui, &intel, &world_data, &policies, &mut intel_cache, &mut jump_target),
                 LeftPanelTab::Profiler => profiler_content(ui, &timings),
             }
         });
+
+    // Queue patrol swap — applied in rebuild_patrol_routes_system which has ResMut<WorldData>
+    if let Some((a, b)) = patrol_swap {
+        patrols_dirty.pending_swap = Some((a, b));
+        patrols_dirty.dirty = true;
+    }
 
     // Apply camera jump from Intel panel
     if let Some(target) = jump_target {
@@ -249,12 +260,17 @@ pub fn left_panel_system(
 // ROSTER CONTENT
 // ============================================================================
 
-fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut RosterState, debug_all: bool) {
+fn roster_content(
+    ui: &mut egui::Ui,
+    roster: &mut RosterParams,
+    state: &mut RosterState,
+    debug_all: bool,
+) {
     // Rebuild cache every 30 frames
     state.frame_counter += 1;
     if state.frame_counter % 30 == 1 || state.cached_rows.is_empty() {
         let mut rows = Vec::new();
-        for (npc_idx, health, cached, activity, combat, faction) in roster.health_query.iter() {
+        for (npc_idx, health, cached, personality, activity, combat, faction) in roster.health_query.iter() {
             let idx = npc_idx.0;
             let meta = &roster.meta_cache.0[idx];
             // Player faction only unless debug
@@ -275,7 +291,7 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
                 hp: health.0,
                 max_hp: cached.max_health,
                 state: state_str,
-                trait_name: crate::trait_name(meta.trait_id).to_string(),
+                trait_name: personality.trait_summary(),
             });
         }
 
@@ -325,6 +341,33 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
 
     // Miner target control — set how many villagers should be miners
     ui.label(format!("{} NPCs", state.cached_rows.len()));
+
+    let selected_idx = roster.selected.0;
+    if selected_idx >= 0 {
+        let idx = selected_idx as usize;
+        if idx < roster.meta_cache.0.len() {
+            if state.rename_slot != selected_idx {
+                state.rename_slot = selected_idx;
+                state.rename_text = roster.meta_cache.0[idx].name.clone();
+            }
+
+            ui.horizontal(|ui| {
+                ui.label("Rename:");
+                let edit = ui.text_edit_singleline(&mut state.rename_text);
+                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if (ui.button("Apply").clicked() || enter) && !state.rename_text.trim().is_empty() {
+                    let new_name = state.rename_text.trim().to_string();
+                    roster.meta_cache.0[idx].name = new_name.clone();
+                    state.rename_text = new_name;
+                    state.frame_counter = 0;
+                }
+            });
+        }
+    } else {
+        state.rename_slot = -1;
+        state.rename_text.clear();
+    }
+
     ui.separator();
 
     // Sort headers
@@ -367,7 +410,6 @@ fn roster_content(ui: &mut egui::Ui, roster: &mut RosterParams, state: &mut Rost
 
     // Scrollable NPC list
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        let selected_idx = roster.selected.0;
         let mut new_selected: Option<i32> = None;
         let mut follow_idx: Option<usize> = None;
 
@@ -645,7 +687,8 @@ fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: 
 // PATROLS CONTENT
 // ============================================================================
 
-fn patrols_content(ui: &mut egui::Ui, world_data: &mut WorldData, jump_target: &mut Option<Vec2>) {
+/// Returns swap indices if the user clicked a reorder button.
+fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, jump_target: &mut Option<Vec2>) -> Option<(usize, usize)> {
     let town_pair_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as u32;
 
     if let Some(town) = world_data.towns.get(town_pair_idx as usize) {
@@ -687,13 +730,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &mut WorldData, jump_target: &
         }
     });
 
-    // Apply swap — mutates WorldData which triggers rebuild_patrol_routes_system
-    if let Some((a, b)) = swap {
-        let order_a = world_data.guard_posts[a].patrol_order;
-        let order_b = world_data.guard_posts[b].patrol_order;
-        world_data.guard_posts[a].patrol_order = order_b;
-        world_data.guard_posts[b].patrol_order = order_a;
-    }
+    swap
 }
 
 // ============================================================================
