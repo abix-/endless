@@ -248,6 +248,7 @@ pub fn place_building(
                 position: snapped_pos,
                 town_idx,
                 patrol_order,
+                npc_slot
             });
         }
         Building::FarmerHome { town_idx } => {
@@ -1491,7 +1492,6 @@ fn place_town_buildings(
             position: post_pos,
             town_idx,
             patrol_order: order as u32,
-            npc_slot: None,
         });
     }
 
