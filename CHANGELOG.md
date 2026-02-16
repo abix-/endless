@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-16m
+
+- **fix: black NPC sprite on guard posts** — `build_visual_upload` now resets `visual_data` to -1.0 sentinel each frame (matching `equip_data`); guard post NPC slots have no ECS entity so the query never overwrites them — previously they rendered as sprite (0,0) with black tint
+
 ## 2026-02-16l
 
 - **fix: pause freezes GPU compute** — spacebar pause now sets delta=0 in `update_gpu_data` and `update_proj_gpu_data`, stopping NPC movement and projectile physics on the GPU; previously only ECS systems checked `game_time.paused` while the compute shader kept running

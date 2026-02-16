@@ -286,10 +286,12 @@ pub fn build_visual_upload(
     upload.npc_count = npc_count;
 
     // Resize (reuses allocation if already large enough), fill with sentinels
-    upload.visual_data.resize(npc_count * 8, 0.0);
+    upload.visual_data.resize(npc_count * 8, -1.0);
     upload.equip_data.resize(npc_count * 24, -1.0);
 
-    // Reset equip to -1.0 sentinels (dead NPCs keep stale data, shader culls via x < -9000)
+    // Reset to -1.0 sentinels (phantom slots like guard posts have no ECS entity,
+    // so the all_npcs loop below never overwrites them — shader hides when col < 0)
+    upload.visual_data[..npc_count * 8].fill(-1.0);
     upload.equip_data[..npc_count * 24].fill(-1.0);
 
     for (npc_idx, faction, job, activity, healing, weapon, helmet, armor) in all_npcs.iter() {
