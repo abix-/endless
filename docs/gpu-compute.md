@@ -29,7 +29,7 @@ Main World (ECS)                       Render World (GPU)
 │                                      │   ├─ Mode 0: clear grid (atomicStore 0)
 │                                      │   ├─ Mode 1: build grid (atomicAdd NPC indices)
 │                                      │   ├─ Mode 2: separation + movement + combat targeting
-│                                      │   └─ copy positions + combat_targets + factions + healths → ReadbackHandles assets
+│                                      │   └─ copy positions + combat_targets + factions + healths + threat_counts → ReadbackHandles assets
 │                                      │
 │                                      └─ Bevy Readback (async, managed by Bevy)
 │                                          ReadbackComplete observers fire when GPU data ready:
@@ -37,6 +37,7 @@ Main World (ECS)                       Render World (GPU)
 │                                          ├─ combat_targets → GpuReadState.combat_targets
 │                                          ├─ npc_factions → GpuReadState.factions
 │                                          ├─ npc_health → GpuReadState.health
+│                                          ├─ threat_counts → GpuReadState.threat_counts
 │                                          ├─ proj_hits → ProjHitState.0
 │                                          └─ proj_positions → ProjPositionState.0
 │
@@ -61,13 +62,14 @@ ECS → GPU (upload):
     Dead NPCs skipped by renderer (x < -9000), stale visual data is harmless
 
 GPU → ECS (readback, Bevy async Readback):
-  NpcComputeNode: dispatch compute + copy positions/combat_targets/factions/healths → ReadbackHandles ShaderStorageBuffer assets
+  NpcComputeNode: dispatch compute + copy positions/combat_targets/factions/healths/threat_counts → ReadbackHandles ShaderStorageBuffer assets
   ProjectileComputeNode: copy hits/positions → ReadbackHandles ShaderStorageBuffer assets
     → Bevy Readback entities async-read buffers, fire ReadbackComplete observers:
       npc_positions → GpuReadState.positions
       combat_targets → GpuReadState.combat_targets
       npc_factions → GpuReadState.factions
       npc_health → GpuReadState.health
+      threat_counts → GpuReadState.threat_counts
       proj_hits → ProjHitState.0
       proj_positions → ProjPositionState.0
     → gpu_position_readback: GpuReadState → ECS Position components
@@ -102,7 +104,7 @@ One thread per NPC. Four phases per thread:
 
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 
-**Combat targeting**: Searches grid cells within `combat_range / cell_size + 1` radius around NPC's cell. For each NPC in neighboring cells, checks: different faction, alive (health > 0), not self. Tracks nearest enemy by squared distance. Writes best target index to `combat_targets[i]` (-1 if none found).
+**Combat targeting + threat assessment**: Searches grid cells within `combat_range / cell_size + 1` radius around NPC's cell. For each NPC in neighboring cells, checks: alive (health > 0), not self. Combat targeting tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none). Threat assessment piggybacks on the same loop: counts enemies and allies within `threat_radius` (200px, subset of `combat_range` 300px), packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations, eliminating the old O(N) linear scan.
 
 ## GPU Buffers
 
@@ -128,6 +130,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 13 | proj_positions | vec2\<f32\>[] | — | ProjGpuBuffers.positions (read) | Projectile positions for dodge |
 | 14 | proj_velocities | vec2\<f32\>[] | — | ProjGpuBuffers.velocities (read) | Projectile velocities for approach check |
 | 15 | proj_factions | i32[] | — | ProjGpuBuffers.factions (read) | Projectile factions for friendly fire skip |
+| 16 | threat_counts | u32 | 4B | Not uploaded | Packed threat assessment: (enemies << 16 \| allies) per NPC |
 
 ### Render Instance Data (npc_render.rs)
 
@@ -158,6 +161,8 @@ Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; spri
 | mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=separation+movement+targeting) |
 | combat_range | 300.0 | Maximum distance for combat targeting |
 | proj_max_per_cell | 48 | Max projectiles per spatial grid cell (for dodge scan) |
+| dodge_unlocked | 0 | Whether projectile dodge is enabled (tech tree unlock) |
+| threat_radius | 200.0 | Radius for threat assessment enemy/ally counting |
 
 ## Spatial Grid
 

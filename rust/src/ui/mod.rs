@@ -56,8 +56,8 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(EguiPrimaryContextPass,
         main_menu::main_menu_system.run_if(in_state(AppState::MainMenu)));
 
-    // Game startup (world gen + NPC spawn)
-    app.add_systems(OnEnter(AppState::Playing), game_startup_system);
+    // Game startup: load from save (if requested) then world gen (if not loaded)
+    app.add_systems(OnEnter(AppState::Playing), (game_load_system, game_startup_system).chain());
 
     // Egui panels — ordered so top bar claims height first, then side panels, then bottom.
     // Top bar → left panel → bottom panel (inspector+log) + overlay → windows → pause overlay.
@@ -67,6 +67,7 @@ pub fn register_ui(app: &mut App) {
         (game_hud::bottom_panel_system, game_hud::combat_log_system, game_hud::selection_overlay_system, game_hud::target_overlay_system, game_hud::squad_overlay_system),
         build_menu::build_menu_system,
         pause_menu_system,
+        game_hud::save_toast_system,
     ).chain().run_if(in_state(AppState::Playing)));
 
     // Panel toggle keyboard shortcuts + ESC
@@ -171,7 +172,72 @@ struct StartupExtra<'w> {
     patrols_dirty: ResMut<'w, PatrolsDirty>,
 }
 
+/// Load a saved game when entering Playing state (if load_on_enter is set).
+/// Runs before game_startup_system — if it loads, startup skips world gen.
+fn game_load_system(
+    mut commands: Commands,
+    mut save_request: ResMut<crate::save::SaveLoadRequest>,
+    mut toast: ResMut<crate::save::SaveToast>,
+    mut ws: crate::save::SaveWorldState,
+    mut fs: crate::save::SaveFactionState,
+    mut tracking: crate::save::LoadNpcTracking,
+    mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
+    combat_config: Res<crate::systems::stats::CombatConfig>,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+) {
+    if !save_request.load_on_enter { return; }
+    save_request.load_on_enter = false;
+
+    let save = match crate::save::read_save() {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Load from menu failed: {e}");
+            toast.message = format!("Load failed: {e}");
+            toast.timer = 3.0;
+            return;
+        }
+    };
+
+    info!("Loading save from menu: {} NPCs, {} towns", save.npcs.len(), save.towns.len());
+
+    // Apply save data to all game resources
+    crate::save::apply_save(
+        &save,
+        &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
+        &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states, &mut ws.mine_states,
+        &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
+        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.guard_post_state, &mut fs.camp_state,
+        &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
+        &mut tracking.npcs_by_town, &mut tracking.slots,
+    );
+
+    // Rebuild spatial grid
+    tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
+    tracking.patrols_dirty.dirty = true;
+
+    // Spawn NPC entities from save data
+    crate::save::spawn_npcs_from_save(
+        &save, &mut commands,
+        &mut tracking.npc_map, &mut tracking.pop_stats, &mut tracking.npc_meta,
+        &mut tracking.npcs_by_town, &mut gpu_updates,
+        &ws.world_data, &combat_config, &ws.upgrades,
+    );
+
+    // Center camera on first town
+    if let Some(first_town) = ws.world_data.towns.first() {
+        if let Ok(mut transform) = camera_query.single_mut() {
+            transform.translation.x = first_town.center.x;
+            transform.translation.y = first_town.center.y;
+        }
+    }
+
+    toast.message = format!("Game Loaded ({} NPCs)", save.npcs.len());
+    toast.timer = 2.0;
+    info!("Menu load complete: {} NPCs restored", save.npcs.len());
+}
+
 /// Initialize the world and spawn NPCs when entering Playing state.
+/// Skips world gen if load_on_enter was handled by game_load_system.
 fn game_startup_system(
     config: Res<WorldGenConfig>,
     mut grid: ResMut<world::WorldGrid>,
@@ -189,6 +255,14 @@ fn game_startup_system(
     mut spawner_state: ResMut<SpawnerState>,
     mut extra: StartupExtra,
 ) {
+    // If game_load_system already populated the world, skip world gen.
+    // The flag was cleared by game_load_system, but we can detect load happened
+    // by checking if the world grid is already populated.
+    if grid.cells.len() > 0 {
+        info!("Game startup: skipping world gen (loaded from save)");
+        return;
+    }
+
     info!("Game startup: generating world...");
 
     // Generate world (populates grid + world_data + farm_states + houses/barracks + town_grids)

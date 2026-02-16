@@ -90,6 +90,7 @@ pub struct NpcComputeParams {
     pub combat_range: f32,
     pub proj_max_per_cell: u32,
     pub dodge_unlocked: u32,
+    pub threat_radius: f32,
 }
 
 impl Default for NpcComputeParams {
@@ -108,6 +109,7 @@ impl Default for NpcComputeParams {
             combat_range: 300.0,
             proj_max_per_cell: MAX_PER_CELL,
             dodge_unlocked: 0,
+            threat_radius: 200.0,
         }
     }
 }
@@ -532,6 +534,7 @@ pub struct ReadbackHandles {
     pub combat_targets: Handle<ShaderStorageBuffer>,
     pub npc_factions: Handle<ShaderStorageBuffer>,
     pub npc_health: Handle<ShaderStorageBuffer>,
+    pub threat_counts: Handle<ShaderStorageBuffer>,
     pub proj_hits: Handle<ShaderStorageBuffer>,
     pub proj_positions: Handle<ShaderStorageBuffer>,
 }
@@ -566,6 +569,11 @@ fn setup_readback_buffers(
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
+    let threat_count_buf = {
+        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPCS as usize * 4], RenderAssetUsages::RENDER_WORLD);
+        buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
+        buffers.add(buf)
+    };
     let proj_hit_buf = {
         // Initialize with [-1, 0] per slot so zeroed memory isn't misread as "hit NPC 0"
         let init_hits: Vec<[i32; 2]> = vec![[-1, 0]; MAX_PROJECTILES as usize];
@@ -584,6 +592,7 @@ fn setup_readback_buffers(
         combat_targets: combat_target_buf.clone(),
         npc_factions: npc_faction_buf.clone(),
         npc_health: npc_health_buf.clone(),
+        threat_counts: threat_count_buf.clone(),
         proj_hits: proj_hit_buf.clone(),
         proj_positions: proj_pos_buf.clone(),
     };
@@ -613,6 +622,12 @@ fn setup_readback_buffers(
         .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
             let data: Vec<f32> = event.to_shader_type();
             state.health = data;
+        });
+
+    commands.spawn(Readback::buffer(threat_count_buf))
+        .observe(|event: On<ReadbackComplete>, mut state: ResMut<GpuReadState>| {
+            let data: Vec<u32> = event.to_shader_type();
+            state.threat_counts = data;
         });
 
     commands.spawn(Readback::buffer(proj_hit_buf))
@@ -746,6 +761,7 @@ pub struct NpcGpuBuffers {
     pub factions: Buffer,
     pub healths: Buffer,
     pub combat_targets: Buffer,
+    pub threat_counts: Buffer,
 }
 
 /// Bind groups for compute passes (one per mode, different uniform buffer).
@@ -879,6 +895,12 @@ fn init_npc_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
+        threat_counts: render_device.create_buffer(&BufferDescriptor {
+            label: Some("threat_counts"),
+            size: (MAX_NPCS as usize * std::mem::size_of::<u32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        }),
     };
 
     commands.insert_resource(buffers);
@@ -918,6 +940,8 @@ fn init_npc_compute_pipeline(
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // proj_positions
                 storage_buffer_read_only::<Vec<[f32; 2]>>(false), // proj_velocities
                 storage_buffer_read_only::<Vec<i32>>(false),      // proj_factions
+                // 16: threat counts output (packed enemies<<16 | allies)
+                storage_buffer::<Vec<u32>>(false),
             ),
         ),
     );
@@ -995,6 +1019,8 @@ fn prepare_npc_bind_groups(
         proj.factions.as_entire_buffer_binding(),
     );
 
+    let threat_bind = buffers.threat_counts.as_entire_buffer_binding();
+
     let mode0 = render_device.create_bind_group(
         Some("npc_compute_bg_mode0"),
         layout,
@@ -1007,6 +1033,7 @@ fn prepare_npc_bind_groups(
             &ub0,
             proj_bind.0.clone(), proj_bind.1.clone(),
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
+            threat_bind.clone(),
         )),
     );
     let mode1 = render_device.create_bind_group(
@@ -1021,6 +1048,7 @@ fn prepare_npc_bind_groups(
             &ub1,
             proj_bind.0.clone(), proj_bind.1.clone(),
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
+            threat_bind.clone(),
         )),
     );
     let mode2 = render_device.create_bind_group(
@@ -1035,6 +1063,7 @@ fn prepare_npc_bind_groups(
             &ub2,
             proj_bind.0.clone(), proj_bind.1.clone(),
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
+            threat_bind.clone(),
         )),
     );
 
@@ -1267,6 +1296,12 @@ impl render_graph::Node for NpcComputeNode {
         if let Some(rb_hp) = render_assets.get(&handles.npc_health) {
             render_context.command_encoder().copy_buffer_to_buffer(
                 &buffers.healths, 0, &rb_hp.buffer, 0, f32_copy_size,
+            );
+        }
+        let u32_copy_size = (npc_count as u64) * std::mem::size_of::<u32>() as u64;
+        if let Some(rb_tc) = render_assets.get(&handles.threat_counts) {
+            render_context.command_encoder().copy_buffer_to_buffer(
+                &buffers.threat_counts, 0, &rb_tc.buffer, 0, u32_copy_size,
             );
         }
 

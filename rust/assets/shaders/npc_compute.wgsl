@@ -20,6 +20,7 @@ struct Params {
     combat_range: f32,
     proj_max_per_cell: u32,
     dodge_unlocked: u32,
+    threat_radius: f32,
 }
 
 // Storage buffers matching Rust bind group layout
@@ -41,6 +42,9 @@ struct Params {
 @group(0) @binding(13) var<storage, read> proj_positions: array<vec2<f32>>;
 @group(0) @binding(14) var<storage, read> proj_velocities: array<vec2<f32>>;
 @group(0) @binding(15) var<storage, read> proj_factions: array<i32>;
+
+// Threat assessment output: packed (enemies << 16 | allies) per NPC
+@group(0) @binding(16) var<storage, read_write> threat_counts: array<u32>;
 
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -97,6 +101,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Skip dead/hidden NPCs
     if (pos.x < -9000.0) {
         combat_targets[i] = -1;
+        threat_counts[i] = 0u;
         return;
     }
 
@@ -315,16 +320,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     arrivals[i] = settled;
     backoff[i] = my_backoff;
 
-    // --- Combat targeting via spatial grid ---
+    // --- Combat targeting + threat assessment via spatial grid ---
     // Uses wider search radius than separation (combat_range >> separation_radius)
+    // Threat assessment piggybacks on this scan (threat_radius <= combat_range)
     // my_faction already computed above for separation
 
     if (healths[i] <= 0.0) {
         combat_targets[i] = -1;
+        threat_counts[i] = 0u;
         return;
     }
 
     let range_sq = params.combat_range * params.combat_range;
+    let threat_radius_sq = params.threat_radius * params.threat_radius;
     let search_r = i32(ceil(params.combat_range / params.cell_size)) + 1;
 
     // Use post-movement position for combat targeting
@@ -333,6 +341,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     var best_dist_sq = range_sq;
     var best_target: i32 = -1;
+    var threat_enemies = 0u;
+    var threat_allies = 0u;
 
     for (var dy3: i32 = -search_r; dy3 <= search_r; dy3++) {
         for (var dx3: i32 = -search_r; dx3 <= search_r; dx3++) {
@@ -350,17 +360,26 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 if (other3 < 0 || other3 == i32(i)) { continue; }
                 if (u32(other3) >= params.count) { continue; }
 
-                // Same faction = ally, skip
-                if (factions[other3] == my_faction) { continue; }
-
-                // Dead targets not worth targeting
-                if (healths[other3] <= 0.0) { continue; }
+                let other_hp = healths[other3];
+                if (other_hp <= 0.0) { continue; }
 
                 let other_pos3 = positions[other3];
                 let diff3 = pos - other_pos3;
                 let dist_sq3 = dot(diff3, diff3);
 
-                if (dist_sq3 < best_dist_sq) {
+                let same_faction = factions[other3] == my_faction;
+
+                // Threat assessment within threat_radius
+                if (dist_sq3 <= threat_radius_sq) {
+                    if (same_faction) {
+                        threat_allies += 1u;
+                    } else {
+                        threat_enemies += 1u;
+                    }
+                }
+
+                // Combat targeting: nearest enemy within combat_range
+                if (!same_faction && dist_sq3 < best_dist_sq) {
                     best_dist_sq = dist_sq3;
                     best_target = other3;
                 }
@@ -369,4 +388,5 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     combat_targets[i] = best_target;
+    threat_counts[i] = (threat_enemies << 16u) | (threat_allies & 0xFFFFu);
 }

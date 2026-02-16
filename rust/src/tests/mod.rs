@@ -59,6 +59,7 @@ pub struct CleanupExtra<'w> {
     pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
     pub spawner_state: ResMut<'w, crate::resources::SpawnerState>,
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
+    pub building_hp: ResMut<'w, crate::resources::BuildingHpState>,
 }
 
 // ============================================================================
@@ -836,6 +837,7 @@ fn cleanup_test_world(
     *extra.world_grid = Default::default();
     *extra.debug_flags = Default::default();
     *extra.spawner_state = Default::default();
+    *extra.building_hp = Default::default();
     extra.tilemap_spawned.0 = false;
 
     info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);

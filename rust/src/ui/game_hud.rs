@@ -1047,3 +1047,30 @@ pub fn fps_display_system(
 
     Ok(())
 }
+
+/// Toast notification for save/load feedback — centered top area, fades out.
+pub fn save_toast_system(
+    mut contexts: EguiContexts,
+    toast: Res<crate::save::SaveToast>,
+) -> Result {
+    if toast.timer <= 0.0 { return Ok(()); }
+    let ctx = contexts.ctx_mut()?;
+
+    let alpha = (toast.timer.min(1.0) * 255.0) as u8;
+    egui::Area::new(egui::Id::new("save_toast"))
+        .anchor(egui::Align2::CENTER_TOP, [0.0, 60.0])
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, alpha / 2))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(12, 6))
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new(&toast.message)
+                        .size(18.0)
+                        .strong()
+                        .color(egui::Color32::from_rgba_unmultiplied(255, 255, 200, alpha)));
+                });
+        });
+
+    Ok(())
+}

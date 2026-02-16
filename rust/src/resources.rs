@@ -475,6 +475,7 @@ pub struct GpuReadState {
     pub combat_targets: Vec<i32>,  // target index per NPC (-1 = none)
     pub health: Vec<f32>,
     pub factions: Vec<i32>,
+    pub threat_counts: Vec<u32>,   // packed (enemies << 16 | allies) per NPC
     pub npc_count: usize,
 }
 
@@ -485,6 +486,7 @@ impl Default for GpuReadState {
             combat_targets: Vec::new(),
             health: Vec::new(),
             factions: Vec::new(),
+            threat_counts: Vec::new(),
             npc_count: 0,
         }
     }

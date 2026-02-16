@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-02-15e
+
+- **GPU threat assessment** — move NPC threat counting (enemy/ally within 200px) from CPU O(N) linear scan to GPU spatial grid query; piggybacks on existing Mode 2 combat targeting neighbor loop in `npc_compute.wgsl`; packs `(enemies << 16 | allies)` into a single u32 per NPC, readback via `GpuReadState.threat_counts`; `decision_system` unpacks for flee threshold calculation; eliminates `count_nearby_factions()` CPU function; adds `threat_radius` param to `NpcComputeParams`; binding 16 on compute shader
+- **save/load: load from main menu** — "Load Game" button on main menu (grayed if no save); `game_load_system` runs before `game_startup_system` via `.chain()`; skips world gen if save was loaded; centers camera on first town after load
+- **vertical-slice test hardened** — adds WorldGrid init, BuildingHpState entries, spawner buildings (FarmerHome/ArcherHome/Tent), SpawnerEntry registration for all NPCs; extends timeout 60→90s for respawn phase; adds `building_hp` to test cleanup
+- **patrol route fix** — `build_patrol_route` now filters out destroyed guard posts (position.x > -9000)
+
+## 2026-02-15d
+
+- **save/load system (Stage 18 MVP)** — F5 quicksave / F9 quickload with JSON serialization to `Documents/Endless/saves/quicksave.json`; saves full game state: WorldGrid terrain+buildings, WorldData (towns/farms/beds/guard posts/homes), GameTime, FoodStorage, GoldStorage, FarmStates, MineStates, SpawnerState, BuildingHpState, TownUpgrades, TownPolicies, AutoUpgrade, SquadState, GuardPostState, CampState, FactionStats, KillStats, AiPlayerState, and all live NPC data (position, health, energy, activity, combat state, personality, equipment, squad); load despawns all entities, rebuilds resources from save, spawns NPCs with saved state, triggers tilemap + spatial grid + patrol route rebuild; toast notification with fade-out on save/load; save version field + `#[serde(default)]` for forward compatibility; SystemParam bundles keep systems under Bevy's 16-parameter limit
+
 ## 2026-02-15c
 
 - **difficulty system + building cost rebalance** — `Difficulty` enum (Easy/Normal/Hard) selectable on main menu, persisted in settings; `building_cost(kind, difficulty)` replaces 6 hardcoded `*_BUILD_COST = 1` constants with differentiated base costs (Normal: Farm=3, FarmerHome=5, MinerHome=5, ArcherHome=8, GuardPost=10, Tent=3); Easy≈half, Hard=double; player build menu, click-to-place, and AI player all use `building_cost()`

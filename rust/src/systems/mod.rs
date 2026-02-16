@@ -1,7 +1,7 @@
 //! Bevy ECS Systems - Game logic that operates on components
 
 mod drain;
-mod spawn;
+pub(crate) mod spawn;
 mod movement;
 mod energy;
 mod behavior;

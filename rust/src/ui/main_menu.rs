@@ -50,6 +50,7 @@ pub fn main_menu_system(
     mut ai_config: ResMut<AiPlayerConfig>,
     mut npc_config: ResMut<crate::resources::NpcDecisionConfig>,
     mut user_settings: ResMut<settings::UserSettings>,
+    mut save_request: ResMut<crate::save::SaveLoadRequest>,
     mut state: Local<MenuState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
@@ -224,6 +225,20 @@ pub fn main_menu_system(
 
                 commands.insert_resource(state.difficulty);
                 next_state.set(AppState::Playing);
+            }
+
+            ui.add_space(8.0);
+
+            // Load Game button — grayed out if no save file
+            let has_save = crate::save::has_quicksave();
+            ui.add_enabled_ui(has_save, |ui| {
+                if ui.button(egui::RichText::new("Load Game").size(18.0)).clicked() {
+                    save_request.load_on_enter = true;
+                    next_state.set(AppState::Playing);
+                }
+            });
+            if !has_save {
+                ui.label(egui::RichText::new("No save file found").size(12.0).weak());
             }
 
             ui.add_space(20.0);

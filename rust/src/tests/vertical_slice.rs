@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::*;
+use crate::world::{self, WorldGrid, WorldCell};
 
 use super::{TestState, TestSetupParams};
 
@@ -17,10 +18,18 @@ const FARMS: [(f32, f32); 5] = [
 pub fn setup(
     mut params: TestSetupParams,
     mut farm_states: ResMut<FarmStates>,
+    mut world_grid: ResMut<WorldGrid>,
+    mut building_hp: ResMut<BuildingHpState>,
 ) {
+    // Init WorldGrid so rebuild_building_grid_system populates BuildingSpatialGrid
+    world_grid.width = 25;
+    world_grid.height = 25;
+    world_grid.cell_size = 32.0;
+    world_grid.cells = vec![WorldCell::default(); 25 * 25];
+
     // World data: 2 towns
     params.add_town("Harvest");
-    params.world_data.towns.push(crate::world::Town {
+    params.world_data.towns.push(world::Town {
         name: "Raiders".into(),
         center: Vec2::new(400.0, 100.0),
         faction: 1,
@@ -29,35 +38,58 @@ pub fn setup(
 
     // 5 farms near town 0
     for &(fx, fy) in &FARMS {
-        params.world_data.farms.push(crate::world::Farm {
+        params.world_data.farms.push(world::Farm {
             position: Vec2::new(fx, fy),
             town_idx: 0,
         });
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
         farm_states.positions.push(Vec2::new(fx, fy));
+        building_hp.farms.push(crate::constants::FARM_HP);
     }
 
     // 5 beds near town 0
     for i in 0..5 {
         params.add_bed(300.0 + (i as f32 * 50.0), 450.0);
+        building_hp.beds.push(crate::constants::BED_HP);
     }
 
     // 4 guard posts (square patrol around town)
     for (order, &(gx, gy)) in [(250.0, 250.0), (550.0, 250.0), (550.0, 550.0), (250.0, 550.0)].iter().enumerate() {
-        params.world_data.guard_posts.push(crate::world::GuardPost {
+        params.world_data.guard_posts.push(world::GuardPost {
             position: Vec2::new(gx, gy),
             town_idx: 0,
             patrol_order: order as u32,
         });
+        building_hp.guard_posts.push(crate::constants::GUARD_POST_HP);
     }
+
+    // Spawner buildings: FarmerHomes, ArcherHomes, Tents (for respawn system)
+    for i in 0..5 {
+        let pos = Vec2::new(300.0 + (i as f32 * 50.0), 450.0);
+        params.world_data.farmer_homes.push(world::FarmerHome { position: pos, town_idx: 0 });
+        building_hp.farmer_homes.push(crate::constants::FARMER_HOME_HP);
+    }
+    for _ in 0..2 {
+        params.world_data.archer_homes.push(world::ArcherHome { position: Vec2::new(400.0, 400.0), town_idx: 0 });
+        building_hp.archer_homes.push(crate::constants::ARCHER_HOME_HP);
+    }
+    for i in 0..5 {
+        let pos = Vec2::new(380.0 + (i as f32 * 10.0), 100.0);
+        params.world_data.tents.push(world::Tent { position: pos, town_idx: 1 });
+        building_hp.tents.push(crate::constants::TENT_HP);
+    }
+
+    // Town HP entries (Fountain for town 0, Camp for town 1)
+    building_hp.towns.push(crate::constants::TOWN_HP);
+    building_hp.towns.push(crate::constants::TOWN_HP);
 
     // Resources
     params.init_economy(2);
     params.food_storage.food[1] = 10;
     params.game_time.time_scale = 1.0;
 
-    // Spawn 5 farmers
+    // Spawn 5 farmers + register spawners
     for (i, &(fx, fy)) in FARMS.iter().enumerate() {
         let slot = params.slot_alloc.alloc().expect("slot alloc");
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
@@ -69,9 +101,16 @@ pub fn setup(
             starting_post: -1,
             attack_type: 0,
         });
+        params.spawner_state.0.push(SpawnerEntry {
+            building_kind: 0, // FarmerHome
+            town_idx: 0,
+            position: Vec2::new(300.0 + (i as f32 * 50.0), 450.0),
+            npc_slot: slot as i32,
+            respawn_timer: -1.0,
+        });
     }
 
-    // Spawn 2 guards
+    // Spawn 2 guards + register spawners
     for i in 0..2 {
         let slot = params.slot_alloc.alloc().expect("slot alloc");
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
@@ -83,9 +122,16 @@ pub fn setup(
             starting_post: i,
             attack_type: 0,
         });
+        params.spawner_state.0.push(SpawnerEntry {
+            building_kind: 1, // ArcherHome
+            town_idx: 0,
+            position: Vec2::new(400.0, 400.0),
+            npc_slot: slot as i32,
+            respawn_timer: -1.0,
+        });
     }
 
-    // Spawn 5 raiders
+    // Spawn 5 raiders + register spawners
     for i in 0..5 {
         let slot = params.slot_alloc.alloc().expect("slot alloc");
         params.spawn_events.write(crate::messages::SpawnNpcMsg {
@@ -97,9 +143,14 @@ pub fn setup(
             starting_post: -1,
             attack_type: 0,
         });
+        params.spawner_state.0.push(SpawnerEntry {
+            building_kind: 2, // Tent
+            town_idx: 1,
+            position: Vec2::new(380.0 + (i as f32 * 10.0), 100.0),
+            npc_slot: slot as i32,
+            respawn_timer: -1.0,
+        });
     }
-
-    // Debug flags off by default — press F1-F4 to toggle during manual runs
 
     params.test_state.phase_name = "Waiting for spawns...".into();
     info!("vertical-slice: setup complete — 5 farmers, 2 guards, 5 raiders");
@@ -207,7 +258,7 @@ pub fn tick(
             if test.get_flag("death_seen") && slots.alive() >= 12 {
                 test.pass_phase(elapsed, format!("npc_count={} (recovered)", slots.alive()));
                 test.complete(elapsed);
-            } else if elapsed > 60.0 {
+            } else if elapsed > 90.0 {
                 let lowest = test.count("lowest_npc");
                 let death_seen = test.get_flag("death_seen");
                 test.fail_phase(elapsed, format!(

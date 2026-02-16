@@ -12,6 +12,7 @@ pub mod messages;
 pub mod npc_render;
 pub mod render;
 pub mod resources;
+pub mod save;
 pub mod settings;
 pub mod systems;
 pub mod tests;
@@ -245,6 +246,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<systems::stats::UpgradeQueue>()
        .init_resource::<AutoUpgrade>()
        .init_resource::<TownPolicies>()
+       .init_resource::<save::SaveLoadRequest>()
+       .init_resource::<save::SaveToast>()
        .insert_resource(settings::load_settings())
        // Plugins
        .add_plugins(bevy_egui::EguiPlugin::default())
@@ -304,7 +307,14 @@ pub fn build_app(app: &mut App) {
        .add_systems(Update, gpu::sync_visual_sprites.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, frame_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))
        // Debug settings sync + tick logging
-       .add_systems(Update, (sync_debug_settings, debug_tick_system).run_if(game_active.clone()));
+       .add_systems(Update, (sync_debug_settings, debug_tick_system).run_if(game_active.clone()))
+       // Save/Load — F5/F9 input + save + load + toast
+       .add_systems(Update, save::save_load_input_system.run_if(in_state(AppState::Playing)))
+       .add_systems(Update, save::save_game_system
+           .after(save::save_load_input_system).run_if(in_state(AppState::Playing)))
+       .add_systems(Update, save::load_game_system
+           .after(save::save_load_input_system).run_if(in_state(AppState::Playing)))
+       .add_systems(Update, save::save_toast_tick_system.run_if(in_state(AppState::Playing)));
 
     // Test framework (registers TestState, menu UI, all tests)
     tests::register_tests(app);

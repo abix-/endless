@@ -12,34 +12,34 @@ Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced r
 
 ## Completed
 
-See [completed.md](completed.md) — 267 items across 30 subsystems.
+See [completed.md](completed.md) - 267 items across 30 subsystems.
 
 ## Stages
 
-Stages 1-13, 23: ✓ Complete (see [completed.md](completed.md))
+Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
 
 **Stage 14: Tension**
 
-*Done when: a player who doesn't build or upgrade loses within 30 minutes — raids escalate, food runs out, town falls.*
+*Done when: a player who doesn't build or upgrade loses within 30 minutes - raids escalate, food runs out, town falls.*
 
 - [ ] Raid escalation: wave size and stats increase every N game-hours
 - [ ] Differentiate job base stats (raiders hit harder, archers are tankier, farmers are fragile)
 - [x] Food consumption: NPCs eat hourly, eating restores HP/energy
-- [x] Starvation effects: no food → HP drain, speed penalty (desertion TBD)
-- [ ] Loss condition: all town NPCs dead + no spawners → game over screen
+- [x] Starvation effects: no food -> HP drain, speed penalty (desertion TBD)
+- [ ] Loss condition: all town NPCs dead + no spawners -> game over screen
 - [x] Building costs rebalanced (difficulty-scaled: Easy/Normal/Hard)
 
 **Stage 15: Performance**
 
-*Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250×250 world.*
+*Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250Ãƒ-250 world.*
 
 GPU extract optimization (see [specs/gpu-extract-optimization.md](specs/gpu-extract-optimization.md)):
 - [ ] Split `NpcBufferWrites` (1.9MB) into `NpcComputeWrites` (~460KB) + `NpcVisualData` (~1.4MB static)
 - [ ] `NpcVisualData` bypasses ExtractResource via static Mutex (render world reads directly)
 
 Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
-- [ ] Split single 250×250 TilemapChunk per layer into 32×32 tile chunks
-- [ ] Bevy frustum-culls off-screen chunk entities — only visible chunks generate draw commands
+- [ ] Split single 250Ãƒ-250 TilemapChunk per layer into 32Ãƒ-32 tile chunks
+- [ ] Bevy frustum-culls off-screen chunk entities - only visible chunks generate draw commands
 - [ ] `sync_building_tilemap` updates only chunks whose grid region changed, not all 62K+ tiles
 
 Entity sleeping:
@@ -47,7 +47,7 @@ Entity sleeping:
 
 Every-frame review backlog:
 - [ ] Gate `rebuild_building_grid_system` so `BuildingSpatialGrid::rebuild()` only runs when world/building data changes (or via dirty flag), not every frame.
-- [ ] Replace `decision_system` threat checks (`count_nearby_factions`) with a spatial query path to avoid periodic O(N) scans per NPC under combat load.
+- [x] Replace `decision_system` threat checks (`count_nearby_factions`) with GPU spatial grid query — piggybacks on existing Mode 2 combat targeting scan, packed u32 readback (enemies<<16|allies)
 - [ ] Optimize `healing_system` town-zone checks (faction-indexed town lists / cached radii) to reduce per-frame NPC x town iteration.
 - [ ] Optimize `guard_post_attack_system` target acquisition to avoid full guard-post x NPC scans on fire-ready ticks.
 - [ ] Make combat log UI incremental (cache merged entries and skip per-frame full rebuild/sort when source logs are unchanged).
@@ -58,14 +58,14 @@ Every-frame review backlog:
 SystemParam bundle consolidation:
 - [ ] Create `GameLog` bundle in `resources.rs`: `{ combat_log: ResMut<CombatLog>, game_time: Res<GameTime>, timings: Res<SystemTimings> }`. This triple appears in 8+ systems: `arrival_system`, `spawn_npc_system`, `death_cleanup_system`, `spawner_respawn_system`, `ai_decision_system`, `xp_grant_system`, `healing_system`, `process_upgrades_system`. Each system drops its 3 direct params in favor of `log: GameLog`.
 - [ ] Move `FarmParams` and `EconomyParams` from `systems/behavior.rs` to `resources.rs` (they're `pub` but only imported by behavior.rs today). Update imports in behavior.rs.
-- [ ] Adopt `FarmParams` + `EconomyParams` in `arrival_system` (13→8 params): replace direct `farm_states`, `world_data`, `food_storage`, `gold_storage`, `food_events` with the two bundles. Access via `farms.states`, `economy.food_storage`, etc.
-- [ ] Do NOT refactor systems where `WorldData` mutability mismatches — `ai_decision_system` and `build_menu_system` need `ResMut<WorldData>` but `FarmParams` has `Res<WorldData>`. Leave those as-is.
+- [ ] Adopt `FarmParams` + `EconomyParams` in `arrival_system` (13->8 params): replace direct `farm_states`, `world_data`, `food_storage`, `gold_storage`, `food_events` with the two bundles. Access via `farms.states`, `economy.food_storage`, etc.
+- [ ] Do NOT refactor systems where `WorldData` mutability mismatches - `ai_decision_system` and `build_menu_system` need `ResMut<WorldData>` but `FarmParams` has `Res<WorldData>`. Leave those as-is.
 - [ ] Do NOT nest bundles (e.g. `GameLog` inside `DecisionExtras`). Flat bundles only.
-- [ ] Expected param count reductions: `arrival_system` 13→8, `spawn_npc_system` 15→13, `death_cleanup_system` 9→7, `spawner_respawn_system` 9→7, `ai_decision_system` 15→13, `xp_grant_system` 10→8, `healing_system` 10→8, `process_upgrades_system` 10→9. Pure refactor — no behavioral changes. Verify with `cargo check`.
+- [ ] Expected param count reductions: `arrival_system` 13->8, `spawn_npc_system` 15->13, `death_cleanup_system` 9->7, `spawner_respawn_system` 9->7, `ai_decision_system` 15->13, `xp_grant_system` 10->8, `healing_system` 10->8, `process_upgrades_system` 10->9. Pure refactor - no behavioral changes. Verify with `cargo check`.
 
 **Stage 16: Combat Depth**
 
-*Done when: two archers with different traits fight the same raider noticeably differently — one flees early, the other berserks at low HP.*
+*Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
 
 - [ ] Unify `TraitKind` (4 variants) and `trait_name()` (9 names) into single 9-trait Personality system
 - [ ] All 9 traits affect both `resolve_combat_stats()` and `decision_system` behavior weights
@@ -95,23 +95,25 @@ SystemParam bundle consolidation:
 - [ ] Wall HP + raiders attack walls blocking their path to farms
 - [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
 - [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
-- [ ] Guard towers (upgrade from guard post — elevated, +range, requires wall adjacency)
+- [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
 
 **Stage 18: Save/Load**
 
-*Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off — NPCs in the same positions, same HP, same upgrades, same food.*
+*Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off - NPCs in the same positions, same HP, same upgrades, same food.*
 
-- [ ] Serialize full game state (WorldData, SpawnerState, TownUpgrades, TownPolicies, FoodStorage, GameTime, NPC positions/states/stats)
-- [ ] Save to JSON file, load from main menu
+- [x] Serialize full game state (WorldData, SpawnerState, TownUpgrades, TownPolicies, FoodStorage, GameTime, NPC positions/states/stats)
+- [x] F5 quicksave / F9 quickload with JSON serialization
+- [x] Toast notification ("Game Saved" / "Game Loaded") with fade
+- [ ] Load from main menu (currently in-game only)
 - [ ] Autosave every N game-hours
 - [ ] Save slot selection (3 slots)
 
 **Stage 19: Loot & Equipment**
 
-*Done when: raider dies → drops loot bag → archer picks it up → item appears in town inventory → player equips it on an archer → archer's stats increase and sprite changes.*
+*Done when: raider dies -> drops loot bag -> archer picks it up -> item appears in town inventory -> player equips it on an archer -> archer's stats increase and sprite changes.*
 
 - [ ] `LootItem` struct: slot (Weapon/Armor), stat bonus (damage% or armor%)
-- [ ] Raider death → chance to drop `LootBag` entity at death position (30% base rate)
+- [ ] Raider death -> chance to drop `LootBag` entity at death position (30% base rate)
 - [ ] Archers detect and collect nearby loot bags (priority above patrol, below combat)
 - [ ] `TownInventory` resource, inventory UI tab
 - [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
@@ -121,8 +123,8 @@ SystemParam bundle consolidation:
 
 *Done when: player spends Food or Gold to buy tech-tree upgrades with prerequisites (no research building), and branch progression visibly unlocks stronger nodes (e.g., ArcherHome Lv2 unlock path, Military damage tier path).*
 
-Chunk 1: Prerequisites + Currency ✓ (see [completed.md](completed.md))
-Chunk 2: Per-NPC-Type Redesign ✓ (see [completed.md](completed.md))
+Chunk 1: Prerequisites + Currency [x] (see [completed.md](completed.md))
+Chunk 2: Per-NPC-Type Redesign [x] (see [completed.md](completed.md))
 
 Chunk 3: Energy Nodes
 - [ ] Add `UpgradeType` variants: `MilitaryStamina`, `FarmerStamina`, `MinerStamina` (bump `UPGRADE_COUNT`)
@@ -138,7 +140,7 @@ Chunk 4: Player AI Manager
 
 **Stage 21: Economy Depth**
 
-*Done when: player must choose between feeding NPCs and buying upgrades — food is a constraint, not a score.*
+*Done when: player must choose between feeding NPCs and buying upgrades - food is a constraint, not a score.*
 
 - [ ] HP regen tiers (1x idle, 3x sleeping, 10x fountain)
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
@@ -146,9 +148,9 @@ Chunk 4: Player AI Manager
 
 **Stage 22: Diplomacy**
 
-*Done when: a raider camp sends a messenger offering a truce for 3 food/hour tribute — accepting stops raids, refusing triggers an immediate attack wave.*
+*Done when: a raider camp sends a messenger offering a truce for 3 food/hour tribute - accepting stops raids, refusing triggers an immediate attack wave.*
 
-- [ ] Camp reputation system (hostile → neutral → friendly, based on food tribute and combat history)
+- [ ] Camp reputation system (hostile -> neutral -> friendly, based on food tribute and combat history)
 - [ ] Tribute offers: camps propose truces at reputation thresholds
 - [ ] Trade routes between player towns (send food caravan from surplus town to deficit town)
 - [ ] Allied camps stop raiding, may send fighters during large attacks
@@ -156,38 +158,38 @@ Chunk 4: Player AI Manager
 
 **Stage 24: Resources & Jobs**
 
-*Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food — multi-resource economy with job specialization.*
+*Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food - multi-resource economy with job specialization.*
 
 - [ ] Resource types: wood (Forest biome), stone (Rock biome), iron (ore nodes, rare)
 - [ ] Harvester buildings: lumber mill, quarry (same spawner pattern as FarmerHome/ArcherHome, 1 worker each)
-- [ ] Resource storage per town (like FoodStorage but for each type — gold already done via GoldStorage)
+- [ ] Resource storage per town (like FoodStorage but for each type - gold already done via GoldStorage)
 - [ ] Building costs use mixed resources (walls=stone, archer homes=wood+stone, upgrades=food+iron, etc.)
-- [ ] Crafting: blacksmith building consumes iron → produces weapons/armor (feeds into Stage 19 loot system)
-- [ ] Villager job assignment UI (drag workers between roles — farming, woodcutting, mining, smithing, military)
+- [ ] Crafting: blacksmith building consumes iron -> produces weapons/armor (feeds into Stage 19 loot system)
+- [ ] Villager job assignment UI (drag workers between roles - farming, woodcutting, mining, smithing, military)
 
 **Stage 25: Armies & Marching**
 
-*Done when: player recruits 15 archers into an army, gives a march order to a neighboring camp, and the army walks across the map as a formation — arriving ready to fight.*
+*Done when: player recruits 15 archers into an army, gives a march order to a neighboring camp, and the army walks across the map as a formation - arriving ready to fight.*
 
-- [ ] Army formation from existing squads (select squad → "Form Army" → army entity with member list)
-- [ ] March orders: right-click map location → army walks as group (use existing movement system, group speed = slowest member)
+- [ ] Army formation from existing squads (select squad -> "Form Army" -> army entity with member list)
+- [ ] March orders: right-click map location -> army walks as group (use existing movement system, group speed = slowest member)
 - [ ] Unit types via tech tree unlocks: levy (cheap, weak), archer (ranged), men-at-arms (tanky, expensive)
 - [ ] Army supply: marching armies consume food from origin town's storage, starve without supply
-- [ ] Field battles: two armies in proximity → combat triggers (existing combat system handles it)
+- [ ] Field battles: two armies in proximity -> combat triggers (existing combat system handles it)
 
 **Stage 26: Conquest**
 
-*Done when: player marches an army to a raider camp, defeats defenders, and claims the town — camp converts to player-owned town with buildings intact, player now manages two towns.*
+*Done when: player marches an army to a raider camp, defeats defenders, and claims the town - camp converts to player-owned town with buildings intact, player now manages two towns.*
 
-- [ ] Camp/town siege: army arrives at hostile settlement → attacks defenders + buildings
-- [ ] Building HP: walls have HP — attackers must breach defenses (archer homes/farmer homes HP already done)
-- [ ] Town capture: all defenders dead + town center HP → 0 = captured → converts to player town
-- [ ] AI expansion: AI players can attack each other and the player (not just raid — full conquest attempts)
+- [ ] Camp/town siege: army arrives at hostile settlement -> attacks defenders + buildings
+- [ ] Building HP: walls have HP - attackers must breach defenses (archer homes/farmer homes HP already done)
+- [ ] Town capture: all defenders dead + town center HP -> 0 = captured -> converts to player town
+- [ ] AI expansion: AI players can attack each other and the player (not just raid - full conquest attempts)
 - [ ] Victory condition: control all settlements on the map
 
 **Stage 27: World Map**
 
-*Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI and more camps — campaign progression.*
+*Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI and more camps - campaign progression.*
 
 - [ ] World map screen: grid of regions (counties), each is a separate game map
 - [ ] Region difficulty scaling (more camps, tougher AI, scarcer resources)
@@ -201,19 +203,19 @@ Chunk 4: Player AI Manager
 Maze building:
 - [ ] Open-field tower placement on a grid (towers block pathing, enemies path around them)
 - [ ] Pathfinding recalculation on tower place/remove (A* or flow field on grid)
-- [ ] Maze validation — path from spawn to goal must always exist (reject placements that fully block)
+- [ ] Maze validation - path from spawn to goal must always exist (reject placements that fully block)
 - [ ] Visual path preview (show calculated enemy route through current maze)
 
 Elemental rock-paper-scissors:
 - [ ] `Element` enum: Fire, Ice, Nature, Lightning, Arcane, Dark (6 elements)
-- [ ] Element weakness matrix (Fire→Nature→Lightning→Ice→Fire, Arcane↔Dark)
-- [ ] Creep waves carry an element — weak-element towers deal 2x, strong-element towers deal 0.5x
+- [ ] Element weakness matrix (Fire->Nature->Lightning->Ice->Fire, Arcane<->Dark)
+- [ ] Creep waves carry an element - weak-element towers deal 2x, strong-element towers deal 0.5x
 - [ ] Tower/creep element shown via tint or icon overlay
 
 Income & interest:
 - [ ] Per-wave gold income (base + bonus for no leaks)
 - [ ] Interest on banked gold each wave (5% per round, capped)
-- [ ] Leak penalty — lives lost per creep that reaches the goal
+- [ ] Leak penalty - lives lost per creep that reaches the goal
 
 Sending creeps:
 - [ ] Spend gold to send extra creeps into opponent's lane
@@ -221,11 +223,11 @@ Sending creeps:
 - [ ] Income bonus from sending (reward aggressive play)
 
 Tower upgrades & evolution:
-- [ ] Multi-tier upgrade path (Lv1 → Lv2 → Lv3, increasing stats + visual change)
-- [ ] At max tier, evolve into specialized variants (e.g. Fire Lv3 → Inferno AoE or Sniper Flame)
+- [ ] Multi-tier upgrade path (Lv1 -> Lv2 -> Lv3, increasing stats + visual change)
+- [ ] At max tier, evolve into specialized variants (e.g. Fire Lv3 -> Inferno AoE or Sniper Flame)
 - [ ] Evolved towers get unique abilities (slow, DoT, chain lightning, lifesteal)
 
-Sound (bevy_audio) should be woven into stages as they're built — not deferred to a dedicated stage.
+Sound (bevy_audio) should be woven into stages as they're built - not deferred to a dedicated stage.
 
 ## Backlog
 
@@ -259,19 +261,20 @@ Implementation guides for upcoming stages. Once built, spec content rolls into r
 
 | Milestone | NPCs | FPS | Status |
 |-----------|------|-----|--------|
-| CPU Bevy | 5,000 | 60+ | ✓ |
-| GPU physics | 10,000+ | 140 | ✓ |
-| Full behaviors | 10,000+ | 140 | ✓ |
-| Combat + projectiles | 10,000+ | 140 | ✓ |
-| GPU spatial grid | 10,000+ | 140 | ✓ |
-| Full game integration | 10,000 | 130 | ✓ |
-| Max scale tested | 50,000 | TBD | ✓ buffers sized |
+| CPU Bevy | 5,000 | 60+ | [x] |
+| GPU physics | 10,000+ | 140 | [x] |
+| Full behaviors | 10,000+ | 140 | [x] |
+| Combat + projectiles | 10,000+ | 140 | [x] |
+| GPU spatial grid | 10,000+ | 140 | [x] |
+| Full game integration | 10,000 | 130 | [x] |
+| Max scale tested | 50,000 | TBD | [x] buffers sized |
 | Future (chunked tilemap) | 50,000+ | 60+ | Planned |
 
 ## References
 
-- [Simon Green's CUDA Particles](https://developer.download.nvidia.com/assets/cuda/files/particles.pdf) — GPU spatial grid approach
-- [FSM in ECS](https://www.richardlord.net/blog/ecs/finite-state-machines-with-ash) — marker component pattern
-- [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) — compute + render pipeline
-- [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) — sprite batching, per-layer draw queues
-- [Factorio FFF #421](https://www.factorio.com/blog/post/fff-421) — entity update optimization, lazy activation
+- [Simon Green's CUDA Particles](https://developer.download.nvidia.com/assets/cuda/files/particles.pdf) - GPU spatial grid approach
+- [FSM in ECS](https://www.richardlord.net/blog/ecs/finite-state-machines-with-ash) - marker component pattern
+- [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) - compute + render pipeline
+- [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) - sprite batching, per-layer draw queues
+- [Factorio FFF #421](https://www.factorio.com/blog/post/fff-421) - entity update optimization, lazy activation
+

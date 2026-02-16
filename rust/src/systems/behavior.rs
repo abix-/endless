@@ -164,48 +164,11 @@ pub fn arrival_system(
 // FLEE / LEASH / RECOVERY SYSTEMS (generic)
 // ============================================================================
 
-/// Count nearby enemies and allies for threat assessment.
-/// Returns (enemy_count, ally_count) within radius.
-fn count_nearby_factions(
-    positions: &[f32],
-    factions: &[i32],
-    health: &[f32],
-    my_idx: usize,
-    my_faction: i32,
-    radius: f32,
-) -> (u32, u32) {
-    let radius_sq = radius * radius;
-    let my_x = positions.get(my_idx * 2).copied().unwrap_or(0.0);
-    let my_y = positions.get(my_idx * 2 + 1).copied().unwrap_or(0.0);
-
-    let mut enemies = 0u32;
-    let mut allies = 0u32;
-
-    let npc_count = factions.len().min(positions.len() / 2).min(health.len());
-    for i in 0..npc_count {
-        if i == my_idx { continue; }
-
-        // Skip dead NPCs
-        let hp = health.get(i).copied().unwrap_or(0.0);
-        if hp <= 0.0 { continue; }
-
-        let x = positions[i * 2];
-        let y = positions[i * 2 + 1];
-        let dx = x - my_x;
-        let dy = y - my_y;
-        let dist_sq = dx * dx + dy * dy;
-
-        if dist_sq <= radius_sq {
-            let their_faction = factions.get(i).copied().unwrap_or(-1);
-            if their_faction == my_faction {
-                allies += 1;
-            } else if their_faction >= 0 {
-                enemies += 1;
-            }
-        }
-    }
-
-    (enemies, allies)
+/// Unpack GPU threat counts: packed u32 → (enemies, allies).
+/// GPU computes these via spatial grid query each frame (see npc_compute.wgsl).
+#[inline]
+fn unpack_threat_counts(packed: u32) -> (u32, u32) {
+    ((packed >> 16), packed & 0xFFFF)
 }
 
 // ============================================================================
@@ -299,10 +262,7 @@ pub fn decision_system(
     let squad_state = &extras.squad_state;
     let frame = DECISION_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let positions = &gpu_state.positions;
-    let factions_buf = &gpu_state.factions;
-    let health_buf = &gpu_state.health;
 
-    const THREAT_RADIUS: f32 = 200.0;
     const CHECK_INTERVAL: usize = 30;
     const FARM_ARRIVAL_RADIUS: f32 = 20.0;
     const HEAL_DRIFT_RADIUS: f32 = 100.0; // Re-target fountain if pushed beyond this
@@ -556,9 +516,8 @@ pub fn decision_system(
             if flee_pct > 0.0 {
                 let should_check_threat = (frame + idx) % CHECK_INTERVAL == 0;
                 let effective_threshold = if should_check_threat {
-                    let (enemies, allies) = count_nearby_factions(
-                        positions, factions_buf, health_buf, idx, faction.0, THREAT_RADIUS
-                    );
+                    let packed = gpu_state.threat_counts.get(idx).copied().unwrap_or(0);
+                    let (enemies, allies) = unpack_threat_counts(packed);
                     let ratio = (enemies as f32 + 1.0) / (allies as f32 + 1.0);
                     (flee_pct * ratio).min(1.0)
                 } else {
