@@ -11,7 +11,7 @@ use super::{TestState, TestSetupParams};
 const SPAWN_Y: f32 = 500.0;
 const FARM_Y: f32 = 350.0;
 
-pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
+pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<GrowthStates>) {
     params.add_town("TestTown");
     for i in 0..3 {
         let fx = 300.0 + (i as f32 * 100.0);
@@ -19,9 +19,11 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
             position: Vec2::new(fx, FARM_Y),
             town_idx: 0,
         });
+        farm_states.kinds.push(crate::resources::GrowthKind::Farm);
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
         farm_states.positions.push(Vec2::new(fx, FARM_Y));
+        farm_states.town_indices.push(Some(0));
         params.add_bed(fx, 550.0);
     }
     params.init_economy(1);

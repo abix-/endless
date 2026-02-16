@@ -17,7 +17,7 @@ const FARMS: [(f32, f32); 5] = [
 /// Setup: populate world, spawn NPCs, init resources.
 pub fn setup(
     mut params: TestSetupParams,
-    mut farm_states: ResMut<FarmStates>,
+    mut farm_states: ResMut<GrowthStates>,
     mut world_grid: ResMut<WorldGrid>,
     mut building_hp: ResMut<BuildingHpState>,
 ) {
@@ -42,9 +42,11 @@ pub fn setup(
             position: Vec2::new(fx, fy),
             town_idx: 0,
         });
+        farm_states.kinds.push(crate::resources::GrowthKind::Farm);
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
         farm_states.positions.push(Vec2::new(fx, fy));
+        farm_states.town_indices.push(Some(0));
         building_hp.farms.push(crate::constants::FARM_HP);
     }
 
@@ -54,15 +56,15 @@ pub fn setup(
         building_hp.beds.push(crate::constants::BED_HP);
     }
 
-    // 4 guard posts (square patrol around town)
+    // 4 waypoints (square patrol around town)
     for (order, &(gx, gy)) in [(250.0, 250.0), (550.0, 250.0), (550.0, 550.0), (250.0, 550.0)].iter().enumerate() {
-        params.world_data.guard_posts.push(world::GuardPost {
+        params.world_data.waypoints.push(world::Waypoint {
             position: Vec2::new(gx, gy),
             town_idx: 0,
             patrol_order: order as u32,
             npc_slot: None,
         });
-        building_hp.guard_posts.push(crate::constants::GUARD_POST_HP);
+        building_hp.waypoints.push(crate::constants::WAYPOINT_HP);
     }
 
     // Spawner buildings: FarmerHomes, ArcherHomes, Tents (for respawn system)

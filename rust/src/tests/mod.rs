@@ -40,7 +40,7 @@ pub struct CleanupCore<'w> {
     pub slot_alloc: ResMut<'w, crate::resources::SlotAllocator>,
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub food_storage: ResMut<'w, crate::resources::FoodStorage>,
-    pub farm_states: ResMut<'w, crate::resources::FarmStates>,
+    pub farm_states: ResMut<'w, crate::resources::GrowthStates>,
     pub faction_stats: ResMut<'w, crate::resources::FactionStats>,
     pub gpu_state: ResMut<'w, crate::resources::GpuReadState>,
     pub game_time: ResMut<'w, crate::resources::GameTime>,

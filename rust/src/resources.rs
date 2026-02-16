@@ -526,91 +526,107 @@ impl GoldStorage {
     }
 }
 
-/// Per-mine gold tracking. Mirrors FarmStates pattern.
-#[derive(Resource, Default, Clone)]
-pub struct MineStates {
-    pub gold: Vec<f32>,      // Current gold in each mine
-    pub max_gold: Vec<f32>,  // Max capacity per mine
-    pub positions: Vec<Vec2>, // World positions (for render/lookup)
-}
-
-impl MineStates {
-    pub fn push_mine(&mut self, pos: Vec2, max_gold: f32) {
-        self.gold.push(max_gold);
-        self.max_gold.push(max_gold);
-        self.positions.push(pos);
-    }
-}
-
-/// Farm growth state.
+/// Growth state for farms and mines.
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum FarmGrowthState {
     #[default]
-    Growing,  // Crops growing, progress accumulating
-    Ready,    // Ready to harvest, shows food icon
+    Growing,
+    Ready,
 }
 
-/// Per-farm growth tracking. Extracted to render world for instanced farm sprites.
+/// Whether a growth entry is a farm or a mine.
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
+pub enum GrowthKind {
+    #[default]
+    Farm,
+    Mine,
+}
+
+/// Unified growth tracking for farms and mines. Extracted to render world for instanced sprites.
 #[derive(Resource, Default, Clone, ExtractResource)]
-pub struct FarmStates {
-    pub states: Vec<FarmGrowthState>,  // Per-farm state
-    pub progress: Vec<f32>,            // Growth progress 0.0-1.0
-    pub positions: Vec<Vec2>,          // World positions (for render)
+pub struct GrowthStates {
+    pub kinds: Vec<GrowthKind>,
+    pub states: Vec<FarmGrowthState>,
+    pub progress: Vec<f32>,
+    pub positions: Vec<Vec2>,
+    pub town_indices: Vec<Option<u32>>,  // Some(idx) for farms, None for mines
 }
 
-impl FarmStates {
-    pub fn push_farm(&mut self, pos: Vec2) {
+impl GrowthStates {
+    pub fn push_farm(&mut self, pos: Vec2, town_idx: u32) {
+        self.kinds.push(GrowthKind::Farm);
         self.states.push(FarmGrowthState::Growing);
         self.progress.push(0.0);
         self.positions.push(pos);
+        self.town_indices.push(Some(town_idx));
     }
 
-    /// Tombstone a destroyed farm: reset state/progress and mark position offscreen.
-    /// Render pipeline skips positions < -9000; growth system skips tombstoned WorldData farms.
-    pub fn tombstone(&mut self, farm_idx: usize) {
-        if let Some(pos) = self.positions.get_mut(farm_idx) {
+    pub fn push_mine(&mut self, pos: Vec2) {
+        self.kinds.push(GrowthKind::Mine);
+        self.states.push(FarmGrowthState::Growing);
+        self.progress.push(0.0);
+        self.positions.push(pos);
+        self.town_indices.push(None);
+    }
+
+    pub fn tombstone(&mut self, idx: usize) {
+        if let Some(pos) = self.positions.get_mut(idx) {
             *pos = Vec2::new(-99999.0, -99999.0);
         }
-        if let Some(state) = self.states.get_mut(farm_idx) {
+        if let Some(state) = self.states.get_mut(idx) {
             *state = FarmGrowthState::Growing;
         }
-        if let Some(progress) = self.progress.get_mut(farm_idx) {
+        if let Some(progress) = self.progress.get_mut(idx) {
             *progress = 0.0;
         }
     }
 
-    /// Harvest a Ready farm: reset to Growing, optionally credit food to a town.
-    /// `credit_town`: Some(idx) = farmer harvest (add food + event + log), None = raider theft (state reset only).
+    /// Harvest a Ready entry. Farm credits food, Mine credits gold.
+    /// `credit_town`: Some(idx) = friendly harvest, None = theft/reset only.
     pub fn harvest(
         &mut self,
-        farm_idx: usize,
+        idx: usize,
         credit_town: Option<usize>,
         food_storage: &mut FoodStorage,
+        gold_storage: &mut GoldStorage,
         food_events: &mut FoodEvents,
         combat_log: &mut CombatLog,
         game_time: &GameTime,
     ) -> bool {
-        if farm_idx >= self.states.len()
-            || self.states[farm_idx] != FarmGrowthState::Ready
-        {
+        if idx >= self.states.len() || self.states[idx] != FarmGrowthState::Ready {
             return false;
         }
+        let kind = self.kinds[idx];
         if let Some(town_idx) = credit_town {
-            if town_idx < food_storage.food.len() {
-                food_storage.food[town_idx] += 1;
-                food_events.consumed.push(FoodConsumed {
-                    location_idx: farm_idx as u32,
-                    is_camp: false,
-                });
+            match kind {
+                GrowthKind::Farm => {
+                    if town_idx < food_storage.food.len() {
+                        food_storage.food[town_idx] += 1;
+                        food_events.consumed.push(FoodConsumed {
+                            location_idx: idx as u32,
+                            is_camp: false,
+                        });
+                    }
+                    combat_log.push(
+                        CombatEventKind::Harvest,
+                        game_time.day(), game_time.hour(), game_time.minute(),
+                        format!("Farm #{} harvested", idx),
+                    );
+                }
+                GrowthKind::Mine => {
+                    if town_idx < gold_storage.gold.len() {
+                        gold_storage.gold[town_idx] += crate::constants::MINE_EXTRACT_PER_CYCLE;
+                    }
+                    combat_log.push(
+                        CombatEventKind::Harvest,
+                        game_time.day(), game_time.hour(), game_time.minute(),
+                        format!("Mine #{} harvested ({} gold)", idx, crate::constants::MINE_EXTRACT_PER_CYCLE),
+                    );
+                }
             }
-            combat_log.push(
-                CombatEventKind::Harvest,
-                game_time.day(), game_time.hour(), game_time.minute(),
-                format!("Farm #{} harvested", farm_idx),
-            );
         }
-        self.states[farm_idx] = FarmGrowthState::Growing;
-        self.progress[farm_idx] = 0.0;
+        self.states[idx] = FarmGrowthState::Growing;
+        self.progress[idx] = 0.0;
         true
     }
 }
@@ -767,7 +783,7 @@ impl UiState {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum BuildKind {
     Farm,
-    GuardPost,
+    Waypoint,
     FarmerHome,
     ArcherHome,
     Tent,
@@ -852,9 +868,9 @@ impl CombatLog {
 // GUARD POST TURRET STATE
 // ============================================================================
 
-/// Per-guard-post turret state. Length auto-syncs with WorldData.guard_posts.
+/// Per-guard-post turret state. Length auto-syncs with WorldData.waypoints.
 #[derive(Resource, Default)]
-pub struct GuardPostState {
+pub struct WaypointState {
     /// Cooldown timer per post (seconds remaining).
     pub timers: Vec<f32>,
     /// Whether auto-attack is enabled per post.
@@ -882,7 +898,7 @@ pub struct SpawnerState(pub Vec<SpawnerEntry>);
 /// Hit points for all buildings. Each Vec is parallel to the matching Vec in WorldData.
 #[derive(Resource, Default)]
 pub struct BuildingHpState {
-    pub guard_posts: Vec<f32>,
+    pub waypoints: Vec<f32>,
     pub farmer_homes: Vec<f32>,
     pub archer_homes: Vec<f32>,
     pub tents: Vec<f32>,
@@ -898,7 +914,7 @@ impl BuildingHpState {
     pub fn push_for(&mut self, building: &crate::world::Building) {
         use crate::constants::*;
         match building {
-            crate::world::Building::GuardPost { .. } => self.guard_posts.push(GUARD_POST_HP),
+            crate::world::Building::Waypoint { .. } => self.waypoints.push(WAYPOINT_HP),
             crate::world::Building::FarmerHome { .. } => self.farmer_homes.push(FARMER_HOME_HP),
             crate::world::Building::ArcherHome { .. } => self.archer_homes.push(ARCHER_HOME_HP),
             crate::world::Building::Tent { .. } => self.tents.push(TENT_HP),
@@ -915,7 +931,7 @@ impl BuildingHpState {
     pub fn get_mut(&mut self, kind: crate::world::BuildingKind, index: usize) -> Option<&mut f32> {
         use crate::world::BuildingKind;
         match kind {
-            BuildingKind::GuardPost => self.guard_posts.get_mut(index),
+            BuildingKind::Waypoint => self.waypoints.get_mut(index),
             BuildingKind::FarmerHome => self.farmer_homes.get_mut(index),
             BuildingKind::ArcherHome => self.archer_homes.get_mut(index),
             BuildingKind::Tent => self.tents.get_mut(index),
@@ -931,7 +947,7 @@ impl BuildingHpState {
     pub fn get(&self, kind: crate::world::BuildingKind, index: usize) -> Option<f32> {
         use crate::world::BuildingKind;
         match kind {
-            BuildingKind::GuardPost => self.guard_posts.get(index).copied(),
+            BuildingKind::Waypoint => self.waypoints.get(index).copied(),
             BuildingKind::FarmerHome => self.farmer_homes.get(index).copied(),
             BuildingKind::ArcherHome => self.archer_homes.get(index).copied(),
             BuildingKind::Tent => self.tents.get(index).copied(),
@@ -948,7 +964,7 @@ impl BuildingHpState {
         use crate::constants::*;
         use crate::world::BuildingKind;
         match kind {
-            BuildingKind::GuardPost => GUARD_POST_HP,
+            BuildingKind::Waypoint => WAYPOINT_HP,
             BuildingKind::FarmerHome => FARMER_HOME_HP,
             BuildingKind::ArcherHome => ARCHER_HOME_HP,
             BuildingKind::Tent => TENT_HP,
@@ -973,7 +989,7 @@ impl BuildingHpState {
             }
         }
         chain_buildings!(world_data.farms, self.farms, FARM_HP)
-            .chain(chain_buildings!(world_data.guard_posts, self.guard_posts, GUARD_POST_HP))
+            .chain(chain_buildings!(world_data.waypoints, self.waypoints, WAYPOINT_HP))
             .chain(chain_buildings!(world_data.farmer_homes, self.farmer_homes, FARMER_HOME_HP))
             .chain(chain_buildings!(world_data.archer_homes, self.archer_homes, ARCHER_HOME_HP))
             .chain(chain_buildings!(world_data.tents, self.tents, TENT_HP))
@@ -996,13 +1012,6 @@ impl BuildingHpState {
 pub struct BuildingHpRender {
     pub positions: Vec<Vec2>,
     pub health_pcts: Vec<f32>,
-}
-
-/// Miner progress bar render data extracted to render world.
-#[derive(Resource, Default, Clone, ExtractResource)]
-pub struct MinerProgressRender {
-    pub positions: Vec<Vec2>,
-    pub progress: Vec<f32>,
 }
 
 /// Per-town auto-upgrade flags. When enabled, upgrades are purchased automatically
@@ -1147,7 +1156,7 @@ pub struct Squad {
     pub target: Option<Vec2>,
     /// Desired member count. 0 = manual mode (no auto-recruit).
     pub target_size: usize,
-    /// If true, squad members patrol guard posts when no squad target is set.
+    /// If true, squad members patrol waypoints when no squad target is set.
     pub patrol_enabled: bool,
     /// If true, squad members go home to rest when tired.
     pub rest_when_tired: bool,
@@ -1203,8 +1212,8 @@ impl HelpCatalog {
         m.insert("gold", "Gold mines appear between towns. Set your miner count in the Roster tab (R key) using the Miners slider. Miners walk to the nearest mine, dig gold, and bring it back.");
         m.insert("pop", "Living NPCs / spawner buildings. Build Farmer Homes and Archer Homes to grow your town. Dead NPCs respawn after 12 game-hours.");
         m.insert("farmers", "Each Farmer Home spawns 1 farmer who works at the nearest free farm. Build farms first, then Farmer Homes to staff them.");
-        m.insert("archers", "Each Archer Home spawns 1 archer who patrols guard posts. Build Guard Posts to create a patrol route, then Archer Homes to staff them.");
-        m.insert("raiders", "Enemy raiders steal food from your farms. Build archers and guard posts near farms to defend them.");
+        m.insert("archers", "Each Archer Home spawns 1 archer who patrols waypoints. Build Waypoints to create a patrol route, then Archer Homes to staff them.");
+        m.insert("raiders", "Enemy raiders steal food from your farms. Build archers and waypoints near farms to defend them.");
         m.insert("time", "Space = pause/unpause. +/- = speed up/slow down (0.25x to 128x). Day/Night affects work schedules set in Policies (P key).");
 
         // Left panel tabs
@@ -1218,8 +1227,8 @@ impl HelpCatalog {
         // Build menu
         m.insert("build_farm", "Grows food over time. Build a Farmer Home nearby to assign a farmer to harvest it.");
         m.insert("build_farmer_home", "Spawns 1 farmer. Farmer works at the nearest free farm. Build farms first!");
-        m.insert("build_archer_home", "Spawns 1 archer. Archer patrols nearby guard posts and fights enemies.");
-        m.insert("build_guard_post", "Patrol waypoint for guards. Can toggle turret mode (auto-shoots enemies). Right-click an existing post to toggle.");
+        m.insert("build_archer_home", "Spawns 1 archer. Archer patrols nearby waypoints and fights enemies.");
+        m.insert("build_waypoint", "Patrol waypoint for guards. Can toggle turret mode (auto-shoots enemies). Right-click an existing post to toggle.");
         m.insert("build_tent", "Spawns 1 raider. Raiders steal food from enemy farms and bring it back to camp.");
         m.insert("build_miner_home", "Spawns 1 miner. Miner works at the nearest gold mine.");
         m.insert("unlock_slot", "Pay food to unlock this grid slot. Then right-click it again to build.");
@@ -1232,7 +1241,7 @@ impl HelpCatalog {
         m.insert("npc_level", "Archers level up from kills. +1% all stats per level. XP needed = (level+1)\u{00b2} \u{00d7} 100.");
 
         // Getting started
-        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Farmer Homes for food\n\u{2022} Build Guard Posts + Archer Homes for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads, H=help");
+        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Farmer Homes for food\n\u{2022} Build Waypoints + Archer Homes for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads, H=help");
 
         Self(m)
     }
@@ -1248,7 +1257,7 @@ pub struct TutorialState {
     pub step: u8,
     pub initial_farms: usize,
     pub initial_farmer_homes: usize,
-    pub initial_guard_posts: usize,
+    pub initial_waypoints: usize,
     pub initial_archer_homes: usize,
     pub initial_miner_homes: usize,
     pub camera_start: Vec2,
@@ -1260,7 +1269,7 @@ impl Default for TutorialState {
             step: 0,
             initial_farms: 0,
             initial_farmer_homes: 0,
-            initial_guard_posts: 0,
+            initial_waypoints: 0,
             initial_archer_homes: 0,
             initial_miner_homes: 0,
             camera_start: Vec2::ZERO,
@@ -1308,14 +1317,14 @@ pub struct DirtyFlags {
     pub building_grid: bool,
     pub patrols: bool,
     pub healing_zones: bool,
-    pub guard_post_slots: bool,
+    pub waypoint_slots: bool,
     pub squads: bool,
-    /// Pending patrol order swap from UI (guard_post indices).
+    /// Pending patrol order swap from UI (waypoint indices).
     /// Set by left_panel, consumed by rebuild_patrol_routes_system.
     pub patrol_swap: Option<(usize, usize)>,
 }
 impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, guard_post_slots: true, squads: true, patrol_swap: None } }
+    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, waypoint_slots: true, squads: true, patrol_swap: None } }
 }
 
 // ============================================================================

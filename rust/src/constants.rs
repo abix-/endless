@@ -196,7 +196,7 @@ pub fn building_cost(kind: crate::resources::BuildKind) -> i32 {
         BuildKind::FarmerHome => 2,
         BuildKind::MinerHome  => 4,
         BuildKind::ArcherHome => 4,
-        BuildKind::GuardPost  => 1,
+        BuildKind::Waypoint  => 1,
         BuildKind::Tent       => 3,
         BuildKind::Destroy    => 0,
     }
@@ -216,23 +216,23 @@ pub const BASE_GRID_MAX: i32 = 3;
 pub const MAX_GRID_EXTENT: i32 = 49;
 
 // ============================================================================
-// GUARD POST TURRET CONSTANTS
+// WAYPOINT TURRET CONSTANTS
 // ============================================================================
 
-/// Detection range for guard post auto-attack.
-pub const GUARD_POST_RANGE: f32 = 250.0;
+/// Detection range for waypoint auto-attack.
+pub const WAYPOINT_RANGE: f32 = 250.0;
 
 /// Damage per turret projectile.
-pub const GUARD_POST_DAMAGE: f32 = 8.0;
+pub const WAYPOINT_DAMAGE: f32 = 8.0;
 
 /// Seconds between turret shots.
-pub const GUARD_POST_COOLDOWN: f32 = 3.0;
+pub const WAYPOINT_COOLDOWN: f32 = 3.0;
 
 /// Turret projectile speed (pixels/sec).
-pub const GUARD_POST_PROJ_SPEED: f32 = 300.0;
+pub const WAYPOINT_PROJ_SPEED: f32 = 300.0;
 
 /// Turret projectile lifetime (seconds).
-pub const GUARD_POST_PROJ_LIFETIME: f32 = 1.5;
+pub const WAYPOINT_PROJ_LIFETIME: f32 = 1.5;
 
 // ============================================================================
 // SQUAD CONSTANTS
@@ -248,17 +248,11 @@ pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
 // GOLD MINE CONSTANTS
 // ============================================================================
 
-/// Maximum gold a mine starts with and can regenerate to.
-pub const MINE_MAX_GOLD: f32 = 200.0;
-
-/// Gold regenerated per game-hour when mine is not being worked.
-pub const MINE_REGEN_RATE: f32 = 2.0;
-
-/// Gold extracted per work cycle (miner delivers this much when returning home).
+/// Gold extracted per harvest cycle (mine becomes Ready → miner takes this much).
 pub const MINE_EXTRACT_PER_CYCLE: i32 = 5;
 
-/// Game-hours for one mining work cycle (progress bar 0→1).
-pub const MINE_WORK_HOURS: f32 = 4.0;
+/// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
+pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
 
 /// Minimum distance from any settlement center to place a gold mine.
 pub const MINE_MIN_SETTLEMENT_DIST: f32 = 300.0;
@@ -270,7 +264,7 @@ pub const MINE_MIN_SPACING: f32 = 400.0;
 // BUILDING HP
 // ============================================================================
 
-pub const GUARD_POST_HP: f32 = 200.0;
+pub const WAYPOINT_HP: f32 = 200.0;
 pub const ARCHER_HOME_HP: f32 = 150.0;
 pub const FARMER_HOME_HP: f32 = 100.0;
 pub const MINER_HOME_HP: f32 = 100.0;

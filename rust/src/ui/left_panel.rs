@@ -133,7 +133,7 @@ struct AiSnapshot {
     tents: usize,
     miner_homes: usize,
     farms: usize,
-    guard_posts: usize,
+    waypoints: usize,
     alive: i32,
     dead: i32,
     kills: i32,
@@ -708,13 +708,13 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, jump_target: &mut 
     }
 
     // Collect non-tombstoned posts for this town, sorted by patrol_order
-    let mut posts: Vec<(usize, u32, Vec2)> = world_data.guard_posts.iter().enumerate()
+    let mut posts: Vec<(usize, u32, Vec2)> = world_data.waypoints.iter().enumerate()
         .filter(|(_, p)| p.town_idx == town_pair_idx && p.position.x > -9000.0)
         .map(|(i, p)| (i, p.patrol_order, p.position))
         .collect();
     posts.sort_by_key(|(_, order, _)| *order);
 
-    ui.label(format!("{} guard posts", posts.len()));
+    ui.label(format!("{} waypoints", posts.len()));
     ui.separator();
 
     let mut swap: Option<(usize, usize)> = None;
@@ -929,7 +929,7 @@ fn rebuild_factions_cache(
         let farms = world_data.farms.iter().filter(|f| alive_check(f.position, f.town_idx)).count();
         let farmer_homes = world_data.farmer_homes.iter().filter(|h| alive_check(h.position, h.town_idx)).count();
         let archer_homes = world_data.archer_homes.iter().filter(|b| alive_check(b.position, b.town_idx)).count();
-        let guard_posts = world_data.guard_posts.iter().filter(|g| alive_check(g.position, g.town_idx)).count();
+        let waypoints = world_data.waypoints.iter().filter(|g| alive_check(g.position, g.town_idx)).count();
         let tents = world_data.tents.iter().filter(|t| alive_check(t.position, t.town_idx)).count();
         let miner_homes = world_data.miner_homes.iter().filter(|ms| alive_check(ms.position, ms.town_idx)).count();
 
@@ -969,7 +969,7 @@ fn rebuild_factions_cache(
             tents,
             miner_homes,
             farms,
-            guard_posts,
+            waypoints,
             alive,
             dead,
             kills,
@@ -1108,7 +1108,7 @@ fn factions_content(
 
         left.label("Buildings");
         left.label(format!("Farms: {}", snap.farms));
-        left.label(format!("Guard Posts: {}", snap.guard_posts));
+        left.label(format!("Waypoints: {}", snap.waypoints));
         left.label(format!("Farmer Homes: {}", snap.farmer_homes));
         left.label(format!("Archer Homes: {}", snap.archer_homes));
         left.label(format!("Tents: {}", snap.tents));
@@ -1351,7 +1351,7 @@ fn help_content(ui: &mut egui::Ui) {
             .default_open(true)
             .show(ui, |ui| {
                 ui.label("1. B > build Farms, then Farmer Homes");
-                ui.label("2. Guard Posts near farms, then Archer Homes");
+                ui.label("2. Waypoints near farms, then Archer Homes");
                 ui.label("3. Food buys buildings + upgrades (U). Gold for advanced upgrades.");
                 ui.label("4. Click to inspect. ESC for settings.");
             });
@@ -1366,13 +1366,12 @@ fn help_content(ui: &mut egui::Ui) {
 
         egui::CollapsingHeader::new(egui::RichText::new("Military").strong())
             .show(ui, |ui| {
-                ui.label("- Guard Posts form patrol routes. Archer Homes spawn archers.");
-                ui.label("- Guard Post turrets auto-shoot enemies.");
+                ui.label("- Waypoints are patrol points for archers. Archer Homes spawn archers.");
                 ui.label("- Archers level up from kills (+1% stats/level).");
                 ui.label("- Policies (P): set work schedules, off-duty behavior, flee/aggro.");
                 ui.label("- Squads (Q): all archers join Squad 1. Set sizes for 2-9 to split into groups.");
                 ui.label("- Press 1-9 to pick a squad, click the map to send them.");
-                ui.label("- Patrols (T): reorder guard post patrol routes.");
+                ui.label("- Patrols (T): reorder waypoint patrol routes.");
             });
 
         egui::CollapsingHeader::new(egui::RichText::new("Controls").strong())
@@ -1388,7 +1387,7 @@ fn help_content(ui: &mut egui::Ui) {
         egui::CollapsingHeader::new(egui::RichText::new("Tips").strong())
             .show(ui, |ui| {
                 ui.label("- Build farms before homes -- no farm, no work.");
-                ui.label("- Guard posts between farms and enemy camps.");
+                ui.label("- Waypoints between farms and enemy camps.");
                 ui.label("- Day Only schedule (P) keeps farmers safe at night.");
                 ui.label("- Upgrade Fountain Radius early for faster healing.");
             });

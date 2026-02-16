@@ -13,14 +13,13 @@ pub fn setup(
     config: Res<world::WorldGenConfig>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut farm_states: ResMut<FarmStates>,
-    mut mine_states: ResMut<MineStates>,
+    mut farm_states: ResMut<GrowthStates>,
     mut town_grids: ResMut<world::TownGrids>,
     mut test_state: ResMut<TestState>,
 ) {
     // Generate the world using our config (default: 2 towns)
     town_grids.grids.clear();
-    world::generate_world(&config, &mut world_grid, &mut world_data, &mut farm_states, &mut mine_states, &mut town_grids);
+    world::generate_world(&config, &mut world_grid, &mut world_data, &mut farm_states, &mut town_grids);
 
     // Init supporting resources based on generated world
     let total_towns = world_data.towns.len();
@@ -109,7 +108,7 @@ pub fn tick(
                         world::Building::Farm { town_idx } => {
                             if (*town_idx as usize) < num_vill { farms[*town_idx as usize] += 1; }
                         }
-                        world::Building::GuardPost { town_idx, .. } => {
+                        world::Building::Waypoint { town_idx, .. } => {
                             if (*town_idx as usize) < num_vill { posts[*town_idx as usize] += 1; }
                         }
                         _ => {}

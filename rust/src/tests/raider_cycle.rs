@@ -9,7 +9,7 @@ use super::{TestState, TestSetupParams};
 
 pub fn setup(
     mut params: TestSetupParams,
-    mut farm_states: ResMut<FarmStates>,
+    mut farm_states: ResMut<GrowthStates>,
     mut camp_state: ResMut<CampState>,
 ) {
     // Villager town (faction 0) with farms
@@ -27,9 +27,11 @@ pub fn setup(
             position: Vec2::new(350.0 + (i as f32 * 50.0), 350.0),
             town_idx: 0,
         });
+        farm_states.kinds.push(crate::resources::GrowthKind::Farm);
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
         farm_states.positions.push(Vec2::new(350.0 + (i as f32 * 50.0), 350.0));
+        farm_states.town_indices.push(Some(0));
     }
     params.init_economy(2);
     params.food_storage.food[0] = 10; // villager food

@@ -154,14 +154,12 @@ pub struct BottomPanelData<'w> {
 pub struct BuildingInspectorData<'w> {
     selected_building: Res<'w, SelectedBuilding>,
     grid: Res<'w, WorldGrid>,
-    farm_states: Res<'w, FarmStates>,
+    farm_states: Res<'w, GrowthStates>,
     farm_occupancy: Res<'w, BuildingOccupancy>,
     spawner_state: Res<'w, SpawnerState>,
-    guard_post_state: Res<'w, GuardPostState>,
     food_storage: Res<'w, FoodStorage>,
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
-    mine_states: Res<'w, MineStates>,
 }
 
 #[derive(Default)]
@@ -642,7 +640,7 @@ fn building_name(building: &Building) -> &'static str {
         Building::Fountain { .. } => "Fountain",
         Building::Farm { .. } => "Farm",
         Building::Bed { .. } => "Bed",
-        Building::GuardPost { .. } => "Guard Post",
+        Building::Waypoint { .. } => "Waypoint",
         Building::Camp { .. } => "Camp",
         Building::FarmerHome { .. } => "Farmer Home",
         Building::ArcherHome { .. } => "Archer Home",
@@ -657,7 +655,7 @@ pub fn building_town_idx(building: &Building) -> u32 {
         Building::Fountain { town_idx }
         | Building::Farm { town_idx }
         | Building::Bed { town_idx }
-        | Building::GuardPost { town_idx, .. }
+        | Building::Waypoint { town_idx, .. }
         | Building::Camp { town_idx }
         | Building::FarmerHome { town_idx }
         | Building::ArcherHome { town_idx }
@@ -760,18 +758,8 @@ fn building_inspector_content(
             }
         }
 
-        Building::GuardPost { patrol_order, .. } => {
+        Building::Waypoint { patrol_order, .. } => {
             ui.label(format!("Patrol order: {}", patrol_order));
-
-            // Find guard post index by matching grid position
-            let world_pos = bld.grid.grid_to_world(col, row);
-            if let Some(post_idx) = world_data.guard_posts.iter().position(|g| {
-                (g.position - world_pos).length() < 1.0
-            }) {
-                if let Some(&enabled) = bld.guard_post_state.attack_enabled.get(post_idx) {
-                    ui.label(format!("Turret: {}", if enabled { "Enabled" } else { "Disabled" }));
-                }
-            }
         }
 
         Building::Fountain { .. } => {
@@ -804,22 +792,21 @@ fn building_inspector_content(
 
         Building::GoldMine => {
             let world_pos = bld.grid.grid_to_world(col, row);
-            if let Some(mine_idx) = bld.mine_states.positions.iter().position(|p| {
-                (*p - world_pos).length() < 1.0
-            }) {
-                let gold = bld.mine_states.gold.get(mine_idx).copied().unwrap_or(0.0);
-                let max_gold = bld.mine_states.max_gold.get(mine_idx).copied().unwrap_or(1.0);
-                ui.label(format!("Gold: {:.0} / {:.0}", gold, max_gold));
-                let pct = gold / max_gold.max(1.0);
-                let color = if pct > 0.5 {
+            // Find mine in GrowthStates
+            if let Some(gi) = bld.farm_states.positions.iter().position(|p| (*p - world_pos).length() < 1.0) {
+                let progress = bld.farm_states.progress.get(gi).copied().unwrap_or(0.0);
+                let ready = bld.farm_states.states.get(gi) == Some(&FarmGrowthState::Ready);
+                let label = if ready { "Ready to harvest" } else { &format!("Growing: {:.0}%", progress * 100.0) };
+                ui.label(label);
+                let color = if ready {
                     egui::Color32::from_rgb(200, 180, 40)
-                } else if pct > 0.0 {
+                } else if progress > 0.0 {
                     egui::Color32::from_rgb(160, 140, 40)
                 } else {
                     egui::Color32::from_rgb(100, 100, 100)
                 };
-                ui.add(egui::ProgressBar::new(pct)
-                    .text(format!("{:.0}%", pct * 100.0))
+                ui.add(egui::ProgressBar::new(progress)
+                    .text(format!("{:.0}%", progress * 100.0))
                     .fill(color));
                 let occupants = bld.farm_occupancy.count(world_pos);
                 if occupants > 0 {

@@ -133,9 +133,6 @@ pub struct WorkPosition(pub Vec2);
 #[derive(Component)]
 pub struct CarriedGold(pub i32);
 
-/// Mining work progress (0.0–1.0). Inserted when miner starts working at a mine.
-#[derive(Component)]
-pub struct MiningProgress(pub f32);
 
 // ============================================================================
 // NPC STATE — Two orthogonal enums (Activity × CombatState)

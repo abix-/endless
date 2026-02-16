@@ -82,115 +82,50 @@ pub fn game_time_system(
 }
 
 // ============================================================================
-// FARM GROWTH SYSTEM
+// GROWTH SYSTEM (farms + mines)
 // ============================================================================
 
-/// Farm growth system: advances crop progress based on time and farmer presence.
-/// - Passive growth: FARM_BASE_GROWTH_RATE per game hour (~12 hours to full)
-/// - Tended growth: FARM_TENDED_GROWTH_RATE per game hour (~4 hours to full)
-/// When progress >= 1.0, farm transitions to Ready state.
-pub fn farm_growth_system(
+/// Unified growth system for farms and mines.
+/// - Farms: passive + tended rates (unchanged). Upgrade-scaled by FarmYield.
+/// - Mines: tended-only (MINE_TENDED_GROWTH_RATE). Zero growth when unoccupied.
+pub fn growth_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut farm_states: ResMut<FarmStates>,
-    world_data: Res<WorldData>,
+    mut growth_states: ResMut<GrowthStates>,
     farm_occupancy: Res<BuildingOccupancy>,
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("farm_growth");
-    if game_time.paused {
-        return;
-    }
-
-    // Calculate hours elapsed this frame
-    let hours_elapsed = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
-
-    for (farm_idx, farm) in world_data.farms.iter().enumerate() {
-        if farm.position.x < -9000.0 { continue; } // tombstoned
-
-        // Skip if farm_states not initialized for this farm
-        if farm_idx >= farm_states.states.len() {
-            continue;
-        }
-
-        // Only grow farms that are in Growing state
-        if farm_states.states[farm_idx] != FarmGrowthState::Growing {
-            continue;
-        }
-
-        // Determine growth rate based on whether a farmer is working this farm
-        let is_tended = farm_occupancy.is_occupied(farm.position);
-
-        let base_rate = if is_tended {
-            FARM_TENDED_GROWTH_RATE
-        } else {
-            FARM_BASE_GROWTH_RATE
-        };
-
-        // Apply FarmYield upgrade multiplier
-        let town = farm.town_idx as usize;
-        let yield_level = upgrades.levels.get(town).map(|l| l[UpgradeType::FarmYield as usize]).unwrap_or(0);
-        let growth_rate = base_rate * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::FarmYield as usize]);
-
-        // Advance growth progress
-        farm_states.progress[farm_idx] += growth_rate * hours_elapsed;
-
-        // Transition to Ready when fully grown
-        if farm_states.progress[farm_idx] >= 1.0 {
-            farm_states.states[farm_idx] = FarmGrowthState::Ready;
-            farm_states.progress[farm_idx] = 1.0; // Clamp at max
-        }
-
-        let _ = farm; // Silence unused warning
-    }
-}
-
-// ============================================================================
-// MINE REGEN SYSTEM
-// ============================================================================
-
-/// Gold mines slowly regenerate when below max capacity.
-pub fn mine_regen_system(
-    time: Res<Time>,
-    game_time: Res<GameTime>,
-    mut mine_states: ResMut<MineStates>,
-    farm_occupancy: Res<BuildingOccupancy>,
-    timings: Res<SystemTimings>,
-) {
-    let _t = timings.scope("mine_regen");
+    let _t = timings.scope("growth");
     if game_time.paused { return; }
 
     let hours_elapsed = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
 
-    for i in 0..mine_states.gold.len() {
-        // Only regen when mine is not being worked
-        if farm_occupancy.is_occupied(mine_states.positions[i]) { continue; }
-        if mine_states.gold[i] < mine_states.max_gold[i] {
-            mine_states.gold[i] = (mine_states.gold[i] + crate::constants::MINE_REGEN_RATE * hours_elapsed)
-                .min(mine_states.max_gold[i]);
+    for i in 0..growth_states.states.len() {
+        if growth_states.positions[i].x < -9000.0 { continue; } // tombstoned
+        if growth_states.states[i] != FarmGrowthState::Growing { continue; }
+
+        let is_tended = farm_occupancy.is_occupied(growth_states.positions[i]);
+
+        let growth_rate = match growth_states.kinds[i] {
+            GrowthKind::Farm => {
+                let base_rate = if is_tended { FARM_TENDED_GROWTH_RATE } else { FARM_BASE_GROWTH_RATE };
+                let town = growth_states.town_indices[i].unwrap_or(0) as usize;
+                let yield_level = upgrades.levels.get(town).map(|l| l[UpgradeType::FarmYield as usize]).unwrap_or(0);
+                base_rate * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::FarmYield as usize])
+            }
+            GrowthKind::Mine => {
+                if is_tended { crate::constants::MINE_TENDED_GROWTH_RATE } else { 0.0 }
+            }
+        };
+
+        if growth_rate > 0.0 {
+            growth_states.progress[i] += growth_rate * hours_elapsed;
+            if growth_states.progress[i] >= 1.0 {
+                growth_states.states[i] = FarmGrowthState::Ready;
+                growth_states.progress[i] = 1.0;
+            }
         }
-    }
-}
-
-// ============================================================================
-// MINER PROGRESS RENDER SYNC
-// ============================================================================
-
-/// Populate MinerProgressRender from all miners with active MiningProgress.
-pub fn sync_miner_progress_render(
-    query: Query<(&NpcIndex, &MiningProgress), Without<Dead>>,
-    gpu_state: Res<GpuReadState>,
-    mut render: ResMut<MinerProgressRender>,
-) {
-    render.positions.clear();
-    render.progress.clear();
-    let positions = &gpu_state.positions;
-    for (npc_idx, mp) in query.iter() {
-        let idx = npc_idx.0;
-        if idx * 2 + 1 >= positions.len() { continue; }
-        render.positions.push(Vec2::new(positions[idx * 2], positions[idx * 2 + 1]));
-        render.progress.push(mp.0);
     }
 }
 
@@ -262,15 +197,18 @@ pub fn starvation_system(
 /// Growing→Ready: spawn marker. Ready→Growing (harvest): despawn marker.
 pub fn farm_visual_system(
     mut commands: Commands,
-    farm_states: Res<FarmStates>,
+    growth_states: Res<GrowthStates>,
     world_data: Res<crate::world::WorldData>,
     markers: Query<(Entity, &FarmReadyMarker)>,
     mut prev_states: Local<Vec<FarmGrowthState>>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("farm_visual");
-    prev_states.resize(farm_states.states.len(), FarmGrowthState::Growing);
-    for (farm_idx, state) in farm_states.states.iter().enumerate() {
+    // Only process farm entries (first N entries matching WorldData.farms)
+    let farm_count = world_data.farms.len();
+    prev_states.resize(farm_count, FarmGrowthState::Growing);
+    for farm_idx in 0..farm_count.min(growth_states.states.len()) {
+        let state = &growth_states.states[farm_idx];
         let prev = prev_states[farm_idx];
         if *state == FarmGrowthState::Ready && prev == FarmGrowthState::Growing {
             if world_data.farms.get(farm_idx).is_some() {
@@ -700,7 +638,7 @@ pub fn migration_settle_system(
 
     // Mark dirty for building grid + tilemap rebuild
     world_state.dirty.building_grid = true;
-    world_state.dirty.guard_post_slots = true;
+    world_state.dirty.waypoint_slots = true;
     tilemap_spawned.0 = false; // force tilemap rebuild with new terrain + buildings
 
     combat_log.push(CombatEventKind::Raid, game_time.day(), game_time.hour(), game_time.minute(),

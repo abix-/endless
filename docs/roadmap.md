@@ -28,6 +28,17 @@ Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
 - [x] Starvation effects: no food -> HP drain, speed penalty (desertion TBD)
 - [ ] Loss condition: all town NPCs dead + no spawners -> game over screen
 - [x] Building costs rebalanced (difficulty-scaled: Easy/Normal/Hard)
+- [ ] Building construction time: 10s at 1x game speed (scales with time_scale), building is inert during construction
+  - `ConstructionQueue` resource with `ConstructionEntry` (position, total/remaining secs, spawner_idx, growth_idx)
+  - `build_and_pay()` passes `respawn_timer = -1.0` (dormant) to `register_spawner()` and pushes a `ConstructionEntry`
+  - `construction_tick_system` (every frame): count down `remaining -= delta * time_scale`, on completion set spawner timer to `0.0` / unfreeze farm growth
+  - Farms: add `under_construction: Vec<bool>` to `GrowthStates`, skip in `growth_system` when true
+  - Spawner buildings (homes/tents): NPC doesn't spawn until construction completes (spawner stays dormant at `-1.0`)
+  - Guard post turrets already start disabled — no extra suppression needed
+  - Blue progress bar above building during construction via `ExtractResource` render data (same pattern as `BuildingHpRender`)
+  - Render in `npc_render.rs` prepare function as misc instances (`atlas_id: 6.0`, blue tint, `health` = progress pct)
+  - AI builds (`ai_player.rs`) use same `build_and_pay()` path — construction delay applies to AI too
+  - Files: `constants.rs` (BUILDING_CONSTRUCT_SECS), `resources.rs` (ConstructionQueue + GrowthStates.under_construction), `world.rs` (build_and_pay param), `systems/economy.rs` (new system + growth_system guard), `ui/mod.rs` + `systems/ai_player.rs` (pass queue), `lib.rs` + `gpu.rs` (register + extract), `npc_render.rs` (render bars)
 
 **Stage 15: Performance**
 

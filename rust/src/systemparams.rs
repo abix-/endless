@@ -14,7 +14,7 @@ pub struct WorldState<'w> {
     pub building_occupancy: ResMut<'w, crate::world::BuildingOccupancy>,
     pub building_hp: ResMut<'w, BuildingHpState>,
     pub spawner_state: ResMut<'w, SpawnerState>,
-    pub farm_states: ResMut<'w, FarmStates>,
+    pub farm_states: ResMut<'w, GrowthStates>,
     pub dirty: ResMut<'w, DirtyFlags>,
 }
 
@@ -23,7 +23,6 @@ pub struct WorldState<'w> {
 pub struct EconomyState<'w> {
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
-    pub mine_states: ResMut<'w, MineStates>,
     pub food_events: ResMut<'w, FoodEvents>,
     pub pop_stats: ResMut<'w, PopulationStats>,
 }

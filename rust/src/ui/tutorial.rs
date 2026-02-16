@@ -20,14 +20,14 @@ const STEPS: [&str; STEP_COUNT as usize] = [
     "F = follow selected NPC. Press F again or WASD to stop",
     "Food incoming - top bar shows your stockpile",
     "NPCs eat 1 food when low on energy\nNo food -> starvation (half HP, half speed)",
-    "Build a Guard Post - archers patrol between them in order",
+    "Build a Waypoint - archers patrol between them in order",
     "Build an Archer Home - spawns 1 archer",
     "U = upgrades - spend food and gold to buff your NPCs",
     "Upgrades cost food and gold. Miners extract gold from mines",
     "Expansion upgrade = +1 build range per level (starts 8x8)",
     "Build a Miner Home - spawns 1 miner who works the nearest gold mine",
     "P = policies - control NPC behavior (schedules, flee HP, aggression)",
-    "T = patrol order - reorder guard posts to set the archer patrol route",
+    "T = patrol order - reorder waypoints to set the archer patrol route",
     "Q = squads - group archers into squads",
     "1-9 = select squad + click map to send them. 0 = squad 10",
     "R = roster, I = factions, L = combat log, H = help",
@@ -64,8 +64,8 @@ fn step_complete(
         }
         9 => false, // info-only — user clicks Next
         10 => {
-            let posts = world_data.guard_posts.iter().filter(|g| g.town_idx as usize == pt).count();
-            posts > tutorial.initial_guard_posts
+            let posts = world_data.waypoints.iter().filter(|g| g.town_idx as usize == pt).count();
+            posts > tutorial.initial_waypoints
         }
         11 => {
             let homes = world_data.archer_homes.iter().filter(|a| a.town_idx as usize == pt).count();

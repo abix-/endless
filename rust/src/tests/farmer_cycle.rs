@@ -8,15 +8,17 @@ use crate::resources::*;
 
 use super::{TestState, TestSetupParams};
 
-pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<FarmStates>) {
+pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<GrowthStates>) {
     params.add_town("FarmTown");
     params.world_data.farms.push(crate::world::Farm {
         position: Vec2::new(400.0, 350.0),
         town_idx: 0,
     });
+    farm_states.kinds.push(crate::resources::GrowthKind::Farm);
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.0);
     farm_states.positions.push(Vec2::new(400.0, 350.0));
+    farm_states.town_indices.push(Some(0));
     params.add_bed(400.0, 450.0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;

@@ -602,36 +602,51 @@ fn prepare_npc_buffers(
     existing_render: Option<ResMut<NpcRenderBuffers>>,
     existing_visual: Option<ResMut<NpcVisualBuffers>>,
     existing_misc: Option<ResMut<NpcMiscBuffers>>,
-    farm_states: Option<Res<crate::resources::FarmStates>>,
+    growth_states: Option<Res<crate::resources::GrowthStates>>,
     building_hp_render: Option<Res<crate::resources::BuildingHpRender>>,
-    miner_progress_render: Option<Res<crate::resources::MinerProgressRender>>,
 ) {
     // --- Misc instance buffer (farms + building HP bars) ---
     let mut misc_instances = RawBufferVec::new(BufferUsages::VERTEX);
 
-    if let Some(farms) = farm_states {
-        let count = farms.positions.len().min(farms.progress.len()).min(farms.states.len());
+    if let Some(gs) = growth_states {
+        let count = gs.positions.len().min(gs.progress.len()).min(gs.states.len()).min(gs.kinds.len());
         for i in 0..count {
-            let pos = farms.positions[i];
+            let pos = gs.positions[i];
             if pos.x < -9000.0 { continue; }
 
-            let ready = farms.states[i] == crate::resources::FarmGrowthState::Ready;
-            let color = if ready {
-                [1.0, 0.85, 0.0, 1.0]
-            } else {
-                [0.4, 0.8, 0.2, 1.0]
-            };
-
-            misc_instances.push(InstanceData {
-                position: [pos.x, pos.y],
-                sprite: [24.0, 9.0],
-                color,
-                health: farms.progress[i].clamp(0.0, 1.0),
-                flash: 0.0,
-                scale: 16.0,
-                atlas_id: 1.0,
-                rotation: 0.0,
-            });
+            let ready = gs.states[i] == crate::resources::FarmGrowthState::Ready;
+            match gs.kinds[i] {
+                crate::resources::GrowthKind::Farm => {
+                    let color = if ready {
+                        [1.0, 0.85, 0.0, 1.0]
+                    } else {
+                        [0.4, 0.8, 0.2, 1.0]
+                    };
+                    misc_instances.push(InstanceData {
+                        position: [pos.x, pos.y],
+                        sprite: [24.0, 9.0],
+                        color,
+                        health: gs.progress[i].clamp(0.0, 1.0),
+                        flash: 0.0,
+                        scale: 16.0,
+                        atlas_id: 1.0,
+                        rotation: 0.0,
+                    });
+                }
+                crate::resources::GrowthKind::Mine => {
+                    // Gold progress bar at mine position
+                    misc_instances.push(InstanceData {
+                        position: [pos.x, pos.y + 12.0],
+                        sprite: [0.0, 0.0],
+                        color: [1.0, 0.85, 0.0, 1.0],
+                        health: gs.progress[i].clamp(0.0, 1.0),
+                        flash: 0.0,
+                        scale: 12.0,
+                        atlas_id: 6.0,
+                        rotation: 0.0,
+                    });
+                }
+            }
         }
     }
 
@@ -646,22 +661,6 @@ fn prepare_npc_buffers(
                 flash: 0.0,
                 scale: 32.0,
                 atlas_id: 5.0,
-                rotation: 0.0,
-            });
-        }
-    }
-
-    if let Some(mpr) = miner_progress_render {
-        let count = mpr.positions.len().min(mpr.progress.len());
-        for i in 0..count {
-            misc_instances.push(InstanceData {
-                position: [mpr.positions[i].x, mpr.positions[i].y + 12.0],
-                sprite: [0.0, 0.0],
-                color: [1.0, 0.85, 0.0, 1.0],
-                health: mpr.progress[i].clamp(0.0, 1.0),
-                flash: 0.0,
-                scale: 12.0,
-                atlas_id: 6.0,
                 rotation: 0.0,
             });
         }

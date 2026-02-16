@@ -20,7 +20,7 @@ use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality};
+use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality, TownUpgrades, UpgradeQueue};
 use crate::world::{self, WorldGenConfig};
 
 /// Render a small "?" button (frameless) that shows help text on hover.
@@ -170,7 +170,6 @@ struct StartupExtra<'w> {
     npcs_by_town: ResMut<'w, NpcsByTownCache>,
     ai_state: ResMut<'w, AiPlayerState>,
     combat_log: ResMut<'w, CombatLog>,
-    mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
     bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
@@ -212,9 +211,9 @@ fn game_load_system(
     crate::save::apply_save(
         &save,
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
-        &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states, &mut ws.mine_states,
+        &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
-        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.guard_post_state, &mut fs.camp_state,
+        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.waypoint_state, &mut fs.camp_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state,
         &mut tracking.npcs_by_town, &mut tracking.slots,
@@ -286,7 +285,6 @@ fn game_startup_system(
         &mut world_state.grid,
         &mut world_state.world_data,
         &mut world_state.farm_states,
-        &mut extra.mine_states,
         &mut world_state.town_grids,
     );
 
@@ -346,7 +344,7 @@ fn game_startup_system(
         use crate::constants::*;
         let hp = &mut world_state.building_hp;
         **hp = BuildingHpState::default();
-        for _ in &world_state.world_data.guard_posts { hp.guard_posts.push(GUARD_POST_HP); }
+        for _ in &world_state.world_data.waypoints { hp.waypoints.push(WAYPOINT_HP); }
         for _ in &world_state.world_data.farmer_homes { hp.farmer_homes.push(FARMER_HOME_HP); }
         for _ in &world_state.world_data.archer_homes { hp.archer_homes.push(ARCHER_HOME_HP); }
         for _ in &world_state.world_data.tents { hp.tents.push(TENT_HP); }
@@ -459,7 +457,7 @@ fn tutorial_init_system(
     // Snapshot initial building counts for completion checks
     tutorial.initial_farms = world_data.farms.iter().filter(|f| f.town_idx as usize == player_town).count();
     tutorial.initial_farmer_homes = world_data.farmer_homes.iter().filter(|h| h.town_idx as usize == player_town).count();
-    tutorial.initial_guard_posts = world_data.guard_posts.iter().filter(|g| g.town_idx as usize == player_town).count();
+    tutorial.initial_waypoints = world_data.waypoints.iter().filter(|g| g.town_idx as usize == player_town).count();
     tutorial.initial_archer_homes = world_data.archer_homes.iter().filter(|a| a.town_idx as usize == player_town).count();
     tutorial.initial_miner_homes = world_data.miner_homes.iter().filter(|m| m.town_idx as usize == player_town).count();
 
@@ -469,9 +467,9 @@ fn tutorial_init_system(
     }
 
     tutorial.step = 1;
-    info!("Tutorial started (farms={}, farmer_homes={}, guard_posts={}, archer_homes={}, miner_homes={})",
+    info!("Tutorial started (farms={}, farmer_homes={}, waypoints={}, archer_homes={}, miner_homes={})",
         tutorial.initial_farms, tutorial.initial_farmer_homes,
-        tutorial.initial_guard_posts, tutorial.initial_archer_homes, tutorial.initial_miner_homes);
+        tutorial.initial_waypoints, tutorial.initial_archer_homes, tutorial.initial_miner_homes);
 }
 
 // ============================================================================
@@ -731,7 +729,7 @@ fn build_place_click_system(
             .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
             .unwrap_or(false);
         if !is_destructible { return; }
-        let is_guard_post = matches!(cell_building, Some(world::Building::GuardPost { .. }));
+        let is_waypoint = matches!(cell_building, Some(world::Building::Waypoint { .. }));
 
         let _ = world::destroy_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
@@ -740,9 +738,9 @@ fn build_place_click_system(
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
         );
-        if is_guard_post {
+        if is_waypoint {
             world_state.dirty.patrols = true;
-            world_state.dirty.guard_post_slots = true;
+            world_state.dirty.waypoint_slots = true;
         }
         world_state.dirty.building_grid = true;
         return;
@@ -757,11 +755,11 @@ fn build_place_click_system(
     let cost = crate::constants::building_cost(kind);
     let (building, label) = match kind {
         BuildKind::Farm => (world::Building::Farm { town_idx }, "farm"),
-        BuildKind::GuardPost => {
-            let existing_posts = world_state.world_data.guard_posts.iter()
+        BuildKind::Waypoint => {
+            let existing_posts = world_state.world_data.waypoints.iter()
                 .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
                 .count() as u32;
-            (world::Building::GuardPost { town_idx, patrol_order: existing_posts }, "guard post")
+            (world::Building::Waypoint { town_idx, patrol_order: existing_posts }, "waypoint")
         }
         BuildKind::FarmerHome => (world::Building::FarmerHome { town_idx }, "house"),
         BuildKind::ArcherHome => (world::Building::ArcherHome { town_idx }, "barracks"),
@@ -780,9 +778,9 @@ fn build_place_click_system(
         row, col, center, cost,
     ) { return; }
 
-    if kind == BuildKind::GuardPost {
+    if kind == BuildKind::Waypoint {
         world_state.dirty.patrols = true;
-        world_state.dirty.guard_post_slots = true;
+        world_state.dirty.waypoint_slots = true;
     }
     world_state.dirty.building_grid = true;
 
@@ -1000,7 +998,7 @@ fn process_destroy_system(
         .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
         .unwrap_or(false);
     if !is_destructible { return; }
-    let is_guard_post = matches!(cell_building, Some(world::Building::GuardPost { .. }));
+    let is_waypoint = matches!(cell_building, Some(world::Building::Waypoint { .. }));
 
     // Find which town this building belongs to, derive town center
     let town_idx = cell_building
@@ -1025,9 +1023,9 @@ fn process_destroy_system(
         &format!("Destroyed building in {}", town_name),
     ).is_ok() {
         selected_building.active = false;
-        if is_guard_post {
+        if is_waypoint {
             world_state.dirty.patrols = true;
-            world_state.dirty.guard_post_slots = true;
+            world_state.dirty.waypoint_slots = true;
         }
         world_state.dirty.building_grid = true;
     }
@@ -1049,7 +1047,6 @@ struct CleanupWorld<'w> {
     tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     build_menu_ctx: ResMut<'w, BuildMenuContext>,
     ai_state: ResMut<'w, AiPlayerState>,
-    mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
 }
 
@@ -1062,6 +1059,24 @@ struct CleanupDebug<'w> {
     raid_queue: ResMut<'w, RaidQueue>,
     npc_entity_map: ResMut<'w, NpcEntityMap>,
     pop_stats: ResMut<'w, PopulationStats>,
+}
+
+#[derive(SystemParam)]
+struct CleanupGameplay<'w> {
+    upgrades: ResMut<'w, TownUpgrades>,
+    upgrade_queue: ResMut<'w, UpgradeQueue>,
+    policies: ResMut<'w, TownPolicies>,
+    auto_upgrade: ResMut<'w, AutoUpgrade>,
+    npc_logs: ResMut<'w, NpcLogCache>,
+    npc_meta: ResMut<'w, NpcMetaCache>,
+    npcs_by_town: ResMut<'w, NpcsByTownCache>,
+    migration: ResMut<'w, MigrationState>,
+    waypoint_state: ResMut<'w, WaypointState>,
+    selected_npc: ResMut<'w, SelectedNpc>,
+    selected_building: ResMut<'w, SelectedBuilding>,
+    follow: ResMut<'w, FollowSelected>,
+    food_events: ResMut<'w, FoodEvents>,
+    proj_slots: ResMut<'w, ProjSlotAllocator>,
 }
 
 /// Clean up world when leaving Playing state.
@@ -1079,6 +1094,7 @@ fn game_cleanup_system(
     mut squad_state: ResMut<SquadState>,
     mut building_hp_render: ResMut<crate::resources::BuildingHpRender>,
     mut healing_cache: ResMut<HealingZoneCache>,
+    mut gameplay: CleanupGameplay,
 ) {
     // Despawn all entities
     for entity in npc_query.iter() {
@@ -1111,7 +1127,6 @@ fn game_cleanup_system(
     *world.build_menu_ctx = Default::default();
     *world.world_state.spawner_state = Default::default();
     *world.ai_state = Default::default();
-    *world.mine_states = Default::default();
     *world.gold_storage = Default::default();
     *world.world_state.building_hp = Default::default();
     *building_hp_render = Default::default();

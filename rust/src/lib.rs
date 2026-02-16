@@ -30,12 +30,12 @@ use messages::{SpawnNpcMsg, DamageMsg, BuildingDamageMsg, GpuUpdateMsg};
 use resources::{
     MigrationState,
     NpcEntityMap, PopulationStats, GameConfig, GameTime,
-    FarmStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
+    GrowthStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
-    FoodStorage, GoldStorage, MineStates, FactionStats, CampState, RaidQueue, SystemTimings,
+    FoodStorage, GoldStorage, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
-    GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
+    WaypointState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
     DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState,
 };
@@ -200,7 +200,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GameTime>()
        .init_resource::<world::WorldData>()
        .init_resource::<world::BuildingOccupancy>()
-       .init_resource::<FarmStates>()
+       .init_resource::<GrowthStates>()
        .init_resource::<HealthDebug>()
        .init_resource::<CombatDebug>()
        .init_resource::<KillStats>()
@@ -220,7 +220,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<ProjSlotAllocator>()
        .init_resource::<FoodStorage>()
        .init_resource::<GoldStorage>()
-       .init_resource::<MineStates>()
        .init_resource::<FactionStats>()
        .init_resource::<CampState>()
        .init_resource::<DirtyFlags>()
@@ -235,11 +234,10 @@ pub fn build_app(app: &mut App) {
        .init_resource::<world::TownGrids>()
        .init_resource::<BuildMenuContext>()
        .init_resource::<DestroyRequest>()
-       .init_resource::<GuardPostState>()
+       .init_resource::<WaypointState>()
        .init_resource::<SpawnerState>()
        .init_resource::<BuildingHpState>()
        .init_resource::<resources::BuildingHpRender>()
-       .init_resource::<resources::MinerProgressRender>()
        .init_resource::<SquadState>()
        .insert_resource(HelpCatalog::new())
        .init_resource::<TutorialState>()
@@ -294,8 +292,8 @@ pub fn build_app(app: &mut App) {
            death_system,
            xp_grant_system,
            death_cleanup_system,
-           sync_guard_post_slots,
-           guard_post_attack_system,
+           sync_waypoint_slots,
+           waypoint_attack_system,
        ).chain().in_set(Step::Combat))
        // Behavior
        .add_systems(Update, (
@@ -306,8 +304,7 @@ pub fn build_app(app: &mut App) {
            healing_system,
            on_duty_tick_system,
            game_time_system,
-           farm_growth_system,
-           mine_regen_system,
+           growth_system,
            camp_forage_system,
            spawner_respawn_system,
            starvation_system,
@@ -322,7 +319,6 @@ pub fn build_app(app: &mut App) {
        ).in_set(Step::Behavior))
        .add_systems(Update, migration_attach_system.after(Step::Spawn).before(Step::Combat).run_if(game_active.clone()))
        .add_systems(Update, (building_damage_system, sync_building_hp_render).chain().in_set(Step::Behavior))
-       .add_systems(Update, sync_miner_progress_render.in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, frame_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))
        // Debug settings sync + tick logging

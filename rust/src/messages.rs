@@ -29,7 +29,7 @@ pub struct SpawnNpcMsg {
 pub struct DamageMsg {
     pub npc_index: usize,
     pub amount: f32,
-    pub attacker: i32,  // NPC slot index of last attacker (-1 = no attacker, e.g. guard post)
+    pub attacker: i32,  // NPC slot index of last attacker (-1 = no attacker, e.g. waypoint)
 }
 
 /// Damage applied to a building by a projectile or direct attack.

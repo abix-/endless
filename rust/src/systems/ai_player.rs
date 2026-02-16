@@ -26,8 +26,8 @@ pub struct AiBuildRes<'w> {
     upgrade_queue: ResMut<'w, UpgradeQueue>,
 }
 
-/// Minimum Manhattan distance between guard posts on the town grid.
-const MIN_GUARD_POST_SPACING: i32 = 5;
+/// Minimum Manhattan distance between waypoints on the town grid.
+const MIN_WAYPOINT_SPACING: i32 = 5;
 
 #[derive(Resource)]
 pub struct AiPlayerConfig {
@@ -50,7 +50,7 @@ enum AiAction {
     BuildFarm,
     BuildFarmerHome,
     BuildArcherHome,
-    BuildGuardPost,
+    BuildWaypoint,
     BuildTent,
     BuildMinerHome,
     Upgrade(usize), // upgrade index into UPGRADE_PCT
@@ -97,7 +97,7 @@ impl AiPersonality {
         }
     }
 
-    /// Base weights for building types: (farm, house, barracks, guard_post)
+    /// Base weights for building types: (farm, house, barracks, waypoint)
     fn building_weights(self) -> (f32, f32, f32, f32) {
         match self {
             Self::Aggressive => (10.0, 10.0, 30.0, 20.0),
@@ -196,12 +196,12 @@ fn find_inner_slot(
     best.map(|(slot, _)| slot)
 }
 
-/// Find outermost empty slot at least MIN_GUARD_POST_SPACING from all existing guard posts.
-fn find_guard_post_slot(
+/// Find outermost empty slot at least MIN_WAYPOINT_SPACING from all existing waypoints.
+fn find_waypoint_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, world_data: &WorldData, ti: u32,
 ) -> Option<(i32, i32)> {
-    // Existing guard post grid positions for this town
-    let existing: Vec<(i32, i32)> = world_data.guard_posts.iter()
+    // Existing waypoint grid positions for this town
+    let existing: Vec<(i32, i32)> = world_data.waypoints.iter()
         .filter(|gp| gp.town_idx == ti && gp.position.x > -9000.0)
         .map(|gp| world::world_to_town_grid(center, gp.position))
         .collect();
@@ -214,9 +214,9 @@ fn find_guard_post_slot(
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
             if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
-            // Skip slots too close to existing guard posts
+            // Skip slots too close to existing waypoints
             let too_close = existing.iter().any(|&(er, ec)| {
-                (r - er).abs() + (c - ec).abs() < MIN_GUARD_POST_SPACING
+                (r - er).abs() + (c - ec).abs() < MIN_WAYPOINT_SPACING
             });
             if too_close { continue; }
             let dist_sq = r * r + c * c;
@@ -301,7 +301,7 @@ pub fn ai_decision_system(
         let farms = res.world.world_data.farms.iter().filter(|f| alive(f.position, f.town_idx)).count();
         let houses = res.world.world_data.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count();
         let barracks = res.world.world_data.archer_homes.iter().filter(|b| alive(b.position, b.town_idx)).count();
-        let guard_posts = res.world.world_data.guard_posts.iter().filter(|g| alive(g.position, g.town_idx)).count();
+        let waypoints = res.world.world_data.waypoints.iter().filter(|g| alive(g.position, g.town_idx)).count();
         let mine_shafts = res.world.world_data.miner_homes.iter().filter(|ms| alive(ms.position, ms.town_idx)).count();
 
         let has_slots = res.world.town_grids.grids.get(player.grid_idx)
@@ -336,12 +336,12 @@ pub fn ai_decision_system(
                     let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0);
                     let house_need = 1.0 + (farms as f32 - houses as f32).max(0.0);
                     let barracks_need = if barracks < bt { 1.0 + (bt - barracks) as f32 } else { 0.5 };
-                    let gp_need = if guard_posts < barracks { 1.0 + (barracks - guard_posts) as f32 } else { 0.5 };
+                    let gp_need = if waypoints < barracks { 1.0 + (barracks - waypoints) as f32 } else { 0.5 };
 
                     if food >= building_cost(BuildKind::Farm) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
                     if food >= building_cost(BuildKind::FarmerHome) { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
                     if food >= building_cost(BuildKind::ArcherHome) { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
-                    if food >= building_cost(BuildKind::GuardPost) { scores.push((AiAction::BuildGuardPost, gw * gp_need)); }
+                    if food >= building_cost(BuildKind::Waypoint) { scores.push((AiAction::BuildWaypoint, gw * gp_need)); }
                     let ms_target = player.personality.miner_home_target(houses);
                     if mine_shafts < ms_target && food >= building_cost(BuildKind::MinerHome) {
                         let ms_need = 1.0 + (ms_target - mine_shafts) as f32;
@@ -374,7 +374,7 @@ pub fn ai_decision_system(
         // Pick and execute
         let Some(action) = weighted_pick(&scores) else { continue };
         let label = execute_action(
-            action, ti, tdi, center, guard_posts, &mut res,
+            action, ti, tdi, center, waypoints, &mut res,
             player.grid_idx, *difficulty,
         );
         if let Some(what) = label {
@@ -402,7 +402,7 @@ fn try_build_inner(
 
 /// Execute the chosen action, returning a log label on success.
 fn execute_action(
-    action: AiAction, ti: u32, tdi: usize, center: Vec2, guard_posts: usize,
+    action: AiAction, ti: u32, tdi: usize, center: Vec2, waypoints: usize,
     res: &mut AiBuildRes, grid_idx: usize, _difficulty: Difficulty,
 ) -> Option<String> {
     match action {
@@ -421,20 +421,20 @@ fn execute_action(
         AiAction::BuildMinerHome => try_build_inner(
             Building::MinerHome { town_idx: ti }, building_cost(BuildKind::MinerHome), "miner home",
             tdi, center, res, grid_idx),
-        AiAction::BuildGuardPost => {
-            let cost = building_cost(BuildKind::GuardPost);
+        AiAction::BuildWaypoint => {
+            let cost = building_cost(BuildKind::Waypoint);
             let tg = res.world.town_grids.grids.get(grid_idx)?;
-            let (row, col) = find_guard_post_slot(tg, center, &res.world.grid, &res.world.world_data, ti)?;
+            let (row, col) = find_waypoint_slot(tg, center, &res.world.grid, &res.world.world_data, ti)?;
             let ok = world::build_and_pay(&mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
                 &mut res.food_storage, &mut res.world.spawner_state, &mut res.world.building_hp,
-                Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
+                Building::Waypoint { town_idx: ti, patrol_order: waypoints as u32 },
                 tdi, row, col, center, cost);
             if ok {
                 res.world.dirty.patrols = true;
                 res.world.dirty.building_grid = true;
-                res.world.dirty.guard_post_slots = true;
+                res.world.dirty.waypoint_slots = true;
             }
-            ok.then_some("built guard post".into())
+            ok.then_some("built waypoint".into())
         }
         AiAction::Upgrade(idx) => {
             res.upgrade_queue.0.push((tdi, idx));

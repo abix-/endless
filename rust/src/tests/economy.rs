@@ -9,7 +9,7 @@ use super::{TestState, TestSetupParams};
 
 pub fn setup(
     mut params: TestSetupParams,
-    mut farm_states: ResMut<FarmStates>,
+    mut farm_states: ResMut<GrowthStates>,
     mut camp_state: ResMut<CampState>,
 ) {
     // Villager town
@@ -26,9 +26,11 @@ pub fn setup(
         position: Vec2::new(400.0, 350.0),
         town_idx: 0,
     });
+    farm_states.kinds.push(crate::resources::GrowthKind::Farm);
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.95); // near ready so transition happens within 30s
     farm_states.positions.push(Vec2::new(400.0, 350.0));
+    farm_states.town_indices.push(Some(0));
     params.add_bed(400.0, 450.0);
 
     params.init_economy(2);
@@ -64,7 +66,7 @@ pub fn tick(
     _farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
     npc_query: Query<(), (With<NpcIndex>, Without<Dead>)>,
     stealer_query: Query<(), (With<Stealer>, Without<Dead>)>,
-    farm_states: Res<FarmStates>,
+    farm_states: Res<GrowthStates>,
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
     mut test: ResMut<TestState>,

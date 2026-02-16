@@ -2,9 +2,9 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::{GUARD_POST_RANGE, GUARD_POST_DAMAGE, GUARD_POST_COOLDOWN, GUARD_POST_PROJ_SPEED, GUARD_POST_PROJ_LIFETIME};
+use crate::constants::{WAYPOINT_RANGE, WAYPOINT_DAMAGE, WAYPOINT_COOLDOWN, WAYPOINT_PROJ_SPEED, WAYPOINT_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, SlotAllocator};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, WaypointState, BuildingHpState, SystemTimings, CombatLog, GameTime, SlotAllocator};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid};
@@ -336,20 +336,20 @@ pub fn process_proj_hits(
     }
 }
 
-/// Sync guard post NPC slots: allocate for new posts, free for tombstoned posts.
-/// Gated by DirtyFlags::guard_post_slots — only runs when guard posts are built/destroyed/loaded.
-pub fn sync_guard_post_slots(
+/// Sync waypoint NPC slots: allocate for new posts, free for tombstoned posts.
+/// Gated by DirtyFlags::waypoint_slots — only runs when waypoints are built/destroyed/loaded.
+pub fn sync_waypoint_slots(
     mut slots: ResMut<SlotAllocator>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut world: WorldState,
 ) {
-    if !world.dirty.guard_post_slots { return; }
-    world.dirty.guard_post_slots = false;
+    if !world.dirty.waypoint_slots { return; }
+    world.dirty.waypoint_slots = false;
 
-    // Collect new allocations needing faction set (can't borrow towns during guard_posts iter_mut)
+    // Collect new allocations needing faction set (can't borrow towns during waypoints iter_mut)
     let mut new_slots: Vec<(usize, u32)> = Vec::new(); // (slot, town_idx)
 
-    for gp in world.world_data.guard_posts.iter_mut() {
+    for gp in world.world_data.waypoints.iter_mut() {
         let alive = gp.position.x > -9000.0;
         match (alive, gp.npc_slot) {
             (true, None) => {
@@ -379,29 +379,29 @@ pub fn sync_guard_post_slots(
     }
 }
 
-/// Guard post turret auto-attack: reads GPU combat_targets for nearest enemy, fires projectile.
-/// State length auto-syncs with WorldData.guard_posts (handles runtime building).
-pub fn guard_post_attack_system(
+/// Waypoint turret auto-attack: reads GPU combat_targets for nearest enemy, fires projectile.
+/// State length auto-syncs with WorldData.waypoints (handles runtime building).
+pub fn waypoint_attack_system(
     time: Res<Time>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
-    mut gp_state: ResMut<GuardPostState>,
+    mut gp_state: ResMut<WaypointState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("guard_post_attack");
+    let _t = timings.scope("waypoint_attack");
     let dt = time.delta_secs();
     let positions = &gpu_state.positions;
 
-    // Sync state length with guard post count (handles new builds)
-    while gp_state.timers.len() < world_data.guard_posts.len() {
+    // Sync state length with waypoint count (handles new builds)
+    while gp_state.timers.len() < world_data.waypoints.len() {
         gp_state.timers.push(0.0);
-        gp_state.attack_enabled.push(true);
+        gp_state.attack_enabled.push(false);
     }
 
-    let range_sq = GUARD_POST_RANGE * GUARD_POST_RANGE;
+    let range_sq = WAYPOINT_RANGE * WAYPOINT_RANGE;
 
-    for (i, post) in world_data.guard_posts.iter().enumerate() {
+    for (i, post) in world_data.waypoints.iter().enumerate() {
         if i >= gp_state.timers.len() { break; }
         if !gp_state.attack_enabled[i] { continue; }
         let Some(slot) = post.npc_slot else { continue }; // No GPU slot yet
@@ -437,18 +437,18 @@ pub fn guard_post_attack_system(
                     queue.push(ProjGpuUpdate::Spawn {
                         idx: proj_slot,
                         x: px, y: py,
-                        vx: dir_x * GUARD_POST_PROJ_SPEED,
-                        vy: dir_y * GUARD_POST_PROJ_SPEED,
-                        damage: GUARD_POST_DAMAGE,
+                        vx: dir_x * WAYPOINT_PROJ_SPEED,
+                        vy: dir_y * WAYPOINT_PROJ_SPEED,
+                        damage: WAYPOINT_DAMAGE,
                         faction: world_data.towns.get(post.town_idx as usize)
                             .map(|t| t.faction).unwrap_or(0),
                         shooter: -1, // Building, not NPC
-                        lifetime: GUARD_POST_PROJ_LIFETIME,
+                        lifetime: WAYPOINT_PROJ_LIFETIME,
                     });
                 }
             }
         }
-        gp_state.timers[i] = GUARD_POST_COOLDOWN;
+        gp_state.timers[i] = WAYPOINT_COOLDOWN;
     }
 }
 
@@ -472,7 +472,7 @@ pub fn building_damage_system(
 
         // Building destroyed — find its position and town to call destroy_building
         let (pos, town_idx) = match msg.kind {
-            BuildingKind::GuardPost => world.world_data.guard_posts.get(msg.index)
+            BuildingKind::Waypoint => world.world_data.waypoints.get(msg.index)
                 .map(|g| (g.position, g.town_idx as usize)),
             BuildingKind::FarmerHome => world.world_data.farmer_homes.get(msg.index)
                 .map(|h| (h.position, h.town_idx as usize)),
@@ -513,9 +513,9 @@ pub fn building_damage_system(
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
         );
-        if msg.kind == BuildingKind::GuardPost {
+        if msg.kind == BuildingKind::Waypoint {
             world.dirty.patrols = true;
-            world.dirty.guard_post_slots = true;
+            world.dirty.waypoint_slots = true;
         }
         world.dirty.building_grid = true;
 

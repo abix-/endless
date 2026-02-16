@@ -46,7 +46,7 @@ pub struct SpriteAssets {
     /// External building sprites (32x32 PNGs)
     pub house_texture: Handle<Image>,
     pub barracks_texture: Handle<Image>,
-    pub guard_post_texture: Handle<Image>,
+    pub waypoint_texture: Handle<Image>,
     pub miner_house_texture: Handle<Image>,
     /// Whether assets are loaded
     pub loaded: bool,
@@ -139,7 +139,7 @@ fn load_sprites(
     assets.world_texture = asset_server.load("sprites/roguelikeSheet_transparent.png");
     assets.house_texture = asset_server.load("sprites/house.png");
     assets.barracks_texture = asset_server.load("sprites/barracks.png");
-    assets.guard_post_texture = asset_server.load("sprites/guard_post.png");
+    assets.waypoint_texture = asset_server.load("sprites/waypoint.png");
     assets.miner_house_texture = asset_server.load("sprites/miner_house.png");
     npc_sprite_tex.world_handle = Some(assets.world_texture.clone());
 
@@ -465,7 +465,7 @@ fn spawn_world_tilemap(
     let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
     let Some(house_img) = images.get(&assets.house_texture).cloned() else { return; };
     let Some(barracks_img) = images.get(&assets.barracks_texture).cloned() else { return; };
-    let Some(guard_post_img) = images.get(&assets.guard_post_texture).cloned() else { return; };
+    let Some(waypoint_img) = images.get(&assets.waypoint_texture).cloned() else { return; };
     let Some(miner_house_img) = images.get(&assets.miner_house_texture).cloned() else { return; };
 
     // Terrain layer: every cell filled, opaque. Tagged with TerrainChunk for runtime sync.
@@ -492,7 +492,7 @@ fn spawn_world_tilemap(
     let building_tileset = build_tileset(
         &atlas,
         &BUILDING_TILES,
-        &[&house_img, &barracks_img, &guard_post_img, &miner_house_img],
+        &[&house_img, &barracks_img, &waypoint_img, &miner_house_img],
         &mut images,
     );
     let building_tiles: Vec<Option<TileData>> = grid.cells.iter()

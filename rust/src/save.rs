@@ -41,7 +41,8 @@ pub struct SaveData {
     pub towns: Vec<TownSave>,
     pub farms: Vec<PosTownSave>,
     pub beds: Vec<PosTownSave>,
-    pub guard_posts: Vec<GuardPostSave>,
+    #[serde(alias = "guard_posts")]
+    pub waypoints: Vec<WaypointSave>,
     pub farmer_homes: Vec<PosTownSave>,
     pub archer_homes: Vec<PosTownSave>,
     pub tents: Vec<PosTownSave>,
@@ -63,10 +64,9 @@ pub struct SaveData {
     // Farm states
     pub farm_growth: Vec<FarmGrowthSave>,
 
-    // Mine states
-    pub mine_gold: Vec<f32>,
-    pub mine_max_gold: Vec<f32>,
-    pub mine_positions: Vec<[f32; 2]>,
+    // Mine growth states (GrowthKind::Mine entries in GrowthStates)
+    #[serde(default)]
+    pub mine_growth: Vec<FarmGrowthSave>,
 
     // Spawners
     pub spawners: Vec<SpawnerSave>,
@@ -84,8 +84,9 @@ pub struct SaveData {
     // Squads
     pub squads: Vec<SquadSave>,
 
-    // Guard post turret state
-    pub guard_post_attack: Vec<bool>,
+    // Waypoint turret state
+    #[serde(alias = "guard_post_attack")]
+    pub waypoint_attack: Vec<bool>,
 
     // Camp state
     pub camp_respawn_timers: Vec<f32>,
@@ -124,7 +125,7 @@ pub struct PosTownSave {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct GuardPostSave {
+pub struct WaypointSave {
     pub position: [f32; 2],
     pub town_idx: u32,
     pub patrol_order: u32,
@@ -153,7 +154,7 @@ pub struct SpawnerSave {
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct BuildingHpSave {
-    pub guard_posts: Vec<f32>,
+    pub waypoints: Vec<f32>,
     pub farmer_homes: Vec<f32>,
     pub archer_homes: Vec<f32>,
     pub tents: Vec<f32>,
@@ -206,7 +207,8 @@ pub enum BuildingSave {
     Fountain { town_idx: u32 },
     Farm { town_idx: u32 },
     Bed { town_idx: u32 },
-    GuardPost { town_idx: u32, patrol_order: u32 },
+    #[serde(alias = "GuardPost")]
+    Waypoint { town_idx: u32, patrol_order: u32 },
     Camp { town_idx: u32 },
     FarmerHome { town_idx: u32 },
     ArcherHome { town_idx: u32 },
@@ -221,7 +223,7 @@ impl BuildingSave {
             world::Building::Fountain { town_idx } => Self::Fountain { town_idx },
             world::Building::Farm { town_idx } => Self::Farm { town_idx },
             world::Building::Bed { town_idx } => Self::Bed { town_idx },
-            world::Building::GuardPost { town_idx, patrol_order } => Self::GuardPost { town_idx, patrol_order },
+            world::Building::Waypoint { town_idx, patrol_order } => Self::Waypoint { town_idx, patrol_order },
             world::Building::Camp { town_idx } => Self::Camp { town_idx },
             world::Building::FarmerHome { town_idx } => Self::FarmerHome { town_idx },
             world::Building::ArcherHome { town_idx } => Self::ArcherHome { town_idx },
@@ -236,7 +238,7 @@ impl BuildingSave {
             Self::Fountain { town_idx } => world::Building::Fountain { town_idx },
             Self::Farm { town_idx } => world::Building::Farm { town_idx },
             Self::Bed { town_idx } => world::Building::Bed { town_idx },
-            Self::GuardPost { town_idx, patrol_order } => world::Building::GuardPost { town_idx, patrol_order },
+            Self::Waypoint { town_idx, patrol_order } => world::Building::Waypoint { town_idx, patrol_order },
             Self::Camp { town_idx } => world::Building::Camp { town_idx },
             Self::FarmerHome { town_idx } => world::Building::FarmerHome { town_idx },
             Self::ArcherHome { town_idx } => world::Building::ArcherHome { town_idx },
@@ -458,15 +460,14 @@ pub fn collect_save_data(
     game_time: &GameTime,
     food_storage: &FoodStorage,
     gold_storage: &GoldStorage,
-    farm_states: &FarmStates,
-    mine_states: &MineStates,
+    farm_states: &GrowthStates,
     spawner_state: &SpawnerState,
     building_hp: &BuildingHpState,
     upgrades: &TownUpgrades,
     policies: &TownPolicies,
     auto_upgrade: &AutoUpgrade,
     squad_state: &SquadState,
-    guard_post_state: &GuardPostState,
+    waypoint_state: &WaypointState,
     camp_state: &CampState,
     faction_stats: &FactionStats,
     kill_stats: &KillStats,
@@ -495,7 +496,7 @@ pub fn collect_save_data(
     let beds: Vec<PosTownSave> = world_data.beds.iter().map(|b| PosTownSave {
         position: v2(b.position), town_idx: b.town_idx,
     }).collect();
-    let guard_posts: Vec<GuardPostSave> = world_data.guard_posts.iter().map(|g| GuardPostSave {
+    let waypoints: Vec<WaypointSave> = world_data.waypoints.iter().map(|g| WaypointSave {
         position: v2(g.position), town_idx: g.town_idx, patrol_order: g.patrol_order,
     }).collect();
     let farmer_homes: Vec<PosTownSave> = world_data.farmer_homes.iter().map(|h| PosTownSave {
@@ -535,7 +536,7 @@ pub fn collect_save_data(
 
     // Building HP
     let building_hp_save = BuildingHpSave {
-        guard_posts: building_hp.guard_posts.clone(),
+        waypoints: building_hp.waypoints.clone(),
         farmer_homes: building_hp.farmer_homes.clone(),
         archer_homes: building_hp.archer_homes.clone(),
         tents: building_hp.tents.clone(),
@@ -596,7 +597,7 @@ pub fn collect_save_data(
         towns,
         farms,
         beds,
-        guard_posts,
+        waypoints,
         farmer_homes,
         archer_homes,
         tents: tents_save,
@@ -609,16 +610,23 @@ pub fn collect_save_data(
         food: food_storage.food.clone(),
         gold: gold_storage.gold.clone(),
         farm_growth,
-        mine_gold: mine_states.gold.clone(),
-        mine_max_gold: mine_states.max_gold.clone(),
-        mine_positions: mine_states.positions.iter().map(|p| v2(*p)).collect(),
+        mine_growth: {
+            let farm_count = world_data.farms.len();
+            farm_states.states.iter().enumerate()
+                .filter(|(i, _)| *i >= farm_count)
+                .zip(farm_states.progress.iter().skip(farm_count))
+                .map(|((_, s), p)| FarmGrowthSave {
+                    state: match s { FarmGrowthState::Growing => 0, FarmGrowthState::Ready => 1 },
+                    progress: *p,
+                }).collect()
+        },
         spawners,
         building_hp: building_hp_save,
         upgrades: upgrades_save,
         policies: policies.policies.clone(),
         auto_upgrades: auto_upgrades_save,
         squads,
-        guard_post_attack: guard_post_state.attack_enabled.clone(),
+        waypoint_attack: waypoint_state.attack_enabled.clone(),
         camp_respawn_timers: camp_state.respawn_timers.clone(),
         camp_forage_timers: camp_state.forage_timers.clone(),
         camp_max_pop: camp_state.max_pop.clone(),
@@ -710,15 +718,14 @@ pub fn apply_save(
     game_time: &mut GameTime,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
-    farm_states: &mut FarmStates,
-    mine_states: &mut MineStates,
+    farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
     building_hp: &mut BuildingHpState,
     upgrades: &mut TownUpgrades,
     policies: &mut TownPolicies,
     auto_upgrade: &mut AutoUpgrade,
     squad_state: &mut SquadState,
-    guard_post_state: &mut GuardPostState,
+    waypoint_state: &mut WaypointState,
     camp_state: &mut CampState,
     faction_stats: &mut FactionStats,
     kill_stats: &mut KillStats,
@@ -747,7 +754,7 @@ pub fn apply_save(
     world_data.beds = save.beds.iter().map(|b| world::Bed {
         position: to_vec2(b.position), town_idx: b.town_idx,
     }).collect();
-    world_data.guard_posts = save.guard_posts.iter().map(|g| world::GuardPost {
+    world_data.waypoints = save.waypoints.iter().map(|g| world::Waypoint {
         position: to_vec2(g.position), town_idx: g.town_idx, patrol_order: g.patrol_order,
         npc_slot: None,
     }).collect();
@@ -785,17 +792,30 @@ pub fn apply_save(
     food_storage.food = save.food.clone();
     gold_storage.gold = save.gold.clone();
 
-    // Farm states
+    // Growth states: farms first, then mines
+    let farm_count = save.farms.len();
+    let mine_count = save.gold_mines.len();
+    farm_states.kinds = vec![crate::resources::GrowthKind::Farm; farm_count];
+    farm_states.kinds.extend(vec![crate::resources::GrowthKind::Mine; mine_count]);
     farm_states.states = save.farm_growth.iter().map(|fg| {
         if fg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing }
     }).collect();
     farm_states.progress = save.farm_growth.iter().map(|fg| fg.progress).collect();
     farm_states.positions = save.farms.iter().map(|f| to_vec2(f.position)).collect();
-
-    // Mine states
-    mine_states.gold = save.mine_gold.clone();
-    mine_states.max_gold = save.mine_max_gold.clone();
-    mine_states.positions = save.mine_positions.iter().map(|p| to_vec2(*p)).collect();
+    farm_states.town_indices = save.farms.iter().map(|f| Some(f.town_idx as u32)).collect();
+    // Append mine entries
+    for (i, gm) in save.gold_mines.iter().enumerate() {
+        let pos = to_vec2(*gm);
+        farm_states.positions.push(pos);
+        farm_states.town_indices.push(None);
+        if let Some(mg) = save.mine_growth.get(i) {
+            farm_states.states.push(if mg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing });
+            farm_states.progress.push(mg.progress);
+        } else {
+            farm_states.states.push(FarmGrowthState::Growing);
+            farm_states.progress.push(0.0);
+        }
+    }
 
     // Spawners
     spawner_state.0 = save.spawners.iter().map(|s| SpawnerEntry {
@@ -808,7 +828,7 @@ pub fn apply_save(
 
     // Building HP
     *building_hp = BuildingHpState {
-        guard_posts: save.building_hp.guard_posts.clone(),
+        waypoints: save.building_hp.waypoints.clone(),
         farmer_homes: save.building_hp.farmer_homes.clone(),
         archer_homes: save.building_hp.archer_homes.clone(),
         tents: save.building_hp.tents.clone(),
@@ -858,9 +878,9 @@ pub fn apply_save(
     squad_state.selected = 0;
     squad_state.placing_target = false;
 
-    // Guard post turret state
-    guard_post_state.timers = vec![0.0; save.guard_post_attack.len()];
-    guard_post_state.attack_enabled = save.guard_post_attack.clone();
+    // Waypoint turret state
+    waypoint_state.timers = vec![0.0; save.waypoint_attack.len()];
+    waypoint_state.attack_enabled = save.waypoint_attack.clone();
 
     // Camp state
     camp_state.max_pop = save.camp_max_pop.clone();
@@ -1049,15 +1069,14 @@ pub struct SaveWorldState<'w> {
     pub game_time: ResMut<'w, GameTime>,
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
-    pub farm_states: ResMut<'w, FarmStates>,
-    pub mine_states: ResMut<'w, MineStates>,
+    pub farm_states: ResMut<'w, GrowthStates>,
     pub spawner_state: ResMut<'w, SpawnerState>,
     pub building_hp: ResMut<'w, BuildingHpState>,
     pub upgrades: ResMut<'w, TownUpgrades>,
     pub policies: ResMut<'w, TownPolicies>,
     pub auto_upgrade: ResMut<'w, AutoUpgrade>,
     pub squad_state: ResMut<'w, SquadState>,
-    pub guard_post_state: ResMut<'w, GuardPostState>,
+    pub waypoint_state: ResMut<'w, WaypointState>,
 }
 
 /// More world state + faction/AI resources.
@@ -1121,9 +1140,9 @@ pub fn save_game_system(
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
-        &ws.food_storage, &ws.gold_storage, &ws.farm_states, &ws.mine_states,
+        &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
-        &ws.squad_state, &ws.guard_post_state, &fs.camp_state, &fs.faction_stats,
+        &ws.squad_state, &ws.waypoint_state, &fs.camp_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, npcs,
     );
 
@@ -1165,9 +1184,9 @@ pub fn autosave_system(
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
-        &ws.food_storage, &ws.gold_storage, &ws.farm_states, &ws.mine_states,
+        &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
-        &ws.squad_state, &ws.guard_post_state, &fs.camp_state, &fs.faction_stats,
+        &ws.squad_state, &ws.waypoint_state, &fs.camp_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, npcs,
     );
 
@@ -1368,9 +1387,9 @@ pub fn load_game_system(
     apply_save(
         &save,
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
-        &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states, &mut ws.mine_states,
+        &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
-        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.guard_post_state, &mut fs.camp_state,
+        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.waypoint_state, &mut fs.camp_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state,
         &mut tracking.npcs_by_town, &mut tracking.slots,

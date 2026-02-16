@@ -21,7 +21,7 @@ const PLAYER_BUILD_OPTIONS: &[BuildOption] = &[
     BuildOption { kind: BuildKind::FarmerHome, label: "Farmer Home", help: "Spawns 1 farmer" },
     BuildOption { kind: BuildKind::MinerHome, label: "Miner Home", help: "Spawns 1 miner" },
     BuildOption { kind: BuildKind::ArcherHome, label: "Archer Home", help: "Spawns 1 archer" },
-    BuildOption { kind: BuildKind::GuardPost, label: "Guard Post", help: "Patrol point + turret" },
+    BuildOption { kind: BuildKind::Waypoint, label: "Waypoint", help: "Patrol waypoint" },
 ];
 
 const CAMP_BUILD_OPTIONS: &[BuildOption] = &[
@@ -94,7 +94,7 @@ fn init_sprite_cache(
     let Some(atlas) = images.get(&sprites.world_texture).cloned() else { return };
     if images.get(&sprites.house_texture).is_none() { return; }
     if images.get(&sprites.barracks_texture).is_none() { return; }
-    if images.get(&sprites.guard_post_texture).is_none() { return; }
+    if images.get(&sprites.waypoint_texture).is_none() { return; }
     if images.get(&sprites.miner_house_texture).is_none() { return; }
 
     let farm_img = extract_quad_tile(&atlas, [(2, 15), (4, 15), (2, 17), (4, 17)]);
@@ -108,7 +108,7 @@ fn init_sprite_cache(
         (BuildKind::Farm, &farm_handle),
         (BuildKind::FarmerHome, &sprites.house_texture),
         (BuildKind::ArcherHome, &sprites.barracks_texture),
-        (BuildKind::GuardPost, &sprites.guard_post_texture),
+        (BuildKind::Waypoint, &sprites.waypoint_texture),
         (BuildKind::Tent, &tent_handle),
         (BuildKind::MinerHome, &sprites.miner_house_texture),
     ];
@@ -122,7 +122,7 @@ fn init_sprite_cache(
     build_ctx.ghost_sprites.insert(BuildKind::Farm, farm_handle.clone());
     build_ctx.ghost_sprites.insert(BuildKind::FarmerHome, sprites.house_texture.clone());
     build_ctx.ghost_sprites.insert(BuildKind::ArcherHome, sprites.barracks_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildKind::GuardPost, sprites.guard_post_texture.clone());
+    build_ctx.ghost_sprites.insert(BuildKind::Waypoint, sprites.waypoint_texture.clone());
     build_ctx.ghost_sprites.insert(BuildKind::Tent, tent_handle.clone());
     build_ctx.ghost_sprites.insert(BuildKind::MinerHome, sprites.miner_house_texture.clone());
 

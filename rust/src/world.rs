@@ -1,4 +1,4 @@
-//! World Data - Towns, farms, beds, guard posts, sprite definitions
+//! World Data - Towns, farms, beds, waypoints, sprite definitions
 //! World Grid - 2D cell grid covering entire world (terrain + buildings)
 //! World Generation - Procedural town placement and building layout
 
@@ -7,7 +7,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
-use crate::resources::{FarmStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime, DirtyFlags};
+use crate::resources::{GrowthStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime, DirtyFlags};
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -46,9 +46,9 @@ pub struct Bed {
     pub town_idx: u32,
 }
 
-/// A guard post where guards patrol.
+/// A waypoint where guards patrol.
 #[derive(Clone, Debug)]
-pub struct GuardPost {
+pub struct Waypoint {
     pub position: Vec2,
     pub town_idx: u32,
     /// Patrol order (0-3 for clockwise perimeter)
@@ -101,7 +101,7 @@ pub struct WorldData {
     pub towns: Vec<Town>,
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
-    pub guard_posts: Vec<GuardPost>,
+    pub waypoints: Vec<Waypoint>,
     pub farmer_homes: Vec<FarmerHome>,
     pub archer_homes: Vec<ArcherHome>,
     pub tents: Vec<Tent>,
@@ -210,7 +210,7 @@ pub struct TownSlotInfo {
 pub fn place_building(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    farm_states: &mut FarmStates,
+    farm_states: &mut GrowthStates,
     building: Building,
     row: i32,
     col: i32,
@@ -238,13 +238,13 @@ pub fn place_building(
     match building {
         Building::Farm { town_idx } => {
             world_data.farms.push(Farm { position: snapped_pos, town_idx });
-            farm_states.push_farm(snapped_pos);
+            farm_states.push_farm(snapped_pos, town_idx as u32);
         }
         Building::Bed { town_idx } => {
             world_data.beds.push(Bed { position: snapped_pos, town_idx });
         }
-        Building::GuardPost { town_idx, patrol_order } => {
-            world_data.guard_posts.push(GuardPost {
+        Building::Waypoint { town_idx, patrol_order } => {
+            world_data.waypoints.push(Waypoint {
                 position: snapped_pos,
                 town_idx,
                 patrol_order,
@@ -289,9 +289,9 @@ pub fn resolve_spawner_npc(
             (0, town_faction, farm.x, farm.y, -1, 0, "Farmer", "Farmer Home")
         }
         1 => {
-            // ArcherHome -> Archer: find nearest guard post
+            // ArcherHome -> Archer: find nearest waypoint
             let post_idx = find_location_within_radius(
-                entry.position, bgrid, LocationKind::GuardPost, f32::MAX,
+                entry.position, bgrid, LocationKind::Waypoint, f32::MAX,
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
             (1, town_faction, -1.0, -1.0, post_idx, 1, "Archer", "Archer Home")
         }
@@ -343,7 +343,7 @@ pub fn register_spawner(
 pub fn build_and_pay(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    farm_states: &mut FarmStates,
+    farm_states: &mut GrowthStates,
     food_storage: &mut FoodStorage,
     spawner_state: &mut SpawnerState,
     building_hp: &mut BuildingHpState,
@@ -405,7 +405,7 @@ pub fn expand_town_build_area(
 pub fn remove_building(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    farm_states: &mut FarmStates,
+    farm_states: &mut GrowthStates,
     row: i32,
     col: i32,
     town_center: Vec2,
@@ -452,8 +452,8 @@ pub fn remove_building(
                 bed.position = tombstone;
             }
         }
-        Building::GuardPost { .. } => {
-            if let Some(post) = world_data.guard_posts.iter_mut().find(|g| {
+        Building::Waypoint { .. } => {
+            if let Some(post) = world_data.waypoints.iter_mut().find(|g| {
                 (g.position - snapped_pos).length() < 1.0
             }) {
                 post.position = tombstone;
@@ -498,7 +498,7 @@ fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec
     let near = |p: Vec2| (p - pos).length() < 1.0;
     match building {
         Building::Farm { .. } => world_data.farms.iter().position(|f| near(f.position)),
-        Building::GuardPost { .. } => world_data.guard_posts.iter().position(|g| near(g.position)),
+        Building::Waypoint { .. } => world_data.waypoints.iter().position(|g| near(g.position)),
         Building::FarmerHome { .. } => world_data.farmer_homes.iter().position(|h| near(h.position)),
         Building::ArcherHome { .. } => world_data.archer_homes.iter().position(|a| near(a.position)),
         Building::Tent { .. } => world_data.tents.iter().position(|t| near(t.position)),
@@ -512,7 +512,7 @@ fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec
 pub fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    farm_states: &mut FarmStates,
+    farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
     building_hp: &mut BuildingHpState,
     combat_log: &mut CombatLog,
@@ -560,7 +560,7 @@ pub fn destroy_building(
 #[derive(Clone, Copy, Debug)]
 pub enum LocationKind {
     Farm,
-    GuardPost,
+    Waypoint,
     Town,
     GoldMine,
 }
@@ -579,7 +579,7 @@ pub fn find_location_within_radius(
 ) -> Option<(usize, Vec2)> {
     let bkind = match kind {
         LocationKind::Farm => BuildingKind::Farm,
-        LocationKind::GuardPost => BuildingKind::GuardPost,
+        LocationKind::Waypoint => BuildingKind::Waypoint,
         LocationKind::Town => BuildingKind::Town,
         LocationKind::GoldMine => BuildingKind::GoldMine,
     };
@@ -600,7 +600,7 @@ pub fn find_location_within_radius(
 }
 
 /// Find the nearest enemy building within radius that the NPC wants to attack.
-/// Raiders: only ArcherHome, GuardPost. Archers/others: any enemy building.
+/// Raiders: only ArcherHome, Waypoint. Archers/others: any enemy building.
 /// Returns (kind, index, position) of nearest enemy building.
 pub fn find_nearest_enemy_building(
     from: Vec2, bgrid: &BuildingSpatialGrid, npc_faction: i32, npc_job: i32, radius: f32,
@@ -618,7 +618,7 @@ pub fn find_nearest_enemy_building(
             _ => {}
         }
         // Raiders only target military buildings
-        if is_raider && !matches!(bref.kind, BuildingKind::ArcherHome | BuildingKind::GuardPost) {
+        if is_raider && !matches!(bref.kind, BuildingKind::ArcherHome | BuildingKind::Waypoint) {
             return;
         }
         let dx = bref.position.x - from.x;
@@ -737,7 +737,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum BuildingKind { Farm, GuardPost, Town, GoldMine, ArcherHome, FarmerHome, Tent, MinerHome, Bed }
+pub enum BuildingKind { Farm, Waypoint, Town, GoldMine, ArcherHome, FarmerHome, Tent, MinerHome, Bed }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {
@@ -780,10 +780,10 @@ impl BuildingSpatialGrid {
                 town_idx: farm.town_idx, faction: faction_of(farm.town_idx), position: farm.position,
             });
         }
-        for (i, gp) in world.guard_posts.iter().enumerate() {
+        for (i, gp) in world.waypoints.iter().enumerate() {
             if gp.position.x < -9000.0 { continue; }
             self.insert(BuildingRef {
-                kind: BuildingKind::GuardPost, index: i,
+                kind: BuildingKind::Waypoint, index: i,
                 town_idx: gp.town_idx, faction: faction_of(gp.town_idx), position: gp.position,
             });
         }
@@ -932,7 +932,7 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
 pub const BUILDING_TILES: [TileSpec; 10] = [
     TileSpec::Single(50, 9),  // 0: Fountain
     TileSpec::Single(15, 2),  // 1: Bed
-    TileSpec::External(2),    // 2: Guard Post (guard_post.png)
+    TileSpec::External(2),    // 2: Waypoint (waypoint.png)
     TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]), // 3: Farm
     TileSpec::Quad([(46, 10), (47, 10), (46, 11), (47, 11)]), // 4: Camp (center)
     TileSpec::External(0),    // 5: FarmerHome (house.png)
@@ -1052,7 +1052,7 @@ pub enum Building {
     Fountain { town_idx: u32 },
     Farm { town_idx: u32 },
     Bed { town_idx: u32 },
-    GuardPost { town_idx: u32, patrol_order: u32 },
+    Waypoint { town_idx: u32, patrol_order: u32 },
     Camp { town_idx: u32 },
     FarmerHome { town_idx: u32 },
     ArcherHome { town_idx: u32 },
@@ -1063,7 +1063,7 @@ pub enum Building {
 
 impl Building {
     /// Returns the spawner building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome),
-    /// or None for non-spawner buildings (Farm, GuardPost, etc.).
+    /// or None for non-spawner buildings (Farm, Waypoint, etc.).
     /// Single source of truth for the building→spawner mapping.
     pub fn spawner_kind(&self) -> Option<i32> {
         match self {
@@ -1079,7 +1079,7 @@ impl Building {
     pub fn kind(&self) -> BuildingKind {
         match self {
             Building::Farm { .. } => BuildingKind::Farm,
-            Building::GuardPost { .. } => BuildingKind::GuardPost,
+            Building::Waypoint { .. } => BuildingKind::Waypoint,
             Building::Fountain { .. } | Building::Camp { .. } => BuildingKind::Town,
             Building::GoldMine => BuildingKind::GoldMine,
             Building::FarmerHome { .. } => BuildingKind::FarmerHome,
@@ -1095,7 +1095,7 @@ impl Building {
         match self {
             Building::Fountain { .. } => 0,
             Building::Bed { .. } => 1,
-            Building::GuardPost { .. } => 2,
+            Building::Waypoint { .. } => 2,
             Building::Farm { .. } => 3,
             Building::Camp { .. } => 4,
             Building::FarmerHome { .. } => 5,
@@ -1240,8 +1240,7 @@ pub fn generate_world(
     config: &WorldGenConfig,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    farm_states: &mut FarmStates,
-    mine_states: &mut crate::resources::MineStates,
+    farm_states: &mut GrowthStates,
     town_grids: &mut TownGrids,
 ) {
     use rand::Rng;
@@ -1410,7 +1409,7 @@ pub fn generate_world(
             cell.building = Some(Building::GoldMine);
         }
         world_data.gold_mines.push(GoldMine { position: snapped });
-        mine_states.push_mine(snapped, crate::constants::MINE_MAX_GOLD);
+        farm_states.push_mine(snapped);
         mine_positions.push(snapped);
     }
 
@@ -1419,12 +1418,12 @@ pub fn generate_world(
         if is_continents { "continents" } else { "classic" });
 }
 
-/// Place buildings for one town on the grid: fountain, farms, farmer homes, archer homes, guard posts.
+/// Place buildings for one town on the grid: fountain, farms, farmer homes, archer homes, waypoints.
 /// Uses grid-relative offsets from center, snapped to grid cells.
 fn place_town_buildings(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    farm_states: &mut FarmStates,
+    farm_states: &mut GrowthStates,
     center: Vec2,
     town_idx: u32,
     config: &WorldGenConfig,
@@ -1459,7 +1458,7 @@ fn place_town_buildings(
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, Building::Farm { town_idx }, &mut occupied, town_grid);
         world_data.farms.push(Farm { position: pos, town_idx });
-        farm_states.push_farm(pos);
+        farm_states.push_farm(pos, town_idx as u32);
     }
 
     for _ in 0..config.farmers_per_town {
@@ -1474,7 +1473,7 @@ fn place_town_buildings(
         world_data.archer_homes.push(ArcherHome { position: pos, town_idx });
     }
 
-    // 4 guard posts: at the outer corners of all placed buildings (clockwise patrol: TL → TR → BR → BL)
+    // 4 waypoints: at the outer corners of all placed buildings (clockwise patrol: TL → TR → BR → BL)
     let (min_row, max_row, min_col, max_col) = occupied.iter().fold(
         (i32::MAX, i32::MIN, i32::MAX, i32::MIN),
         |(rmin, rmax, cmin, cmax), &(r, c)| (rmin.min(r), rmax.max(r), cmin.min(c), cmax.max(c)),
@@ -1487,8 +1486,8 @@ fn place_town_buildings(
         (min_row - 1, min_col - 1), // BL (bottom-left)
     ];
     for (order, (row, col)) in corners.into_iter().enumerate() {
-        let post_pos = place(row, col, Building::GuardPost { town_idx, patrol_order: order as u32 }, &mut occupied, town_grid);
-        world_data.guard_posts.push(GuardPost {
+        let post_pos = place(row, col, Building::Waypoint { town_idx, patrol_order: order as u32 }, &mut occupied, town_grid);
+        world_data.waypoints.push(Waypoint {
             position: post_pos,
             town_idx,
             patrol_order: order as u32,

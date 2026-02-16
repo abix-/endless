@@ -9,9 +9,9 @@ use super::{TestState, TestSetupParams};
 
 pub fn setup(mut params: TestSetupParams) {
     params.add_town("ArcherTown");
-    // 4 guard posts (square patrol)
+    // 4 waypoints (square patrol)
     for (order, &(gx, gy)) in [(300.0, 300.0), (500.0, 300.0), (500.0, 500.0), (300.0, 500.0)].iter().enumerate() {
-        params.world_data.guard_posts.push(crate::world::GuardPost {
+        params.world_data.waypoints.push(crate::world::Waypoint {
             position: Vec2::new(gx, gy),
             town_idx: 0,
             patrol_order: order as u32,
@@ -38,7 +38,7 @@ pub fn setup(mut params: TestSetupParams) {
     });
 
     params.test_state.phase_name = "Waiting for archer spawn...".into();
-    info!("archer-patrol: setup — 1 archer, 4 guard posts");
+    info!("archer-patrol: setup — 1 archer, 4 waypoints");
 }
 
 pub fn tick(
