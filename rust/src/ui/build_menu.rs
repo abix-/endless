@@ -275,7 +275,7 @@ pub(crate) fn build_menu_system(
                         );
                     },
                 );
-                if destroy_resp.response.interact(egui::Sense::click()).clicked() {
+                if ui.interact(destroy_resp.response.rect, egui::Id::new("destroy_btn"), egui::Sense::click()).clicked() {
                     if destroy_selected {
                         build_ctx.selected_build = None;
                     } else {

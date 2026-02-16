@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-16n
+
+- **mining progress cycle** — miners now work a 4-game-hour cycle at the mine with a gold progress bar overhead (`MiningProgress` component, `MINE_WORK_HOURS=4.0`); bar fills left-to-right in gold color (atlas_id=6.0 shader path); when full, miner extracts `MINE_EXTRACT_PER_CYCLE` (5) gold scaled by GoldYield upgrade and returns home; tired miners extract partial gold proportional to progress; combat flee/leash properly cleans up mining state + occupancy
+
 ## 2026-02-16m
 
 - **fix: black NPC sprite on guard posts** — `build_visual_upload` now resets `visual_data` to -1.0 sentinel each frame (matching `equip_data`); guard post NPC slots have no ECS entity so the query never overwrites them — previously they rendered as sprite (0,0) with black tint

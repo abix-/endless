@@ -103,9 +103,9 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
          ▼                    │                ┌──────────┐       ┌──────────────────┐
     ┌──────────┐              │                │MiningAt  │       │Returning{food:T} │
     │  OnDuty  │              │                │Mine      │       └────┬─────────────┘
-    │{ticks: 0}│              │                └────┬─────┘            │ proximity delivery
-    └────┬─────┘              │                     │ tired             ▼
-         │                    │                     ▼              deliver food, re-enter
+    │{ticks: 0}│              │                │(4h cycle)│            │ proximity delivery
+    └────┬─────┘              │                └────┬─────┘            ▼
+         │                    │                     │ full/tired  deliver food, re-enter
          │                    │                Returning{gold}     decision_system
          └────────┬───────────┴─────────────────────┘
                   │ decision_system
@@ -150,7 +150,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 `Returning { has_food: bool, gold: i32 }` — carried resources are part of the activity. `gold > 0` means miner is returning with extracted gold.
 
-`Mining { mine_pos: Vec2 }` — miner walking to a gold mine. `MiningAtMine` — miner actively extracting gold (claims occupancy, extracts on tired threshold).
+`Mining { mine_pos: Vec2 }` — miner walking to a gold mine. `MiningAtMine` — miner actively extracting gold (claims occupancy, progress-based 4-hour work cycle with gold progress bar overhead).
 
 ### Data Components
 
@@ -164,7 +164,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | Healing | marker | NPC is inside healing aura (visual feedback) |
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
 | Home | `{ x, y }` | NPC's spawner building position (FarmerHome/ArcherHome/Tent) — rest destination |
-| WorkPosition | `{ x, y }` | Farmer's field position |
+| WorkPosition | `{ x, y }` | Farmer's field / miner's mine position |
+| MiningProgress | `f32` | Mining work progress 0.0–1.0, inserted when miner starts at mine, removed on extraction or interruption |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Archer's ordered patrol posts |
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
@@ -191,7 +192,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
   - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
-  - `Mining { mine_pos }` → find mine at position, check gold > 0, claim occupancy via `BuildingOccupancy`, set `Activity::MiningAtMine`
+  - `Mining { mine_pos }` → find mine at position, check gold > 0, claim occupancy via `BuildingOccupancy`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
   - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
 - Removes `AtDestination` after handling
 
@@ -210,9 +211,9 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 **Priority 4b: Resting wake**
 - If `Activity::Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
-**Priority 5: Tired workers**
+**Priority 5: Working/Mining progress**
 - If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release `AssignedFarm`
-- If `Activity::MiningAtMine` + energy < threshold: extract gold from mine (min of mine gold and `MINE_EXTRACT_PER_CYCLE`), release occupancy, set `Activity::Returning { has_food: false, gold: extracted }`
+- If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress` + `WorkPosition`, set `Activity::Returning { has_food: false, gold: extracted }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
 
 **Priority 6: Patrol**
 - If `Activity::OnDuty { ticks_waiting }` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, set `Activity::Patrolling`

@@ -604,6 +604,7 @@ fn prepare_npc_buffers(
     existing_misc: Option<ResMut<NpcMiscBuffers>>,
     farm_states: Option<Res<crate::resources::FarmStates>>,
     building_hp_render: Option<Res<crate::resources::BuildingHpRender>>,
+    miner_progress_render: Option<Res<crate::resources::MinerProgressRender>>,
 ) {
     // --- Misc instance buffer (farms + building HP bars) ---
     let mut misc_instances = RawBufferVec::new(BufferUsages::VERTEX);
@@ -645,6 +646,22 @@ fn prepare_npc_buffers(
                 flash: 0.0,
                 scale: 32.0,
                 atlas_id: 5.0,
+                rotation: 0.0,
+            });
+        }
+    }
+
+    if let Some(mpr) = miner_progress_render {
+        let count = mpr.positions.len().min(mpr.progress.len());
+        for i in 0..count {
+            misc_instances.push(InstanceData {
+                position: [mpr.positions[i].x, mpr.positions[i].y + 12.0],
+                sprite: [0.0, 0.0],
+                color: [1.0, 0.85, 0.0, 1.0],
+                health: mpr.progress[i].clamp(0.0, 1.0),
+                flash: 0.0,
+                scale: 12.0,
+                atlas_id: 6.0,
                 rotation: 0.0,
             });
         }

@@ -91,6 +91,30 @@ SystemParam bundle consolidation:
 - [ ] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
 - [ ] Re-baseline and document actual parameter-count reductions after refactor, then verify with `cargo check`.
 
+**Stage 14b: AI Expansion & Mine Control**
+
+*Done when: AI towns grow beyond their starting 7×7 grid, compete for gold mines via patrol routes, and a passive AI that doesn't expand gets outcompeted and dies.*
+
+Chunk 1 — AI expansion brain (`systems/ai_player.rs` only):
+- [ ] Add `miner_home_target()` to `AiPersonality` (Aggressive: houses/4, Balanced: houses/2, Economic: houses/1) — replace hardcoded `houses / 3`
+- [ ] Dynamic expansion priority: calculate slot fullness (used/total), multiply expansion upgrade weight (idx 15) by `2 + 4*(fullness-0.7)/0.3` when fullness > 0.7
+- [ ] Emergency expansion: when `!has_slots`, apply 10× multiplier to expansion weight so it dominates all other upgrades
+- [ ] Boost base expansion weights: Aggressive 4→8, Balanced 3→10, Economic 4→12
+
+Chunk 2 — Guard post rework (remove turret, patrol-only):
+- [ ] Delete `guard_post_attack_system` from `systems/combat.rs` and its scheduling in `lib.rs`
+- [ ] Remove turret constants from `constants.rs` (GUARD_POST_RANGE/DAMAGE/COOLDOWN/PROJ_SPEED/PROJ_LIFETIME)
+- [ ] Remove `GuardPostState` turret timer/enabled fields from `resources.rs` (keep the resource if patrol data lives there)
+- [ ] Remove guard post `npc_slot` allocation from `sync_guard_post_slots` in `systems/combat.rs` — posts no longer need GPU slots for targeting
+- [ ] Clean up turret references in UI (`build_menu.rs` label, `left_panel.rs` help text, `game_hud.rs` inspector)
+- [ ] Remove backlog item "Guard post turret upgrades" from roadmap
+
+Chunk 3 — Wilderness guard post placement:
+- [ ] Allow guard posts outside town grid bounds — new placement path that snaps to WorldGrid cells without requiring TownGrid slot
+- [ ] AI places guard posts near gold mines: score mine distance × mine gold × lack-of-existing-patrols
+- [ ] AI patrol routes cover territory + nearest contested mine(s)
+- [ ] Player can place guard posts anywhere on revealed map (not just town grid)
+
 **Stage 16: Combat Depth**
 
 *Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
@@ -268,7 +292,6 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 - [ ] Add `show_active_radius` debug toggle in Bevy UI
 - [ ] Upgrade tab town snapshot: show `farmers/archers/farms/next spawn` summary
 - [ ] Combat log window sizing: allow resize + persist width/height in `UserSettings`
-- [ ] Guard post turret upgrades: per-post `range_level`, `damage_level` with food costs
 - [ ] HP bar display mode toggle (Off / When Damaged / Always)
 - [ ] Combat log scope/timestamp modes (Off/Own/All + Off/Time/Day+Time)
 - [ ] Double-click locked slot to unlock (alternative to context action)

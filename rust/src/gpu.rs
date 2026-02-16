@@ -697,6 +697,7 @@ impl Plugin for GpuComputePlugin {
             ExtractResourcePlugin::<ReadbackHandles>::default(),
             ExtractResourcePlugin::<crate::resources::FarmStates>::default(),
             ExtractResourcePlugin::<crate::resources::BuildingHpRender>::default(),
+            ExtractResourcePlugin::<crate::resources::MinerProgressRender>::default(),
         ));
 
         // Set up render world systems

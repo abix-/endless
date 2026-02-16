@@ -133,9 +133,9 @@ rust/
   src/npc_render.rs     # GPU NPC rendering (storage buffers) + misc/projectile rendering (instance buffers)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
-  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers, Migrating)
+  src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, MiningProgress, Archer/Farmer/Miner markers, Migrating)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP, building costs, 8x8 base build area)
-  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, BuildingHpState, HelpCatalog, etc.)
+  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, MinerProgressRender, BuildingHpState, HelpCatalog, etc.)
   src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
   src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v4, auto_upgrades, autosave_hours, music/sfx volume, music speed, tutorial_completed)
   src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind()

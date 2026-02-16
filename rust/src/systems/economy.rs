@@ -174,6 +174,27 @@ pub fn mine_regen_system(
 }
 
 // ============================================================================
+// MINER PROGRESS RENDER SYNC
+// ============================================================================
+
+/// Populate MinerProgressRender from all miners with active MiningProgress.
+pub fn sync_miner_progress_render(
+    query: Query<(&NpcIndex, &MiningProgress), Without<Dead>>,
+    gpu_state: Res<GpuReadState>,
+    mut render: ResMut<MinerProgressRender>,
+) {
+    render.positions.clear();
+    render.progress.clear();
+    let positions = &gpu_state.positions;
+    for (npc_idx, mp) in query.iter() {
+        let idx = npc_idx.0;
+        if idx * 2 + 1 >= positions.len() { continue; }
+        render.positions.push(Vec2::new(positions[idx * 2], positions[idx * 2 + 1]));
+        render.progress.push(mp.0);
+    }
+}
+
+// ============================================================================
 // CAMP FORAGING SYSTEM
 // ============================================================================
 

@@ -239,6 +239,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<SpawnerState>()
        .init_resource::<BuildingHpState>()
        .init_resource::<resources::BuildingHpRender>()
+       .init_resource::<resources::MinerProgressRender>()
        .init_resource::<SquadState>()
        .insert_resource(HelpCatalog::new())
        .init_resource::<TutorialState>()
@@ -321,6 +322,7 @@ pub fn build_app(app: &mut App) {
        ).in_set(Step::Behavior))
        .add_systems(Update, migration_attach_system.after(Step::Spawn).before(Step::Combat).run_if(game_active.clone()))
        .add_systems(Update, (building_damage_system, sync_building_hp_render).chain().in_set(Step::Behavior))
+       .add_systems(Update, sync_miner_progress_render.in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        .add_systems(Update, frame_timer_end.after(collect_gpu_updates).run_if(game_active.clone()))
        // Debug settings sync + tick logging

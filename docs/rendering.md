@@ -7,7 +7,7 @@ Two rendering systems work together: **terrain and buildings** use Bevy's built-
 - **Storage buffer path** (NPCs): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). 7 layers (body + 4 equipment + 2 indicators) rendered via 7 `draw_indexed` calls with instance offset encoding — shader derives `slot = instance_index % npc_count`, `layer = instance_index / npc_count`.
 - **Instance buffer path** (farms, building HP bars, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1).
 
-Five textures bound simultaneously — `atlas_id` selects which to sample (0=character, 1=world, 2=heal halo, 3=sleep icon, 4=arrow).
+Five textures bound simultaneously — `atlas_id` selects which to sample (0=character, 1=world, 2=heal halo, 3=sleep icon, 4=arrow). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold).
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -40,7 +40,7 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       ▼
                                prepare_npc_buffers
                                (buffer creation + sentinel init on first frame,
-                                build NpcMiscBuffers for farms/BHP,
+                                build NpcMiscBuffers for farms/BHP/mining progress,
                                 create bind group 2 from NpcGpuBuffers + NpcVisualBuffers)
                                       │
                                       ▼
@@ -128,7 +128,7 @@ pub struct InstanceData {
     pub health: f32,         // normalized 0.0-1.0 (4 bytes)
     pub flash: f32,          // damage flash 0.0-1.0 (4 bytes)
     pub scale: f32,          // world-space quad size (4 bytes)
-    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal, 3.0=sleep, 4.0=arrow, 5.0=BHP bar-only (4 bytes)
+    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal, 3.0=sleep, 4.0=arrow, 5.0=BHP bar, 6.0=mining progress bar (4 bytes)
     pub rotation: f32,       // radians, used for projectile orientation (4 bytes)
 }
 ```
@@ -142,6 +142,12 @@ pub struct InstanceData {
 - atlas_id=5.0, scale=32.0 (building-sized)
 - Shader discards all sprite pixels for atlas_id >= 4.5, keeping only the health bar in bottom 15%
 - Only buildings with HP < max are included (from `BuildingHpRender` resource)
+
+**Mining progress bars** (in `NpcMiscBuffers`, drawn by `DrawMisc`):
+- atlas_id=6.0, scale=12.0, positioned +12y above miner
+- Shader renders gold-colored bar (1.0, 0.85, 0.0) in bottom 15%, discards rest
+- Always shown while mining (no < 0.99 gate like building HP bars)
+- From `MinerProgressRender` resource (populated by `sync_miner_progress_render`)
 
 **Projectiles** (in `ProjRenderBuffers`, drawn by `DrawProjs`):
 - atlas_id=4.0 (arrow texture), health=1.0 (no bar), rotation=velocity angle
@@ -214,7 +220,7 @@ fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) 
 }
 ```
 
-The fragment shader dispatches by `atlas_id` in descending order: building HP bar-only (≥4.5) renders bar and discards, arrow projectile (≥3.5) samples `arrow_texture`, sleep (≥2.5) samples `sleep_texture`, heal (≥1.5) samples `heal_texture`, then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). Sleep and heal both early-return after texture sampling with color tint applied.
+The fragment shader dispatches by `atlas_id` in descending order: mining progress bar (≥5.5) renders gold bar and discards, building HP bar-only (≥4.5) renders health bar and discards, arrow projectile (≥3.5) samples `arrow_texture`, sleep (≥2.5) samples `sleep_texture`, heal (≥1.5) samples `heal_texture`, then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). Sleep and heal both early-return after texture sampling with color tint applied.
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
@@ -242,7 +248,16 @@ if in.quad_uv.y > 0.85 && in.health < 0.99 {
 }
 ```
 
-**Building HP bar-only** (atlas_id 5, checked first in fragment shader before all other modes):
+**Mining progress bar** (atlas_id 6, checked first in fragment shader):
+```wgsl
+if in.atlas_id >= 5.5 {
+    // Gold bar in bottom 15%, always shown while mining
+    if in.quad_uv.y > 0.85 { bar_color = gold where uv.x < health; }
+    discard;
+}
+```
+
+**Building HP bar-only** (atlas_id 5):
 ```wgsl
 if in.atlas_id >= 4.5 {
     // Render health bar in bottom 15% when damaged, discard everything else
@@ -325,7 +340,7 @@ type DrawMiscCommands = (
 );
 ```
 
-`DrawMisc::render()` reads `NpcMiscBuffers` — a small `RawBufferVec<InstanceData>` (~100-200 entries) built each frame from `FarmStates` + `BuildingHpRender`.
+`DrawMisc::render()` reads `NpcMiscBuffers` — a small `RawBufferVec<InstanceData>` (~100-200 entries) built each frame from `FarmStates` + `BuildingHpRender` + `MinerProgressRender`.
 
 **Projectile instance path** — shares quad geometry, separate instance buffer:
 ```rust

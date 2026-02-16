@@ -115,6 +115,15 @@ impl AiPersonality {
         }
     }
 
+    /// Miner home target count relative to houses.
+    fn miner_home_target(self, houses: usize) -> usize {
+        match self {
+            Self::Aggressive => (houses / 4).max(1),
+            Self::Balanced   => (houses / 2).max(1),
+            Self::Economic   => houses.max(1),
+        }
+    }
+
     /// Upgrade weights indexed by UpgradeType discriminant (16 entries).
     /// Only entries with weight > 0 are scored.
     fn upgrade_weights(self, kind: AiKind) -> [f32; UPGRADE_COUNT] {
@@ -125,9 +134,9 @@ impl AiPersonality {
                 _ =>                      [4., 6., 2., 6., 4., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2.],
             },
             AiKind::Builder => match self {
-                Self::Aggressive =>       [6., 8., 4., 6., 4., 0., 0., 2., 1., 0., 1., 0., 1., 1., 0., 2.],
-                Self::Balanced =>         [5., 5., 2., 4., 3., 0., 0., 5., 3., 1., 3., 1., 2., 3., 0., 3.],
-                Self::Economic =>         [3., 2., 1., 2., 2., 0., 0., 8., 5., 2., 5., 2., 4., 5., 0., 4.],
+                Self::Aggressive =>       [6., 8., 4., 6., 4., 0., 0., 2., 1., 0., 1., 0., 1., 1., 0., 8.],
+                Self::Balanced =>         [5., 5., 2., 4., 3., 0., 0., 5., 3., 1., 3., 1., 2., 3., 0., 10.],
+                Self::Economic =>         [3., 2., 1., 2., 2., 0., 0., 8., 5., 2., 5., 2., 4., 5., 0., 12.],
             },
         }
     }
@@ -219,6 +228,23 @@ fn find_guard_post_slot(
     best.map(|(slot, _)| slot)
 }
 
+/// Count empty buildable slots in a town grid.
+fn count_empty_slots(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> i32 {
+    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
+    let mut count = 0;
+    for r in min_row..=max_row {
+        for c in min_col..=max_col {
+            if r == 0 && c == 0 { continue; }
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
 /// Check if any empty slot exists in the town grid.
 fn has_empty_slot(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> bool {
     let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
@@ -282,6 +308,15 @@ pub fn ai_decision_system(
             .map(|tg| has_empty_slot(tg, center, &res.world.grid))
             .unwrap_or(false);
 
+        let slot_fullness = res.world.town_grids.grids.get(player.grid_idx)
+            .map(|tg| {
+                let (min_r, max_r, min_c, max_c) = world::build_bounds(tg);
+                let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32; // -1 for center
+                let empty = count_empty_slots(tg, center, &res.world.grid);
+                1.0 - empty as f32 / total.max(1.0)
+            })
+            .unwrap_or(0.0);
+
         // Score all eligible actions
         let mut scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
 
@@ -307,8 +342,7 @@ pub fn ai_decision_system(
                     if food >= building_cost(BuildKind::FarmerHome) { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
                     if food >= building_cost(BuildKind::ArcherHome) { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
                     if food >= building_cost(BuildKind::GuardPost) { scores.push((AiAction::BuildGuardPost, gw * gp_need)); }
-                    // 1 mine shaft per 3 houses
-                    let ms_target = houses / 3;
+                    let ms_target = player.personality.miner_home_target(houses);
                     if mine_shafts < ms_target && food >= building_cost(BuildKind::MinerHome) {
                         let ms_need = 1.0 + (ms_target - mine_shafts) as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
@@ -324,7 +358,17 @@ pub fn ai_decision_system(
         for (idx, &weight) in uw.iter().enumerate() {
             if weight <= 0.0 { continue; }
             if !upgrade_available(&levels, idx, food, gold) { continue; }
-            scores.push((AiAction::Upgrade(idx), weight));
+            let mut w = weight;
+            // Expansion (idx 15) urgency scales with slot fullness
+            if idx == 15 {
+                if slot_fullness > 0.7 {
+                    w *= 2.0 + 4.0 * (slot_fullness - 0.7) / 0.3;
+                }
+                if !has_slots {
+                    w *= 10.0;
+                }
+            }
+            scores.push((AiAction::Upgrade(idx), w));
         }
 
         // Pick and execute

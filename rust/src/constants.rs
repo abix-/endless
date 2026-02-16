@@ -254,8 +254,11 @@ pub const MINE_MAX_GOLD: f32 = 200.0;
 /// Gold regenerated per game-hour when mine is not being worked.
 pub const MINE_REGEN_RATE: f32 = 2.0;
 
-/// Gold extracted per work cycle (farmer delivers this much when returning home).
+/// Gold extracted per work cycle (miner delivers this much when returning home).
 pub const MINE_EXTRACT_PER_CYCLE: i32 = 5;
+
+/// Game-hours for one mining work cycle (progress bar 0→1).
+pub const MINE_WORK_HOURS: f32 = 4.0;
 
 /// Minimum distance from any settlement center to place a gold mine.
 pub const MINE_MIN_SETTLEMENT_DIST: f32 = 300.0;

@@ -998,6 +998,13 @@ pub struct BuildingHpRender {
     pub health_pcts: Vec<f32>,
 }
 
+/// Miner progress bar render data extracted to render world.
+#[derive(Resource, Default, Clone, ExtractResource)]
+pub struct MinerProgressRender {
+    pub positions: Vec<Vec2>,
+    pub progress: Vec<f32>,
+}
+
 /// Per-town auto-upgrade flags. When enabled, upgrades are purchased automatically
 /// once per game hour whenever the town has enough food.
 #[derive(Resource)]

@@ -217,6 +217,18 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Mining progress bar (atlas_id 6): gold bar in bottom 15%, discard rest
+    if in.atlas_id >= 5.5 {
+        if in.quad_uv.y > 0.85 {
+            var bar_color = vec4<f32>(0.2, 0.2, 0.2, 1.0);
+            if in.quad_uv.x < in.health {
+                bar_color = vec4<f32>(1.0, 0.85, 0.0, 1.0); // Gold
+            }
+            return bar_color;
+        }
+        discard;
+    }
+
     // Building HP bar-only mode (atlas_id 5): health bar in bottom 15%, discard rest
     if in.atlas_id >= 4.5 {
         if in.quad_uv.y > 0.85 && in.health < 0.99 {

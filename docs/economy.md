@@ -26,6 +26,9 @@ game_time_system (every frame)
     ├─ mine_regen_system (every frame, uses game-time delta)
     │   └─ MineStates: gold slowly regenerates when mine is unoccupied
     │
+    ├─ sync_miner_progress_render (every frame)
+    │   └─ Populates MinerProgressRender from miners with MiningProgress (positions + progress for GPU bar rendering)
+    │
     ├─ farm_visual_system (every frame)
     │   └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
     │
@@ -202,6 +205,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | FarmStates | Growing/Ready state + progress per farm | farm_growth_system, harvest/steal |
 | GoldStorage | `Vec<i32>` — gold count per town/camp | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
+| MinerProgressRender | positions + progress for active miners | sync_miner_progress_render → render world (ExtractResource) |
 | BuildingOccupancy | private map, methods: claim/release/is_occupied/count/clear | decision_system, death_cleanup, game_startup, spawner_respawn |
 | CampState | max_pop, respawn_timers, forage_timers | camp_forage_system |
 | RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | decision_system, death_cleanup |
@@ -237,6 +241,7 @@ Both player build menu and AI player use `building_cost()` for affordability che
 | MINE_MAX_GOLD | 200.0 | Maximum gold a mine can hold |
 | MINE_REGEN_RATE | 2.0/hour | Gold regeneration rate (when unoccupied) |
 | MINE_EXTRACT_PER_CYCLE | 5 | Base gold per mining cycle (scaled by GoldYield upgrade: `base * (1 + level * 0.15)`) |
+| MINE_WORK_HOURS | 4.0 | Game hours per mining work cycle (progress bar 0→1) |
 | MINE_MIN_SETTLEMENT_DIST | 300.0px | Minimum distance from mine to any town/camp center |
 | MINE_MIN_SPACING | 400.0px | Minimum distance between mines |
 

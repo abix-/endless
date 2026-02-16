@@ -223,7 +223,8 @@ pub fn decision_system(
     // Main query: core NPC data (SquadId is Optional — only on squad-assigned guards)
     mut query: Query<
         (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
-         &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&SquadId>),
+         &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&SquadId>,
+         Option<&mut MiningProgress>),
         Without<Dead>
     >,
     // Combat config queries
@@ -239,10 +240,12 @@ pub fn decision_system(
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
+    time: Res<Time>,
     npc_config: Res<crate::resources::NpcDecisionConfig>,
     bgrid: Res<BuildingSpatialGrid>,
 ) {
     let _t = extras.timings.scope("decision");
+    let delta_hours = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
     let profiling = extras.timings.enabled;
     let npc_logs = &mut extras.npc_logs;
     let raid_queue = &mut extras.raid_queue;
@@ -267,7 +270,8 @@ pub fn decision_system(
     let mut n_idle: u32 = 0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
-         mut activity, mut combat_state, at_destination, squad_id) in query.iter_mut()
+         mut activity, mut combat_state, at_destination, squad_id,
+         mut mining_progress) in query.iter_mut()
     {
         let idx = npc_idx.0;
 
@@ -416,7 +420,7 @@ pub fn decision_system(
                         if mine_idx < economy.mine_states.gold.len() && economy.mine_states.gold[mine_idx] > 0.0 {
                             farms.occupancy.claim(mine_pos);
                             *activity = Activity::MiningAtMine;
-                            commands.entity(entity).insert(WorkPosition(mine_pos));
+                            commands.entity(entity).insert((WorkPosition(mine_pos), MiningProgress(0.0)));
                             pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: mine_pos.x, y: mine_pos.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ MiningAtMine");
@@ -514,6 +518,13 @@ pub fn decision_system(
                 };
 
                 if health.0 / 100.0 < effective_threshold {
+                    // Clean up mining state if fleeing mid-mine
+                    if mining_progress.is_some() {
+                        if let Ok(wp) = work_query.get(entity) {
+                            farms.occupancy.release(wp.0);
+                        }
+                        commands.entity(entity).remove::<(WorkPosition, MiningProgress)>();
+                    }
                     *combat_state = CombatState::None;
                     *activity = Activity::Returning { has_food: false, gold: 0 };
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -535,6 +546,12 @@ pub fn decision_system(
                         let dx = positions[idx * 2] - origin.x;
                         let dy = positions[idx * 2 + 1] - origin.y;
                         if (dx * dx + dy * dy).sqrt() > leash_dist {
+                            if mining_progress.is_some() {
+                                if let Ok(wp) = work_query.get(entity) {
+                                    farms.occupancy.release(wp.0);
+                                }
+                                commands.entity(entity).remove::<(WorkPosition, MiningProgress)>();
+                            }
                             *combat_state = CombatState::None;
                             *activity = Activity::Returning { has_food: false, gold: 0 };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -699,15 +716,27 @@ pub fn decision_system(
         }
 
         if matches!(*activity, Activity::MiningAtMine) {
-            if energy.0 < ENERGY_TIRED_THRESHOLD {
-                // Extract gold before leaving
+            // Tick mining progress
+            let progress_done = if let Some(ref mut mp) = mining_progress {
+                mp.0 = (mp.0 + delta_hours / crate::constants::MINE_WORK_HOURS).min(1.0);
+                mp.0 >= 1.0
+            } else {
+                false
+            };
+
+            // Extract when cycle completes OR when tired (partial extraction)
+            let tired = energy.0 < ENERGY_TIRED_THRESHOLD;
+            if progress_done || tired {
                 let yield_level = extras.town_upgrades.levels.get(town_id.0 as usize)
                     .map(|l| l[UpgradeType::GoldYield as usize]).unwrap_or(0);
-                let gold_amount = ((crate::constants::MINE_EXTRACT_PER_CYCLE as f32)
-                    * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize])) as i32;
+                let base_gold = (crate::constants::MINE_EXTRACT_PER_CYCLE as f32)
+                    * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize]);
+                // Partial extraction if tired before cycle completes
+                let progress_frac = mining_progress.as_ref().map(|mp| mp.0).unwrap_or(1.0);
+                let gold_amount = (base_gold * progress_frac) as i32;
+
                 if let Ok(wp) = work_query.get(entity) {
                     let mine_pos = wp.0;
-                    // Deduct from mine
                     if let Some(mine_idx) = economy.mine_states.positions.iter().position(|p| {
                         (*p - mine_pos).length() < 30.0
                     }) {
@@ -715,7 +744,7 @@ pub fn decision_system(
                             let extracted = (economy.mine_states.gold[mine_idx] as i32).min(gold_amount);
                             economy.mine_states.gold[mine_idx] = (economy.mine_states.gold[mine_idx] - extracted as f32).max(0.0);
                             farms.occupancy.release(mine_pos);
-                            commands.entity(entity).remove::<WorkPosition>();
+                            commands.entity(entity).remove::<(WorkPosition, MiningProgress)>();
                             *activity = Activity::Returning { has_food: false, gold: extracted };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
@@ -725,10 +754,10 @@ pub fn decision_system(
                     }
                     // Couldn't find mine — just leave
                     farms.occupancy.release(mine_pos);
-                    commands.entity(entity).remove::<WorkPosition>();
+                    commands.entity(entity).remove::<(WorkPosition, MiningProgress)>();
                 }
                 *activity = Activity::Idle;
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Mining tired → Idle");
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Mining → Idle (no mine)");
             }
             continue;
         }
