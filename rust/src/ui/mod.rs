@@ -221,8 +221,7 @@ fn game_load_system(
 
     // Rebuild spatial grid
     tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
-    tracking.dirty.patrols = true;
-    tracking.dirty.guard_post_slots = true;
+    *tracking.dirty = DirtyFlags::default();
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
@@ -414,8 +413,7 @@ fn game_startup_system(
         }
     }
 
-    extra.dirty.patrols = true;
-    extra.dirty.guard_post_slots = true;
+    *extra.dirty = DirtyFlags::default();
 
     info!("Game startup complete: {} NPCs spawned across {} towns",
         total, config.num_towns);
@@ -1033,6 +1031,8 @@ fn game_cleanup_system(
     mut ui_state: ResMut<UiState>,
     mut squad_state: ResMut<SquadState>,
     mut building_hp_render: ResMut<crate::resources::BuildingHpRender>,
+    mut dirty: ResMut<DirtyFlags>,
+    mut healing_cache: ResMut<HealingZoneCache>,
 ) {
     // Despawn all entities
     for entity in npc_query.iter() {
@@ -1084,6 +1084,8 @@ fn game_cleanup_system(
     *combat_log = Default::default();
     *ui_state = Default::default();
     *squad_state = Default::default();
+    *dirty = DirtyFlags::default();
+    healing_cache.by_faction.clear();
 
     info!("Game cleanup complete");
 }

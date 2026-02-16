@@ -22,6 +22,7 @@ pub struct CleanupResources<'w> {
     pub slots: ResMut<'w, SlotAllocator>,
     pub farm_occupancy: ResMut<'w, BuildingOccupancy>,
     pub raid_queue: ResMut<'w, RaidQueue>,
+    pub dirty: ResMut<'w, DirtyFlags>,
 }
 
 /// Apply queued damage to Health component and sync to GPU.
@@ -94,6 +95,9 @@ pub fn death_cleanup_system(
 ) {
     let _t = timings.scope("death_cleanup");
     let mut despawn_count = 0;
+    if !query.is_empty() {
+        res.dirty.squads = true;
+    }
     for (entity, npc_idx, job, town_id, faction, activity, assigned_farm) in query.iter() {
         let idx = npc_idx.0;
 
@@ -191,6 +195,8 @@ pub fn update_healing_zone_cache(
     }
 
     dirty.healing_zones = false;
+    #[cfg(debug_assertions)]
+    info!("Healing zone cache rebuilt: {} factions", cache.by_faction.len());
 }
 
 /// Heal NPCs inside their faction's town center healing aura.

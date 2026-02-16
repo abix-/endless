@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-16d
+
+- **squad cleanup dirty-flag gated** — `squad_cleanup_system` now skips when `DirtyFlags.squads` is false; flag set by death_cleanup (any death), spawn_npc (archer spawn), left_panel UI (assign/dismiss), and save load (DirtyFlags::default); eliminates per-frame squad iteration on idle frames
+- **inspector overhaul** — shows combat stats (dmg/range/cooldown/speed), equipment (weapon/helmet/armor), attack type, squad assignment, starving status, carried gold, faction + home inline; window height 160→280px
+- **load game window** — save picker moved from collapsing header to a centered egui::Window with close button
+- **DirtyFlags lifecycle fix** — all load/startup/cleanup paths now reset via `DirtyFlags::default()` instead of setting individual flags; `game_cleanup_system` also clears `HealingZoneCache`
+
 ## 2026-02-16c
 
 - **jukebox UI** — top-right overlay with track picker dropdown (ComboBox), pause/play, skip, loop toggle; dark semi-transparent background frame; FPS counter moved from standalone overlay into top bar right section

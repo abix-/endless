@@ -194,6 +194,10 @@ pub fn bottom_panel_system(
     bld_data: BuildingInspectorData,
     world_data: Res<WorldData>,
     health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
+    equip_query: Query<(
+        &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
+        Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
+    ), Without<Dead>>,
     npc_states: NpcStateQuery,
     gpu_state: Res<GpuReadState>,
     buffer_writes: Res<NpcBufferWrites>,
@@ -217,14 +221,14 @@ pub fn bottom_panel_system(
 
         egui::Window::new("Inspector")
             .anchor(egui::Align2::LEFT_BOTTOM, [2.0, -2.0])
-            .fixed_size([300.0, 160.0])
+            .fixed_size([300.0, 280.0])
             .collapsible(true)
             .movable(false)
             .frame(frame)
             .show(ctx, |ui| {
                 inspector_content(
                     ui, &data, &mut meta_cache, &mut rename_state, &bld_data, &world_data, &health_query,
-                    &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
+                    &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                 );
                 // Destroy button for selected buildings (not fountains/camps)
                 if has_building && !has_npc {
@@ -414,6 +418,10 @@ fn inspector_content(
     bld_data: &BuildingInspectorData,
     world_data: &WorldData,
     health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
+    equip_query: &Query<(
+        &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
+        Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
+    ), Without<Dead>>,
     npc_states: &NpcStateQuery,
     gpu_state: &GpuReadState,
     buffer_writes: &NpcBufferWrites,
@@ -454,7 +462,6 @@ fn inspector_content(
 
     let meta = &meta_cache.0[idx];
 
-    ui.strong(format!("{}", meta.name));
     tipped(ui, format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, (meta.level + 1) * (meta.level + 1) * 100), catalog.0.get("npc_level").unwrap_or(&""));
 
     if let Some((_, personality, ..)) = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx) {
@@ -464,15 +471,17 @@ fn inspector_content(
         }
     }
 
-    // Find HP + energy from query
+    // Find HP, energy, combat stats from query
     let mut hp = 0.0f32;
     let mut max_hp = 100.0f32;
     let mut energy = 0.0f32;
+    let mut cached_stats: Option<&CachedStats> = None;
     for (npc_idx, health, cached, npc_energy) in health_query.iter() {
         if npc_idx.0 == idx {
             hp = health.0;
             max_hp = cached.max_health;
             energy = npc_energy.0;
+            cached_stats = Some(cached);
             break;
         }
     }
@@ -502,6 +511,36 @@ fn inspector_content(
             .fill(egui::Color32::from_rgb(60, 120, 200)));
     });
 
+    // Combat stats
+    if let Some(stats) = cached_stats {
+        ui.label(format!("Dmg: {:.0}  Rng: {:.0}  CD: {:.1}s  Spd: {:.0}",
+            stats.damage, stats.range, stats.cooldown, stats.speed));
+    }
+
+    // Equipment + status from equip_query
+    if let Some((_, weapon, helmet, armor, starving, squad, gold, atk_type, _speed))
+        = equip_query.iter().find(|(ni, ..)| ni.0 == idx)
+    {
+        let atk_str = match atk_type { BaseAttackType::Melee => "Melee", BaseAttackType::Ranged => "Ranged" };
+        let mut equip_parts: Vec<&str> = Vec::new();
+        if weapon.is_some() { equip_parts.push("Weapon"); }
+        if helmet.is_some() { equip_parts.push("Helmet"); }
+        if armor.is_some() { equip_parts.push("Armor"); }
+        let equip_str = if equip_parts.is_empty() { "None".to_string() } else { equip_parts.join(" + ") };
+        ui.label(format!("{} | {}", atk_str, equip_str));
+
+        // Status markers
+        if starving.is_some() {
+            ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "Starving");
+        }
+        if let Some(sq) = squad {
+            ui.label(format!("Squad: {}", sq.0));
+        }
+        if let Some(g) = gold {
+            if g.0 > 0 { ui.label(format!("Carrying: {} gold", g.0)); }
+        }
+    }
+
     // Town name
     if meta.town_id >= 0 {
         if let Some(town) = world_data.towns.get(meta.town_id as usize) {
@@ -509,7 +548,7 @@ fn inspector_content(
         }
     }
 
-    // State
+    // State, faction, home
     let mut state_str = String::new();
     let mut home_str = String::new();
     let mut faction_str = String::new();
@@ -528,6 +567,7 @@ fn inspector_content(
     }
 
     tipped(ui, format!("State: {}", state_str), catalog.0.get("npc_state").unwrap_or(&""));
+    ui.label(format!("Faction: {}  Home: {}", faction_str, home_str));
 
     // Follow toggle
     ui.horizontal(|ui| {
@@ -536,7 +576,7 @@ fn inspector_content(
         }
     });
 
-    // Debug: coordinates, faction, copy button
+    // Debug: coordinates, copy button
     if settings.debug_coordinates {
         ui.separator();
 
@@ -554,10 +594,7 @@ fn inspector_content(
             "?".into()
         };
 
-        ui.label(format!("Pos: {}", pos));
-        ui.label(format!("Target: {}", target));
-        ui.label(format!("Home: {}", home_str));
-        ui.label(format!("Faction: {}", faction_str));
+        ui.label(format!("Pos: {}  Target: {}", pos, target));
 
         if ui.button("Copy Debug Info").clicked() {
             let mut info = format!(

@@ -7,7 +7,7 @@ use crate::constants::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta,
-    NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind, SystemTimings,
+    NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind, SystemTimings, DirtyFlags,
 };
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
 use crate::systems::economy::*;
@@ -81,6 +81,7 @@ pub fn spawn_npc_system(
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
+    mut dirty: ResMut<DirtyFlags>,
 ) {
     let _t = timings.scope("spawn_npc");
     for msg in events.read() {
@@ -139,6 +140,7 @@ pub fn spawn_npc_system(
         // Job template — determines component bundle
         match job {
             Job::Archer => {
+                dirty.squads = true;
                 ec.insert(Energy::default());
                 ec.insert(AttackTimer(0.0));
                 ec.insert(Archer);

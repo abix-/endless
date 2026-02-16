@@ -26,6 +26,7 @@ pub struct MenuState {
     pub raider_passive_forage: bool,
     pub difficulty: crate::resources::Difficulty,
     pub autosave_hours: i32,
+    pub show_load_menu: bool,
     pub initialized: bool,
 }
 
@@ -245,40 +246,14 @@ pub fn main_menu_system(
 
             ui.add_space(8.0);
 
-            // Load Game — collapsible save file picker
+            // Load Game button — opens a save picker window
             let saves = crate::save::list_saves();
             if saves.is_empty() {
                 ui.add_enabled_ui(false, |ui| {
                     let _ = ui.button(egui::RichText::new("Load Game").size(18.0));
                 });
-                ui.label(egui::RichText::new("No save files found").size(12.0).weak());
-            } else {
-                egui::CollapsingHeader::new(egui::RichText::new("Load Game").size(18.0))
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        for save_info in &saves {
-                            ui.horizontal(|ui| {
-                                let elapsed = save_info.modified.elapsed().unwrap_or_default();
-                                let age = if elapsed.as_secs() < 60 {
-                                    "just now".to_string()
-                                } else if elapsed.as_secs() < 3600 {
-                                    format!("{}m ago", elapsed.as_secs() / 60)
-                                } else if elapsed.as_secs() < 86400 {
-                                    format!("{}h ago", elapsed.as_secs() / 3600)
-                                } else {
-                                    format!("{}d ago", elapsed.as_secs() / 86400)
-                                };
-                                let name = save_info.filename.trim_end_matches(".json");
-                                if ui.button(name).clicked() {
-                                    save_request.load_on_enter = true;
-                                    save_request.load_path = Some(save_info.path.clone());
-                                    save_request.autosave_hours = state.autosave_hours;
-                                    next_state.set(AppState::Playing);
-                                }
-                                ui.label(egui::RichText::new(age).size(12.0).weak());
-                            });
-                        }
-                    });
+            } else if ui.button(egui::RichText::new("Load Game").size(18.0)).clicked() {
+                state.show_load_menu = !state.show_load_menu;
             }
 
             ui.add_space(20.0);
@@ -414,6 +389,49 @@ pub fn main_menu_system(
                 });
         });
     });
+
+    // Load Game window — shown when show_load_menu is true
+    if state.show_load_menu {
+        let saves = crate::save::list_saves();
+        let mut open = true;
+        egui::Window::new("Load Game")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_width(400.0)
+            .show(ctx, |ui| {
+                if saves.is_empty() {
+                    ui.label("No save files found");
+                } else {
+                    for save_info in &saves {
+                        ui.horizontal(|ui| {
+                            let name = save_info.filename.trim_end_matches(".json");
+                            if ui.button(egui::RichText::new(name).size(14.0)).clicked() {
+                                save_request.load_on_enter = true;
+                                save_request.load_path = Some(save_info.path.clone());
+                                save_request.autosave_hours = state.autosave_hours;
+                                next_state.set(AppState::Playing);
+                            }
+                            let elapsed = save_info.modified.elapsed().unwrap_or_default();
+                            let age = if elapsed.as_secs() < 60 {
+                                "just now".to_string()
+                            } else if elapsed.as_secs() < 3600 {
+                                format!("{}m ago", elapsed.as_secs() / 60)
+                            } else if elapsed.as_secs() < 86400 {
+                                format!("{}h ago", elapsed.as_secs() / 3600)
+                            } else {
+                                format!("{}d ago", elapsed.as_secs() / 86400)
+                            };
+                            ui.label(egui::RichText::new(age).size(12.0).weak());
+                        });
+                    }
+                }
+            });
+        if !open {
+            state.show_load_menu = false;
+        }
+    }
 
     Ok(())
 }

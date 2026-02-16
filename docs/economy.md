@@ -33,10 +33,11 @@ game_time_system (every frame)
     │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated, personality-driven)
     │   └─ Uses AiBuildRes SystemParam bundle (8 mutable resources) to stay under Bevy's 16-param limit
     │
-    └─ squad_cleanup_system (every frame)
+    └─ squad_cleanup_system (dirty-flag gated: DirtyFlags.squads)
         └─ Phase 1: remove dead slots from Squad.members
-        └─ Phase 2: dismiss excess if members > target_size (remove SquadId)
-        └─ Phase 3: auto-recruit unsquadded player archers if members < target_size (insert SquadId)
+        └─ Phase 2: keep Default Squad (0) as live pool of unsquadded player archers
+        └─ Phase 3: dismiss excess if members > target_size (remove SquadId)
+        └─ Phase 4: auto-recruit unsquadded player archers if members < target_size (insert SquadId)
 ```
 
 ## Systems
@@ -243,10 +244,12 @@ Building costs are computed by `building_cost(kind, difficulty)` in `constants.r
 - Uses `MineStates` resource — parallel Vecs of gold, max_gold, and positions per mine
 
 ### squad_cleanup_system
-- Runs every frame in `Step::Behavior`
+- Dirty-flag gated via `DirtyFlags.squads` — skips entirely when no squad-relevant changes occurred
+- Flag set by: `death_cleanup_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`DirtyFlags::default()`)
 - **Phase 1**: retains only members whose slot is still in `NpcEntityMap` (alive)
-- **Phase 2**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` component, pops from members)
-- **Phase 3**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction archers (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
+- **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player archers (inserts `SquadId(0)`)
+- **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` component, pops from members)
+- **Phase 4**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction archers (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
 
 ## Known Issues
 

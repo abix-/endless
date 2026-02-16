@@ -217,7 +217,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
-                LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands),
+                LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &mut factions_cache, &mut jump_target),
                 LeftPanelTab::Profiler => profiler_content(ui, &timings),
                 LeftPanelTab::Help => help_content(ui),
@@ -739,7 +739,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, jump_target: &mut 
 // SQUADS CONTENT
 // ============================================================================
 
-fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, commands: &mut Commands) {
+fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, commands: &mut Commands, dirty: &mut DirtyFlags) {
     let selected = squad.squad_state.selected;
 
     // Squad list
@@ -838,6 +838,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
                     let selected_len = squad.squad_state.squads[si].members.len();
                     let selected_target = squad.squad_state.squads[si].target_size;
                     squad.squad_state.squads[si].target_size = selected_target.max(selected_len);
+                    dirty.squads = true;
                 }
             }
         });
@@ -853,6 +854,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
             }
             squad.squad_state.squads[si].members.clear();
             squad.squad_state.squads[si].target_size = 0;
+            dirty.squads = true;
         }
     }
 

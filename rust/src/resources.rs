@@ -1220,12 +1220,13 @@ pub struct DirtyFlags {
     pub patrols: bool,
     pub healing_zones: bool,
     pub guard_post_slots: bool,
+    pub squads: bool,
     /// Pending patrol order swap from UI (guard_post indices).
     /// Set by left_panel, consumed by rebuild_patrol_routes_system.
     pub patrol_swap: Option<(usize, usize)>,
 }
 impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, guard_post_slots: true, patrol_swap: None } }
+    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, guard_post_slots: true, squads: true, patrol_swap: None } }
 }
 
 // ============================================================================

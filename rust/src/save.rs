@@ -1322,8 +1322,7 @@ pub fn load_game_system(
     *tracking.combat_log = Default::default();
     *tracking.gpu_state = Default::default();
     *tracking.building_hp_render = Default::default();
-    tracking.dirty.patrols = true;
-    tracking.dirty.guard_post_slots = true;
+    *tracking.dirty = DirtyFlags::default();
     tracking.tilemap_spawned.0 = false; // Force tilemap rebuild with new terrain
 
     // 3. Apply save data to all game resources
@@ -1339,9 +1338,6 @@ pub fn load_game_system(
 
     // 4. Rebuild spatial grid
     tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
-    tracking.dirty.building_grid = false;
-    tracking.dirty.healing_zones = true;
-
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(
         &save, &mut commands,

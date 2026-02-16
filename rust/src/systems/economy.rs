@@ -349,8 +349,11 @@ pub fn squad_cleanup_system(
     world_data: Res<WorldData>,
     squad_guards: Query<(Entity, &NpcIndex, &SquadId), (With<Archer>, Without<Dead>)>,
     timings: Res<SystemTimings>,
+    mut dirty: ResMut<DirtyFlags>,
 ) {
     let _t = timings.scope("squad_cleanup");
+    if !dirty.squads { return; }
+    dirty.squads = false;
     let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
 
     // Phase 1: remove dead members

@@ -71,7 +71,7 @@ Every-frame review backlog:
     3. Menu-load and in-game load both set `dirty.healing_zones = true` and clear `dirty.patrol_swap`.
     4. `update_healing_zone_cache` rebuilds then clears `dirty.healing_zones`.
   - Done when tests fail on current bug states and pass after fixes, guarding against regressions.
-- [ ] Change `squad_cleanup_system` from always-on per-frame maintenance to event/interval-driven updates keyed to membership/spawn/death changes.
+- [x] Change `squad_cleanup_system` from always-on per-frame maintenance to event/interval-driven updates keyed to membership/spawn/death changes.
 - [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
 - [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.
 
