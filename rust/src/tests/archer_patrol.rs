@@ -15,6 +15,7 @@ pub fn setup(mut params: TestSetupParams) {
             position: Vec2::new(gx, gy),
             town_idx: 0,
             patrol_order: order as u32,
+            npc_slot: None,
         });
     }
     // Beds for resting

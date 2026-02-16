@@ -60,6 +60,7 @@ pub fn setup(
             position: Vec2::new(gx, gy),
             town_idx: 0,
             patrol_order: order as u32,
+            npc_slot: None,
         });
         building_hp.guard_posts.push(crate::constants::GUARD_POST_HP);
     }

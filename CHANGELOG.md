@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-16
+
+- **guard post slot plumbing (phase update)** — added `npc_slot: Option<usize>` initialization at remaining GuardPost construction sites so world-gen, runtime placement, save-load reconstruction, and patrol tests all compile against the new GuardPost shape (`rust/src/world.rs`, `rust/src/save.rs`, `rust/src/tests/archer_patrol.rs`, `rust/src/tests/vertical_slice.rs`)
+- **guard post slot queue scaffold** — added `GuardPostSlotQueue` resource plus `GpSlotRequest::{Allocate, Free}` in `rust/src/resources.rs` to support deferred guard-post slot allocation/free processing in a dedicated system
+- **roadmap detail expansion (performance backlog)** — expanded Stage 15 guard-post optimization item with explicit WIP status and remaining file-level tasks; added two actionable DirtyFlags follow-ups (lifecycle hardening + regression tests) with implementation steps, acceptance criteria, and validation plan
 ## 2026-02-15g
 
 - **autosave system** â€” `autosave_system` triggers every N game-hours (default 12, configurable 0-48 on main menu); writes to 3 rotating files (`autosave_1.json`, `autosave_2.json`, `autosave_3.json`); `SaveLoadRequest` tracks interval/slot/last-hour; `UserSettings.autosave_hours` persisted; main menu "Autosave" slider between Difficulty and Play button; 0 = disabled
@@ -1398,3 +1403,5 @@
 
 ## 2025-03-02
 - initial prototype: persistent state, NPC system
+
+

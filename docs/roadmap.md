@@ -49,8 +49,28 @@ Every-frame review backlog:
 - [x] Gate `rebuild_building_grid_system` so `BuildingSpatialGrid::rebuild()` only runs when world/building data changes (or via dirty flag), not every frame.
 - [x] Replace `decision_system` threat checks (`count_nearby_factions`) with GPU spatial grid query â€” piggybacks on existing Mode 2 combat targeting scan, packed u32 readback (enemies<<16|allies)
 - [x] Optimize `healing_system` town-zone checks (faction-indexed town lists / cached radii) to reduce per-frame NPC x town iteration.
-- [ ] Optimize `guard_post_attack_system` target acquisition to avoid full guard-post x NPC scans on fire-ready ticks.
+- [ ] Optimize `guard_post_attack_system` target acquisition to avoid full guard-post x NPC scans on fire-ready ticks. **WIP — Option D (NPC slots for guard posts):** give guard posts real `SlotAllocator` indices so GPU spatial grid auto-populates `combat_targets[gp_slot]`. Plan approved, see `~/.claude/plans/floating-munching-pony.md`. **Done:** added `npc_slot: Option<usize>` to `GuardPost` struct (world.rs:51), fixed `place_building` construction site (world.rs:247). **Remaining:** add `npc_slot: None` to 3 more construction sites (world.rs:1491 world-gen, save.rs:693 load, tests/archer_patrol.rs:14, tests/vertical_slice.rs:59), add `GuardPostSlotQueue`+`GpSlotRequest` to resources.rs, add `drain_guard_post_slot_queue` system to combat.rs, rewrite `guard_post_attack_system` to read `combat_targets[gp_slot]`, push queue entries from ui/mod.rs + ai_player.rs + save.rs, register in lib.rs.
 - [ ] Make combat log UI incremental (cache merged entries and skip per-frame full rebuild/sort when source logs are unchanged).
+- [ ] DirtyFlags lifecycle hardening: eliminate stale cache/flag carry-over across state transitions and load paths.
+  - Root issue: `DirtyFlags` and `HealingZoneCache` persist across sessions; menu-load/startup paths currently miss `healing_zones` invalidation, and `patrol_swap` can survive if not consumed before leaving Playing.
+  - Implement in `ui/mod.rs` + `save.rs`:
+    1. In `game_cleanup_system`, reset `DirtyFlags` to default and clear `HealingZoneCache`.
+    2. In all enter/load paths (`game_startup_system`, menu `game_load_system`, in-game `load_game_system`), explicitly set `dirty.healing_zones = true` and `dirty.patrol_swap = None`.
+    3. Keep existing `dirty.patrols = true` behavior for route rebuild, but ensure no stale swap is applied after a new world/load.
+  - Done when:
+    - First frame after entering Playing always rebuilds healing zones from current `WorldData` + upgrades.
+    - No patrol order swap is applied unless triggered in the current session.
+    - No stale `HealingZoneCache` entries survive from prior session/world.
+  - Validation:
+    - Manual: MainMenu -> New Game, MainMenu -> Load, in-game F9 load; verify correct healing behavior and patrol order stability.
+    - Add logs/asserts in debug builds to confirm `healing_zones` flips true on enter/load and false after rebuild.
+- [ ] DirtyFlags regression tests (state transitions + load): add automated coverage for cleanup/enter behavior.
+  - Add tests (likely in `tests/vertical_slice.rs` or dedicated `tests/dirty_flags.rs`) that exercise:
+    1. `OnExit(AppState::Playing)` cleanup resets `DirtyFlags` and clears `HealingZoneCache`.
+    2. `OnEnter(AppState::Playing)` startup path sets `dirty.healing_zones = true`.
+    3. Menu-load and in-game load both set `dirty.healing_zones = true` and clear `dirty.patrol_swap`.
+    4. `update_healing_zone_cache` rebuilds then clears `dirty.healing_zones`.
+  - Done when tests fail on current bug states and pass after fixes, guarding against regressions.
 - [ ] Change `squad_cleanup_system` from always-on per-frame maintenance to event/interval-driven updates keyed to membership/spawn/death changes.
 - [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
 - [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.

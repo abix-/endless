@@ -692,6 +692,7 @@ pub fn apply_save(
     }).collect();
     world_data.guard_posts = save.guard_posts.iter().map(|g| world::GuardPost {
         position: to_vec2(g.position), town_idx: g.town_idx, patrol_order: g.patrol_order,
+        npc_slot: None,
     }).collect();
     world_data.farmer_homes = save.farmer_homes.iter().map(|h| world::FarmerHome {
         position: to_vec2(h.position), town_idx: h.town_idx,
