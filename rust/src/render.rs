@@ -75,6 +75,7 @@ pub struct CameraState {
 const CAMERA_ZOOM_SPEED: f32 = 0.1;
 const CAMERA_MIN_ZOOM: f32 = 0.1;
 const CAMERA_MAX_ZOOM: f32 = 4.0;
+const EDGE_PAN_MARGIN: f32 = 8.0;
 
 // =============================================================================
 // PLUGIN
@@ -89,6 +90,8 @@ impl Plugin for RenderPlugin {
             .add_systems(Startup, (setup_camera, load_sprites))
             .add_systems(Update, (
                 camera_pan_system,
+                camera_mouse_pan_system,
+                camera_edge_pan_system,
                 camera_zoom_system,
                 camera_follow_system,
                 click_to_select_system,
@@ -192,6 +195,81 @@ fn camera_pan_system(
     if keys.pressed(KeyCode::KeyD) { dir.x += 1.0; }
 
     if dir != Vec2::ZERO {
+        let speed = user_settings.scroll_speed / ortho_zoom(projection);
+        let delta = dir.normalize() * speed * time.delta_secs();
+        transform.translation.x += delta.x;
+        transform.translation.y += delta.y;
+    }
+}
+
+/// Right-click drag to pan camera.
+fn camera_mouse_pan_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
+    mut egui_contexts: bevy_egui::EguiContexts,
+    mut last_pos: Local<Option<Vec2>>,
+) {
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            *last_pos = None;
+            return;
+        }
+    }
+
+    let Ok(window) = windows.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else {
+        *last_pos = None;
+        return;
+    };
+
+    if mouse.just_pressed(MouseButton::Right) {
+        *last_pos = Some(cursor_pos);
+        return;
+    }
+
+    if mouse.pressed(MouseButton::Right) {
+        if let Some(prev) = *last_pos {
+            let screen_delta = cursor_pos - prev;
+            if screen_delta != Vec2::ZERO {
+                let Ok((mut transform, projection)) = query.single_mut() else { return };
+                let zoom = ortho_zoom(projection);
+                // Screen-space to world-space: divide by zoom, flip Y
+                transform.translation.x -= screen_delta.x / zoom;
+                transform.translation.y += screen_delta.y / zoom;
+            }
+        }
+        *last_pos = Some(cursor_pos);
+    } else {
+        *last_pos = None;
+    }
+}
+
+/// Pan camera when cursor hovers near screen edges.
+fn camera_edge_pan_system(
+    windows: Query<&Window>,
+    time: Res<Time>,
+    mut query: Query<(&mut Transform, &Projection), With<MainCamera>>,
+    user_settings: Res<UserSettings>,
+    mut egui_contexts: bevy_egui::EguiContexts,
+) {
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() { return; }
+    }
+
+    let Ok(window) = windows.single() else { return };
+    let Some(cursor_pos) = window.cursor_position() else { return };
+    let w = window.width();
+    let h = window.height();
+
+    let mut dir = Vec2::ZERO;
+    if cursor_pos.x < EDGE_PAN_MARGIN { dir.x -= 1.0; }
+    if cursor_pos.x > w - EDGE_PAN_MARGIN { dir.x += 1.0; }
+    if cursor_pos.y < EDGE_PAN_MARGIN { dir.y += 1.0; } // top of screen = +Y world
+    if cursor_pos.y > h - EDGE_PAN_MARGIN { dir.y -= 1.0; }
+
+    if dir != Vec2::ZERO {
+        let Ok((mut transform, projection)) = query.single_mut() else { return };
         let speed = user_settings.scroll_speed / ortho_zoom(projection);
         let delta = dir.normalize() * speed * time.delta_secs();
         transform.translation.x += delta.x;
