@@ -253,6 +253,7 @@ pub fn ai_decision_system(
     gold_storage: Res<GoldStorage>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
+    difficulty: Res<Difficulty>,
     mut timer: Local<f32>,
     timings: Res<SystemTimings>,
 ) {
@@ -290,7 +291,7 @@ pub fn ai_decision_system(
         match player.kind {
             AiKind::Raider => {
                 // Tents (only building raiders make)
-                if has_slots && food >= TENT_BUILD_COST {
+                if has_slots && food >= building_cost(BuildKind::Tent, *difficulty) {
                     scores.push((AiAction::BuildTent, 30.0));
                 }
             }
@@ -305,13 +306,13 @@ pub fn ai_decision_system(
                     let barracks_need = if barracks < bt { 1.0 + (bt - barracks) as f32 } else { 0.5 };
                     let gp_need = if guard_posts < barracks { 1.0 + (barracks - guard_posts) as f32 } else { 0.5 };
 
-                    if food >= FARM_BUILD_COST { scores.push((AiAction::BuildFarm, fw * farm_need)); }
-                    if food >= FARMER_HOME_BUILD_COST { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
-                    if food >= ARCHER_HOME_BUILD_COST { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
-                    if food >= GUARD_POST_BUILD_COST { scores.push((AiAction::BuildGuardPost, gw * gp_need)); }
+                    if food >= building_cost(BuildKind::Farm, *difficulty) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
+                    if food >= building_cost(BuildKind::FarmerHome, *difficulty) { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
+                    if food >= building_cost(BuildKind::ArcherHome, *difficulty) { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
+                    if food >= building_cost(BuildKind::GuardPost, *difficulty) { scores.push((AiAction::BuildGuardPost, gw * gp_need)); }
                     // 1 mine shaft per 3 houses
                     let ms_target = houses / 3;
-                    if mine_shafts < ms_target && food >= MINER_HOME_BUILD_COST {
+                    if mine_shafts < ms_target && food >= building_cost(BuildKind::MinerHome, *difficulty) {
                         let ms_need = 1.0 + (ms_target - mine_shafts) as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
                     }
@@ -333,7 +334,7 @@ pub fn ai_decision_system(
         let Some(action) = weighted_pick(&scores) else { continue };
         let label = execute_action(
             action, ti, tdi, center, guard_posts, &mut res,
-            player.grid_idx,
+            player.grid_idx, *difficulty,
         );
         if let Some(what) = label {
             log_ai(&mut combat_log, &game_time, &town_name, pname, &what);
@@ -360,31 +361,32 @@ fn try_build_inner(
 /// Execute the chosen action, returning a log label on success.
 fn execute_action(
     action: AiAction, ti: u32, tdi: usize, center: Vec2, guard_posts: usize,
-    res: &mut AiBuildRes, grid_idx: usize,
+    res: &mut AiBuildRes, grid_idx: usize, difficulty: Difficulty,
 ) -> Option<String> {
     match action {
         AiAction::BuildTent => try_build_inner(
-            Building::Tent { town_idx: ti }, TENT_BUILD_COST, "tent",
+            Building::Tent { town_idx: ti }, building_cost(BuildKind::Tent, difficulty), "tent",
             tdi, center, res, grid_idx),
         AiAction::BuildFarm => try_build_inner(
-            Building::Farm { town_idx: ti }, FARM_BUILD_COST, "farm",
+            Building::Farm { town_idx: ti }, building_cost(BuildKind::Farm, difficulty), "farm",
             tdi, center, res, grid_idx),
         AiAction::BuildFarmerHome => try_build_inner(
-            Building::FarmerHome { town_idx: ti }, FARMER_HOME_BUILD_COST, "farmer home",
+            Building::FarmerHome { town_idx: ti }, building_cost(BuildKind::FarmerHome, difficulty), "farmer home",
             tdi, center, res, grid_idx),
         AiAction::BuildArcherHome => try_build_inner(
-            Building::ArcherHome { town_idx: ti }, ARCHER_HOME_BUILD_COST, "archer home",
+            Building::ArcherHome { town_idx: ti }, building_cost(BuildKind::ArcherHome, difficulty), "archer home",
             tdi, center, res, grid_idx),
         AiAction::BuildMinerHome => try_build_inner(
-            Building::MinerHome { town_idx: ti }, MINER_HOME_BUILD_COST, "miner home",
+            Building::MinerHome { town_idx: ti }, building_cost(BuildKind::MinerHome, difficulty), "miner home",
             tdi, center, res, grid_idx),
         AiAction::BuildGuardPost => {
+            let cost = building_cost(BuildKind::GuardPost, difficulty);
             let tg = res.town_grids.grids.get(grid_idx)?;
             let (row, col) = find_guard_post_slot(tg, center, &res.grid, &res.world_data, ti)?;
             let ok = world::build_and_pay(&mut res.grid, &mut res.world_data, &mut res.farm_states,
                 &mut res.food_storage, &mut res.spawner_state, &mut res.building_hp,
                 Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
-                tdi, row, col, center, GUARD_POST_BUILD_COST);
+                tdi, row, col, center, cost);
             if ok { res.patrols_dirty.dirty = true; }
             ok.then_some("built guard post".into())
         }

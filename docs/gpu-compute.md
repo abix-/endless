@@ -192,7 +192,3 @@ const MAX_PER_CELL: u32 = 48;
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
 - **sprite_indices/colors not uploaded to compute**: These fields exist in NpcBufferWrites for the render pipeline only. The compute shader has no access to them.
 - **GpuReadState/ProjPositionState cloned for extraction**: `Clone + ExtractResource` means ~600KB/frame cloned to render world. Acceptable at current scale but could be replaced with `Arc<RwLock>` shared approach if it becomes a bottleneck.
-
-## Rating: 9/10
-
-3-mode compute dispatch with spatial grid, separation physics (boids-style + merged dodge + lateral steering), combat targeting, and full GPU→ECS readback. Per-index dirty tracking uploads only changed NPC slots. Bevy async Readback replaces manual ping-pong staging — `ReadbackComplete` observers write directly to Bevy resources. Arrival flag reset on SetTarget ensures NPCs resume movement.

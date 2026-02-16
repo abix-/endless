@@ -169,7 +169,3 @@ PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
 - **proj_count never shrinks**: High-water mark (`ProjSlotAllocator.next`). Freed slots are recycled via LIFO free list but don't reduce dispatch count.
 - **No projectile-projectile collision**: Projectiles pass through each other.
 - **Hit buffer must init to [-1, 0]**: `setup_readback_buffers` initializes proj hit `ShaderStorageBuffer` with `[-1, 0]` per slot. GPU zeroes would falsely indicate "hit NPC 0".
-
-## Rating: 7/10
-
-Full end-to-end pipeline: compute shader moves projectiles, spatial grid collision detects hits, readback sends damage to ECS, instanced rendering draws faction-colored projectiles. Bevy async `Readback` + `ReadbackComplete` observers write directly to Bevy resources (no manual staging). `process_proj_hits` bounds iteration to high-water mark and skips inactive slots. Expired projectiles signal CPU via `-2` sentinel for slot recycling. Per-slot dirty tracking minimizes GPU uploads. Rendering reuses the NPC pipeline (same shader, quad, bind groups) with a separate instance buffer. Projectiles render above NPCs via sort key.

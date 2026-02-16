@@ -103,7 +103,3 @@ All spawners set home to building position (FarmerHome/ArcherHome/MinerHome/Tent
 
 - **No spawn validation**: Doesn't verify town_idx is valid or that guard posts exist. Bad input silently creates an archer with no patrol route.
 - **One-frame GPU delay**: GPU writes go through message collection → populate_buffer_writes → extract → upload. NPC won't render until the frame after Bevy processes the spawn.
-
-## Rating: 8/10
-
-Single spawn path with job-as-template pattern. Slot recycling via `SlotAllocator` — single source of truth for NPC counting (`count()` for GPU dispatch, `alive()` for UI). Personality and name generation are deterministic and reproducible. GPU writes properly batched through message system.

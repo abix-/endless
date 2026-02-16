@@ -105,14 +105,14 @@ Frame execution order ───────────────────�
 | Doc | What it covers | Rating |
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
-| [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, separation physics, combat targeting, GPU→ECS readback | 9/10 |
-| [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, dual atlas, RenderCommand pipeline, camera controls, health bars, FPS overlay | 9/10 |
+| [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, separation physics, combat targeting, GPU→ECS readback | 8/10 |
+| [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, dual atlas, RenderCommand pipeline, camera controls, health bars, FPS overlay | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
-| [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 8/10 |
-| [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 8/10 |
-| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (FarmerHome/ArcherHome/Tent/MinerHome), FarmYield upgrade | 8/10 |
+| [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
+| [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 7/10 |
+| [economy.md](economy.md) | Farm growth, food theft, starvation, camp foraging, unified building spawners (FarmerHome/ArcherHome/Tent/MinerHome), FarmYield upgrade | 7/10 |
 | [messages.md](messages.md) | Static queues, GpuUpdateMsg messages, GPU_READ_STATE | 7/10 |
-| [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 8/10 |
+| [resources.md](resources.md) | Bevy resources, game state ownership, UI caches, world data | 7/10 |
 | [projectiles.md](projectiles.md) | GPU projectile compute, hit detection, instanced rendering, slot allocation | 7/10 |
 | [concepts.md](concepts.md) | Foundational patterns (DOD, spatial grid, compute shaders, ECS) | - |
 | [roadmap.md](roadmap.md) | Feature tracking, migration plan | - |
@@ -188,4 +188,3 @@ rust/
       npc_render.wgsl       # WGSL render shader (instanced quad + sprite atlas)
       projectile_compute.wgsl # WGSL compute shader (projectile movement + collision)
 ```
-

@@ -198,6 +198,3 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 - **No friendly fire**: Faction check prevents same-faction damage. No way to enable it selectively.
 - **CombatState::Fighting blocks behavior decisions**: While fighting, decision_system skips the NPC. However, Activity is preserved through combat — when combat ends (`CombatState::None`), the NPC resumes its previous activity.
 - **KillStats naming inverted**: `guard_kills` tracks raiders killed (by guards), `villager_kills` tracks villagers killed (by raiders). The names describe the victim, not the killer.
-## Rating: 8/10
-
-Full combat loop: GPU targeting → attack → damage (with last-hit tracking) → death → XP grant → cleanup. Chained execution guarantees safety. O(1) entity lookup via NpcEntityMap. XP-on-kill grants 100 XP to last attacker with level-up stat re-resolution and proportional HP rescale. death_cleanup_system is thorough (releases farm occupancy, clears raid queue, updates all stat resources). Projectile slot recycling handles both collisions and expired projectiles via sentinel. Building attacks are opportunistic (no new Activity variant) — minimal complexity addition.

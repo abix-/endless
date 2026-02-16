@@ -172,23 +172,24 @@ pub const STARVING_SPEED_MULT: f32 = 0.5;
 // BUILDING SYSTEM CONSTANTS
 // ============================================================================
 
-/// Food cost to build a farm.
-pub const FARM_BUILD_COST: i32 = 1;
-
-/// Food cost to build a guard post.
-pub const GUARD_POST_BUILD_COST: i32 = 1;
-
-/// Food cost to build a farmer home (supports 1 farmer).
-pub const FARMER_HOME_BUILD_COST: i32 = 1;
-
-/// Food cost to build an archer home (supports 1 archer).
-pub const ARCHER_HOME_BUILD_COST: i32 = 1;
-
-/// Food cost to build a tent (supports 1 raider).
-pub const TENT_BUILD_COST: i32 = 1;
-
-/// Food cost to build a miner home (supports 1 miner).
-pub const MINER_HOME_BUILD_COST: i32 = 1;
+/// Food cost to build, scaled by difficulty.
+pub fn building_cost(kind: crate::resources::BuildKind, difficulty: crate::resources::Difficulty) -> i32 {
+    use crate::resources::{BuildKind, Difficulty};
+    let base = match kind {
+        BuildKind::Farm       => 3,
+        BuildKind::FarmerHome => 5,
+        BuildKind::MinerHome  => 5,
+        BuildKind::ArcherHome => 8,
+        BuildKind::GuardPost  => 10,
+        BuildKind::Tent       => 3,
+        BuildKind::Destroy    => 0,
+    };
+    match difficulty {
+        Difficulty::Easy   => (base + 1) / 2,
+        Difficulty::Normal => base,
+        Difficulty::Hard   => base * 2,
+    }
+}
 
 /// Game hours before a dead NPC respawns from its building.
 pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;

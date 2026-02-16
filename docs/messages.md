@@ -135,7 +135,3 @@ GOING_TO_REST=11, GOING_TO_WORK=12
 
 - **Health dual ownership**: CPU-authoritative but synced to GPU for targeting. If upload fails or is delayed, GPU targets based on stale health. Bounded to 1 frame.
 - **GpuReadState/ProjPositionState cloned for extraction**: `Clone + ExtractResource` copies ~600KB/frame to render world. Acceptable at current scale.
-
-## Rating: 7/10
-
-MessageWriter pattern enables parallel system execution with a single mutex lock at frame end. Authority model is explicit — GPU owns positions/targeting, CPU owns health/behavior, render owns visuals. Staleness budget documented (1 frame, 1.6px drift). Static queues are minimal — only used where Bevy's scheduler can't reach. Visual state (colors, equipment, indicators) derived from ECS by `sync_visual_sprites` — no deferred messages needed. Bevy async Readback replaces blocking readback — no render thread stall.

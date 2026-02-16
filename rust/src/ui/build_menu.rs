@@ -5,7 +5,6 @@ use bevy::prelude::*;
 use bevy::image::Image;
 use bevy_egui::{EguiContexts, EguiTextureHandle, egui};
 
-use crate::constants::*;
 use crate::render::SpriteAssets;
 use crate::resources::*;
 use crate::settings::UserSettings;
@@ -14,20 +13,19 @@ use crate::world::{self, SPRITE_SIZE, CELL};
 struct BuildOption {
     kind: BuildKind,
     label: &'static str,
-    cost: i32,
     help: &'static str,
 }
 
 const PLAYER_BUILD_OPTIONS: &[BuildOption] = &[
-    BuildOption { kind: BuildKind::Farm, label: "Farm", cost: FARM_BUILD_COST, help: "Grows food over time" },
-    BuildOption { kind: BuildKind::FarmerHome, label: "Farmer Home", cost: FARMER_HOME_BUILD_COST, help: "Spawns 1 farmer" },
-    BuildOption { kind: BuildKind::MinerHome, label: "Miner Home", cost: MINER_HOME_BUILD_COST, help: "Spawns 1 miner" },
-    BuildOption { kind: BuildKind::ArcherHome, label: "Archer Home", cost: ARCHER_HOME_BUILD_COST, help: "Spawns 1 archer" },
-    BuildOption { kind: BuildKind::GuardPost, label: "Guard Post", cost: GUARD_POST_BUILD_COST, help: "Patrol point + turret" },
+    BuildOption { kind: BuildKind::Farm, label: "Farm", help: "Grows food over time" },
+    BuildOption { kind: BuildKind::FarmerHome, label: "Farmer Home", help: "Spawns 1 farmer" },
+    BuildOption { kind: BuildKind::MinerHome, label: "Miner Home", help: "Spawns 1 miner" },
+    BuildOption { kind: BuildKind::ArcherHome, label: "Archer Home", help: "Spawns 1 archer" },
+    BuildOption { kind: BuildKind::GuardPost, label: "Guard Post", help: "Patrol point + turret" },
 ];
 
 const CAMP_BUILD_OPTIONS: &[BuildOption] = &[
-    BuildOption { kind: BuildKind::Tent, label: "Tent", cost: TENT_BUILD_COST, help: "Spawns 1 raider" },
+    BuildOption { kind: BuildKind::Tent, label: "Tent", help: "Spawns 1 raider" },
 ];
 
 
@@ -140,6 +138,7 @@ pub(crate) fn build_menu_system(
     world_data: Res<world::WorldData>,
     food_storage: Res<FoodStorage>,
     user_settings: Res<UserSettings>,
+    difficulty: Res<Difficulty>,
     sprites: Res<SpriteAssets>,
     mut images: ResMut<Assets<Image>>,
     mut cache: Local<BuildSpriteCache>,
@@ -203,7 +202,8 @@ pub(crate) fn build_menu_system(
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for option in options {
-                    let can_afford = food >= option.cost;
+                    let cost = crate::constants::building_cost(option.kind, *difficulty);
+                    let can_afford = food >= cost;
                     let selected = build_ctx.selected_build == Some(option.kind);
 
                     let resp = ui.vertical(|ui| {
@@ -228,7 +228,7 @@ pub(crate) fn build_menu_system(
                             egui::Color32::from_rgb(200, 200, 200)
                         };
                         ui.label(
-                            egui::RichText::new(format!("{} ({})", option.label, option.cost))
+                            egui::RichText::new(format!("{} ({})", option.label, cost))
                                 .color(label_color)
                                 .size(label_size),
                         );

@@ -390,7 +390,3 @@ Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase a
 - **Equipment sprite tuning**: Equipment sprites have updated atlas coordinates — use `npc-visuals` test scene to review layers. Food sprite is on world atlas (24,9).
 - **Single sort key for all layers**: All 7 NPC layers share sort_key=0.5 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but layers can't interleave with other phase items.
 - **Single tilemap chunk per layer**: At 1000×1000 (1M tiles), `command_buffer_generation_tasks` costs ~10ms because Bevy processes all tiles even when most are off-screen. Splitting into 32×32 chunks enables off-screen culling (see roadmap spec).
-
-## Rating: 9/10
-
-Terrain and buildings rendered via two Bevy TilemapChunk layers (2 draw calls, zero per-frame CPU cost for 62K tiles + buildings). NPCs, equipment, and projectiles rendered through a custom instanced pipeline with dual atlas support. Per-instance data is compact (48 bytes). Fragment shader handles transparency, dual atlas sampling, faction color tinting, in-shader health bars (3-color, show-when-damaged), damage flash, and equipment layer health bar preservation. Camera controls work (WASD pan, scroll zoom, click-to-select). Projectiles render with GPU position readback and faction coloring. FPS counter overlay via egui (bottom-right, EMA-smoothed, defined in `ui/game_hud.rs`, runs on all app states).

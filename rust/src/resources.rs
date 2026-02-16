@@ -1055,6 +1055,31 @@ impl Default for PolicySet {
     }
 }
 
+// ============================================================================
+// DIFFICULTY
+// ============================================================================
+
+/// Game difficulty — scales building costs. Selected on main menu, immutable during play.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Resource, serde::Serialize, serde::Deserialize)]
+pub enum Difficulty {
+    Easy,
+    #[default]
+    Normal,
+    Hard,
+}
+
+impl Difficulty {
+    pub const ALL: [Difficulty; 3] = [Difficulty::Easy, Difficulty::Normal, Difficulty::Hard];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Difficulty::Easy => "Easy",
+            Difficulty::Normal => "Normal",
+            Difficulty::Hard => "Hard",
+        }
+    }
+}
+
 /// Per-town policy settings. Index matches WorldData.towns.
 #[derive(Resource)]
 pub struct TownPolicies {

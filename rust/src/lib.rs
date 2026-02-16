@@ -34,6 +34,7 @@ use resources::{
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState, PatrolsDirty,
+    Difficulty,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -189,6 +190,7 @@ pub fn build_app(app: &mut App) {
        .add_message::<BuildingDamageMsg>()
        .add_message::<GpuUpdateMsg>()
        // Resources
+       .init_resource::<Difficulty>()
        .init_resource::<NpcEntityMap>()
        .init_resource::<PopulationStats>()
        .init_resource::<GameConfig>()

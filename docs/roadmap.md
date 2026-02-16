@@ -24,10 +24,10 @@ Stages 1-13, 23: ✓ Complete (see [completed.md](completed.md))
 
 - [ ] Raid escalation: wave size and stats increase every N game-hours
 - [ ] Differentiate job base stats (raiders hit harder, archers are tankier, farmers are fragile)
-- [ ] Food consumption: NPCs eat hourly, eating restores HP/energy
-- [ ] Starvation effects: no food → HP drain, speed penalty, desertion
+- [x] Food consumption: NPCs eat hourly, eating restores HP/energy
+- [x] Starvation effects: no food → HP drain, speed penalty (desertion TBD)
 - [ ] Loss condition: all town NPCs dead + no spawners → game over screen
-- [ ] Building costs rebalanced (everything=1 is not an economy)
+- [x] Building costs rebalanced (difficulty-scaled: Easy/Normal/Hard)
 
 **Stage 15: Performance**
 

@@ -211,13 +211,24 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | FARM_BASE_GROWTH_RATE | 0.08/hour | Passive growth (~12h to harvest) |
 | FARM_TENDED_GROWTH_RATE | 0.25/hour | Tended growth (~4h to harvest) |
 | CAMP_FORAGE_RATE | 1 food/hour | Passive raider food income |
-| TENT_BUILD_COST | 1 | Food cost to build a Tent |
 | STARVING_HP_CAP | 0.5 | 50% MaxHealth cap while starving |
 | STARVING_SPEED_MULT | 0.5 | 50% speed while starving |
 | RAID_GROUP_SIZE | 5 | Min raiders to form a raid group |
-| FARMER_HOME_BUILD_COST | 1 | Food cost to build a Farmer Home |
-| ARCHER_HOME_BUILD_COST | 1 | Food cost to build an Archer Home |
-| MINER_HOME_BUILD_COST | 1 | Food cost to build a Miner Home |
+
+### Building Costs
+
+Building costs are computed by `building_cost(kind, difficulty)` in `constants.rs`:
+
+| Building | Easy | Normal | Hard |
+|----------|------|--------|------|
+| Farm | 2 | 3 | 6 |
+| FarmerHome | 3 | 5 | 10 |
+| MinerHome | 3 | 5 | 10 |
+| ArcherHome | 4 | 8 | 16 |
+| GuardPost | 5 | 10 | 20 |
+| Tent | 2 | 3 | 6 |
+
+`Difficulty` enum (Easy/Normal/Hard) selected on main menu, stored in `UserSettings`, inserted as `Res<Difficulty>`. Both player build menu and AI player use `building_cost()` for affordability checks.
 | SPAWNER_RESPAWN_HOURS | 12.0 | Game hours before dead NPC respawns from building |
 | MINE_MAX_GOLD | 200.0 | Maximum gold a mine can hold |
 | MINE_REGEN_RATE | 2.0/hour | Gold regeneration rate (when unoccupied) |
@@ -240,7 +251,3 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 ## Known Issues
 
 None currently.
-
-## Rating: 8/10
-
-Farm growth cycle creates meaningful gameplay loop — farmers tend crops, raiders steal harvests, camps forage passively. Group raid coordination prevents solo suicide runs. Starvation adds survival pressure to both factions. Game time system is clean with single `hour_ticked` flag. FarmYield upgrade scales per-town via `TownUpgrades`. Starvation uses resolved `CachedStats.speed` instead of hardcoded constants. Unified spawner system handles all four NPC types (farmer/archer/raider/miner) through a single `spawner_respawn_system` with `resolve_spawner_npc()` as single source of truth. Weaknesses: no visual feedback for farm state, population helpers use raw `(job, town)` tuple keys.

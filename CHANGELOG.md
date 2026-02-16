@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-15c
+
+- **difficulty system + building cost rebalance** — `Difficulty` enum (Easy/Normal/Hard) selectable on main menu, persisted in settings; `building_cost(kind, difficulty)` replaces 6 hardcoded `*_BUILD_COST = 1` constants with differentiated base costs (Normal: Farm=3, FarmerHome=5, MinerHome=5, ArcherHome=8, GuardPost=10, Tent=3); Easy≈half, Hard=double; player build menu, click-to-place, and AI player all use `building_cost()`
+- **roadmap update** — marked food consumption, starvation effects, and building cost rebalance as complete in Stage 14
+
 ## 2026-02-15b
 
 - **building damage now projectile-based** — `attack_system` no longer sends direct `BuildingDamageMsg` on fire; instead `process_proj_hits` checks active projectile positions against `BuildingSpatialGrid` (20px hit radius) and sends `BuildingDamageMsg` on collision; buildings now take damage from actual projectile hits, not instantly when fired

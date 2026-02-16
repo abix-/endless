@@ -307,9 +307,3 @@ Player-directed archer groups. 10 squads available, each with a target position 
 
 - **No pathfinding**: NPCs walk in a straight line to target. They rely on separation physics to avoid each other, but can't navigate around buildings.
 - **Energy drains during transit**: NPCs lose energy while walking home to rest. Distant homes could drain to 0 before arrival (clamped, but NPC arrives empty).
-
-## Rating: 8/10
-
-Central brain architecture: `decision_system` handles all NPC decisions with clear priority cascade. Policy-driven flee/leash/schedule system replaces per-entity threshold components. Utility AI for idle decisions creates lifelike behavior with work schedule and off-duty policies.
-
-Gaps: no pathfinding.

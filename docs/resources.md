@@ -106,7 +106,7 @@ Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(
 
 Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `build_and_pay()` additionally deducts food, registers spawner, and pushes HP entry to `BuildingHpState`. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. `destroy_building()` shared helper consolidates all destroy side effects: `remove_building()` + spawner tombstone + HP zero + combat log — used by click-destroy, inspector-destroy, and `building_damage_system` (HP→0). Tombstone deletion preserves parallel Vec indices (FarmStates, BuildingHpState). Fountains, camps, and gold mines cannot be destroyed.
 
-Building costs (from constants.rs): Farm=1, GuardPost=1, FarmerHome=1, ArcherHome=1, Tent=1, MinerHome=1 food.
+Building costs: `building_cost(kind, difficulty)` in `constants.rs`. Base costs (Normal): Farm=3, FarmerHome=5, MinerHome=5, ArcherHome=8, GuardPost=10, Tent=3. Easy=~half, Hard=double.
 
 ## Food & Economy
 
@@ -141,6 +141,7 @@ Derived methods: `day()`, `hour()`, `minute()`, `is_daytime()` (6am–8pm), `tot
 
 | Resource | Fields | Default |
 |----------|--------|---------|
+| Difficulty | Easy, Normal, Hard | Normal |
 | GameConfig | farmers_per_town, archers_per_town, raiders_per_camp, spawn_interval_hours, food_per_work_hour | 10, 30, 15, 4, 1 |
 
 Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
@@ -252,7 +253,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
-| UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
+| UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
 
@@ -311,7 +312,3 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 - **Health dual ownership**: CPU-authoritative but synced to GPU via messages. Could diverge if sync fails.
 - **No external API**: All state is internal Bevy Resources. No query interface for external tools or UI frameworks.
-
-## Rating: 8/10
-
-Resources are well-organized by domain with clear ownership. UI caches avoid repeated ECS queries. SlotAllocator is single source of truth for NPC counting — `count()` for GPU dispatch, `alive()` for UI. No redundant count resources.

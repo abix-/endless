@@ -13,7 +13,7 @@ use bevy_egui::{EguiContextSettings, EguiPrimaryContextPass, egui};
 use rand::Rng;
 
 use crate::AppState;
-use crate::constants::{ARCHER_HOME_BUILD_COST, FARM_BUILD_COST, GUARD_POST_BUILD_COST, FARMER_HOME_BUILD_COST, MINER_HOME_BUILD_COST, TENT_BUILD_COST, TOWN_GRID_SPACING};
+use crate::constants::TOWN_GRID_SPACING;
 use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
@@ -548,6 +548,7 @@ fn build_place_click_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut patrols_dirty: ResMut<PatrolsDirty>,
+    difficulty: Res<Difficulty>,
 ) {
     let Some(kind) = build_ctx.selected_build else { return };
     if !mouse.just_pressed(MouseButton::Left) { return; }
@@ -601,18 +602,19 @@ fn build_place_click_system(
     if row == 0 && col == 0 { return; }
     if grid.cell(gc, gr).map(|c| c.building.is_some()) != Some(false) { return; }
 
-    let (building, cost, label) = match kind {
-        BuildKind::Farm => (world::Building::Farm { town_idx }, FARM_BUILD_COST, "farm"),
+    let cost = crate::constants::building_cost(kind, *difficulty);
+    let (building, label) = match kind {
+        BuildKind::Farm => (world::Building::Farm { town_idx }, "farm"),
         BuildKind::GuardPost => {
             let existing_posts = world_data.guard_posts.iter()
                 .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
                 .count() as u32;
-            (world::Building::GuardPost { town_idx, patrol_order: existing_posts }, GUARD_POST_BUILD_COST, "guard post")
+            (world::Building::GuardPost { town_idx, patrol_order: existing_posts }, "guard post")
         }
-        BuildKind::FarmerHome => (world::Building::FarmerHome { town_idx }, FARMER_HOME_BUILD_COST, "house"),
-        BuildKind::ArcherHome => (world::Building::ArcherHome { town_idx }, ARCHER_HOME_BUILD_COST, "barracks"),
-        BuildKind::Tent => (world::Building::Tent { town_idx }, TENT_BUILD_COST, "tent"),
-        BuildKind::MinerHome => (world::Building::MinerHome { town_idx }, MINER_HOME_BUILD_COST, "mine shaft"),
+        BuildKind::FarmerHome => (world::Building::FarmerHome { town_idx }, "house"),
+        BuildKind::ArcherHome => (world::Building::ArcherHome { town_idx }, "barracks"),
+        BuildKind::Tent => (world::Building::Tent { town_idx }, "tent"),
+        BuildKind::MinerHome => (world::Building::MinerHome { town_idx }, "mine shaft"),
         BuildKind::Destroy => unreachable!(),
     };
 

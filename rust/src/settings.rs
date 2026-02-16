@@ -86,6 +86,9 @@ pub struct UserSettings {
     // Per-upgrade auto-buy flags (player town only)
     #[serde(default)]
     pub auto_upgrades: Vec<bool>,
+    // Difficulty
+    #[serde(default)]
+    pub difficulty: crate::resources::Difficulty,
 }
 
 fn default_gold_mines() -> usize { 2 }
@@ -137,6 +140,7 @@ impl Default for UserSettings {
             build_menu_text_scale: 1.2,
             raider_passive_forage: false,
             auto_upgrades: Vec::new(),
+            difficulty: crate::resources::Difficulty::Normal,
         }
     }
 }

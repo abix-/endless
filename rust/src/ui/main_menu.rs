@@ -24,6 +24,7 @@ pub struct MenuState {
     pub gen_style: i32,
     pub gold_mines: f32,
     pub raider_passive_forage: bool,
+    pub difficulty: crate::resources::Difficulty,
     pub initialized: bool,
 }
 
@@ -42,6 +43,7 @@ fn size_name(size: f32) -> &'static str {
 }
 
 pub fn main_menu_system(
+    mut commands: Commands,
     mut contexts: EguiContexts,
     mut next_state: ResMut<NextState<AppState>>,
     mut wg_config: ResMut<WorldGenConfig>,
@@ -68,6 +70,7 @@ pub fn main_menu_system(
         state.gen_style = saved.gen_style as i32;
         state.gold_mines = saved.gold_mines_per_town as f32;
         state.raider_passive_forage = saved.raider_passive_forage;
+        state.difficulty = saved.difficulty;
         state.initialized = true;
     }
 
@@ -169,6 +172,20 @@ pub fn main_menu_system(
                 }
             });
 
+            ui.add_space(4.0);
+
+            // Difficulty
+            ui.horizontal(|ui| {
+                ui.label("Difficulty:");
+                egui::ComboBox::from_id_salt("difficulty")
+                    .selected_text(state.difficulty.label())
+                    .show_ui(ui, |ui| {
+                        for d in crate::resources::Difficulty::ALL {
+                            ui.selectable_value(&mut state.difficulty, d, d.label());
+                        }
+                    });
+            });
+
             ui.add_space(20.0);
 
             // Play button
@@ -201,9 +218,11 @@ pub fn main_menu_system(
                 saved.gen_style = state.gen_style as u8;
                 saved.gold_mines_per_town = state.gold_mines as usize;
                 saved.raider_passive_forage = state.raider_passive_forage;
+                saved.difficulty = state.difficulty;
                 settings::save_settings(&saved);
                 user_settings.raider_passive_forage = state.raider_passive_forage;
 
+                commands.insert_resource(state.difficulty);
                 next_state.set(AppState::Playing);
             }
 
@@ -332,6 +351,7 @@ pub fn main_menu_system(
                             state.gen_style = defaults.gen_style as i32;
                             state.gold_mines = defaults.gold_mines_per_town as f32;
                             state.raider_passive_forage = defaults.raider_passive_forage;
+                            state.difficulty = defaults.difficulty;
                             settings::save_settings(&defaults);
                         }
                     });
