@@ -172,22 +172,17 @@ pub const STARVING_SPEED_MULT: f32 = 0.5;
 // BUILDING SYSTEM CONSTANTS
 // ============================================================================
 
-/// Food cost to build, scaled by difficulty.
-pub fn building_cost(kind: crate::resources::BuildKind, difficulty: crate::resources::Difficulty) -> i32 {
-    use crate::resources::{BuildKind, Difficulty};
-    let base = match kind {
-        BuildKind::Farm       => 3,
-        BuildKind::FarmerHome => 5,
-        BuildKind::MinerHome  => 5,
-        BuildKind::ArcherHome => 8,
-        BuildKind::GuardPost  => 10,
+/// Food cost to build.
+pub fn building_cost(kind: crate::resources::BuildKind) -> i32 {
+    use crate::resources::BuildKind;
+    match kind {
+        BuildKind::Farm       => 2,
+        BuildKind::FarmerHome => 2,
+        BuildKind::MinerHome  => 4,
+        BuildKind::ArcherHome => 4,
+        BuildKind::GuardPost  => 1,
         BuildKind::Tent       => 3,
         BuildKind::Destroy    => 0,
-    };
-    match difficulty {
-        Difficulty::Easy   => (base + 1) / 2,
-        Difficulty::Normal => base,
-        Difficulty::Hard   => base * 2,
     }
 }
 
@@ -197,9 +192,9 @@ pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;
 /// Town building grid spacing in pixels (matches WorldGrid cell_size for 1:1 alignment).
 pub const TOWN_GRID_SPACING: f32 = 32.0;
 
-/// Base grid extent: rows/cols from -3 to +3 = 7x7 starting area.
-pub const BASE_GRID_MIN: i32 = -3;
-pub const BASE_GRID_MAX: i32 = 3;
+/// Base grid extent: rows/cols from -4 to +4 = 9x9 starting area.
+pub const BASE_GRID_MIN: i32 = -4;
+pub const BASE_GRID_MAX: i32 = 4;
 
 /// Maximum grid extent (rows/cols -49 to +50 = 100x100).
 pub const MAX_GRID_EXTENT: i32 = 49;

@@ -138,7 +138,7 @@ pub(crate) fn build_menu_system(
     world_data: Res<world::WorldData>,
     food_storage: Res<FoodStorage>,
     user_settings: Res<UserSettings>,
-    difficulty: Res<Difficulty>,
+    _difficulty: Res<Difficulty>,
     sprites: Res<SpriteAssets>,
     mut images: ResMut<Assets<Image>>,
     mut cache: Local<BuildSpriteCache>,
@@ -202,7 +202,7 @@ pub(crate) fn build_menu_system(
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for option in options {
-                    let cost = crate::constants::building_cost(option.kind, *difficulty);
+                    let cost = crate::constants::building_cost(option.kind);
                     let can_afford = food >= cost;
                     let selected = build_ctx.selected_build == Some(option.kind);
 

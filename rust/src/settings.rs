@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 3;
+const SETTINGS_VERSION: u32 = 4;
 
 /// Persisted user settings. Saved to `Documents\Endless\settings.json`.
 #[derive(Resource, Serialize, Deserialize, Clone)]
@@ -65,9 +65,9 @@ pub struct UserSettings {
     #[serde(default)]
     pub gen_style: u8,
     // AI players
-    #[serde(default = "default_one")]
+    #[serde(default = "default_five")]
     pub ai_towns: usize,
-    #[serde(default = "default_one")]
+    #[serde(default = "default_five")]
     pub raider_camps: usize,
     #[serde(default = "default_ai_interval")]
     pub ai_interval: f32,
@@ -99,13 +99,15 @@ pub struct UserSettings {
     pub sfx_volume: f32,
     #[serde(default = "default_music_speed")]
     pub music_speed: f32,
+    #[serde(default)]
+    pub tutorial_completed: bool,
 }
 
 fn default_gold_mines() -> usize { 2 }
 
 fn default_true() -> bool { true }
 fn default_farms() -> usize { 2 }
-fn default_one() -> usize { 1 }
+fn default_five() -> usize { 5 }
 fn default_ai_interval() -> f32 { 5.0 }
 fn default_npc_interval() -> f32 { 2.0 }
 fn default_ui_scale() -> f32 { 1.0 }
@@ -124,7 +126,7 @@ impl Default for UserSettings {
             towns: 1,
             farms: 2,
             farmers: 2,
-            archers: 2,
+            archers: 4,
             raiders: 1,
             scroll_speed: 400.0,
             log_kills: true,
@@ -134,7 +136,7 @@ impl Default for UserSettings {
             log_levelups: true,
             log_npc_activity: true,
             log_ai: true,
-            gen_style: 0,
+            gen_style: 1,
             background_fps: false,
             debug_coordinates: false,
             debug_all_npcs: false,
@@ -144,8 +146,8 @@ impl Default for UserSettings {
             debug_behavior: false,
             debug_profiler: false,
             policy: PolicySet::default(),
-            ai_towns: 1,
-            raider_camps: 1,
+            ai_towns: 5,
+            raider_camps: 5,
             ai_interval: 5.0,
             gold_mines_per_town: 2,
             npc_interval: 2.0,
@@ -159,6 +161,7 @@ impl Default for UserSettings {
             music_volume: 0.3,
             sfx_volume: 0.5,
             music_speed: 1.0,
+            tutorial_completed: false,
         }
     }
 }

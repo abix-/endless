@@ -39,9 +39,9 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | PatrolRoute | CPU | Internal | Guard post sequence for patrols |
 | Home | CPU | Internal | Rest location (bed or camp) |
 | WorkPosition | CPU | Internal | Farm location for farmers |
-| **Render-Only** (used by instance buffer, never in compute shader) ||||
-| Sprite indices | Render | CPU → Render | Atlas col/row per NPC; in NpcBufferWrites, not uploaded to compute |
-| Colors | Render | CPU → Render | RGBA tint; in NpcBufferWrites, not uploaded to compute |
+| **Render-Only** (uploaded to NPC visual/equip storage buffers, never in compute shader) ||||
+| Sprite indices | Render | CPU → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer [f32;8] |
+| Colors | Render | CPU → NpcVisualBuffers | RGBA tint; packed into visual storage buffer [f32;8] |
 | Equipment sprites | Render | CPU → Render | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Derived by `sync_visual_sprites` from ECS components each frame. |
 
 ## Bevy Messages
@@ -87,12 +87,12 @@ GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`)
 
 ## GPU Read State
 
-`GpuReadState` (Bevy Resource, `Clone + ExtractResource`) holds GPU output for Bevy systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Extracted to render world for `prepare_npc_buffers`. `npc_count` set by `SlotAllocator.count()` (not from readback — buffer is MAX-sized).
+`GpuReadState` (Bevy Resource, `Clone + ExtractResource`) holds GPU output for gameplay systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Note: NPC rendering no longer reads from `GpuReadState` — the vertex shader reads positions/health directly from compute shader's storage buffers. `npc_count` set by `SlotAllocator.count()` (not from readback — buffer is MAX-sized).
 
 | Field | Type | Source | Consumers |
 |-------|------|--------|-----------|
 | npc_count | usize | SlotAllocator.count() | gpu_position_readback |
-| positions | Vec\<f32\> | ReadbackComplete (npc_positions buffer) | attack_system, healing_system, prepare_npc_buffers |
+| positions | Vec\<f32\> | ReadbackComplete (npc_positions buffer) | attack_system, healing_system, click_to_select_system |
 | combat_targets | Vec\<i32\> | ReadbackComplete (combat_targets buffer) | attack_system (target selection) |
 | health | Vec\<f32\> | CPU cache | (available for queries) |
 | factions | Vec\<i32\> | CPU cache | (available for queries) |

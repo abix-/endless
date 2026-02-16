@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-16g
+
+- **guided tutorial** — 20-step condition-driven tutorial system teaching camera, building, NPC interaction (click/follow), food, upgrades, mining, policies, patrols, squads, and hotkeys; action-triggered steps auto-advance when player completes the action, info-only steps require clicking Next; skippable per-step or entirely; completion persisted in UserSettings; restart button in main menu
+- **difficulty presets** — Easy/Normal/Hard presets auto-set farms, farmers, archers, raiders, AI towns, raider camps, and gold mines; grouped under collapsible Difficulty header in main menu; sliders still manually adjustable after preset selection
+- **building cost rebalance** — flat costs (no difficulty scaling): Farm 2, FarmerHome 4, MinerHome 4, ArcherHome 4, GuardPost 1, Tent 3
+- **build area expanded** — base town grid increased from 7x7 to 9x9 (-4 to +4)
+- **default worldgen** — changed to Continents (gen_style=1); removed "Your Towns" slider (hardcoded to 1)
+
 ## 2026-02-16f
 
 - **jukebox track selection fix** — dropdown now uses `play_next: Option<usize>` field consumed by `jukebox_system` instead of setting `last_track` directly (which caused random track instead of selected)

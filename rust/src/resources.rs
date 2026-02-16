@@ -1096,6 +1096,15 @@ impl Difficulty {
             Difficulty::Hard => "Hard",
         }
     }
+
+    /// World gen presets: (farms, farmers, archers, raiders_per_camp, ai_towns, raider_camps, gold_mines)
+    pub fn presets(self) -> (usize, usize, usize, usize, usize, usize, usize) {
+        match self {
+            Difficulty::Easy   => (4, 4, 8, 0, 2, 2, 3),
+            Difficulty::Normal => (2, 2, 4, 1, 5, 5, 2),
+            Difficulty::Hard   => (1, 0, 2, 2, 10, 10, 1),
+        }
+    }
 }
 
 /// Per-town policy settings. Index matches WorldData.towns.
@@ -1211,6 +1220,36 @@ impl HelpCatalog {
         m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Farmer Homes for food\n\u{2022} Build Guard Posts + Archer Homes for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads, H=help");
 
         Self(m)
+    }
+}
+
+// ============================================================================
+// TUTORIAL STATE
+// ============================================================================
+
+/// Guided tutorial state machine. Step 0 = not started, 1-10 = active, 255 = done.
+#[derive(Resource)]
+pub struct TutorialState {
+    pub step: u8,
+    pub initial_farms: usize,
+    pub initial_farmer_homes: usize,
+    pub initial_guard_posts: usize,
+    pub initial_archer_homes: usize,
+    pub initial_miner_homes: usize,
+    pub camera_start: Vec2,
+}
+
+impl Default for TutorialState {
+    fn default() -> Self {
+        Self {
+            step: 0,
+            initial_farms: 0,
+            initial_farmer_homes: 0,
+            initial_guard_posts: 0,
+            initial_archer_homes: 0,
+            initial_miner_homes: 0,
+            camera_start: Vec2::ZERO,
+        }
     }
 }
 

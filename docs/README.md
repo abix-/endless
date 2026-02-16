@@ -60,13 +60,14 @@ Bevy ECS (lib.rs build_app)
     ├─ AppState: MainMenu → Playing | TestMenu → Running
     │
     ├─ UI (ui/) ─────────────────────────────▶ main_menu, game_hud, panels, startup, cleanup
-    │   ├─ Main menu: world config sliders + Play / Load Game (centered window save picker) / Debug Tests
+    │   ├─ Main menu: difficulty presets + world config sliders + Play / Load Game / Debug Tests / Restart Tutorial
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
     │   ├─ Top bar: panel toggles left, town name + time center, stats (food + gold) + FPS right
     │   ├─ Floating windows: NPC/building inspector with combat stats + equipment + status (bottom-left) + combat log with filters (bottom-right)
     │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Factions (I) / Help (H)
     │   ├─ Jukebox overlay: top-right, track picker dropdown + pause/skip/loop/speed controls
     │   ├─ Build menu: bottom-center horizontal bar with building sprites + help text; click-to-place with grid-snapped ghost preview; destroy mode in bar + inspector
+    │   ├─ Tutorial: 20-step guided walkthrough (camera → building → NPC interaction → upgrades → policies → patrols → squads); condition-driven auto-advance + manual Next/Skip
     │   ├─ Pause menu (ESC): Resume, Settings (UI scale, scroll speed, background FPS, music/SFX volume, log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
@@ -76,9 +77,10 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Bevy render graph integration
     │   └─ WGSL shader (shaders/npc_compute.wgsl)
     │
-    ├─ NPC Instanced Rendering (npc_render.rs) ─▶ [rendering.md]
+    ├─ NPC Rendering (npc_render.rs) ─────────▶ [rendering.md]
     │   ├─ RenderCommand + Transparent2d phase
-    │   ├─ Two vertex buffers (quad + per-instance)
+    │   ├─ Storage buffer path (NPCs): vertex shader reads compute output directly
+    │   ├─ Instance buffer path (farms, BHP, projectiles)
     │   └─ WGSL shader (shaders/npc_render.wgsl)
     │
     ├─ Sprite Rendering (render.rs) ───────────▶ [rendering.md]
@@ -128,21 +130,22 @@ rust/
   src/main.rs           # Bevy App entry point, EmbeddedAssetPlugin (release), maximize window on startup
   src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
-  src/npc_render.rs     # GPU instanced NPC rendering (RenderCommand + Transparent2d)
+  src/npc_render.rs     # GPU NPC rendering (storage buffers) + misc/projectile rendering (instance buffers)
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers)
-  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP)
+  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP, building costs, 9x9 base build area)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, BuildingHpState, HelpCatalog, etc.)
   src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
-  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v3, auto_upgrades, autosave_hours, music/sfx volume, music speed)
+  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v4, auto_upgrades, autosave_hours, music/sfx volume, music speed, tutorial_completed)
   src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale + audio volume), escape/time controls, keyboard toggles (Q=squads, H=help), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
-    main_menu.rs        # Main menu with world config sliders + Play / Load Game (centered window save picker) / Debug Tests buttons + autosave interval + settings persistence
+    main_menu.rs        # Main menu with difficulty presets (Easy/Normal/Hard controlling farms/farmers/archers/raiders/AI towns/raider camps/gold mines), world config sliders, Play / Load Game / Debug Tests, restart tutorial button
     game_hud.rs         # Top bar (food + gold + FPS), jukebox overlay (track picker + pause/skip/loop/speed), floating inspector with combat stats/equipment/status (bottom-left) + combat log (bottom-right), target overlay, squad overlay
     left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Factions (I) / Help (H) — policy persistence on tab leave
     build_menu.rs       # Bottom-center build bar: building sprites with cached atlas extraction, click-to-place, destroy mode, cursor hint
+    tutorial.rs         # 20-step guided tutorial: condition-driven hints (action triggers + info-only Next steps), skip per-step or all, persisted completion in UserSettings
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)
@@ -190,6 +193,6 @@ rust/
       music/not-jam-music/  # 22 .ogg tracks (Not Jam Music Pack, CC0)
     shaders/
       npc_compute.wgsl      # WGSL compute shader (movement + spatial grid + combat targeting)
-      npc_render.wgsl       # WGSL render shader (instanced quad + sprite atlas)
+      npc_render.wgsl       # WGSL render shader (dual vertex path: storage buffer + instanced)
       projectile_compute.wgsl # WGSL compute shader (projectile movement + collision)
 ```

@@ -13,7 +13,7 @@ Main World (ECS)                       Render World (GPU)
 ├─ NpcComputeParams ─────────────────▶ (cloned each frame)
 ├─ NpcBufferWrites ──────────────────▶
 ├─ NpcSpriteTexture (char+world+heal+sleep) ▶
-├─ GpuReadState (Clone+ExtractResource) ▶ (for prepare_npc_buffers)
+├─ GpuReadState (Clone+ExtractResource) ▶ (for gameplay systems: movement, combat, healing)
 ├─ ProjPositionState (Clone+ExtractResource) ▶ (for prepare_proj_buffers)
 │                                      │
 │                                      ├─ init_npc_compute_pipeline (RenderStartup)
@@ -78,12 +78,13 @@ GPU → ECS (readback, Bevy async Readback):
   npc_count not set from readback (buffer is MAX-sized) — comes from SlotAllocator.count().
 
 GPU → Render:
-  prepare_npc_buffers: reads GpuReadState (extracted to render world) for positions,
-    falls back to NpcBufferWrites on first frame before readback starts.
-    Reads sprite_indices/colors from NpcBufferWrites.
+  Vertex shader reads positions/health directly from NpcGpuBuffers storage buffers (bind group 2).
+  prepare_npc_buffers: uploads NpcVisualBuffers (visual [f32;8] + equip [f32;24]) from NpcBufferWrites.
+    → DrawNpcStorageCommands: 7 draw calls via instance offset encoding (body + 6 equipment layers)
+    → DrawMiscCommands: farms/BHP via InstanceData
 ```
 
-Note: `sprite_indices`, `colors`, and equipment sprite fields (`armor_sprites`, `helmet_sprites`, `weapon_sprites`, `item_sprites`, `status_sprites`, `healing_sprites`) are in NpcBufferWrites but are not uploaded to GPU storage buffers. They're only consumed by the render pipeline's instance buffer, not the compute shader. Positions for rendering come from GPU readback, not NpcBufferWrites. Colors and equipment are derived from ECS components by `sync_visual_sprites` each frame.
+Note: `sprite_indices`, `colors`, `flash_values`, and equipment sprite fields (`armor_sprites`, `helmet_sprites`, etc.) are in NpcBufferWrites. These are uploaded to NPC visual/equipment storage buffers (`NpcVisualBuffers`) for the render shader — not to compute shader buffers. Positions and health for rendering come directly from compute output (`NpcGpuBuffers.positions`, `.healths`) via storage buffer binding, not via readback. Colors and equipment are derived from ECS components by `sync_visual_sprites` each frame.
 
 ## NPC Compute Shader (npc_compute.wgsl)
 
@@ -132,18 +133,22 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 15 | proj_factions | i32[] | — | ProjGpuBuffers.factions (read) | Projectile factions for friendly fire skip |
 | 16 | threat_counts | u32 | 4B | Not uploaded | Packed threat assessment: (enemies << 16 \| allies) per NPC |
 
-### Render Instance Data (npc_render.rs)
+### NPC Visual Storage Buffers (npc_render.rs)
 
-Built per frame in `prepare_npc_buffers`. Positions come from GPU readback; sprites/colors/flash from NpcBufferWrites.
+Uploaded per frame by `prepare_npc_buffers` to `NpcVisualBuffers`. Positions and health read directly from compute output via bind group 2.
 
-| Field | Type | Size | Source |
-|-------|------|------|--------|
-| position | [f32; 2] | 8B | GPU_READ_STATE (readback), fallback NpcBufferWrites |
-| sprite | [f32; 2] | 8B | NpcBufferWrites.sprite_indices |
-| color | [f32; 4] | 16B | NpcBufferWrites.colors |
-| health | f32 | 4B | NpcBufferWrites.healths (normalized /100.0) |
-| flash | f32 | 4B | NpcBufferWrites.flash_values (0.0-1.0, decays at 5.0/s) |
-| **Total** | | **40B/NPC** | |
+**Visual buffer** (`[f32; 8]` per slot, 32B/NPC):
+
+| Offset | Field | Source |
+|--------|-------|--------|
+| 0 | sprite_col | NpcBufferWrites.sprite_indices[i*4] |
+| 1 | sprite_row | NpcBufferWrites.sprite_indices[i*4+1] |
+| 2 | body_atlas | NpcBufferWrites.sprite_indices[i*4+2] |
+| 3 | flash | NpcBufferWrites.flash_values[i] (decays at 5.0/s) |
+| 4-7 | r, g, b, a | NpcBufferWrites.colors[i*4..i*4+4] |
+
+**Equipment buffer** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`, 96B/NPC):
+Built from `EQUIP_LAYER_FIELDS` (armor, helmet, weapon, item, status, healing sprites). `col < 0` = unequipped.
 
 ## Uniform Params (NpcComputeParams)
 
@@ -178,9 +183,12 @@ NPCs are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode
 
 ## NPC Rendering
 
-Separate from compute. Uses `npc_render.rs` with Bevy's RenderCommand pattern hooked into the Transparent2d phase. Renders all NPCs in a single instanced draw call: one static quad (4 vertices, 6 indices) drawn `instance_count` times with per-instance position, sprite atlas cell, and color tint.
+Separate from compute. Uses `npc_render.rs` with Bevy's RenderCommand pattern hooked into the Transparent2d phase. Two render paths share one pipeline:
 
-The render shader (`shaders/npc_render.wgsl`) expands each quad by `SPRITE_SIZE` (16px), applies an orthographic camera projection, and samples the sprite atlas. Fragment shader handles alpha discard, color tinting, health bars, and damage flash.
+- **Storage buffer path** (NPCs): `vertex_npc` reads positions/health directly from `NpcGpuBuffers` compute output + visual/equip from `NpcVisualBuffers`. 7 draw calls with instance offset encoding (body + 6 equipment layers).
+- **Instance buffer path** (farms, BHP, projectiles): `vertex` reads from classic `InstanceData` vertex attributes.
+
+The render shader (`shaders/npc_render.wgsl`) shares `calc_uv()`, `world_to_clip()`, and fragment shader between both paths. Fragment shader handles alpha discard, color tinting, health bars, damage flash, and per-atlas texture sampling.
 
 ## Constants
 

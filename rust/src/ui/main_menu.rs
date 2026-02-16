@@ -25,6 +25,7 @@ pub struct MenuState {
     pub gold_mines: f32,
     pub raider_passive_forage: bool,
     pub difficulty: crate::resources::Difficulty,
+    pub prev_difficulty: crate::resources::Difficulty,
     pub autosave_hours: i32,
     pub show_load_menu: bool,
     pub initialized: bool,
@@ -74,8 +75,22 @@ pub fn main_menu_system(
         state.gold_mines = saved.gold_mines_per_town as f32;
         state.raider_passive_forage = saved.raider_passive_forage;
         state.difficulty = saved.difficulty;
+        state.prev_difficulty = saved.difficulty;
         state.autosave_hours = saved.autosave_hours;
         state.initialized = true;
+    }
+
+    // Apply difficulty presets when difficulty changes
+    if state.difficulty != state.prev_difficulty {
+        let (farms, farmers, archers, raiders, ai_towns, raider_camps, gold_mines) = state.difficulty.presets();
+        state.farms = farms as f32;
+        state.farmers = farmers as f32;
+        state.archers = archers as f32;
+        state.raiders = raiders as f32;
+        state.ai_towns = ai_towns as f32;
+        state.raider_camps = raider_camps as f32;
+        state.gold_mines = gold_mines as f32;
+        state.prev_difficulty = state.difficulty;
     }
 
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -122,73 +137,94 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // Player Towns
-            ui.horizontal(|ui| {
-                ui.label("Your Towns:");
-                ui.add(egui::Slider::new(&mut state.towns, 1.0..=50.0)
-                    .step_by(1.0)
-                    .show_value(false));
-                let mut t = state.towns as i32;
-                if ui.add(egui::DragValue::new(&mut t).range(1..=50)).changed() {
-                    state.towns = t as f32;
-                }
-            });
+            // Difficulty section
+            egui::CollapsingHeader::new("Difficulty")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Preset:");
+                        egui::ComboBox::from_id_salt("difficulty")
+                            .selected_text(state.difficulty.label())
+                            .show_ui(ui, |ui| {
+                                for d in crate::resources::Difficulty::ALL {
+                                    ui.selectable_value(&mut state.difficulty, d, d.label());
+                                }
+                            });
+                    });
 
-            ui.add_space(4.0);
+                    ui.add_space(4.0);
 
-            // AI Towns
-            ui.horizontal(|ui| {
-                ui.label("AI Towns:");
-                ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=10.0)
-                    .step_by(1.0)
-                    .show_value(false));
-                let mut at = state.ai_towns as i32;
-                if ui.add(egui::DragValue::new(&mut at).range(0..=10)).changed() {
-                    state.ai_towns = at as f32;
-                }
-            });
-
-            ui.add_space(4.0);
-
-            // Raider Camps
-            ui.horizontal(|ui| {
-                ui.label("Raider Camps:");
-                ui.add(egui::Slider::new(&mut state.raider_camps, 0.0..=10.0)
-                    .step_by(1.0)
-                    .show_value(false));
-                let mut rc = state.raider_camps as i32;
-                if ui.add(egui::DragValue::new(&mut rc).range(0..=10)).changed() {
-                    state.raider_camps = rc as f32;
-                }
-            });
-
-            ui.add_space(4.0);
-
-            // Gold Mines
-            ui.horizontal(|ui| {
-                ui.label("Gold Mines:");
-                ui.add(egui::Slider::new(&mut state.gold_mines, 0.0..=10.0)
-                    .step_by(1.0)
-                    .show_value(false));
-                let mut gm = state.gold_mines as i32;
-                if ui.add(egui::DragValue::new(&mut gm).range(0..=10).suffix(" /town")).changed() {
-                    state.gold_mines = gm as f32;
-                }
-            });
-
-            ui.add_space(4.0);
-
-            // Difficulty
-            ui.horizontal(|ui| {
-                ui.label("Difficulty:");
-                egui::ComboBox::from_id_salt("difficulty")
-                    .selected_text(state.difficulty.label())
-                    .show_ui(ui, |ui| {
-                        for d in crate::resources::Difficulty::ALL {
-                            ui.selectable_value(&mut state.difficulty, d, d.label());
+                    ui.horizontal(|ui| {
+                        ui.label("Farms:");
+                        ui.add(egui::Slider::new(&mut state.farms, 0.0..=50.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut fm = state.farms as i32;
+                        if ui.add(egui::DragValue::new(&mut fm).range(0..=50).suffix(" /town")).changed() {
+                            state.farms = fm as f32;
                         }
                     });
-            });
+                    ui.horizontal(|ui| {
+                        ui.label("Farmer Homes:");
+                        ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut f = state.farmers as i32;
+                        if ui.add(egui::DragValue::new(&mut f).range(0..=50).suffix(" /town")).changed() {
+                            state.farmers = f as f32;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Archer Homes:");
+                        ui.add(egui::Slider::new(&mut state.archers, 0.0..=50.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut g = state.archers as i32;
+                        if ui.add(egui::DragValue::new(&mut g).range(0..=50).suffix(" /town")).changed() {
+                            state.archers = g as f32;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Tents:");
+                        ui.add(egui::Slider::new(&mut state.raiders, 0.0..=50.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut r = state.raiders as i32;
+                        if ui.add(egui::DragValue::new(&mut r).range(0..=50).suffix(" /camp")).changed() {
+                            state.raiders = r as f32;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("AI Towns:");
+                        ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=20.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut at = state.ai_towns as i32;
+                        if ui.add(egui::DragValue::new(&mut at).range(0..=20)).changed() {
+                            state.ai_towns = at as f32;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Raider Camps:");
+                        ui.add(egui::Slider::new(&mut state.raider_camps, 0.0..=20.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut rc = state.raider_camps as i32;
+                        if ui.add(egui::DragValue::new(&mut rc).range(0..=20)).changed() {
+                            state.raider_camps = rc as f32;
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Gold Mines:");
+                        ui.add(egui::Slider::new(&mut state.gold_mines, 0.0..=10.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut gm = state.gold_mines as i32;
+                        if ui.add(egui::DragValue::new(&mut gm).range(0..=10).suffix(" /town")).changed() {
+                            state.gold_mines = gm as f32;
+                        }
+                    });
+                });
 
             ui.add_space(4.0);
 
@@ -209,7 +245,7 @@ pub fn main_menu_system(
                 wg_config.gen_style = if state.gen_style == 1 { WorldGenStyle::Continents } else { WorldGenStyle::Classic };
                 wg_config.world_width = state.world_size;
                 wg_config.world_height = state.world_size;
-                wg_config.num_towns = state.towns as usize;
+                wg_config.num_towns = 1;
                 wg_config.farms_per_town = state.farms as usize;
                 wg_config.farmers_per_town = state.farmers as usize;
                 wg_config.archers_per_town = state.archers as usize;
@@ -222,7 +258,7 @@ pub fn main_menu_system(
 
                 let mut saved = settings::load_settings();
                 saved.world_size = state.world_size;
-                saved.towns = state.towns as usize;
+                saved.towns = 1;
                 saved.farms = state.farms as usize;
                 saved.farmers = state.farmers as usize;
                 saved.archers = state.archers as usize;
@@ -254,6 +290,15 @@ pub fn main_menu_system(
                 });
             } else if ui.button(egui::RichText::new("Load Game").size(18.0)).clicked() {
                 state.show_load_menu = !state.show_load_menu;
+            }
+
+            ui.add_space(8.0);
+
+            if user_settings.tutorial_completed {
+                if ui.button(egui::RichText::new("Restart Tutorial").size(14.0)).clicked() {
+                    user_settings.tutorial_completed = false;
+                    settings::save_settings(&user_settings);
+                }
             }
 
             ui.add_space(20.0);
@@ -289,62 +334,6 @@ pub fn main_menu_system(
                     ui.horizontal(|ui| {
                         ui.label("Raider Passive Forage:");
                         ui.checkbox(&mut state.raider_passive_forage, "Enabled");
-                    });
-
-                    ui.add_space(4.0);
-
-                    // Farms per town
-                    ui.horizontal(|ui| {
-                        ui.label("Farms:");
-                        ui.add(egui::Slider::new(&mut state.farms, 0.0..=50.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut fm = state.farms as i32;
-                        if ui.add(egui::DragValue::new(&mut fm).range(0..=50).suffix(" /town")).changed() {
-                            state.farms = fm as f32;
-                        }
-                    });
-
-                    ui.add_space(4.0);
-
-                    // Farmer homes per town (each supports 1 farmer)
-                    ui.horizontal(|ui| {
-                        ui.label("Farmer Homes:");
-                        ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut f = state.farmers as i32;
-                        if ui.add(egui::DragValue::new(&mut f).range(0..=50).suffix(" /town")).changed() {
-                            state.farmers = f as f32;
-                        }
-                    });
-
-                    ui.add_space(4.0);
-
-                    // Archer homes per town (each supports 1 archer)
-                    ui.horizontal(|ui| {
-                        ui.label("Archer Homes:");
-                        ui.add(egui::Slider::new(&mut state.archers, 0.0..=5000.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut g = state.archers as i32;
-                        if ui.add(egui::DragValue::new(&mut g).range(0..=5000).suffix(" /town")).changed() {
-                            state.archers = g as f32;
-                        }
-                    });
-
-                    ui.add_space(4.0);
-
-                    // Tents per camp (1 raider per tent)
-                    ui.horizontal(|ui| {
-                        ui.label("Tents:");
-                        ui.add(egui::Slider::new(&mut state.raiders, 0.0..=5000.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut r = state.raiders as i32;
-                        if ui.add(egui::DragValue::new(&mut r).range(0..=5000).suffix(" /camp")).changed() {
-                            state.raiders = r as f32;
-                        }
                     });
 
                     ui.add_space(8.0);

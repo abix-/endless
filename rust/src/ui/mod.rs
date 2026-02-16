@@ -4,6 +4,7 @@ pub mod main_menu;
 pub mod game_hud;
 pub mod build_menu;
 pub mod left_panel;
+pub mod tutorial;
 
 use std::collections::VecDeque;
 
@@ -57,8 +58,8 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(EguiPrimaryContextPass,
         main_menu::main_menu_system.run_if(in_state(AppState::MainMenu)));
 
-    // Game startup: load from save (if requested) then world gen (if not loaded)
-    app.add_systems(OnEnter(AppState::Playing), (game_load_system, game_startup_system).chain());
+    // Game startup: load from save (if requested) then world gen (if not loaded) then tutorial init
+    app.add_systems(OnEnter(AppState::Playing), (game_load_system, game_startup_system, tutorial_init_system).chain());
 
     // Egui panels — ordered so top bar claims height first, then side panels, then bottom.
     // Top bar → left panel → bottom panel (inspector+log) + overlay → windows → pause overlay.
@@ -69,6 +70,7 @@ pub fn register_ui(app: &mut App) {
         build_menu::build_menu_system,
         pause_menu_system,
         game_hud::save_toast_system,
+        tutorial::tutorial_ui_system,
     ).chain().run_if(in_state(AppState::Playing)));
 
     // Panel toggle keyboard shortcuts + ESC
@@ -420,6 +422,48 @@ fn game_startup_system(
 }
 
 // ============================================================================
+// TUTORIAL INIT
+// ============================================================================
+
+/// Initialize tutorial state after world gen. Runs as third step in OnEnter(Playing) chain.
+/// Skips if tutorial already completed or if loading a save.
+fn tutorial_init_system(
+    mut tutorial: ResMut<TutorialState>,
+    settings: Res<crate::settings::UserSettings>,
+    world_data: Res<world::WorldData>,
+    camera_query: Query<&Transform, With<crate::render::MainCamera>>,
+    game_time: Res<GameTime>,
+) {
+    // Reset tutorial state regardless (clean slate)
+    *tutorial = TutorialState::default();
+
+    // Skip if already completed or loading a save (loaded saves have non-zero game time)
+    if settings.tutorial_completed || game_time.total_seconds > 0.0 {
+        tutorial.step = 255;
+        return;
+    }
+
+    let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+
+    // Snapshot initial building counts for completion checks
+    tutorial.initial_farms = world_data.farms.iter().filter(|f| f.town_idx as usize == player_town).count();
+    tutorial.initial_farmer_homes = world_data.farmer_homes.iter().filter(|h| h.town_idx as usize == player_town).count();
+    tutorial.initial_guard_posts = world_data.guard_posts.iter().filter(|g| g.town_idx as usize == player_town).count();
+    tutorial.initial_archer_homes = world_data.archer_homes.iter().filter(|a| a.town_idx as usize == player_town).count();
+    tutorial.initial_miner_homes = world_data.miner_homes.iter().filter(|m| m.town_idx as usize == player_town).count();
+
+    // Snapshot camera start position
+    if let Ok(transform) = camera_query.single() {
+        tutorial.camera_start = Vec2::new(transform.translation.x, transform.translation.y);
+    }
+
+    tutorial.step = 1;
+    info!("Tutorial started (farms={}, farmer_homes={}, guard_posts={}, archer_homes={}, miner_homes={})",
+        tutorial.initial_farms, tutorial.initial_farmer_homes,
+        tutorial.initial_guard_posts, tutorial.initial_archer_homes, tutorial.initial_miner_homes);
+}
+
+// ============================================================================
 // GAME EXIT
 // ============================================================================
 
@@ -647,7 +691,7 @@ fn build_place_click_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut dirty: ResMut<DirtyFlags>,
-    difficulty: Res<Difficulty>,
+    _difficulty: Res<Difficulty>,
 ) {
     let Some(kind) = build_ctx.selected_build else { return };
     if !mouse.just_pressed(MouseButton::Left) { return; }
@@ -702,7 +746,7 @@ fn build_place_click_system(
     if row == 0 && col == 0 { return; }
     if grid.cell(gc, gr).map(|c| c.building.is_some()) != Some(false) { return; }
 
-    let cost = crate::constants::building_cost(kind, *difficulty);
+    let cost = crate::constants::building_cost(kind);
     let (building, label) = match kind {
         BuildKind::Farm => (world::Building::Farm { town_idx }, "farm"),
         BuildKind::GuardPost => {

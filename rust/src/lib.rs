@@ -35,7 +35,7 @@ use resources::{
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
-    DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg,
+    DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -239,6 +239,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<resources::BuildingHpRender>()
        .init_resource::<SquadState>()
        .insert_resource(HelpCatalog::new())
+       .init_resource::<TutorialState>()
        .init_resource::<AiPlayerState>()
        .init_resource::<AiPlayerConfig>()
        .init_resource::<resources::NpcDecisionConfig>()

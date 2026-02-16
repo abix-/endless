@@ -55,7 +55,7 @@ RENDER WORLD — parallel with next frame's main world
 │
 ├─ PrepareResources
 │     write_npc_buffers          (only dirty fields → GPU storage buffers)
-│     prepare_npc_buffers        (build instance buffer from GpuReadState positions)
+│     prepare_npc_buffers        (upload visual/equip storage buffers, build misc instance buffer)
 │
 ├─ PrepareBindGroups
 │     prepare_npc_bind_groups    (compute shader)
@@ -81,7 +81,7 @@ RENDER WORLD — parallel with next frame's main world
 |--------|------|----------------|
 | `GpuComputePlugin` | `gpu.rs` | GPU buffer creation, compute pipeline, NpcComputeNode, readback |
 | `RenderPlugin` | `render.rs` | Camera, sprite sheet loading, NpcSpriteTexture |
-| `NpcRenderPlugin` | `npc_render.rs` | RenderCommand for Transparent2d, instanced draw call |
+| `NpcRenderPlugin` | `npc_render.rs` | RenderCommand for Transparent2d, dual-path: storage buffers (NPCs) + instance buffers (misc/projectiles) |
 
 ## Communication Flow
 
@@ -98,8 +98,9 @@ GPU → ECS:
     → gpu_position_readback → ECS Position components
 
 GPU → Render:
-  prepare_npc_buffers: reads GpuReadState positions (ExtractResource) + NpcBufferWrites sprites/colors
-    → DrawNpcCommands: instanced draw
+  Vertex shader reads positions/health directly from NpcGpuBuffers (bind group 2)
+  prepare_npc_buffers: uploads NpcVisualBuffers (visual + equip) from NpcBufferWrites
+    → DrawNpcStorageCommands (NPCs) + DrawMiscCommands (farms/BHP)
 ```
 
 | Direction | Mechanism | Examples |
