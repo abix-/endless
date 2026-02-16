@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings, DirtyFlags};
+use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
 
 // ============================================================================
 // COMBAT CONFIG (replaces scattered constants)
@@ -438,18 +438,14 @@ pub fn resolve_combat_stats(
 pub fn process_upgrades_system(
     mut queue: ResMut<UpgradeQueue>,
     mut upgrades: ResMut<TownUpgrades>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut gold_storage: ResMut<crate::resources::GoldStorage>,
+    mut economy: crate::resources::EconomyState,
     npcs_by_town: Res<NpcsByTownCache>,
     npc_map: Res<NpcEntityMap>,
     config: Res<CombatConfig>,
     meta_cache: Res<NpcMetaCache>,
     mut npc_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut world_grid: ResMut<crate::world::WorldGrid>,
-    world_data: Res<crate::world::WorldData>,
-    mut town_grids: ResMut<crate::world::TownGrids>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut world_state: crate::resources::WorldState,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_upgrades");
@@ -459,28 +455,28 @@ pub fn process_upgrades_system(
 
         // Prereq + affordability gate
         let levels = upgrades.town_levels(town_idx);
-        let mut food = food_storage.food.get(town_idx).copied().unwrap_or(0);
-        let mut gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
+        let mut food = economy.food_storage.food.get(town_idx).copied().unwrap_or(0);
+        let mut gold = economy.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
         if !upgrade_available(&levels, upgrade_idx, food, gold) { continue; }
 
         // Deduct cost and increment level
         let level = levels[upgrade_idx];
         deduct_upgrade_cost(upgrade_idx, level, &mut food, &mut gold);
-        if let Some(f) = food_storage.food.get_mut(town_idx) { *f = food; }
-        if let Some(g) = gold_storage.gold.get_mut(town_idx) { *g = gold; }
+        if let Some(f) = economy.food_storage.food.get_mut(town_idx) { *f = food; }
+        if let Some(g) = economy.gold_storage.gold.get_mut(town_idx) { *g = gold; }
         upgrades.levels[town_idx][upgrade_idx] = level.saturating_add(1);
 
         // Invalidate healing zone cache on radius/rate upgrades
         if upgrade_idx == UpgradeType::HealingRate as usize || upgrade_idx == UpgradeType::FountainRadius as usize {
-            dirty.healing_zones = true;
+            world_state.dirty.healing_zones = true;
         }
 
         if upgrade_idx == UpgradeType::TownArea as usize {
-            if let Some(grid_idx) = town_grids.grids.iter().position(|g| g.town_data_idx == town_idx) {
+            if let Some(grid_idx) = world_state.town_grids.grids.iter().position(|g| g.town_data_idx == town_idx) {
                 let _ = crate::world::expand_town_build_area(
-                    &mut world_grid,
-                    &world_data.towns,
-                    &mut town_grids,
+                    &mut world_state.grid,
+                    &world_state.world_data.towns,
+                    &mut world_state.town_grids,
                     grid_idx,
                 );
             }

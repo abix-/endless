@@ -180,7 +180,7 @@ pub fn mine_regen_system(
 /// Only runs when game_time.hour_ticked is true.
 pub fn camp_forage_system(
     game_time: Res<GameTime>,
-    mut food_storage: ResMut<FoodStorage>,
+    mut economy: EconomyState,
     world_data: Res<WorldData>,
     user_settings: Res<crate::settings::UserSettings>,
     timings: Res<SystemTimings>,
@@ -192,8 +192,8 @@ pub fn camp_forage_system(
 
     // Add foraging food to each raider camp (faction > 0)
     for (town_idx, town) in world_data.towns.iter().enumerate() {
-        if town.faction > 0 && town_idx < food_storage.food.len() {
-            food_storage.food[town_idx] += CAMP_FORAGE_RATE;
+        if town.faction > 0 && town_idx < economy.food_storage.food.len() {
+            economy.food_storage.food[town_idx] += CAMP_FORAGE_RATE;
         }
     }
 }
@@ -589,13 +589,8 @@ pub fn migration_attach_system(
 pub fn migration_settle_system(
     mut commands: Commands,
     mut migration_state: ResMut<MigrationState>,
-    mut world_data: ResMut<WorldData>,
-    mut grid: ResMut<WorldGrid>,
-    mut town_grids: ResMut<TownGrids>,
-    mut spawner_state: ResMut<SpawnerState>,
-    mut building_hp: ResMut<BuildingHpState>,
+    mut world_state: WorldState,
     mut ai_state: ResMut<AiPlayerState>,
-    mut dirty: ResMut<DirtyFlags>,
     mut combat_log: ResMut<CombatLog>,
     mut tilemap_spawned: ResMut<crate::render::TilemapSpawned>,
     gpu_state: Res<GpuReadState>,
@@ -629,7 +624,7 @@ pub fn migration_settle_system(
     let avg_pos = Vec2::new(avg_x, avg_y);
 
     // Check distance to any town (player or AI)
-    let near_town = world_data.towns.iter().enumerate().any(|(i, t)| {
+    let near_town = world_state.world_data.towns.iter().enumerate().any(|(i, t)| {
         // Skip our own temporary town entry
         i != mg.town_data_idx && avg_pos.distance(t.center) < CAMP_SETTLE_RADIUS
     });
@@ -641,29 +636,29 @@ pub fn migration_settle_system(
     let member_slots = mg.member_slots.clone();
 
     // Update town center to average group position
-    if let Some(town) = world_data.towns.get_mut(town_data_idx) {
+    if let Some(town) = world_state.world_data.towns.get_mut(town_data_idx) {
         town.center = avg_pos;
     }
 
     // Place camp buildings (camp center + tents in spiral)
-    if let Some(town_grid) = town_grids.grids.get_mut(grid_idx) {
-        world::place_camp_buildings(&mut grid, &mut world_data, avg_pos, town_data_idx as u32, &config, town_grid);
+    if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
+        world::place_camp_buildings(&mut world_state.grid, &mut world_state.world_data, avg_pos, town_data_idx as u32, &config, town_grid);
     }
 
     // Register tent spawners
-    for tent in world_data.tents.iter() {
+    for tent in world_state.world_data.tents.iter() {
         if tent.town_idx == town_data_idx as u32 {
-            world::register_spawner(&mut spawner_state, world::Building::Tent { town_idx: 0 },
+            world::register_spawner(&mut world_state.spawner_state, world::Building::Tent { town_idx: 0 },
                 town_data_idx as i32, tent.position, -1.0);
-            building_hp.tents.push(crate::constants::TENT_HP);
+            world_state.building_hp.tents.push(crate::constants::TENT_HP);
         }
     }
 
     // Add town center HP
-    building_hp.towns.push(crate::constants::TOWN_HP);
+    world_state.building_hp.towns.push(crate::constants::TOWN_HP);
 
     // Stamp dirt around the new camp
-    world::stamp_dirt(&mut grid, &[avg_pos]);
+    world::stamp_dirt(&mut world_state.grid, &[avg_pos]);
 
     // Activate the AiPlayer for this camp
     if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_data_idx) {
@@ -682,8 +677,8 @@ pub fn migration_settle_system(
     }
 
     // Mark dirty for building grid + tilemap rebuild
-    dirty.building_grid = true;
-    dirty.guard_post_slots = true;
+    world_state.dirty.building_grid = true;
+    world_state.dirty.guard_post_slots = true;
     tilemap_spawned.0 = false; // force tilemap rebuild with new terrain + buildings
 
     combat_log.push(CombatEventKind::Raid, game_time.day(), game_time.hour(), game_time.minute(),

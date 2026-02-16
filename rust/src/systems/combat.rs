@@ -4,9 +4,9 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{GUARD_POST_RANGE, GUARD_POST_DAMAGE, GUARD_POST_COOLDOWN, GUARD_POST_PROJ_SPEED, GUARD_POST_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, FarmStates, SpawnerState, DirtyFlags, SlotAllocator};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, DirtyFlags, SlotAllocator, WorldState};
 use crate::gpu::ProjBufferWrites;
-use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, WorldGrid};
+use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid};
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
@@ -340,16 +340,15 @@ pub fn process_proj_hits(
 pub fn sync_guard_post_slots(
     mut slots: ResMut<SlotAllocator>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut world_data: ResMut<WorldData>,
-    mut dirty: ResMut<DirtyFlags>,
+    mut world: WorldState,
 ) {
-    if !dirty.guard_post_slots { return; }
-    dirty.guard_post_slots = false;
+    if !world.dirty.guard_post_slots { return; }
+    world.dirty.guard_post_slots = false;
 
     // Collect new allocations needing faction set (can't borrow towns during guard_posts iter_mut)
     let mut new_slots: Vec<(usize, u32)> = Vec::new(); // (slot, town_idx)
 
-    for gp in world_data.guard_posts.iter_mut() {
+    for gp in world.world_data.guard_posts.iter_mut() {
         let alive = gp.position.x > -9000.0;
         match (alive, gp.npc_slot) {
             (true, None) => {
@@ -374,7 +373,7 @@ pub fn sync_guard_post_slots(
 
     // Set factions for newly allocated slots (needs immutable towns access, separate from iter_mut)
     for (slot, town_idx) in new_slots {
-        let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
+        let faction = world.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
     }
 }
@@ -455,20 +454,15 @@ pub fn guard_post_attack_system(
 /// Process building damage messages: decrement HP, destroy when HP reaches 0.
 pub fn building_damage_system(
     mut damage_reader: MessageReader<BuildingDamageMsg>,
-    mut building_hp: ResMut<BuildingHpState>,
-    mut grid: ResMut<WorldGrid>,
-    mut world_data: ResMut<WorldData>,
-    mut farm_states: ResMut<FarmStates>,
-    mut spawner_state: ResMut<SpawnerState>,
+    mut world: WorldState,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
-    mut dirty: ResMut<DirtyFlags>,
 ) {
     let _t = timings.scope("building_damage");
     for msg in damage_reader.read() {
-        let Some(hp) = building_hp.get_mut(msg.kind, msg.index) else { continue };
+        let Some(hp) = world.building_hp.get_mut(msg.kind, msg.index) else { continue };
         if *hp <= 0.0 { continue; } // already dead
 
         *hp -= msg.amount;
@@ -477,49 +471,52 @@ pub fn building_damage_system(
 
         // Building destroyed — find its position and town to call destroy_building
         let (pos, town_idx) = match msg.kind {
-            BuildingKind::GuardPost => world_data.guard_posts.get(msg.index)
+            BuildingKind::GuardPost => world.world_data.guard_posts.get(msg.index)
                 .map(|g| (g.position, g.town_idx as usize)),
-            BuildingKind::FarmerHome => world_data.farmer_homes.get(msg.index)
+            BuildingKind::FarmerHome => world.world_data.farmer_homes.get(msg.index)
                 .map(|h| (h.position, h.town_idx as usize)),
-            BuildingKind::ArcherHome => world_data.archer_homes.get(msg.index)
+            BuildingKind::ArcherHome => world.world_data.archer_homes.get(msg.index)
                 .map(|a| (a.position, a.town_idx as usize)),
-            BuildingKind::Tent => world_data.tents.get(msg.index)
+            BuildingKind::Tent => world.world_data.tents.get(msg.index)
                 .map(|t| (t.position, t.town_idx as usize)),
-            BuildingKind::MinerHome => world_data.miner_homes.get(msg.index)
+            BuildingKind::MinerHome => world.world_data.miner_homes.get(msg.index)
                 .map(|m| (m.position, m.town_idx as usize)),
-            BuildingKind::Farm => world_data.farms.get(msg.index)
+            BuildingKind::Farm => world.world_data.farms.get(msg.index)
                 .map(|f| (f.position, f.town_idx as usize)),
-            BuildingKind::Town => world_data.towns.get(msg.index)
+            BuildingKind::Town => world.world_data.towns.get(msg.index)
                 .map(|t| (t.center, msg.index)),
-            BuildingKind::Bed => world_data.beds.get(msg.index)
+            BuildingKind::Bed => world.world_data.beds.get(msg.index)
                 .map(|b| (b.position, b.town_idx as usize)),
-            BuildingKind::GoldMine => world_data.gold_mines.get(msg.index)
+            BuildingKind::GoldMine => world.world_data.gold_mines.get(msg.index)
                 .map(|m| (m.position, 0)),
         }.unwrap_or((Vec2::ZERO, 0));
 
         if pos.x < -9000.0 { continue; } // already tombstoned
 
-        let center = world_data.towns.get(town_idx)
+        let center = world.world_data.towns.get(town_idx)
             .map(|t| t.center).unwrap_or_default();
-        let town_name = world_data.towns.get(town_idx)
+        let town_name = world.world_data.towns.get(town_idx)
             .map(|t| t.name.clone()).unwrap_or_default();
         let (trow, tcol) = world::world_to_town_grid(center, pos);
 
         // Capture linked NPC slot BEFORE destroy_building tombstones the spawner
-        let npc_slot = spawner_state.0.iter()
+        let npc_slot = world.spawner_state.0.iter()
             .find(|s| (s.position - pos).length() < 1.0)
             .map(|s| s.npc_slot)
             .unwrap_or(-1);
 
         let _ = world::destroy_building(
-            &mut grid, &mut world_data, &mut farm_states,
-            &mut spawner_state, &mut building_hp,
+            &mut world.grid, &mut world.world_data, &mut world.farm_states,
+            &mut world.spawner_state, &mut world.building_hp,
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
         );
-        if msg.kind == BuildingKind::GuardPost { dirty.patrols = true; dirty.guard_post_slots = true; }
-        dirty.building_grid = true;
+        if msg.kind == BuildingKind::GuardPost {
+            world.dirty.patrols = true;
+            world.dirty.guard_post_slots = true;
+        }
+        world.dirty.building_grid = true;
 
         // Kill the linked NPC if alive
         if npc_slot >= 0 {

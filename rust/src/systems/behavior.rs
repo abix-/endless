@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags};
+use crate::resources::{FoodEvents, FoodDelivered, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags, EconomyState};
 use crate::systems::economy::*;
 use crate::systems::stats::{UpgradeType, UPGRADE_PCT};
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
@@ -36,16 +36,6 @@ pub struct FarmParams<'w> {
     pub states: ResMut<'w, FarmStates>,
     pub occupancy: ResMut<'w, BuildingOccupancy>,
     pub world: Res<'w, WorldData>,
-}
-
-/// Economy resources (food, population tracking)
-#[derive(SystemParam)]
-pub struct EconomyParams<'w> {
-    pub food_storage: ResMut<'w, FoodStorage>,
-    pub gold_storage: ResMut<'w, crate::resources::GoldStorage>,
-    pub mine_states: ResMut<'w, crate::resources::MineStates>,
-    pub food_events: ResMut<'w, FoodEvents>,
-    pub pop_stats: ResMut<'w, PopulationStats>,
 }
 
 /// Extra resources for decision_system (bundled to stay under 16 params)
@@ -74,8 +64,7 @@ pub fn arrival_system(
     // Query for Working farmers with AssignedFarm (for drift check + harvest)
     working_farmers: Query<(&NpcIndex, &AssignedFarm, &TownId, &Activity), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut food_events: ResMut<FoodEvents>,
+    mut economy: EconomyState,
     world_data: Res<WorldData>,
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
@@ -83,7 +72,6 @@ pub fn arrival_system(
     mut farm_states: ResMut<FarmStates>,
     mut frame_counter: Local<u32>,
     mut combat_log: ResMut<CombatLog>,
-    mut gold_storage: ResMut<crate::resources::GoldStorage>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("arrival");
@@ -112,15 +100,15 @@ pub fn arrival_system(
         if dist <= DELIVERY_RADIUS {
             let town_idx = town.0 as usize;
             if has_food {
-                if town_idx < food_storage.food.len() {
-                    food_storage.food[town_idx] += 1;
+                if town_idx < economy.food_storage.food.len() {
+                    economy.food_storage.food[town_idx] += 1;
                 }
-                food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
+                economy.food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Delivered food");
             }
             if carried_gold > 0 {
-                if town_idx < gold_storage.gold.len() {
-                    gold_storage.gold[town_idx] += carried_gold;
+                if town_idx < economy.gold_storage.gold.len() {
+                    economy.gold_storage.gold[town_idx] += carried_gold;
                 }
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                     format!("Delivered {} gold", carried_gold));
@@ -153,7 +141,7 @@ pub fn arrival_system(
 
         // Harvest check: if farm became Ready while working, harvest it
         if let Some(farm_idx) = find_by_pos(&world_data.farms, farm_pos) {
-            if farm_states.harvest(farm_idx, Some(town.0 as usize), &mut food_storage, &mut food_events, &mut combat_log, &game_time) {
+            if farm_states.harvest(farm_idx, Some(town.0 as usize), &mut economy.food_storage, &mut economy.food_events, &mut combat_log, &game_time) {
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)");
             }
         }
@@ -245,7 +233,7 @@ pub fn decision_system(
     mut patrol_query: Query<&mut PatrolRoute>,
     // Resources
     mut farms: FarmParams,
-    mut economy: EconomyParams,
+    mut economy: EconomyState,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,

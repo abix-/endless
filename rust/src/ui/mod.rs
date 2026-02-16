@@ -166,7 +166,6 @@ fn ui_toggle_system(
 #[derive(SystemParam)]
 struct StartupExtra<'w> {
     policies: ResMut<'w, TownPolicies>,
-    farm_occupancy: ResMut<'w, world::BuildingOccupancy>,
     npcs_by_town: ResMut<'w, NpcsByTownCache>,
     ai_state: ResMut<'w, AiPlayerState>,
     combat_log: ResMut<'w, CombatLog>,
@@ -174,8 +173,6 @@ struct StartupExtra<'w> {
     gold_storage: ResMut<'w, GoldStorage>,
     bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
-    building_hp: ResMut<'w, BuildingHpState>,
-    dirty: ResMut<'w, DirtyFlags>,
 }
 
 /// Load a saved game when entering Playing state (if load_on_enter is set).
@@ -260,9 +257,7 @@ fn game_load_system(
 /// Skips world gen if load_on_enter was handled by game_load_system.
 fn game_startup_system(
     config: Res<WorldGenConfig>,
-    mut grid: ResMut<world::WorldGrid>,
-    mut world_data: ResMut<world::WorldData>,
-    mut farm_states: ResMut<FarmStates>,
+    mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut camp_state: ResMut<CampState>,
@@ -271,14 +266,12 @@ fn game_startup_system(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut game_time: ResMut<GameTime>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
-    mut town_grids: ResMut<world::TownGrids>,
-    mut spawner_state: ResMut<SpawnerState>,
     mut extra: StartupExtra,
 ) {
     // If game_load_system already populated the world, skip world gen.
     // The flag was cleared by game_load_system, but we can detect load happened
     // by checking if the world grid is already populated.
-    if grid.cells.len() > 0 {
+    if world_state.grid.cells.len() > 0 {
         info!("Game startup: skipping world gen (loaded from save)");
         return;
     }
@@ -286,15 +279,22 @@ fn game_startup_system(
     info!("Game startup: generating world...");
 
     // Generate world (populates grid + world_data + farm_states + houses/barracks + town_grids)
-    town_grids.grids.clear();
-    world::generate_world(&config, &mut grid, &mut world_data, &mut farm_states, &mut extra.mine_states, &mut town_grids);
+    world_state.town_grids.grids.clear();
+    world::generate_world(
+        &config,
+        &mut world_state.grid,
+        &mut world_state.world_data,
+        &mut world_state.farm_states,
+        &mut extra.mine_states,
+        &mut world_state.town_grids,
+    );
 
     // Build spatial grid for startup find calls
-    extra.bgrid.rebuild(&world_data, grid.width as f32 * grid.cell_size);
+    extra.bgrid.rebuild(&world_state.world_data, world_state.grid.width as f32 * world_state.grid.cell_size);
 
     // Load saved policies + auto-upgrade flags for player's town
     let saved = crate::settings::load_settings();
-    let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+    let town_idx = world_state.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
     if town_idx < extra.policies.policies.len() {
         extra.policies.policies[town_idx] = saved.policy;
     }
@@ -306,7 +306,7 @@ fn game_startup_system(
     }
 
     // Init NPC tracking per town
-    let num_towns = world_data.towns.len();
+    let num_towns = world_state.world_data.towns.len();
     extra.npcs_by_town.0.resize(num_towns, Vec::new());
     food_storage.init(num_towns);
     extra.gold_storage.init(num_towns);
@@ -322,42 +322,42 @@ fn game_startup_system(
     *game_time = GameTime::default();
 
     // Build SpawnerState from world gen Houses + Barracks + Tents
-    spawner_state.0.clear();
-    for house in world_data.farmer_homes.iter() {
-        world::register_spawner(&mut spawner_state, world::Building::FarmerHome { town_idx: 0 },
+    world_state.spawner_state.0.clear();
+    for house in world_state.world_data.farmer_homes.iter() {
+        world::register_spawner(&mut world_state.spawner_state, world::Building::FarmerHome { town_idx: 0 },
             house.town_idx as i32, house.position, -1.0);
     }
-    for barracks in world_data.archer_homes.iter() {
-        world::register_spawner(&mut spawner_state, world::Building::ArcherHome { town_idx: 0 },
+    for barracks in world_state.world_data.archer_homes.iter() {
+        world::register_spawner(&mut world_state.spawner_state, world::Building::ArcherHome { town_idx: 0 },
             barracks.town_idx as i32, barracks.position, -1.0);
     }
-    for tent in world_data.tents.iter() {
-        world::register_spawner(&mut spawner_state, world::Building::Tent { town_idx: 0 },
+    for tent in world_state.world_data.tents.iter() {
+        world::register_spawner(&mut world_state.spawner_state, world::Building::Tent { town_idx: 0 },
             tent.town_idx as i32, tent.position, -1.0);
     }
-    for ms in world_data.miner_homes.iter() {
-        world::register_spawner(&mut spawner_state, world::Building::MinerHome { town_idx: 0 },
+    for ms in world_state.world_data.miner_homes.iter() {
+        world::register_spawner(&mut world_state.spawner_state, world::Building::MinerHome { town_idx: 0 },
             ms.town_idx as i32, ms.position, -1.0);
     }
 
     // Initialize building HP for all world-gen buildings
     {
         use crate::constants::*;
-        let hp = &mut extra.building_hp;
+        let hp = &mut world_state.building_hp;
         **hp = BuildingHpState::default();
-        for _ in &world_data.guard_posts { hp.guard_posts.push(GUARD_POST_HP); }
-        for _ in &world_data.farmer_homes { hp.farmer_homes.push(FARMER_HOME_HP); }
-        for _ in &world_data.archer_homes { hp.archer_homes.push(ARCHER_HOME_HP); }
-        for _ in &world_data.tents { hp.tents.push(TENT_HP); }
-        for _ in &world_data.miner_homes { hp.miner_homes.push(MINER_HOME_HP); }
-        for _ in &world_data.farms { hp.farms.push(FARM_HP); }
-        for _ in &world_data.towns { hp.towns.push(TOWN_HP); }
-        for _ in &world_data.beds { hp.beds.push(BED_HP); }
-        for _ in &world_data.gold_mines { hp.gold_mines.push(GOLD_MINE_HP); }
+        for _ in &world_state.world_data.guard_posts { hp.guard_posts.push(GUARD_POST_HP); }
+        for _ in &world_state.world_data.farmer_homes { hp.farmer_homes.push(FARMER_HOME_HP); }
+        for _ in &world_state.world_data.archer_homes { hp.archer_homes.push(ARCHER_HOME_HP); }
+        for _ in &world_state.world_data.tents { hp.tents.push(TENT_HP); }
+        for _ in &world_state.world_data.miner_homes { hp.miner_homes.push(MINER_HOME_HP); }
+        for _ in &world_state.world_data.farms { hp.farms.push(FARM_HP); }
+        for _ in &world_state.world_data.towns { hp.towns.push(TOWN_HP); }
+        for _ in &world_state.world_data.beds { hp.beds.push(BED_HP); }
+        for _ in &world_state.world_data.gold_mines { hp.gold_mines.push(GOLD_MINE_HP); }
     }
 
     // Reset farm occupancy for fresh game
-    extra.farm_occupancy.clear();
+    world_state.building_occupancy.clear();
 
     // Local tracker to prevent two farmers picking the same farm at startup.
     // NOT written to BuildingOccupancy — the arrival handler will populate that when farmers arrive.
@@ -365,12 +365,12 @@ fn game_startup_system(
 
     // Spawn 1 NPC per building spawner (instant, no timer)
     let mut total = 0;
-    for entry in spawner_state.0.iter_mut() {
+    for entry in world_state.spawner_state.0.iter_mut() {
         let Some(slot) = slots.alloc() else { break };
         let town_data_idx = entry.town_idx as usize;
 
         let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
-            world::resolve_spawner_npc(entry, &world_data.towns, &extra.bgrid, &startup_claimed);
+            world::resolve_spawner_npc(entry, &world_state.world_data.towns, &extra.bgrid, &startup_claimed);
         // Mark farm as claimed so next farmer picks a different one
         if work_x > 0.0 { startup_claimed.claim(Vec2::new(work_x, work_y)); }
 
@@ -399,9 +399,9 @@ fn game_startup_system(
     extra.ai_state.players.clear();
     let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
     let mut rng = rand::rng();
-    for (grid_idx, town_grid) in town_grids.grids.iter().enumerate() {
+    for (grid_idx, town_grid) in world_state.town_grids.grids.iter().enumerate() {
         let tdi = town_grid.town_data_idx;
-        if let Some(town) = world_data.towns.get(tdi) {
+        if let Some(town) = world_state.world_data.towns.get(tdi) {
             if town.faction > 0 {
                 let kind = if town.sprite_type == 1 { AiKind::Raider } else { AiKind::Builder };
                 let personality = personalities[rng.random_range(0..personalities.len())];
@@ -418,14 +418,14 @@ fn game_startup_system(
     }
 
     // Center camera on first town
-    if let Some(first_town) = world_data.towns.first() {
+    if let Some(first_town) = world_state.world_data.towns.first() {
         if let Ok(mut transform) = camera_query.single_mut() {
             transform.translation.x = first_town.center.x;
             transform.translation.y = first_town.center.y;
         }
     }
 
-    *extra.dirty = DirtyFlags::default();
+    *world_state.dirty = DirtyFlags::default();
 
     info!("Game startup complete: {} NPCs spawned across {} towns",
         total, config.num_towns);
@@ -691,16 +691,10 @@ fn build_place_click_system(
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     mut egui_contexts: bevy_egui::EguiContexts,
     mut build_ctx: ResMut<BuildMenuContext>,
-    mut grid: ResMut<world::WorldGrid>,
-    mut world_data: ResMut<world::WorldData>,
-    mut farm_states: ResMut<FarmStates>,
+    mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
-    town_grids: Res<world::TownGrids>,
-    mut spawner_state: ResMut<SpawnerState>,
-    mut building_hp: ResMut<BuildingHpState>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
-    mut dirty: ResMut<DirtyFlags>,
     _difficulty: Res<Difficulty>,
 ) {
     let Some(kind) = build_ctx.selected_build else { return };
@@ -713,7 +707,7 @@ fn build_place_click_system(
     }
 
     let Some(town_data_idx) = build_ctx.town_data_idx else { return };
-    let Some(town) = world_data.towns.get(town_data_idx) else { return };
+    let Some(town) = world_state.world_data.towns.get(town_data_idx) else { return };
     let center = town.center;
     let town_name = town.name.clone();
     let town_idx = town_data_idx as u32;
@@ -726,11 +720,11 @@ fn build_place_click_system(
     let slot_pos = world::town_grid_to_world(center, row, col);
     build_ctx.hover_world_pos = slot_pos;
 
-    let (gc, gr) = grid.world_to_grid(slot_pos);
+    let (gc, gr) = world_state.grid.world_to_grid(slot_pos);
 
     // Destroy mode: remove building at clicked cell
     if kind == BuildKind::Destroy {
-        let cell_building = grid.cell(gc, gr).and_then(|c| c.building);
+        let cell_building = world_state.grid.cell(gc, gr).and_then(|c| c.building);
         let is_destructible = cell_building
             .as_ref()
             .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
@@ -739,28 +733,31 @@ fn build_place_click_system(
         let is_guard_post = matches!(cell_building, Some(world::Building::GuardPost { .. }));
 
         let _ = world::destroy_building(
-            &mut grid, &mut world_data, &mut farm_states,
-            &mut spawner_state, &mut building_hp,
+            &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
+            &mut world_state.spawner_state, &mut world_state.building_hp,
             &mut combat_log, &game_time,
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
         );
-        if is_guard_post { dirty.patrols = true; dirty.guard_post_slots = true; }
-        dirty.building_grid = true;
+        if is_guard_post {
+            world_state.dirty.patrols = true;
+            world_state.dirty.guard_post_slots = true;
+        }
+        world_state.dirty.building_grid = true;
         return;
     }
 
     // Build mode: place building on empty slot
-    let Some(town_grid) = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return };
+    let Some(town_grid) = world_state.town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return };
     if !world::is_slot_buildable(town_grid, row, col) { return; }
     if row == 0 && col == 0 { return; }
-    if grid.cell(gc, gr).map(|c| c.building.is_some()) != Some(false) { return; }
+    if world_state.grid.cell(gc, gr).map(|c| c.building.is_some()) != Some(false) { return; }
 
     let cost = crate::constants::building_cost(kind);
     let (building, label) = match kind {
         BuildKind::Farm => (world::Building::Farm { town_idx }, "farm"),
         BuildKind::GuardPost => {
-            let existing_posts = world_data.guard_posts.iter()
+            let existing_posts = world_state.world_data.guard_posts.iter()
                 .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
                 .count() as u32;
             (world::Building::GuardPost { town_idx, patrol_order: existing_posts }, "guard post")
@@ -776,14 +773,17 @@ fn build_place_click_system(
     if food < cost { return; }
 
     if !world::build_and_pay(
-        &mut grid, &mut world_data, &mut farm_states,
-        &mut food_storage, &mut spawner_state, &mut building_hp,
+        &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
+        &mut food_storage, &mut world_state.spawner_state, &mut world_state.building_hp,
         building, town_data_idx,
         row, col, center, cost,
     ) { return; }
 
-    if kind == BuildKind::GuardPost { dirty.patrols = true; dirty.guard_post_slots = true; }
-    dirty.building_grid = true;
+    if kind == BuildKind::GuardPost {
+        world_state.dirty.patrols = true;
+        world_state.dirty.guard_post_slots = true;
+    }
+    world_state.dirty.building_grid = true;
 
     combat_log.push(
         CombatEventKind::Harvest,
@@ -985,19 +985,14 @@ fn draw_slot_indicators(
 /// Process destroy requests from the building inspector.
 fn process_destroy_system(
     mut request: ResMut<DestroyRequest>,
-    mut grid: ResMut<world::WorldGrid>,
-    mut world_data: ResMut<world::WorldData>,
-    mut farm_states: ResMut<FarmStates>,
-    mut spawner_state: ResMut<SpawnerState>,
-    mut building_hp: ResMut<BuildingHpState>,
+    mut world_state: WorldState,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
-    mut dirty: ResMut<DirtyFlags>,
 ) {
     let Some((col, row)) = request.0.take() else { return };
 
-    let cell = grid.cell(col, row);
+    let cell = world_state.grid.cell(col, row);
     let cell_building = cell.and_then(|c| c.building);
     let is_destructible = cell_building
         .as_ref()
@@ -1011,26 +1006,29 @@ fn process_destroy_system(
         .as_ref()
         .map(|b| crate::ui::game_hud::building_town_idx(b) as usize)
         .unwrap_or(0);
-    let center = world_data.towns.get(town_idx)
+    let center = world_state.world_data.towns.get(town_idx)
         .map(|t| t.center)
         .unwrap_or_default();
-    let town_name = world_data.towns.get(town_idx)
+    let town_name = world_state.world_data.towns.get(town_idx)
         .map(|t| t.name.clone())
         .unwrap_or_default();
 
-    let world_pos = grid.grid_to_world(col, row);
+    let world_pos = world_state.grid.grid_to_world(col, row);
     let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
     if world::destroy_building(
-        &mut grid, &mut world_data, &mut farm_states,
-        &mut spawner_state, &mut building_hp,
+        &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
+        &mut world_state.spawner_state, &mut world_state.building_hp,
         &mut combat_log, &game_time,
         trow, tcol, center,
         &format!("Destroyed building in {}", town_name),
     ).is_ok() {
         selected_building.active = false;
-        if is_guard_post { dirty.patrols = true; dirty.guard_post_slots = true; }
-        dirty.building_grid = true;
+        if is_guard_post {
+            world_state.dirty.patrols = true;
+            world_state.dirty.guard_post_slots = true;
+        }
+        world_state.dirty.building_grid = true;
     }
 }
 
@@ -1042,21 +1040,16 @@ fn process_destroy_system(
 #[derive(SystemParam)]
 struct CleanupWorld<'w> {
     slot_alloc: ResMut<'w, SlotAllocator>,
-    world_data: ResMut<'w, world::WorldData>,
+    world_state: WorldState<'w>,
     food_storage: ResMut<'w, FoodStorage>,
-    farm_states: ResMut<'w, FarmStates>,
     faction_stats: ResMut<'w, FactionStats>,
     gpu_state: ResMut<'w, GpuReadState>,
     game_time: ResMut<'w, GameTime>,
-    grid: ResMut<'w, world::WorldGrid>,
     tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
-    town_grids: ResMut<'w, world::TownGrids>,
     build_menu_ctx: ResMut<'w, BuildMenuContext>,
-    spawner_state: ResMut<'w, SpawnerState>,
     ai_state: ResMut<'w, AiPlayerState>,
     mine_states: ResMut<'w, MineStates>,
     gold_storage: ResMut<'w, GoldStorage>,
-    building_hp: ResMut<'w, BuildingHpState>,
 }
 
 #[derive(SystemParam)]
@@ -1064,7 +1057,6 @@ struct CleanupDebug<'w> {
     combat_debug: ResMut<'w, CombatDebug>,
     health_debug: ResMut<'w, HealthDebug>,
     kill_stats: ResMut<'w, KillStats>,
-    farm_occ: ResMut<'w, world::BuildingOccupancy>,
     camp_state: ResMut<'w, CampState>,
     raid_queue: ResMut<'w, RaidQueue>,
     npc_entity_map: ResMut<'w, NpcEntityMap>,
@@ -1085,7 +1077,6 @@ fn game_cleanup_system(
     mut ui_state: ResMut<UiState>,
     mut squad_state: ResMut<SquadState>,
     mut building_hp_render: ResMut<crate::resources::BuildingHpRender>,
-    mut dirty: ResMut<DirtyFlags>,
     mut healing_cache: ResMut<HealingZoneCache>,
 ) {
     // Despawn all entities
@@ -1107,28 +1098,28 @@ fn game_cleanup_system(
 
     // Reset world resources
     world.slot_alloc.reset();
-    *world.world_data = Default::default();
+    *world.world_state.world_data = Default::default();
     *world.food_storage = Default::default();
-    *world.farm_states = Default::default();
+    *world.world_state.farm_states = Default::default();
     *world.faction_stats = Default::default();
     *world.gpu_state = Default::default();
     *world.game_time = Default::default();
-    *world.grid = Default::default();
+    *world.world_state.grid = Default::default();
     world.tilemap_spawned.0 = false;
-    *world.town_grids = Default::default();
+    *world.world_state.town_grids = Default::default();
     *world.build_menu_ctx = Default::default();
-    *world.spawner_state = Default::default();
+    *world.world_state.spawner_state = Default::default();
     *world.ai_state = Default::default();
     *world.mine_states = Default::default();
     *world.gold_storage = Default::default();
-    *world.building_hp = Default::default();
+    *world.world_state.building_hp = Default::default();
     *building_hp_render = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();
     *debug.health_debug = Default::default();
     *debug.kill_stats = Default::default();
-    *debug.farm_occ = Default::default();
+    *world.world_state.building_occupancy = Default::default();
     *debug.camp_state = Default::default();
     *debug.raid_queue = Default::default();
     *debug.npc_entity_map = Default::default();
@@ -1138,7 +1129,7 @@ fn game_cleanup_system(
     *combat_log = Default::default();
     *ui_state = Default::default();
     *squad_state = Default::default();
-    *dirty = DirtyFlags::default();
+    *world.world_state.dirty = DirtyFlags::default();
     healing_cache.by_faction.clear();
 
     info!("Game cleanup complete");
