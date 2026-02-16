@@ -3,11 +3,13 @@
 //! Follows Bevy 0.18's compute_shader_game_of_life.rs pattern.
 //! Three-phase dispatch per frame: clear grid → insert NPCs → main logic.
 //!
-//! Data flow:
+//! Data flow (zero-clone architecture):
 //! - Main world: Systems write GpuUpdateMsg → GPU_UPDATE_QUEUE
-//! - Main world: populate_buffer_writes drains queue → NpcBufferWrites
-//! - Extract: NpcBufferWrites copied to render world
-//! - Render: write_npc_buffers uploads data to GPU
+//! - PostUpdate: populate_gpu_state drains queue → NpcGpuState
+//! - PostUpdate: build_visual_upload packs ECS + NpcGpuState → NpcVisualUpload
+//! - Extract: extract_npc_data reads both via Extract<Res<T>> (immutable, zero clone)
+//!   → writes compute data per-dirty-index to NpcGpuBuffers
+//!   → writes visual/equip data in bulk to NpcVisualBuffers
 
 use bevy::{
     asset::RenderAssetUsages,
@@ -114,10 +116,12 @@ impl Default for NpcComputeParams {
     }
 }
 
-/// Buffer data to upload to GPU each frame.
-/// Populated in main world, extracted to render world.
-#[derive(Resource, Clone, ExtractResource)]
-pub struct NpcBufferWrites {
+/// All persistent per-NPC GPU data: compute fields + visual state + dirty tracking.
+/// Read via `Extract<Res<NpcGpuState>>` in Extract phase (zero clone, immutable reference).
+/// NOT Clone/ExtractResource — never cloned to render world.
+#[derive(Resource)]
+pub struct NpcGpuState {
+    // --- Compute fields (written by game systems via GPU_UPDATE_QUEUE) ---
     /// Position buffer: [x0, y0, x1, y1, ...] flattened
     pub positions: Vec<f32>,
     /// Target buffer: [x0, y0, x1, y1, ...] flattened
@@ -130,24 +134,14 @@ pub struct NpcBufferWrites {
     pub healths: Vec<f32>,
     /// Arrival flags: one i32 per NPC (0 = moving, 1 = settled)
     pub arrivals: Vec<i32>,
-    /// Sprite indices: [col, row, 0, 0] per NPC (vec4 for alignment)
+    // --- Visual state (sprite frames + flash, updated by messages) ---
+    /// Sprite indices: [col, row, atlas, 0] per NPC, stride 4
     pub sprite_indices: Vec<f32>,
-    /// Colors: [r, g, b, a] per NPC
-    pub colors: Vec<f32>,
-    /// Damage flash intensity: 0.0-1.0 per NPC (decays each frame)
+    /// Damage flash intensity: 0.0-1.0 per NPC (decays at 5.0/s)
     pub flash_values: Vec<f32>,
-    /// Equipment sprites per layer: [col, row, atlas] per NPC, stride 3. -1.0 col = unequipped.
-    pub armor_sprites: Vec<f32>,
-    pub helmet_sprites: Vec<f32>,
-    pub weapon_sprites: Vec<f32>,
-    pub item_sprites: Vec<f32>,
-    /// Status indicator sprites per NPC: [col, row, atlas], -1.0 = none. Layer 5 (sleep icon, etc.)
-    pub status_sprites: Vec<f32>,
-    /// Healing indicator sprites per NPC: [col, row, atlas], -1.0 = none. Layer 6 (healing glow)
-    pub healing_sprites: Vec<f32>,
-    /// Whether any data changed this frame (skip upload if false)
+    // --- Dirty tracking (compute only — visual is rebuilt each frame) ---
+    /// Whether any compute data changed this frame
     pub dirty: bool,
-    /// Per-field dirty indices — only these NPC slots get uploaded to GPU
     pub position_dirty_indices: Vec<usize>,
     pub target_dirty_indices: Vec<usize>,
     pub speed_dirty_indices: Vec<usize>,
@@ -156,9 +150,20 @@ pub struct NpcBufferWrites {
     pub arrival_dirty_indices: Vec<usize>,
 }
 
-impl Default for NpcBufferWrites {
+/// GPU-ready packed arrays for NPC visual/equip data. Rebuilt each frame by build_visual_upload.
+/// Read via `Extract<Res<NpcVisualUpload>>` in Extract phase (zero clone).
+#[derive(Resource, Default)]
+pub struct NpcVisualUpload {
+    /// [sprite_col, sprite_row, atlas, flash, r, g, b, a] per NPC — matches NpcVisual in npc_render.wgsl
+    pub visual_data: Vec<f32>,
+    /// [col, row, atlas, pad] × 6 layers per NPC — matches EquipSlot in npc_render.wgsl
+    pub equip_data: Vec<f32>,
+    /// Number of NPCs packed
+    pub npc_count: usize,
+}
+
+impl Default for NpcGpuState {
     fn default() -> Self {
-        // Pre-allocate for MAX_NPCS
         let max = MAX_NPCS as usize;
         Self {
             positions: vec![0.0; max * 2],
@@ -166,16 +171,9 @@ impl Default for NpcBufferWrites {
             speeds: vec![100.0; max],
             factions: vec![0; max],
             healths: vec![100.0; max],
-            arrivals: vec![0; max],  // 0 = wants to move
-            sprite_indices: vec![0.0; max * 4], // vec4 per NPC
-            colors: vec![1.0; max * 4],          // RGBA, default white
+            arrivals: vec![0; max],
+            sprite_indices: vec![0.0; max * 4],
             flash_values: vec![0.0; max],
-            armor_sprites: vec![-1.0; max * 3],
-            helmet_sprites: vec![-1.0; max * 3],
-            weapon_sprites: vec![-1.0; max * 3],
-            item_sprites: vec![-1.0; max * 3],
-            status_sprites: vec![-1.0; max * 3],
-            healing_sprites: vec![-1.0; max * 3],
             dirty: false,
             position_dirty_indices: Vec::new(),
             target_dirty_indices: Vec::new(),
@@ -187,8 +185,8 @@ impl Default for NpcBufferWrites {
     }
 }
 
-impl NpcBufferWrites {
-    /// Apply a GPU update to the buffer data.
+impl NpcGpuState {
+    /// Apply a GPU update to the state.
     pub fn apply(&mut self, update: &GpuUpdate) {
         match update {
             GpuUpdate::SetPosition { idx, x, y } => {
@@ -243,7 +241,6 @@ impl NpcBufferWrites {
                 }
             }
             GpuUpdate::HideNpc { idx } => {
-                // Move to offscreen position
                 let i = *idx * 2;
                 if i + 1 < self.positions.len() {
                     self.positions[i] = -9999.0;
@@ -252,30 +249,31 @@ impl NpcBufferWrites {
                     self.position_dirty_indices.push(*idx);
                 }
             }
+            // Visual-only messages — no compute dirty flag
             GpuUpdate::SetSpriteFrame { idx, col, row, atlas } => {
                 let i = *idx * 4;
                 if i + 3 < self.sprite_indices.len() {
                     self.sprite_indices[i] = *col;
                     self.sprite_indices[i + 1] = *row;
                     self.sprite_indices[i + 2] = *atlas;
-                    self.dirty = true;
                 }
             }
             GpuUpdate::SetDamageFlash { idx, intensity } => {
                 if *idx < self.flash_values.len() {
                     self.flash_values[*idx] = *intensity;
-                    self.dirty = true;
                 }
             }
         }
     }
 }
 
-/// Derive visual sprite state (colors, equipment, indicators) from ECS components.
-/// Single source of truth — replaces deferred SetColor/SetEquipSprite/SetHealing/SetSleeping messages.
-/// Runs in Update after Step::Behavior so the buffer is in sync when tests read it.
-pub fn sync_visual_sprites(
-    mut buffer: ResMut<NpcBufferWrites>,
+/// Pack NPC visual + equipment data into GPU-ready arrays for direct upload.
+/// Replaces sync_visual_sprites + prepare_npc_buffers visual repack.
+/// Runs in PostUpdate after populate_gpu_state (chained).
+pub fn build_visual_upload(
+    gpu_state: Res<NpcGpuState>,
+    gpu_data: Res<NpcGpuData>,
+    mut upload: ResMut<NpcVisualUpload>,
     all_npcs: Query<(
         &NpcIndex, &Faction, &Job, &Activity,
         Option<&Healing>,
@@ -283,106 +281,118 @@ pub fn sync_visual_sprites(
     ), Without<Dead>>,
     timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("sync_visual_sprites");
-    // Single pass: write ALL visual fields per alive NPC (defaults where no component).
-    // Dead NPCs are skipped by the renderer (x < -9000), so stale data is harmless.
+    let _t = timings.scope("build_visual_upload");
+    let npc_count = gpu_data.npc_count as usize;
+    upload.npc_count = npc_count;
+
+    // Resize (reuses allocation if already large enough), fill with sentinels
+    upload.visual_data.resize(npc_count * 8, 0.0);
+    upload.equip_data.resize(npc_count * 24, -1.0);
+
+    // Reset equip to -1.0 sentinels (dead NPCs keep stale data, shader culls via x < -9000)
+    upload.equip_data[..npc_count * 24].fill(-1.0);
+
     for (npc_idx, faction, job, activity, healing, weapon, helmet, armor) in all_npcs.iter() {
         let idx = npc_idx.0;
-        let j = idx * 3;
+        if idx >= npc_count { continue; }
 
-        // Color: raiders use faction palette, others use job color
-        let c = idx * 4;
-        if c + 3 < buffer.colors.len() {
-            let (r, g, b, a) = if faction.0 == 0 {
-                job.color()
-            } else {
-                crate::constants::raider_faction_color(faction.0)
-            };
-            buffer.colors[c] = r;
-            buffer.colors[c + 1] = g;
-            buffer.colors[c + 2] = b;
-            buffer.colors[c + 3] = a;
-        }
+        // --- Visual data: [sprite_col, sprite_row, atlas, flash, r, g, b, a] ---
+        let base = idx * 8;
+        upload.visual_data[base]     = gpu_state.sprite_indices.get(idx * 4).copied().unwrap_or(0.0);
+        upload.visual_data[base + 1] = gpu_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
+        upload.visual_data[base + 2] = gpu_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(0.0);
+        upload.visual_data[base + 3] = gpu_state.flash_values.get(idx).copied().unwrap_or(0.0);
+        let (r, g, b, a) = if faction.0 == 0 {
+            job.color()
+        } else {
+            crate::constants::raider_faction_color(faction.0)
+        };
+        upload.visual_data[base + 4] = r;
+        upload.visual_data[base + 5] = g;
+        upload.visual_data[base + 6] = b;
+        upload.visual_data[base + 7] = a;
 
-        if j + 2 >= buffer.weapon_sprites.len() { continue; }
+        // --- Equip data: 6 layers × [col, row, atlas, pad] ---
+        let eq = idx * 24;
 
-        // Equipment (write -1.0 sentinel when unequipped, atlas 0.0 = character sheet)
-        let (wc, wr) = weapon.map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
-        buffer.weapon_sprites[j] = wc;
-        buffer.weapon_sprites[j + 1] = wr;
-        buffer.weapon_sprites[j + 2] = 0.0;
-
-        let (hc, hr) = helmet.map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
-        buffer.helmet_sprites[j] = hc;
-        buffer.helmet_sprites[j + 1] = hr;
-        buffer.helmet_sprites[j + 2] = 0.0;
-
+        // Layer 0: Armor
         let (ac, ar) = armor.map(|a| (a.0, a.1)).unwrap_or((-1.0, 0.0));
-        buffer.armor_sprites[j] = ac;
-        buffer.armor_sprites[j + 1] = ar;
-        buffer.armor_sprites[j + 2] = 0.0;
+        upload.equip_data[eq]     = ac;
+        upload.equip_data[eq + 1] = ar;
+        upload.equip_data[eq + 2] = 0.0;
+        upload.equip_data[eq + 3] = 0.0;
 
-        // Carried item (food = world atlas)
+        // Layer 1: Helmet
+        let (hc, hr) = helmet.map(|h| (h.0, h.1)).unwrap_or((-1.0, 0.0));
+        upload.equip_data[eq + 4] = hc;
+        upload.equip_data[eq + 5] = hr;
+        upload.equip_data[eq + 6] = 0.0;
+        upload.equip_data[eq + 7] = 0.0;
+
+        // Layer 2: Weapon
+        let (wc, wr) = weapon.map(|w| (w.0, w.1)).unwrap_or((-1.0, 0.0));
+        upload.equip_data[eq + 8] = wc;
+        upload.equip_data[eq + 9] = wr;
+        upload.equip_data[eq + 10] = 0.0;
+        upload.equip_data[eq + 11] = 0.0;
+
+        // Layer 3: Item (food on returning raiders)
         let (ic, ir, ia) = if matches!(activity, Activity::Returning { has_food: true, .. }) {
             (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0)
         } else {
             (-1.0, 0.0, 0.0)
         };
-        buffer.item_sprites[j] = ic;
-        buffer.item_sprites[j + 1] = ir;
-        buffer.item_sprites[j + 2] = ia;
+        upload.equip_data[eq + 12] = ic;
+        upload.equip_data[eq + 13] = ir;
+        upload.equip_data[eq + 14] = ia;
+        upload.equip_data[eq + 15] = 0.0;
 
-        // Healing halo (atlas_id=2.0 → heal sprite texture)
-        let (hlc, hla) = if healing.is_some() { (0.0, 2.0) } else { (-1.0, 0.0) };
-        buffer.healing_sprites[j] = hlc;
-        buffer.healing_sprites[j + 1] = 0.0;
-        buffer.healing_sprites[j + 2] = hla;
-
-        // Sleep indicator (atlas_id=3.0 → sleep sprite texture)
+        // Layer 4: Status (sleep icon)
         let (sc, sr, sa) = if matches!(activity, Activity::Resting) {
             (0.0, 0.0, 3.0)
         } else {
             (-1.0, 0.0, 0.0)
         };
-        buffer.status_sprites[j] = sc;
-        buffer.status_sprites[j + 1] = sr;
-        buffer.status_sprites[j + 2] = sa;
-    }
+        upload.equip_data[eq + 16] = sc;
+        upload.equip_data[eq + 17] = sr;
+        upload.equip_data[eq + 18] = sa;
+        upload.equip_data[eq + 19] = 0.0;
 
-    buffer.dirty = true;
+        // Layer 5: Healing (heal halo)
+        let (hlc, hla) = if healing.is_some() { (0.0, 2.0) } else { (-1.0, 0.0) };
+        upload.equip_data[eq + 20] = hlc;
+        upload.equip_data[eq + 21] = 0.0;
+        upload.equip_data[eq + 22] = hla;
+        upload.equip_data[eq + 23] = 0.0;
+    }
 }
 
-/// Drain GPU_UPDATE_QUEUE and apply updates to NpcBufferWrites.
+/// Drain GPU_UPDATE_QUEUE and apply updates to NpcGpuState.
 /// Runs in main world each frame before extraction.
-pub fn populate_buffer_writes(mut buffer_writes: ResMut<NpcBufferWrites>, time: Res<Time>, slots: Res<SlotAllocator>) {
-    // Reset dirty flags - will be set if any updates applied
-    buffer_writes.dirty = false;
-    buffer_writes.position_dirty_indices.clear();
-    buffer_writes.target_dirty_indices.clear();
-    buffer_writes.speed_dirty_indices.clear();
-    buffer_writes.faction_dirty_indices.clear();
-    buffer_writes.health_dirty_indices.clear();
-    buffer_writes.arrival_dirty_indices.clear();
+pub fn populate_gpu_state(mut state: ResMut<NpcGpuState>, time: Res<Time>, slots: Res<SlotAllocator>) {
+    // Reset compute dirty flags
+    state.dirty = false;
+    state.position_dirty_indices.clear();
+    state.target_dirty_indices.clear();
+    state.speed_dirty_indices.clear();
+    state.faction_dirty_indices.clear();
+    state.health_dirty_indices.clear();
+    state.arrival_dirty_indices.clear();
 
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for update in queue.drain(..) {
-            buffer_writes.apply(&update);
+            state.apply(&update);
         }
     }
 
     // Decay damage flash values (1.0 → 0.0 in ~0.2s)
     let dt = time.delta_secs();
     const FLASH_DECAY_RATE: f32 = 5.0;
-    let mut any_flash = false;
-    let active = slots.count().min(buffer_writes.flash_values.len());
-    for flash in buffer_writes.flash_values[..active].iter_mut() {
+    let active = slots.count().min(state.flash_values.len());
+    for flash in state.flash_values[..active].iter_mut() {
         if *flash > 0.0 {
             *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
-            any_flash = true;
         }
-    }
-    if any_flash {
-        buffer_writes.dirty = true;
     }
 }
 
@@ -657,10 +667,11 @@ impl Plugin for GpuComputePlugin {
         // Initialize NPC resources in main world
         app.init_resource::<NpcGpuData>()
             .init_resource::<NpcComputeParams>()
-            .init_resource::<NpcBufferWrites>()
+            .init_resource::<NpcGpuState>()
+            .init_resource::<NpcVisualUpload>()
             .init_resource::<NpcSpriteTexture>()
             .add_systems(Update, update_gpu_data)
-            .add_systems(PostUpdate, populate_buffer_writes);
+            .add_systems(PostUpdate, (populate_gpu_state, build_visual_upload).chain());
 
         // Initialize projectile resources in main world
         app.init_resource::<ProjGpuData>()
@@ -676,7 +687,6 @@ impl Plugin for GpuComputePlugin {
         app.add_plugins((
             ExtractResourcePlugin::<NpcGpuData>::default(),
             ExtractResourcePlugin::<NpcComputeParams>::default(),
-            ExtractResourcePlugin::<NpcBufferWrites>::default(),
             ExtractResourcePlugin::<NpcSpriteTexture>::default(),
             ExtractResourcePlugin::<ProjGpuData>::default(),
             ExtractResourcePlugin::<ProjComputeParams>::default(),
@@ -702,7 +712,7 @@ impl Plugin for GpuComputePlugin {
             .add_systems(
                 Render,
                 (
-                    (write_npc_buffers, write_proj_buffers).in_set(RenderSystems::PrepareResources),
+                    write_proj_buffers.in_set(RenderSystems::PrepareResources),
                     (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
                 ),
             );
@@ -1071,89 +1081,7 @@ fn prepare_npc_bind_groups(
 }
 
 
-// =============================================================================
-// BUFFER WRITING
-// =============================================================================
-
-/// Write NPC data from extracted resource to GPU buffers.
-/// Runs in render world before bind group preparation.
-fn write_npc_buffers(
-    buffers: Option<Res<NpcGpuBuffers>>,
-    buffer_writes: Option<Res<NpcBufferWrites>>,
-    render_queue: Res<RenderQueue>,
-) {
-    let Some(buffers) = buffers else { return };
-    let Some(writes) = buffer_writes else { return };
-
-    // Skip if no changes this frame
-    if !writes.dirty {
-        return;
-    }
-
-    // Per-index uploads — only write the NPC slots that actually changed
-    for &idx in &writes.position_dirty_indices {
-        let start = idx * 2;
-        if start + 2 <= writes.positions.len() {
-            let byte_offset = (start * std::mem::size_of::<f32>()) as u64;
-            render_queue.write_buffer(
-                &buffers.positions, byte_offset,
-                bytemuck::cast_slice(&writes.positions[start..start + 2]),
-            );
-        }
-    }
-
-    for &idx in &writes.target_dirty_indices {
-        let start = idx * 2;
-        if start + 2 <= writes.targets.len() {
-            let byte_offset = (start * std::mem::size_of::<f32>()) as u64;
-            render_queue.write_buffer(
-                &buffers.targets, byte_offset,
-                bytemuck::cast_slice(&writes.targets[start..start + 2]),
-            );
-        }
-    }
-
-    for &idx in &writes.speed_dirty_indices {
-        if idx < writes.speeds.len() {
-            let byte_offset = (idx * std::mem::size_of::<f32>()) as u64;
-            render_queue.write_buffer(
-                &buffers.speeds, byte_offset,
-                bytemuck::cast_slice(&writes.speeds[idx..idx + 1]),
-            );
-        }
-    }
-
-    for &idx in &writes.faction_dirty_indices {
-        if idx < writes.factions.len() {
-            let byte_offset = (idx * std::mem::size_of::<i32>()) as u64;
-            render_queue.write_buffer(
-                &buffers.factions, byte_offset,
-                bytemuck::cast_slice(&writes.factions[idx..idx + 1]),
-            );
-        }
-    }
-
-    for &idx in &writes.health_dirty_indices {
-        if idx < writes.healths.len() {
-            let byte_offset = (idx * std::mem::size_of::<f32>()) as u64;
-            render_queue.write_buffer(
-                &buffers.healths, byte_offset,
-                bytemuck::cast_slice(&writes.healths[idx..idx + 1]),
-            );
-        }
-    }
-
-    for &idx in &writes.arrival_dirty_indices {
-        if idx < writes.arrivals.len() {
-            let byte_offset = (idx * std::mem::size_of::<i32>()) as u64;
-            render_queue.write_buffer(
-                &buffers.arrivals, byte_offset,
-                bytemuck::cast_slice(&writes.arrivals[idx..idx + 1]),
-            );
-        }
-    }
-
-}
+// write_npc_buffers DELETED — logic moved to extract_npc_data (npc_render.rs, ExtractSchedule)
 
 // =============================================================================
 // RENDER GRAPH NODE

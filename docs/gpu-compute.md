@@ -9,18 +9,20 @@ GPU compute uses Bevy's render graph with wgpu/WGSL. The compute shader `shaders
 ```
 Main World (ECS)                       Render World (GPU)
 │                                      │
-├─ NpcGpuData ───────────────────────▶ ExtractResource
-├─ NpcComputeParams ─────────────────▶ (cloned each frame)
-├─ NpcBufferWrites ──────────────────▶
-├─ NpcSpriteTexture (char+world+heal+sleep) ▶
+├─ NpcGpuData ───────────────────────▶ ExtractResource (cloned each frame)
+├─ NpcComputeParams ─────────────────▶ ExtractResource (cloned each frame)
+├─ NpcGpuState ──────────────────────▶ Extract<Res<T>> (zero-clone immutable read)
+├─ NpcVisualUpload ──────────────────▶ Extract<Res<T>> (zero-clone immutable read)
+├─ NpcSpriteTexture (char+world+heal+sleep) ▶ ExtractResource
 ├─ GpuReadState (Clone+ExtractResource) ▶ (for gameplay systems: movement, combat, healing)
 ├─ ProjPositionState (Clone+ExtractResource) ▶ (for prepare_proj_buffers)
 │                                      │
 │                                      ├─ init_npc_compute_pipeline (RenderStartup)
 │                                      │   └─ Create GPU buffers (no staging — Bevy Readback handles it)
 │                                      │
-│                                      ├─ write_npc_buffers (PrepareResources)
-│                                      │   └─ Per-index uploads (only changed NPC slots)
+│                                      ├─ extract_npc_data (ExtractSchedule)
+│                                      │   ├─ Per-dirty-index write_buffer for compute fields
+│                                      │   └─ Bulk write_buffer for visual + equip arrays
 │                                      │
 │                                      ├─ prepare_npc_bind_groups (PrepareBindGroups)
 │                                      │   └─ 3 bind groups (one per mode, different uniform)
@@ -51,15 +53,16 @@ Main World (ECS)                       Render World (GPU)
 ```
 ECS → GPU (upload):
   GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
-    → populate_buffer_writes → NpcBufferWrites (per-field dirty indices)
-    → ExtractResource clone
-    → write_npc_buffers (per-index uploads, only changed slots)
+    → populate_gpu_state → NpcGpuState (per-field dirty indices)
 
-  sync_visual_sprites (after Step::Behavior):
-    Single-pass: writes ALL visual fields per alive NPC (defaults where absent)
-    → writes directly to NpcBufferWrites (colors, *_sprites arrays)
-    Single source of truth — replaces deferred SetColor/SetEquipSprite/SetHealing/SetSleeping messages
+  build_visual_upload (PostUpdate, chained after populate_gpu_state):
+    Single O(N) pass: ECS query + NpcGpuState → NpcVisualUpload
+    Packs visual_data [f32;8] + equip_data [f32;24] per NPC in GPU-ready format
     Dead NPCs skipped by renderer (x < -9000), stale visual data is harmless
+
+  extract_npc_data (ExtractSchedule, zero-clone):
+    Extract<Res<NpcGpuState>> → per-dirty-index write_buffer to NpcGpuBuffers
+    Extract<Res<NpcVisualUpload>> → bulk write_buffer to NpcVisualBuffers
 
 GPU → ECS (readback, Bevy async Readback):
   NpcComputeNode: dispatch compute + copy positions/combat_targets/factions/healths/threat_counts → ReadbackHandles ShaderStorageBuffer assets
@@ -79,12 +82,12 @@ GPU → ECS (readback, Bevy async Readback):
 
 GPU → Render:
   Vertex shader reads positions/health directly from NpcGpuBuffers storage buffers (bind group 2).
-  prepare_npc_buffers: uploads NpcVisualBuffers (visual [f32;8] + equip [f32;24]) from NpcBufferWrites.
+  NpcVisualBuffers (visual [f32;8] + equip [f32;24]) written by extract_npc_data during Extract.
     → DrawNpcStorageCommands: 7 draw calls via instance offset encoding (body + 6 equipment layers)
     → DrawMiscCommands: farms/BHP via InstanceData
 ```
 
-Note: `sprite_indices`, `colors`, `flash_values`, and equipment sprite fields (`armor_sprites`, `helmet_sprites`, etc.) are in NpcBufferWrites. These are uploaded to NPC visual/equipment storage buffers (`NpcVisualBuffers`) for the render shader — not to compute shader buffers. Positions and health for rendering come directly from compute output (`NpcGpuBuffers.positions`, `.healths`) via storage buffer binding, not via readback. Colors and equipment are derived from ECS components by `sync_visual_sprites` each frame.
+Note: `sprite_indices` and `flash_values` live in `NpcGpuState`. Colors and equipment are derived from ECS components by `build_visual_upload` each frame, which packs them into `NpcVisualUpload` (visual_data + equip_data). These are uploaded to NPC visual/equipment storage buffers (`NpcVisualBuffers`) for the render shader — not to compute shader buffers. Positions and health for rendering come directly from compute output (`NpcGpuBuffers.positions`, `.healths`) via storage buffer binding, not via readback. `NpcGpuState` and `NpcVisualUpload` are read during Extract via `Extract<Res<T>>` — zero-clone immutable access, no ExtractResourcePlugin.
 
 ## NPC Compute Shader (npc_compute.wgsl)
 
@@ -115,15 +118,15 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 
 | Binding | Name | Type | Per-NPC Size | Uploaded From | Purpose |
 |---------|------|------|-------------|---------------|---------|
-| 0 | positions | vec2\<f32\> | 8B | NpcBufferWrites.positions | Current XY, read/written by shader |
-| 1 | goals | vec2\<f32\> | 8B | NpcBufferWrites.targets | Movement target |
-| 2 | speeds | f32 | 4B | NpcBufferWrites.speeds | Movement speed |
+| 0 | positions | vec2\<f32\> | 8B | NpcGpuState.positions | Current XY, read/written by shader |
+| 1 | goals | vec2\<f32\> | 8B | NpcGpuState.targets | Movement target |
+| 2 | speeds | f32 | 4B | NpcGpuState.speeds | Movement speed |
 | 3 | grid_counts | atomic\<i32\>[] | — | Not uploaded | NPCs per grid cell (atomically written by mode 0+1) |
 | 4 | grid_data | i32[] | — | Not uploaded | NPC indices per cell (written by mode 1) |
-| 5 | arrivals | i32 | 4B | NpcBufferWrites.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
+| 5 | arrivals | i32 | 4B | NpcGpuState.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
 | 6 | backoff | i32 | 4B | Not uploaded | TCP-style collision backoff counter (read/written by mode 2) |
-| 7 | factions | i32 | 4B | NpcBufferWrites.factions | 0=Villager, 1+=Raider camps (COPY_SRC for readback) |
-| 8 | healths | f32 | 4B | NpcBufferWrites.healths | Current HP (COPY_SRC for readback) |
+| 7 | factions | i32 | 4B | NpcGpuState.factions | 0=Villager, 1+=Raider camps (COPY_SRC for readback) |
+| 8 | healths | f32 | 4B | NpcGpuState.healths | Current HP (COPY_SRC for readback) |
 | 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader, init -1) |
 | 10 | params | Params (uniform) | — | NpcComputeParams | Count, delta, grid config, thresholds |
 | 11 | proj_grid_counts | i32[] | — | ProjGpuBuffers.grid_counts (read) | Projectile spatial grid cell counts |
@@ -135,20 +138,20 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 
 ### NPC Visual Storage Buffers (npc_render.rs)
 
-Uploaded per frame by `prepare_npc_buffers` to `NpcVisualBuffers`. Positions and health read directly from compute output via bind group 2.
+Uploaded per frame by `extract_npc_data` (ExtractSchedule) to `NpcVisualBuffers` via `queue.write_buffer()`. Positions and health read directly from compute output via bind group 2.
 
 **Visual buffer** (`[f32; 8]` per slot, 32B/NPC):
 
 | Offset | Field | Source |
 |--------|-------|--------|
-| 0 | sprite_col | NpcBufferWrites.sprite_indices[i*4] |
-| 1 | sprite_row | NpcBufferWrites.sprite_indices[i*4+1] |
-| 2 | body_atlas | NpcBufferWrites.sprite_indices[i*4+2] |
-| 3 | flash | NpcBufferWrites.flash_values[i] (decays at 5.0/s) |
-| 4-7 | r, g, b, a | NpcBufferWrites.colors[i*4..i*4+4] |
+| 0 | sprite_col | NpcGpuState.sprite_indices[i*4] |
+| 1 | sprite_row | NpcGpuState.sprite_indices[i*4+1] |
+| 2 | body_atlas | NpcGpuState.sprite_indices[i*4+2] |
+| 3 | flash | NpcGpuState.flash_values[i] (decays at 5.0/s) |
+| 4-7 | r, g, b, a | Derived from ECS Faction/Job by build_visual_upload |
 
 **Equipment buffer** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`, 96B/NPC):
-Built from `EQUIP_LAYER_FIELDS` (armor, helmet, weapon, item, status, healing sprites). `col < 0` = unequipped.
+Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). `col < 0` = unequipped.
 
 ## Uniform Params (NpcComputeParams)
 
@@ -203,5 +206,5 @@ const MAX_PER_CELL: u32 = 48;
 ## Known Issues
 
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
-- **sprite_indices/colors not uploaded to compute**: These fields exist in NpcBufferWrites for the render pipeline only. The compute shader has no access to them.
-- **GpuReadState/ProjPositionState cloned for extraction**: `Clone + ExtractResource` means ~600KB/frame cloned to render world. Acceptable at current scale but could be replaced with `Arc<RwLock>` shared approach if it becomes a bottleneck.
+- **sprite_indices not uploaded to compute**: These fields exist in NpcGpuState for the render pipeline only. The compute shader has no access to them.
+- **GpuReadState/ProjPositionState cloned for extraction**: `Clone + ExtractResource` means ~600KB/frame cloned to render world. Acceptable at current scale but could be replaced with `Extract<Res<T>>` like NpcGpuState.

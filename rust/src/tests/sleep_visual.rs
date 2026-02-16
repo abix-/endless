@@ -1,9 +1,9 @@
 //! Sleep Visual Test (3 phases)
-//! Validates: Resting NPC gets sleep icon on Status layer, cleared on wake.
+//! Validates: Resting NPC gets sleep icon in NpcVisualUpload equip layer 4, cleared on wake.
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::gpu::NpcBufferWrites;
+use crate::gpu::NpcVisualUpload;
 use crate::resources::*;
 
 use super::{TestState, TestSetupParams};
@@ -41,7 +41,7 @@ pub fn tick(
     farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
     npc_activity_query: Query<(&NpcIndex, &Activity), (With<Farmer>, Without<Dead>)>,
     mut energy_query: Query<&mut Energy, (With<Farmer>, Without<Dead>)>,
-    buffer: Res<NpcBufferWrites>,
+    upload: Res<NpcVisualUpload>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
@@ -66,25 +66,25 @@ pub fn tick(
                 test.fail_phase(elapsed, "Farmer not found");
             }
         }
-        // Phase 2: Farmer rests → status_sprites should show SLEEP_SPRITE
+        // Phase 2: Farmer rests → equip layer 4 should show sleep icon (atlas=3.0)
         2 => {
             let resting = npc_activity_query.iter().find(|(_, a)| matches!(a, Activity::Resting));
             test.phase_name = format!("e={:.0} resting={}", energy, resting.is_some());
 
             if let Some((idx, _)) = resting {
-                let j = idx.0 * 3;
-                let sprite_col = buffer.status_sprites.get(j).copied().unwrap_or(-1.0);
-                let sprite_atlas = buffer.status_sprites.get(j + 2).copied().unwrap_or(0.0);
-                if sprite_col >= 0.0 && sprite_atlas >= 2.5 {
-                    test.pass_phase(elapsed, format!("Sleep icon set (idx={}, col={:.0}, atlas={:.0})", idx.0, sprite_col, sprite_atlas));
+                let eq_base = idx.0 * 24 + 16; // layer 4 = status
+                let col = upload.equip_data.get(eq_base).copied().unwrap_or(-1.0);
+                let atlas = upload.equip_data.get(eq_base + 2).copied().unwrap_or(0.0);
+                if col >= 0.0 && atlas >= 2.5 {
+                    test.pass_phase(elapsed, format!("Sleep icon set (idx={}, col={:.0}, atlas={:.0})", idx.0, col, atlas));
                 } else {
-                    test.fail_phase(elapsed, format!("Resting but status[{}] col={:.1} atlas={:.1}, expected col>=0 atlas=3", j, sprite_col, sprite_atlas));
+                    test.fail_phase(elapsed, format!("Resting but equip[{}] col={:.1} atlas={:.1}, expected col>=0 atlas=3", eq_base, col, atlas));
                 }
             } else if elapsed > 45.0 {
                 test.fail_phase(elapsed, format!("energy={:.0} but never rested", energy));
             }
         }
-        // Phase 3: Farmer wakes → status_sprites should be cleared (-1)
+        // Phase 3: Farmer wakes → equip layer 4 should be cleared (-1)
         3 => {
             // Look for a farmer that was resting (phase 2 passed) and is now awake
             let awake = npc_activity_query.iter().find(|(_, a)| !matches!(a, Activity::Resting));
@@ -92,13 +92,12 @@ pub fn tick(
 
             if let Some((idx, _)) = awake {
                 if energy >= 80.0 {
-                    let j = idx.0 * 3;
-                    let sprite_col = buffer.status_sprites.get(j).copied().unwrap_or(-1.0);
-                    if sprite_col == -1.0 {
+                    let col = upload.equip_data.get(idx.0 * 24 + 16).copied().unwrap_or(-1.0);
+                    if col == -1.0 {
                         test.pass_phase(elapsed, format!("Sleep icon cleared (idx={}, energy={:.0})", idx.0, energy));
                         test.complete(elapsed);
                     } else {
-                        test.fail_phase(elapsed, format!("Awake but status_sprites[{}]={:.1}, expected -1", j, sprite_col));
+                        test.fail_phase(elapsed, format!("Awake but equip[{}]={:.1}, expected -1", idx.0 * 24 + 16, col));
                     }
                 }
             }

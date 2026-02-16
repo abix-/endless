@@ -26,7 +26,7 @@ healths: Vec<f32>,     // healths[5] = NPC #5's health
 - GPU-friendly: upload entire array in one call
 - No object overhead: no vtables, no GC pressure
 
-Used in: `NpcBufferWrites` (flat arrays for GPU upload), GPU storage buffers
+Used in: `NpcGpuState` (flat arrays for GPU upload), GPU storage buffers
 
 ---
 
@@ -246,7 +246,7 @@ The GPU→CPU transfer stalls the pipeline — CPU waits for GPU to finish, then
 
 **Solution: Keep data on GPU**
 
-The render pipeline reads directly from GPU buffers (or from the same CPU-side arrays that were uploaded), avoiding readback. CPU-side systems that need position data use the pre-upload `NpcBufferWrites` arrays.
+The render pipeline reads directly from GPU buffers (or from the same CPU-side arrays that were uploaded), avoiding readback. CPU-side systems that need position data use the pre-upload `NpcGpuState` arrays.
 
 **When you must read back:**
 - Keep buffers small (read only what's needed)
@@ -448,11 +448,11 @@ Frame N+1: Main World computes next frame  ← runs in parallel with render
            Render World processes frame N+1
 ```
 
-**Extract:** Resources are cloned from main world to render world via `ExtractResourcePlugin`. This is the sync point — both worlds pause briefly, data is copied, then they resume in parallel.
+**Extract:** Small resources are cloned from main world to render world via `ExtractResourcePlugin`. Large NPC data (`NpcGpuState`, `NpcVisualUpload`) uses `Extract<Res<T>>` for zero-clone immutable reads with direct `queue.write_buffer()` GPU upload during Extract. This is the sync point — both worlds pause briefly, then resume in parallel.
 
 **Consequence:** One-frame render latency. The GPU renders positions from the previous main world frame. At 140fps this is ~7ms of latency — invisible.
 
-Used in: `GpuComputePlugin` (extract NpcBufferWrites, NpcGpuData, NpcComputeParams), `NpcRenderPlugin` (extract NpcBatch entity)
+Used in: `GpuComputePlugin` (extract NpcGpuState + NpcVisualUpload via Extract<Res<T>>, NpcGpuData + NpcComputeParams via ExtractResourcePlugin), `NpcRenderPlugin` (extract NpcBatch entity)
 
 ---
 

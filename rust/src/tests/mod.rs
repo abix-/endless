@@ -505,7 +505,7 @@ pub fn register_tests(app: &mut App) {
         sleep_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("sleep-visual"))
-            .after(crate::gpu::sync_visual_sprites));
+);
 
     // farm-visual
     registry.tests.push(TestEntry {
@@ -535,7 +535,7 @@ pub fn register_tests(app: &mut App) {
         heal_visual::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("heal-visual"))
-            .after(crate::gpu::sync_visual_sprites));
+);
 
     // npc-visuals
     registry.tests.push(TestEntry {
@@ -550,7 +550,7 @@ pub fn register_tests(app: &mut App) {
         npc_visuals::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("npc-visuals"))
-            .after(crate::gpu::sync_visual_sprites));
+);
 
     // terrain-visual
     registry.tests.push(TestEntry {

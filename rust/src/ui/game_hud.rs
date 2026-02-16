@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::components::*;
-use crate::gpu::NpcBufferWrites;
+use crate::gpu::NpcGpuState;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::ui::tipped;
@@ -200,7 +200,7 @@ pub fn bottom_panel_system(
     ), Without<Dead>>,
     npc_states: NpcStateQuery,
     gpu_state: Res<GpuReadState>,
-    buffer_writes: Res<NpcBufferWrites>,
+    buffer_writes: Res<NpcGpuState>,
     mut follow: ResMut<FollowSelected>,
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
@@ -424,7 +424,7 @@ fn inspector_content(
     ), Without<Dead>>,
     npc_states: &NpcStateQuery,
     gpu_state: &GpuReadState,
-    buffer_writes: &NpcBufferWrites,
+    buffer_writes: &NpcGpuState,
     follow: &mut FollowSelected,
     settings: &UserSettings,
     catalog: &HelpCatalog,
@@ -944,7 +944,7 @@ pub fn target_overlay_system(
     mut contexts: EguiContexts,
     selected: Res<SelectedNpc>,
     gpu_state: Res<GpuReadState>,
-    buffer_writes: Res<NpcBufferWrites>,
+    buffer_writes: Res<NpcGpuState>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
 ) -> Result {

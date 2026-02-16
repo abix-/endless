@@ -40,9 +40,9 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | Home | CPU | Internal | Rest location (bed or camp) |
 | WorkPosition | CPU | Internal | Farm location for farmers |
 | **Render-Only** (uploaded to NPC visual/equip storage buffers, never in compute shader) ||||
-| Sprite indices | Render | CPU → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer [f32;8] |
-| Colors | Render | CPU → NpcVisualBuffers | RGBA tint; packed into visual storage buffer [f32;8] |
-| Equipment sprites | Render | CPU → Render | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Derived by `sync_visual_sprites` from ECS components each frame. |
+| Sprite indices | NpcGpuState | CPU → NpcVisualUpload → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer [f32;8] by build_visual_upload |
+| Colors | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | RGBA tint from Faction/Job; packed into visual storage buffer [f32;8] by build_visual_upload |
+| Equipment sprites | ECS → NpcVisualUpload | CPU → NpcVisualBuffers | Per-layer col/row (armor/helmet/weapon/item/status/healing); -1.0 sentinel = unequipped/inactive. Derived by `build_visual_upload` from ECS components each frame. |
 
 ## Bevy Messages
 
@@ -58,7 +58,7 @@ Three message types used for intra-ECS communication:
 
 ## GPU Update Messages
 
-Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector system `collect_gpu_updates` runs after Step::Behavior and drains all messages into `GPU_UPDATE_QUEUE` with a single Mutex lock. Then `populate_buffer_writes` (PostUpdate) drains the queue into `NpcBufferWrites` flat arrays for extraction to the render world.
+Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector system `collect_gpu_updates` runs after Step::Behavior and drains all messages into `GPU_UPDATE_QUEUE` with a single Mutex lock. Then `populate_gpu_state` (PostUpdate) drains the queue into `NpcGpuState` flat arrays with per-field dirty tracking. `build_visual_upload` (chained after) packs ECS visual data into `NpcVisualUpload`. Both are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
 
 | Variant | Fields | Producer Systems |
 |---------|--------|------------------|
@@ -70,15 +70,15 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | ApplyDamage | idx, amount | damage_system |
 | HideNpc | idx | death_cleanup_system |
 | SetSpriteFrame | idx, col, row, atlas | spawn_npc_system (atlas: 0.0=character, 1.0=world) |
-| SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_buffer_writes) |
+| SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
 
-**Removed (replaced by `sync_visual_sprites`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame (see [gpu-compute.md](gpu-compute.md)).
+**Removed (replaced by `build_visual_upload`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame by `build_visual_upload` (see [gpu-compute.md](gpu-compute.md)).
 
 ## Static Queues
 
 | Static | Type | Writer | Reader |
 |--------|------|--------|--------|
-| GPU_UPDATE_QUEUE | `Mutex<Vec<GpuUpdate>>` | collect_gpu_updates | populate_buffer_writes |
+| GPU_UPDATE_QUEUE | `Mutex<Vec<GpuUpdate>>` | collect_gpu_updates | populate_gpu_state |
 | GAME_CONFIG_STAGING | `Mutex<Option<GameConfig>>` | external config | drain_game_config |
 | PROJ_GPU_UPDATE_QUEUE | `Mutex<Vec<ProjGpuUpdate>>` | attack_system, guard_post_attack_system | populate_proj_buffer_writes |
 | FREE_PROJ_SLOTS | `Mutex<Vec<usize>>` | (unused) | (unused) |

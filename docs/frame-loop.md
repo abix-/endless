@@ -39,23 +39,27 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │
 ├─ bevy_timer_end
 │
-├─ PostUpdate
-│     populate_buffer_writes
-│       GPU_UPDATE_QUEUE → NpcBufferWrites flat arrays
+├─ PostUpdate (chained)
+│     populate_gpu_state
+│       GPU_UPDATE_QUEUE → NpcGpuState (per-field dirty indices + flash decay)
+│     build_visual_upload
+│       ECS query + NpcGpuState → NpcVisualUpload (GPU-ready packed visual + equip)
 │
 ├─ update_gpu_data (sync npc_count + delta → NpcGpuData)
 │
 ╞══════════════════════════════════════════════════════════════
-│  EXTRACT BARRIER — clones resources to render world
-│    NpcBufferWrites, NpcGpuData, NpcComputeParams, NpcSpriteTexture
+│  EXTRACT BARRIER — zero-clone reads + clones to render world
+│    NpcGpuState (Extract<Res<T>>, zero-clone)
+│    NpcVisualUpload (Extract<Res<T>>, zero-clone)
+│    NpcGpuData, NpcComputeParams, NpcSpriteTexture (ExtractResource clone)
 │    extract_npc_batch (NpcBatch marker entity)
+│    extract_npc_data (per-dirty-index + bulk write_buffer to GPU)
 ╞══════════════════════════════════════════════════════════════
 │
 RENDER WORLD — parallel with next frame's main world
 │
 ├─ PrepareResources
-│     write_npc_buffers          (only dirty fields → GPU storage buffers)
-│     prepare_npc_buffers        (upload visual/equip storage buffers, build misc instance buffer)
+│     prepare_npc_buffers        (buffer creation + sentinel init, build misc instance buffer)
 │
 ├─ PrepareBindGroups
 │     prepare_npc_bind_groups    (compute shader)
@@ -88,8 +92,9 @@ RENDER WORLD — parallel with next frame's main world
 ```
 ECS → GPU:
   GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
-    → populate_buffer_writes → NpcBufferWrites (per-field dirty flags)
-    → ExtractResource → write_npc_buffers (only dirty fields)
+    → populate_gpu_state → NpcGpuState (per-field dirty indices)
+    → build_visual_upload → NpcVisualUpload (GPU-ready packed arrays)
+    → extract_npc_data (Extract<Res<T>>, zero-clone) → write_buffer to GPU
     → NpcComputeNode: dispatch + copy positions → ReadbackHandles assets
 
 GPU → ECS:
@@ -99,7 +104,7 @@ GPU → ECS:
 
 GPU → Render:
   Vertex shader reads positions/health directly from NpcGpuBuffers (bind group 2)
-  prepare_npc_buffers: uploads NpcVisualBuffers (visual + equip) from NpcBufferWrites
+  NpcVisualBuffers (visual + equip) written by extract_npc_data during Extract
     → DrawNpcStorageCommands (NPCs) + DrawMiscCommands (farms/BHP)
 ```
 

@@ -269,7 +269,7 @@ pub fn healing_system(
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
                 healed_count += 1;
 
-                // Add marker if not present (visual derived by sync_visual_sprites)
+                // Add marker if not present (visual derived by build_visual_upload)
                 if healing_marker.is_none() {
                     commands.entity(entity).insert(Healing);
                 }

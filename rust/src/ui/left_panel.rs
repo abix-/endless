@@ -13,6 +13,16 @@ use crate::systems::{AiPlayerState, AiKind};
 use crate::world::WorldData;
 
 // ============================================================================
+// PROFILER PARAMS
+// ============================================================================
+
+#[derive(SystemParam)]
+pub struct ProfilerParams<'w> {
+    timings: Res<'w, SystemTimings>,
+    migration: ResMut<'w, MigrationState>,
+}
+
+// ============================================================================
 // ROSTER TYPES
 // ============================================================================
 
@@ -157,7 +167,7 @@ pub fn left_panel_system(
     mut upgrade: UpgradeParams,
     mut squad: SquadParams,
     factions: FactionsParams,
-    timings: Res<SystemTimings>,
+    mut profiler: ProfilerParams,
     mut commands: Commands,
     mut roster_state: Local<RosterState>,
     mut factions_cache: Local<FactionsCache>,
@@ -219,7 +229,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &mut factions_cache, &mut jump_target),
-                LeftPanelTab::Profiler => profiler_content(ui, &timings),
+                LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration),
                 LeftPanelTab::Help => help_content(ui),
             }
         });
@@ -1244,9 +1254,25 @@ fn factions_content(
 // PROFILER CONTENT
 // ============================================================================
 
-fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings) {
+fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings, migration: &mut MigrationState) {
     let frame_ms = timings.get_frame_ms();
     ui.label(egui::RichText::new(format!("Frame: {:.2} ms", frame_ms)).strong());
+    ui.separator();
+
+    // Debug actions
+    egui::CollapsingHeader::new(egui::RichText::new("Debug Actions").strong())
+        .default_open(false)
+        .show(ui, |ui| {
+            let has_active = migration.active.is_some();
+            let btn = ui.add_enabled(!has_active, egui::Button::new("Spawn Migration Group"));
+            if btn.clicked() {
+                migration.debug_spawn = true;
+            }
+            if has_active {
+                let count = migration.active.as_ref().map(|g| g.member_slots.len()).unwrap_or(0);
+                ui.label(format!("Migration active: {} raiders", count));
+            }
+        });
     ui.separator();
 
     let all = timings.get_timings();

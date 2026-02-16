@@ -43,7 +43,7 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 use crate::constants::MAX_NPC_COUNT;
-use crate::gpu::{NpcBufferWrites, NpcGpuBuffers, NpcGpuData, NpcSpriteTexture, ProjBufferWrites, ProjGpuData};
+use crate::gpu::{NpcGpuState, NpcGpuBuffers, NpcGpuData, NpcVisualUpload, NpcSpriteTexture, ProjBufferWrites, ProjGpuData};
 use crate::render::{CameraState, MainCamera};
 
 // =============================================================================
@@ -368,7 +368,7 @@ impl Plugin for NpcRenderPlugin {
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
             .add_systems(
                 ExtractSchedule,
-                (extract_npc_batch, extract_proj_batch, extract_camera_state),
+                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data),
             )
             .add_systems(
                 Render,
@@ -441,29 +441,107 @@ fn extract_camera_state(
 }
 
 // =============================================================================
+// EXTRACT: Direct GPU Upload (zero clone)
+// =============================================================================
+
+/// Upload NPC compute + visual data directly to GPU buffers during Extract phase.
+/// Reads main world data via Extract<Res<T>> (immutable reference, zero clone).
+/// Replaces both write_npc_buffers (compute) and prepare_npc_buffers visual repack.
+fn extract_npc_data(
+    gpu_state: Extract<Res<NpcGpuState>>,
+    visual_upload: Extract<Res<NpcVisualUpload>>,
+    gpu_buffers: Option<Res<NpcGpuBuffers>>,
+    visual_buffers: Option<Res<NpcVisualBuffers>>,
+    render_queue: Res<RenderQueue>,
+) {
+    // --- Compute data: per-dirty-index write_buffer ---
+    if let Some(gpu_bufs) = gpu_buffers {
+        if gpu_state.dirty {
+            for &idx in &gpu_state.position_dirty_indices {
+                let start = idx * 2;
+                if start + 2 <= gpu_state.positions.len() {
+                    let byte_offset = (start * std::mem::size_of::<f32>()) as u64;
+                    render_queue.write_buffer(
+                        &gpu_bufs.positions, byte_offset,
+                        bytemuck::cast_slice(&gpu_state.positions[start..start + 2]),
+                    );
+                }
+            }
+            for &idx in &gpu_state.target_dirty_indices {
+                let start = idx * 2;
+                if start + 2 <= gpu_state.targets.len() {
+                    let byte_offset = (start * std::mem::size_of::<f32>()) as u64;
+                    render_queue.write_buffer(
+                        &gpu_bufs.targets, byte_offset,
+                        bytemuck::cast_slice(&gpu_state.targets[start..start + 2]),
+                    );
+                }
+            }
+            for &idx in &gpu_state.speed_dirty_indices {
+                if idx < gpu_state.speeds.len() {
+                    let byte_offset = (idx * std::mem::size_of::<f32>()) as u64;
+                    render_queue.write_buffer(
+                        &gpu_bufs.speeds, byte_offset,
+                        bytemuck::cast_slice(&gpu_state.speeds[idx..idx + 1]),
+                    );
+                }
+            }
+            for &idx in &gpu_state.faction_dirty_indices {
+                if idx < gpu_state.factions.len() {
+                    let byte_offset = (idx * std::mem::size_of::<i32>()) as u64;
+                    render_queue.write_buffer(
+                        &gpu_bufs.factions, byte_offset,
+                        bytemuck::cast_slice(&gpu_state.factions[idx..idx + 1]),
+                    );
+                }
+            }
+            for &idx in &gpu_state.health_dirty_indices {
+                if idx < gpu_state.healths.len() {
+                    let byte_offset = (idx * std::mem::size_of::<f32>()) as u64;
+                    render_queue.write_buffer(
+                        &gpu_bufs.healths, byte_offset,
+                        bytemuck::cast_slice(&gpu_state.healths[idx..idx + 1]),
+                    );
+                }
+            }
+            for &idx in &gpu_state.arrival_dirty_indices {
+                if idx < gpu_state.arrivals.len() {
+                    let byte_offset = (idx * std::mem::size_of::<i32>()) as u64;
+                    render_queue.write_buffer(
+                        &gpu_bufs.arrivals, byte_offset,
+                        bytemuck::cast_slice(&gpu_state.arrivals[idx..idx + 1]),
+                    );
+                }
+            }
+        }
+    }
+
+    // --- Visual data: bulk write_buffer ---
+    if let Some(vis_bufs) = visual_buffers {
+        if visual_upload.npc_count > 0 {
+            render_queue.write_buffer(
+                &vis_bufs.visual, 0,
+                bytemuck::cast_slice(&visual_upload.visual_data),
+            );
+            render_queue.write_buffer(
+                &vis_bufs.equip, 0,
+                bytemuck::cast_slice(&visual_upload.equip_data),
+            );
+        }
+    }
+}
+
+// =============================================================================
 // PREPARE
 // =============================================================================
 
-/// Equipment layer sprite sources (matches EquipLayer enum order).
-/// Returns (col, row, atlas_id) per NPC. Stride 3 per NPC in each buffer.
-const EQUIP_LAYER_FIELDS: [fn(&NpcBufferWrites, usize) -> (f32, f32, f32); 6] = [
-    |w, i| { let j = i * 3; (w.armor_sprites.get(j).copied().unwrap_or(-1.0), w.armor_sprites.get(j+1).copied().unwrap_or(0.0), w.armor_sprites.get(j+2).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 3; (w.helmet_sprites.get(j).copied().unwrap_or(-1.0), w.helmet_sprites.get(j+1).copied().unwrap_or(0.0), w.helmet_sprites.get(j+2).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 3; (w.weapon_sprites.get(j).copied().unwrap_or(-1.0), w.weapon_sprites.get(j+1).copied().unwrap_or(0.0), w.weapon_sprites.get(j+2).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 3; (w.item_sprites.get(j).copied().unwrap_or(-1.0), w.item_sprites.get(j+1).copied().unwrap_or(0.0), w.item_sprites.get(j+2).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 3; (w.status_sprites.get(j).copied().unwrap_or(-1.0), w.status_sprites.get(j+1).copied().unwrap_or(0.0), w.status_sprites.get(j+2).copied().unwrap_or(0.0)) },
-    |w, i| { let j = i * 3; (w.healing_sprites.get(j).copied().unwrap_or(-1.0), w.healing_sprites.get(j+1).copied().unwrap_or(0.0), w.healing_sprites.get(j+2).copied().unwrap_or(0.0)) },
-];
-
-/// Prepare NPC visual storage buffers + misc instance buffer (farms, building HP bars).
+/// Prepare misc instance buffer (farms, building HP bars) + NPC visual buffer creation/bind groups.
 fn prepare_npc_buffers(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     pipeline: Option<Res<NpcPipeline>>,
     pipeline_cache: Res<PipelineCache>,
-    buffer_writes: Option<Res<NpcBufferWrites>>,
-    gpu_data: Option<Res<NpcGpuData>>,
     gpu_buffers: Option<Res<NpcGpuBuffers>>,
     existing_render: Option<ResMut<NpcRenderBuffers>>,
     existing_visual: Option<ResMut<NpcVisualBuffers>>,
@@ -471,9 +549,6 @@ fn prepare_npc_buffers(
     farm_states: Option<Res<crate::resources::FarmStates>>,
     building_hp_render: Option<Res<crate::resources::BuildingHpRender>>,
 ) {
-    let Some(writes) = buffer_writes else { return };
-    let npc_count = gpu_data.as_ref().map(|d| d.npc_count).unwrap_or(0) as usize;
-
     // --- Misc instance buffer (farms + building HP bars) ---
     let mut misc_instances = RawBufferVec::new(BufferUsages::VERTEX);
 
@@ -533,39 +608,9 @@ fn prepare_npc_buffers(
     }
 
     // --- NPC visual storage buffers ---
-    // Build flat arrays for visual + equip data, upload in one write_buffer each
-    let mut visual_data = vec![0.0f32; npc_count * 8];
-    let mut equip_data = vec![-1.0f32; npc_count * 24];
-
-    for i in 0..npc_count {
-        let base = i * 8;
-        visual_data[base]     = writes.sprite_indices.get(i * 4).copied().unwrap_or(0.0);
-        visual_data[base + 1] = writes.sprite_indices.get(i * 4 + 1).copied().unwrap_or(0.0);
-        visual_data[base + 2] = writes.sprite_indices.get(i * 4 + 2).copied().unwrap_or(0.0);
-        visual_data[base + 3] = writes.flash_values.get(i).copied().unwrap_or(0.0);
-        visual_data[base + 4] = writes.colors.get(i * 4).copied().unwrap_or(1.0);
-        visual_data[base + 5] = writes.colors.get(i * 4 + 1).copied().unwrap_or(1.0);
-        visual_data[base + 6] = writes.colors.get(i * 4 + 2).copied().unwrap_or(1.0);
-        visual_data[base + 7] = writes.colors.get(i * 4 + 3).copied().unwrap_or(1.0);
-
-        let eq_base = i * 24;
-        for (li, get_sprite) in EQUIP_LAYER_FIELDS.iter().enumerate() {
-            let (ecol, erow, eatlas) = get_sprite(&writes, i);
-            let off = eq_base + li * 4;
-            equip_data[off]     = ecol;
-            equip_data[off + 1] = erow;
-            equip_data[off + 2] = eatlas;
-            equip_data[off + 3] = 0.0;
-        }
-    }
-
+    // Visual data is uploaded by extract_npc_data in Extract phase (zero clone).
+    // Here we only handle: first-frame buffer creation, bind group recreation, quad geometry.
     if let Some(mut visual_buffers) = existing_visual {
-        // Upload visual + equip data
-        if npc_count > 0 {
-            render_queue.write_buffer(&visual_buffers.visual, 0, bytemuck::cast_slice(&visual_data));
-            render_queue.write_buffer(&visual_buffers.equip, 0, bytemuck::cast_slice(&equip_data));
-        }
-
         // Recreate bind group each frame (gpu_buffers may not exist on first frame)
         if let (Some(gpu_bufs), Some(ref pipeline)) = (gpu_buffers.as_ref(), pipeline.as_ref()) {
             let layout = pipeline_cache.get_bind_group_layout(&pipeline.npc_data_bind_group_layout);
@@ -581,7 +626,7 @@ fn prepare_npc_buffers(
             ));
         }
     } else {
-        // First run: create storage buffers
+        // First run: create storage buffers with sentinel data (all hidden)
         let visual_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some("npc_visual_data"),
             size: (MAX_NPC_COUNT * std::mem::size_of::<[f32; 8]>()) as u64,
@@ -595,11 +640,11 @@ fn prepare_npc_buffers(
             mapped_at_creation: false,
         });
 
-        // Upload initial data
-        if npc_count > 0 {
-            render_queue.write_buffer(&visual_buffer, 0, bytemuck::cast_slice(&visual_data));
-            render_queue.write_buffer(&equip_buffer, 0, bytemuck::cast_slice(&equip_data));
-        }
+        // Write sentinel -1.0 so all sprites are hidden until extract_npc_data writes real data
+        let sentinel_visual = vec![-1.0f32; MAX_NPC_COUNT * 8];
+        let sentinel_equip = vec![-1.0f32; MAX_NPC_COUNT * 6 * 4];
+        render_queue.write_buffer(&visual_buffer, 0, bytemuck::cast_slice(&sentinel_visual));
+        render_queue.write_buffer(&equip_buffer, 0, bytemuck::cast_slice(&sentinel_equip));
 
         // Create bind group if gpu_buffers available
         let bind_group = if let (Some(gpu_bufs), Some(ref pipeline)) = (gpu_buffers.as_ref(), pipeline.as_ref()) {

@@ -25,15 +25,21 @@ Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that
 ```
 Main World                        Render World
 ───────────                       ────────────
-NpcBufferWrites       ──ExtractResource──▶ NpcBufferWrites
+NpcGpuState           ──Extract<Res<T>>──▶ zero-clone immutable read
+NpcVisualUpload       ──Extract<Res<T>>──▶ zero-clone immutable read
 NpcGpuData            ──ExtractResource──▶ NpcGpuData
 NpcGpuBuffers         ──(render world)──▶ positions + healths (bind group 2)
 Camera2d entity       ──extract_camera_state──▶ CameraState
 NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
+                               extract_npc_data (ExtractSchedule)
+                               (per-dirty-index write_buffer for compute fields,
+                                bulk write_buffer for visual + equip arrays)
+                                      │
+                                      ▼
                                prepare_npc_buffers
-                               (upload visual[f32;8] + equip[f32;24] storage buffers,
+                               (buffer creation + sentinel init on first frame,
                                 build NpcMiscBuffers for farms/BHP,
                                 create bind group 2 from NpcGpuBuffers + NpcVisualBuffers)
                                       │
@@ -88,9 +94,9 @@ NPC rendering uses GPU storage buffers instead of per-instance vertex attributes
 | 2 | `npc_visual_buf` | `NpcVisualBuffers.visual` (CPU upload) | 32B ([f32;8]) |
 | 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 96B (6×[f32;4]) |
 
-**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built from `NpcBufferWrites.sprite_indices`, `.flash_values`, `.colors`.
+**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `NpcGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components.
 
-**Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built from `EQUIP_LAYER_FIELDS` (armor, helmet, weapon, item, status, healing sprites). Sentinel: `col < 0` means unequipped/inactive.
+**Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). Sentinel: `col < 0` means unequipped/inactive.
 
 **Instance offset encoding:** 7 `draw_indexed` calls, each with `npc_count` instances. Shader derives:
 ```wgsl
@@ -106,7 +112,7 @@ let layer = in.instance_index / camera.npc_count;
 - `atlas >= 0.5` (carried item/world atlas): scale=16, color=white
 - `atlas < 0.5` (character atlas equipment): scale=16, color=NPC job color from `npc_visual_buf`
 
-Equipment sprites derived by `sync_visual_sprites` from ECS components (`EquippedWeapon`, `EquippedHelmet`, `EquippedArmor`, `Activity`, `Healing`) each frame. NPC can show sleep AND healing simultaneously (independent layers).
+Equipment sprites derived by `build_visual_upload` from ECS components (`EquippedWeapon`, `EquippedHelmet`, `EquippedArmor`, `Activity`, `Healing`) each frame. NPC can show sleep AND healing simultaneously (independent layers).
 
 ## Instance Data (Misc/Projectile Path)
 
@@ -269,7 +275,7 @@ if in.flash > 0.0 {
 }
 ```
 
-Flash intensity starts at 1.0 (full white) on damage hit and decays to 0.0 over ~0.2s (rate 5.0/s). Decay happens on CPU in `populate_buffer_writes` via `flash_values` in `NpcBufferWrites`. The `mix()` function interpolates between the tinted sprite color and pure white.
+Flash intensity starts at 1.0 (full white) on damage hit and decays to 0.0 over ~0.2s (rate 5.0/s). Decay happens on CPU in `populate_gpu_state` via `flash_values` in `NpcGpuState`. The `mix()` function interpolates between the tinted sprite color and pure white.
 
 ## Render World Phases
 
@@ -278,9 +284,10 @@ The render pipeline runs in Bevy's render world after extract:
 | Phase | System | Purpose |
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
+| Extract | `extract_npc_data` | Zero-clone GPU upload: per-dirty-index compute writes + bulk visual/equip writes via `Extract<Res<T>>` |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
-| PrepareResources | `prepare_npc_buffers` | Upload NPC visual/equip storage buffers, build misc instance buffer (farms/BHP), create bind group 2 |
+| PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), build misc instance buffer (farms/BHP), create bind group 2 |
 | PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from ProjPositionState |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture (char + world + heal + sleep + arrow) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from NpcGpuData) |
@@ -377,18 +384,18 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 
 ## Equipment Layers
 
-Multi-layer rendering uses `NpcBufferWrites` fields for 6 overlay types:
+Multi-layer rendering uses `NpcVisualUpload.equip_data` (packed by `build_visual_upload` each frame):
 
-| Layer | Index | NpcBufferWrites Field | Stride | Sentinel | Set By |
-|-------|-------|----------------------|--------|----------|--------|
-| Armor | 1 | `armor_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
-| Helmet | 2 | `helmet_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
-| Weapon | 3 | `weapon_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
-| Item | 4 | `item_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
-| Status | 5 | `status_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
-| Healing | 6 | `healing_sprites` | 3 (col, row, atlas) | col < 0 | sync_visual_sprites |
+| Layer | Index | ECS Source | Equip Offset | Sentinel | Set By |
+|-------|-------|-----------|-------------|----------|--------|
+| Armor | 1 | `EquippedArmor` | idx*24+0 | col < 0 | build_visual_upload |
+| Helmet | 2 | `EquippedHelmet` | idx*24+4 | col < 0 | build_visual_upload |
+| Weapon | 3 | `EquippedWeapon` | idx*24+8 | col < 0 | build_visual_upload |
+| Item | 4 | `CarriedItem` | idx*24+12 | col < 0 | build_visual_upload |
+| Status | 5 | `Activity::Resting` | idx*24+16 | col < 0 | build_visual_upload |
+| Healing | 6 | `Healing` marker | idx*24+20 | col < 0 | build_visual_upload |
 
-All overlay layers are written by `sync_visual_sprites` each frame from ECS components (`EquippedWeapon`, `EquippedHelmet`, `EquippedArmor`, `Activity`, `Healing`). At spawn, all layers are cleared to -1.0 (unequipped/inactive). Equipment is also cleared on death to prevent stale data on slot reuse. Each layer stores atlas_id alongside sprite coordinates so items can reference either atlas.
+All overlay layers are packed by `build_visual_upload` each frame from ECS components. Dead NPCs are skipped by the renderer (position < -9000). Each layer stores atlas_id alongside sprite coordinates so items can reference either atlas.
 
 Current equipment assignments:
 - **Guards**: Weapon (45, 6) + Helmet (28, 0) — character atlas

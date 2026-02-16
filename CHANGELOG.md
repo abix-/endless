@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-16i
+
+- **zero-clone GPU upload** — eliminated 6.4MB/frame `ExtractResource` clone of `NpcBufferWrites` by splitting into `NpcGpuState` (compute + sprite + flash, persistent) and `NpcVisualUpload` (packed visual + equip, rebuilt each frame); both read during Extract via `Extract<Res<T>>` (zero-clone immutable access) with `queue.write_buffer()` direct GPU upload; replaced `sync_visual_sprites` + `write_npc_buffers` + `prepare_npc_buffers` visual repack with `build_visual_upload` (single O(N) ECS→GPU-ready pack) + `extract_npc_data` (single Extract function for compute per-dirty-index + visual bulk writes); sentinel -1.0 initialization on first-frame NpcVisualBuffers creation; net ~0.75ms/frame savings at 20K NPCs
+
 ## 2026-02-16h
 
 - **dynamic raider camp migration** — new raider camps spawn organically as the player grows; every 12 game hours, if player alive NPCs exceed VILLAGERS_PER_CAMP × (camp_count + 1), a group of 3 + player_alive/scaling raiders spawns at a random map edge and wanders toward the nearest player town using existing Home + Wander behavior; group size scales with difficulty (Easy=6, Normal=4, Hard=2 divisor); when within 3000px (~30s walk) of any town, the group settles: places camp center + tents via existing place_camp_buildings(), stamps dirt, registers tent spawners, activates AiPlayer; new AiPlayer.active field defers AI decisions until settlement; MigrationState resource persisted in save/load with Migrating component re-attached on load; max 20 dynamic camps; combat log announces approach direction and settlement

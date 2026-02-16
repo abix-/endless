@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::constants::ARRIVAL_THRESHOLD;
-use crate::gpu::NpcBufferWrites;
+use crate::gpu::NpcGpuState;
 use crate::resources::{GpuReadState, SystemTimings};
 
 /// Read positions from GPU and update Bevy Position components.
@@ -14,7 +14,7 @@ pub fn gpu_position_readback(
     mut commands: Commands,
     mut query: Query<(Entity, &NpcIndex, &mut Position, &Activity, Option<&AtDestination>)>,
     gpu_state: Res<GpuReadState>,
-    buffer_writes: Res<NpcBufferWrites>,
+    buffer_writes: Res<NpcGpuState>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("gpu_position_readback");

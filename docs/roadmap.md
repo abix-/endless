@@ -31,11 +31,10 @@ Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
 
 **Stage 15: Performance**
 
-*Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
+*Done when: `NpcGpuState` ExtractResource clone eliminated, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
 
-GPU extract optimization (see [specs/gpu-extract-optimization.md](specs/gpu-extract-optimization.md)):
-- [ ] Split `NpcBufferWrites` (1.9MB) into `NpcComputeWrites` (~460KB) + `NpcVisualData` (~1.4MB static)
-- [ ] `NpcVisualData` bypasses ExtractResource via static Mutex (render world reads directly)
+GPU extract optimization (see [specs/gpu-visual-direct-upload.md](specs/gpu-visual-direct-upload.md)):
+- [x] Zero-clone GPU upload: `NpcGpuState` + `NpcVisualUpload` via `Extract<Res<T>>` + `queue.write_buffer()` (eliminates 6.4MB/frame clone)
 
 Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
 - [ ] Split single 250x250 TilemapChunk per layer into 32x32 tile chunks
