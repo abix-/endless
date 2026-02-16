@@ -43,7 +43,7 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 use crate::constants::MAX_NPC_COUNT;
-use crate::gpu::{NpcGpuState, NpcGpuBuffers, NpcGpuData, NpcVisualUpload, NpcSpriteTexture, ProjBufferWrites, ProjGpuData};
+use crate::gpu::{NpcGpuState, NpcGpuBuffers, NpcGpuData, NpcVisualUpload, NpcSpriteTexture, ProjBufferWrites, ProjGpuBuffers, ProjGpuData};
 use crate::render::{CameraState, MainCamera};
 
 // =============================================================================
@@ -368,13 +368,12 @@ impl Plugin for NpcRenderPlugin {
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
             .add_systems(
                 ExtractSchedule,
-                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data),
+                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data),
             )
             .add_systems(
                 Render,
                 (
                     prepare_npc_buffers.in_set(RenderSystems::PrepareResources),
-                    prepare_proj_buffers.in_set(RenderSystems::PrepareResources),
                     prepare_npc_texture_bind_group.in_set(RenderSystems::PrepareBindGroups),
                     prepare_npc_camera_bind_group.in_set(RenderSystems::PrepareBindGroups),
                     queue_npcs.in_set(RenderSystems::Queue),
@@ -445,8 +444,27 @@ fn extract_camera_state(
 // =============================================================================
 
 /// Upload NPC compute + visual data directly to GPU buffers during Extract phase.
-/// Reads main world data via Extract<Res<T>> (immutable reference, zero clone).
-/// Replaces both write_npc_buffers (compute) and prepare_npc_buffers visual repack.
+// --- Shared dirty-write helpers (used by both NPC and projectile extract) ---
+
+fn write_dirty_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], indices: &[usize], stride: usize) {
+    for &idx in indices {
+        let start = idx * stride;
+        if start + stride <= data.len() {
+            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..start + stride]));
+        }
+    }
+}
+
+fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[usize], stride: usize) {
+    for &idx in indices {
+        let start = idx * stride;
+        if start + stride <= data.len() {
+            queue.write_buffer(buf, (start * 4) as u64, bytemuck::cast_slice(&data[start..start + stride]));
+        }
+    }
+}
+
+/// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
 fn extract_npc_data(
     gpu_state: Extract<Res<NpcGpuState>>,
     visual_upload: Extract<Res<NpcVisualUpload>>,
@@ -454,80 +472,118 @@ fn extract_npc_data(
     visual_buffers: Option<Res<NpcVisualBuffers>>,
     render_queue: Res<RenderQueue>,
 ) {
-    // --- Compute data: per-dirty-index write_buffer ---
+    // Compute data: per-dirty-index write_buffer
     if let Some(gpu_bufs) = gpu_buffers {
         if gpu_state.dirty {
-            for &idx in &gpu_state.position_dirty_indices {
-                let start = idx * 2;
-                if start + 2 <= gpu_state.positions.len() {
-                    let byte_offset = (start * std::mem::size_of::<f32>()) as u64;
-                    render_queue.write_buffer(
-                        &gpu_bufs.positions, byte_offset,
-                        bytemuck::cast_slice(&gpu_state.positions[start..start + 2]),
-                    );
-                }
+            write_dirty_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2);
+            write_dirty_f32(&render_queue, &gpu_bufs.targets, &gpu_state.targets, &gpu_state.target_dirty_indices, 2);
+            write_dirty_f32(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, &gpu_state.speed_dirty_indices, 1);
+            write_dirty_i32(&render_queue, &gpu_bufs.factions, &gpu_state.factions, &gpu_state.faction_dirty_indices, 1);
+            write_dirty_f32(&render_queue, &gpu_bufs.healths, &gpu_state.healths, &gpu_state.health_dirty_indices, 1);
+            write_dirty_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1);
+        }
+    }
+
+    // Visual data: bulk write_buffer
+    if let Some(vis_bufs) = visual_buffers {
+        if visual_upload.npc_count > 0 {
+            render_queue.write_buffer(&vis_bufs.visual, 0, bytemuck::cast_slice(&visual_upload.visual_data));
+            render_queue.write_buffer(&vis_bufs.equip, 0, bytemuck::cast_slice(&visual_upload.equip_data));
+        }
+    }
+}
+
+/// Zero-clone projectile extract: compute dirty writes + instance buffer building.
+/// Replaces both write_proj_buffers (gpu.rs) and prepare_proj_buffers.
+fn extract_proj_data(
+    mut commands: Commands,
+    writes: Extract<Res<ProjBufferWrites>>,
+    proj_data: Extract<Res<ProjGpuData>>,
+    proj_pos_state: Extract<Res<crate::resources::ProjPositionState>>,
+    gpu_buffers: Option<Res<ProjGpuBuffers>>,
+    existing_buffers: Option<ResMut<ProjRenderBuffers>>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    // --- Compute data: per-dirty-index write_buffer ---
+    if let Some(gpu_bufs) = gpu_buffers {
+        if writes.dirty {
+            // Spawn: write all fields for new projectiles
+            for &idx in &writes.spawn_dirty_indices {
+                write_dirty_f32(&render_queue, &gpu_bufs.positions, &writes.positions, &[idx], 2);
+                write_dirty_f32(&render_queue, &gpu_bufs.velocities, &writes.velocities, &[idx], 2);
+                write_dirty_f32(&render_queue, &gpu_bufs.damages, &writes.damages, &[idx], 1);
+                write_dirty_i32(&render_queue, &gpu_bufs.factions, &writes.factions, &[idx], 1);
+                write_dirty_i32(&render_queue, &gpu_bufs.shooters, &writes.shooters, &[idx], 1);
+                write_dirty_f32(&render_queue, &gpu_bufs.lifetimes, &writes.lifetimes, &[idx], 1);
+                write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
+                write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
             }
-            for &idx in &gpu_state.target_dirty_indices {
-                let start = idx * 2;
-                if start + 2 <= gpu_state.targets.len() {
-                    let byte_offset = (start * std::mem::size_of::<f32>()) as u64;
-                    render_queue.write_buffer(
-                        &gpu_bufs.targets, byte_offset,
-                        bytemuck::cast_slice(&gpu_state.targets[start..start + 2]),
-                    );
-                }
-            }
-            for &idx in &gpu_state.speed_dirty_indices {
-                if idx < gpu_state.speeds.len() {
-                    let byte_offset = (idx * std::mem::size_of::<f32>()) as u64;
-                    render_queue.write_buffer(
-                        &gpu_bufs.speeds, byte_offset,
-                        bytemuck::cast_slice(&gpu_state.speeds[idx..idx + 1]),
-                    );
-                }
-            }
-            for &idx in &gpu_state.faction_dirty_indices {
-                if idx < gpu_state.factions.len() {
-                    let byte_offset = (idx * std::mem::size_of::<i32>()) as u64;
-                    render_queue.write_buffer(
-                        &gpu_bufs.factions, byte_offset,
-                        bytemuck::cast_slice(&gpu_state.factions[idx..idx + 1]),
-                    );
-                }
-            }
-            for &idx in &gpu_state.health_dirty_indices {
-                if idx < gpu_state.healths.len() {
-                    let byte_offset = (idx * std::mem::size_of::<f32>()) as u64;
-                    render_queue.write_buffer(
-                        &gpu_bufs.healths, byte_offset,
-                        bytemuck::cast_slice(&gpu_state.healths[idx..idx + 1]),
-                    );
-                }
-            }
-            for &idx in &gpu_state.arrival_dirty_indices {
-                if idx < gpu_state.arrivals.len() {
-                    let byte_offset = (idx * std::mem::size_of::<i32>()) as u64;
-                    render_queue.write_buffer(
-                        &gpu_bufs.arrivals, byte_offset,
-                        bytemuck::cast_slice(&gpu_state.arrivals[idx..idx + 1]),
-                    );
-                }
+            // Deactivate: write only active flag + hit reset
+            for &idx in &writes.deactivate_dirty_indices {
+                write_dirty_i32(&render_queue, &gpu_bufs.active, &writes.active, &[idx], 1);
+                write_dirty_i32(&render_queue, &gpu_bufs.hits, &writes.hits, &[idx], 2);
             }
         }
     }
 
-    // --- Visual data: bulk write_buffer ---
-    if let Some(vis_bufs) = visual_buffers {
-        if visual_upload.npc_count > 0 {
-            render_queue.write_buffer(
-                &vis_bufs.visual, 0,
-                bytemuck::cast_slice(&visual_upload.visual_data),
-            );
-            render_queue.write_buffer(
-                &vis_bufs.equip, 0,
-                bytemuck::cast_slice(&visual_upload.equip_data),
-            );
-        }
+    // --- Build projectile instance buffer for rendering ---
+    let proj_count = proj_data.proj_count as usize;
+    let readback_positions = if proj_pos_state.0.len() >= proj_count * 2 {
+        Some(&proj_pos_state.0)
+    } else {
+        None
+    };
+
+    let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
+    for i in 0..proj_count {
+        if writes.active.get(i).copied().unwrap_or(0) == 0 { continue; }
+
+        let (px, py) = if let Some(pos) = readback_positions {
+            (pos[i * 2], pos[i * 2 + 1])
+        } else {
+            (
+                writes.positions.get(i * 2).copied().unwrap_or(0.0),
+                writes.positions.get(i * 2 + 1).copied().unwrap_or(0.0),
+            )
+        };
+        if px < -9000.0 { continue; }
+
+        let faction = writes.factions.get(i).copied().unwrap_or(0);
+        let (cr, cg, cb) = if faction == 0 {
+            (0.0, 0.0, 1.0)
+        } else {
+            let (r, g, b, _) = crate::constants::raider_faction_color(faction);
+            (r, g, b)
+        };
+
+        let vx = writes.velocities.get(i * 2).copied().unwrap_or(0.0);
+        let vy = writes.velocities.get(i * 2 + 1).copied().unwrap_or(0.0);
+        let angle = vy.atan2(vx) - std::f32::consts::FRAC_PI_2;
+
+        instances.push(InstanceData {
+            position: [px, py],
+            sprite: [0.0, 0.0],
+            color: [cr, cg, cb, 1.0],
+            health: 1.0,
+            flash: 0.0,
+            scale: 16.0,
+            atlas_id: 4.0,
+            rotation: angle,
+        });
+    }
+
+    let actual_count = instances.len() as u32;
+    instances.write_buffer(&render_device, &render_queue);
+
+    if let Some(mut buffers) = existing_buffers {
+        buffers.instance_buffer = instances;
+        buffers.instance_count = actual_count;
+    } else {
+        commands.insert_resource(ProjRenderBuffers {
+            instance_buffer: instances,
+            instance_count: actual_count,
+        });
     }
 }
 
@@ -1072,79 +1128,6 @@ fn extract_proj_batch(
     }
 }
 
-/// Prepare projectile instance buffers from GPU readback positions.
-fn prepare_proj_buffers(
-    mut commands: Commands,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
-    buffer_writes: Option<Res<ProjBufferWrites>>,
-    proj_data: Option<Res<ProjGpuData>>,
-    existing_buffers: Option<ResMut<ProjRenderBuffers>>,
-    proj_pos_state: Option<Res<crate::resources::ProjPositionState>>,
-) {
-    let Some(writes) = buffer_writes else { return };
-    let Some(data) = proj_data else { return };
-
-    let proj_count = data.proj_count as usize;
-
-    let readback_positions = proj_pos_state
-        .filter(|s| s.0.len() >= proj_count * 2)
-        .map(|s| s.0.clone());
-
-    let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
-    for i in 0..proj_count {
-        if writes.active.get(i).copied().unwrap_or(0) == 0 {
-            continue;
-        }
-
-        let (px, py) = if let Some(ref pos) = readback_positions {
-            (pos[i * 2], pos[i * 2 + 1])
-        } else {
-            (
-                writes.positions.get(i * 2).copied().unwrap_or(0.0),
-                writes.positions.get(i * 2 + 1).copied().unwrap_or(0.0),
-            )
-        };
-
-        if px < -9000.0 { continue; }
-
-        let faction = writes.factions.get(i).copied().unwrap_or(0);
-        let (cr, cg, cb) = if faction == 0 {
-            (0.0, 0.0, 1.0)
-        } else {
-            let (r, g, b, _) = crate::constants::raider_faction_color(faction);
-            (r, g, b)
-        };
-
-        let vx = writes.velocities.get(i * 2).copied().unwrap_or(0.0);
-        let vy = writes.velocities.get(i * 2 + 1).copied().unwrap_or(0.0);
-        let angle = vy.atan2(vx) - std::f32::consts::FRAC_PI_2;
-
-        instances.push(InstanceData {
-            position: [px, py],
-            sprite: [0.0, 0.0],
-            color: [cr, cg, cb, 1.0],
-            health: 1.0,
-            flash: 0.0,
-            scale: 16.0,
-            atlas_id: 4.0,
-            rotation: angle,
-        });
-    }
-
-    let actual_count = instances.len() as u32;
-    instances.write_buffer(&render_device, &render_queue);
-
-    if let Some(mut buffers) = existing_buffers {
-        buffers.instance_buffer = instances;
-        buffers.instance_count = actual_count;
-    } else {
-        commands.insert_resource(ProjRenderBuffers {
-            instance_buffer: instances,
-            instance_count: actual_count,
-        });
-    }
-}
 
 /// Queue projectile batch into Transparent2d phase (above NPCs).
 fn queue_projs(

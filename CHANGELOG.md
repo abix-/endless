@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-16k
+
+- **GpuReadState extraction deleted** — removed `ExtractResourcePlugin::<GpuReadState>` (nothing in render world read it); saves ~1.2MB/frame clone
+- **ProjBufferWrites zero-clone** — removed `Clone`/`ExtractResource` from `ProjBufferWrites` and `ProjPositionState`; new `extract_proj_data` (ExtractSchedule) replaces both `write_proj_buffers` and `prepare_proj_buffers` using `Extract<Res<T>>` + `queue.write_buffer()`; shared `write_dirty_f32`/`write_dirty_i32` helpers DRY dirty-index writes across NPC and projectile extract functions; saves ~3.4MB/frame in clones
+
 ## 2026-02-16j
 
 - **profiler debug actions** — "Spawn Migration Group" button in Profiler tab (Debug Actions collapsible); bypasses cooldown/population checks, disabled while migration active; MigrationState.debug_spawn flag consumed by migration_spawn_system

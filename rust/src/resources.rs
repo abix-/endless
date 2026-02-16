@@ -468,9 +468,8 @@ impl ProjSlotAllocator {
 #[derive(Resource, Default)]
 pub struct ResetFlag(pub bool);
 
-/// GPU readback state. Populated by ReadbackComplete observers, read by Bevy systems.
-/// Clone + ExtractResource so render world can access positions for instanced rendering.
-#[derive(Resource, Clone, ExtractResource)]
+/// GPU readback state. Populated by ReadbackComplete observers, read by main-world Bevy systems.
+#[derive(Resource)]
 pub struct GpuReadState {
     pub positions: Vec<f32>,       // [x0, y0, x1, y1, ...]
     pub combat_targets: Vec<i32>,  // target index per NPC (-1 = none)
@@ -499,8 +498,8 @@ impl Default for GpuReadState {
 pub struct ProjHitState(pub Vec<[i32; 2]>);
 
 /// GPU→CPU readback of projectile positions. [x0, y0, x1, y1, ...] flattened.
-/// Populated by ReadbackComplete observer, read by prepare_proj_buffers (render world).
-#[derive(Resource, Default, Clone, ExtractResource)]
+/// Populated by ReadbackComplete observer, read by extract_proj_data (ExtractSchedule).
+#[derive(Resource, Default)]
 pub struct ProjPositionState(pub Vec<f32>);
 
 /// Food storage per location. Replaces FOOD_STORAGE static.

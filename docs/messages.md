@@ -87,7 +87,7 @@ GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`)
 
 ## GPU Read State
 
-`GpuReadState` (Bevy Resource, `Clone + ExtractResource`) holds GPU output for gameplay systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Note: NPC rendering no longer reads from `GpuReadState` — the vertex shader reads positions/health directly from compute shader's storage buffers. `npc_count` set by `SlotAllocator.count()` (not from readback — buffer is MAX-sized).
+`GpuReadState` (Bevy Resource, main-world only — no Clone, no extraction) holds GPU output for gameplay systems. Populated asynchronously by `ReadbackComplete` observers when Bevy's Readback system completes the GPU→CPU transfer. Not extracted to render world — nothing in render world reads it. `npc_count` set by `SlotAllocator.count()` (not from readback — buffer is MAX-sized).
 
 | Field | Type | Source | Consumers |
 |-------|------|--------|-----------|
@@ -134,4 +134,4 @@ GOING_TO_REST=11, GOING_TO_WORK=12
 ## Known Issues
 
 - **Health dual ownership**: CPU-authoritative but synced to GPU for targeting. If upload fails or is delayed, GPU targets based on stale health. Bounded to 1 frame.
-- **GpuReadState/ProjPositionState cloned for extraction**: `Clone + ExtractResource` copies ~600KB/frame to render world. Acceptable at current scale.
+- **All large resources zero-clone**: GpuReadState no longer extracted, ProjPositionState + ProjBufferWrites use `Extract<Res<T>>` (zero-clone).

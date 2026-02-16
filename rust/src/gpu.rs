@@ -447,7 +447,8 @@ impl Default for ProjComputeParams {
 }
 
 /// Projectile buffer data to upload to GPU each frame.
-#[derive(Resource, Clone, ExtractResource)]
+/// Read during Extract via Extract<Res<T>> (zero-clone).
+#[derive(Resource)]
 pub struct ProjBufferWrites {
     pub positions: Vec<f32>,   // [x, y] per proj
     pub velocities: Vec<f32>,  // [vx, vy] per proj
@@ -684,16 +685,14 @@ impl Plugin for GpuComputePlugin {
         app.add_systems(Startup, setup_readback_buffers);
 
         // Extract resources to render world
+        // NpcGpuState + NpcVisualUpload + ProjBufferWrites + ProjPositionState use Extract<Res<T>> (zero-clone)
         app.add_plugins((
             ExtractResourcePlugin::<NpcGpuData>::default(),
             ExtractResourcePlugin::<NpcComputeParams>::default(),
             ExtractResourcePlugin::<NpcSpriteTexture>::default(),
             ExtractResourcePlugin::<ProjGpuData>::default(),
             ExtractResourcePlugin::<ProjComputeParams>::default(),
-            ExtractResourcePlugin::<ProjBufferWrites>::default(),
             ExtractResourcePlugin::<ReadbackHandles>::default(),
-            ExtractResourcePlugin::<GpuReadState>::default(),
-            ExtractResourcePlugin::<ProjPositionState>::default(),
             ExtractResourcePlugin::<crate::resources::FarmStates>::default(),
             ExtractResourcePlugin::<crate::resources::BuildingHpRender>::default(),
         ));
@@ -711,10 +710,7 @@ impl Plugin for GpuComputePlugin {
             .add_systems(RenderStartup, (init_npc_compute_pipeline, init_proj_compute_pipeline))
             .add_systems(
                 Render,
-                (
-                    write_proj_buffers.in_set(RenderSystems::PrepareResources),
-                    (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
-                ),
+                (prepare_npc_bind_groups, prepare_proj_bind_groups).in_set(RenderSystems::PrepareBindGroups),
             );
 
         // Add compute nodes to render graph
@@ -1476,56 +1472,6 @@ fn prepare_proj_bind_groups(
     );
 
     commands.insert_resource(ProjBindGroups { mode0, mode1, mode2 });
-}
-
-/// Write projectile data from extracted resource to GPU buffers.
-fn write_proj_buffers(
-    buffers: Option<Res<ProjGpuBuffers>>,
-    writes: Option<Res<ProjBufferWrites>>,
-    render_queue: Res<RenderQueue>,
-) {
-    let Some(buffers) = buffers else { return };
-    let Some(writes) = writes else { return };
-
-    if !writes.dirty {
-        return;
-    }
-
-    // Spawn: write all fields for each new projectile slot
-    for &idx in &writes.spawn_dirty_indices {
-        let i2 = idx * 2;
-        if i2 + 2 <= writes.positions.len() {
-            let byte2 = (i2 * std::mem::size_of::<f32>()) as u64;
-            render_queue.write_buffer(&buffers.positions, byte2, bytemuck::cast_slice(&writes.positions[i2..i2 + 2]));
-            render_queue.write_buffer(&buffers.velocities, byte2, bytemuck::cast_slice(&writes.velocities[i2..i2 + 2]));
-        }
-        if idx < writes.damages.len() {
-            let byte1f = (idx * std::mem::size_of::<f32>()) as u64;
-            let byte1i = (idx * std::mem::size_of::<i32>()) as u64;
-            render_queue.write_buffer(&buffers.damages, byte1f, bytemuck::cast_slice(&writes.damages[idx..idx + 1]));
-            render_queue.write_buffer(&buffers.factions, byte1i, bytemuck::cast_slice(&writes.factions[idx..idx + 1]));
-            render_queue.write_buffer(&buffers.shooters, byte1i, bytemuck::cast_slice(&writes.shooters[idx..idx + 1]));
-            render_queue.write_buffer(&buffers.lifetimes, byte1f, bytemuck::cast_slice(&writes.lifetimes[idx..idx + 1]));
-            render_queue.write_buffer(&buffers.active, byte1i, bytemuck::cast_slice(&writes.active[idx..idx + 1]));
-        }
-        if i2 + 2 <= writes.hits.len() {
-            let byte2i = (i2 * std::mem::size_of::<i32>()) as u64;
-            render_queue.write_buffer(&buffers.hits, byte2i, bytemuck::cast_slice(&writes.hits[i2..i2 + 2]));
-        }
-    }
-
-    // Deactivate: write only active flag + hit reset
-    for &idx in &writes.deactivate_dirty_indices {
-        if idx < writes.active.len() {
-            let byte1i = (idx * std::mem::size_of::<i32>()) as u64;
-            render_queue.write_buffer(&buffers.active, byte1i, bytemuck::cast_slice(&writes.active[idx..idx + 1]));
-        }
-        let i2 = idx * 2;
-        if i2 + 2 <= writes.hits.len() {
-            let byte2i = (i2 * std::mem::size_of::<i32>()) as u64;
-            render_queue.write_buffer(&buffers.hits, byte2i, bytemuck::cast_slice(&writes.hits[i2..i2 + 2]));
-        }
-    }
 }
 
 enum ProjComputeState {

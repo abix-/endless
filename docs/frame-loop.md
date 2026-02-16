@@ -51,9 +51,11 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │  EXTRACT BARRIER — zero-clone reads + clones to render world
 │    NpcGpuState (Extract<Res<T>>, zero-clone)
 │    NpcVisualUpload (Extract<Res<T>>, zero-clone)
+│    ProjBufferWrites, ProjPositionState (Extract<Res<T>>, zero-clone)
 │    NpcGpuData, NpcComputeParams, NpcSpriteTexture (ExtractResource clone)
-│    extract_npc_batch (NpcBatch marker entity)
+│    extract_npc_batch, extract_proj_batch (marker entities)
 │    extract_npc_data (per-dirty-index + bulk write_buffer to GPU)
+│    extract_proj_data (per-dirty-index write_buffer + proj instance buffer build)
 ╞══════════════════════════════════════════════════════════════
 │
 RENDER WORLD — parallel with next frame's main world

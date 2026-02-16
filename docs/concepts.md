@@ -448,11 +448,11 @@ Frame N+1: Main World computes next frame  ← runs in parallel with render
            Render World processes frame N+1
 ```
 
-**Extract:** Small resources are cloned from main world to render world via `ExtractResourcePlugin`. Large NPC data (`NpcGpuState`, `NpcVisualUpload`) uses `Extract<Res<T>>` for zero-clone immutable reads with direct `queue.write_buffer()` GPU upload during Extract. This is the sync point — both worlds pause briefly, then resume in parallel.
+**Extract:** Small resources are cloned from main world to render world via `ExtractResourcePlugin`. Large data (`NpcGpuState`, `NpcVisualUpload`, `ProjBufferWrites`, `ProjPositionState`) uses `Extract<Res<T>>` for zero-clone immutable reads with direct `queue.write_buffer()` GPU upload during Extract. `GpuReadState` is not extracted at all — main-world only. This is the sync point — both worlds pause briefly, then resume in parallel.
 
 **Consequence:** One-frame render latency. The GPU renders positions from the previous main world frame. At 140fps this is ~7ms of latency — invisible.
 
-Used in: `GpuComputePlugin` (extract NpcGpuState + NpcVisualUpload via Extract<Res<T>>, NpcGpuData + NpcComputeParams via ExtractResourcePlugin), `NpcRenderPlugin` (extract NpcBatch entity)
+Used in: `GpuComputePlugin` (NpcGpuData + NpcComputeParams via ExtractResourcePlugin), `NpcRenderPlugin` (extract_npc_data + extract_proj_data via Extract<Res<T>>, NpcBatch/ProjBatch marker entities)
 
 ---
 

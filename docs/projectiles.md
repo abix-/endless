@@ -10,8 +10,7 @@ GPU-accelerated projectiles with WGSL compute shader for movement and spatial gr
 attack_system fires projectile
     → ProjGpuUpdate::Spawn pushed to PROJ_GPU_UPDATE_QUEUE
     → populate_proj_buffer_writes drains to ProjBufferWrites
-    → ExtractResource clones to render world
-    → write_proj_buffers uploads to GPU
+    → extract_proj_data (Extract<Res<T>>, zero-clone) writes dirty slots to GPU
     → ProjectileComputeNode dispatches projectile_compute.wgsl (3 modes)
         ├─ Mode 0: Clear projectile spatial grid
         ├─ Mode 1: Build projectile spatial grid (for NPC dodge next frame)
@@ -32,9 +31,8 @@ Projectiles originate from Bevy's `attack_system`. The flow:
 
 1. `attack_system` pushes `ProjGpuUpdate::Spawn` to `PROJ_GPU_UPDATE_QUEUE`
 2. `populate_proj_buffer_writes` (PostUpdate) drains queue into `ProjBufferWrites` flat arrays
-3. `ExtractResource` clones to render world
-4. `write_proj_buffers` uploads per-slot (spawn writes all fields, deactivate writes active+hits only)
-5. `ProjectileComputeNode` dispatches shader
+3. `extract_proj_data` (ExtractSchedule) reads `ProjBufferWrites` via `Extract<Res<T>>` (zero-clone), writes dirty slots to GPU, builds projectile instance buffer
+4. `ProjectileComputeNode` dispatches shader
 
 Spawn data includes: position, velocity, damage, faction, shooter index, lifetime.
 

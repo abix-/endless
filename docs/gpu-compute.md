@@ -14,8 +14,8 @@ Main World (ECS)                       Render World (GPU)
 ├─ NpcGpuState ──────────────────────▶ Extract<Res<T>> (zero-clone immutable read)
 ├─ NpcVisualUpload ──────────────────▶ Extract<Res<T>> (zero-clone immutable read)
 ├─ NpcSpriteTexture (char+world+heal+sleep) ▶ ExtractResource
-├─ GpuReadState (Clone+ExtractResource) ▶ (for gameplay systems: movement, combat, healing)
-├─ ProjPositionState (Clone+ExtractResource) ▶ (for prepare_proj_buffers)
+├─ GpuReadState ─────────────────────────▶ main-world only (no extraction)
+├─ ProjPositionState ────────────────────▶ Extract<Res<T>> (zero-clone, for extract_proj_data)
 │                                      │
 │                                      ├─ init_npc_compute_pipeline (RenderStartup)
 │                                      │   └─ Create GPU buffers (no staging — Bevy Readback handles it)
@@ -207,4 +207,5 @@ const MAX_PER_CELL: u32 = 48;
 
 - **Health is CPU-authoritative**: GPU reads health for targeting but never modifies it.
 - **sprite_indices not uploaded to compute**: These fields exist in NpcGpuState for the render pipeline only. The compute shader has no access to them.
-- **GpuReadState/ProjPositionState cloned for extraction**: `Clone + ExtractResource` means ~600KB/frame cloned to render world. Acceptable at current scale but could be replaced with `Extract<Res<T>>` like NpcGpuState.
+- **GpuReadState no longer extracted**: Previously cloned ~1.2MB/frame to render world where nothing read it. Now main-world only.
+- **ProjPositionState zero-clone**: Read via `Extract<Res<T>>` during extract_proj_data, no cloning.

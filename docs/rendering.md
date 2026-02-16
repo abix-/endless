@@ -63,13 +63,15 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                       SetItemPipeline → SetNpcTextureBindGroup<0>
                       → SetNpcCameraBindGroup<1> → DrawNpcsStorage
 
-ProjBufferWrites ──ExtractResource──▶ ProjBufferWrites
-ProjGpuData      ──ExtractResource──▶ ProjGpuData
-ProjBatch entity ──extract_proj_batch──▶ ProjBatch entity
+ProjBufferWrites     ──Extract<Res<T>>──▶ zero-clone immutable read
+ProjPositionState    ──Extract<Res<T>>──▶ zero-clone immutable read
+ProjGpuData          ──ExtractResource──▶ ProjGpuData
+ProjBatch entity     ──extract_proj_batch──▶ ProjBatch entity
                                       │
                                       ▼
-                               prepare_proj_buffers
-                               (build InstanceData[] from ProjPositionState)
+                               extract_proj_data (ExtractSchedule)
+                               (per-dirty-index write_buffer to ProjGpuBuffers,
+                                build InstanceData[] + ProjRenderBuffers)
                                       │
                                       ▼
                                   queue_projs
@@ -288,7 +290,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), build misc instance buffer (farms/BHP), create bind group 2 |
-| PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from ProjPositionState |
+| Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build via `Extract<Res<T>>` |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture (char + world + heal + sleep + arrow) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from NpcGpuData) |
 | Queue | `queue_npcs` | Add DrawMiscCommands (sort_key=0.4) + DrawNpcStorageCommands (sort_key=0.5) |

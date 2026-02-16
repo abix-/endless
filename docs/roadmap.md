@@ -35,6 +35,8 @@ Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
 
 GPU extract optimization (see [specs/gpu-visual-direct-upload.md](specs/gpu-visual-direct-upload.md)):
 - [x] Zero-clone GPU upload: `NpcGpuState` + `NpcVisualUpload` via `Extract<Res<T>>` + `queue.write_buffer()` (eliminates 6.4MB/frame clone)
+- [x] Delete `ExtractResourcePlugin::<GpuReadState>` — was cloning ~1.2MB/frame to render world where nothing read it
+- [x] `ProjBufferWrites` zero-clone: `Extract<Res<T>>` + `extract_proj_data` replaces both `write_proj_buffers` and `prepare_proj_buffers`; shared `write_dirty_f32`/`write_dirty_i32` helpers DRY with NPC extract
 
 Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
 - [ ] Split single 250x250 TilemapChunk per layer into 32x32 tile chunks
@@ -51,11 +53,11 @@ GPU-native NPC rendering (see [specs/gpu-native-npc-rendering.md](specs/gpu-nati
 - [x] One pipeline with `storage_mode` specialization key `(hdr, samples, storage_mode)`, two entry points (`vertex` / `vertex_npc`)
 - [x] Farm sprites + building HP bars split to `NpcMiscBuffers` with `RawBufferVec<InstanceData>` + `DrawMisc` command
 - [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`
-- [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation
+- [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation (GpuReadState extraction already deleted)
 
 Every-frame review backlog:
-- [ ] `npc_render::prepare_proj_buffers`: stop full per-frame projectile instance rebuild/upload; move to dirty-range updates keyed by `ProjBufferWrites` changes.
-- [ ] Remove per-frame render-path cloning of readback vectors (`GpuReadState.positions`, `ProjPositionState`) in NPC/projectile prepare systems; use borrowed slices or shared buffer views.
+- [x] `prepare_proj_buffers` deleted — merged into `extract_proj_data` (ExtractSchedule, zero-clone)
+- [x] `ProjPositionState` + `GpuReadState` extraction eliminated — zero-clone or not extracted
 - [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
 - [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
 - [ ] `top_bar_system` HUD counts: replace repeated `spawner_state` full scans with cached/incremental counters.
