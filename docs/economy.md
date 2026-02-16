@@ -50,6 +50,7 @@ game_time_system (every frame)
 
 ### farm_growth_system
 - Runs every frame, advances farm growth based on elapsed game time
+- Skips tombstoned farms (`position.x < -9000`) — destroyed farms don't regrow
 - **FarmStates resource**: tracks `Growing` vs `Ready` state and progress (0.0-1.0) per farm
 - **Hybrid growth model**:
   - Passive: `FARM_BASE_GROWTH_RATE` (0.08/hour) — ~12 game hours to full growth
@@ -111,6 +112,8 @@ Farms have a growth cycle instead of infinite food:
 - Only steals if farm is Ready — `harvest(None)` resets farm, set CarryingFood + Returning
 - If farm not ready: find a different farm (excludes current position, skips tombstoned); if no other farm found, return home
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another" vs "No other farms, returning"
+
+**Farm destruction**: `FarmStates::tombstone(farm_idx)` resets all 3 parallel vecs (positions, states, progress) — called by `remove_building()`. Tombstoned position (-99999) causes render pipeline to skip the crop sprite and `farm_growth_system` to skip growth.
 
 **Visual feedback**: `farm_visual_system` watches `FarmStates` for state transitions and spawns/despawns `FarmReadyMarker` entities. Uses `Local<Vec<FarmGrowthState>>` to detect transitions without extra resources. Growing→Ready spawns a marker; Ready→Growing (harvest) despawns it.
 

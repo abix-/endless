@@ -45,7 +45,22 @@ Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
 Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
 
+GPU-native NPC rendering (see [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md)):
+- [ ] Vertex shader reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2), eliminating GPU→CPU→GPU round-trip
+- [ ] New `NpcVisualBuffers` resource: `npc_visual` `[f32;8]` per slot (sprite/flash/color) + `equip_data` `[f32;24]` per slot (6 layers), dirty-write uploaded
+- [ ] New `vertex_npc` shader entry point: reads from storage buffers by `instance_index`, skips hidden NPCs (`pos.x < -9000`), push constant `layer_index` for equipment layers
+- [ ] Two pipelines: `NpcStoragePipeline` (NPCs via storage buffers, no instance vertex) + existing pipeline (farms/buildings/projectiles keep instance vertex input)
+- [ ] Farm sprites + building HP bars split to separate CPU-built `RawBufferVec<InstanceData>` draw call (~100 entries)
+- [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`
+- [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation
+
 Every-frame review backlog:
+- [ ] `npc_render::prepare_proj_buffers`: stop full per-frame projectile instance rebuild/upload; move to dirty-range updates keyed by `ProjBufferWrites` changes.
+- [ ] Remove per-frame render-path cloning of readback vectors (`GpuReadState.positions`, `ProjPositionState`) in NPC/projectile prepare systems; use borrowed slices or shared buffer views.
+- [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
+- [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
+- [ ] `top_bar_system` HUD counts: replace repeated `spawner_state` full scans with cached/incremental counters.
+- [ ] `sync_building_hp_render`: rebuild only when `BuildingHpState`/`WorldData` changes (or via dirty flag), not every frame.
 - [x] Gate `rebuild_building_grid_system` so `BuildingSpatialGrid::rebuild()` only runs when world/building data changes (or via dirty flag), not every frame.
 - [x] Replace `decision_system` threat checks (`count_nearby_factions`) with GPU spatial grid query â€” piggybacks on existing Mode 2 combat targeting scan, packed u32 readback (enemies<<16|allies)
 - [x] Optimize `healing_system` town-zone checks (faction-indexed town lists / cached radii) to reduce per-frame NPC x town iteration.
@@ -276,6 +291,7 @@ Implementation guides for upcoming stages. Once built, spec content rolls into r
 | Chunked Tilemap | 15 | [specs/chunked-tilemap.md](specs/chunked-tilemap.md) |
 | Tech Tree (Chunks 3-4) | 20 | [specs/tech-tree.md](specs/tech-tree.md) |
 | NPC Skills & Proficiency | 16b | [specs/npc-skills.md](specs/npc-skills.md) |
+| GPU-Native NPC Rendering | 15 | [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md) |
 
 ## Performance
 

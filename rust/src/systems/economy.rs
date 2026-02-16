@@ -103,6 +103,8 @@ pub fn farm_growth_system(
     let hours_elapsed = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
 
     for (farm_idx, farm) in world_data.farms.iter().enumerate() {
+        if farm.position.x < -9000.0 { continue; } // tombstoned
+
         // Skip if farm_states not initialized for this farm
         if farm_idx >= farm_states.states.len() {
             continue;

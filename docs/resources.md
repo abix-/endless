@@ -48,7 +48,7 @@ Static world data, immutable after initialization.
 | WorldData | towns, farms, beds, guard_posts, farmer_homes, archer_homes, tents, miner_homes, gold_mines | All building positions and metadata |
 | SpawnerState | `Vec<SpawnerEntry>` — one per FarmerHome/ArcherHome/Tent/MinerHome | Building→NPC links + respawn timers |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
-| FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
+| FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress + `Vec<Vec2>` positions | Per-farm growth tracking; methods: `push_farm()`, `harvest()`, `tombstone()` (resets all 3 vecs, marks position offscreen) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
 | BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |

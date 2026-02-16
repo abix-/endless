@@ -7,7 +7,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
-use crate::resources::{FarmStates, FarmGrowthState, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime, DirtyFlags};
+use crate::resources::{FarmStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime, DirtyFlags};
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -442,13 +442,7 @@ pub fn remove_building(
                 (f.position - snapped_pos).length() < 1.0
             }) {
                 world_data.farms[farm_idx].position = tombstone;
-                // Reset crop — triggers FarmReadyMarker despawn via farm_visual_system
-                if let Some(state) = farm_states.states.get_mut(farm_idx) {
-                    *state = FarmGrowthState::Growing;
-                }
-                if let Some(progress) = farm_states.progress.get_mut(farm_idx) {
-                    *progress = 0.0;
-                }
+                farm_states.tombstone(farm_idx);
             }
         }
         Building::Bed { .. } => {

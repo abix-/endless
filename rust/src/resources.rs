@@ -211,8 +211,9 @@ pub struct KillStats {
 }
 
 /// Currently selected NPC index (-1 = none).
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct SelectedNpc(pub i32);
+impl Default for SelectedNpc { fn default() -> Self { Self(-1) } }
 
 /// Currently selected building (grid cell). `active = false` means no building selected.
 #[derive(Resource, Default)]
@@ -563,6 +564,20 @@ impl FarmStates {
         self.states.push(FarmGrowthState::Growing);
         self.progress.push(0.0);
         self.positions.push(pos);
+    }
+
+    /// Tombstone a destroyed farm: reset state/progress and mark position offscreen.
+    /// Render pipeline skips positions < -9000; growth system skips tombstoned WorldData farms.
+    pub fn tombstone(&mut self, farm_idx: usize) {
+        if let Some(pos) = self.positions.get_mut(farm_idx) {
+            *pos = Vec2::new(-99999.0, -99999.0);
+        }
+        if let Some(state) = self.states.get_mut(farm_idx) {
+            *state = FarmGrowthState::Growing;
+        }
+        if let Some(progress) = self.progress.get_mut(farm_idx) {
+            *progress = 0.0;
+        }
     }
 
     /// Harvest a Ready farm: reset to Growing, optionally credit food to a town.

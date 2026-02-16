@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-16e
+
+- **fix crop sprite surviving farm destruction** — destroyed farms no longer show floating food icon or regrow; `FarmStates::tombstone()` method resets all 3 parallel vecs (positions, states, progress); `remove_building()` calls it instead of inline resets; `farm_growth_system` skips tombstoned farms (`position.x < -9000`)
+- **SelectedNpc default fix** — default changed from 0 to -1 (no selection) to prevent phantom selection on startup
+- **HUD text contrast** — HP bar, energy bar, and squad overlay text now use black instead of white for readability
+- **roadmap updates** — added GPU-native NPC rendering spec and new every-frame review items
+- **README status update** — "Early development" → "Active development" with accurate feature summary
+
 ## 2026-02-16d
 
 - **squad cleanup dirty-flag gated** — `squad_cleanup_system` now skips when `DirtyFlags.squads` is false; flag set by death_cleanup (any death), spawn_npc (archer spawn), left_panel UI (assign/dismiss), and save load (DirtyFlags::default); eliminates per-frame squad iteration on idle frames

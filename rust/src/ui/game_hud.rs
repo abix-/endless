@@ -498,7 +498,7 @@ fn inspector_content(
     ui.horizontal(|ui| {
         ui.label("HP:");
         ui.add(egui::ProgressBar::new(hp_frac)
-            .text(format!("{:.0}/{:.0}", hp, max_hp))
+            .text(egui::RichText::new(format!("{:.0}/{:.0}", hp, max_hp)).color(egui::Color32::BLACK))
             .fill(hp_color));
     });
 
@@ -507,7 +507,7 @@ fn inspector_content(
     ui.horizontal(|ui| {
         tipped(ui, "EN:", catalog.0.get("npc_energy").unwrap_or(&""));
         ui.add(egui::ProgressBar::new(energy_frac)
-            .text(format!("{:.0}", energy))
+            .text(egui::RichText::new(format!("{:.0}", energy)).color(egui::Color32::BLACK))
             .fill(egui::Color32::from_rgb(60, 120, 200)));
     });
 
@@ -1069,7 +1069,7 @@ pub fn squad_overlay_system(
             egui::Align2::CENTER_CENTER,
             format!("{}", i + 1),
             egui::FontId::proportional(11.0),
-            egui::Color32::WHITE,
+            egui::Color32::BLACK,
         );
     }
 
