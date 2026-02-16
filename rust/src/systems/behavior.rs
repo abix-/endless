@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, PatrolsDirty};
+use crate::resources::{FoodEvents, FoodDelivered, PopulationStats, GpuReadState, FoodStorage, GameTime, NpcLogCache, FarmStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags};
 use crate::systems::economy::*;
 use crate::systems::stats::{UpgradeType, UPGRADE_PCT};
 use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
@@ -1051,16 +1051,16 @@ pub fn on_duty_tick_system(
 /// Rebuild all guards' patrol routes when WorldData changes (guard post added/removed/reordered).
 pub fn rebuild_patrol_routes_system(
     mut world_data: ResMut<WorldData>,
-    mut patrols_dirty: ResMut<PatrolsDirty>,
+    mut dirty: ResMut<DirtyFlags>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("rebuild_patrol_routes");
-    if !patrols_dirty.dirty { return; }
-    patrols_dirty.dirty = false;
+    if !dirty.patrols { return; }
+    dirty.patrols = false;
 
     // Apply pending patrol order swap from UI
-    if let Some((a, b)) = patrols_dirty.pending_swap.take() {
+    if let Some((a, b)) = dirty.patrol_swap.take() {
         if a < world_data.guard_posts.len() && b < world_data.guard_posts.len() {
             let order_a = world_data.guard_posts[a].patrol_order;
             let order_b = world_data.guard_posts[b].patrol_order;

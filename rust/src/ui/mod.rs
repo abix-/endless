@@ -169,7 +169,7 @@ struct StartupExtra<'w> {
     bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     building_hp: ResMut<'w, BuildingHpState>,
-    patrols_dirty: ResMut<'w, PatrolsDirty>,
+    dirty: ResMut<'w, DirtyFlags>,
 }
 
 /// Load a saved game when entering Playing state (if load_on_enter is set).
@@ -213,7 +213,7 @@ fn game_load_system(
 
     // Rebuild spatial grid
     tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
-    tracking.patrols_dirty.dirty = true;
+    tracking.dirty.patrols = true;
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
@@ -405,7 +405,7 @@ fn game_startup_system(
         }
     }
 
-    extra.patrols_dirty.dirty = true;
+    extra.dirty.patrols = true;
 
     info!("Game startup complete: {} NPCs spawned across {} towns",
         total, config.num_towns);
@@ -621,7 +621,7 @@ fn build_place_click_system(
     mut building_hp: ResMut<BuildingHpState>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
-    mut patrols_dirty: ResMut<PatrolsDirty>,
+    mut dirty: ResMut<DirtyFlags>,
     difficulty: Res<Difficulty>,
 ) {
     let Some(kind) = build_ctx.selected_build else { return };
@@ -666,7 +666,8 @@ fn build_place_click_system(
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
         );
-        if is_guard_post { patrols_dirty.dirty = true; }
+        if is_guard_post { dirty.patrols = true; }
+        dirty.building_grid = true;
         return;
     }
 
@@ -702,7 +703,8 @@ fn build_place_click_system(
         row, col, center, cost,
     ) { return; }
 
-    if kind == BuildKind::GuardPost { patrols_dirty.dirty = true; }
+    if kind == BuildKind::GuardPost { dirty.patrols = true; }
+    dirty.building_grid = true;
 
     combat_log.push(
         CombatEventKind::Harvest,
@@ -912,7 +914,7 @@ fn process_destroy_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
-    mut patrols_dirty: ResMut<PatrolsDirty>,
+    mut dirty: ResMut<DirtyFlags>,
 ) {
     let Some((col, row)) = request.0.take() else { return };
 
@@ -948,7 +950,8 @@ fn process_destroy_system(
         &format!("Destroyed building in {}", town_name),
     ).is_ok() {
         selected_building.active = false;
-        if is_guard_post { patrols_dirty.dirty = true; }
+        if is_guard_post { dirty.patrols = true; }
+        dirty.building_grid = true;
     }
 }
 

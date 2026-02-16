@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
-use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, CombatLog, CombatEventKind, GameTime, SystemTimings};
+use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FoodStorage, CombatLog, CombatEventKind, GameTime, SystemTimings, DirtyFlags};
 
 // ============================================================================
 // COMBAT CONFIG (replaces scattered constants)
@@ -449,6 +449,7 @@ pub fn process_upgrades_system(
     mut world_grid: ResMut<crate::world::WorldGrid>,
     world_data: Res<crate::world::WorldData>,
     mut town_grids: ResMut<crate::world::TownGrids>,
+    mut dirty: ResMut<DirtyFlags>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_upgrades");
@@ -468,6 +469,11 @@ pub fn process_upgrades_system(
         if let Some(f) = food_storage.food.get_mut(town_idx) { *f = food; }
         if let Some(g) = gold_storage.gold.get_mut(town_idx) { *g = gold; }
         upgrades.levels[town_idx][upgrade_idx] = level.saturating_add(1);
+
+        // Invalidate healing zone cache on radius/rate upgrades
+        if upgrade_idx == UpgradeType::HealingRate as usize || upgrade_idx == UpgradeType::FountainRadius as usize {
+            dirty.healing_zones = true;
+        }
 
         if upgrade_idx == UpgradeType::TownArea as usize {
             if let Some(grid_idx) = town_grids.grids.iter().position(|g| g.town_data_idx == town_idx) {

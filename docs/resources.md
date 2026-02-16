@@ -50,9 +50,9 @@ Static world data, immutable after initialization.
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt once per frame by `rebuild_building_grid_system` |
+| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
 | BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |
-| PatrolsDirty | `dirty: bool`, `pending_swap: Option<(usize, usize)>` | Set when guard posts are built/destroyed/reordered; `pending_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
+| DirtyFlags | `building_grid`, `patrols`, `healing_zones` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds; `patrol_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 
 ### WorldData Structs

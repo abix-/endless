@@ -28,7 +28,7 @@ pub struct AiBuildRes<'w> {
     spawner_state: ResMut<'w, SpawnerState>,
     building_hp: ResMut<'w, BuildingHpState>,
     upgrade_queue: ResMut<'w, UpgradeQueue>,
-    patrols_dirty: ResMut<'w, PatrolsDirty>,
+    dirty: ResMut<'w, DirtyFlags>,
 }
 
 /// Minimum Manhattan distance between guard posts on the town grid.
@@ -352,10 +352,11 @@ fn try_build_inner(
 ) -> Option<String> {
     let tg = res.town_grids.grids.get(grid_idx)?;
     let (row, col) = find_inner_slot(tg, center, &res.grid)?;
-    world::build_and_pay(&mut res.grid, &mut res.world_data, &mut res.farm_states,
+    let ok = world::build_and_pay(&mut res.grid, &mut res.world_data, &mut res.farm_states,
         &mut res.food_storage, &mut res.spawner_state, &mut res.building_hp,
-        building, tdi, row, col, center, cost)
-        .then_some(format!("built {label}"))
+        building, tdi, row, col, center, cost);
+    if ok { res.dirty.building_grid = true; }
+    ok.then_some(format!("built {label}"))
 }
 
 /// Execute the chosen action, returning a log label on success.
@@ -387,7 +388,7 @@ fn execute_action(
                 &mut res.food_storage, &mut res.spawner_state, &mut res.building_hp,
                 Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
                 tdi, row, col, center, cost);
-            if ok { res.patrols_dirty.dirty = true; }
+            if ok { res.dirty.patrols = true; res.dirty.building_grid = true; }
             ok.then_some("built guard post".into())
         }
         AiAction::Upgrade(idx) => {

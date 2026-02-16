@@ -164,7 +164,7 @@ pub fn left_panel_system(
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
     mut prev_tab: Local<LeftPanelTab>,
-    mut patrols_dirty: ResMut<PatrolsDirty>,
+    mut dirty: ResMut<DirtyFlags>,
 ) -> Result {
     if !ui_state.left_panel_open {
         *prev_tab = LeftPanelTab::Roster;
@@ -223,8 +223,8 @@ pub fn left_panel_system(
 
     // Queue patrol swap — applied in rebuild_patrol_routes_system which has ResMut<WorldData>
     if let Some((a, b)) = patrol_swap {
-        patrols_dirty.pending_swap = Some((a, b));
-        patrols_dirty.dirty = true;
+        dirty.patrol_swap = Some((a, b));
+        dirty.patrols = true;
     }
 
     // Apply camera jump from Intel panel

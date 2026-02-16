@@ -34,8 +34,8 @@ use resources::{
     FoodStorage, GoldStorage, MineStates, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
-    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState, PatrolsDirty,
-    Difficulty,
+    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
+    DirtyFlags, Difficulty, HealingZoneCache,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -221,7 +221,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<MineStates>()
        .init_resource::<FactionStats>()
        .init_resource::<CampState>()
-       .init_resource::<PatrolsDirty>()
+       .init_resource::<DirtyFlags>()
+       .init_resource::<HealingZoneCache>()
        .init_resource::<RaidQueue>()
        .init_resource::<SystemTimings>()
        .init_resource::<world::WorldGrid>()
@@ -287,6 +288,7 @@ pub fn build_app(app: &mut App) {
            world::rebuild_building_grid_system.before(decision_system).before(spawner_respawn_system),
            arrival_system,
            energy_system,
+           update_healing_zone_cache.before(healing_system),
            healing_system,
            on_duty_tick_system,
            game_time_system,
@@ -314,6 +316,8 @@ pub fn build_app(app: &mut App) {
            .after(save::save_load_input_system).run_if(in_state(AppState::Playing)))
        .add_systems(Update, save::load_game_system
            .after(save::save_load_input_system).run_if(in_state(AppState::Playing)))
+       .add_systems(Update, save::autosave_system
+           .after(save::save_game_system).run_if(in_state(AppState::Playing)))
        .add_systems(Update, save::save_toast_tick_system.run_if(in_state(AppState::Playing)));
 
     // Test framework (registers TestState, menu UI, all tests)

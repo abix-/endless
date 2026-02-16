@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-15f
+
+- **dirty flag consolidation** — replaced 4 separate dirty-flag types (`BuildingGridDirty`, `PatrolsDirty`, `SpatialDirtyFlags` SystemParam, `HealingZoneCache.dirty`) with single `DirtyFlags` resource (`building_grid`, `patrols`, `healing_zones`, `patrol_swap`); all default `true` so first frame always rebuilds; `rebuild_building_grid_system` now gated on `DirtyFlags.building_grid` (skips 99%+ of frames); `pending_swap` payload moved from deleted `PatrolsDirty` into `DirtyFlags.patrol_swap`; touches 11 files, pure refactor — no behavioral changes
+
 ## 2026-02-15e
 
 - **GPU threat assessment** — move NPC threat counting (enemy/ally within 200px) from CPU O(N) linear scan to GPU spatial grid query; piggybacks on existing Mode 2 combat targeting neighbor loop in `npc_compute.wgsl`; packs `(enemies << 16 | allies)` into a single u32 per NPC, readback via `GpuReadState.threat_counts`; `decision_system` unpacks for flee threshold calculation; eliminates `count_nearby_factions()` CPU function; adds `threat_radius` param to `NpcComputeParams`; binding 16 on compute shader

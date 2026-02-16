@@ -614,10 +614,20 @@ pub fn collect_save_data(
 /// Write SaveData to the quicksave file.
 pub fn write_save(data: &SaveData) -> Result<(), String> {
     let path = quicksave_path().ok_or("cannot determine save directory")?;
+    write_save_to(data, &path)
+}
+
+/// Write save data to a specific path.
+pub fn write_save_to(data: &SaveData, path: &std::path::Path) -> Result<(), String> {
     let json = serde_json::to_string(data).map_err(|e| format!("serialize: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
+    std::fs::write(path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
     info!("Game saved to {}", path.display());
     Ok(())
+}
+
+/// Return the path for a rotating autosave slot (0, 1, 2).
+fn autosave_path(slot: u8) -> Option<std::path::PathBuf> {
+    save_dir().map(|d| d.join(format!("autosave_{}.json", slot + 1)))
 }
 
 /// Read SaveData from the quicksave file.
@@ -856,6 +866,12 @@ pub struct SaveLoadRequest {
     pub load_requested: bool,
     /// Set by main menu "Load Game" — tells game_startup_system to load instead of world gen.
     pub load_on_enter: bool,
+    /// Autosave interval in game-hours (0 = disabled). Set from settings on game start.
+    pub autosave_hours: i32,
+    /// Last game-hour when autosave triggered (to detect interval crossing).
+    pub autosave_last_hour: i32,
+    /// Rotating slot index (0, 1, 2) for the next autosave.
+    pub autosave_slot: u8,
 }
 
 /// Check if a quicksave file exists.
@@ -990,10 +1006,11 @@ pub struct LoadNpcTracking<'w> {
     pub slots: ResMut<'w, SlotAllocator>,
     pub combat_log: ResMut<'w, CombatLog>,
     pub gpu_state: ResMut<'w, GpuReadState>,
-    pub patrols_dirty: ResMut<'w, PatrolsDirty>,
+    pub dirty: ResMut<'w, DirtyFlags>,
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
     pub bgrid: ResMut<'w, world::BuildingSpatialGrid>,
+    pub healing_cache: ResMut<'w, HealingZoneCache>,
 }
 
 // ============================================================================
@@ -1044,6 +1061,50 @@ pub fn save_game_system(
         Err(e) => {
             error!("Save failed: {e}");
             toast.message = format!("Save failed: {e}");
+            toast.timer = 3.0;
+        }
+    }
+}
+
+/// Autosave system — triggers on hour_ticked, writes to rotating autosave_N.json files.
+pub fn autosave_system(
+    mut request: ResMut<SaveLoadRequest>,
+    mut toast: ResMut<SaveToast>,
+    ws: SaveWorldState,
+    fs: SaveFactionState,
+    npc_map: Res<NpcEntityMap>,
+    npc_meta: Res<NpcMetaCache>,
+    core_query: Query<NpcCoreQuery, Without<Dead>>,
+    extras_query: Query<NpcExtrasQuery, Without<Dead>>,
+) {
+    if request.autosave_hours <= 0 || !ws.game_time.hour_ticked { return; }
+
+    let current_hour = ws.game_time.total_hours();
+    if current_hour - request.autosave_last_hour < request.autosave_hours { return; }
+    request.autosave_last_hour = current_hour;
+
+    let slot = request.autosave_slot;
+    request.autosave_slot = (slot + 1) % 3;
+
+    let Some(path) = autosave_path(slot) else { return };
+
+    let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
+    let data = collect_save_data(
+        &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
+        &ws.food_storage, &ws.gold_storage, &ws.farm_states, &ws.mine_states,
+        &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
+        &ws.squad_state, &ws.guard_post_state, &fs.camp_state, &fs.faction_stats,
+        &fs.kill_stats, &fs.ai_state, npcs,
+    );
+
+    match write_save_to(&data, &path) {
+        Ok(()) => {
+            toast.message = format!("Autosaved slot {} ({} NPCs)", slot + 1, data.npcs.len());
+            toast.timer = 2.0;
+        }
+        Err(e) => {
+            error!("Autosave failed: {e}");
+            toast.message = format!("Autosave failed: {e}");
             toast.timer = 3.0;
         }
     }
@@ -1222,7 +1283,7 @@ pub fn load_game_system(
     *tracking.combat_log = Default::default();
     *tracking.gpu_state = Default::default();
     *tracking.building_hp_render = Default::default();
-    tracking.patrols_dirty.dirty = true;
+    tracking.dirty.patrols = true;
     tracking.tilemap_spawned.0 = false; // Force tilemap rebuild with new terrain
 
     // 3. Apply save data to all game resources
@@ -1238,6 +1299,8 @@ pub fn load_game_system(
 
     // 4. Rebuild spatial grid
     tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
+    tracking.dirty.building_grid = false;
+    tracking.dirty.healing_zones = true;
 
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(

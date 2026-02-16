@@ -1198,12 +1198,32 @@ impl HelpCatalog {
     }
 }
 
-/// Flag: patrol routes need rebuilding (guard post added/removed/reordered).
+/// Pre-computed healing zone per town, indexed by faction for O(1) lookup.
+pub struct HealingZone {
+    pub center: Vec2,
+    pub radius_sq: f32,
+    pub heal_rate: f32,
+}
+
+/// Faction-indexed healing zone cache. Rebuilt when DirtyFlags::healing_zones is set.
 #[derive(Resource, Default)]
-pub struct PatrolsDirty {
-    pub dirty: bool,
+pub struct HealingZoneCache {
+    pub by_faction: Vec<Vec<HealingZone>>,
+}
+
+/// Centralized dirty flags for gated rebuild systems.
+/// Default all `true` so first frame always rebuilds.
+#[derive(Resource)]
+pub struct DirtyFlags {
+    pub building_grid: bool,
+    pub patrols: bool,
+    pub healing_zones: bool,
     /// Pending patrol order swap from UI (guard_post indices).
-    pub pending_swap: Option<(usize, usize)>,
+    /// Set by left_panel, consumed by rebuild_patrol_routes_system.
+    pub patrol_swap: Option<(usize, usize)>,
+}
+impl Default for DirtyFlags {
+    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, patrol_swap: None } }
 }
 
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.

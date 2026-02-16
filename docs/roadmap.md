@@ -31,14 +31,14 @@ Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
 
 **Stage 15: Performance**
 
-*Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250Ãƒ-250 world.*
+*Done when: `NpcBufferWrites` ExtractResource clone drops from 18ms to <5ms, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
 
 GPU extract optimization (see [specs/gpu-extract-optimization.md](specs/gpu-extract-optimization.md)):
 - [ ] Split `NpcBufferWrites` (1.9MB) into `NpcComputeWrites` (~460KB) + `NpcVisualData` (~1.4MB static)
 - [ ] `NpcVisualData` bypasses ExtractResource via static Mutex (render world reads directly)
 
 Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
-- [ ] Split single 250Ãƒ-250 TilemapChunk per layer into 32Ãƒ-32 tile chunks
+- [ ] Split single 250x250 TilemapChunk per layer into 32x32 tile chunks
 - [ ] Bevy frustum-culls off-screen chunk entities - only visible chunks generate draw commands
 - [ ] `sync_building_tilemap` updates only chunks whose grid region changed, not all 62K+ tiles
 
@@ -46,9 +46,9 @@ Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
 
 Every-frame review backlog:
-- [ ] Gate `rebuild_building_grid_system` so `BuildingSpatialGrid::rebuild()` only runs when world/building data changes (or via dirty flag), not every frame.
-- [x] Replace `decision_system` threat checks (`count_nearby_factions`) with GPU spatial grid query — piggybacks on existing Mode 2 combat targeting scan, packed u32 readback (enemies<<16|allies)
-- [ ] Optimize `healing_system` town-zone checks (faction-indexed town lists / cached radii) to reduce per-frame NPC x town iteration.
+- [x] Gate `rebuild_building_grid_system` so `BuildingSpatialGrid::rebuild()` only runs when world/building data changes (or via dirty flag), not every frame.
+- [x] Replace `decision_system` threat checks (`count_nearby_factions`) with GPU spatial grid query â€” piggybacks on existing Mode 2 combat targeting scan, packed u32 readback (enemies<<16|allies)
+- [x] Optimize `healing_system` town-zone checks (faction-indexed town lists / cached radii) to reduce per-frame NPC x town iteration.
 - [ ] Optimize `guard_post_attack_system` target acquisition to avoid full guard-post x NPC scans on fire-ready ticks.
 - [ ] Make combat log UI incremental (cache merged entries and skip per-frame full rebuild/sort when source logs are unchanged).
 - [ ] Change `squad_cleanup_system` from always-on per-frame maintenance to event/interval-driven updates keyed to membership/spawn/death changes.
@@ -104,7 +104,7 @@ SystemParam bundle consolidation:
 - [x] Serialize full game state (WorldData, SpawnerState, TownUpgrades, TownPolicies, FoodStorage, GameTime, NPC positions/states/stats)
 - [x] F5 quicksave / F9 quickload with JSON serialization
 - [x] Toast notification ("Game Saved" / "Game Loaded") with fade
-- [ ] Load from main menu (currently in-game only)
+- [x] Load from main menu (currently in-game only)
 - [ ] Autosave every N game-hours
 - [ ] Save slot selection (3 slots)
 

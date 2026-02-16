@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{GUARD_POST_RANGE, GUARD_POST_DAMAGE, GUARD_POST_COOLDOWN, GUARD_POST_PROJ_SPEED, GUARD_POST_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, FarmStates, SpawnerState, PatrolsDirty};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, FarmStates, SpawnerState, DirtyFlags};
 use crate::gpu::ProjBufferWrites;
 use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, WorldGrid};
 
@@ -436,7 +436,7 @@ pub fn building_damage_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
-    mut patrols_dirty: ResMut<PatrolsDirty>,
+    mut dirty: ResMut<DirtyFlags>,
 ) {
     let _t = timings.scope("building_damage");
     for msg in damage_reader.read() {
@@ -490,7 +490,8 @@ pub fn building_damage_system(
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
         );
-        if msg.kind == BuildingKind::GuardPost { patrols_dirty.dirty = true; }
+        if msg.kind == BuildingKind::GuardPost { dirty.patrols = true; }
+        dirty.building_grid = true;
 
         // Kill the linked NPC if alive
         if npc_slot >= 0 {

@@ -7,7 +7,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
-use crate::resources::{FarmStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime};
+use crate::resources::{FarmStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime, DirtyFlags};
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -861,13 +861,15 @@ impl BuildingSpatialGrid {
     }
 }
 
-/// Rebuild building spatial grid from WorldData. Runs once per frame before decision_system.
+/// Rebuild building spatial grid from WorldData. Only runs when DirtyFlags::building_grid is set.
 pub fn rebuild_building_grid_system(
     mut bgrid: ResMut<BuildingSpatialGrid>,
+    mut dirty: ResMut<DirtyFlags>,
     world_data: Res<WorldData>,
     grid: Res<WorldGrid>,
 ) {
-    if grid.width == 0 { return; }
+    if grid.width == 0 || !dirty.building_grid { return; }
+    dirty.building_grid = false;
     bgrid.rebuild(&world_data, grid.width as f32 * grid.cell_size);
 }
 

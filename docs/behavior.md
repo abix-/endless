@@ -285,7 +285,7 @@ Archers have a `PatrolRoute` with ordered posts (built from WorldData at spawn).
 4. Arrive → `OnDuty` again
 5. After last post, wrap to post 0
 
-Each town has 4 guard posts at corners. Archers cycle clockwise. Patrol routes are rebuilt by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) only when `PatrolsDirty.dirty` is set — i.e. when guard posts are built, destroyed, or reordered via the Patrols tab. The system applies any pending patrol order swap from the UI, then builds routes once per town (cached) and assigns to all archers in that town. Current patrol index is clamped to the new route length.
+Each town has 4 guard posts at corners. Archers cycle clockwise. Patrol routes are rebuilt by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) only when `DirtyFlags.patrols` is set — i.e. when guard posts are built, destroyed, or reordered via the Patrols tab. The system applies any pending `DirtyFlags.patrol_swap` from the UI, then builds routes once per town (cached) and assigns to all archers in that town. Current patrol index is clamped to the new route length.
 
 ## Squads
 
