@@ -53,6 +53,8 @@ pub struct GuardPost {
     pub town_idx: u32,
     /// Patrol order (0-3 for clockwise perimeter)
     pub patrol_order: u32,
+    /// NPC slot index for GPU spatial grid targeting (None = not yet allocated)
+    pub npc_slot: Option<usize>,
 }
 
 /// A farmer home that supports 1 farmer (building spawner).

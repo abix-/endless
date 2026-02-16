@@ -105,7 +105,7 @@ SystemParam bundle consolidation:
 - [x] F5 quicksave / F9 quickload with JSON serialization
 - [x] Toast notification ("Game Saved" / "Game Loaded") with fade
 - [x] Load from main menu (currently in-game only)
-- [ ] Autosave every N game-hours
+- [x] Autosave every N game-hours (3 rotating slots, configurable interval on main menu)
 - [ ] Save slot selection (3 slots)
 
 **Stage 19: Loot & Equipment**

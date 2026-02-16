@@ -133,11 +133,12 @@ rust/
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, Archer/Farmer/Miner markers)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, BuildingHpState, HelpCatalog, etc.)
-  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration, auto_upgrades)
+  src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, load-from-menu, SaveData serialization, SystemParam bundles)
+  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration, auto_upgrades, autosave_hours)
   src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale), escape/time controls, keyboard toggles (Q=squads), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
-    main_menu.rs        # Main menu with world config sliders + Play / Debug Tests buttons + settings persistence
+    main_menu.rs        # Main menu with world config sliders + Play / Load Game / Debug Tests buttons + autosave interval + settings persistence
     game_hud.rs         # Top bar (food + gold), floating inspector (bottom-left, incl. mine inspector) + combat log (bottom-right), target overlay, squad overlay, FPS counter
     left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) — policy persistence on tab leave
     build_menu.rs       # Bottom-center build bar: building sprites with cached atlas extraction, click-to-place, destroy mode, cursor hint

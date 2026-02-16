@@ -89,6 +89,9 @@ pub struct UserSettings {
     // Difficulty
     #[serde(default)]
     pub difficulty: crate::resources::Difficulty,
+    // Autosave interval in game-hours (0 = disabled)
+    #[serde(default = "default_autosave_hours")]
+    pub autosave_hours: i32,
 }
 
 fn default_gold_mines() -> usize { 2 }
@@ -101,6 +104,7 @@ fn default_npc_interval() -> f32 { 2.0 }
 fn default_ui_scale() -> f32 { 1.0 }
 fn default_help_text_size() -> f32 { 14.0 }
 fn default_build_menu_text_scale() -> f32 { 1.2 }
+fn default_autosave_hours() -> i32 { 12 }
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -141,6 +145,7 @@ impl Default for UserSettings {
             raider_passive_forage: false,
             auto_upgrades: Vec::new(),
             difficulty: crate::resources::Difficulty::Normal,
+            autosave_hours: 12,
         }
     }
 }

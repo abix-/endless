@@ -25,6 +25,7 @@ pub struct MenuState {
     pub gold_mines: f32,
     pub raider_passive_forage: bool,
     pub difficulty: crate::resources::Difficulty,
+    pub autosave_hours: i32,
     pub initialized: bool,
 }
 
@@ -72,6 +73,7 @@ pub fn main_menu_system(
         state.gold_mines = saved.gold_mines_per_town as f32;
         state.raider_passive_forage = saved.raider_passive_forage;
         state.difficulty = saved.difficulty;
+        state.autosave_hours = saved.autosave_hours;
         state.initialized = true;
     }
 
@@ -187,6 +189,18 @@ pub fn main_menu_system(
                     });
             });
 
+            ui.add_space(4.0);
+
+            // Autosave
+            ui.horizontal(|ui| {
+                ui.label("Autosave:");
+                ui.add(egui::Slider::new(&mut state.autosave_hours, 0..=48)
+                    .step_by(1.0)
+                    .show_value(false));
+                let label = if state.autosave_hours == 0 { "Off".to_string() } else { format!("{}h", state.autosave_hours) };
+                ui.label(label);
+            });
+
             ui.add_space(20.0);
 
             // Play button
@@ -220,10 +234,12 @@ pub fn main_menu_system(
                 saved.gold_mines_per_town = state.gold_mines as usize;
                 saved.raider_passive_forage = state.raider_passive_forage;
                 saved.difficulty = state.difficulty;
+                saved.autosave_hours = state.autosave_hours;
                 settings::save_settings(&saved);
                 user_settings.raider_passive_forage = state.raider_passive_forage;
 
                 commands.insert_resource(state.difficulty);
+                save_request.autosave_hours = state.autosave_hours;
                 next_state.set(AppState::Playing);
             }
 
@@ -234,6 +250,7 @@ pub fn main_menu_system(
             ui.add_enabled_ui(has_save, |ui| {
                 if ui.button(egui::RichText::new("Load Game").size(18.0)).clicked() {
                     save_request.load_on_enter = true;
+                    save_request.autosave_hours = state.autosave_hours;
                     next_state.set(AppState::Playing);
                 }
             });
@@ -367,6 +384,7 @@ pub fn main_menu_system(
                             state.gold_mines = defaults.gold_mines_per_town as f32;
                             state.raider_passive_forage = defaults.raider_passive_forage;
                             state.difficulty = defaults.difficulty;
+                            state.autosave_hours = defaults.autosave_hours;
                             settings::save_settings(&defaults);
                         }
                     });

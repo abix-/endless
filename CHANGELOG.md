@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-15g
+
+- **autosave system** — `autosave_system` triggers every N game-hours (default 12, configurable 0-48 on main menu); writes to 3 rotating files (`autosave_1.json`, `autosave_2.json`, `autosave_3.json`); `SaveLoadRequest` tracks interval/slot/last-hour; `UserSettings.autosave_hours` persisted; main menu "Autosave" slider between Difficulty and Play button; 0 = disabled
+
 ## 2026-02-15f
 
 - **dirty flag consolidation** — replaced 4 separate dirty-flag types (`BuildingGridDirty`, `PatrolsDirty`, `SpatialDirtyFlags` SystemParam, `HealingZoneCache.dirty`) with single `DirtyFlags` resource (`building_grid`, `patrols`, `healing_zones`, `patrol_swap`); all default `true` so first frame always rebuilds; `rebuild_building_grid_system` now gated on `DirtyFlags.building_grid` (skips 99%+ of frames); `pending_swap` payload moved from deleted `PatrolsDirty` into `DirtyFlags.patrol_swap`; touches 11 files, pure refactor — no behavioral changes
