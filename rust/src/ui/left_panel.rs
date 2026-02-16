@@ -182,6 +182,7 @@ pub fn left_panel_system(
         LeftPanelTab::Squads => "Squads",
         LeftPanelTab::Intel => "Intel",
         LeftPanelTab::Profiler => "Profiler",
+        LeftPanelTab::Help => "Help",
     };
 
     // Look up the help key for the current tab
@@ -193,6 +194,7 @@ pub fn left_panel_system(
         LeftPanelTab::Squads => "tab_squads",
         LeftPanelTab::Intel => "tab_intel",
         LeftPanelTab::Profiler => "tab_profiler",
+        LeftPanelTab::Help => "tab_help",
     };
 
     let mut open = ui_state.left_panel_open;
@@ -218,6 +220,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands),
                 LeftPanelTab::Intel => intel_content(ui, &intel, &world_data, &policies, &mut intel_cache, &mut jump_target),
                 LeftPanelTab::Profiler => profiler_content(ui, &timings),
+                LeftPanelTab::Help => help_content(ui),
             }
         });
 
@@ -1307,5 +1310,100 @@ fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings) {
             }
             ui.end_row();
         }
+    });
+}
+
+// ============================================================================
+// HELP TAB
+// ============================================================================
+
+fn help_content(ui: &mut egui::Ui) {
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        egui::CollapsingHeader::new(egui::RichText::new("Getting Started").strong())
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.label("1. Press B to open the Build menu");
+                ui.label("2. Build Farms to grow food");
+                ui.label("3. Build Farmer Homes next to farms — each spawns 1 farmer");
+                ui.label("4. Build Guard Posts to create patrol routes");
+                ui.label("5. Build Archer Homes — each spawns 1 archer who patrols guard posts");
+                ui.label("6. Raiders from enemy camps will attack your farms — defend them!");
+                ui.add_space(4.0);
+                ui.label("Click any NPC or building to inspect it. Press H to close this panel.");
+            });
+
+        egui::CollapsingHeader::new(egui::RichText::new("Core Gameplay Loop").strong())
+            .show(ui, |ui| {
+                ui.label("Grow food  \u{2192}  Build buildings  \u{2192}  Spawn NPCs  \u{2192}  Defend  \u{2192}  Upgrade  \u{2192}  Expand");
+                ui.add_space(4.0);
+                ui.label("Food is your main currency. Farms produce it, farmers harvest it, and you spend it on buildings and upgrades.");
+                ui.label("As your town grows, enemy raiders will attack more aggressively. Build defenses and upgrade your archers to survive.");
+                ui.label("Use the Upgrades tab (U) to spend food and gold on permanent improvements.");
+            });
+
+        egui::CollapsingHeader::new(egui::RichText::new("Economy").strong())
+            .show(ui, |ui| {
+                ui.label("\u{2022} Farms grow food over time. When ready, a farmer harvests and adds to your food stockpile.");
+                ui.label("\u{2022} Each Farmer Home spawns 1 farmer who works the nearest free farm.");
+                ui.label("\u{2022} Build farms FIRST, then Farmer Homes to staff them.");
+                ui.label("\u{2022} Gold Mines appear between towns. Build Miner Homes to spawn miners who collect gold.");
+                ui.label("\u{2022} Gold is used for advanced upgrades in the Upgrades tab.");
+                ui.label("\u{2022} Food pays for all buildings and most upgrades.");
+            });
+
+        egui::CollapsingHeader::new(egui::RichText::new("Military & Defense").strong())
+            .show(ui, |ui| {
+                ui.label("\u{2022} Guard Posts create a patrol route. Archers walk between them.");
+                ui.label("\u{2022} Each Archer Home spawns 1 archer who patrols guard posts.");
+                ui.label("\u{2022} Guard Posts have a turret that auto-shoots nearby enemies.");
+                ui.label("\u{2022} Place guard posts near your farms to intercept raiders.");
+                ui.label("\u{2022} Squads (Q): group archers and assign manual attack targets.");
+                ui.label("\u{2022} Use hotkeys 1-9 to select a squad, then click the map to set its target.");
+                ui.label("\u{2022} Archers level up from kills, gaining +1% stats per level.");
+            });
+
+        egui::CollapsingHeader::new(egui::RichText::new("Building").strong())
+            .show(ui, |ui| {
+                ui.label("\u{2022} Press B to open the build bar at the bottom of the screen.");
+                ui.label("\u{2022} Click a building type, then click a green '+' slot to place it.");
+                ui.label("\u{2022} Right-click or press ESC to cancel placement.");
+                ui.label("\u{2022} Use the Destroy tool (skull icon) to remove buildings.");
+                ui.label("\u{2022} You can also destroy buildings from the Inspector (click a building, then Destroy).");
+                ui.label("\u{2022} Dead NPCs respawn from their building after 12 game-hours.");
+            });
+
+        egui::CollapsingHeader::new(egui::RichText::new("Controls").strong())
+            .show(ui, |ui| {
+                ui.label("Camera:");
+                ui.label("  WASD / Arrow Keys — scroll");
+                ui.label("  Mouse Wheel — zoom in/out");
+                ui.label("  Click NPC/Building — select and inspect");
+                ui.add_space(4.0);
+                ui.label("Time:");
+                ui.label("  Space — pause / unpause");
+                ui.label("  + / - — speed up / slow down (0.25x to 128x)");
+                ui.add_space(4.0);
+                ui.label("Panels:");
+                ui.label("  R — Roster    U — Upgrades    P — Policies");
+                ui.label("  T — Patrols   Q — Squads      I — Intel");
+                ui.label("  B — Build     L — Combat Log   H — Help");
+                ui.label("  F — Follow selected NPC");
+                ui.label("  1-9 — Select squad + set target mode");
+                ui.add_space(4.0);
+                ui.label("Save/Load:");
+                ui.label("  F5 — Quicksave    F9 — Quickload");
+                ui.label("  ESC — Pause menu (settings, exit)");
+            });
+
+        egui::CollapsingHeader::new(egui::RichText::new("Tips").strong())
+            .show(ui, |ui| {
+                ui.label("\u{2022} Always build farms before Farmer Homes — homeless farmers have nothing to harvest.");
+                ui.label("\u{2022} Place guard posts between your farms and enemy camps.");
+                ui.label("\u{2022} Use Policies (P) to control work schedules and off-duty behavior.");
+                ui.label("\u{2022} Night raiders are more dangerous — consider Day Only schedules for farmers.");
+                ui.label("\u{2022} Check the Combat Log (L) to see what's happening across your kingdom.");
+                ui.label("\u{2022} Click an NPC and press F to follow them around the map.");
+                ui.label("\u{2022} Upgrade Fountain Radius early to heal archers faster after fights.");
+            });
     });
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-16b
+
+- **music jukebox** — 22-track soundtrack (Not Jam Music Pack, CC0) with random no-repeat playback; `GameAudio` resource + `MusicTrack` marker; `load_music` at Startup, `start_music` on OnEnter(Playing), `stop_music` on OnExit(Playing), `jukebox_system` auto-advances when track despawns; music/SFX volume sliders in pause menu Settings (persisted in UserSettings v3); `PlaySfxMsg` + `SfxKind` scaffold for future SFX; `play_sfx_system` drains messages (no .ogg files wired yet)
+- **Help tab (H)** — new left panel tab with collapsible sections: Getting Started, Core Gameplay Loop, Economy, Military & Defense, Building, Controls, Tips; `LeftPanelTab::Help` variant; H key toggle; top bar Help button; `tab_help` help catalog entry
+- **README update** — download links point to v0.1.1 direct .zip URLs per platform; controls table adds F5/F9/L; credits add Not Jam Music Pack
+
 ## 2026-02-16
 
 - **guard post GPU targeting (Option D)** — guard posts now get real `SlotAllocator` NPC indices so the GPU spatial grid auto-populates `combat_targets[gp_slot]` with the nearest enemy. `sync_guard_post_slots` (dirty-flag gated via `DirtyFlags.guard_post_slots`) allocates/frees slots on build/destroy/load. `guard_post_attack_system` reads one array index per post — O(1) instead of scanning all NPCs. At 20K NPCs + 10K turrets: ~2.75ms CPU eliminated, ~0.3ms more GPU (parallel, hidden). Guard post slots use sprite_col=-1 (invisible to NPC renderer) and health=999 (immortal in GPU). Tombstoned posts auto-free their slots.

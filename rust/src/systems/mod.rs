@@ -10,6 +10,7 @@ mod combat;
 mod economy;
 pub mod stats;
 pub mod ai_player;
+pub mod audio;
 pub use drain::*;
 pub use spawn::*;
 pub use movement::*;

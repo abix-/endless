@@ -35,7 +35,7 @@ use resources::{
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     GuardPostState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
-    DirtyFlags, Difficulty, HealingZoneCache,
+    DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -249,6 +249,8 @@ pub fn build_app(app: &mut App) {
        .init_resource::<TownPolicies>()
        .init_resource::<save::SaveLoadRequest>()
        .init_resource::<save::SaveToast>()
+       .init_resource::<GameAudio>()
+       .add_message::<PlaySfxMsg>()
        .insert_resource(settings::load_settings())
        // Plugins
        .add_plugins(bevy_egui::EguiPlugin::default())
@@ -257,6 +259,12 @@ pub fn build_app(app: &mut App) {
        .add_plugins(npc_render::NpcRenderPlugin)
        // Startup
        .add_systems(Startup, startup_system)
+       .add_systems(Startup, systems::audio::load_music)
+       // Music lifecycle
+       .add_systems(OnEnter(AppState::Playing), systems::audio::start_music)
+       .add_systems(OnExit(AppState::Playing), systems::audio::stop_music)
+       .add_systems(Update, systems::audio::jukebox_system.run_if(in_state(AppState::Playing)))
+       .add_systems(Update, systems::audio::play_sfx_system.run_if(game_active.clone()))
        // System sets — game systems only run during AppState::Running
        .configure_sets(Update, (Step::Drain, Step::Spawn, Step::Combat, Step::Behavior).chain()
            .run_if(game_active.clone()))

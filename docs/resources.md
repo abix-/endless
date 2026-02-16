@@ -54,6 +54,7 @@ Static world data, immutable after initialization.
 | BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |
 | DirtyFlags | `building_grid`, `patrols`, `healing_zones`, `guard_post_slots` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds; `guard_post_slots` triggers NPC slot alloc/free in `sync_guard_post_slots`; `patrol_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
+| GameAudio | `music_volume: f32`, `sfx_volume: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; volume synced from UserSettings |
 
 ### WorldData Structs
 

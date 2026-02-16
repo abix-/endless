@@ -7,6 +7,7 @@ pub mod left_panel;
 
 use std::collections::VecDeque;
 
+use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContextSettings, EguiPrimaryContextPass, egui};
@@ -117,6 +118,9 @@ fn ui_toggle_system(
     }
     if keys.just_pressed(KeyCode::KeyI) {
         ui_state.toggle_left_tab(LeftPanelTab::Intel);
+    }
+    if keys.just_pressed(KeyCode::KeyH) {
+        ui_state.toggle_left_tab(LeftPanelTab::Help);
     }
     if keys.just_pressed(KeyCode::KeyL) {
         ui_state.combat_log_visible = !ui_state.combat_log_visible;
@@ -470,6 +474,8 @@ fn pause_menu_system(
     mut next_state: ResMut<NextState<AppState>>,
     mut settings: ResMut<crate::settings::UserSettings>,
     mut winit_settings: ResMut<bevy::winit::WinitSettings>,
+    mut audio: ResMut<crate::resources::GameAudio>,
+    mut music_sinks: Query<&mut AudioSink, With<crate::resources::MusicTrack>>,
 ) -> Result {
     if !ui_state.pause_menu_open { return Ok(()); }
 
@@ -527,6 +533,21 @@ fn pause_menu_system(
                             )
                         };
                     }
+
+                    ui.add_space(4.0);
+                    ui.label("Audio:");
+                    let prev_music = settings.music_volume;
+                    ui.add(egui::Slider::new(&mut settings.music_volume, 0.0..=1.0)
+                        .text("Music"));
+                    if settings.music_volume != prev_music {
+                        audio.music_volume = settings.music_volume;
+                        for mut sink in &mut music_sinks {
+                            sink.set_volume(Volume::Linear(settings.music_volume));
+                        }
+                    }
+                    ui.add(egui::Slider::new(&mut settings.sfx_volume, 0.0..=1.0)
+                        .text("SFX"));
+                    audio.sfx_volume = settings.sfx_volume;
 
                     ui.add_space(4.0);
                     ui.label("Combat Log Filters:");

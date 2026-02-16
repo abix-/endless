@@ -12,11 +12,9 @@ A real-time kingdom builder inspired by [Lords of the Realm 2](https://en.wikipe
 
 ## Download
 
-Release assets (`.zip`): https://github.com/abix-/endless/releases/tag/v0.1
-
-- **Windows:** Download the Windows `.zip`, extract, then run `endless.exe`.
-- **macOS:** Download the macOS `.zip`, extract, then run `endless`.
-- **Linux:** Download the Linux `.zip`, extract, then run `endless`.
+- **Windows:** [endless-windows-v0.1.1.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-windows-v0.1.1.zip) — extract, run `endless.exe`
+- **macOS:** [endless-macos-v0.1.1.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-macos-v0.1.1.zip) — extract, run `endless`
+- **Linux:** [endless-linux-v0.1.1.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-linux-v0.1.1.zip) — extract, run `endless`
 
 ## Controls
 
@@ -31,6 +29,9 @@ Release assets (`.zip`): https://github.com/abix-/endless/releases/tag/v0.1
 | Space             | Pause                                           |
 | +/-               | Time speed                                      |
 | R / U / P / T / Q | Roster / Upgrades / Policies / Patrols / Squads |
+| F5                | Quicksave                                       |
+| F9                | Quickload                                       |
+| L                 | Toggle combat log                               |
 | F                 | Follow selected NPC                             |
 | ESC               | Settings                                        |
 
@@ -49,10 +50,7 @@ Built with [Bevy 0.18](https://bevyengine.org/) ECS + GPU compute shaders (WGSL)
 
 - Engine: [Bevy 0.18](https://bevyengine.org/)
 - Sprites: [Kenney Roguelike RPG Pack](https://kenney.nl/assets/roguelike-rpg-pack)
-
-
-
-
+- Music: [Not Jam Music Pack](https://not-jam.itch.io/not-jam-music-pack)
 
 
 

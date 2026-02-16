@@ -61,6 +61,9 @@ pub fn top_bar_system(
                 if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Profiler, "Profiler").clicked() {
                     ui_state.toggle_left_tab(LeftPanelTab::Profiler);
                 }
+                if ui.selectable_label(ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Help, "Help").clicked() {
+                    ui_state.toggle_left_tab(LeftPanelTab::Help);
+                }
                 ui.separator();
                 help_tip(ui, &catalog, "getting_started");
 

@@ -708,6 +708,7 @@ pub enum LeftPanelTab {
     Squads,
     Intel,
     Profiler,
+    Help,
 }
 
 /// Which UI panels are open. Toggled by keyboard shortcuts and HUD buttons.
@@ -1192,7 +1193,10 @@ impl HelpCatalog {
         m.insert("npc_level", "Archers level up from kills. +1% all stats per level. XP needed = (level+1)\u{00b2} \u{00d7} 100.");
 
         // Getting started
-        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Farmer Homes for food\n\u{2022} Build Guard Posts + Archer Homes for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads");
+        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Farmer Homes for food\n\u{2022} Build Guard Posts + Archer Homes for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads, H=help");
+
+        // Help tab
+        m.insert("tab_help", "How to play Endless. Expand a section below to learn more.");
 
         Self(m)
     }
@@ -1226,5 +1230,36 @@ pub struct DirtyFlags {
 impl Default for DirtyFlags {
     fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, guard_post_slots: true, patrol_swap: None } }
 }
+
+// ============================================================================
+// AUDIO
+// ============================================================================
+
+/// Runtime audio state — volume levels and loaded track handles.
+#[derive(Resource)]
+pub struct GameAudio {
+    pub music_volume: f32,
+    pub sfx_volume: f32,
+    pub tracks: Vec<Handle<AudioSource>>,
+    pub last_track: Option<usize>,
+}
+
+impl Default for GameAudio {
+    fn default() -> Self {
+        Self { music_volume: 0.3, sfx_volume: 0.5, tracks: Vec::new(), last_track: None }
+    }
+}
+
+/// Marker component for the currently playing music entity.
+#[derive(Component)]
+pub struct MusicTrack;
+
+/// Sound effect categories (scaffold for future SFX).
+#[derive(Clone, Copy)]
+pub enum SfxKind { ArrowShoot, Hit, Death, Build, Click, Upgrade }
+
+/// Fire-and-forget SFX trigger message.
+#[derive(Message, Clone)]
+pub struct PlaySfxMsg(pub SfxKind);
 
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.
