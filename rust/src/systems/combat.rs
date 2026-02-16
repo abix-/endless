@@ -43,7 +43,6 @@ pub fn attack_system(
     mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
-    mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     bgrid: Res<BuildingSpatialGrid>,
@@ -99,7 +98,7 @@ pub fn attack_system(
             let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
             if x < -9000.0 { continue; } // dead/hidden
 
-            if let Some((bkind, bidx, bpos)) = world::find_nearest_enemy_building(
+            if let Some((_bkind, _bidx, bpos)) = world::find_nearest_enemy_building(
                 Vec2::new(x, y), &bgrid, faction.0, job_id, cached.range,
             ) {
                 // In range and cooldown ready — fire at building
@@ -126,12 +125,6 @@ pub fn attack_system(
                                 });
                             }
                         }
-                        // Also send direct damage msg to building (projectile may miss on GPU)
-                        building_damage_events.write(BuildingDamageMsg {
-                            kind: bkind,
-                            index: bidx,
-                            amount: cached.damage,
-                        });
                         timer.0 = cached.cooldown;
                         attacks += 1;
                     }
@@ -247,12 +240,16 @@ pub fn attack_system(
 }
 
 /// Process GPU projectile hits: convert to DamageMsg events and recycle slots.
+/// Also checks active projectiles against BuildingSpatialGrid for building collisions.
 /// Runs before attack_system so freed slots can be reused for new projectiles.
 pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
+    mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
+    proj_pos: Res<crate::resources::ProjPositionState>,
     mut hit_state: ResMut<ProjHitState>,
+    bgrid: Res<BuildingSpatialGrid>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_proj_hits");
@@ -302,6 +299,40 @@ pub fn process_proj_hits(
         }
     }
     hit_state.0.clear();
+
+    // Building collision: check active projectiles against BuildingSpatialGrid
+    let hit_radius = 20.0; // building tile is 32px, check within ~half tile
+    for slot in 0..proj_alloc.next {
+        if slot >= proj_writes.active.len() || proj_writes.active[slot] == 0 { continue; }
+
+        let i2 = slot * 2;
+        if i2 + 1 >= proj_pos.0.len() { continue; }
+        let px = proj_pos.0[i2];
+        let py = proj_pos.0[i2 + 1];
+        if px < -9000.0 { continue; }
+
+        let proj_faction = if slot < proj_writes.factions.len() { proj_writes.factions[slot] } else { continue };
+        let damage = if slot < proj_writes.damages.len() { proj_writes.damages[slot] } else { 0.0 };
+        if damage <= 0.0 { continue; }
+
+        // Collect hit (can't borrow building_damage_events inside for_each_nearby closure)
+        let pos = Vec2::new(px, py);
+        let mut hit: Option<(BuildingKind, usize)> = None;
+        bgrid.for_each_nearby(pos, hit_radius, |bref| {
+            if hit.is_some() { return; }
+            if bref.faction == proj_faction { return; }
+            if bref.position.distance(pos) > hit_radius { return; }
+            hit = Some((bref.kind, bref.index));
+        });
+
+        if let Some((kind, index)) = hit {
+            building_damage_events.write(BuildingDamageMsg { kind, index, amount: damage });
+            proj_alloc.free(slot);
+            if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                queue.push(ProjGpuUpdate::Deactivate { idx: slot });
+            }
+        }
+    }
 }
 
 /// Guard post turret auto-attack: scans for nearest enemy within range, fires projectile.

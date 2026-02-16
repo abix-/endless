@@ -177,7 +177,7 @@ if in.atlas_id >= 1.5 {
 }
 ```
 
-The fragment shader dispatches texture sampling by `atlas_id` in descending order: sleep (≥2.5) samples `sleep_texture`, heal (≥1.5) samples `heal_texture`, then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). Sleep and heal both early-return after texture sampling with color tint applied.
+The fragment shader dispatches by `atlas_id` in descending order: building HP bar-only (≥4.5) renders bar and discards, arrow projectile (≥3.5) samples `arrow_texture`, sleep (≥2.5) samples `sleep_texture`, heal (≥1.5) samples `heal_texture`, then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). Sleep and heal both early-return after texture sampling with color tint applied.
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
@@ -205,9 +205,15 @@ if in.quad_uv.y > 0.85 && in.health < 0.99 {
 }
 ```
 
-**Building HP bar-only** (atlas_id 5, between health bar and sprite rendering):
+**Building HP bar-only** (atlas_id 5, checked first in fragment shader before all other modes):
 ```wgsl
-if in.atlas_id >= 4.5 { discard; }
+if in.atlas_id >= 4.5 {
+    // Render health bar in bottom 15% when damaged, discard everything else
+    if in.quad_uv.y > 0.85 && in.health < 0.99 {
+        // Same 3-color bar as NPC health (green/yellow/red)
+    }
+    discard;  // No sprite — just the bar
+}
 ```
 
 **Sprite rendering** (remaining 85%):

@@ -104,7 +104,7 @@ impl Default for UserSettings {
         Self {
             version: SETTINGS_VERSION,
             world_size: 8000.0,
-            towns: 2,
+            towns: 1,
             farms: 2,
             farmers: 2,
             archers: 2,

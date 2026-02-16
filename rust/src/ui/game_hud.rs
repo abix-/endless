@@ -1041,7 +1041,8 @@ pub fn fps_display_system(
         .show(ctx, |ui| {
             ui.label(egui::RichText::new(format!("FPS: {:.0}", *avg_fps))
                 .size(14.0)
-                .color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 180)));
+                .strong()
+                .color(egui::Color32::BLACK));
         });
 
     Ok(())

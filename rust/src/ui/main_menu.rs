@@ -169,35 +169,6 @@ pub fn main_menu_system(
                 }
             });
 
-            ui.add_space(4.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Raider Passive Forage:");
-                ui.checkbox(&mut state.raider_passive_forage, "Enabled");
-            });
-
-            ui.add_space(4.0);
-
-            // AI Speed
-            ui.horizontal(|ui| {
-                ui.label("AI Speed:");
-                ui.add(egui::Slider::new(&mut state.ai_interval, 1.0..=30.0)
-                    .step_by(0.5)
-                    .suffix("s")
-                    .show_value(true));
-            });
-
-            ui.add_space(4.0);
-
-            // NPC Think interval
-            ui.horizontal(|ui| {
-                ui.label("NPC Think:");
-                ui.add(egui::Slider::new(&mut state.npc_interval, 0.5..=10.0)
-                    .step_by(0.5)
-                    .suffix("s")
-                    .show_value(true));
-            });
-
             ui.add_space(20.0);
 
             // Play button
@@ -242,6 +213,35 @@ pub fn main_menu_system(
             egui::CollapsingHeader::new("Debug Options")
                 .default_open(true)
                 .show(ui, |ui| {
+                    ui.add_space(4.0);
+
+                    // AI Think interval
+                    ui.horizontal(|ui| {
+                        ui.label("AI Think:");
+                        ui.add(egui::Slider::new(&mut state.ai_interval, 1.0..=30.0)
+                            .step_by(0.5)
+                            .suffix("s")
+                            .show_value(true));
+                    });
+
+                    ui.add_space(4.0);
+
+                    // NPC Think interval
+                    ui.horizontal(|ui| {
+                        ui.label("NPC Think:");
+                        ui.add(egui::Slider::new(&mut state.npc_interval, 0.5..=10.0)
+                            .step_by(0.5)
+                            .suffix("s")
+                            .show_value(true));
+                    });
+
+                    ui.add_space(4.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label("Raider Passive Forage:");
+                        ui.checkbox(&mut state.raider_passive_forage, "Enabled");
+                    });
+
                     ui.add_space(4.0);
 
                     // Farms per town

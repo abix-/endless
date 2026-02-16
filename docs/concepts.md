@@ -359,7 +359,7 @@ Bevy ECS represents states as marker components, not enums.
 
 **Traditional state machine:**
 ```rust
-enum GuardState { Patrolling, OnDuty, Resting, GoingToRest }
+enum ArcherState { Patrolling, OnDuty, Resting, GoingToRest }
 ```
 
 **ECS state machine:** States are separate components. An entity has exactly one state component at a time.
@@ -379,7 +379,7 @@ struct GoingToRest;
 ```
 
 **Why markers?**
-- Queries filter by component: `Query<&Guard, With<Patrolling>>` only matches patrolling guards
+- Queries filter by component: `Query<&Archer, With<Patrolling>>` only matches patrolling guards
 - State transitions = add/remove components
 - Each state can have its own data (`OnDuty` has `ticks_waiting`, others don't need it)
 
@@ -387,10 +387,10 @@ struct GoingToRest;
 ```rust
 fn transition_to_rest(
     mut commands: Commands,
-    tired_guards: Query<Entity, (With<Guard>, With<Patrolling>)>,
+    tired_archers: Query<Entity, (With<Archer>, With<Patrolling>)>,
     energy: Query<&Energy>,
 ) {
-    for entity in tired_guards.iter() {
+    for entity in tired_archers.iter() {
         if energy.get(entity).unwrap().0 < ENERGY_HUNGRY {
             commands.entity(entity)
                 .remove::<Patrolling>()
@@ -453,6 +453,43 @@ Frame N+1: Main World computes next frame  ← runs in parallel with render
 **Consequence:** One-frame render latency. The GPU renders positions from the previous main world frame. At 140fps this is ~7ms of latency — invisible.
 
 Used in: `GpuComputePlugin` (extract NpcBufferWrites, NpcGpuData, NpcComputeParams), `NpcRenderPlugin` (extract NpcBatch entity)
+
+---
+
+## Personality Traits
+
+40% of NPCs spawn with a trait. Effects:
+
+| Trait | Effect |
+|-------|--------|
+| Brave | Never flees |
+| Coward | Flees at +20% higher HP threshold |
+| Efficient | +25% farm yield, -25% attack cooldown |
+| Hardy | +25% max HP |
+| Lazy | -20% farm yield, +20% attack cooldown |
+| Strong | +25% damage |
+| Swift | +25% move speed |
+| Sharpshot | +25% attack range |
+| Berserker | +50% damage below 50% HP |
+
+---
+
+## NPC States
+
+| State | Jobs | Description |
+|-------|------|-------------|
+| Idle | All | Between decisions |
+| Resting | All | At home/camp, recovering energy |
+| Off Duty | All | At home/camp, awake |
+| Fighting | Archer, Raider | In combat |
+| Fleeing | All | Running from combat |
+| Walking | Farmer, Archer | Moving to destination |
+| Working | Farmer | At farm, producing food |
+| On Duty | Archer | Stationed at post |
+| Patrolling | Archer | Moving between posts |
+| Raiding | Raider | Going to/at farm to steal |
+| Returning | Raider | Heading back to camp |
+| Wandering | Farmer, Archer | Off-duty wandering |
 
 ---
 

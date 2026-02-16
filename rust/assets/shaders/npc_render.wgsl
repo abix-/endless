@@ -113,6 +113,24 @@ fn vertex(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Building HP bar-only mode (atlas_id 5): health bar in bottom 15%, discard rest
+    if in.atlas_id >= 4.5 {
+        if in.quad_uv.y > 0.85 && in.health < 0.99 {
+            var bar_color = vec4<f32>(0.2, 0.2, 0.2, 1.0);
+            if in.quad_uv.x < in.health {
+                if in.health > 0.5 {
+                    bar_color = vec4<f32>(0.0, 0.8, 0.0, 1.0);
+                } else if in.health > 0.25 {
+                    bar_color = vec4<f32>(1.0, 0.8, 0.0, 1.0);
+                } else {
+                    bar_color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+                }
+            }
+            return bar_color;
+        }
+        discard;
+    }
+
     // Arrow projectile sprite (atlas_id 4)
     if in.atlas_id >= 3.5 {
         let tex_color = textureSample(arrow_texture, arrow_sampler, in.uv);
@@ -151,9 +169,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         return bar_color;
     }
-
-    // Building HP bar-only mode (atlas_id 5): no sprite, just the bar above
-    if in.atlas_id >= 4.5 { discard; }
 
     // Sample from the correct atlas
     var tex_color: vec4<f32>;

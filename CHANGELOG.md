@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-02-15b
+
+- **building damage now projectile-based** — `attack_system` no longer sends direct `BuildingDamageMsg` on fire; instead `process_proj_hits` checks active projectile positions against `BuildingSpatialGrid` (20px hit radius) and sends `BuildingDamageMsg` on collision; buildings now take damage from actual projectile hits, not instantly when fired
+- **building HP bars render properly** — fragment shader now renders 3-color health bars (green/yellow/red) in bottom 15% of building quads for atlas_id≥4.5; previously discarded all pixels for bar-only mode
+- **main menu reorganization** — moved AI Think, NPC Think, and Raider Passive Forage sliders from main area to Advanced collapsible section; cleaner default menu
+- **FPS counter style** — changed from gray semi-transparent to black bold for readability
+- **default towns 2→1** — new games start with 1 player town instead of 2
+- **roadmap cleanup** — 1443→277 lines; moved 267 completed items to `docs/completed.md`; extracted 4 specs to `docs/specs/`; deleted done specs (AI Players, Continent WorldGen); collapsed done stages; renamed Godot parity→Backlog: UI & UX; moved game design tables to `docs/concepts.md`; fixed Guard→Archer terminology throughout docs
+
 ## 2026-02-15
 
 - **building HP bars** — damaged buildings now display GPU-instanced health bars using atlas_id=5.0 bar-only mode (shader discards sprite, keeps bar); `BuildingHpRender` resource extracted to render world; all building types now have HP (Town=500, GoldMine=200, Bed=50); `Building::kind()` returns `BuildingKind` (no longer `Option`) — Fountain/Camp map to `Town`, Bed added as new variant

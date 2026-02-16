@@ -63,8 +63,9 @@ For each active projectile:
 
 ## Hit Processing
 
-`ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` then iterates only up to `proj_alloc.next` (high-water mark) and skips inactive slots:
+`ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` handles two phases:
 
+**Phase 1 — NPC hits** (from GPU hit buffer):
 ```
 for slot in 0..min(proj_alloc.next, hit_state.len()):
     skip if proj_writes.active[slot] == 0 (inactive, stale in readback)
@@ -76,6 +77,20 @@ for slot in 0..min(proj_alloc.next, hit_state.len()):
         recycle slot via ProjSlotAllocator
         send ProjGpuUpdate::Deactivate to GPU
 ```
+
+**Phase 2 — Building collision** (CPU-side, from `ProjPositionState` + `BuildingSpatialGrid`):
+```
+for slot in 0..proj_alloc.next:
+    skip if inactive or dead position
+    read position from ProjPositionState, faction from ProjBufferWrites
+    query BuildingSpatialGrid.for_each_nearby(pos, 20px):
+        skip same-faction buildings
+        if distance < 20px hit radius:
+            push BuildingDamageMsg { kind, index, amount: damage }
+            recycle slot + deactivate on GPU
+```
+
+Buildings aren't in the GPU spatial grid, so building collision is done CPU-side using the readback projectile positions. The 20px hit radius (~half building tile size) provides reasonable collision.
 
 ## GPU Buffers
 
