@@ -192,9 +192,9 @@ pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;
 /// Town building grid spacing in pixels (matches WorldGrid cell_size for 1:1 alignment).
 pub const TOWN_GRID_SPACING: f32 = 32.0;
 
-/// Base grid extent: rows/cols from -4 to +4 = 9x9 starting area.
+/// Base grid extent: rows/cols from -4 to +3 = 8x8 starting area.
 pub const BASE_GRID_MIN: i32 = -4;
-pub const BASE_GRID_MAX: i32 = 4;
+pub const BASE_GRID_MAX: i32 = 3;
 
 /// Maximum grid extent (rows/cols -49 to +50 = 100x100).
 pub const MAX_GRID_EXTENT: i32 = 49;

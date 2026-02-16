@@ -24,7 +24,7 @@ const STEPS: [&str; STEP_COUNT as usize] = [
     "Build an Archer Home - spawns 1 archer",
     "U = upgrades - spend food and gold to buff your NPCs",
     "Upgrades cost food and gold. Miners extract gold from mines",
-    "Expansion upgrade = +1 build range per level (starts 9x9)",
+    "Expansion upgrade = +1 build range per level (starts 8x8)",
     "Build a Miner Home - spawns 1 miner who works the nearest gold mine",
     "P = policies - control NPC behavior (schedules, flee HP, aggression)",
     "T = patrol order - reorder guard posts to set the archer patrol route",
