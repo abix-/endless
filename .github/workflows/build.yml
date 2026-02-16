@@ -79,7 +79,7 @@ jobs:
               $isPreRelease = "true"
               $isDev = "true"
               $est = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId((Get-Date), "Eastern Standard Time")
-              $timestamp = $est.ToString("yyyyMMdd-") + $est.ToString("hhmm").ToLower() + $est.ToString("tt").ToLower()
+              $timestamp = $est.ToString("yyyyMMdd-HHmm")
             } elseif ($channel -eq "custom" -and "${{ github.event.inputs.release_tag }}" -ne "") {
               $tag = "${{ github.event.inputs.release_tag }}"
               $publish = "true"
@@ -193,7 +193,7 @@ jobs:
               publish_release=true
               is_prerelease=true
               is_dev=true
-              timestamp="$(TZ='America/New_York' date +%Y%m%d-%I%M%P)"
+              timestamp="$(TZ='America/New_York' date +%Y%m%d-%H%M)"
             elif [[ "$channel" == "custom" && -n "${{ github.event.inputs.release_tag }}" ]]; then
               tag="${{ github.event.inputs.release_tag }}"
               publish_release=true
@@ -301,7 +301,7 @@ jobs:
               publish_release=true
               is_prerelease=true
               is_dev=true
-              timestamp="$(TZ='America/New_York' date +%Y%m%d-%I%M%P)"
+              timestamp="$(TZ='America/New_York' date +%Y%m%d-%H%M)"
             elif [[ "$channel" == "custom" && -n "${{ github.event.inputs.release_tag }}" ]]; then
               tag="${{ github.event.inputs.release_tag }}"
               publish_release=true
