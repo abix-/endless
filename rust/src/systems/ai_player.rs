@@ -388,7 +388,7 @@ fn execute_action(
                 &mut res.food_storage, &mut res.spawner_state, &mut res.building_hp,
                 Building::GuardPost { town_idx: ti, patrol_order: guard_posts as u32 },
                 tdi, row, col, center, cost);
-            if ok { res.dirty.patrols = true; res.dirty.building_grid = true; }
+            if ok { res.dirty.patrols = true; res.dirty.building_grid = true; res.dirty.guard_post_slots = true; }
             ok.then_some("built guard post".into())
         }
         AiAction::Upgrade(idx) => {

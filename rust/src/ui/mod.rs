@@ -214,6 +214,7 @@ fn game_load_system(
     // Rebuild spatial grid
     tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
     tracking.dirty.patrols = true;
+    tracking.dirty.guard_post_slots = true;
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
@@ -406,6 +407,7 @@ fn game_startup_system(
     }
 
     extra.dirty.patrols = true;
+    extra.dirty.guard_post_slots = true;
 
     info!("Game startup complete: {} NPCs spawned across {} towns",
         total, config.num_towns);
@@ -666,7 +668,7 @@ fn build_place_click_system(
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
         );
-        if is_guard_post { dirty.patrols = true; }
+        if is_guard_post { dirty.patrols = true; dirty.guard_post_slots = true; }
         dirty.building_grid = true;
         return;
     }
@@ -703,7 +705,7 @@ fn build_place_click_system(
         row, col, center, cost,
     ) { return; }
 
-    if kind == BuildKind::GuardPost { dirty.patrols = true; }
+    if kind == BuildKind::GuardPost { dirty.patrols = true; dirty.guard_post_slots = true; }
     dirty.building_grid = true;
 
     combat_log.push(
@@ -950,7 +952,7 @@ fn process_destroy_system(
         &format!("Destroyed building in {}", town_name),
     ).is_ok() {
         selected_building.active = false;
-        if is_guard_post { dirty.patrols = true; }
+        if is_guard_post { dirty.patrols = true; dirty.guard_post_slots = true; }
         dirty.building_grid = true;
     }
 }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Nine Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (with building fallback), damage application, death detection, XP-on-kill grant, cleanup with slot recycling, guard post turret auto-attack, and building damage processing. Eight run chained in `Step::Combat`; `building_damage_system` runs in `Step::Behavior`.
+Ten Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (with building fallback), damage application, death detection, XP-on-kill grant, cleanup with slot recycling, guard post slot sync, guard post turret auto-attack, and building damage processing. Nine run chained in `Step::Combat`; `building_damage_system` runs in `Step::Behavior`.
 
 ## Data Flow
 
@@ -48,8 +48,13 @@ DamageMsg (from process_proj_hits)             GPU movement
   └─ SlotAllocator.free(idx)
         │
         ▼
+  sync_guard_post_slots
+  (alloc/free NPC slots,
+   dirty-flag gated)
+        │
+        ▼
   guard_post_attack_system
-  (scan enemies near posts,
+  (read combat_targets[slot],
    fire projectiles)
 ```
 
@@ -133,16 +138,26 @@ Execution order is **chained** — each system completes before the next starts.
   8. Deselect if `SelectedNpc` matches dying NPC (clears inspector panel)
   9. `SlotAllocator.free(idx)` — recycle slot for future spawns
 
-### 7. guard_post_attack_system (combat.rs)
+### 7. sync_guard_post_slots (combat.rs)
+
+- Gated by `DirtyFlags.guard_post_slots` — skips entirely when no guard posts built/destroyed/loaded
+- Scans `WorldData.guard_posts` for slot mismatches:
+  - **Alive post, no slot** (`position.x > -9000 && npc_slot == None`): allocates `SlotAllocator` index, emits GPU updates (SetPosition, SetTarget, SetSpeed=0, SetHealth=999, SetSpriteFrame col=-1). Sprite col=-1 makes the slot invisible to NPC renderer. SetTarget=position causes GPU to immediately mark settled.
+  - **Tombstoned post, has slot** (`position.x < -9000 && npc_slot == Some`): emits `HideNpc`, frees slot
+- Faction set in a second pass (borrow split: `iter_mut` on guard_posts prevents reading towns simultaneously)
+- Clears `dirty.guard_post_slots` after sync
+
+### 8. guard_post_attack_system (combat.rs)
 
 - Iterates `WorldData.guard_posts` with `GuardPostState` per-post timers and enabled flags
 - State length auto-syncs with guard post count (handles runtime building)
-- For each enabled post with cooldown ready: looks up owning faction from `world_data.towns[post.town_idx]`, scans `GpuReadState.positions`+`factions` (using `gpu_state.npc_count` for bounds) for nearest enemy (different faction) within `GUARD_POST_RANGE` (250px)
+- Skips posts without `npc_slot` (not yet allocated by sync system)
+- For each enabled post with cooldown ready: reads `GpuReadState.combat_targets[slot]` — O(1) GPU-provided nearest enemy. Validates target position and range (`GUARD_POST_RANGE` = 250px)
 - Fires projectile via `PROJ_GPU_UPDATE_QUEUE` with `shooter: -1` (building, not NPC) and post's owning faction
 - Constants: range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s
 - Turret toggle: `GuardPostState.attack_enabled[i]` toggled via build menu UI
 
-### 8. building_damage_system (combat.rs, Step::Behavior)
+### 9. building_damage_system (combat.rs, Step::Behavior)
 - Reads `BuildingDamageMsg` events via `MessageReader`
 - Decrements `BuildingHpState` by `msg.amount` for the target building kind + index
 - Skips already-dead buildings (HP <= 0)
@@ -178,6 +193,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Stand ground | `GpuUpdate::SetTarget` to own position when in attack range (stops movement, allows proj dodge) |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
 | CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + guard_post_attack_system + building attack fallback) |
+| CPU → GPU | Guard post slots | `sync_guard_post_slots` allocates NPC slots for guard posts, sets position/faction/speed=0/health=999/sprite=-1 — GPU spatial grid auto-populates `combat_targets[slot]` with nearest enemy |
 | CPU | Building damage | `process_proj_hits` checks active projectile positions against `BuildingSpatialGrid` → `BuildingDamageMsg` on collision → `building_damage_system` |
 
 ## Debug

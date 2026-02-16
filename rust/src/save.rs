@@ -1285,6 +1285,7 @@ pub fn load_game_system(
     *tracking.gpu_state = Default::default();
     *tracking.building_hp_render = Default::default();
     tracking.dirty.patrols = true;
+    tracking.dirty.guard_post_slots = true;
     tracking.tilemap_spawned.0 = false; // Force tilemap rebuild with new terrain
 
     // 3. Apply save data to all game resources

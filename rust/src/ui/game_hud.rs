@@ -162,6 +162,10 @@ pub struct LogFilterState {
     pub show_npc_activity: bool,
     pub show_ai: bool,
     pub initialized: bool,
+    // Cached merged log entries — skip rebuild when sources unchanged
+    cached_selected_npc: i32,
+    cached_filters: (bool, bool, bool, bool, bool, bool, bool),
+    cached_entries: Vec<(i64, egui::Color32, String, String)>,
 }
 
 #[derive(Default)]
@@ -299,57 +303,71 @@ pub fn combat_log_system(
 
             ui.separator();
 
-            // Scrollable log — merge combat + NPC logs chronologically
+            // Rebuild merged entries only when sources changed
+            let curr_filters = (
+                filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
+                filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
+                filter_state.show_ai,
+            );
+            let needs_rebuild = data.combat_log.is_changed()
+                || data.npc_logs.is_changed()
+                || data.selected.0 != filter_state.cached_selected_npc
+                || curr_filters != filter_state.cached_filters;
+
+            if needs_rebuild {
+                filter_state.cached_entries.clear();
+
+                for entry in &data.combat_log.entries {
+                    let show = match entry.kind {
+                        CombatEventKind::Kill => filter_state.show_kills,
+                        CombatEventKind::Spawn => filter_state.show_spawns,
+                        CombatEventKind::Raid => filter_state.show_raids,
+                        CombatEventKind::Harvest => filter_state.show_harvests,
+                        CombatEventKind::LevelUp => filter_state.show_levelups,
+                        CombatEventKind::Ai => filter_state.show_ai,
+                    };
+                    if !show { continue; }
+
+                    let color = match entry.kind {
+                        CombatEventKind::Kill => egui::Color32::from_rgb(220, 80, 80),
+                        CombatEventKind::Spawn => egui::Color32::from_rgb(80, 200, 80),
+                        CombatEventKind::Raid => egui::Color32::from_rgb(220, 160, 40),
+                        CombatEventKind::Harvest => egui::Color32::from_rgb(200, 200, 60),
+                        CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
+                        CombatEventKind::Ai => egui::Color32::from_rgb(180, 120, 220),
+                    };
+
+                    let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
+                    let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
+                    filter_state.cached_entries.push((key, color, ts, entry.message.clone()));
+                }
+
+                if filter_state.show_npc_activity && data.selected.0 >= 0 {
+                    let idx = data.selected.0 as usize;
+                    if idx < data.npc_logs.0.len() {
+                        let npc_color = egui::Color32::from_rgb(180, 180, 220);
+                        for entry in data.npc_logs.0[idx].iter() {
+                            let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
+                            let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
+                            filter_state.cached_entries.push((key, npc_color, ts, entry.message.to_string()));
+                        }
+                    }
+                }
+
+                filter_state.cached_entries.sort_by_key(|(key, ..)| *key);
+                filter_state.cached_selected_npc = data.selected.0;
+                filter_state.cached_filters = curr_filters;
+            }
+
+            // Render from cache
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
-                    let mut merged: Vec<(i64, egui::Color32, String, &str)> = Vec::new();
-
-                    for entry in &data.combat_log.entries {
-                        let show = match entry.kind {
-                            CombatEventKind::Kill => filter_state.show_kills,
-                            CombatEventKind::Spawn => filter_state.show_spawns,
-                            CombatEventKind::Raid => filter_state.show_raids,
-                            CombatEventKind::Harvest => filter_state.show_harvests,
-                            CombatEventKind::LevelUp => filter_state.show_levelups,
-                            CombatEventKind::Ai => filter_state.show_ai,
-                        };
-                        if !show { continue; }
-
-                        let color = match entry.kind {
-                            CombatEventKind::Kill => egui::Color32::from_rgb(220, 80, 80),
-                            CombatEventKind::Spawn => egui::Color32::from_rgb(80, 200, 80),
-                            CombatEventKind::Raid => egui::Color32::from_rgb(220, 160, 40),
-                            CombatEventKind::Harvest => egui::Color32::from_rgb(200, 200, 60),
-                            CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
-                            CombatEventKind::Ai => egui::Color32::from_rgb(180, 120, 220),
-                        };
-
-                        let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
-                        let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
-                        merged.push((key, color, ts, &entry.message));
-                    }
-
-                    // Selected NPC activity log entries
-                    if filter_state.show_npc_activity && data.selected.0 >= 0 {
-                        let idx = data.selected.0 as usize;
-                        if idx < data.npc_logs.0.len() {
-                            let npc_color = egui::Color32::from_rgb(180, 180, 220);
-                            for entry in data.npc_logs.0[idx].iter() {
-                                let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
-                                let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
-                                merged.push((key, npc_color, ts, &entry.message));
-                            }
-                        }
-                    }
-
-                    merged.sort_by_key(|(key, ..)| *key);
-
-                    for (_, color, ts, msg) in &merged {
+                    for (_, color, ts, msg) in &filter_state.cached_entries {
                         ui.horizontal(|ui| {
                             ui.small(ts);
-                            ui.colored_label(*color, *msg);
+                            ui.colored_label(*color, msg);
                         });
                     }
                 });

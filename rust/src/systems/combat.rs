@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{GUARD_POST_RANGE, GUARD_POST_DAMAGE, GUARD_POST_COOLDOWN, GUARD_POST_PROJ_SPEED, GUARD_POST_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, FarmStates, SpawnerState, DirtyFlags};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, GuardPostState, BuildingHpState, SystemTimings, CombatLog, GameTime, FarmStates, SpawnerState, DirtyFlags, SlotAllocator};
 use crate::gpu::ProjBufferWrites;
 use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, WorldGrid};
 
@@ -335,7 +335,51 @@ pub fn process_proj_hits(
     }
 }
 
-/// Guard post turret auto-attack: scans for nearest enemy within range, fires projectile.
+/// Sync guard post NPC slots: allocate for new posts, free for tombstoned posts.
+/// Gated by DirtyFlags::guard_post_slots — only runs when guard posts are built/destroyed/loaded.
+pub fn sync_guard_post_slots(
+    mut slots: ResMut<SlotAllocator>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
+    mut world_data: ResMut<WorldData>,
+    mut dirty: ResMut<DirtyFlags>,
+) {
+    if !dirty.guard_post_slots { return; }
+    dirty.guard_post_slots = false;
+
+    // Collect new allocations needing faction set (can't borrow towns during guard_posts iter_mut)
+    let mut new_slots: Vec<(usize, u32)> = Vec::new(); // (slot, town_idx)
+
+    for gp in world_data.guard_posts.iter_mut() {
+        let alive = gp.position.x > -9000.0;
+        match (alive, gp.npc_slot) {
+            (true, None) => {
+                let Some(slot) = slots.alloc() else { continue };
+                gp.npc_slot = Some(slot);
+                // Match spawn.rs order: Position, Target, Speed, Health, SpriteFrame
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: slot, x: gp.position.x, y: gp.position.y }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: slot, x: gp.position.x, y: gp.position.y }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: 999.0 }));
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: -1.0, row: 0.0, atlas: 0.0 }));
+                new_slots.push((slot, gp.town_idx));
+            }
+            (false, Some(slot)) => {
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: slot }));
+                slots.free(slot);
+                gp.npc_slot = None;
+            }
+            _ => {}
+        }
+    }
+
+    // Set factions for newly allocated slots (needs immutable towns access, separate from iter_mut)
+    for (slot, town_idx) in new_slots {
+        let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
+    }
+}
+
+/// Guard post turret auto-attack: reads GPU combat_targets for nearest enemy, fires projectile.
 /// State length auto-syncs with WorldData.guard_posts (handles runtime building).
 pub fn guard_post_attack_system(
     time: Res<Time>,
@@ -348,8 +392,6 @@ pub fn guard_post_attack_system(
     let _t = timings.scope("guard_post_attack");
     let dt = time.delta_secs();
     let positions = &gpu_state.positions;
-    let factions = &gpu_state.factions;
-    let npc_count = gpu_state.npc_count;
 
     // Sync state length with guard post count (handles new builds)
     while gp_state.timers.len() < world_data.guard_posts.len() {
@@ -362,6 +404,7 @@ pub fn guard_post_attack_system(
     for (i, post) in world_data.guard_posts.iter().enumerate() {
         if i >= gp_state.timers.len() { break; }
         if !gp_state.attack_enabled[i] { continue; }
+        let Some(slot) = post.npc_slot else { continue }; // No GPU slot yet
 
         // Decrement cooldown
         if gp_state.timers[i] > 0.0 {
@@ -369,58 +412,43 @@ pub fn guard_post_attack_system(
             if gp_state.timers[i] > 0.0 { continue; }
         }
 
-        // Find nearest enemy within range
+        // Read GPU combat_targets — O(1) instead of scanning all NPCs
+        let target_idx = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
+        if target_idx < 0 { continue; }
+        let target = target_idx as usize;
+
         let px = post.position.x;
         let py = post.position.y;
-        let post_faction = world_data.towns.get(post.town_idx as usize)
-            .map(|t| t.faction).unwrap_or(0);
-        let mut best_dist_sq = range_sq;
-        let mut best_idx: Option<usize> = None;
+        let tx = positions.get(target * 2).copied().unwrap_or(-9999.0);
+        let ty = positions.get(target * 2 + 1).copied().unwrap_or(-9999.0);
+        if tx < -9000.0 { continue; }
 
-        for n in 0..npc_count {
-            if n >= factions.len() { continue; }
-            if factions[n] == post_faction { continue; } // Don't shoot own faction
-            let nx = positions[n * 2];
-            let ny = positions[n * 2 + 1];
-            if nx < -9000.0 { continue; } // Hidden/dead
+        let dx = tx - px;
+        let dy = ty - py;
+        let dist_sq = dx * dx + dy * dy;
+        if dist_sq > range_sq { continue; } // GPU found target but it's out of weapon range
 
-            let dx = nx - px;
-            let dy = ny - py;
-            let dist_sq = dx * dx + dy * dy;
-            if dist_sq < best_dist_sq {
-                best_dist_sq = dist_sq;
-                best_idx = Some(n);
-            }
-        }
-
-        // Fire projectile at target
-        if let Some(target) = best_idx {
-            let tx = positions[target * 2];
-            let ty = positions[target * 2 + 1];
-            let dx = tx - px;
-            let dy = ty - py;
-            let dist = best_dist_sq.sqrt();
-
-            if dist > 1.0 {
-                if let Some(proj_slot) = proj_alloc.alloc() {
-                    let dir_x = dx / dist;
-                    let dir_y = dy / dist;
-                    if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                        queue.push(ProjGpuUpdate::Spawn {
-                            idx: proj_slot,
-                            x: px, y: py,
-                            vx: dir_x * GUARD_POST_PROJ_SPEED,
-                            vy: dir_y * GUARD_POST_PROJ_SPEED,
-                            damage: GUARD_POST_DAMAGE,
-                            faction: post_faction,
-                            shooter: -1, // Building, not NPC
-                            lifetime: GUARD_POST_PROJ_LIFETIME,
-                        });
-                    }
+        let dist = dist_sq.sqrt();
+        if dist > 1.0 {
+            if let Some(proj_slot) = proj_alloc.alloc() {
+                let dir_x = dx / dist;
+                let dir_y = dy / dist;
+                if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
+                    queue.push(ProjGpuUpdate::Spawn {
+                        idx: proj_slot,
+                        x: px, y: py,
+                        vx: dir_x * GUARD_POST_PROJ_SPEED,
+                        vy: dir_y * GUARD_POST_PROJ_SPEED,
+                        damage: GUARD_POST_DAMAGE,
+                        faction: world_data.towns.get(post.town_idx as usize)
+                            .map(|t| t.faction).unwrap_or(0),
+                        shooter: -1, // Building, not NPC
+                        lifetime: GUARD_POST_PROJ_LIFETIME,
+                    });
                 }
             }
-            gp_state.timers[i] = GUARD_POST_COOLDOWN;
         }
+        gp_state.timers[i] = GUARD_POST_COOLDOWN;
     }
 }
 
@@ -490,7 +518,7 @@ pub fn building_damage_system(
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
         );
-        if msg.kind == BuildingKind::GuardPost { dirty.patrols = true; }
+        if msg.kind == BuildingKind::GuardPost { dirty.patrols = true; dirty.guard_post_slots = true; }
         dirty.building_grid = true;
 
         // Kill the linked NPC if alive

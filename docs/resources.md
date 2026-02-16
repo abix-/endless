@@ -52,7 +52,7 @@ Static world data, immutable after initialization.
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
 | BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |
-| DirtyFlags | `building_grid`, `patrols`, `healing_zones` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds; `patrol_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
+| DirtyFlags | `building_grid`, `patrols`, `healing_zones`, `guard_post_slots` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds; `guard_post_slots` triggers NPC slot alloc/free in `sync_guard_post_slots`; `patrol_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 
 ### WorldData Structs
@@ -62,7 +62,7 @@ Static world data, immutable after initialization.
 | Town | name, center (Vec2), faction, sprite_type (0=fountain, 1=tent) |
 | Farm | position (Vec2), town_idx |
 | Bed | position (Vec2), town_idx |
-| GuardPost | position (Vec2), town_idx, patrol_order |
+| GuardPost | position (Vec2), town_idx, patrol_order, npc_slot (Option\<usize\>) |
 | FarmerHome | position (Vec2), town_idx |
 | ArcherHome | position (Vec2), town_idx |
 | Tent | position (Vec2), town_idx |

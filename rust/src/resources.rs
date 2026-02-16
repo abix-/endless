@@ -1218,23 +1218,13 @@ pub struct DirtyFlags {
     pub building_grid: bool,
     pub patrols: bool,
     pub healing_zones: bool,
+    pub guard_post_slots: bool,
     /// Pending patrol order swap from UI (guard_post indices).
     /// Set by left_panel, consumed by rebuild_patrol_routes_system.
     pub patrol_swap: Option<(usize, usize)>,
 }
 impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, patrol_swap: None } }
-}
-
-/// Deferred guard post NPC slot allocation/free requests.
-/// UI and AI push entries; `drain_guard_post_slot_queue` system processes them
-/// with access to `SlotAllocator` + `MessageWriter<GpuUpdateMsg>`.
-#[derive(Resource, Default)]
-pub struct GuardPostSlotQueue(pub Vec<GpSlotRequest>);
-
-pub enum GpSlotRequest {
-    Allocate { gp_index: usize, position: Vec2, faction: i32 },
-    Free { gp_index: usize },
+    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, guard_post_slots: true, patrol_swap: None } }
 }
 
 // Test12 relocated to src/tests/vertical_slice.rs — uses shared TestState resource.
