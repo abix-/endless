@@ -441,22 +441,35 @@ pub fn migration_spawn_system(
     grid: Res<WorldGrid>,
     difficulty: Res<Difficulty>,
 ) {
-    if !game_time.hour_ticked { return; }
+    let debug_force = migration_state.debug_spawn;
+    if debug_force {
+        migration_state.debug_spawn = false;
+    }
+
+    if !debug_force {
+        if !game_time.hour_ticked { return; }
+    }
     if migration_state.active.is_some() { return; }
 
-    migration_state.check_timer += 1.0;
-    if migration_state.check_timer < CAMP_SPAWN_CHECK_HOURS { return; }
-    migration_state.check_timer = 0.0;
+    if !debug_force {
+        migration_state.check_timer += 1.0;
+        if migration_state.check_timer < CAMP_SPAWN_CHECK_HOURS { return; }
+        migration_state.check_timer = 0.0;
 
-    // Count player alive NPCs and existing camps
+        // Count player alive NPCs and existing camps
+        let camp_count = world_data.towns.iter().filter(|t| t.sprite_type == 1).count();
+        let player_town = world_data.towns.iter().position(|t| t.faction == 0);
+        let Some(player_idx) = player_town else { return };
+        let player_alive = faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
+        let needed_camps = (player_alive as i32 / VILLAGERS_PER_CAMP) as usize;
+        if camp_count >= needed_camps { return; }
+        if camp_count >= MAX_DYNAMIC_CAMPS { return; }
+    }
+
+    // Count player alive NPCs (needed for group size calc)
     let player_town = world_data.towns.iter().position(|t| t.faction == 0);
     let Some(player_idx) = player_town else { return };
     let player_alive = faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
-
-    let camp_count = world_data.towns.iter().filter(|t| t.sprite_type == 1).count();
-    let needed_camps = (player_alive as i32 / VILLAGERS_PER_CAMP) as usize;
-    if camp_count >= needed_camps { return; }
-    if camp_count >= MAX_DYNAMIC_CAMPS { return; }
 
     // Determine group size
     let scaling = difficulty.migration_scaling().max(1);

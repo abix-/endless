@@ -1278,6 +1278,8 @@ pub struct MigrationGroup {
 pub struct MigrationState {
     pub active: Option<MigrationGroup>,
     pub check_timer: f32,
+    /// Debug: force-spawn a migration group next frame (ignores cooldown/population checks).
+    pub debug_spawn: bool,
 }
 
 /// Pre-computed healing zone per town, indexed by faction for O(1) lookup.

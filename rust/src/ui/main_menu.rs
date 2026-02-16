@@ -156,62 +156,12 @@ pub fn main_menu_system(
 
                     ui.horizontal(|ui| {
                         ui.label("Farms:");
-                        ui.add(egui::Slider::new(&mut state.farms, 0.0..=50.0)
+                        ui.add(egui::Slider::new(&mut state.farms, 0.0..=100.0)
                             .step_by(1.0)
                             .show_value(false));
                         let mut fm = state.farms as i32;
-                        if ui.add(egui::DragValue::new(&mut fm).range(0..=50).suffix(" /town")).changed() {
+                        if ui.add(egui::DragValue::new(&mut fm).range(0..=100).suffix(" /town")).changed() {
                             state.farms = fm as f32;
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Farmer Homes:");
-                        ui.add(egui::Slider::new(&mut state.farmers, 0.0..=50.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut f = state.farmers as i32;
-                        if ui.add(egui::DragValue::new(&mut f).range(0..=50).suffix(" /town")).changed() {
-                            state.farmers = f as f32;
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Archer Homes:");
-                        ui.add(egui::Slider::new(&mut state.archers, 0.0..=50.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut g = state.archers as i32;
-                        if ui.add(egui::DragValue::new(&mut g).range(0..=50).suffix(" /town")).changed() {
-                            state.archers = g as f32;
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Tents:");
-                        ui.add(egui::Slider::new(&mut state.raiders, 0.0..=50.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut r = state.raiders as i32;
-                        if ui.add(egui::DragValue::new(&mut r).range(0..=50).suffix(" /camp")).changed() {
-                            state.raiders = r as f32;
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("AI Towns:");
-                        ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=20.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut at = state.ai_towns as i32;
-                        if ui.add(egui::DragValue::new(&mut at).range(0..=20)).changed() {
-                            state.ai_towns = at as f32;
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Raider Camps:");
-                        ui.add(egui::Slider::new(&mut state.raider_camps, 0.0..=20.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut rc = state.raider_camps as i32;
-                        if ui.add(egui::DragValue::new(&mut rc).range(0..=20)).changed() {
-                            state.raider_camps = rc as f32;
                         }
                     });
                     ui.horizontal(|ui| {
@@ -223,6 +173,68 @@ pub fn main_menu_system(
                         if ui.add(egui::DragValue::new(&mut gm).range(0..=10).suffix(" /town")).changed() {
                             state.gold_mines = gm as f32;
                         }
+                    });
+
+                    ui.add_space(4.0);
+
+                    // AI Towns group
+                    ui.horizontal(|ui| {
+                        ui.label("AI Towns:");
+                        ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=20.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut at = state.ai_towns as i32;
+                        if ui.add(egui::DragValue::new(&mut at).range(0..=20)).changed() {
+                            state.ai_towns = at as f32;
+                        }
+                    });
+                    ui.indent("ai_town_children", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Farmer Homes:");
+                            ui.add(egui::Slider::new(&mut state.farmers, 0.0..=1000.0)
+                                .step_by(1.0)
+                                .show_value(false));
+                            let mut f = state.farmers as i32;
+                            if ui.add(egui::DragValue::new(&mut f).range(0..=1000).suffix(" /town")).changed() {
+                                state.farmers = f as f32;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Archer Homes:");
+                            ui.add(egui::Slider::new(&mut state.archers, 0.0..=1000.0)
+                                .step_by(1.0)
+                                .show_value(false));
+                            let mut g = state.archers as i32;
+                            if ui.add(egui::DragValue::new(&mut g).range(0..=1000).suffix(" /town")).changed() {
+                                state.archers = g as f32;
+                            }
+                        });
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Raider Camps group
+                    ui.horizontal(|ui| {
+                        ui.label("Raider Camps:");
+                        ui.add(egui::Slider::new(&mut state.raider_camps, 0.0..=20.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut rc = state.raider_camps as i32;
+                        if ui.add(egui::DragValue::new(&mut rc).range(0..=20)).changed() {
+                            state.raider_camps = rc as f32;
+                        }
+                    });
+                    ui.indent("raider_camp_children", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Tents:");
+                            ui.add(egui::Slider::new(&mut state.raiders, 0.0..=1000.0)
+                                .step_by(1.0)
+                                .show_value(false));
+                            let mut r = state.raiders as i32;
+                            if ui.add(egui::DragValue::new(&mut r).range(0..=1000).suffix(" /camp")).changed() {
+                                state.raiders = r as f32;
+                            }
+                        });
                     });
                 });
 

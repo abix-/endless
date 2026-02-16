@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-16j
+
+- **profiler debug actions** — "Spawn Migration Group" button in Profiler tab (Debug Actions collapsible); bypasses cooldown/population checks, disabled while migration active; MigrationState.debug_spawn flag consumed by migration_spawn_system
+- **main menu reorder** — Farmer Homes and Archer Homes nested under AI Towns; Tents nested under Raider Camps; Farms and Gold Mines at top level
+- **slider limits raised** — Farms 50→100, Farmer Homes/Archer Homes/Tents 50→1000
+
 ## 2026-02-16i
 
 - **zero-clone GPU upload** — eliminated 6.4MB/frame `ExtractResource` clone of `NpcBufferWrites` by splitting into `NpcGpuState` (compute + sprite + flash, persistent) and `NpcVisualUpload` (packed visual + equip, rebuilt each frame); both read during Extract via `Extract<Res<T>>` (zero-clone immutable access) with `queue.write_buffer()` direct GPU upload; replaced `sync_visual_sprites` + `write_npc_buffers` + `prepare_npc_buffers` visual repack with `build_visual_upload` (single O(N) ECS→GPU-ready pack) + `extract_npc_data` (single Extract function for compute per-dirty-index + visual bulk writes); sentinel -1.0 initialization on first-frame NpcVisualBuffers creation; net ~0.75ms/frame savings at 20K NPCs
