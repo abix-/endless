@@ -115,6 +115,20 @@ Chunk 3 — Wilderness guard post placement:
 - [ ] AI patrol routes cover territory + nearest contested mine(s)
 - [ ] Player can place guard posts anywhere on revealed map (not just town grid)
 
+**Stage 14c: Generic Growth & Contestable Mines**
+
+*Done when: mines grow gold like farms grow food (tended-only, 4-hour cycle), any faction's miner can harvest a ready mine, and FarmStates is generalized to GrowthStates handling both farms and mines.*
+
+Refactor FarmStates → GrowthStates (see plan file `velvet-crunching-torvalds.md`):
+- [ ] `GrowthStates` resource with `GrowthKind` enum (Farm/Mine), replaces both `FarmStates` and `MineStates`
+- [ ] `push_farm(pos, town_idx)` / `push_mine(pos)` — mines have no town owner (contestable)
+- [ ] `harvest()` generalized: Farm credits food to town, Mine credits `MINE_EXTRACT_PER_CYCLE` gold to harvester's town
+- [ ] `growth_system` replaces both `farm_growth_system` and `mine_regen_system` — farms: passive + tended rates (unchanged), mines: tended-only (`MINE_TENDED_GROWTH_RATE` = 0.25/hr, 4 hours to ready)
+- [ ] Miner behavior: walk to mine → claim occupancy → tend (accelerate growth) → harvest when Ready → return with gold. Same pattern as farmer but for gold.
+- [ ] Mine progress bar rendered at mine position (atlas_id=6.0, gold color) via GrowthStates misc instance buffer — not on the miner
+- [ ] Delete: `MineStates`, `MiningProgress`, `MinerProgressRender`, `sync_miner_progress_render`, `mine_regen_system`, `MINE_MAX_GOLD`, `MINE_REGEN_RATE`, `MINE_WORK_HOURS`
+- [ ] Bulk rename `FarmStates` → `GrowthStates` across ~20 files (resources, systems, tests, UI, save)
+
 **Stage 16: Combat Depth**
 
 *Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
