@@ -21,13 +21,13 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 
 | Resource | Per-NPC Data | Writers | Readers |
 |----------|-------------|---------|---------|
-| NpcMetaCache | name, level, xp, trait_id, town_id, job | spawn_npc_system, xp_grant_system | UI queries |
+| NpcMetaCache | name, level, xp, town_id, job | spawn_npc_system, xp_grant_system, inspector rename | UI queries |
 | NpcLogCache | `VecDeque<NpcLogEntry>` (100 cap, circular) | behavior/decision systems | UI queries |
 | NpcsByTownCache | `Vec<Vec<usize>>` — NPC slots grouped by town | spawn/death systems | UI queries |
 
 `NpcLogCache.push(idx, day, hour, minute, message)` adds timestamped entries. Oldest evicted at capacity.
 
-NPC state is derived at query time via `derive_npc_state()` which checks ECS components (Dead, InCombat, Resting, etc.), not cached.
+NPC state is derived at query time via `derive_npc_state()` which checks ECS components (Dead, InCombat, Resting, etc.), not cached. Trait display reads from `Personality` component via `trait_summary()` at query time (not cached in meta). NPC rename edits `NpcMetaCache` directly from inspector UI.
 
 ## Population & Kill Stats
 
@@ -50,8 +50,8 @@ Static world data, immutable after initialization.
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress | Per-farm growth tracking |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt once per frame by `rebuild_building_grid_system` |
-| BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms) | Tracks current HP for all destroyable buildings; initialized on game startup, pushed on build, zeroed on destroy |
+| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt once per frame by `rebuild_building_grid_system` |
+| BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |
 | PatrolsDirty | `dirty: bool`, `pending_swap: Option<(usize, usize)>` | Set when guard posts are built/destroyed/reordered; `pending_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 
@@ -305,7 +305,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 |----------|------|---------|
 | ResetFlag | `bool` | When true, `reset_bevy_system` clears all state |
 | DeltaTime | `f32` | Frame delta in seconds |
-| RespawnTimers | `HashMap<clan_id, hours>` | Per-clan respawn cooldowns |
+| BuildingHpRender | `{ positions: Vec<Vec2>, health_pcts: Vec<f32> }` | Damaged building positions + HP fractions; extracted to render world for GPU instanced HP bars (atlas_id=5.0 bar-only mode) |
 
 ## Known Issues
 

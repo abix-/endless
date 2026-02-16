@@ -417,6 +417,7 @@ fn prepare_npc_buffers(
     existing_buffers: Option<ResMut<NpcRenderBuffers>>,
     gpu_state: Option<Res<crate::resources::GpuReadState>>,
     farm_states: Option<Res<crate::resources::FarmStates>>,
+    building_hp_render: Option<Res<crate::resources::BuildingHpRender>>,
 ) {
     let Some(writes) = buffer_writes else { return };
 
@@ -456,6 +457,23 @@ fn prepare_npc_buffers(
                 flash: 0.0,
                 scale: 16.0,
                 atlas_id: 1.0, // world atlas
+                rotation: 0.0,
+            });
+        }
+    }
+
+    // Building HP bars (bar-only mode, atlas_id 5.0 — shader discards sprite, keeps bar)
+    if let Some(bhp) = building_hp_render {
+        let count = bhp.positions.len().min(bhp.health_pcts.len());
+        for i in 0..count {
+            layer_instances[0].push(InstanceData {
+                position: [bhp.positions[i].x, bhp.positions[i].y],
+                sprite: [0.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                health: bhp.health_pcts[i],
+                flash: 0.0,
+                scale: 32.0,
+                atlas_id: 5.0,
                 rotation: 0.0,
             });
         }

@@ -75,7 +75,7 @@ pub struct InstanceData {
     pub health: f32,         // normalized 0.0-1.0 (4 bytes)
     pub flash: f32,          // damage flash 0.0-1.0 (4 bytes)
     pub scale: f32,          // world-space quad size (4 bytes)
-    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal halo, 3.0=sleep icon (4 bytes)
+    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal halo, 3.0=sleep icon, 5.0=building HP bar-only (4 bytes)
 }
 ```
 
@@ -108,6 +108,12 @@ Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terr
 - Healing layer: atlas_id=2.0 (heal.png single-sprite texture), scale=20.0 (larger than 16px body), yellow color tint [1.0, 0.9, 0.2]
 - Derived by `sync_visual_sprites` from `Activity::Resting` and `Healing` ECS components each frame
 - Independent layers: NPC can show sleep AND healing simultaneously
+
+**Building HP bars** (bar-only mode, added by `prepare_npc_buffers` from `BuildingHpRender`):
+- atlas_id=5.0, scale=32.0 (building-sized)
+- Shader discards all sprite pixels for atlas_id >= 4.5, keeping only the health bar rendered in the bottom 15%
+- `BuildingHpRender` resource extracted to render world via `ExtractResourcePlugin`; contains positions + HP fractions of damaged buildings
+- Only buildings with HP < max are included (populated by main world system)
 
 **Projectiles**: health set to 1.0 (no health bar), flash set to 0.0
 
@@ -197,6 +203,11 @@ if in.quad_uv.y > 0.85 && in.health < 0.99 {
     // Dark grey background, filled portion colored by health level
     // Green (>50%), Yellow (>25%), Red (≤25%)
 }
+```
+
+**Building HP bar-only** (atlas_id 5, between health bar and sprite rendering):
+```wgsl
+if in.atlas_id >= 4.5 { discard; }
 ```
 
 **Sprite rendering** (remaining 85%):

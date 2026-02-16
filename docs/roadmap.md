@@ -86,7 +86,7 @@ Rules:
 - [x] Food production (farmers generate food per hour)
 - [x] Food theft (raiders steal and deliver to camp)
 - [x] Raider passive forage is runtime-toggleable from menu settings (default OFF)
-- [x] Respawning (dead NPCs respawn after cooldown via RespawnTimers)
+- [x] Respawning (dead NPCs respawn after cooldown via SpawnerState timers)
 - [x] Per-town food storage (FoodStorage resource)
 - [x] GameTime resource (time_scale, pause, hourly tick events)
 - [x] GameConfig resource (farmers/guards per town, spawn interval, food per hour)
@@ -377,14 +377,14 @@ Rules:
 
 - [x] Consolidate building destroy flow (remove + spawner tombstone + combat log + HP zero) into `destroy_building()` shared helper used by click-destroy + inspector-destroy + building_damage_system
 - [x] Centralize upgrade metadata (name/label/tooltip/short code) so UI, AI logs, and upgrade routing use one registry — `UPGRADE_REGISTRY` in `stats.rs`, `UpgradeNode` struct with label/short/tooltip/category/cost/prereqs
-- [ ] Make trait display read from `Personality`/`TraitKind` instead of separate `trait_id` mapping in UI cache
+- [x] Make trait display read from `Personality`/`TraitKind` instead of separate `trait_id` mapping in UI cache
 - [ ] Replace hardcoded town indices in HUD (player/camp assumptions) with faction/town lookup helpers
-- [ ] Remove stale respawn legacy resource/path leftovers (`RespawnTimers`) now that `SpawnerState` is authoritative
+- [x] Remove stale respawn legacy resource/path leftovers (`RespawnTimers`) now that `SpawnerState` is authoritative
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 **Remaining: Godot parity leftovers**
 
-- [ ] NPC rename in Bevy UI (inspector/roster edit of `NpcMetaCache.name`)
+- [x] NPC rename in Bevy UI (inspector/roster edit of `NpcMetaCache.name`)
 - [ ] Persist left panel UI state (active tab + expanded/collapsed sections) in `UserSettings`
 - [ ] Add `show_active_radius` debug toggle in Bevy UI (Godot `Radius` toggle parity)
 - [ ] Upgrade tab town snapshot parity: show `farmers/guards/farms/next spawn` summary
@@ -430,6 +430,16 @@ Chunked tilemap (see [spec](#chunked-tilemap)):
 
 Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
+
+Every-frame review backlog:
+- [ ] Gate `rebuild_building_grid_system` so `BuildingSpatialGrid::rebuild()` only runs when world/building data changes (or via dirty flag), not every frame.
+- [ ] Replace `decision_system` threat checks (`count_nearby_factions`) with a spatial query path to avoid periodic O(N) scans per NPC under combat load.
+- [ ] Optimize `healing_system` town-zone checks (faction-indexed town lists / cached radii) to reduce per-frame NPC x town iteration.
+- [ ] Optimize `guard_post_attack_system` target acquisition to avoid full guard-post x NPC scans on fire-ready ticks.
+- [ ] Make combat log UI incremental (cache merged entries and skip per-frame full rebuild/sort when source logs are unchanged).
+- [ ] Change `squad_cleanup_system` from always-on per-frame maintenance to event/interval-driven updates keyed to membership/spawn/death changes.
+- [ ] Narrow `on_duty_tick_system` workset so only on-duty guards are iterated each frame.
+- [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.
 
 SystemParam bundle consolidation:
 - [ ] Create `GameLog` bundle in `resources.rs`: `{ combat_log: ResMut<CombatLog>, game_time: Res<GameTime>, timings: Res<SystemTimings> }`. This triple appears in 8+ systems: `arrival_system`, `spawn_npc_system`, `death_cleanup_system`, `spawner_respawn_system`, `ai_decision_system`, `xp_grant_system`, `healing_system`, `process_upgrades_system`. Each system drops its 3 direct params in favor of `log: GameLog`.

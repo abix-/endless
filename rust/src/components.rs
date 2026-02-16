@@ -381,6 +381,17 @@ pub enum TraitKind {
     Focused,
 }
 
+impl TraitKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            TraitKind::Brave => "Brave",
+            TraitKind::Tough => "Tough",
+            TraitKind::Swift => "Swift",
+            TraitKind::Focused => "Focused",
+        }
+    }
+}
+
 /// A trait with its magnitude (0.5 = weak, 1.0 = normal, 1.5 = strong).
 #[derive(Clone, Copy, Debug)]
 pub struct TraitInstance {
@@ -396,6 +407,18 @@ pub struct Personality {
 }
 
 impl Personality {
+    /// Human-readable trait summary for UI (0-2 traits).
+    pub fn trait_summary(&self) -> String {
+        let mut names: Vec<&'static str> = Vec::new();
+        if let Some(t) = self.trait1 {
+            names.push(t.kind.name());
+        }
+        if let Some(t) = self.trait2 {
+            names.push(t.kind.name());
+        }
+        names.join(" + ")
+    }
+
     /// Get behavior multipliers: (fight, flee, rest, eat, work, wander)
     pub fn get_multipliers(&self) -> (f32, f32, f32, f32, f32, f32) {
         let mut fight = 1.0;

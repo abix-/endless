@@ -88,8 +88,9 @@ Execution order is **chained** — each system completes before the next starts.
 - If no NPC target: sets `CombatState::None`, then checks for opportunistic building attack:
   - Only **archers** and **raiders** attempt building attacks (farmers/miners/fighters skip)
   - Queries `BuildingSpatialGrid` via `find_nearest_enemy_building()` for enemy buildings within `CachedStats.range`
+  - Non-targetable buildings skipped: Town, GoldMine, Bed
   - **Raiders**: only target ArcherHome, GuardPost (leave FarmerHome/MinerHome alone for farm raiding)
-  - **Archers**: target any enemy building type
+  - **Archers**: target any enemy building type (except non-targetable)
   - "Enemy" = building faction != NPC faction (uses `BuildingRef.faction` field)
   - If found and cooldown ready: stand ground (SetTarget to own pos), fire projectile, send `BuildingDamageMsg` (direct damage — buildings aren't in GPU spatial grid), reset cooldown
   - NPCs don't chase buildings — pure attack of opportunity when nearby with nothing better to do

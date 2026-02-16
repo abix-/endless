@@ -670,6 +670,7 @@ impl Plugin for GpuComputePlugin {
             ExtractResourcePlugin::<GpuReadState>::default(),
             ExtractResourcePlugin::<ProjPositionState>::default(),
             ExtractResourcePlugin::<crate::resources::FarmStates>::default(),
+            ExtractResourcePlugin::<crate::resources::BuildingHpRender>::default(),
         ));
 
         // Set up render world systems

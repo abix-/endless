@@ -119,6 +119,7 @@ pub fn top_bar_system(
 pub struct NpcStateQuery<'w, 's> {
     states: Query<'w, 's, (
         &'static NpcIndex,
+        &'static Personality,
         &'static Home,
         &'static Faction,
         &'static TownId,
@@ -131,7 +132,6 @@ pub struct NpcStateQuery<'w, 's> {
 #[derive(SystemParam)]
 pub struct BottomPanelData<'w> {
     game_time: Res<'w, GameTime>,
-    meta_cache: Res<'w, NpcMetaCache>,
     npc_logs: Res<'w, NpcLogCache>,
     selected: Res<'w, SelectedNpc>,
     combat_log: Res<'w, CombatLog>,
@@ -164,10 +164,17 @@ pub struct LogFilterState {
     pub initialized: bool,
 }
 
+#[derive(Default)]
+pub struct InspectorRenameState {
+    slot: i32,
+    text: String,
+}
+
 /// Bottom panel: NPC/building inspector.
 pub fn bottom_panel_system(
     mut contexts: EguiContexts,
     data: BottomPanelData,
+    mut meta_cache: ResMut<NpcMetaCache>,
     bld_data: BuildingInspectorData,
     world_data: Res<WorldData>,
     health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
@@ -178,6 +185,7 @@ pub fn bottom_panel_system(
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
     mut destroy_request: ResMut<DestroyRequest>,
+    mut rename_state: Local<InspectorRenameState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -199,8 +207,8 @@ pub fn bottom_panel_system(
             .frame(frame)
             .show(ctx, |ui| {
                 inspector_content(
-                    ui, &data, &bld_data, &world_data, &health_query, &npc_states,
-                    &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
+                    ui, &data, &mut meta_cache, &mut rename_state, &bld_data, &world_data, &health_query,
+                    &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                 );
                 // Destroy button for selected buildings (not fountains/camps)
                 if has_building && !has_npc {
@@ -371,6 +379,8 @@ pub fn combat_log_system(
 fn inspector_content(
     ui: &mut egui::Ui,
     data: &BottomPanelData,
+    meta_cache: &mut NpcMetaCache,
+    rename_state: &mut InspectorRenameState,
     bld_data: &BuildingInspectorData,
     world_data: &WorldData,
     health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
@@ -384,24 +394,44 @@ fn inspector_content(
 ) {
     let sel = data.selected.0;
     if sel < 0 {
+        rename_state.slot = -1;
+        rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, &data.meta_cache);
+            building_inspector_content(ui, bld_data, world_data, meta_cache);
             return;
         }
         ui.label("Click an NPC or building to inspect");
         return;
     }
     let idx = sel as usize;
-    if idx >= data.meta_cache.0.len() { return; }
+    if idx >= meta_cache.0.len() { return; }
 
-    let meta = &data.meta_cache.0[idx];
+    if rename_state.slot != sel {
+        rename_state.slot = sel;
+        rename_state.text = meta_cache.0[idx].name.clone();
+    }
+
+    ui.horizontal(|ui| {
+        ui.label("Name:");
+        let edit = ui.text_edit_singleline(&mut rename_state.text);
+        let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if (ui.button("Rename").clicked() || enter) && !rename_state.text.trim().is_empty() {
+            let new_name = rename_state.text.trim().to_string();
+            meta_cache.0[idx].name = new_name.clone();
+            rename_state.text = new_name;
+        }
+    });
+
+    let meta = &meta_cache.0[idx];
 
     ui.strong(format!("{}", meta.name));
     tipped(ui, format!("{} Lv.{}  XP: {}/{}", crate::job_name(meta.job), meta.level, meta.xp, (meta.level + 1) * (meta.level + 1) * 100), catalog.0.get("npc_level").unwrap_or(&""));
 
-    let trait_str = crate::trait_name(meta.trait_id);
-    if !trait_str.is_empty() {
-        tipped(ui, format!("Trait: {}", trait_str), catalog.0.get("npc_trait").unwrap_or(&""));
+    if let Some((_, personality, ..)) = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx) {
+        let trait_str = personality.trait_summary();
+        if !trait_str.is_empty() {
+            tipped(ui, format!("Trait: {}", trait_str), catalog.0.get("npc_trait").unwrap_or(&""));
+        }
     }
 
     // Find HP + energy from query
@@ -454,7 +484,7 @@ fn inspector_content(
     let mut home_str = String::new();
     let mut faction_str = String::new();
 
-    if let Some((_, home, faction, town_id, activity, combat))
+    if let Some((_, _, home, faction, town_id, activity, combat))
         = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
     {
         home_str = format!("({:.0}, {:.0})", home.0.x, home.0.y);

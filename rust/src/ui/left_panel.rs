@@ -88,7 +88,6 @@ pub struct UpgradeParams<'w> {
 #[derive(SystemParam)]
 pub struct SquadParams<'w, 's> {
     squad_state: ResMut<'w, SquadState>,
-    meta_cache: Res<'w, NpcMetaCache>,
     gpu_state: Res<'w, GpuReadState>,
     // Query: archers with SquadId (for dismiss)
     squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId), (With<Archer>, Without<Dead>)>,
@@ -216,7 +215,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
-                LeftPanelTab::Squads => squads_content(ui, &mut squad, &world_data, &mut commands),
+                LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands),
                 LeftPanelTab::Intel => intel_content(ui, &intel, &world_data, &policies, &mut intel_cache, &mut jump_target),
                 LeftPanelTab::Profiler => profiler_content(ui, &timings),
             }
@@ -737,7 +736,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, jump_target: &mut 
 // SQUADS CONTENT
 // ============================================================================
 
-fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, _world_data: &WorldData, commands: &mut Commands) {
+fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, commands: &mut Commands) {
     let selected = squad.squad_state.selected;
 
     // Squad list
@@ -860,8 +859,8 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, _world_data: &Worl
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         let members = &squad.squad_state.squads[si].members;
         for &slot in members {
-            if slot >= squad.meta_cache.0.len() { continue; }
-            let meta = &squad.meta_cache.0[slot];
+            if slot >= meta_cache.0.len() { continue; }
+            let meta = &meta_cache.0[slot];
             if meta.name.is_empty() { continue; }
 
             // Try to get HP from GPU readback

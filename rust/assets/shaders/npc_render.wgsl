@@ -152,6 +152,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return bar_color;
     }
 
+    // Building HP bar-only mode (atlas_id 5): no sprite, just the bar above
+    if in.atlas_id >= 4.5 { discard; }
+
     // Sample from the correct atlas
     var tex_color: vec4<f32>;
     if in.atlas_id < 0.5 {

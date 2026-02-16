@@ -537,8 +537,8 @@ pub fn destroy_building(
     }
 
     // Zero HP entry
-    if let (Some(kind), Some(idx)) = (building.kind(), hp_index) {
-        if let Some(hp) = building_hp.get_mut(kind, idx) {
+    if let Some(idx) = hp_index {
+        if let Some(hp) = building_hp.get_mut(building.kind(), idx) {
             *hp = 0.0;
         }
     }
@@ -611,7 +611,7 @@ pub fn find_nearest_enemy_building(
         if bref.faction < 0 { return; } // no faction (gold mines)
         // Skip non-targetable building types
         match bref.kind {
-            BuildingKind::Town | BuildingKind::GoldMine => return,
+            BuildingKind::Town | BuildingKind::GoldMine | BuildingKind::Bed => return,
             _ => {}
         }
         // Raiders only target military buildings
@@ -734,7 +734,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum BuildingKind { Farm, GuardPost, Town, GoldMine, ArcherHome, FarmerHome, Tent, MinerHome }
+pub enum BuildingKind { Farm, GuardPost, Town, GoldMine, ArcherHome, FarmerHome, Tent, MinerHome, Bed }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {
@@ -823,6 +823,13 @@ impl BuildingSpatialGrid {
             self.insert(BuildingRef {
                 kind: BuildingKind::MinerHome, index: i,
                 town_idx: h.town_idx, faction: faction_of(h.town_idx), position: h.position,
+            });
+        }
+        for (i, b) in world.beds.iter().enumerate() {
+            if b.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::Bed, index: i,
+                town_idx: b.town_idx, faction: faction_of(b.town_idx), position: b.position,
             });
         }
     }
@@ -1063,16 +1070,18 @@ impl Building {
         }
     }
 
-    /// Map to BuildingKind (returns None for Fountain, Camp, Bed — no HP tracking).
-    pub fn kind(&self) -> Option<BuildingKind> {
+    /// Map to BuildingKind. All variants covered — every building has HP.
+    pub fn kind(&self) -> BuildingKind {
         match self {
-            Building::Farm { .. } => Some(BuildingKind::Farm),
-            Building::GuardPost { .. } => Some(BuildingKind::GuardPost),
-            Building::FarmerHome { .. } => Some(BuildingKind::FarmerHome),
-            Building::ArcherHome { .. } => Some(BuildingKind::ArcherHome),
-            Building::Tent { .. } => Some(BuildingKind::Tent),
-            Building::MinerHome { .. } => Some(BuildingKind::MinerHome),
-            _ => None,
+            Building::Farm { .. } => BuildingKind::Farm,
+            Building::GuardPost { .. } => BuildingKind::GuardPost,
+            Building::Fountain { .. } | Building::Camp { .. } => BuildingKind::Town,
+            Building::GoldMine => BuildingKind::GoldMine,
+            Building::FarmerHome { .. } => BuildingKind::FarmerHome,
+            Building::ArcherHome { .. } => BuildingKind::ArcherHome,
+            Building::Tent { .. } => BuildingKind::Tent,
+            Building::MinerHome { .. } => BuildingKind::MinerHome,
+            Building::Bed { .. } => BuildingKind::Bed,
         }
     }
 

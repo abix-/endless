@@ -261,6 +261,9 @@ pub const FARMER_HOME_HP: f32 = 100.0;
 pub const MINER_HOME_HP: f32 = 100.0;
 pub const TENT_HP: f32 = 100.0;
 pub const FARM_HP: f32 = 80.0;
+pub const TOWN_HP: f32 = 500.0;
+pub const BED_HP: f32 = 50.0;
+pub const GOLD_MINE_HP: f32 = 200.0;
 
 /// Radius for projectile-vs-building collision detection on CPU.
 pub const BUILDING_HIT_RADIUS: f32 = 20.0;
