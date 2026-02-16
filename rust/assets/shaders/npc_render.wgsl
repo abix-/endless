@@ -1,6 +1,7 @@
 // Universal Instanced Render Shader
-// Renders terrain, buildings, NPCs, equipment, and projectiles via vertex instancing.
-// Slot 0 = quad vertices, slot 1 = per-instance data (position, sprite, color, health, flash, scale, atlas_id, rotation)
+// Two vertex paths:
+//   vertex     — instance buffer (farms, building HP bars, projectiles)
+//   vertex_npc — storage buffer (NPCs + equipment, reads compute shader output directly)
 
 struct VertexInput {
     // Slot 0: Static quad vertex
@@ -15,6 +16,12 @@ struct VertexInput {
     @location(7) scale: f32,             // world-space quad size (16=NPC, 32=terrain)
     @location(8) atlas_id: f32,          // 0=character, 1=world, 2=heal halo, 3=sleep icon, 4=arrow
     @location(9) rotation: f32,          // radians, 0=no rotation (used for projectile orientation)
+};
+
+struct NpcVertexInput {
+    @location(0) quad_pos: vec2<f32>,
+    @location(1) quad_uv: vec2<f32>,
+    @builtin(instance_index) instance_index: u32,
 };
 
 struct VertexOutput {
@@ -51,10 +58,25 @@ struct VertexOutput {
 struct Camera {
     pos: vec2<f32>,
     zoom: f32,
-    _pad: f32,
+    npc_count: u32,
     viewport: vec2<f32>,
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
+
+// NPC storage buffers (bind group 2, used by vertex_npc only)
+struct NpcVisual {
+    sprite_col: f32, sprite_row: f32, atlas_id: f32, flash: f32,
+    r: f32, g: f32, b: f32, a: f32,
+};
+
+struct EquipSlot {
+    col: f32, row: f32, atlas: f32, _pad: f32,
+};
+
+@group(2) @binding(0) var<storage, read> npc_positions: array<vec2<f32>>;
+@group(2) @binding(1) var<storage, read> npc_healths: array<f32>;
+@group(2) @binding(2) var<storage, read> npc_visual_buf: array<NpcVisual>;
+@group(2) @binding(3) var<storage, read> npc_equip: array<EquipSlot>;
 
 // Character atlas layout (roguelikeChar_transparent.png: 918x203)
 const CHAR_CELL: f32 = 17.0;
@@ -67,6 +89,40 @@ const WORLD_CELL: f32 = 17.0;
 const WORLD_SPRITE: f32 = 16.0;
 const WORLD_TEX_W: f32 = 968.0;
 const WORLD_TEX_H: f32 = 526.0;
+
+// Degenerate triangle — moves vertex off-screen to discard
+const HIDDEN: vec4<f32> = vec4<f32>(0.0, 0.0, -2.0, 1.0);
+
+// =============================================================================
+// SHARED HELPERS
+// =============================================================================
+
+fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
+    if atlas_id >= 1.5 {
+        // Single-sprite textures (heal, sleep, arrow): UV = quad_uv directly
+        return quad_uv;
+    } else if atlas_id < 0.5 {
+        // Character atlas
+        let px = sprite_col * CHAR_CELL + quad_uv.x * CHAR_SPRITE;
+        let py = sprite_row * CHAR_CELL + quad_uv.y * CHAR_SPRITE;
+        return vec2<f32>(px / CHAR_TEX_W, py / CHAR_TEX_H);
+    } else {
+        // World atlas
+        let px = sprite_col * WORLD_CELL + quad_uv.x * WORLD_SPRITE;
+        let py = sprite_row * WORLD_CELL + quad_uv.y * WORLD_SPRITE;
+        return vec2<f32>(px / WORLD_TEX_W, py / WORLD_TEX_H);
+    }
+}
+
+fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
+    let offset = (world_pos - camera.pos) * camera.zoom;
+    let ndc = offset / (camera.viewport * 0.5);
+    return vec4<f32>(ndc.x, ndc.y, 0.0, 1.0);
+}
+
+// =============================================================================
+// VERTEX: Instance buffer path (farms, building HP bars, projectiles)
+// =============================================================================
 
 @vertex
 fn vertex(in: VertexInput) -> VertexOutput {
@@ -81,27 +137,8 @@ fn vertex(in: VertexInput) -> VertexOutput {
     );
     let world_pos = in.instance_pos + rotated * in.scale;
 
-    // Orthographic projection with camera transform
-    let offset = (world_pos - camera.pos) * camera.zoom;
-    let ndc = offset / (camera.viewport * 0.5);
-    out.clip_position = vec4<f32>(ndc.x, ndc.y, 0.0, 1.0);
-
-    // Calculate UV based on which atlas to use
-    if in.atlas_id >= 1.5 {
-        // Single-sprite textures (heal, sleep, arrow): UV = quad_uv directly
-        out.uv = in.quad_uv;
-    } else if in.atlas_id < 0.5 {
-        // Character atlas
-        let pixel_x = in.sprite_cell.x * CHAR_CELL + in.quad_uv.x * CHAR_SPRITE;
-        let pixel_y = in.sprite_cell.y * CHAR_CELL + in.quad_uv.y * CHAR_SPRITE;
-        out.uv = vec2<f32>(pixel_x / CHAR_TEX_W, pixel_y / CHAR_TEX_H);
-    } else {
-        // World atlas
-        let pixel_x = in.sprite_cell.x * WORLD_CELL + in.quad_uv.x * WORLD_SPRITE;
-        let pixel_y = in.sprite_cell.y * WORLD_CELL + in.quad_uv.y * WORLD_SPRITE;
-        out.uv = vec2<f32>(pixel_x / WORLD_TEX_W, pixel_y / WORLD_TEX_H);
-    }
-
+    out.clip_position = world_to_clip(world_pos);
+    out.uv = calc_uv(in.sprite_cell.x, in.sprite_cell.y, in.atlas_id, in.quad_uv);
     out.color = in.color;
     out.health = in.health;
     out.quad_uv = in.quad_uv;
@@ -110,6 +147,73 @@ fn vertex(in: VertexInput) -> VertexOutput {
 
     return out;
 }
+
+// =============================================================================
+// VERTEX_NPC: Storage buffer path (NPCs + equipment layers)
+// =============================================================================
+
+@vertex
+fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
+    var out: VertexOutput;
+
+    let slot = in.instance_index % camera.npc_count;
+    let layer = in.instance_index / camera.npc_count;
+    let pos = npc_positions[slot];
+
+    // Hidden NPC (tombstoned position)
+    if pos.x < -9000.0 { out.clip_position = HIDDEN; return out; }
+
+    let vis = npc_visual_buf[slot];
+    var sprite_col: f32; var sprite_row: f32;
+    var atlas_id: f32; var flash: f32;
+    var color: vec4<f32>; var scale: f32 = 16.0; var health: f32;
+
+    if layer == 0u {
+        // Body layer
+        if vis.sprite_col < 0.0 { out.clip_position = HIDDEN; return out; }
+        sprite_col = vis.sprite_col;
+        sprite_row = vis.sprite_row;
+        atlas_id = vis.atlas_id;
+        flash = vis.flash;
+        color = vec4<f32>(vis.r, vis.g, vis.b, vis.a);
+        health = clamp(npc_healths[slot] / 100.0, 0.0, 1.0);
+    } else {
+        // Equipment layer (1-6)
+        let eq = npc_equip[slot * 6u + (layer - 1u)];
+        if eq.col < 0.0 { out.clip_position = HIDDEN; return out; }
+        sprite_col = eq.col;
+        sprite_row = eq.row;
+        atlas_id = eq.atlas;
+        flash = vis.flash;
+        health = 1.0; // equipment layers don't show HP bars
+
+        // Color/scale by atlas type (matches CPU-side prepare_npc_buffers logic)
+        if atlas_id >= 2.5 {
+            color = vec4<f32>(1.0, 1.0, 1.0, 1.0);            // sleep icon: white
+        } else if atlas_id >= 1.5 {
+            scale = 20.0;
+            color = vec4<f32>(1.0, 0.9, 0.2, 1.0);            // heal halo: larger, yellow
+        } else if atlas_id >= 0.5 {
+            color = vec4<f32>(1.0, 1.0, 1.0, 1.0);            // carried item: white
+        } else {
+            color = vec4<f32>(vis.r, vis.g, vis.b, 1.0);      // equipment: job color
+        }
+    }
+
+    out.clip_position = world_to_clip(pos + in.quad_pos * scale);
+    out.uv = calc_uv(sprite_col, sprite_row, atlas_id, in.quad_uv);
+    out.color = color;
+    out.health = health;
+    out.quad_uv = in.quad_uv;
+    out.flash = flash;
+    out.atlas_id = atlas_id;
+
+    return out;
+}
+
+// =============================================================================
+// FRAGMENT (shared by both vertex paths)
+// =============================================================================
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {

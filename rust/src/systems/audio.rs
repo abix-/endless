@@ -70,12 +70,13 @@ pub fn start_music(
 ) {
     audio.music_volume = settings.music_volume;
     audio.sfx_volume = settings.sfx_volume;
+    audio.music_speed = settings.music_speed;
     if audio.tracks.is_empty() { return; }
     let idx = pick_track(&audio);
     audio.last_track = Some(idx);
     commands.spawn((
         AudioPlayer::new(audio.tracks[idx].clone()),
-        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.music_volume)),
+        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.music_volume)).with_speed(audio.music_speed),
         MusicTrack,
     ));
 }
@@ -87,7 +88,9 @@ pub fn jukebox_system(
     mut audio: ResMut<GameAudio>,
 ) {
     if !query.is_empty() || audio.tracks.is_empty() { return; }
-    let idx = if audio.loop_current {
+    let idx = if let Some(next) = audio.play_next.take() {
+        next
+    } else if audio.loop_current {
         audio.last_track.unwrap_or_else(|| pick_track(&audio))
     } else {
         pick_track(&audio)
@@ -95,7 +98,7 @@ pub fn jukebox_system(
     audio.last_track = Some(idx);
     commands.spawn((
         AudioPlayer::new(audio.tracks[idx].clone()),
-        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.music_volume)),
+        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(audio.music_volume)).with_speed(audio.music_speed),
         MusicTrack,
     ));
 }

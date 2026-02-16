@@ -97,6 +97,8 @@ pub struct UserSettings {
     pub music_volume: f32,
     #[serde(default = "default_sfx_volume")]
     pub sfx_volume: f32,
+    #[serde(default = "default_music_speed")]
+    pub music_speed: f32,
 }
 
 fn default_gold_mines() -> usize { 2 }
@@ -112,6 +114,7 @@ fn default_build_menu_text_scale() -> f32 { 1.2 }
 fn default_autosave_hours() -> i32 { 12 }
 fn default_music_volume() -> f32 { 0.3 }
 fn default_sfx_volume() -> f32 { 0.5 }
+fn default_music_speed() -> f32 { 1.0 }
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -155,6 +158,7 @@ impl Default for UserSettings {
             autosave_hours: 12,
             music_volume: 0.3,
             sfx_volume: 0.5,
+            music_speed: 1.0,
         }
     }
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-16f
+
+- **jukebox track selection fix** — dropdown now uses `play_next: Option<usize>` field consumed by `jukebox_system` instead of setting `last_track` directly (which caused random track instead of selected)
+- **jukebox speed controls** — ComboBox dropdown with 10-100% (10% steps) and 150-500% (50% steps); applies via `AudioSink::set_speed()` each frame; speed persisted in UserSettings (`music_speed` field, serde default 1.0)
+- **GPU-native NPC rendering** — new instanced render pipeline replacing Bevy sprite entities with custom RenderCommand + Transparent2d phase; dual vertex buffers (quad + per-instance); multi-layer atlas support (character, equipment, status icons)
+
 ## 2026-02-16e
 
 - **fix crop sprite surviving farm destruction** — destroyed farms no longer show floating food icon or regrow; `FarmStates::tombstone()` method resets all 3 parallel vecs (positions, states, progress); `remove_building()` calls it instead of inline resets; `farm_growth_system` skips tombstoned farms (`position.x < -9000`)

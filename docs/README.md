@@ -65,7 +65,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Top bar: panel toggles left, town name + time center, stats (food + gold) + FPS right
     │   ├─ Floating windows: NPC/building inspector with combat stats + equipment + status (bottom-left) + combat log with filters (bottom-right)
     │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Factions (I) / Help (H)
-    │   ├─ Jukebox overlay: top-right, track picker dropdown + pause/skip/loop controls
+    │   ├─ Jukebox overlay: top-right, track picker dropdown + pause/skip/loop/speed controls
     │   ├─ Build menu: bottom-center horizontal bar with building sprites + help text; click-to-place with grid-snapped ghost preview; destroy mode in bar + inspector
     │   ├─ Pause menu (ESC): Resume, Settings (UI scale, scroll speed, background FPS, music/SFX volume, log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
@@ -91,7 +91,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Behavior systems ───────────────▶ [behavior.md]
     │   ├─ Economy systems ────────────────▶ [economy.md]
     │   ├─ AI player system ─────────────▶ personality-driven build/unlock/upgrade for non-player factions
-    │   └─ Audio (systems/audio.rs) ───▶ music jukebox (22 tracks, random no-repeat), SFX scaffold
+    │   └─ Audio (systems/audio.rs) ───▶ music jukebox (22 tracks, random no-repeat, speed control), SFX scaffold
     │
     └─ Test Framework (tests/)
         ├─ bevy_egui menu (EguiPrimaryContextPass)
@@ -135,12 +135,12 @@ rust/
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, BuildingHpState, HelpCatalog, etc.)
   src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
-  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v3, auto_upgrades, autosave_hours, music/sfx volume)
+  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v3, auto_upgrades, autosave_hours, music/sfx volume, music speed)
   src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale + audio volume), escape/time controls, keyboard toggles (Q=squads, H=help), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
     main_menu.rs        # Main menu with world config sliders + Play / Load Game (centered window save picker) / Debug Tests buttons + autosave interval + settings persistence
-    game_hud.rs         # Top bar (food + gold + FPS), jukebox overlay (track picker + pause/skip/loop), floating inspector with combat stats/equipment/status (bottom-left) + combat log (bottom-right), target overlay, squad overlay
+    game_hud.rs         # Top bar (food + gold + FPS), jukebox overlay (track picker + pause/skip/loop/speed), floating inspector with combat stats/equipment/status (bottom-left) + combat log (bottom-right), target overlay, squad overlay
     left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Factions (I) / Help (H) — policy persistence on tab leave
     build_menu.rs       # Bottom-center build bar: building sprites with cached atlas extraction, click-to-place, destroy mode, cursor hint
   src/tests/
@@ -172,7 +172,7 @@ rust/
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, mine regen, respawning, building spawners, squad cleanup
     ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), weighted random scoring, AiBuildRes SystemParam bundle
-    audio.rs            # Music jukebox (22 tracks, random no-repeat, volume control), SFX scaffold
+    audio.rs            # Music jukebox (22 tracks, random no-repeat, volume + speed control), SFX scaffold
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
 

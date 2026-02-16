@@ -2,7 +2,12 @@
 
 ## Overview
 
-Two rendering systems work together: **terrain and buildings** use Bevy's built-in `TilemapChunk` (two layers on the same grid — terrain opaque at z=-1, buildings alpha-blended at z=-0.5, zero per-frame CPU cost), while **NPCs, equipment, and projectiles** use a custom GPU instanced pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. The instanced renderer uses 7 layers: NPC body (layer 0), 4 equipment layers (layers 1-4), and 2 visual indicator layers (status=5, healing=6), all drawn sequentially in a single DrawNpcs call. Projectiles use a separate draw call. Four textures are bound simultaneously — per-instance `atlas_id` selects which to sample (0=character, 1=world, 2=heal halo, 3=sleep icon).
+Two rendering systems work together: **terrain and buildings** use Bevy's built-in `TilemapChunk` (two layers on the same grid — terrain opaque at z=-1, buildings alpha-blended at z=-0.5, zero per-frame CPU cost), while **NPCs, equipment, farms, building HP bars, and projectiles** use a custom GPU pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. Two render paths share one pipeline with a `storage_mode` specialization key:
+
+- **Storage buffer path** (NPCs): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). 7 layers (body + 4 equipment + 2 indicators) rendered via 7 `draw_indexed` calls with instance offset encoding — shader derives `slot = instance_index % npc_count`, `layer = instance_index / npc_count`.
+- **Instance buffer path** (farms, building HP bars, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1).
+
+Five textures bound simultaneously — `atlas_id` selects which to sample (0=character, 1=world, 2=heal halo, 3=sleep icon, 4=arrow).
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -11,8 +16,8 @@ Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.
 Bevy's built-in sprite renderer creates one entity per sprite. At 16K NPCs, that's 16K entities in the render world — the scheduling/extraction overhead dominates. The custom pipeline uses:
 
 - **1 entity per batch** (NpcBatch, ProjBatch) instead of 16,384 entities
-- **48 bytes/instance** (position + sprite + color + health + flash + scale + atlas_id) instead of ~80 bytes/entity
-- **GPU compute data stays on GPU** — readback only for rendering
+- **GPU compute data stays on GPU** — vertex shader reads positions/health directly from compute output via storage buffers (bind group 2), no readback needed for rendering
+- **Flat storage buffer uploads** — visual [f32;8] + equip [f32;24] per slot, two `write_buffer` calls per frame (~3.84MB at 30K NPCs vs 10.9MB old instance buffer rebuild)
 - **Multi-layer drawing** — body + up to 6 overlay layers (4 equipment + 2 visual indicators), each a separate `draw_indexed` call within one RenderCommand
 
 ## Data Flow
@@ -22,27 +27,35 @@ Main World                        Render World
 ───────────                       ────────────
 NpcBufferWrites       ──ExtractResource──▶ NpcBufferWrites
 NpcGpuData            ──ExtractResource──▶ NpcGpuData
+NpcGpuBuffers         ──(render world)──▶ positions + healths (bind group 2)
 Camera2d entity       ──extract_camera_state──▶ CameraState
 NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                                prepare_npc_buffers
-                               (build InstanceData[] for 5 layers)
+                               (upload visual[f32;8] + equip[f32;24] storage buffers,
+                                build NpcMiscBuffers for farms/BHP,
+                                create bind group 2 from NpcGpuBuffers + NpcVisualBuffers)
                                       │
                                       ▼
                             prepare_npc_texture_bind_group
-                            (quad atlas: char + world + heal + sleep)
+                            (5 textures: char + world + heal + sleep + arrow)
                             prepare_npc_camera_bind_group
+                            (CameraUniform with npc_count)
                                       │
                                       ▼
                                   queue_npcs
-                               (add to Transparent2d)
+                               (DrawMiscCommands sort_key=0.4,
+                                DrawNpcStorageCommands sort_key=0.5)
                                       │
                                       ▼
-                              SetItemPipeline
-                              SetNpcTextureBindGroup<0>
-                              SetNpcCameraBindGroup<1>
-                              DrawNpcs
+                    DrawMiscCommands (farms/BHP, instance path):
+                      SetItemPipeline → SetNpcTextureBindGroup<0>
+                      → SetNpcCameraBindGroup<1> → DrawMisc
+
+                    DrawNpcStorageCommands (NPCs, storage path):
+                      SetItemPipeline → SetNpcTextureBindGroup<0>
+                      → SetNpcCameraBindGroup<1> → DrawNpcsStorage
 
 ProjBufferWrites ──ExtractResource──▶ ProjBufferWrites
 ProjGpuData      ──ExtractResource──▶ ProjGpuData
@@ -50,22 +63,54 @@ ProjBatch entity ──extract_proj_batch──▶ ProjBatch entity
                                       │
                                       ▼
                                prepare_proj_buffers
-                               (build InstanceData[] from PROJ_POSITION_STATE)
+                               (build InstanceData[] from ProjPositionState)
                                       │
                                       ▼
                                   queue_projs
                                (add to Transparent2d, sort_key=1.0)
                                       │
                                       ▼
-                              SetItemPipeline
-                              SetNpcTextureBindGroup<0>
-                              SetNpcCameraBindGroup<1>
-                              DrawProjs
+                    DrawProjCommands (instance path):
+                      SetItemPipeline → SetNpcTextureBindGroup<0>
+                      → SetNpcCameraBindGroup<1> → DrawProjs
 ```
 
-## Instance Data
+## NPC Storage Buffers (Storage Path)
 
-Each instance is 48 bytes of per-instance data, shared across all layer types:
+NPC rendering uses GPU storage buffers instead of per-instance vertex attributes. The vertex shader (`vertex_npc`) reads positions and health directly from compute shader output — no GPU→CPU→GPU round-trip.
+
+**Bind group 2** (NPC data, set by `DrawNpcsStorage`):
+
+| Binding | Buffer | Source | Per-NPC Size |
+|---------|--------|--------|-------------|
+| 0 | `npc_positions` | `NpcGpuBuffers.positions` (compute output) | 8B (vec2) |
+| 1 | `npc_healths` | `NpcGpuBuffers.healths` (compute output) | 4B (f32) |
+| 2 | `npc_visual_buf` | `NpcVisualBuffers.visual` (CPU upload) | 32B ([f32;8]) |
+| 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 96B (6×[f32;4]) |
+
+**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built from `NpcBufferWrites.sprite_indices`, `.flash_values`, `.colors`.
+
+**Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built from `EQUIP_LAYER_FIELDS` (armor, helmet, weapon, item, status, healing sprites). Sentinel: `col < 0` means unequipped/inactive.
+
+**Instance offset encoding:** 7 `draw_indexed` calls, each with `npc_count` instances. Shader derives:
+```wgsl
+let slot = in.instance_index % camera.npc_count;
+let layer = in.instance_index / camera.npc_count;
+```
+
+**Layer 0 (body):** reads `npc_visual_buf[slot]` for sprite/color/flash, `npc_healths[slot] / 100.0` for health bar. Hidden: `pos.x < -9000.0` or `sprite_col < 0`.
+
+**Layers 1-6 (equipment):** reads `npc_equip[slot * 6u + (layer - 1u)]`. Color/scale by atlas type (all in shader):
+- `atlas >= 2.5` (sleep icon): scale=16, color=white — preserves sprite's natural blue Zz
+- `atlas >= 1.5` (heal halo): scale=20, color=yellow [1.0, 0.9, 0.2]
+- `atlas >= 0.5` (carried item/world atlas): scale=16, color=white
+- `atlas < 0.5` (character atlas equipment): scale=16, color=NPC job color from `npc_visual_buf`
+
+Equipment sprites derived by `sync_visual_sprites` from ECS components (`EquippedWeapon`, `EquippedHelmet`, `EquippedArmor`, `Activity`, `Healing`) each frame. NPC can show sleep AND healing simultaneously (independent layers).
+
+## Instance Data (Misc/Projectile Path)
+
+Farms, building HP bars, and projectiles use classic per-instance vertex attributes via `InstanceData` (52 bytes):
 
 ```rust
 pub struct InstanceData {
@@ -75,47 +120,24 @@ pub struct InstanceData {
     pub health: f32,         // normalized 0.0-1.0 (4 bytes)
     pub flash: f32,          // damage flash 0.0-1.0 (4 bytes)
     pub scale: f32,          // world-space quad size (4 bytes)
-    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal halo, 3.0=sleep icon, 5.0=building HP bar-only (4 bytes)
+    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal, 3.0=sleep, 4.0=arrow, 5.0=BHP bar-only (4 bytes)
+    pub rotation: f32,       // radians, used for projectile orientation (4 bytes)
 }
 ```
 
-Built each frame by `prepare_npc_buffers`. Seven layers are built per pass (terrain and buildings are handled by TilemapChunk — see World Tilemap section below):
+**Farm sprites** (in `NpcMiscBuffers`, drawn by `DrawMisc`):
+- atlas_id=1.0 (world atlas), sprite=(24,9), scale=16
+- Color: golden [1.0, 0.85, 0.0] when ready, green [0.4, 0.8, 0.2] when growing
+- Health = growth progress (0.0-1.0, shown as progress bar)
 
-**Layer 0 (body):**
-- **Positions**: from GPU readback if available, else from CPU-side NpcBufferWrites
-- **Sprites**: from `sprite_indices` (4 floats per NPC: col, row, atlas_id, unused)
-- **Atlas**: from `sprite_indices[i*4 + 2]` (0.0=character, 1.0=world). Defaults to 0.0 (character sheet)
-- **Colors**: from `colors` (4 floats per NPC: RGBA)
-- **Health**: from `healths` (normalized by dividing by 100.0, clamped to 0-1)
-- **Flash**: from `flash_values` (0.0-1.0, decays at 5.0/s in `populate_buffer_writes`)
-- **Hidden NPCs** (position.x < -9000) are skipped
-- **Body skip**: sprite col < 0 skips body rendering (used by npc-visuals test to show overlay-only columns)
-
-**Layers 1-4 (equipment: armor, helmet, weapon, item):**
-- Same position as body (from readback)
-- Sprite from `armor_sprites`/`helmet_sprites`/`weapon_sprites`/`item_sprites` (stride 3: col, row, atlas_id per NPC)
-- Sentinel: col < 0 means unequipped → skip
-- Atlas: per-sprite atlas_id (0.0=character, 1.0=world). Food item uses world atlas (1.0)
-- Color: equipment (atlas < 0.5) uses job color tint; carried items (atlas >= 0.5) use white [1,1,1,1] for original sprite color
-- Health: 1.0 (no health bar; shader discards bottom pixels for health >= 0.99)
-- Flash: inherited from body (equipment flashes on hit)
-
-**Layers 5-6 (visual indicators: status, healing):**
-- Same position as body (from readback)
-- Sprite from `status_sprites` (sleep icon) / `healing_sprites` (heal halo) (stride 3: col, row, atlas_id per NPC)
-- Sentinel: col < 0 means inactive → skip
-- Status layer (sleep): atlas_id=3.0 (sleep.png single-sprite texture), scale=16.0, white color [1.0, 1.0, 1.0] (preserves sprite's natural blue Zz)
-- Healing layer: atlas_id=2.0 (heal.png single-sprite texture), scale=20.0 (larger than 16px body), yellow color tint [1.0, 0.9, 0.2]
-- Derived by `sync_visual_sprites` from `Activity::Resting` and `Healing` ECS components each frame
-- Independent layers: NPC can show sleep AND healing simultaneously
-
-**Building HP bars** (bar-only mode, added by `prepare_npc_buffers` from `BuildingHpRender`):
+**Building HP bars** (in `NpcMiscBuffers`, drawn by `DrawMisc`):
 - atlas_id=5.0, scale=32.0 (building-sized)
-- Shader discards all sprite pixels for atlas_id >= 4.5, keeping only the health bar rendered in the bottom 15%
-- `BuildingHpRender` resource extracted to render world via `ExtractResourcePlugin`; contains positions + HP fractions of damaged buildings
-- Only buildings with HP < max are included (populated by main world system)
+- Shader discards all sprite pixels for atlas_id >= 4.5, keeping only the health bar in bottom 15%
+- Only buildings with HP < max are included (from `BuildingHpRender` resource)
 
-**Projectiles**: health set to 1.0 (no health bar), flash set to 0.0
+**Projectiles** (in `ProjRenderBuffers`, drawn by `DrawProjs`):
+- atlas_id=4.0 (arrow texture), health=1.0 (no bar), rotation=velocity angle
+- Faction-colored: blue for villagers, per-faction color for raiders
 
 ## The Quad
 
@@ -142,38 +164,45 @@ The vertex shader scales the unit quad by the per-instance `scale` field (16.0 f
 
 ## Vertex Buffers
 
-Two vertex buffer slots with different step modes:
+**Storage path** (`vertex_npc`, NPCs) — slot 0 only, data from storage buffers:
 
 | Slot | Step Mode | Data | Stride | Attributes |
 |------|-----------|------|--------|------------|
-| 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) position, @location(1) uv |
-| 1 | Instance | Per-instance data (N instances) | 48B | @location(2) position, @location(3) sprite, @location(4) color, @location(5) health, @location(6) flash, @location(7) scale, @location(8) atlas_id |
+| 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) quad_pos, @location(1) quad_uv |
+| — | — | Storage buffers (bind group 2) | — | `@builtin(instance_index)` → index into npc_positions, npc_healths, npc_visual_buf, npc_equip |
 
-`VertexStepMode::Vertex` advances per-vertex (4 times per quad). `VertexStepMode::Instance` advances per-instance (once per NPC).
+**Instance path** (`vertex`, farms/BHP/projectiles) — slot 0 + slot 1:
+
+| Slot | Step Mode | Data | Stride | Attributes |
+|------|-----------|------|--------|------------|
+| 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) quad_pos, @location(1) quad_uv |
+| 1 | Instance | Per-instance data (N instances) | 52B | @location(2) instance_pos, @location(3) sprite_cell, @location(4) color, @location(5) health, @location(6) flash, @location(7) scale, @location(8) atlas_id, @location(9) rotation |
+
+Both paths share `quad_vertex_layout()` (slot 0). The instance path adds `instance_vertex_layout()` (slot 1). Selected via `storage_mode` bool in pipeline specialization key `(hdr, samples, storage_mode)`.
 
 ## Sprite Atlases
 
-Four textures are bound simultaneously at group 0 (bindings 0-7). Per-instance `atlas_id` selects which to sample.
+Five textures are bound simultaneously at group 0 (bindings 0-9). Per-instance/per-slot `atlas_id` selects which to sample.
 
 | Atlas | Bindings | File | Size | Grid | Used By |
 |-------|----------|------|------|------|---------|
-| Character | 0-1 | `roguelikeChar_transparent.png` | 918×203 | 54×12 | NPCs, equipment, projectiles |
-| World | 2-3 | `roguelikeSheet_transparent.png` | 968×526 | 57×31 | Terrain, buildings |
+| Character | 0-1 | `roguelikeChar_transparent.png` | 918×203 | 54×12 | NPCs, equipment |
+| World | 2-3 | `roguelikeSheet_transparent.png` | 968×526 | 57×31 | Terrain, buildings, farms |
 | Heal halo | 4-5 | `heal.png` | 16×16 | 1×1 | Healing halo overlay |
 | Sleep icon | 6-7 | `sleep.png` | 16×16 | 1×1 | Sleep indicator overlay |
+| Arrow | 8-9 | `arrow.png` | 16×16 | 1×1 | Projectile sprite |
 
-Character and world atlases use 16px sprites with 1px margin (17px cells). Heal and sleep textures are single 16×16 sprites (UV = quad_uv directly). The vertex shader selects atlas constants based on `atlas_id`:
+Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
 
 ```wgsl
-if in.atlas_id >= 1.5 {
-    // Heal halo / sleep icon: single-sprite texture, UV = quad_uv
-    out.uv = in.quad_uv;
-} else if in.atlas_id < 0.5 {
-    // Character atlas: 918×203
-    out.uv = compute_uv(in.sprite_cell, CHAR_CELL, CHAR_SPRITE, CHAR_TEX_W, CHAR_TEX_H);
-} else {
-    // World atlas: 968×526
-    out.uv = compute_uv(in.sprite_cell, WORLD_CELL, WORLD_SPRITE, WORLD_TEX_W, WORLD_TEX_H);
+fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
+    if atlas_id >= 1.5 {
+        return quad_uv;  // Single-sprite textures (heal, sleep, arrow)
+    } else if atlas_id < 0.5 {
+        // Character atlas: 918×203
+    } else {
+        // World atlas: 968×526
+    }
 }
 ```
 
@@ -251,42 +280,55 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
-| PrepareResources | `prepare_npc_buffers` | Build 7 layer buffers (body + 4 equipment + 2 indicators) |
-| PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from PROJ_POSITION_STATE |
-| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create quad atlas bind group from NpcSpriteTexture (char + world + heal + sleep) |
-| PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group from CameraState |
-| Queue | `queue_npcs` | Add NpcBatch to Transparent2d (sort_key=0.5) |
-| Queue | `queue_projs` | Add ProjBatch to Transparent2d (sort_key=1.0, above NPCs) |
-| Render | `DrawNpcCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawNpcs |
+| PrepareResources | `prepare_npc_buffers` | Upload NPC visual/equip storage buffers, build misc instance buffer (farms/BHP), create bind group 2 |
+| PrepareResources | `prepare_proj_buffers` | Build projectile instance buffer from ProjPositionState |
+| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture (char + world + heal + sleep + arrow) |
+| PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from NpcGpuData) |
+| Queue | `queue_npcs` | Add DrawMiscCommands (sort_key=0.4) + DrawNpcStorageCommands (sort_key=0.5) |
+| Queue | `queue_projs` | Add DrawProjCommands (sort_key=1.0, above NPCs) |
+| Render | `DrawMiscCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawMisc |
+| Render | `DrawNpcStorageCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawNpcsStorage |
 | Render | `DrawProjCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawProjs |
 
 ## RenderCommand Pattern
 
-Bevy's RenderCommand trait defines the GPU commands for drawing. The NPC pipeline chains three commands:
+Bevy's RenderCommand trait defines GPU commands for drawing. Three command chains share one pipeline (specialized via `storage_mode`):
 
+**NPC storage path** — body + 6 equipment layers via storage buffers:
 ```rust
-type DrawNpcCommands = (
-    SetItemPipeline,           // Bind the NPC render pipeline
-    SetNpcTextureBindGroup<0>, // Bind sprite texture at group 0
-    SetNpcCameraBindGroup<1>,  // Bind camera uniform at group 1
-    DrawNpcs,                  // Set vertex/index buffers, draw_indexed
+type DrawNpcStorageCommands = (
+    SetItemPipeline,           // Pipeline specialized with storage_mode=true
+    SetNpcTextureBindGroup<0>, // Bind sprite textures at group 0
+    SetNpcCameraBindGroup<1>,  // Bind camera uniform at group 1 (includes npc_count)
+    DrawNpcsStorage,           // Set bind group 2 + quad, 7 draw_indexed calls
 );
 ```
 
-`DrawNpcs::render()` sets the shared vertex/index buffers, then iterates over all 7 `LayerBuffer`s in `NpcRenderBuffers.layers`, issuing a separate `draw_indexed` call per non-empty layer. Layers are drawn in order: body (0), armor (1), helmet (2), weapon (3), item (4), status (5), healing (6). If no layers have instances, it returns `Skip`.
+`DrawNpcsStorage::render()` sets bind group 2 (NPC storage buffers), then issues 7 `draw_indexed` calls with instance offset encoding: `(layer * npc_count)..((layer + 1) * npc_count)`. The shader derives `slot` and `layer` from `instance_index`. Hidden NPCs (`pos.x < -9000`) and empty equipment slots (`col < 0`) are culled by moving clip_position off-screen.
 
-Projectiles reuse the same pipeline, shader, and bind groups with a separate instance buffer:
+**Misc instance path** — farms, building HP bars:
+```rust
+type DrawMiscCommands = (
+    SetItemPipeline,           // Pipeline specialized with storage_mode=false
+    SetNpcTextureBindGroup<0>,
+    SetNpcCameraBindGroup<1>,
+    DrawMisc,                  // Set quad + instance buffer, single draw_indexed
+);
+```
 
+`DrawMisc::render()` reads `NpcMiscBuffers` — a small `RawBufferVec<InstanceData>` (~100-200 entries) built each frame from `FarmStates` + `BuildingHpRender`.
+
+**Projectile instance path** — shares quad geometry, separate instance buffer:
 ```rust
 type DrawProjCommands = (
-    SetItemPipeline,           // Same NPC pipeline
-    SetNpcTextureBindGroup<0>, // Same sprite texture
-    SetNpcCameraBindGroup<1>,  // Same camera uniform
+    SetItemPipeline,           // Pipeline specialized with storage_mode=false
+    SetNpcTextureBindGroup<0>,
+    SetNpcCameraBindGroup<1>,
     DrawProjs,                 // Uses NPC quad + proj instance buffer
 );
 ```
 
-`DrawProjs::render()` reads `(NpcRenderBuffers, ProjRenderBuffers)` — sharing the static quad/index buffers from NPCs but using its own instance buffer. Faction-colored: blue for villagers, red for raiders.
+`DrawProjs::render()` reads `ProjRenderBuffers` — sharing static quad/index from `NpcRenderBuffers`. Faction-colored: blue for villagers, per-faction color for raiders.
 
 ## Camera
 
@@ -297,21 +339,24 @@ Bevy's Camera2d is the single source of truth — input systems write directly t
 - `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), writes `Projection::Orthographic.scale` and `Transform` directly
 - `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE. If no NPC found, checks `WorldGrid` for a building at the clicked cell and sets `SelectedBuilding` (col, row, active). Guarded by `ctx.wants_pointer_input() || ctx.is_pointer_over_area()` to avoid stealing clicks from egui UI panels.
 
-**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame, creating a bind group at group 1.
+**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `NpcGpuData`), creating a bind group at group 1.
 
 **Shader** (`npc_render.wgsl`): reads camera from uniform buffer:
 ```wgsl
 struct Camera {
     pos: vec2<f32>,
     zoom: f32,
-    _pad: f32,
+    npc_count: u32,     // used by vertex_npc for instance offset decoding
     viewport: vec2<f32>,
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
 
-// Vertex shader:
-let offset = (world_pos - camera.pos) * camera.zoom;
-let ndc = offset / (camera.viewport * 0.5);
+// Shared helper (used by both vertex and vertex_npc):
+fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
+    let offset = (world_pos - camera.pos) * camera.zoom;
+    let ndc = offset / (camera.viewport * 0.5);
+    return vec4<f32>(ndc.x, ndc.y, 0.0, 1.0);
+}
 ```
 
 ## Texture Loading
@@ -388,5 +433,5 @@ Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase a
 - **Health bar mode hardcoded**: Only "when damaged" mode (show when health < 99%). Off/always modes need a uniform or config resource.
 - **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
 - **Equipment sprite tuning**: Equipment sprites have updated atlas coordinates — use `npc-visuals` test scene to review layers. Food sprite is on world atlas (24,9).
-- **Single sort key for all layers**: All 7 NPC layers share sort_key=0.5 in Transparent2d phase. Layer ordering is correct within the single DrawNpcs call, but layers can't interleave with other phase items.
+- **Single sort key for all NPC layers**: All 7 NPC layers share sort_key=0.5 in Transparent2d phase. Layer ordering is correct within the single DrawNpcsStorage call (7 sequential draw_indexed), but layers can't interleave with other phase items.
 - **Single tilemap chunk per layer**: At 1000×1000 (1M tiles), `command_buffer_generation_tasks` costs ~10ms because Bevy processes all tiles even when most are off-screen. Splitting into 32×32 chunks enables off-screen culling (see roadmap spec).

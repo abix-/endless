@@ -1095,6 +1095,7 @@ pub fn jukebox_ui_system(
     mut audio: ResMut<GameAudio>,
     mut commands: Commands,
     music_query: Query<(Entity, &AudioSink), With<MusicTrack>>,
+    mut settings: ResMut<crate::settings::UserSettings>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     let Some(track_idx) = audio.last_track else { return Ok(()) };
@@ -1121,7 +1122,7 @@ pub fn jukebox_ui_system(
                         });
                     // Switch track if user picked a different one
                     if selected != track_idx {
-                        audio.last_track = Some(selected);
+                        audio.play_next = Some(selected);
                         if let Ok((entity, _)) = music_query.single() {
                             commands.entity(entity).despawn();
                         }
@@ -1135,6 +1136,32 @@ pub fn jukebox_ui_system(
                         if ui.small_button("⏭").clicked() {
                             commands.entity(entity).despawn();
                         }
+                    }
+
+                    // Speed dropdown
+                    let prev_speed = audio.music_speed;
+                    let speed_pct = (audio.music_speed * 100.0).round() as i32;
+                    egui::ComboBox::from_id_salt("jukebox_speed")
+                        .selected_text(format!("{}%", speed_pct))
+                        .width(55.0)
+                        .show_ui(ui, |ui| {
+                            // 10% to 100% in 10% steps
+                            for pct in (10..=100).step_by(10) {
+                                let val = pct as f32 / 100.0;
+                                ui.selectable_value(&mut audio.music_speed, val, format!("{}%", pct));
+                            }
+                            // 150% to 500% in 50% steps
+                            for pct in (150..=500).step_by(50) {
+                                let val = pct as f32 / 100.0;
+                                ui.selectable_value(&mut audio.music_speed, val, format!("{}%", pct));
+                            }
+                        });
+                    if let Ok((_, sink)) = music_query.single() {
+                        sink.set_speed(audio.music_speed);
+                    }
+                    if audio.music_speed != prev_speed {
+                        settings.music_speed = audio.music_speed;
+                        crate::settings::save_settings(&settings);
                     }
 
                     // Loop toggle

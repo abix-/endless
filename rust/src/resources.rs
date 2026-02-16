@@ -1256,11 +1256,15 @@ pub struct GameAudio {
     pub tracks: Vec<Handle<AudioSource>>,
     pub last_track: Option<usize>,
     pub loop_current: bool,
+    /// UI-requested track — set by jukebox dropdown, consumed by jukebox_system.
+    pub play_next: Option<usize>,
+    /// Playback speed multiplier (0.25-2.0, default 1.0).
+    pub music_speed: f32,
 }
 
 impl Default for GameAudio {
     fn default() -> Self {
-        Self { music_volume: 0.3, sfx_volume: 0.5, tracks: Vec::new(), last_track: None, loop_current: false }
+        Self { music_volume: 0.3, sfx_volume: 0.5, tracks: Vec::new(), last_track: None, loop_current: false, play_next: None, music_speed: 1.0 }
     }
 }
 

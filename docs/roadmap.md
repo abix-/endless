@@ -46,11 +46,11 @@ Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
 
 GPU-native NPC rendering (see [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md)):
-- [ ] Vertex shader reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2), eliminating GPU→CPU→GPU round-trip
-- [ ] New `NpcVisualBuffers` resource: `npc_visual` `[f32;8]` per slot (sprite/flash/color) + `equip_data` `[f32;24]` per slot (6 layers), dirty-write uploaded
-- [ ] New `vertex_npc` shader entry point: reads from storage buffers by `instance_index`, skips hidden NPCs (`pos.x < -9000`), push constant `layer_index` for equipment layers
-- [ ] Two pipelines: `NpcStoragePipeline` (NPCs via storage buffers, no instance vertex) + existing pipeline (farms/buildings/projectiles keep instance vertex input)
-- [ ] Farm sprites + building HP bars split to separate CPU-built `RawBufferVec<InstanceData>` draw call (~100 entries)
+- [x] Vertex shader reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2), eliminating CPU→GPU instance buffer rebuild
+- [x] `NpcVisualBuffers` resource: `visual` `[f32;8]` per slot (sprite/flash/color) + `equip` `[f32;24]` per slot (6 layers), full-buffer uploaded per frame (V1)
+- [x] `vertex_npc` shader entry point: instance offset encoding (`slot = instance_index % npc_count`, `layer = instance_index / npc_count`), `npc_count` in `CameraUniform`
+- [x] One pipeline with `storage_mode` specialization key `(hdr, samples, storage_mode)`, two entry points (`vertex` / `vertex_npc`)
+- [x] Farm sprites + building HP bars split to `NpcMiscBuffers` with `RawBufferVec<InstanceData>` + `DrawMisc` command
 - [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`
 - [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation
 
