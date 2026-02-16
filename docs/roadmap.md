@@ -66,19 +66,9 @@ Every-frame review backlog:
 - [x] Optimize `healing_system` town-zone checks (faction-indexed town lists / cached radii) to reduce per-frame NPC x town iteration.
 - [x] Optimize `guard_post_attack_system` target acquisition to avoid full guard-post x NPC scans on fire-ready ticks. Option D: guard posts get NPC `SlotAllocator` indices; GPU spatial grid auto-populates `combat_targets[gp_slot]`. `sync_guard_post_slots` (dirty-flag gated) allocates/frees slots; attack system reads one array index per post — O(1).
 - [x] Make combat log UI incremental (cache merged entries and skip per-frame full rebuild/sort when source logs are unchanged).
-- [ ] DirtyFlags lifecycle hardening: eliminate stale cache/flag carry-over across state transitions and load paths.
-  - Root issue: `DirtyFlags` and `HealingZoneCache` persist across sessions; menu-load/startup paths currently miss `healing_zones` invalidation, and `patrol_swap` can survive if not consumed before leaving Playing.
-  - Implement in `ui/mod.rs` + `save.rs`:
-    1. In `game_cleanup_system`, reset `DirtyFlags` to default and clear `HealingZoneCache`.
-    2. In all enter/load paths (`game_startup_system`, menu `game_load_system`, in-game `load_game_system`), explicitly set `dirty.healing_zones = true` and `dirty.patrol_swap = None`.
-    3. Keep existing `dirty.patrols = true` behavior for route rebuild, but ensure no stale swap is applied after a new world/load.
-  - Done when:
-    - First frame after entering Playing always rebuilds healing zones from current `WorldData` + upgrades.
-    - No patrol order swap is applied unless triggered in the current session.
-    - No stale `HealingZoneCache` entries survive from prior session/world.
-  - Validation:
-    - Manual: MainMenu -> New Game, MainMenu -> Load, in-game F9 load; verify correct healing behavior and patrol order stability.
-    - Add logs/asserts in debug builds to confirm `healing_zones` flips true on enter/load and false after rebuild.
+- [x] DirtyFlags lifecycle hardening: eliminate stale cache/flag carry-over across state transitions and load paths.
+  - All load/startup/cleanup paths reset via `*dirty = DirtyFlags::default()` (ui/mod.rs game_startup, game_load, game_cleanup + save.rs load_game).
+  - `game_cleanup_system` clears `HealingZoneCache.by_faction`.
 - [ ] DirtyFlags regression tests (state transitions + load): add automated coverage for cleanup/enter behavior.
   - Add tests (likely in `tests/vertical_slice.rs` or dedicated `tests/dirty_flags.rs`) that exercise:
     1. `OnExit(AppState::Playing)` cleanup resets `DirtyFlags` and clears `HealingZoneCache`.
