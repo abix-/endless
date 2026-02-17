@@ -12,6 +12,7 @@ pub mod farmer_cycle;
 pub mod raider_cycle;
 pub mod combat;
 pub mod projectiles;
+pub mod friendly_fire_buildings;
 pub mod healing;
 pub mod economy;
 pub mod world_gen;
@@ -446,6 +447,20 @@ pub fn register_tests(app: &mut App) {
             .run_if(in_state(AppState::Running))
             .run_if(test_is("projectiles"))
             .after(Step::Behavior));
+    // friendly-fire-buildings
+    registry.tests.push(TestEntry {
+        name: "friendly-fire-buildings".into(),
+        description: "Single ranged shooter; same-faction building in shot lane must not take damage".into(),
+        phase_count: 4,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        friendly_fire_buildings::setup.run_if(test_is("friendly-fire-buildings")));
+    app.add_systems(Update,
+        friendly_fire_buildings::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("friendly-fire-buildings"))
+            .after(Step::Behavior));
 
     // healing
     registry.tests.push(TestEntry {
@@ -842,4 +857,6 @@ fn cleanup_test_world(
 
     info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);
 }
+
+
 
