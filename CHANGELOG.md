@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-16q
+
+- **miner home mine assignment** — click-to-assign UI on miner home inspector: "Set Mine" enters placement mode (like squad targets), click a gold mine to assign it; "Clear" reverts to auto (nearest mine); `MinerHome.assigned_mine` persisted in save/load via `MinerHomeSave`; behavior decision + spawn both respect assignment
+- **fix: squad archers leaving post when rest_when_tired=false** — Priority 6 (OnDuty+tired) now checks squad `rest_when_tired` flag; archers in squads with the flag off stay on duty instead of cycling home
+- **fix: gold mines now indestructible** — `building_damage_system` skips `GoldMine` kind
+- **returning miners show gold sprite** — `build_visual_upload` item layer shows gold sprite for `Returning { gold > 0 }` (food sprite for `has_food`)
+
 ## 2026-02-16p
 
 - **stage 14b: AI expansion + waypoint rename + wilderness placement** — AI expansion brain: dynamic miner targets per personality, slot fullness scaling for expansion urgency, boosted expansion weights; disabled turrets on waypoints (code preserved for future Tower building); full rename GuardPost→Waypoint across 35 files with serde back-compat aliases; `place_waypoint_at_world_pos()` for wilderness placement (player + AI); AI territorial strategy places waypoints near uncovered gold mines; `WAYPOINT_COVER_RADIUS` (200px) determines mine coverage

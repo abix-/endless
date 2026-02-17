@@ -749,6 +749,8 @@ pub struct UiState {
     pub left_panel_open: bool,
     pub left_panel_tab: LeftPanelTab,
     pub combat_log_visible: bool,
+    /// Index into world_data.miner_homes — next click assigns a gold mine.
+    pub assigning_mine: Option<usize>,
 }
 
 impl Default for UiState {
@@ -759,6 +761,7 @@ impl Default for UiState {
             left_panel_open: false,
             left_panel_tab: LeftPanelTab::default(),
             combat_log_visible: true,
+            assigning_mine: None,
         }
     }
 }

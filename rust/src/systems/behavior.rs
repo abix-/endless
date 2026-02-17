@@ -914,30 +914,41 @@ pub fn decision_system(
                         }
                     }
                     Job::Miner => {
-                        // Find nearest mine (GrowthKind::Mine) that isn't occupied
-                        let current_pos = if idx * 2 + 1 < positions.len() {
-                            Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
+                        // Check for manually assigned mine (via miner home UI)
+                        let assigned = farms.world.miner_homes.iter()
+                            .find(|mh| (mh.position - home.0).length() < 1.0)
+                            .and_then(|mh| mh.assigned_mine)
+                            .filter(|p| p.x > -9000.0);
+
+                        let mine_target = if let Some(assigned_pos) = assigned {
+                            // Use assigned mine directly
+                            Some(assigned_pos)
                         } else {
-                            home.0
-                        };
-                        let mut best_mine: Option<(f32, Vec2)> = None;
-                        for (gi, pos) in farms.states.positions.iter().enumerate() {
-                            if farms.states.kinds.get(gi) != Some(&crate::resources::GrowthKind::Mine) {
-                                continue;
-                            }
-                            // Skip tombstoned mines
-                            if pos.x < -9000.0 { continue; }
-                            // Prefer unoccupied mines (or Ready ones anyone can grab)
-                            let occupied = farms.occupancy.is_occupied(*pos);
-                            let ready = farms.states.states.get(gi) == Some(&FarmGrowthState::Ready);
-                            if !occupied || ready {
-                                let dist = current_pos.distance(*pos);
-                                if best_mine.is_none() || dist < best_mine.unwrap().0 {
-                                    best_mine = Some((dist, *pos));
+                            // Find nearest mine (GrowthKind::Mine) that isn't occupied
+                            let current_pos = if idx * 2 + 1 < positions.len() {
+                                Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
+                            } else {
+                                home.0
+                            };
+                            let mut best_mine: Option<(f32, Vec2)> = None;
+                            for (gi, pos) in farms.states.positions.iter().enumerate() {
+                                if farms.states.kinds.get(gi) != Some(&crate::resources::GrowthKind::Mine) {
+                                    continue;
+                                }
+                                if pos.x < -9000.0 { continue; }
+                                let occupied = farms.occupancy.is_occupied(*pos);
+                                let ready = farms.states.states.get(gi) == Some(&FarmGrowthState::Ready);
+                                if !occupied || ready {
+                                    let dist = current_pos.distance(*pos);
+                                    if best_mine.is_none() || dist < best_mine.unwrap().0 {
+                                        best_mine = Some((dist, *pos));
+                                    }
                                 }
                             }
-                        }
-                        if let Some((_, mine_pos)) = best_mine {
+                            best_mine.map(|(_, pos)| pos)
+                        };
+
+                        if let Some(mine_pos) = mine_target {
                             *activity = Activity::Mining { mine_pos };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: mine_pos.x, y: mine_pos.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Mining gold");

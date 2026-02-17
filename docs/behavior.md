@@ -216,6 +216,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress` + `WorkPosition`, set `Activity::Returning { has_food: false, gold: extracted }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
 
 **Priority 6: Patrol**
+- If `Activity::OnDuty { ticks_waiting }` + energy < `ENERGY_TIRED_THRESHOLD`: drop to `Idle` (falls through to scoring where Rest wins). **Squad exception**: archers in a squad with `rest_when_tired == false` stay on duty — they never leave post for energy reasons.
 - If `Activity::OnDuty { ticks_waiting }` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, set `Activity::Patrolling`
 
 **Priority 7: Idle scoring (Utility AI)**
@@ -226,7 +227,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
-- **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch that finds the nearest mine with gold > 0 and walks there (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
+- **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch. If the miner's `MinerHome` has `assigned_mine` set (via building inspector UI), that mine is used directly. Otherwise, finds the nearest unoccupied mine and walks there (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 
 ### on_duty_tick_system
@@ -296,7 +297,7 @@ Player-directed archer groups. 10 squads available, each with a target position 
 
 **Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` archers are redirected only when the squad target moves >100px from the archer's position. `Patrolling`, `GoingToRest`, and `Resting` archers are left alone (already heading to target or resting). Other activities (`Idle`, `Wandering`) get redirected immediately.
 
-**Rest-when-tired**: Squad archers respect `rest_when_tired` flag via three gates: (1) arrival handler catches tired archers before `OnDuty`, (2) hard gate before combat priorities forces `GoingToRest`, (3) squad sync block skips resting archers. All three use hysteresis (enter at energy < 30, stay until energy ≥ 90). `attack_system` skips `GoingToRest` NPCs to prevent GPU target override.
+**Rest-when-tired**: Squad archers respect `rest_when_tired` flag via four gates: (1) arrival handler catches tired archers before `OnDuty`, (2) hard gate before combat priorities forces `GoingToRest`, (3) squad sync block skips resting archers, (4) Priority 6 OnDuty+tired check skips leave-post when `rest_when_tired == false`. Gates 1-3 use hysteresis (enter at energy < 30, stay until energy ≥ 90). Gate 4 is the inverse — it prevents archers from leaving post when the flag is off. `attack_system` skips `GoingToRest` NPCs to prevent GPU target override.
 
 **All survival behavior preserved**: Squad archers still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities.
 

@@ -190,7 +190,7 @@ pub fn bottom_panel_system(
     data: BottomPanelData,
     mut meta_cache: ResMut<NpcMetaCache>,
     bld_data: BuildingInspectorData,
-    world_data: Res<WorldData>,
+    mut world_data: ResMut<WorldData>,
     health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
     equip_query: Query<(
         &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
@@ -204,6 +204,7 @@ pub fn bottom_panel_system(
     catalog: Res<HelpCatalog>,
     mut destroy_request: ResMut<DestroyRequest>,
     mut rename_state: Local<InspectorRenameState>,
+    mut ui_state: ResMut<UiState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -225,8 +226,9 @@ pub fn bottom_panel_system(
             .frame(frame)
             .show(ctx, |ui| {
                 inspector_content(
-                    ui, &data, &mut meta_cache, &mut rename_state, &bld_data, &world_data, &health_query,
+                    ui, &data, &mut meta_cache, &mut rename_state, &bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
+                    &mut ui_state,
                 );
                 // Destroy button for selected buildings (not fountains/camps)
                 if has_building && !has_npc {
@@ -415,7 +417,7 @@ fn inspector_content(
     meta_cache: &mut NpcMetaCache,
     rename_state: &mut InspectorRenameState,
     bld_data: &BuildingInspectorData,
-    world_data: &WorldData,
+    world_data: &mut WorldData,
     health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
     equip_query: &Query<(
         &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
@@ -428,13 +430,14 @@ fn inspector_content(
     settings: &UserSettings,
     catalog: &HelpCatalog,
     copy_text: &mut Option<String>,
+    ui_state: &mut UiState,
 ) {
     let sel = data.selected.0;
     if sel < 0 {
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, meta_cache);
+            building_inspector_content(ui, bld_data, world_data, meta_cache, ui_state);
             return;
         }
         ui.label("Click an NPC or building to inspect");
@@ -551,10 +554,12 @@ fn inspector_content(
     let mut state_str = String::new();
     let mut home_str = String::new();
     let mut faction_str = String::new();
+    let mut home_pos: Option<Vec2> = None;
 
     if let Some((_, _, home, faction, town_id, activity, combat))
         = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
     {
+        home_pos = Some(home.0);
         home_str = format!("({:.0}, {:.0})", home.0.x, home.0.y);
         faction_str = format!("{} (town {})", faction.0, town_id.0);
 
@@ -567,6 +572,17 @@ fn inspector_content(
 
     tipped(ui, format!("State: {}", state_str), catalog.0.get("npc_state").unwrap_or(&""));
     ui.label(format!("Faction: {}  Home: {}", faction_str, home_str));
+
+    // Mine assignment for miners (same UI as MinerHome building inspector)
+    if meta.job == 4 {
+        if let Some(hp) = home_pos {
+            let mh_idx = world_data.miner_homes.iter().position(|m| (m.position - hp).length() < 1.0);
+            if let Some(mh_idx) = mh_idx {
+                ui.separator();
+                mine_assignment_ui(ui, world_data, mh_idx, hp, ui_state);
+            }
+        }
+    }
 
     // Follow toggle
     ui.horizontal(|ui| {
@@ -665,12 +681,41 @@ pub fn building_town_idx(building: &Building) -> u32 {
     }
 }
 
+/// Mine assignment UI: show assigned mine, "Set Mine" / "Clear" buttons.
+/// Shared by building inspector (MinerHome) and NPC inspector (Miner).
+fn mine_assignment_ui(
+    ui: &mut egui::Ui,
+    world_data: &mut WorldData,
+    mh_idx: usize,
+    ref_pos: Vec2,
+    ui_state: &mut UiState,
+) {
+    let assigned = world_data.miner_homes[mh_idx].assigned_mine;
+    if let Some(mine_pos) = assigned {
+        let dist = mine_pos.distance(ref_pos);
+        ui.label(format!("Mine: ({:.0}, {:.0}) — {:.0}px", mine_pos.x, mine_pos.y, dist));
+    } else {
+        ui.label("Mine: Auto (nearest)");
+    }
+    ui.horizontal(|ui| {
+        if ui.button("Set Mine").clicked() {
+            ui_state.assigning_mine = Some(mh_idx);
+        }
+        if assigned.is_some() {
+            if ui.button("Clear").clicked() {
+                world_data.miner_homes[mh_idx].assigned_mine = None;
+            }
+        }
+    });
+}
+
 /// Render building inspector content when a building cell is selected.
 fn building_inspector_content(
     ui: &mut egui::Ui,
     bld: &BuildingInspectorData,
-    world_data: &WorldData,
+    world_data: &mut WorldData,
     meta_cache: &NpcMetaCache,
+    ui_state: &mut UiState,
 ) {
     let col = bld.selected_building.col;
     let row = bld.selected_building.row;
@@ -754,6 +799,15 @@ fn building_inspector_content(
                     );
                 } else {
                     ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Spawning...");
+                }
+            }
+
+            // Mine assignment UI (MinerHome only)
+            if matches!(building, Building::MinerHome { .. }) {
+                ui.separator();
+                let mh_idx = world_data.miner_homes.iter().position(|m| (m.position - world_pos).length() < 1.0);
+                if let Some(mh_idx) = mh_idx {
+                    mine_assignment_ui(ui, world_data, mh_idx, world_pos, ui_state);
                 }
             }
         }
@@ -1005,6 +1059,7 @@ pub fn target_overlay_system(
 pub fn squad_overlay_system(
     mut contexts: EguiContexts,
     squad_state: Res<SquadState>,
+    ui_state: Res<UiState>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
 ) -> Result {
@@ -1067,6 +1122,22 @@ pub fn squad_overlay_system(
             let cursor_egui = egui::Pos2::new(cursor_pos.x, cursor_pos.y);
             let hint_color = egui::Color32::from_rgba_unmultiplied(255, 255, 100, 160);
             painter.circle_stroke(cursor_egui, 12.0, egui::Stroke::new(2.0, hint_color));
+        }
+    }
+
+    // Mine assignment cursor hint
+    if ui_state.assigning_mine.is_some() {
+        if let Some(cursor_pos) = window.cursor_position() {
+            let cursor_egui = egui::Pos2::new(cursor_pos.x, cursor_pos.y);
+            let hint_color = egui::Color32::from_rgba_unmultiplied(200, 180, 40, 180);
+            painter.circle_stroke(cursor_egui, 12.0, egui::Stroke::new(2.0, hint_color));
+            painter.text(
+                egui::Pos2::new(cursor_egui.x, cursor_egui.y + 18.0),
+                egui::Align2::CENTER_TOP,
+                "Click a gold mine",
+                egui::FontId::proportional(12.0),
+                hint_color,
+            );
         }
     }
 

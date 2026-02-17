@@ -272,7 +272,7 @@ pub fn spawner_respawn_system(
                 let town_data_idx = entry.town_idx as usize;
 
                 let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
-                    world::resolve_spawner_npc(entry, &world_data.towns, &bgrid, &farm_occupancy);
+                    world::resolve_spawner_npc(entry, &world_data.towns, &bgrid, &farm_occupancy, &world_data.miner_homes);
 
                 // Home = spawner building position (house/barracks/tent)
                 let (home_x, home_y) = (entry.position.x, entry.position.y);

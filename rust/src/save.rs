@@ -46,7 +46,7 @@ pub struct SaveData {
     pub farmer_homes: Vec<PosTownSave>,
     pub archer_homes: Vec<PosTownSave>,
     pub tents: Vec<PosTownSave>,
-    pub miner_homes: Vec<PosTownSave>,
+    pub miner_homes: Vec<MinerHomeSave>,
     pub gold_mines: Vec<[f32; 2]>,
 
     // Town grids (area_level + town_data_idx)
@@ -122,6 +122,14 @@ pub struct TownSave {
 pub struct PosTownSave {
     pub position: [f32; 2],
     pub town_idx: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MinerHomeSave {
+    pub position: [f32; 2],
+    pub town_idx: u32,
+    #[serde(default)]
+    pub assigned_mine: Option<[f32; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -508,8 +516,9 @@ pub fn collect_save_data(
     let tents_save: Vec<PosTownSave> = world_data.tents.iter().map(|t| PosTownSave {
         position: v2(t.position), town_idx: t.town_idx,
     }).collect();
-    let miner_homes: Vec<PosTownSave> = world_data.miner_homes.iter().map(|m| PosTownSave {
+    let miner_homes: Vec<MinerHomeSave> = world_data.miner_homes.iter().map(|m| MinerHomeSave {
         position: v2(m.position), town_idx: m.town_idx,
+        assigned_mine: m.assigned_mine.map(|p| v2(p)),
     }).collect();
     let gold_mines_save: Vec<[f32; 2]> = world_data.gold_mines.iter().map(|m| v2(m.position)).collect();
 
@@ -769,6 +778,7 @@ pub fn apply_save(
     }).collect();
     world_data.miner_homes = save.miner_homes.iter().map(|m| world::MinerHome {
         position: to_vec2(m.position), town_idx: m.town_idx,
+        assigned_mine: m.assigned_mine.map(|p| to_vec2(p)),
     }).collect();
     world_data.gold_mines = save.gold_mines.iter().map(|p| world::GoldMine {
         position: to_vec2(*p),
