@@ -1415,43 +1415,99 @@ fn factions_content(
         if snap.squads.is_empty() {
             right.small("No squads with members.");
         } else {
-            right.small(format!("Active squads: {}", snap.squads.len()));
-            for squad in &snap.squads {
-                let has_target = squad.target.is_some();
-                let patrol = if squad.patrol_enabled { "On" } else { "Off" };
-                let rest = if squad.rest_when_tired { "On" } else { "Off" };
+            let mut squads = snap.squads.clone();
+            squads.sort_by_key(|s| s.squad_idx);
 
-                right.group(|ui| {
-                    ui.label(format!(
-                        "Squad {}  Members: {}  Size target: {}",
-                        squad.squad_idx + 1,
-                        squad.members,
-                        squad.target_size
-                    ));
-                    ui.small(format!("Target set: {}  Patrol: {}  Rest when tired: {}", if has_target { "Yes" } else { "No" }, patrol, rest));
+            let role_for = |i: usize, s: &SquadSnapshot| -> &'static str {
+                if snap.faction == 0 {
+                    "MANUAL"
+                } else if i == 0 {
+                    "DEF"
+                } else if s.target_size == 0 {
+                    "IDLE"
+                } else {
+                    "ATK"
+                }
+            };
 
-                    if let Some(target) = squad.target {
-                        ui.horizontal(|ui| {
-                            ui.small(format!("Target: ({:.0}, {:.0})", target.x, target.y));
-                            if ui.small_button("Jump Target").clicked() {
+            let mut defense_archers = 0usize;
+            let mut offense_archers = 0usize;
+            let mut attack_squads_active = 0usize;
+            for (i, s) in squads.iter().enumerate() {
+                match role_for(i, s) {
+                    "DEF" => defense_archers += s.members,
+                    "ATK" => {
+                        offense_archers += s.members;
+                        if s.members > 0 {
+                            attack_squads_active += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            right.small(format!("Active squads: {}", squads.len()));
+            if snap.faction == 0 {
+                right.small("Commander: Manual");
+            } else {
+                right.small("Commander: AI");
+                right.small(format!(
+                    "Defense: {}  Offense: {}  Active attack squads: {}",
+                    defense_archers, offense_archers, attack_squads_active
+                ));
+            }
+
+            egui::Grid::new(format!("intel_squads_grid_{}", snap.faction))
+                .striped(true)
+                .num_columns(7)
+                .show(right, |ui| {
+                    ui.small("Role");
+                    ui.small("Squad");
+                    ui.small("Members");
+                    ui.small("State");
+                    ui.small("Target");
+                    ui.small("CD");
+                    ui.small("Jump");
+                    ui.end_row();
+
+                    for (i, squad) in squads.iter().enumerate() {
+                        let role = role_for(i, squad);
+                        let mut state_bits: Vec<&str> = Vec::new();
+                        if squad.patrol_enabled { state_bits.push("PATROL"); }
+                        if squad.rest_when_tired { state_bits.push("REST"); }
+                        if squad.commander_kind.is_some() { state_bits.push("LOCK"); }
+                        let state = if state_bits.is_empty() {
+                            "-".to_string()
+                        } else {
+                            state_bits.join(" ")
+                        };
+
+                        let target = if let Some(kind) = squad.commander_kind {
+                            let idx = squad.commander_index.unwrap_or(0);
+                            format!("{:?} #{}", kind, idx)
+                        } else if squad.target.is_some() {
+                            "Map target".to_string()
+                        } else {
+                            "None".to_string()
+                        };
+                        let cd = squad.commander_cooldown.unwrap_or(0.0).max(0.0);
+
+                        ui.small(role);
+                        ui.small(format!("#{}", squad.squad_idx + 1));
+                        ui.small(format!("{}/{}", squad.members, squad.target_size));
+                        ui.small(&state).on_hover_text("PATROL = holds local patrol when idle, REST = returns home when tired, LOCK = commander has an active target lock");
+                        ui.small(target);
+                        ui.small(format!("{:.1}s", cd));
+                        if let Some(target) = squad.target {
+                            if ui.small_button("Jump").clicked() {
                                 *jump_target = Some(target);
                             }
-                        });
-                    } else {
-                        ui.small("Target: none");
-                    }
-
-                    if let Some(kind) = squad.commander_kind {
-                        let idx = squad.commander_index.unwrap_or(0);
-                        let cd = squad.commander_cooldown.unwrap_or(0.0).max(0.0);
-                        ui.small(format!("Commander target: {:?} #{}  Retarget CD: {:.1}s", kind, idx, cd));
-                    } else if snap.faction == 0 {
-                        ui.small("Commander: manual/player");
-                    } else {
-                        ui.small("Commander: AI (no target lock)");
+                        } else {
+                            ui.small("-");
+                        }
+                        ui.end_row();
                     }
                 });
-            }
         }
 
         if !snap.last_actions.is_empty() {

@@ -2,9 +2,9 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::{WAYPOINT_RANGE, WAYPOINT_DAMAGE, WAYPOINT_COOLDOWN, WAYPOINT_PROJ_SPEED, WAYPOINT_PROJ_LIFETIME};
+use crate::constants::{TurretStats, WAYPOINT_TURRET, FOUNTAIN_TURRET};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, WaypointState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TurretState, TurretKindState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingSlotMap;
@@ -323,55 +323,43 @@ pub fn process_proj_hits(
     hit_state.0.clear();
 }
 
-/// Waypoint turret auto-attack: reads GPU combat_targets for nearest enemy, fires projectile.
-/// State length auto-syncs with WorldData.waypoints (handles runtime building).
-pub fn waypoint_attack_system(
-    time: Res<Time>,
-    gpu_state: Res<GpuReadState>,
-    world_data: Res<WorldData>,
-    building_slots: Res<BuildingSlotMap>,
-    mut gp_state: ResMut<WaypointState>,
-    mut proj_alloc: ResMut<ProjSlotAllocator>,
-    timings: Res<SystemTimings>,
+/// Shared turret loop: for each building with attack enabled, check GPU combat target, fire projectile.
+fn fire_turrets(
+    dt: f32,
+    positions: &[f32],
+    combat_targets: &[i32],
+    building_slots: &BuildingSlotMap,
+    proj_alloc: &mut ProjSlotAllocator,
+    state: &mut TurretKindState,
+    kind: BuildingKind,
+    stats: &TurretStats,
+    buildings: &[(Vec2, i32)],
 ) {
-    let _t = timings.scope("waypoint_attack");
-    let dt = time.delta_secs();
-    let positions = &gpu_state.positions;
+    let range_sq = stats.range * stats.range;
 
-    // Sync state length with waypoint count (handles new builds)
-    while gp_state.timers.len() < world_data.waypoints.len() {
-        gp_state.timers.push(0.0);
-        gp_state.attack_enabled.push(false);
-    }
-
-    let range_sq = WAYPOINT_RANGE * WAYPOINT_RANGE;
-
-    for (i, post) in world_data.waypoints.iter().enumerate() {
-        if i >= gp_state.timers.len() { break; }
-        if !gp_state.attack_enabled[i] { continue; }
-        let Some(slot) = building_slots.get_slot(BuildingKind::Waypoint, i) else { continue };
+    for (i, &(pos, faction)) in buildings.iter().enumerate() {
+        if i >= state.attack_enabled.len() || !state.attack_enabled[i] { continue; }
+        let Some(slot) = building_slots.get_slot(kind, i) else { continue };
 
         // Decrement cooldown
-        if gp_state.timers[i] > 0.0 {
-            gp_state.timers[i] = (gp_state.timers[i] - dt).max(0.0);
-            if gp_state.timers[i] > 0.0 { continue; }
+        if i < state.timers.len() && state.timers[i] > 0.0 {
+            state.timers[i] = (state.timers[i] - dt).max(0.0);
+            if state.timers[i] > 0.0 { continue; }
         }
 
-        // Read GPU combat_targets — O(1) instead of scanning all NPCs
-        let target_idx = gpu_state.combat_targets.get(slot).copied().unwrap_or(-1);
+        // Read GPU combat_targets for nearest enemy
+        let target_idx = combat_targets.get(slot).copied().unwrap_or(-1);
         if target_idx < 0 { continue; }
         let target = target_idx as usize;
 
-        let px = post.position.x;
-        let py = post.position.y;
         let tx = positions.get(target * 2).copied().unwrap_or(-9999.0);
         let ty = positions.get(target * 2 + 1).copied().unwrap_or(-9999.0);
         if tx < -9000.0 { continue; }
 
-        let dx = tx - px;
-        let dy = ty - py;
+        let dx = tx - pos.x;
+        let dy = ty - pos.y;
         let dist_sq = dx * dx + dy * dy;
-        if dist_sq > range_sq { continue; } // GPU found target but it's out of weapon range
+        if dist_sq > range_sq { continue; }
 
         let dist = dist_sq.sqrt();
         if dist > 1.0 {
@@ -381,20 +369,66 @@ pub fn waypoint_attack_system(
                 if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
                     queue.push(ProjGpuUpdate::Spawn {
                         idx: proj_slot,
-                        x: px, y: py,
-                        vx: dir_x * WAYPOINT_PROJ_SPEED,
-                        vy: dir_y * WAYPOINT_PROJ_SPEED,
-                        damage: WAYPOINT_DAMAGE,
-                        faction: world_data.towns.get(post.town_idx as usize)
-                            .map(|t| t.faction).unwrap_or(0),
-                        shooter: -1, // Building, not NPC
-                        lifetime: WAYPOINT_PROJ_LIFETIME,
+                        x: pos.x, y: pos.y,
+                        vx: dir_x * stats.proj_speed,
+                        vy: dir_y * stats.proj_speed,
+                        damage: stats.damage,
+                        faction,
+                        shooter: -1,
+                        lifetime: stats.proj_lifetime,
                     });
                 }
             }
         }
-        gp_state.timers[i] = WAYPOINT_COOLDOWN;
+        if i < state.timers.len() {
+            state.timers[i] = stats.cooldown;
+        }
     }
+}
+
+/// Building turret auto-attack: any building kind with turret stats fires at nearby enemies.
+pub fn building_turret_system(
+    time: Res<Time>,
+    gpu_state: Res<GpuReadState>,
+    world_data: Res<WorldData>,
+    building_slots: Res<BuildingSlotMap>,
+    mut turret: ResMut<TurretState>,
+    mut proj_alloc: ResMut<ProjSlotAllocator>,
+    timings: Res<SystemTimings>,
+) {
+    let _t = timings.scope("building_turret");
+    let dt = time.delta_secs();
+
+    // --- Waypoints: sync state, default disabled ---
+    while turret.waypoint.timers.len() < world_data.waypoints.len() {
+        turret.waypoint.timers.push(0.0);
+        turret.waypoint.attack_enabled.push(false);
+    }
+    let wp_buildings: Vec<_> = world_data.waypoints.iter()
+        .map(|w| (w.position, world_data.towns.get(w.town_idx as usize)
+            .map(|t| t.faction).unwrap_or(0)))
+        .collect();
+
+    // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
+    while turret.town.timers.len() < world_data.towns.len() {
+        turret.town.timers.push(0.0);
+        turret.town.attack_enabled.push(false);
+    }
+    for (i, town) in world_data.towns.iter().enumerate() {
+        if i < turret.town.attack_enabled.len() {
+            turret.town.attack_enabled[i] = town.sprite_type == 0;
+        }
+    }
+    let town_buildings: Vec<_> = world_data.towns.iter()
+        .map(|t| (t.center, t.faction))
+        .collect();
+
+    fire_turrets(dt, &gpu_state.positions, &gpu_state.combat_targets,
+        &building_slots, &mut proj_alloc,
+        &mut turret.waypoint, BuildingKind::Waypoint, &WAYPOINT_TURRET, &wp_buildings);
+    fire_turrets(dt, &gpu_state.positions, &gpu_state.combat_targets,
+        &building_slots, &mut proj_alloc,
+        &mut turret.town, BuildingKind::Town, &FOUNTAIN_TURRET, &town_buildings);
 }
 
 /// Process building damage messages: decrement HP, destroy when HP reaches 0.

@@ -220,23 +220,25 @@ pub const BASE_GRID_MAX: i32 = 3;
 pub const MAX_GRID_EXTENT: i32 = 49;
 
 // ============================================================================
-// WAYPOINT TURRET CONSTANTS
+// BUILDING TURRET STATS
 // ============================================================================
 
-/// Detection range for waypoint auto-attack.
-pub const WAYPOINT_RANGE: f32 = 250.0;
+/// Combat stats for a building turret (any building kind that auto-shoots).
+pub struct TurretStats {
+    pub range: f32,
+    pub damage: f32,
+    pub cooldown: f32,
+    pub proj_speed: f32,
+    pub proj_lifetime: f32,
+}
 
-/// Damage per turret projectile.
-pub const WAYPOINT_DAMAGE: f32 = 8.0;
+pub const WAYPOINT_TURRET: TurretStats = TurretStats {
+    range: 250.0, damage: 8.0, cooldown: 3.0, proj_speed: 300.0, proj_lifetime: 1.5,
+};
 
-/// Seconds between turret shots.
-pub const WAYPOINT_COOLDOWN: f32 = 3.0;
-
-/// Turret projectile speed (pixels/sec).
-pub const WAYPOINT_PROJ_SPEED: f32 = 300.0;
-
-/// Turret projectile lifetime (seconds).
-pub const WAYPOINT_PROJ_LIFETIME: f32 = 1.5;
+pub const FOUNTAIN_TURRET: TurretStats = TurretStats {
+    range: 300.0, damage: 5.0, cooldown: 2.5, proj_speed: 250.0, proj_lifetime: 1.5,
+};
 
 // ============================================================================
 // SQUAD CONSTANTS

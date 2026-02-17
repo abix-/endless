@@ -482,7 +482,7 @@ pub fn collect_save_data(
     policies: &TownPolicies,
     auto_upgrade: &AutoUpgrade,
     squad_state: &SquadState,
-    waypoint_state: &WaypointState,
+    turret_state: &TurretState,
     camp_state: &CampState,
     faction_stats: &FactionStats,
     kill_stats: &KillStats,
@@ -646,7 +646,7 @@ pub fn collect_save_data(
         policies: policies.policies.clone(),
         auto_upgrades: auto_upgrades_save,
         squads,
-        waypoint_attack: waypoint_state.attack_enabled.clone(),
+        waypoint_attack: turret_state.waypoint.attack_enabled.clone(),
         camp_respawn_timers: camp_state.respawn_timers.clone(),
         camp_forage_timers: camp_state.forage_timers.clone(),
         camp_max_pop: camp_state.max_pop.clone(),
@@ -748,7 +748,7 @@ pub fn apply_save(
     policies: &mut TownPolicies,
     auto_upgrade: &mut AutoUpgrade,
     squad_state: &mut SquadState,
-    waypoint_state: &mut WaypointState,
+    turret_state: &mut TurretState,
     camp_state: &mut CampState,
     faction_stats: &mut FactionStats,
     kill_stats: &mut KillStats,
@@ -916,8 +916,8 @@ pub fn apply_save(
     squad_state.placing_target = false;
 
     // Waypoint turret state
-    waypoint_state.timers = vec![0.0; save.waypoint_attack.len()];
-    waypoint_state.attack_enabled = save.waypoint_attack.clone();
+    turret_state.waypoint.timers = vec![0.0; save.waypoint_attack.len()];
+    turret_state.waypoint.attack_enabled = save.waypoint_attack.clone();
 
     // Camp state
     camp_state.max_pop = save.camp_max_pop.clone();
@@ -1119,7 +1119,7 @@ pub struct SaveWorldState<'w> {
     pub policies: ResMut<'w, TownPolicies>,
     pub auto_upgrade: ResMut<'w, AutoUpgrade>,
     pub squad_state: ResMut<'w, SquadState>,
-    pub waypoint_state: ResMut<'w, WaypointState>,
+    pub turret_state: ResMut<'w, TurretState>,
 }
 
 /// More world state + faction/AI resources.
@@ -1186,7 +1186,7 @@ pub fn save_game_system(
         &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
-        &ws.squad_state, &ws.waypoint_state, &fs.camp_state, &fs.faction_stats,
+        &ws.squad_state, &ws.turret_state, &fs.camp_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, npcs,
     );
 
@@ -1230,7 +1230,7 @@ pub fn autosave_system(
         &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
-        &ws.squad_state, &ws.waypoint_state, &fs.camp_state, &fs.faction_stats,
+        &ws.squad_state, &ws.turret_state, &fs.camp_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, npcs,
     );
 
@@ -1435,7 +1435,7 @@ pub fn load_game_system(
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
         &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
-        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.waypoint_state, &mut fs.camp_state,
+        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.turret_state, &mut fs.camp_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state,
         &mut tracking.npcs_by_town, &mut tracking.slots,

@@ -870,16 +870,23 @@ impl CombatLog {
 }
 
 // ============================================================================
-// GUARD POST TURRET STATE
+// BUILDING TURRET STATE
 // ============================================================================
 
-/// Per-guard-post turret state. Length auto-syncs with WorldData.waypoints.
-#[derive(Resource, Default)]
-pub struct WaypointState {
-    /// Cooldown timer per post (seconds remaining).
+/// Per-building turret state for one building kind.
+#[derive(Default)]
+pub struct TurretKindState {
+    /// Cooldown timer per building (seconds remaining).
     pub timers: Vec<f32>,
-    /// Whether auto-attack is enabled per post.
+    /// Whether auto-attack is enabled per building.
     pub attack_enabled: Vec<bool>,
+}
+
+/// Turret state for all building kinds that can shoot.
+#[derive(Resource, Default)]
+pub struct TurretState {
+    pub waypoint: TurretKindState,
+    pub town: TurretKindState,
 }
 
 // ============================================================================
@@ -1340,7 +1347,7 @@ impl HelpCatalog {
         m.insert("build_farm", "Grows food over time. Build a Farmer Home nearby to assign a farmer to harvest it.");
         m.insert("build_farmer_home", "Spawns 1 farmer. Farmer works at the nearest free farm. Build farms first!");
         m.insert("build_archer_home", "Spawns 1 archer. Archer patrols nearby waypoints and fights enemies.");
-        m.insert("build_waypoint", "Patrol waypoint for guards. Can toggle turret mode (auto-shoots enemies). Right-click an existing post to toggle.");
+        m.insert("build_waypoint", "Patrol waypoint for guards. Guards patrol between nearby waypoints and fight enemies.");
         m.insert("build_tent", "Spawns 1 raider. Raiders steal food from enemy farms and bring it back to camp.");
         m.insert("build_miner_home", "Spawns 1 miner. Miner works at the nearest gold mine.");
         m.insert("unlock_slot", "Pay food to unlock this grid slot. Then right-click it again to build.");

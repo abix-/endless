@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-17l
+
+- **building turret system** — generalized `waypoint_attack_system` into `building_turret_system` with shared `fire_turrets()` helper; any building kind can now be a turret via `TurretStats` config
+- **fountain turrets** — fountains (sprite_type == 0) auto-attack nearby enemies (range=300, damage=5, cooldown=2.5s); always-on, refreshed from sprite_type each tick so camps never fire
+- **`TurretState` resource** — replaces `WaypointState`; holds per-kind `TurretKindState` (timers + attack_enabled vecs); waypoint behavior unchanged (default disabled, persisted in save)
+- **`TurretStats` struct** — `constants.rs` consolidates 5 loose WAYPOINT_* consts into `WAYPOINT_TURRET` and `FOUNTAIN_TURRET` typed consts
+- **AI squad commander improvements** — `SquadRole::Idle` for excess squads, `defense_share_pct` + `attack_split_weight` per personality for explicit defense/attack allocation; non-attack squads clear targets
+
 ## 2026-02-17k
 
 - **crash handler** — custom panic hook in `main.rs` catches crashes, copies full report (backtrace + location + version) to clipboard via `arboard`, writes `crash.log` next to executable, and shows native Windows `MessageBoxW` error dialog

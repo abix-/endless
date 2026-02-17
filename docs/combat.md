@@ -2,7 +2,7 @@
 
 ## Overview
 
-Ten Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (with building fallback), damage application, death detection, XP-on-kill grant, cleanup with slot recycling, waypoint slot sync, waypoint turret auto-attack, and building damage processing. Nine run chained in `Step::Combat`; `building_damage_system` runs in `Step::Behavior`.
+Ten Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (with building fallback), damage application, death detection, XP-on-kill grant, cleanup with slot recycling, waypoint slot sync, building turret auto-attack (fountains + waypoints), and building damage processing. Nine run chained in `Step::Combat`; `building_damage_system` runs in `Step::Behavior`.
 
 ## Data Flow
 
@@ -53,9 +53,10 @@ DamageMsg (from process_proj_hits)             GPU movement
    dirty-flag gated)
         │
         ▼
-  waypoint_attack_system
-  (read combat_targets[slot],
-   fire projectiles)
+  building_turret_system
+  (fountains + waypoints,
+   fire_turrets helper,
+   read combat_targets[slot])
 ```
 
 attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or applies point-blank damage for melee. The projectile system ([projectiles.md](projectiles.md)) handles movement, collision detection, hit readback, and slot recycling.
@@ -150,15 +151,16 @@ Execution order is **chained** — each system completes before the next starts.
 - Faction set in a second pass (borrow split: `iter_mut` on waypoints prevents reading towns simultaneously)
 - Clears `dirty.waypoint_slots` after sync
 
-### 8. waypoint_attack_system (combat.rs)
+### 8. building_turret_system (combat.rs)
 
-- Iterates `WorldData.waypoints` with `WaypointState` per-post timers and enabled flags
-- State length auto-syncs with waypoint count (handles runtime building)
-- Skips posts without `npc_slot` (not yet allocated by sync system)
-- For each enabled post with cooldown ready: reads `GpuReadState.combat_targets[slot]` — O(1) GPU-provided nearest enemy. Validates target position and range (`GUARD_POST_RANGE` = 250px)
-- Fires projectile via `PROJ_GPU_UPDATE_QUEUE` with `shooter: -1` (building, not NPC) and post's owning faction
-- Constants: range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s
-- Turret toggle: `WaypointState.attack_enabled[i]` toggled via build menu UI
+Generalized turret system for any building kind. Uses a shared `fire_turrets()` helper parameterized by `BuildingKind`, `TurretStats`, and a `(Vec2, i32)` slice of (position, faction).
+
+- **TurretState** resource (replaces WaypointState): holds per-kind `TurretKindState` with `timers: Vec<f32>` and `attack_enabled: Vec<bool>`
+- **TurretStats** struct in `constants.rs`: `range`, `damage`, `cooldown`, `proj_speed`, `proj_lifetime`
+- State length auto-syncs with building count each tick
+- **Waypoints**: `WAYPOINT_TURRET` (range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s). Default disabled — `attack_enabled` persisted in save.
+- **Fountains**: `FOUNTAIN_TURRET` (range=300, damage=5, cooldown=2.5s, proj_speed=250, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `Town.sprite_type == 0` every tick (camps excluded).
+- `fire_turrets()` loop: for each enabled building, reads `GpuReadState.combat_targets[slot]` (O(1) GPU targeting), validates range, fires `ProjGpuUpdate::Spawn` with `shooter: -1`
 
 ### 9. building_damage_system (combat.rs, Step::Behavior)
 - Reads `BuildingDamageMsg` events via `MessageReader`
@@ -196,7 +198,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
 | CPU → GPU | Stand ground | `GpuUpdate::SetTarget` to own position when in attack range (stops movement, allows proj dodge) |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
-| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + waypoint_attack_system + building attack fallback) |
+| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + building_turret_system + building attack fallback) |
 | CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 — GPU spatial grid auto-populates `combat_targets[slot]` with nearest enemy |
 | CPU → GPU | Building HP sync | `building_damage_system` writes `GpuUpdate::SetHealth` to sync building GPU slot HP after damage |
 | GPU | Building collision | Buildings occupy NPC GPU slots (speed=0, hidden sprite). Projectile compute shader detects hits via NPC spatial grid. `process_proj_hits` routes building slot hits to `BuildingDamageMsg` via `BuildingSlotMap` lookup. |

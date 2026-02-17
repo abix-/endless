@@ -220,7 +220,7 @@ fn game_load_system(
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
         &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
-        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.waypoint_state, &mut fs.camp_state,
+        &mut ws.auto_upgrade, &mut ws.squad_state, &mut ws.turret_state, &mut fs.camp_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state,
         &mut tracking.npcs_by_town, &mut tracking.slots,
@@ -1131,7 +1131,7 @@ struct CleanupGameplay<'w> {
     npc_meta: ResMut<'w, NpcMetaCache>,
     npcs_by_town: ResMut<'w, NpcsByTownCache>,
     migration: ResMut<'w, MigrationState>,
-    waypoint_state: ResMut<'w, WaypointState>,
+    turret_state: ResMut<'w, TurretState>,
     selected_npc: ResMut<'w, SelectedNpc>,
     selected_building: ResMut<'w, SelectedBuilding>,
     follow: ResMut<'w, FollowSelected>,
@@ -1217,7 +1217,7 @@ fn game_cleanup_system(
     *gameplay.npc_meta = Default::default();
     *gameplay.npcs_by_town = Default::default();
     *gameplay.migration = Default::default();
-    *gameplay.waypoint_state = Default::default();
+    *gameplay.turret_state = Default::default();
     *gameplay.selected_npc = Default::default();
     *gameplay.selected_building = Default::default();
     *gameplay.follow = Default::default();

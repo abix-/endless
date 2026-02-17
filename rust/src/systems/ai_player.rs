@@ -361,7 +361,7 @@ pub struct AiSquadCmdState {
 
 /// Attack vs reserve role for multi-squad personalities.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SquadRole { Attack, Reserve }
+pub enum SquadRole { Attack, Reserve, Idle }
 
 pub struct AiPlayer {
     pub town_data_idx: usize,
@@ -1308,18 +1308,40 @@ impl AiPersonality {
         }
     }
 
-    fn desired_squad_count(self) -> usize {
+    fn attack_squad_count(self) -> usize {
         match self {
-            Self::Aggressive => 1,
-            Self::Balanced => 2,
+            Self::Aggressive => 2,
+            Self::Balanced => 1,
             Self::Economic => 1,
+        }
+    }
+
+    fn desired_squad_count(self) -> usize {
+        1 + self.attack_squad_count()
+    }
+
+    /// Percent of town archers kept in squad[0] as patrol/defense.
+    fn defense_share_pct(self) -> usize {
+        match self {
+            Self::Aggressive => 25,
+            Self::Balanced => 45,
+            Self::Economic => 65,
+        }
+    }
+
+    /// Relative split for each attack squad (index within attack squads only).
+    fn attack_split_weight(self, attack_idx: usize) -> usize {
+        match self {
+            Self::Aggressive => if attack_idx == 0 { 55 } else { 45 },
+            Self::Balanced => 100,
+            Self::Economic => 100,
         }
     }
 
     /// Preferred building kinds to attack, by personality and squad role.
     fn attack_kinds(self, role: SquadRole) -> &'static [BuildingKind] {
         match role {
-            SquadRole::Reserve => &[], // reserve squads don't attack
+            SquadRole::Reserve | SquadRole::Idle => &[], // non-attack squads don't attack
             SquadRole::Attack => match self {
                 Self::Aggressive => &[
                     BuildingKind::Farm, BuildingKind::FarmerHome,
@@ -1347,7 +1369,7 @@ fn pick_ai_target(
     bgrid: &BuildingSpatialGrid,
     center: Vec2, faction: i32, personality: AiPersonality, role: SquadRole,
 ) -> Option<(BuildingKind, usize, Vec2)> {
-    if role == SquadRole::Reserve { return None; }
+    if role != SquadRole::Attack { return None; }
     let preferred = personality.attack_kinds(role);
     // Try preferred kinds first.
     if let Some(hit) = world::find_nearest_enemy_building_filtered(
@@ -1432,24 +1454,37 @@ pub fn ai_squad_commander_system(
 
         // --- Set target_size per squad ---
         let archer_count = archers_by_town.get(&(tdi as i32)).copied().unwrap_or(0);
+        let attack_squads = personality.attack_squad_count();
+        let defense_size = archer_count * personality.defense_share_pct() / 100;
+        let attack_total = archer_count.saturating_sub(defense_size);
+        let total_attack_weight: usize = (0..attack_squads)
+            .map(|i| personality.attack_split_weight(i))
+            .sum::<usize>()
+            .max(1);
         for (role_idx, &si) in squad_indices.iter().enumerate() {
-            let role = if personality == AiPersonality::Balanced && role_idx == 1 {
+            let role = if role_idx == 0 {
                 SquadRole::Reserve
-            } else {
+            } else if role_idx - 1 < attack_squads {
                 SquadRole::Attack
+            } else {
+                SquadRole::Idle
             };
 
             let new_target_size = match role {
-                SquadRole::Attack => match personality {
-                    AiPersonality::Aggressive => archer_count,
-                    AiPersonality::Balanced => archer_count * 60 / 100,
-                    AiPersonality::Economic => archer_count.max(8) / 4,
-                },
-                SquadRole::Reserve => {
-                    // Reserve gets remainder.
-                    let attack_size = archer_count * 60 / 100;
-                    archer_count.saturating_sub(attack_size)
+                SquadRole::Reserve => defense_size,
+                SquadRole::Attack => {
+                    let attack_idx = role_idx - 1;
+                    if attack_idx + 1 == attack_squads {
+                        // Last attack squad gets remainder so total stays exact.
+                        let allocated_before: usize = (0..attack_idx)
+                            .map(|i| attack_total * personality.attack_split_weight(i) / total_attack_weight)
+                            .sum();
+                        attack_total.saturating_sub(allocated_before)
+                    } else {
+                        attack_total * personality.attack_split_weight(attack_idx) / total_attack_weight
+                    }
                 }
+                SquadRole::Idle => 0,
             };
 
             if let Some(squad) = squad_state.squads.get_mut(si) {
@@ -1461,6 +1496,9 @@ pub fn ai_squad_commander_system(
                 let should_patrol = role == SquadRole::Reserve;
                 if squad.patrol_enabled != should_patrol {
                     squad.patrol_enabled = should_patrol;
+                }
+                if role != SquadRole::Attack && squad.target.is_some() {
+                    squad.target = None;
                 }
                 if !squad.rest_when_tired {
                     squad.rest_when_tired = true;
