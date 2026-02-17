@@ -115,7 +115,12 @@ pub fn growth_system(
                 base_rate * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::FarmYield as usize])
             }
             GrowthKind::Mine => {
-                if is_tended { crate::constants::MINE_TENDED_GROWTH_RATE } else { 0.0 }
+                let worker_count = farm_occupancy.count(growth_states.positions[i]);
+                if worker_count > 0 {
+                    crate::constants::MINE_TENDED_GROWTH_RATE * crate::constants::mine_productivity_mult(worker_count)
+                } else {
+                    0.0
+                }
             }
         };
 

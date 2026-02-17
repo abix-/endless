@@ -720,6 +720,21 @@ pub fn decision_system(
         }
 
         if matches!(*activity, Activity::MiningAtMine) {
+            // Proximity check — if pushed away from mine, abort and re-walk
+            if let Ok(wp) = work_query.get(entity) {
+                let mine_pos = wp.0;
+                if idx * 2 + 1 < positions.len() {
+                    let current = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
+                    if current.distance(mine_pos) > MINE_WORK_RADIUS {
+                        farms.occupancy.release(mine_pos);
+                        commands.entity(entity).remove::<WorkPosition>();
+                        *activity = Activity::Mining { mine_pos };
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: mine_pos.x, y: mine_pos.y }));
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Pushed from mine → returning");
+                        continue;
+                    }
+                }
+            }
             // Check if mine is Ready to harvest
             let mut harvested = false;
             if let Ok(wp) = work_query.get(entity) {
@@ -930,22 +945,22 @@ pub fn decision_system(
                             } else {
                                 home.0
                             };
-                            let mut best_mine: Option<(f32, Vec2)> = None;
+                            // Priority: ready > unoccupied > least-occupied
+                            let mut best_mine: Option<(i32, i32, f32, Vec2)> = None; // (priority, occupants, dist, pos)
                             for (gi, pos) in farms.states.positions.iter().enumerate() {
                                 if farms.states.kinds.get(gi) != Some(&crate::resources::GrowthKind::Mine) {
                                     continue;
                                 }
                                 if pos.x < -9000.0 { continue; }
-                                let occupied = farms.occupancy.is_occupied(*pos);
+                                let occupant_count = farms.occupancy.count(*pos);
                                 let ready = farms.states.states.get(gi) == Some(&FarmGrowthState::Ready);
-                                if !occupied || ready {
-                                    let dist = current_pos.distance(*pos);
-                                    if best_mine.is_none() || dist < best_mine.unwrap().0 {
-                                        best_mine = Some((dist, *pos));
-                                    }
+                                let priority = if ready { 0 } else if occupant_count == 0 { 1 } else { 2 };
+                                let dist = current_pos.distance(*pos);
+                                if best_mine.is_none() || (priority, occupant_count, dist as i32) < (best_mine.unwrap().0, best_mine.unwrap().1, best_mine.unwrap().2 as i32) {
+                                    best_mine = Some((priority, occupant_count, dist, *pos));
                                 }
                             }
-                            best_mine.map(|(_, pos)| pos)
+                            best_mine.map(|(_, _, _, pos)| pos)
                         };
 
                         if let Some(mine_pos) = mine_target {

@@ -139,6 +139,43 @@ Refactor FarmStates → GrowthStates (see plan file `velvet-crunching-torvalds.m
 - [ ] Delete: `MineStates`, `MiningProgress`, `MinerProgressRender`, `sync_miner_progress_render`, `mine_regen_system`, `MINE_MAX_GOLD`, `MINE_REGEN_RATE`, `MINE_WORK_HOURS`
 - [ ] Bulk rename `FarmStates` → `GrowthStates` across ~20 files (resources, systems, tests, UI, save)
 
+**Stage 14d: Auto-Mining Policy**
+
+*Done when: player sets a mining radius from the town fountain in the Policies tab, gold mines within that radius are auto-discovered, and all available miners are auto-distributed across enabled mines — no per-miner micromanagement needed.*
+
+Mining policy resource + dirty-flag system:
+- [ ] `PolicySet.mining_radius: f32` — distance from fountain (default 2000.0, range 0–5000), slider in Policies tab
+- [ ] `MiningPolicy` resource: `discovered_mines: Vec<Vec<usize>>` (per-town list of gold mine indices within radius), `mine_enabled: Vec<bool>` (per gold mine toggle, default true on discovery)
+- [ ] `MinerHome.manual_mine: bool` — true when player clicked "Set Mine" manually; policy system skips these miners
+- [ ] `DirtyFlags.mining: bool` (default true) — triggers on: radius slider change, mine toggle, miner home built/destroyed, miner spawn/death
+
+Discovery + distribution system (`mining_policy_system` in `systems/economy.rs`):
+- [ ] **Discover**: for each faction-0 town, scan `WorldData.gold_mines` within `PolicySet.mining_radius` of `town.center`, populate `MiningPolicy.discovered_mines[town_idx]`, grow `mine_enabled` for new mines (default true)
+- [ ] **Distribute**: collect alive miners per town from `SpawnerState` (building_kind==3, npc_slot>=0), skip miners where `MinerHome.manual_mine==true`, even-split remaining across enabled discovered mines by setting `MinerHome.assigned_mine`
+- [ ] **Clear stale**: if mine falls outside radius or disabled, clear `assigned_mine` on auto-assigned miners (manual overrides untouched)
+- [ ] Gated by `DirtyFlags.mining` — O(miners × mines) only on topology changes, not per-frame
+- [ ] Register system in `lib.rs` Step::Behavior set
+
+Policies tab UI (`ui/left_panel.rs` `policies_content`):
+- [ ] "Mining" section after Farmers: `mining_radius` slider (0–5000, step 100), sets `dirty.mining = true` on change
+- [ ] List of discovered mines with enable/disable checkboxes, sets `dirty.mining = true` on toggle
+- [ ] Summary: "3/5 mines enabled, 6 miners assigned"
+
+Gold mine inspector toggle (`ui/game_hud.rs`):
+- [ ] "Auto-mining: ON/OFF" toggle button on gold mine building inspector, sets `MiningPolicy.mine_enabled[idx]` + `dirty.mining = true`
+
+Manual override preserved:
+- [ ] Existing "Set Mine" / "Clear" buttons stay on MinerHome and Miner NPC inspectors
+- [ ] "Set Mine" click sets `MinerHome.manual_mine = true`, "Clear" sets it to false
+- [ ] Behavior system (`Action::Work → Job::Miner`) unchanged — already reads `assigned_mine` first, falls back to nearest
+
+Init + spawner integration:
+- [ ] Init `MiningPolicy` in `ui/mod.rs` game startup (`.insert_resource(MiningPolicy::default())`)
+- [ ] `spawner_respawn_system` and death cleanup set `dirty.mining = true` for miner buildings
+- [ ] `MinerHome` default: `manual_mine: false`, `assigned_mine: None`
+
+Files: `resources.rs` (PolicySet + MiningPolicy + DirtyFlags), `world.rs` (MinerHome.manual_mine), `constants.rs` (DEFAULT_MINING_RADIUS), `systems/economy.rs` (mining_policy_system), `systems/mod.rs` (re-export), `lib.rs` (register), `ui/left_panel.rs` (policies mining section), `ui/game_hud.rs` (mine toggle + manual_mine flag), `ui/mod.rs` (init resource), `systems/spawn.rs` or `economy.rs` (dirty flag on spawn/death)
+
 **Stage 16: Combat Depth**
 
 *Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*

@@ -255,6 +255,17 @@ pub const MINE_EXTRACT_PER_CYCLE: i32 = 5;
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
 
+/// Max distance from mine to continue tending (pushed away = abort + re-walk).
+pub const MINE_WORK_RADIUS: f32 = 40.0;
+
+/// Harmonic series multiplier for multi-miner productivity.
+/// 1 miner = 1.0×, 2 = 1.5×, 3 = 1.83×, 4 = 2.08×.
+pub fn mine_productivity_mult(worker_count: i32) -> f32 {
+    let mut mult = 0.0_f32;
+    for k in 1..=worker_count { mult += 1.0 / k as f32; }
+    mult
+}
+
 /// Minimum distance from any settlement center to place a gold mine.
 pub const MINE_MIN_SETTLEMENT_DIST: f32 = 300.0;
 

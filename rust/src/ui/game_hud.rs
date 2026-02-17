@@ -555,6 +555,7 @@ fn inspector_content(
     let mut home_str = String::new();
     let mut faction_str = String::new();
     let mut home_pos: Option<Vec2> = None;
+    let mut is_mining_at_mine = false;
 
     if let Some((_, _, home, faction, town_id, activity, combat))
         = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
@@ -562,6 +563,7 @@ fn inspector_content(
         home_pos = Some(home.0);
         home_str = format!("({:.0}, {:.0})", home.0.x, home.0.y);
         faction_str = format!("{} (town {})", faction.0, town_id.0);
+        is_mining_at_mine = matches!(activity, Activity::MiningAtMine);
 
         let mut parts: Vec<&str> = Vec::new();
         let combat_name = combat.name();
@@ -580,6 +582,16 @@ fn inspector_content(
             if let Some(mh_idx) = mh_idx {
                 ui.separator();
                 mine_assignment_ui(ui, world_data, mh_idx, hp, ui_state);
+                // Show mine productivity when actively mining
+                if is_mining_at_mine {
+                    if let Some(mine_pos) = world_data.miner_homes.get(mh_idx).and_then(|mh| mh.assigned_mine) {
+                        let occupants = bld_data.farm_occupancy.count(mine_pos);
+                        if occupants > 0 {
+                            let mult = crate::constants::mine_productivity_mult(occupants);
+                            ui.label(format!("Mine productivity: {:.0}% ({} miners)", mult * 100.0, occupants));
+                        }
+                    }
+                }
             }
         }
     }
@@ -864,7 +876,8 @@ fn building_inspector_content(
                     .fill(color));
                 let occupants = bld.farm_occupancy.count(world_pos);
                 if occupants > 0 {
-                    ui.label(format!("Miners: {}", occupants));
+                    let mult = crate::constants::mine_productivity_mult(occupants);
+                    ui.label(format!("Miners: {} ({:.0}% speed)", occupants, mult * 100.0));
                 }
             }
         }
