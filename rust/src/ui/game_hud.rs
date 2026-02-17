@@ -162,7 +162,6 @@ pub struct BuildingInspectorData<'w> {
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
     building_hp: Res<'w, BuildingHpState>,
-    waypoint_state: Res<'w, WaypointState>,
 }
 
 #[derive(SystemParam)]
@@ -198,6 +197,18 @@ pub struct InspectorRenameState {
     text: String,
 }
 
+#[derive(Default)]
+pub struct InspectorTabState {
+    /// true = NPC tab, false = Building tab
+    show_npc: bool,
+}
+
+#[derive(Default)]
+pub struct InspectorUiState {
+    rename: InspectorRenameState,
+    tabs: InspectorTabState,
+}
+
 /// Bottom panel: NPC/building inspector.
 pub fn bottom_panel_system(
     mut contexts: EguiContexts,
@@ -217,7 +228,7 @@ pub fn bottom_panel_system(
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
     mut panel_state: BottomPanelUiState,
-    mut rename_state: Local<InspectorRenameState>,
+    mut inspector_state: Local<InspectorUiState>,
     timings: Res<SystemTimings>,
 ) -> Result {
     let _t = timings.scope("ui_bottom");
@@ -229,6 +240,12 @@ pub fn bottom_panel_system(
     let has_npc = data.selected.0 >= 0;
     let has_building = bld_data.selected_building.active;
     if has_npc || has_building {
+        if has_npc && !has_building {
+            inspector_state.tabs.show_npc = true;
+        } else if has_building && !has_npc {
+            inspector_state.tabs.show_npc = false;
+        }
+
         let frame = egui::Frame::new()
             .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 220))
             .inner_margin(egui::Margin::same(6));
@@ -240,13 +257,38 @@ pub fn bottom_panel_system(
             .movable(false)
             .frame(frame)
             .show(ctx, |ui| {
+                if has_npc && has_building {
+                    let npc_label = if data.selected.0 >= 0 && (data.selected.0 as usize) < meta_cache.0.len() {
+                        format!("NPC: {}", meta_cache.0[data.selected.0 as usize].name)
+                    } else {
+                        "NPC".to_string()
+                    };
+                    let bld_label = bld_data.grid
+                        .cell(bld_data.selected_building.col, bld_data.selected_building.row)
+                        .and_then(|c| c.building.as_ref())
+                        .map(|b| format!("Building: {}", building_name(b)))
+                        .unwrap_or_else(|| "Building".to_string());
+
+                    ui.horizontal(|ui| {
+                        if ui.selectable_label(inspector_state.tabs.show_npc, npc_label).clicked() {
+                            inspector_state.tabs.show_npc = true;
+                        }
+                        if ui.selectable_label(!inspector_state.tabs.show_npc, bld_label).clicked() {
+                            inspector_state.tabs.show_npc = false;
+                        }
+                    });
+                    ui.separator();
+                }
+
+                let show_npc = has_npc && (!has_building || inspector_state.tabs.show_npc);
                 inspector_content(
-                    ui, &data, &mut meta_cache, &mut rename_state, &bld_data, &mut world_data, &health_query,
+                    ui, &data, &mut meta_cache, &mut inspector_state.rename, &bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
-                    &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty,
+                    &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty, show_npc,
                 );
                 // Destroy button for selected buildings (not fountains/camps)
-                if has_building && !has_npc {
+                let show_building = has_building && (!has_npc || !show_npc);
+                if show_building {
                     let col = bld_data.selected_building.col;
                     let row = bld_data.selected_building.row;
                     let is_destructible = bld_data.grid.cell(col, row)
@@ -467,7 +509,19 @@ fn inspector_content(
     ui_state: &mut UiState,
     mining_policy: &mut MiningPolicy,
     dirty: &mut DirtyFlags,
+    show_npc: bool,
 ) {
+    if !show_npc {
+        rename_state.slot = -1;
+        rename_state.text.clear();
+        if bld_data.selected_building.active {
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log);
+            return;
+        }
+        ui.label("Click an NPC or building to inspect");
+        return;
+    }
+
     let sel = data.selected.0;
     if sel < 0 {
         rename_state.slot = -1;
@@ -877,21 +931,8 @@ fn building_inspector_content(
             }
         }
 
-        Building::Waypoint { patrol_order, town_idx } => {
-            let world_pos = bld.grid.grid_to_world(col, row);
+        Building::Waypoint { patrol_order, town_idx: _ } => {
             ui.label(format!("Patrol order: {}", patrol_order));
-
-            // Find waypoint data index
-            if let Some(wp_idx) = world_data.waypoints.iter().position(|w| {
-                w.town_idx == *town_idx && (w.position - world_pos).length() < 1.0
-            }) {
-                // Attack enabled toggle
-                if let Some(&attack) = bld.waypoint_state.attack_enabled.get(wp_idx) {
-                    let label = if attack { "Turret: ON" } else { "Turret: OFF" };
-                    ui.label(label);
-                }
-
-            }
         }
 
         Building::Fountain { .. } => {

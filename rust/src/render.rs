@@ -461,34 +461,26 @@ fn click_to_select_system(
     dbl_click.last_time = now;
     dbl_click.last_pos = world_pos;
 
-    if best_idx >= 0 {
-        // NPC found — select it, clear building selection
-        selected.0 = best_idx;
-        selected_building.active = false;
-    } else {
-        // No NPC — check for building under cursor
-        selected.0 = -1;
-        let (col, row) = grid.world_to_grid(world_pos);
-        if let Some(cell) = grid.cell(col, row) {
-            if let Some(building) = &cell.building {
-                *selected_building = SelectedBuilding { col, row, active: true };
+    let (col, row) = grid.world_to_grid(world_pos);
+    let building = grid.cell(col, row).and_then(|c| c.building.as_ref());
 
-                // Double-click fountain → open Factions tab for that faction
-                if is_double {
-                    if let crate::world::Building::Fountain { town_idx } = building {
-                        if let Some(town) = world_data.towns.get(*town_idx as usize) {
-                            ui_state.left_panel_open = true;
-                            ui_state.left_panel_tab = LeftPanelTab::Factions;
-                            ui_state.pending_faction_select = Some(town.faction);
-                        }
-                    }
+    // Keep up to one NPC and one building selected from the same click.
+    selected.0 = best_idx;
+    if building.is_some() {
+        *selected_building = SelectedBuilding { col, row, active: true };
+
+        // Double-click fountain → open Factions tab for that faction
+        if is_double {
+            if let Some(crate::world::Building::Fountain { town_idx }) = building {
+                if let Some(town) = world_data.towns.get(*town_idx as usize) {
+                    ui_state.left_panel_open = true;
+                    ui_state.left_panel_tab = LeftPanelTab::Factions;
+                    ui_state.pending_faction_select = Some(town.faction);
                 }
-            } else {
-                selected_building.active = false;
             }
-        } else {
-            selected_building.active = false;
         }
+    } else {
+        selected_building.active = false;
     }
 }
 
