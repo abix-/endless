@@ -3,10 +3,10 @@
 //! random decisions — same pattern as NPC behavior scoring.
 //!
 //! Slot selection: economy buildings (farms, houses, barracks) prefer inner slots
-//! (closest to center). Guard posts prefer outer slots (farthest from center) with
-//! minimum spacing of 5 grid slots between posts.
+//! (closest to center). Guard posts target the perimeter around controlled buildings
+//! with minimum spacing of 5 grid slots between posts.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
@@ -28,6 +28,8 @@ pub struct AiBuildRes<'w> {
 
 /// Minimum Manhattan distance between waypoints on the town grid.
 const MIN_WAYPOINT_SPACING: i32 = 5;
+/// Patrol posts sit one slot outside controlled buildings.
+const TERRITORY_PERIMETER_PADDING: i32 = 1;
 
 #[derive(Resource)]
 pub struct AiPlayerConfig {
@@ -200,32 +202,161 @@ fn find_inner_slot(
 fn find_waypoint_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, world_data: &WorldData, ti: u32,
 ) -> Option<(i32, i32)> {
-    // Existing waypoint grid positions for this town
+    let occupied = controlled_territory_slots(world_data, center, ti);
+    if occupied.is_empty() { return None; }
+    let perimeter = territory_perimeter_slots(&occupied, tg);
+    if perimeter.is_empty() { return None; }
+
+    // Existing in-town waypoint grid positions for this town
     let existing: Vec<(i32, i32)> = world_data.waypoints.iter()
         .filter(|gp| gp.town_idx == ti && gp.position.x > -9000.0)
+        .filter(|gp| {
+            let (row, col) = world::world_to_town_grid(center, gp.position);
+            world::is_slot_buildable(tg, row, col)
+        })
         .map(|gp| world::world_to_town_grid(center, gp.position))
         .collect();
 
-    let mut best: Option<((i32, i32), i32)> = None;
-    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
-    for r in min_row..=max_row {
-        for c in min_col..=max_col {
-            if r == 0 && c == 0 { continue; }
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
-            // Skip slots too close to existing waypoints
-            let too_close = existing.iter().any(|&(er, ec)| {
-                (r - er).abs() + (c - ec).abs() < MIN_WAYPOINT_SPACING
-            });
-            if too_close { continue; }
-            let dist_sq = r * r + c * c;
-            if best.map_or(true, |(_, d)| dist_sq > d) {
-                best = Some(((r, c), dist_sq));
-            }
+    let mut best: Option<((i32, i32), i32, i32)> = None;
+    for &(r, c) in &perimeter {
+        if r == 0 && c == 0 { continue; }
+        let pos = world::town_grid_to_world(center, r, c);
+        let (gc, gr) = grid.world_to_grid(pos);
+        if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
+
+        let min_spacing = existing.iter()
+            .map(|&(er, ec)| (r - er).abs() + (c - ec).abs())
+            .min()
+            .unwrap_or(i32::MAX);
+        if min_spacing < MIN_WAYPOINT_SPACING { continue; }
+
+        let radial = r * r + c * c;
+        if best.map_or(true, |(_, best_spacing, best_radial)| {
+            min_spacing > best_spacing || (min_spacing == best_spacing && radial > best_radial)
+        }) {
+            best = Some(((r, c), min_spacing, radial));
         }
     }
-    best.map(|(slot, _)| slot)
+    best.map(|(slot, _, _)| slot)
+}
+
+/// Grid slots controlled by this town's owned buildings.
+fn controlled_territory_slots(
+    world_data: &WorldData, center: Vec2, ti: u32,
+) -> HashSet<(i32, i32)> {
+    let mut slots = HashSet::new();
+
+    for f in &world_data.farms {
+        if f.town_idx == ti && f.position.x > -9000.0 {
+            slots.insert(world::world_to_town_grid(center, f.position));
+        }
+    }
+    for h in &world_data.farmer_homes {
+        if h.town_idx == ti && h.position.x > -9000.0 {
+            slots.insert(world::world_to_town_grid(center, h.position));
+        }
+    }
+    for h in &world_data.archer_homes {
+        if h.town_idx == ti && h.position.x > -9000.0 {
+            slots.insert(world::world_to_town_grid(center, h.position));
+        }
+    }
+    for h in &world_data.miner_homes {
+        if h.town_idx == ti && h.position.x > -9000.0 {
+            slots.insert(world::world_to_town_grid(center, h.position));
+        }
+    }
+
+    slots
+}
+
+/// Candidate perimeter slots around controlled buildings, clamped to buildable town grid.
+fn territory_perimeter_slots(
+    occupied: &HashSet<(i32, i32)>, tg: &world::TownGrid,
+) -> HashSet<(i32, i32)> {
+    let mut out = HashSet::new();
+    let dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+
+    for &(r, c) in occupied {
+        for (dr, dc) in dirs {
+            let nr = r + dr * TERRITORY_PERIMETER_PADDING;
+            let nc = c + dc * TERRITORY_PERIMETER_PADDING;
+            if occupied.contains(&(nr, nc)) { continue; }
+            if !world::is_slot_buildable(tg, nr, nc) { continue; }
+            out.insert((nr, nc));
+        }
+    }
+    out
+}
+
+fn sync_town_perimeter_waypoints(
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    farm_states: &mut GrowthStates,
+    town_grids: &world::TownGrids,
+    town_data_idx: usize,
+) -> usize {
+    let Some(town) = world_data.towns.get(town_data_idx) else { return 0; };
+    let Some(tg) = town_grids.grids.iter().find(|g| g.town_data_idx == town_data_idx) else { return 0; };
+    let center = town.center;
+    let ti = town_data_idx as u32;
+
+    let occupied = controlled_territory_slots(world_data, center, ti);
+    if occupied.is_empty() { return 0; }
+    let perimeter = territory_perimeter_slots(&occupied, tg);
+    if perimeter.is_empty() { return 0; }
+
+    let mut prune_slots: Vec<(i32, i32)> = Vec::new();
+    for wp in &world_data.waypoints {
+        if wp.town_idx != ti || wp.position.x <= -9000.0 { continue; }
+        let slot = world::world_to_town_grid(center, wp.position);
+        // Preserve wilderness/mine outposts: only prune waypoints inside town build area.
+        if !world::is_slot_buildable(tg, slot.0, slot.1) { continue; }
+        if !perimeter.contains(&slot) {
+            prune_slots.push(slot);
+        }
+    }
+
+    let mut removed = 0usize;
+    for (row, col) in prune_slots {
+        if world::remove_building(grid, world_data, farm_states, row, col, center).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// Dirty-flag-gated maintenance: keep in-town patrol waypoints on the building-driven perimeter.
+pub fn sync_patrol_perimeter_system(
+    mut world: WorldState,
+    ai_state: Res<AiPlayerState>,
+    timings: Res<SystemTimings>,
+) {
+    let _t = timings.scope("sync_patrol_perimeter");
+    if !world.dirty.patrol_perimeter { return; }
+    world.dirty.patrol_perimeter = false;
+
+    let mut town_ids: HashSet<usize> = HashSet::new();
+    for p in ai_state.players.iter().filter(|p| p.active) {
+        town_ids.insert(p.town_data_idx);
+    }
+
+    let mut removed_total = 0usize;
+    for town_idx in town_ids {
+        removed_total += sync_town_perimeter_waypoints(
+            &mut world.grid,
+            &mut world.world_data,
+            &mut world.farm_states,
+            &world.town_grids,
+            town_idx,
+        );
+    }
+
+    if removed_total > 0 {
+        world.dirty.patrols = true;
+        world.dirty.waypoint_slots = true;
+        world.dirty.building_grid = true;
+    }
 }
 
 /// Count empty buildable slots in a town grid.
@@ -463,6 +594,15 @@ fn try_build_inner(
         building, tdi, row, col, center, cost);
     if ok {
         res.world.dirty.building_grid = true;
+        if matches!(
+            building,
+            Building::Farm { .. }
+                | Building::FarmerHome { .. }
+                | Building::ArcherHome { .. }
+                | Building::MinerHome { .. }
+        ) {
+            res.world.dirty.patrol_perimeter = true;
+        }
         if matches!(building, Building::MinerHome { .. }) {
             res.world.dirty.mining = true;
         }
@@ -515,6 +655,7 @@ fn execute_action(
                 tdi, row, col, center, cost);
             if ok {
                 res.world.dirty.patrols = true;
+                res.world.dirty.patrol_perimeter = true;
                 res.world.dirty.building_grid = true;
                 res.world.dirty.waypoint_slots = true;
             }

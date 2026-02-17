@@ -20,4 +20,4 @@ pub use health::*;
 pub use combat::*;
 pub use economy::*;
 pub use stats::{CombatConfig, TownUpgrades, UpgradeQueue, UpgradeType, UPGRADE_PCT, UPGRADE_COUNT, resolve_combat_stats, level_from_xp, upgrade_cost, expansion_cost, process_upgrades_system, auto_upgrade_system, xp_grant_system};
-pub use ai_player::{AiPlayerConfig, AiPlayerState, AiPlayer, AiKind, AiPersonality, ai_decision_system};
+pub use ai_player::{AiPlayerConfig, AiPlayerState, AiPlayer, AiKind, AiPersonality, ai_decision_system, sync_patrol_perimeter_system};

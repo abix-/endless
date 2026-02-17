@@ -1333,6 +1333,7 @@ pub struct HealingZoneCache {
 pub struct DirtyFlags {
     pub building_grid: bool,
     pub patrols: bool,
+    pub patrol_perimeter: bool,
     pub healing_zones: bool,
     pub waypoint_slots: bool,
     pub squads: bool,
@@ -1342,7 +1343,7 @@ pub struct DirtyFlags {
     pub patrol_swap: Option<(usize, usize)>,
 }
 impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, waypoint_slots: true, squads: true, mining: true, patrol_swap: None } }
+    fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, waypoint_slots: true, squads: true, mining: true, patrol_swap: None } }
 }
 
 // ============================================================================
