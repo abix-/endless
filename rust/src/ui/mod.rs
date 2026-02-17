@@ -1137,7 +1137,6 @@ struct CleanupDebug<'w> {
 
 #[derive(SystemParam)]
 struct CleanupGameplay<'w> {
-    growth_states: ResMut<'w, GrowthStates>,
     upgrades: ResMut<'w, TownUpgrades>,
     upgrade_queue: ResMut<'w, UpgradeQueue>,
     policies: ResMut<'w, TownPolicies>,
@@ -1230,7 +1229,6 @@ fn game_cleanup_system(
     healing_cache.by_faction.clear();
 
     // Reset gameplay resources missed by original cleanup
-    *gameplay.growth_states = Default::default();
     *gameplay.upgrades = Default::default();
     *gameplay.upgrade_queue = Default::default();
     *gameplay.policies = Default::default();
