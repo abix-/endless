@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy::ecs::system::SystemParam;
 
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
@@ -343,22 +344,28 @@ struct DoubleClickState {
     last_pos: Vec2,
 }
 
+#[derive(SystemParam)]
+struct ClickSelectParams<'w> {
+    selected: ResMut<'w, SelectedNpc>,
+    selected_building: ResMut<'w, SelectedBuilding>,
+    squad_state: ResMut<'w, crate::resources::SquadState>,
+    build_ctx: Res<'w, crate::resources::BuildMenuContext>,
+    building_slots: Res<'w, crate::resources::BuildingSlotMap>,
+    ui_state: ResMut<'w, crate::resources::UiState>,
+    world_data: ResMut<'w, WorldData>,
+    npc_entity_map: Res<'w, crate::resources::NpcEntityMap>,
+}
+
 /// Left click to select nearest NPC within 20px.
 /// Skips when egui wants the pointer (clicking UI buttons).
 fn click_to_select_system(
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_query: Query<(&Transform, &Projection), With<MainCamera>>,
-    mut selected: ResMut<SelectedNpc>,
-    mut selected_building: ResMut<SelectedBuilding>,
+    mut click: ClickSelectParams,
     mut egui_contexts: bevy_egui::EguiContexts,
     gpu_state: Res<crate::resources::GpuReadState>,
     grid: Res<WorldGrid>,
-    mut squad_state: ResMut<crate::resources::SquadState>,
-    build_ctx: Res<crate::resources::BuildMenuContext>,
-    building_slots: Res<crate::resources::BuildingSlotMap>,
-    mut ui_state: ResMut<crate::resources::UiState>,
-    mut world_data: ResMut<WorldData>,
     time: Res<Time<Real>>,
     mut dbl_click: Local<DoubleClickState>,
     timings: Res<SystemTimings>,
@@ -366,12 +373,12 @@ fn click_to_select_system(
     let _t = timings.scope("click_select");
     // Right-click cancels squad target placement or mine assignment
     if mouse.just_pressed(MouseButton::Right) {
-        if squad_state.placing_target {
-            squad_state.placing_target = false;
+        if click.squad_state.placing_target {
+            click.squad_state.placing_target = false;
             return;
         }
-        if ui_state.assigning_mine.is_some() {
-            ui_state.assigning_mine = None;
+        if click.ui_state.assigning_mine.is_some() {
+            click.ui_state.assigning_mine = None;
             return;
         }
     }
@@ -379,7 +386,7 @@ fn click_to_select_system(
     if !mouse.just_pressed(MouseButton::Left) { return; }
 
     // Build placement owns left-click while a build is selected.
-    if build_ctx.selected_build.is_some() {
+    if click.build_ctx.selected_build.is_some() {
         return;
     }
 
@@ -405,30 +412,30 @@ fn click_to_select_system(
     let world_pos = position + mouse_offset / zoom;
 
     // Squad target placement — intercept before NPC selection
-    if squad_state.placing_target {
-        let si = squad_state.selected;
-        if si >= 0 && (si as usize) < squad_state.squads.len() {
-            squad_state.squads[si as usize].target = Some(world_pos);
+    if click.squad_state.placing_target {
+        let si = click.squad_state.selected;
+        if si >= 0 && (si as usize) < click.squad_state.squads.len() {
+            click.squad_state.squads[si as usize].target = Some(world_pos);
         }
-        squad_state.placing_target = false;
+        click.squad_state.placing_target = false;
         return;
     }
 
     // Mine assignment — snap to nearest gold mine within radius
-    if let Some(mh_idx) = ui_state.assigning_mine {
+    if let Some(mh_idx) = click.ui_state.assigning_mine {
         let snap_radius = 60.0;
-        let best = world_data.gold_mines.iter()
+        let best = click.world_data.gold_mines.iter()
             .map(|m| (m.position.distance(world_pos), m.position))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((dist, mine_pos)) = best {
             if dist < snap_radius {
-                if let Some(mh) = world_data.miner_homes.get_mut(mh_idx) {
+                if let Some(mh) = click.world_data.miner_homes.get_mut(mh_idx) {
                     mh.manual_mine = true;
                     mh.assigned_mine = Some(mine_pos);
                 }
             }
         }
-        ui_state.assigning_mine = None;
+        click.ui_state.assigning_mine = None;
         return;
     }
 
@@ -444,7 +451,8 @@ fn click_to_select_system(
         let px = positions[i * 2];
         let py = positions[i * 2 + 1];
         if px < -9000.0 { continue; }
-        if building_slots.is_building(i) { continue; }
+        if click.building_slots.is_building(i) { continue; }
+        if !click.npc_entity_map.0.contains_key(&i) { continue; }
 
         let dx = world_pos.x - px;
         let dy = world_pos.y - py;
@@ -470,7 +478,7 @@ fn click_to_select_system(
     let mut best_building_dist = building_select_radius;
     let mut best_building: Option<(BuildingKind, usize, Vec2, Option<usize>)> = None;
     for i in 0..npc_count {
-        let Some((kind, bidx)) = building_slots.get_building(i) else { continue };
+        let Some((kind, bidx)) = click.building_slots.get_building(i) else { continue };
         let px = positions[i * 2];
         let py = positions[i * 2 + 1];
         if px < -9000.0 { continue; }
@@ -490,17 +498,17 @@ fn click_to_select_system(
         let dy = world_pos.y - bpos.y;
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < best_building_dist {
-            if let Some(bidx) = crate::world::find_building_data_index(&world_data, *b, bpos) {
+            if let Some(bidx) = crate::world::find_building_data_index(&click.world_data, *b, bpos) {
                 best_building = Some((b.kind(), bidx, bpos, None));
             }
         }
     }
 
     // Keep up to one NPC and one building selected from the same click.
-    selected.0 = best_idx;
+    click.selected.0 = best_idx;
     if let Some((kind, bidx, bpos, bslot)) = best_building {
         let (bcol, brow) = grid.world_to_grid(bpos);
-        *selected_building = SelectedBuilding {
+        *click.selected_building = SelectedBuilding {
             col: bcol,
             row: brow,
             active: true,
@@ -512,18 +520,18 @@ fn click_to_select_system(
         // Double-click fountain -> open Factions tab for that faction.
         if is_double {
             if let Some(crate::world::Building::Fountain { town_idx }) = building {
-                if let Some(town) = world_data.towns.get(*town_idx as usize) {
-                    ui_state.left_panel_open = true;
-                    ui_state.left_panel_tab = LeftPanelTab::Factions;
-                    ui_state.pending_faction_select = Some(town.faction);
+                if let Some(town) = click.world_data.towns.get(*town_idx as usize) {
+                    click.ui_state.left_panel_open = true;
+                    click.ui_state.left_panel_tab = LeftPanelTab::Factions;
+                    click.ui_state.pending_faction_select = Some(town.faction);
                 }
             }
         }
     } else {
-        selected_building.active = false;
-        selected_building.slot = None;
-        selected_building.kind = None;
-        selected_building.index = None;
+        click.selected_building.active = false;
+        click.selected_building.slot = None;
+        click.selected_building.kind = None;
+        click.selected_building.index = None;
     }
 
     // Default active inspector tab by click proximity.
@@ -537,13 +545,13 @@ fn click_to_select_system(
         let bld_dy = world_pos.y - bpos.y;
         let npc_d2 = npc_dx * npc_dx + npc_dy * npc_dy;
         let bld_d2 = bld_dx * bld_dx + bld_dy * bld_dy;
-        ui_state.inspector_prefer_npc = npc_d2 <= bld_d2;
+        click.ui_state.inspector_prefer_npc = npc_d2 <= bld_d2;
     } else if best_idx >= 0 {
-        ui_state.inspector_prefer_npc = true;
+        click.ui_state.inspector_prefer_npc = true;
     } else if best_building.is_some() {
-        ui_state.inspector_prefer_npc = false;
+        click.ui_state.inspector_prefer_npc = false;
     }
-    ui_state.inspector_click_seq = ui_state.inspector_click_seq.saturating_add(1);
+    click.ui_state.inspector_click_seq = click.ui_state.inspector_click_seq.saturating_add(1);
 }
 
 // =============================================================================

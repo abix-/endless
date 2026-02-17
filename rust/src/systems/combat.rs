@@ -2,9 +2,9 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::{TurretStats, WAYPOINT_TURRET, FOUNTAIN_TURRET};
+use crate::constants::{TowerStats, FOUNTAIN_TOWER};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TurretState, TurretKindState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, TowerKindState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingSlotMap;
@@ -323,16 +323,16 @@ pub fn process_proj_hits(
     hit_state.0.clear();
 }
 
-/// Shared turret loop: for each building with attack enabled, check GPU combat target, fire projectile.
-fn fire_turrets(
+/// Shared tower loop: for each building with attack enabled, check GPU combat target, fire projectile.
+fn fire_towers(
     dt: f32,
     positions: &[f32],
     combat_targets: &[i32],
     building_slots: &BuildingSlotMap,
     proj_alloc: &mut ProjSlotAllocator,
-    state: &mut TurretKindState,
+    state: &mut TowerKindState,
     kind: BuildingKind,
-    stats: &TurretStats,
+    stats: &TowerStats,
     buildings: &[(Vec2, i32)],
 ) {
     let range_sq = stats.range * stats.range;
@@ -386,49 +386,36 @@ fn fire_turrets(
     }
 }
 
-/// Building turret auto-attack: any building kind with turret stats fires at nearby enemies.
-pub fn building_turret_system(
+/// Building tower auto-attack: tower buildings fire at nearby enemies using GPU combat targets.
+pub fn building_tower_system(
     time: Res<Time>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
     building_slots: Res<BuildingSlotMap>,
-    mut turret: ResMut<TurretState>,
+    mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("building_turret");
+    let _t = timings.scope("building_tower");
     let dt = time.delta_secs();
 
-    // --- Waypoints: sync state, default disabled ---
-    while turret.waypoint.timers.len() < world_data.waypoints.len() {
-        turret.waypoint.timers.push(0.0);
-        turret.waypoint.attack_enabled.push(false);
-    }
-    let wp_buildings: Vec<_> = world_data.waypoints.iter()
-        .map(|w| (w.position, world_data.towns.get(w.town_idx as usize)
-            .map(|t| t.faction).unwrap_or(0)))
-        .collect();
-
     // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
-    while turret.town.timers.len() < world_data.towns.len() {
-        turret.town.timers.push(0.0);
-        turret.town.attack_enabled.push(false);
+    while tower.town.timers.len() < world_data.towns.len() {
+        tower.town.timers.push(0.0);
+        tower.town.attack_enabled.push(false);
     }
     for (i, town) in world_data.towns.iter().enumerate() {
-        if i < turret.town.attack_enabled.len() {
-            turret.town.attack_enabled[i] = town.sprite_type == 0;
+        if i < tower.town.attack_enabled.len() {
+            tower.town.attack_enabled[i] = town.sprite_type == 0;
         }
     }
     let town_buildings: Vec<_> = world_data.towns.iter()
         .map(|t| (t.center, t.faction))
         .collect();
 
-    fire_turrets(dt, &gpu_state.positions, &gpu_state.combat_targets,
+    fire_towers(dt, &gpu_state.positions, &gpu_state.combat_targets,
         &building_slots, &mut proj_alloc,
-        &mut turret.waypoint, BuildingKind::Waypoint, &WAYPOINT_TURRET, &wp_buildings);
-    fire_turrets(dt, &gpu_state.positions, &gpu_state.combat_targets,
-        &building_slots, &mut proj_alloc,
-        &mut turret.town, BuildingKind::Town, &FOUNTAIN_TURRET, &town_buildings);
+        &mut tower.town, BuildingKind::Town, &FOUNTAIN_TOWER, &town_buildings);
 }
 
 /// Process building damage messages: decrement HP, destroy when HP reaches 0.

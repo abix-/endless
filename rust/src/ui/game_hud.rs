@@ -540,6 +540,16 @@ fn inspector_content(
     }
     let idx = sel as usize;
     if idx >= meta_cache.0.len() { return; }
+    if !health_query.iter().any(|(npc_idx, ..)| npc_idx.0 == idx) {
+        rename_state.slot = -1;
+        rename_state.text.clear();
+        if bld_data.selected_building.active {
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log);
+        } else {
+            ui.label("Click an NPC or building to inspect");
+        }
+        return;
+    }
 
     if rename_state.slot != sel {
         rename_state.slot = sel;

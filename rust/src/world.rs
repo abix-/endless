@@ -405,13 +405,14 @@ pub fn build_and_pay(
     let data_idx = find_building_data_index(world_data, building, snapped).unwrap_or(0);
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
     let max_hp = BuildingHpState::max_hp(kind);
-    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, max_hp, building.tileset_index());
+    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, max_hp, building.tileset_index(), building.is_tower());
 
     dirty.mark_building_changed(kind);
     true
 }
 
 /// Allocate an NPC GPU slot for a building (speed=0, rendered via instanced pipeline).
+/// `tower` = true enables GPU combat targeting for this building (bit 0 + bit 1 in npc_flags).
 fn allocate_building_slot(
     slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingSlotMap,
@@ -421,19 +422,21 @@ fn allocate_building_slot(
     faction: i32,
     max_hp: f32,
     tileset_idx: u16,
+    tower: bool,
 ) {
     let Some(slot) = slot_alloc.alloc() else {
         warn!("No NPC slots available for building {:?}", kind);
         return;
     };
     building_slots.insert(kind, data_idx, slot);
+    let flags = if tower { 3u32 } else { 0u32 };
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         queue.push(GpuUpdate::SetPosition { idx: slot, x: pos.x, y: pos.y });
         queue.push(GpuUpdate::SetTarget { idx: slot, x: pos.x, y: pos.y });
         queue.push(GpuUpdate::SetFaction { idx: slot, faction });
         queue.push(GpuUpdate::SetHealth { idx: slot, health: max_hp });
         queue.push(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 });
-        queue.push(GpuUpdate::SetFlags { idx: slot, flags: 0 });
+        queue.push(GpuUpdate::SetFlags { idx: slot, flags });
         queue.push(GpuUpdate::SetSpriteFrame {
             idx: slot, col: tileset_idx as f32, row: 0.0,
             atlas: crate::constants::ATLAS_BUILDING,
@@ -473,47 +476,48 @@ pub fn allocate_all_building_slots(
     for (i, wp) in world_data.waypoints.iter().enumerate() {
         if wp.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, i,
-            wp.position, town_faction(wp.town_idx), WAYPOINT_HP, TILESET_WAYPOINT);
+            wp.position, town_faction(wp.town_idx), WAYPOINT_HP, TILESET_WAYPOINT, false);
     }
     for (i, f) in world_data.farms.iter().enumerate() {
         if f.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Farm, i,
-            f.position, town_faction(f.town_idx as u32), FARM_HP, TILESET_FARM);
+            f.position, town_faction(f.town_idx as u32), FARM_HP, TILESET_FARM, false);
     }
     for (i, h) in world_data.farmer_homes.iter().enumerate() {
         if h.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::FarmerHome, i,
-            h.position, town_faction(h.town_idx as u32), FARMER_HOME_HP, TILESET_FARMER_HOME);
+            h.position, town_faction(h.town_idx as u32), FARMER_HOME_HP, TILESET_FARMER_HOME, false);
     }
     for (i, a) in world_data.archer_homes.iter().enumerate() {
         if a.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::ArcherHome, i,
-            a.position, town_faction(a.town_idx as u32), ARCHER_HOME_HP, TILESET_ARCHER_HOME);
+            a.position, town_faction(a.town_idx as u32), ARCHER_HOME_HP, TILESET_ARCHER_HOME, false);
     }
     for (i, t) in world_data.tents.iter().enumerate() {
         if t.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Tent, i,
-            t.position, town_faction(t.town_idx as u32), TENT_HP, TILESET_TENT);
+            t.position, town_faction(t.town_idx as u32), TENT_HP, TILESET_TENT, false);
     }
     for (i, m) in world_data.miner_homes.iter().enumerate() {
         if m.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::MinerHome, i,
-            m.position, town_faction(m.town_idx as u32), MINER_HOME_HP, TILESET_MINER_HOME);
+            m.position, town_faction(m.town_idx as u32), MINER_HOME_HP, TILESET_MINER_HOME, false);
     }
     for (i, b) in world_data.beds.iter().enumerate() {
         if b.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Bed, i,
-            b.position, town_faction(b.town_idx as u32), BED_HP, TILESET_BED);
+            b.position, town_faction(b.town_idx as u32), BED_HP, TILESET_BED, false);
     }
     for (i, t) in world_data.towns.iter().enumerate() {
         let tileset_idx = if t.sprite_type == 1 { TILESET_CAMP } else { TILESET_FOUNTAIN };
+        let is_fountain = t.sprite_type == 0;
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Town, i,
-            t.center, t.faction, TOWN_HP, tileset_idx);
+            t.center, t.faction, TOWN_HP, tileset_idx, is_fountain);
     }
     for (i, m) in world_data.gold_mines.iter().enumerate() {
         if m.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::GoldMine, i,
-            m.position, FACTION_NEUTRAL, GOLD_MINE_HP, TILESET_GOLD_MINE);
+            m.position, FACTION_NEUTRAL, GOLD_MINE_HP, TILESET_GOLD_MINE, false);
     }
 
     info!("Allocated {} building GPU slots", building_slots.len());
@@ -570,7 +574,7 @@ pub fn place_waypoint_at_world_pos(
 
     // Allocate GPU NPC slot for collision
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-    allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, data_idx, snapped, faction, BuildingHpState::max_hp(BuildingKind::Waypoint), TILESET_WAYPOINT);
+    allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, data_idx, snapped, faction, BuildingHpState::max_hp(BuildingKind::Waypoint), TILESET_WAYPOINT, false);
 
     Ok(())
 }
@@ -1422,6 +1426,11 @@ impl Building {
             Building::MinerHome { .. } => BuildingKind::MinerHome,
             Building::Bed { .. } => BuildingKind::Bed,
         }
+    }
+
+    /// Whether this building is a tower (auto-shoots at nearby enemies via GPU targeting).
+    pub fn is_tower(&self) -> bool {
+        matches!(self, Building::Fountain { .. })
     }
 
     /// Map building variant to tileset array index (matches BUILDING_TILES order).

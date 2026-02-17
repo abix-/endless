@@ -220,11 +220,11 @@ pub const BASE_GRID_MAX: i32 = 3;
 pub const MAX_GRID_EXTENT: i32 = 49;
 
 // ============================================================================
-// BUILDING TURRET STATS
+// BUILDING TOWER STATS
 // ============================================================================
 
-/// Combat stats for a building turret (any building kind that auto-shoots).
-pub struct TurretStats {
+/// Combat stats for a tower building (any building kind that auto-shoots).
+pub struct TowerStats {
     pub range: f32,
     pub damage: f32,
     pub cooldown: f32,
@@ -232,12 +232,8 @@ pub struct TurretStats {
     pub proj_lifetime: f32,
 }
 
-pub const WAYPOINT_TURRET: TurretStats = TurretStats {
-    range: 250.0, damage: 8.0, cooldown: 3.0, proj_speed: 300.0, proj_lifetime: 1.5,
-};
-
-pub const FOUNTAIN_TURRET: TurretStats = TurretStats {
-    range: 300.0, damage: 5.0, cooldown: 2.5, proj_speed: 250.0, proj_lifetime: 1.5,
+pub const FOUNTAIN_TOWER: TowerStats = TowerStats {
+    range: 400.0, damage: 15.0, cooldown: 1.5, proj_speed: 350.0, proj_lifetime: 1.5,
 };
 
 // ============================================================================

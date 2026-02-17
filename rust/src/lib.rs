@@ -35,7 +35,7 @@ use resources::{
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
     FoodStorage, GoldStorage, FactionStats, CampState, RaidQueue, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
-    TurretState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
+    TowerState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
     DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
 };
@@ -243,7 +243,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<world::TownGrids>()
        .init_resource::<BuildMenuContext>()
        .init_resource::<DestroyRequest>()
-       .init_resource::<TurretState>()
+       .init_resource::<TowerState>()
        .init_resource::<SpawnerState>()
        .init_resource::<BuildingHpState>()
        .init_resource::<resources::BuildingSlotMap>()
@@ -303,7 +303,7 @@ pub fn build_app(app: &mut App) {
            death_system,
            xp_grant_system,
            death_cleanup_system,
-           building_turret_system,
+           building_tower_system,
        ).chain().in_set(Step::Combat))
        // Behavior
        .add_systems(Update, (

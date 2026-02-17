@@ -108,21 +108,25 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    // Buildings (speed=0): in grid for collision but skip all Mode 2 work
-    if (speed == 0.0) {
+    // Grid constants (shared by movement + combat targeting)
+    let gw = i32(params.grid_width);
+    let gh = i32(params.grid_height);
+    let mpc = i32(params.max_per_cell);
+    let my_faction = factions[i];
+
+    // Buildings (speed=0): skip movement. Towers (bit 1) continue to combat targeting.
+    let is_tower = (npc_flags[i] & 2u) != 0u;
+    if (speed == 0.0 && !is_tower) {
         combat_targets[i] = -1;
         threat_counts[i] = 0u;
         return;
     }
 
+    // --- Movement, separation, dodge (only for moving NPCs, not towers) ---
+    if (speed > 0.0) {
     let to_goal = goal - pos;
     let dist_to_goal = length(to_goal);
     let wants_goal = settled == 0;
-
-    // Grid constants (shared by separation + combat targeting)
-    let gw = i32(params.grid_width);
-    let gh = i32(params.grid_height);
-    let mpc = i32(params.max_per_cell);
 
     // --- STEP 2: Separation + dodge (single grid scan) ---
     // Separation pushes away from overlapping neighbors.
@@ -133,7 +137,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let sep_radius_sq = params.separation_radius * params.separation_radius;
     let approach_radius = params.separation_radius * 2.0;
     let approach_radius_sq = approach_radius * approach_radius;
-    let my_faction = factions[i];
 
     // Pre-compute goal direction for dodge (only if moving toward goal)
     let is_moving = wants_goal && dist_to_goal > params.arrival_threshold;
@@ -330,11 +333,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     positions[i] = pos;
     arrivals[i] = settled;
     backoff[i] = my_backoff;
+    } // end if (speed > 0.0)
 
     // --- Combat targeting + threat assessment via spatial grid ---
     // Uses wider search radius than separation (combat_range >> separation_radius)
     // Threat assessment piggybacks on this scan (threat_radius <= combat_range)
-    // my_faction already computed above for separation
 
     if (healths[i] <= 0.0) {
         combat_targets[i] = -1;

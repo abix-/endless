@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-02-17m
+
+- **fountain tower** — fountains auto-attack nearby enemies (range=400, damage=15, cooldown=1.5s, proj_speed=350); strong spawn defense that prevents early wipes
+- **GPU tower targeting** — shader `npc_compute.wgsl` now checks `npc_flags` bit 1 (tower) to let buildings bypass speed==0 early-return and reach combat targeting; `allocate_building_slot` sets flags=3 for fountains via `Building::is_tower()`
+- **turret → tower rename** — all turret naming standardized to tower: `TowerStats`, `TowerState`, `TowerKindState`, `FOUNTAIN_TOWER`, `fire_towers()`, `building_tower_system`
+- **waypoint turret removal** — waypoints are no longer part of the tower system; removed `WAYPOINT_TURRET`, waypoint state sync, and save/load of waypoint attack state (backward compat preserved via `#[serde(default)]`)
+- **click select SystemParam** — `render.rs` `click_to_select_system` refactored: 8 params → `ClickSelectParams` SystemParam bundle; dead NPC guard via `NpcEntityMap` check prevents inspecting recycled slots
+- **inspector dead NPC guard** — `game_hud.rs` inspector falls back to building inspector or placeholder when selected NPC no longer exists in ECS
+
 ## 2026-02-17l
 
 - **building turret system** — generalized `waypoint_attack_system` into `building_turret_system` with shared `fire_turrets()` helper; any building kind can now be a turret via `TurretStats` config

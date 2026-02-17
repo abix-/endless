@@ -873,23 +873,22 @@ impl CombatLog {
 }
 
 // ============================================================================
-// BUILDING TURRET STATE
+// BUILDING TOWER STATE
 // ============================================================================
 
-/// Per-building turret state for one building kind.
+/// Per-building tower state for one building kind.
 #[derive(Default)]
-pub struct TurretKindState {
+pub struct TowerKindState {
     /// Cooldown timer per building (seconds remaining).
     pub timers: Vec<f32>,
     /// Whether auto-attack is enabled per building.
     pub attack_enabled: Vec<bool>,
 }
 
-/// Turret state for all building kinds that can shoot.
+/// Tower state for all building kinds that can shoot.
 #[derive(Resource, Default)]
-pub struct TurretState {
-    pub waypoint: TurretKindState,
-    pub town: TurretKindState,
+pub struct TowerState {
+    pub town: TowerKindState,
 }
 
 // ============================================================================

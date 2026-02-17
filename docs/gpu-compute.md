@@ -105,11 +105,13 @@ One thread per NPC. Computes cell from `floor(pos / cell_size)`, atomically incr
 ### Mode 2: Separation + Movement + Combat Targeting
 One thread per NPC. Three-tier optimization based on NPC type:
 
-**Tier 1 — Buildings (speed=0)**: Early exit. Writes `combat_targets[i] = -1`, `threat_counts[i] = 0`, returns. Buildings are in the grid for projectile collision only — they don't move, separate, or target.
+**Tier 1 — Buildings (speed=0, not tower)**: Early exit. Writes `combat_targets[i] = -1`, `threat_counts[i] = 0`, returns. Buildings are in the grid for projectile collision only — they don't move, separate, or target.
+
+**Tier 1b — Tower buildings (speed=0, npc_flags bit 1 = 1)**: Skip movement/separation but run combat targeting. Fountains use this tier — GPU finds their nearest enemy, CPU `building_tower_system` reads `combat_targets[slot]` and fires projectiles.
 
 **Tier 2 — Non-combatants (npc_flags bit 0 = 0, farmers/miners)**: Full separation + movement. Threat scan uses `threat_radius` (7×7=49 cells). Skips the expensive combat targeting scan (9×9=81 cells). Writes `combat_targets[i] = -1`.
 
-**Tier 3 — Combatants (npc_flags bit 0 = 1, archers/raiders/fighters/waypoints)**: Full separation + movement + combat targeting. Scans `combat_range` radius (9×9=81 cells) for both threat assessment and nearest enemy targeting.
+**Tier 3 — Combatants (npc_flags bit 0 = 1, archers/raiders/fighters)**: Full separation + movement + combat targeting. Scans `combat_range` radius (9×9=81 cells) for both threat assessment and nearest enemy targeting.
 
 Four phases per thread (tiers 2+3):
 
@@ -146,7 +148,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 14 | proj_velocities | vec2\<f32\>[] | — | ProjGpuBuffers.velocities (read) | Projectile velocities for approach check |
 | 15 | proj_factions | i32[] | — | ProjGpuBuffers.factions (read) | Projectile factions for friendly fire skip |
 | 16 | threat_counts | u32 | 4B | Not uploaded | Packed threat assessment: (enemies << 16 \| allies) per NPC |
-| 17 | npc_flags | u32 | 4B | NpcGpuState.npc_flags | Bit 0: combat scan enabled (archers/raiders/fighters/waypoints). Buildings + farmers/miners = 0. |
+| 17 | npc_flags | u32 | 4B | NpcGpuState.npc_flags | Bit 0: combat scan enabled (archers/raiders/fighters). Bit 1: tower building (skip movement, run combat targeting). Fountains = 3 (bits 0+1). Other buildings + farmers/miners = 0. |
 
 ### NPC Visual Storage Buffers (npc_render.rs)
 
