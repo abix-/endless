@@ -467,7 +467,7 @@ fn click_to_select_system(
     // Find nearest building via the same distance-based hit-test style as NPC selection.
     let building_select_radius = 24.0_f32;
     let mut best_building_dist = building_select_radius;
-    let mut best_building: Option<(BuildingKind, usize, Vec2)> = None;
+    let mut best_building: Option<(BuildingKind, usize, Vec2, Option<usize>)> = None;
     for i in 0..npc_count {
         let Some((kind, bidx)) = building_slots.get_building(i) else { continue };
         let px = positions[i * 2];
@@ -479,7 +479,7 @@ fn click_to_select_system(
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < best_building_dist {
             best_building_dist = dist;
-            best_building = Some((kind, bidx, Vec2::new(px, py)));
+            best_building = Some((kind, bidx, Vec2::new(px, py), Some(i)));
         }
     }
     // Fallback to clicked cell building when available.
@@ -490,19 +490,20 @@ fn click_to_select_system(
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < best_building_dist {
             if let Some(bidx) = crate::world::find_building_data_index(&world_data, *b, bpos) {
-                best_building = Some((b.kind(), bidx, bpos));
+                best_building = Some((b.kind(), bidx, bpos, None));
             }
         }
     }
 
     // Keep up to one NPC and one building selected from the same click.
     selected.0 = best_idx;
-    if let Some((kind, bidx, bpos)) = best_building {
+    if let Some((kind, bidx, bpos, bslot)) = best_building {
         let (bcol, brow) = grid.world_to_grid(bpos);
         *selected_building = SelectedBuilding {
             col: bcol,
             row: brow,
             active: true,
+            slot: bslot,
             kind: Some(kind),
             index: Some(bidx),
         };
@@ -519,6 +520,7 @@ fn click_to_select_system(
         }
     } else {
         selected_building.active = false;
+        selected_building.slot = None;
         selected_building.kind = None;
         selected_building.index = None;
     }
@@ -527,7 +529,7 @@ fn click_to_select_system(
     if best_idx >= 0 && best_building.is_some() {
         let npc_x = positions[best_idx as usize * 2];
         let npc_y = positions[best_idx as usize * 2 + 1];
-        let (_, _, bpos) = best_building.unwrap_or((BuildingKind::Farm, 0, grid.grid_to_world(col, row)));
+        let (_, _, bpos, _) = best_building.unwrap_or((BuildingKind::Farm, 0, grid.grid_to_world(col, row), None));
         let npc_dx = world_pos.x - npc_x;
         let npc_dy = world_pos.y - npc_y;
         let bld_dx = world_pos.x - bpos.x;

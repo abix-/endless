@@ -84,12 +84,12 @@ impl AiPersonality {
         }
     }
 
-    /// Minimum food the AI hoards before spending.
-    pub fn food_reserve(self) -> i32 {
+    /// Food reserve per active NPC spawner for this personality.
+    pub fn food_reserve_per_spawner(self) -> i32 {
         match self {
             Self::Aggressive => 0,
-            Self::Balanced => 10,
-            Self::Economic => 30,
+            Self::Balanced => 1,
+            Self::Economic => 2,
         }
     }
 
@@ -714,7 +714,12 @@ pub fn ai_decision_system(
         }
 
         let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
-        let reserve = player.personality.food_reserve();
+        let spawner_count = res.world.spawner_state.0.iter()
+            .filter(|s| s.position.x > -9000.0)
+            .filter(|s| s.town_idx == tdi as i32)
+            .filter(|s| matches!(s.building_kind, 0 | 1 | 2 | 3))
+            .count() as i32;
+        let reserve = player.personality.food_reserve_per_spawner() * spawner_count;
         if food <= reserve { continue; }
 
         let center = snapshots.towns.get(&tdi)

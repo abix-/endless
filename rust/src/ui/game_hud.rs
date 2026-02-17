@@ -1139,6 +1139,7 @@ pub fn selection_overlay_system(
     selected: Res<SelectedNpc>,
     selected_building: Res<SelectedBuilding>,
     gpu_state: Res<GpuReadState>,
+    building_slots: Res<BuildingSlotMap>,
     grid: Res<WorldGrid>,
     world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
@@ -1185,17 +1186,40 @@ pub fn selection_overlay_system(
 
     // Building selection: tile/building footprint is larger (one grid cell ~= 32 world units).
     if selected_building.active {
-        let bpos = selected_building_info(&selected_building, &grid, &world_data)
-            .map(|(_, pos, _, _)| pos)
-            .or_else(|| {
-                let col = selected_building.col;
-                let row = selected_building.row;
-                if grid.cell(col, row).and_then(|c| c.building.as_ref()).is_some() {
-                    Some(grid.grid_to_world(col, row))
+        let bpos = if let Some(slot) = selected_building.slot {
+            let i = slot * 2;
+            if i + 1 < gpu_state.positions.len() {
+                let x = gpu_state.positions[i];
+                let y = gpu_state.positions[i + 1];
+                if x > -9000.0 { Some(Vec2::new(x, y)) } else { None }
+            } else {
+                None
+            }
+        } else if let (Some(kind), Some(index)) = (selected_building.kind, selected_building.index) {
+            building_slots.get_slot(kind, index).and_then(|slot| {
+                let i = slot * 2;
+                if i + 1 < gpu_state.positions.len() {
+                    let x = gpu_state.positions[i];
+                    let y = gpu_state.positions[i + 1];
+                    if x > -9000.0 { Some(Vec2::new(x, y)) } else { None }
                 } else {
                     None
                 }
-            });
+            })
+        } else {
+            None
+        }.or_else(|| {
+            selected_building_info(&selected_building, &grid, &world_data)
+                .map(|(_, pos, _, _)| pos)
+        }).or_else(|| {
+            let col = selected_building.col;
+            let row = selected_building.row;
+            if grid.cell(col, row).and_then(|c| c.building.as_ref()).is_some() {
+                Some(grid.grid_to_world(col, row))
+            } else {
+                None
+            }
+        });
         if let Some(wp) = bpos {
             let screen = egui::Pos2::new(
                 center.x + (wp.x - cam.x) * zoom,

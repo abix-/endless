@@ -208,6 +208,7 @@ pub struct SelectedBuilding {
     pub col: usize,
     pub row: usize,
     pub active: bool,
+    pub slot: Option<usize>,
     pub kind: Option<crate::world::BuildingKind>,
     pub index: Option<usize>,
 }
