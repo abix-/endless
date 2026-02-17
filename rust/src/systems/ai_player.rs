@@ -6,7 +6,7 @@
 //! (closest to center). Guard posts target the perimeter around controlled buildings
 //! with minimum spacing of 5 grid slots between posts.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
@@ -30,6 +30,21 @@ pub struct AiBuildRes<'w> {
 const MIN_WAYPOINT_SPACING: i32 = 5;
 /// Patrol posts sit one slot outside controlled buildings.
 const TERRITORY_PERIMETER_PADDING: i32 = 1;
+
+#[derive(Clone, Default)]
+struct AiTownSnapshot {
+    center: Vec2,
+    empty_slots: Vec<(i32, i32)>,
+    farms: HashSet<(i32, i32)>,
+    farmer_homes: HashSet<(i32, i32)>,
+    archer_homes: HashSet<(i32, i32)>,
+    gold_mines: Vec<Vec2>,
+}
+
+#[derive(Default)]
+pub struct AiTownSnapshotCache {
+    towns: HashMap<usize, AiTownSnapshot>,
+}
 
 #[derive(Resource)]
 pub struct AiPlayerConfig {
@@ -117,6 +132,15 @@ impl AiPersonality {
         }
     }
 
+    /// Farmer home target count relative to farms.
+    fn farmer_home_target(self, farms: usize) -> usize {
+        match self {
+            Self::Aggressive => farms.max(1),
+            Self::Balanced => (farms + 1).max(1),
+            Self::Economic => (farms * 2).max(1),
+        }
+    }
+
     /// Miner home target count relative to houses.
     fn miner_home_target(self, houses: usize) -> usize {
         match self {
@@ -196,6 +220,171 @@ fn find_inner_slot(
         }
     }
     best.map(|(slot, _)| slot)
+}
+
+fn build_town_snapshot(
+    world_data: &WorldData,
+    grid: &WorldGrid,
+    tg: &world::TownGrid,
+    town_data_idx: usize,
+) -> Option<AiTownSnapshot> {
+    let town = world_data.towns.get(town_data_idx)?;
+    let center = town.center;
+    let ti = town_data_idx as u32;
+
+    let farms = world_data.farms.iter()
+        .filter(|f| f.town_idx == ti && f.position.x > -9000.0)
+        .map(|f| world::world_to_town_grid(center, f.position))
+        .collect();
+    let farmer_homes = world_data.farmer_homes.iter()
+        .filter(|h| h.town_idx == ti && h.position.x > -9000.0)
+        .map(|h| world::world_to_town_grid(center, h.position))
+        .collect();
+    let archer_homes = world_data.archer_homes.iter()
+        .filter(|h| h.town_idx == ti && h.position.x > -9000.0)
+        .map(|h| world::world_to_town_grid(center, h.position))
+        .collect();
+    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
+    let mut empty_slots = Vec::new();
+    for r in min_row..=max_row {
+        for c in min_col..=max_col {
+            if r == 0 && c == 0 { continue; }
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true) {
+                empty_slots.push((r, c));
+            }
+        }
+    }
+
+    let gold_mines = world_data.gold_mines.iter()
+        .filter(|m| m.position.x > -9000.0)
+        .map(|m| m.position)
+        .collect();
+
+    Some(AiTownSnapshot {
+        center,
+        empty_slots,
+        farms,
+        farmer_homes,
+        archer_homes,
+        gold_mines,
+    })
+}
+
+fn pick_best_empty_slot<F>(snapshot: &AiTownSnapshot, mut score: F) -> Option<(i32, i32)>
+where
+    F: FnMut((i32, i32)) -> i32,
+{
+    let mut best: Option<((i32, i32), i32)> = None;
+    for &slot in &snapshot.empty_slots {
+        let s = score(slot);
+        if best.map_or(true, |(_, bs)| s > bs) {
+            best = Some((slot, s));
+        }
+    }
+    best.map(|(slot, _)| slot)
+}
+
+fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    let (r, c) = slot;
+    let mut score = 0i32;
+    let mut orth_farms = 0i32;
+
+    for dr in -1..=1 {
+        for dc in -1..=1 {
+            if dr == 0 && dc == 0 { continue; }
+            let n = (r + dr, c + dc);
+            if snapshot.farms.contains(&n) {
+                score += if dr == 0 || dc == 0 { 24 } else { 12 };
+                if dr == 0 || dc == 0 { orth_farms += 1; }
+            }
+            if snapshot.farmer_homes.contains(&n) {
+                score += 8;
+            }
+        }
+    }
+
+    let two_by_two = [(0, 0), (-1, 0), (0, -1), (-1, -1)];
+    for (or, oc) in two_by_two {
+        let r0 = r + or;
+        let c0 = c + oc;
+        let block = [(r0, c0), (r0 + 1, c0), (r0, c0 + 1), (r0 + 1, c0 + 1)];
+        let existing = block.iter()
+            .filter(|&&b| b != slot && snapshot.farms.contains(&b))
+            .count();
+        if existing == 3 {
+            score += 120;
+        } else if existing == 2 {
+            score += 30;
+        }
+    }
+
+    if orth_farms >= 2 { score += 30; }
+    if snapshot.farms.is_empty() {
+        let radial = r * r + c * c;
+        score -= radial / 2;
+    }
+    score
+}
+
+fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    let (r, c) = slot;
+    let mut edge_farm = 0i32;
+    let mut diag_farm = 0i32;
+    let mut near_homes = 0i32;
+    let mut near_archers = 0i32;
+
+    for dr in -1..=1 {
+        for dc in -1..=1 {
+            if dr == 0 && dc == 0 { continue; }
+            let n = (r + dr, c + dc);
+            if snapshot.farms.contains(&n) {
+                if dr == 0 || dc == 0 { edge_farm += 1; } else { diag_farm += 1; }
+            }
+            if snapshot.farmer_homes.contains(&n) { near_homes += 1; }
+            if snapshot.archer_homes.contains(&n) { near_archers += 1; }
+        }
+    }
+
+    if edge_farm == 0 && diag_farm == 0 {
+        return i32::MIN / 4;
+    }
+    edge_farm * 90 + diag_farm * 35 + near_homes * 10 + near_archers * 5
+}
+
+fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    let (r, c) = slot;
+    let mut near_farms = 0i32;
+    let mut near_homes = 0i32;
+    let mut near_archers = 0i32;
+
+    for dr in -1..=1 {
+        for dc in -1..=1 {
+            if dr == 0 && dc == 0 { continue; }
+            let n = (r + dr, c + dc);
+            if snapshot.farms.contains(&n) { near_farms += 1; }
+            if snapshot.farmer_homes.contains(&n) { near_homes += 1; }
+            if snapshot.archer_homes.contains(&n) { near_archers += 1; }
+        }
+    }
+
+    let mut score = near_farms * 40 + near_homes * 35 - near_archers * 20;
+    if near_farms + near_homes >= 4 { score += 60; }
+    score
+}
+
+fn miner_toward_mine_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    if snapshot.gold_mines.is_empty() {
+        let (r, c) = slot;
+        return -(r * r + c * c);
+    }
+    let wp = world::town_grid_to_world(snapshot.center, slot.0, slot.1);
+    let best = snapshot.gold_mines.iter()
+        .map(|m| (wp - *m).length_squared())
+        .fold(f32::INFINITY, f32::min);
+    let radial = slot.0 * slot.0 + slot.1 * slot.1;
+    -(best as i32) - radial
 }
 
 /// Find outermost empty slot at least MIN_WAYPOINT_SPACING from all existing waypoints.
@@ -459,6 +648,7 @@ pub fn ai_decision_system(
     game_time: Res<GameTime>,
     difficulty: Res<Difficulty>,
     mut timer: Local<f32>,
+    mut snapshots: Local<AiTownSnapshotCache>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("ai_decision");
@@ -466,15 +656,31 @@ pub fn ai_decision_system(
     if *timer < config.decision_interval { return; }
     *timer = 0.0;
 
+    let snapshot_dirty = res.world.dirty.building_grid || res.world.dirty.mining || res.world.dirty.patrol_perimeter;
+    if snapshot_dirty {
+        snapshots.towns.clear();
+    }
+
     for pi in 0..ai_state.players.len() {
         let player = &ai_state.players[pi];
         if !player.active { continue; }
         let tdi = player.town_data_idx;
+        if !snapshots.towns.contains_key(&tdi) {
+            if let Some(tg) = res.world.town_grids.grids.get(player.grid_idx) {
+                if let Some(snap) = build_town_snapshot(&res.world.world_data, &res.world.grid, tg, tdi) {
+                    snapshots.towns.insert(tdi, snap);
+                }
+            }
+        }
+
         let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let reserve = player.personality.food_reserve();
         if food <= reserve { continue; }
 
-        let center = res.world.world_data.towns.get(tdi).map(|t| t.center).unwrap_or_default();
+        let center = snapshots.towns.get(&tdi)
+            .map(|s| s.center)
+            .or_else(|| res.world.world_data.towns.get(tdi).map(|t| t.center))
+            .unwrap_or_default();
         let town_name = res.world.world_data.towns.get(tdi).map(|t| t.name.clone()).unwrap_or_default();
         let pname = player.personality.name();
         let ti = tdi as u32;
@@ -486,15 +692,21 @@ pub fn ai_decision_system(
         let waypoints = res.world.world_data.waypoints.iter().filter(|g| alive(g.position, g.town_idx)).count();
         let mine_shafts = res.world.world_data.miner_homes.iter().filter(|ms| alive(ms.position, ms.town_idx)).count();
 
-        let has_slots = res.world.town_grids.grids.get(player.grid_idx)
-            .map(|tg| has_empty_slot(tg, center, &res.world.grid))
+        let has_slots = snapshots.towns.get(&tdi)
+            .map(|s| !s.empty_slots.is_empty())
+            .or_else(|| {
+                res.world.town_grids.grids.get(player.grid_idx)
+                    .map(|tg| has_empty_slot(tg, center, &res.world.grid))
+            })
             .unwrap_or(false);
 
         let slot_fullness = res.world.town_grids.grids.get(player.grid_idx)
             .map(|tg| {
                 let (min_r, max_r, min_c, max_c) = world::build_bounds(tg);
                 let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32; // -1 for center
-                let empty = count_empty_slots(tg, center, &res.world.grid);
+                let empty = snapshots.towns.get(&tdi)
+                    .map(|s| s.empty_slots.len() as i32)
+                    .unwrap_or_else(|| count_empty_slots(tg, center, &res.world.grid));
                 1.0 - empty as f32 / total.max(1.0)
             })
             .unwrap_or(0.0);
@@ -512,19 +724,23 @@ pub fn ai_decision_system(
             AiKind::Builder => {
                 let (fw, hw, bw, gw) = player.personality.building_weights();
                 let bt = player.personality.archer_home_target(houses);
+                let ht = player.personality.farmer_home_target(farms);
+                let ms_target = player.personality.miner_home_target(houses);
+                let house_deficit = ht.saturating_sub(houses);
+                let barracks_deficit = bt.saturating_sub(barracks);
+                let miner_deficit = ms_target.saturating_sub(mine_shafts);
 
                 if has_slots {
                     // Need factors: 1.0 base + deficit (higher when behind target ratio)
                     let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0);
-                    let house_need = 1.0 + (farms as f32 - houses as f32).max(0.0);
-                    let barracks_need = if barracks < bt { 1.0 + (bt - barracks) as f32 } else { 0.5 };
+                    let house_need = if house_deficit > 0 { 1.0 + house_deficit as f32 } else { 0.5 };
+                    let barracks_need = if barracks_deficit > 0 { 1.0 + barracks_deficit as f32 } else { 0.5 };
 
                     if food >= building_cost(BuildKind::Farm) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
                     if food >= building_cost(BuildKind::FarmerHome) { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
                     if food >= building_cost(BuildKind::ArcherHome) { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
-                    let ms_target = player.personality.miner_home_target(houses);
-                    if mine_shafts < ms_target && food >= building_cost(BuildKind::MinerHome) {
-                        let ms_need = 1.0 + (ms_target - mine_shafts) as f32;
+                    if miner_deficit > 0 && food >= building_cost(BuildKind::MinerHome) {
+                        let ms_need = 1.0 + miner_deficit as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
                     }
                 }
@@ -557,6 +773,19 @@ pub fn ai_decision_system(
             let mut w = weight;
             // Expansion (idx 15) urgency scales with slot fullness
             if idx == 15 {
+                if matches!(player.kind, AiKind::Builder) {
+                    let ht = player.personality.farmer_home_target(farms);
+                    let bt = player.personality.archer_home_target(houses);
+                    let ms_target = player.personality.miner_home_target(houses);
+                    let wants_more_homes = has_slots && (
+                        (houses < ht && food >= building_cost(BuildKind::FarmerHome))
+                            || (barracks < bt && food >= building_cost(BuildKind::ArcherHome))
+                            || (mine_shafts < ms_target && food >= building_cost(BuildKind::MinerHome))
+                    );
+                    if wants_more_homes {
+                        continue;
+                    }
+                }
                 if slot_fullness > 0.7 {
                     w *= 2.0 + 4.0 * (slot_fullness - 0.7) / 0.3;
                 }
@@ -571,8 +800,11 @@ pub fn ai_decision_system(
         let Some(action) = weighted_pick(&scores) else { continue };
         let label = execute_action(
             action, ti, tdi, center, waypoints, &mut res,
-            player.grid_idx, *difficulty,
+            player.grid_idx, snapshots.towns.get(&tdi), *difficulty,
         );
+        if label.is_some() {
+            snapshots.towns.remove(&tdi);
+        }
         if let Some(what) = label {
             log_ai(&mut combat_log, &game_time, &town_name, pname, &what);
             let actions = &mut ai_state.players[pi].last_actions;
@@ -583,54 +815,149 @@ pub fn ai_decision_system(
 }
 
 /// Try to build a standard building at the nearest inner slot.
+fn mark_dirty_after_build(res: &mut AiBuildRes, building: Building) {
+    res.world.dirty.building_grid = true;
+    if matches!(
+        building,
+        Building::Farm { .. }
+            | Building::FarmerHome { .. }
+            | Building::ArcherHome { .. }
+            | Building::MinerHome { .. }
+    ) {
+        res.world.dirty.patrol_perimeter = true;
+    }
+    if matches!(building, Building::MinerHome { .. }) {
+        res.world.dirty.mining = true;
+    }
+}
+
+fn try_build_at_slot(
+    building: Building,
+    cost: i32,
+    label: &str,
+    tdi: usize,
+    center: Vec2,
+    res: &mut AiBuildRes,
+    row: i32,
+    col: i32,
+) -> Option<String> {
+    let ok = world::build_and_pay(
+        &mut res.world.grid,
+        &mut res.world.world_data,
+        &mut res.world.farm_states,
+        &mut res.food_storage,
+        &mut res.world.spawner_state,
+        &mut res.world.building_hp,
+        building,
+        tdi,
+        row,
+        col,
+        center,
+        cost,
+    );
+    if ok {
+        mark_dirty_after_build(res, building);
+    }
+    ok.then_some(format!("built {label}"))
+}
+
+fn pick_slot_from_snapshot_or_inner(
+    snapshot: Option<&AiTownSnapshot>,
+    tg: &world::TownGrid,
+    center: Vec2,
+    grid: &WorldGrid,
+    score: fn(&AiTownSnapshot, (i32, i32)) -> i32,
+) -> Option<(i32, i32)> {
+    if let Some(snap) = snapshot {
+        if let Some(slot) = pick_best_empty_slot(snap, |s| score(snap, s)) {
+            return Some(slot);
+        }
+    }
+    find_inner_slot(tg, center, grid)
+}
+
 fn try_build_inner(
     building: Building, cost: i32, label: &str,
     tdi: usize, center: Vec2, res: &mut AiBuildRes, grid_idx: usize,
 ) -> Option<String> {
     let tg = res.world.town_grids.grids.get(grid_idx)?;
     let (row, col) = find_inner_slot(tg, center, &res.world.grid)?;
-    let ok = world::build_and_pay(&mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
-        &mut res.food_storage, &mut res.world.spawner_state, &mut res.world.building_hp,
-        building, tdi, row, col, center, cost);
-    if ok {
-        res.world.dirty.building_grid = true;
-        if matches!(
-            building,
-            Building::Farm { .. }
-                | Building::FarmerHome { .. }
-                | Building::ArcherHome { .. }
-                | Building::MinerHome { .. }
-        ) {
-            res.world.dirty.patrol_perimeter = true;
-        }
-        if matches!(building, Building::MinerHome { .. }) {
-            res.world.dirty.mining = true;
-        }
-    }
-    ok.then_some(format!("built {label}"))
+    try_build_at_slot(building, cost, label, tdi, center, res, row, col)
 }
 
 /// Execute the chosen action, returning a log label on success.
 fn execute_action(
     action: AiAction, ti: u32, tdi: usize, center: Vec2, waypoints: usize,
-    res: &mut AiBuildRes, grid_idx: usize, _difficulty: Difficulty,
+    res: &mut AiBuildRes, grid_idx: usize, snapshot: Option<&AiTownSnapshot>, _difficulty: Difficulty,
 ) -> Option<String> {
     match action {
         AiAction::BuildTent => try_build_inner(
             Building::Tent { town_idx: ti }, building_cost(BuildKind::Tent), "tent",
             tdi, center, res, grid_idx),
-        AiAction::BuildFarm => try_build_inner(
-            Building::Farm { town_idx: ti }, building_cost(BuildKind::Farm), "farm",
-            tdi, center, res, grid_idx),
-        AiAction::BuildFarmerHome => try_build_inner(
-            Building::FarmerHome { town_idx: ti }, building_cost(BuildKind::FarmerHome), "farmer home",
-            tdi, center, res, grid_idx),
-        AiAction::BuildArcherHome => try_build_inner(
-            Building::ArcherHome { town_idx: ti }, building_cost(BuildKind::ArcherHome), "archer home",
-            tdi, center, res, grid_idx),
-        AiAction::BuildMinerHome => try_build_inner(
-            Building::MinerHome { town_idx: ti }, building_cost(BuildKind::MinerHome), "miner home",
-            tdi, center, res, grid_idx),
+        AiAction::BuildFarm => {
+            let tg = res.world.town_grids.grids.get(grid_idx)?;
+            let (row, col) = pick_slot_from_snapshot_or_inner(
+                snapshot, tg, center, &res.world.grid, farm_slot_score,
+            )?;
+            try_build_at_slot(
+                Building::Farm { town_idx: ti },
+                building_cost(BuildKind::Farm),
+                "farm",
+                tdi,
+                center,
+                res,
+                row,
+                col,
+            )
+        }
+        AiAction::BuildFarmerHome => {
+            let tg = res.world.town_grids.grids.get(grid_idx)?;
+            let (row, col) = pick_slot_from_snapshot_or_inner(
+                snapshot, tg, center, &res.world.grid, farmer_home_border_score,
+            )?;
+            try_build_at_slot(
+                Building::FarmerHome { town_idx: ti },
+                building_cost(BuildKind::FarmerHome),
+                "farmer home",
+                tdi,
+                center,
+                res,
+                row,
+                col,
+            )
+        }
+        AiAction::BuildArcherHome => {
+            let tg = res.world.town_grids.grids.get(grid_idx)?;
+            let (row, col) = pick_slot_from_snapshot_or_inner(
+                snapshot, tg, center, &res.world.grid, archer_fill_score,
+            )?;
+            try_build_at_slot(
+                Building::ArcherHome { town_idx: ti },
+                building_cost(BuildKind::ArcherHome),
+                "archer home",
+                tdi,
+                center,
+                res,
+                row,
+                col,
+            )
+        }
+        AiAction::BuildMinerHome => {
+            let tg = res.world.town_grids.grids.get(grid_idx)?;
+            let (row, col) = pick_slot_from_snapshot_or_inner(
+                snapshot, tg, center, &res.world.grid, miner_toward_mine_score,
+            )?;
+            try_build_at_slot(
+                Building::MinerHome { town_idx: ti },
+                building_cost(BuildKind::MinerHome),
+                "miner home",
+                tdi,
+                center,
+                res,
+                row,
+                col,
+            )
+        }
         AiAction::BuildWaypoint => {
             let cost = building_cost(BuildKind::Waypoint);
             // Try wilderness placement near uncovered mine first

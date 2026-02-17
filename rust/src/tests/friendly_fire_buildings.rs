@@ -5,13 +5,17 @@ use bevy::prelude::*;
 
 use crate::components::*;
 use crate::constants::FARM_HP;
-use crate::messages::SpawnNpcMsg;
+use crate::messages::{GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
+use crate::render::MainCamera;
 use crate::resources::*;
 use crate::world::{self, WorldCell};
 
 use super::TestState;
 
-const FRIENDLY_FARM_POS: Vec2 = Vec2::new(500.0, 320.0);
+const FARM_WALL_X: f32 = 500.0;
+const FARM_WALL_Y: [f32; 10] = [230.0, 250.0, 270.0, 290.0, 310.0, 330.0, 350.0, 370.0, 390.0, 410.0];
+const TARGET_X: f32 = 555.0;
+const TARGET_Y: f32 = 320.0;
 
 pub fn setup(
     mut slot_alloc: ResMut<SlotAllocator>,
@@ -22,6 +26,7 @@ pub fn setup(
     mut faction_stats: ResMut<FactionStats>,
     mut building_hp: ResMut<BuildingHpState>,
     mut test_state: ResMut<TestState>,
+    mut camera_query: Query<&mut Transform, With<MainCamera>>,
 ) {
     // Grid must exist so building spatial grid rebuild runs in normal systems.
     world_grid.width = 40;
@@ -44,23 +49,26 @@ pub fn setup(
     food_storage.init(2);
     faction_stats.init(2);
 
-    // Friendly building in projectile lane.
-    world_data.farms.push(world::Farm {
-        position: FRIENDLY_FARM_POS,
-        town_idx: 0,
-    });
-    building_hp.farms.push(FARM_HP);
+    // Friendly vertical farm wall in projectile lane.
+    for y in FARM_WALL_Y {
+        let pos = Vec2::new(FARM_WALL_X, y);
+        world_data.farms.push(world::Farm {
+            position: pos,
+            town_idx: 0,
+        });
+        building_hp.farms.push(FARM_HP);
 
-    let (gc, gr) = world_grid.world_to_grid(FRIENDLY_FARM_POS);
-    if let Some(cell) = world_grid.cell_mut(gc, gr) {
-        cell.building = Some(world::Building::Farm { town_idx: 0 });
+        let (gc, gr) = world_grid.world_to_grid(pos);
+        if let Some(cell) = world_grid.cell_mut(gc, gr) {
+            cell.building = Some(world::Building::Farm { town_idx: 0 });
+        }
     }
 
     // Shooter (faction 0, ranged).
     let shooter = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: shooter,
-        x: 360.0,
+        x: 425.0,
         y: 320.0,
         job: 3, // fighter
         faction: 0,
@@ -77,8 +85,8 @@ pub fn setup(
     let target = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: target,
-        x: 620.0,
-        y: 320.0,
+        x: TARGET_X,
+        y: TARGET_Y,
         job: 0, // farmer (not dedicated ranged combat)
         faction: 1,
         town_idx: 1,
@@ -90,12 +98,18 @@ pub fn setup(
         attack_type: 0, // melee
     });
 
+    if let Ok(mut cam) = camera_query.single_mut() {
+    // Center on the shooter/farm/target lane so test behavior is visible immediately.
+    cam.translation.x = 500.0;
+    cam.translation.y = 320.0;
+    }
+
     test_state.phase_name = "Waiting for shooter target lock...".into();
     test_state.set_flag("damage_seen", false);
     info!(
-        "friendly-fire-buildings: setup complete shooter->target lane through farm at ({:.0},{:.0})",
-        FRIENDLY_FARM_POS.x,
-        FRIENDLY_FARM_POS.y
+        "friendly-fire-buildings: setup complete shooter->target lane through {}-farm vertical wall at x={:.0}",
+        FARM_WALL_Y.len(),
+        FARM_WALL_X
     );
 }
 
@@ -105,13 +119,26 @@ pub fn tick(
     health_debug: Res<HealthDebug>,
     proj_alloc: Res<ProjSlotAllocator>,
     building_hp: Res<BuildingHpState>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
+    // Pin target dummy so it can't flee/chase and invalidate the lane geometry.
+    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+        idx: 1, // setup alloc order: shooter=0, target=1
+        x: TARGET_X,
+        y: TARGET_Y,
+    }));
+
     let alive = npc_query.iter().count();
-    let farm_hp = building_hp.farms.first().copied().unwrap_or(0.0);
+    let damaged_farms = building_hp.farms.iter().filter(|&&hp| hp < FARM_HP).count();
+    let min_farm_hp = building_hp
+        .farms
+        .iter()
+        .copied()
+        .fold(FARM_HP, f32::min);
 
     match test.phase {
         // Phase 1: target acquired.
@@ -137,27 +164,52 @@ pub fn tick(
         }
         // Phase 3: NPC damage confirms real hits.
         3 => {
-            test.phase_name = format!("npc_damage={} farm_hp={:.1}", health_debug.damage_processed, farm_hp);
+            test.phase_name = format!(
+                "npc_damage={} damaged_farms={} min_farm_hp={:.1}",
+                health_debug.damage_processed, damaged_farms, min_farm_hp
+            );
+            if damaged_farms > 0 && health_debug.damage_processed == 0 {
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "bug reproduced: {} friendly farms damaged before any npc damage (min_hp {:.1})",
+                        damaged_farms, min_farm_hp
+                    ),
+                );
+                return;
+            }
             if health_debug.damage_processed > 0 {
                 test.set_flag("damage_seen", true);
                 test.pass_phase(elapsed, format!("npc_damage={}", health_debug.damage_processed));
             } else if elapsed > 30.0 {
-                test.fail_phase(elapsed, "no npc damage observed");
+                test.fail_phase(
+                    elapsed,
+                    format!(
+                        "no npc damage observed (damaged_farms={}, min_farm_hp={:.1}, proj_next={}, attacks={})",
+                        damaged_farms, min_farm_hp, proj_alloc.next, combat_debug.attacks_made
+                    ),
+                );
             }
         }
         // Phase 4: friendly building HP must remain unchanged.
         4 => {
-            test.phase_name = format!("farm_hp={:.1}/{:.1}", farm_hp, FARM_HP);
-            if farm_hp < FARM_HP {
+            test.phase_name = format!(
+                "damaged_farms={} min_farm_hp={:.1}/{:.1}",
+                damaged_farms, min_farm_hp, FARM_HP
+            );
+            if damaged_farms > 0 {
                 test.fail_phase(
                     elapsed,
-                    format!("friendly farm damaged: {:.1} -> {:.1}", FARM_HP, farm_hp),
+                    format!(
+                        "friendly farm line damaged: {} farms, min_hp {:.1}",
+                        damaged_farms, min_farm_hp
+                    ),
                 );
                 return;
             }
 
             if elapsed > 40.0 && test.get_flag("damage_seen") {
-                test.pass_phase(elapsed, format!("friendly farm untouched at {:.1} HP", farm_hp));
+                test.pass_phase(elapsed, "friendly farm line untouched".to_string());
                 test.complete(elapsed);
             }
         }
