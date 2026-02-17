@@ -2,7 +2,7 @@
 
 ## Overview
 
-Ten Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (with building fallback), damage application, death detection, XP-on-kill grant, cleanup with slot recycling, guard post slot sync, guard post turret auto-attack, and building damage processing. Nine run chained in `Step::Combat`; `building_damage_system` runs in `Step::Behavior`.
+Ten Bevy systems handle the complete combat loop: cooldown management, GPU-targeted attacks (with building fallback), damage application, death detection, XP-on-kill grant, cleanup with slot recycling, waypoint slot sync, waypoint turret auto-attack, and building damage processing. Nine run chained in `Step::Combat`; `building_damage_system` runs in `Step::Behavior`.
 
 ## Data Flow
 
@@ -48,12 +48,12 @@ DamageMsg (from process_proj_hits)             GPU movement
   └─ SlotAllocator.free(idx)
         │
         ▼
-  sync_guard_post_slots
+  sync_waypoint_slots
   (alloc/free NPC slots,
    dirty-flag gated)
         │
         ▼
-  guard_post_attack_system
+  waypoint_attack_system
   (read combat_targets[slot],
    fire projectiles)
 ```
@@ -94,7 +94,7 @@ Execution order is **chained** — each system completes before the next starts.
   - Only **archers** and **raiders** attempt building attacks (farmers/miners/fighters skip)
   - Queries `BuildingSpatialGrid` via `find_nearest_enemy_building()` for enemy buildings within `CachedStats.range`
   - Non-targetable buildings skipped: Town, GoldMine, Bed
-  - **Raiders**: only target ArcherHome, GuardPost (leave FarmerHome/MinerHome alone for farm raiding)
+  - **Raiders**: only target ArcherHome, Waypoint (leave FarmerHome/MinerHome alone for farm raiding)
   - **Archers**: target any enemy building type (except non-targetable)
   - "Enemy" = building faction != NPC faction (uses `BuildingRef.faction` field)
   - If found and cooldown ready: stand ground (SetTarget to own pos), fire projectile toward building position, reset cooldown
@@ -139,24 +139,24 @@ Execution order is **chained** — each system completes before the next starts.
   8. Deselect if `SelectedNpc` matches dying NPC (clears inspector panel)
   9. `SlotAllocator.free(idx)` — recycle slot for future spawns
 
-### 7. sync_guard_post_slots (combat.rs)
+### 7. sync_waypoint_slots (combat.rs)
 
-- Gated by `DirtyFlags.guard_post_slots` — skips entirely when no guard posts built/destroyed/loaded
-- Scans `WorldData.guard_posts` for slot mismatches:
+- Gated by `DirtyFlags.waypoint_slots` — skips entirely when no waypoints built/destroyed/loaded
+- Scans `WorldData.waypoints` for slot mismatches:
   - **Alive post, no slot** (`position.x > -9000 && npc_slot == None`): allocates `SlotAllocator` index, emits GPU updates (SetPosition, SetTarget, SetSpeed=0, SetHealth=999, SetSpriteFrame col=-1). Sprite col=-1 makes the slot invisible to NPC renderer. SetTarget=position causes GPU to immediately mark settled.
   - **Tombstoned post, has slot** (`position.x < -9000 && npc_slot == Some`): emits `HideNpc`, frees slot
-- Faction set in a second pass (borrow split: `iter_mut` on guard_posts prevents reading towns simultaneously)
-- Clears `dirty.guard_post_slots` after sync
+- Faction set in a second pass (borrow split: `iter_mut` on waypoints prevents reading towns simultaneously)
+- Clears `dirty.waypoint_slots` after sync
 
-### 8. guard_post_attack_system (combat.rs)
+### 8. waypoint_attack_system (combat.rs)
 
-- Iterates `WorldData.guard_posts` with `GuardPostState` per-post timers and enabled flags
-- State length auto-syncs with guard post count (handles runtime building)
+- Iterates `WorldData.waypoints` with `WaypointState` per-post timers and enabled flags
+- State length auto-syncs with waypoint count (handles runtime building)
 - Skips posts without `npc_slot` (not yet allocated by sync system)
 - For each enabled post with cooldown ready: reads `GpuReadState.combat_targets[slot]` — O(1) GPU-provided nearest enemy. Validates target position and range (`GUARD_POST_RANGE` = 250px)
 - Fires projectile via `PROJ_GPU_UPDATE_QUEUE` with `shooter: -1` (building, not NPC) and post's owning faction
 - Constants: range=250, damage=8, cooldown=3s, proj_speed=300, proj_lifetime=1.5s
-- Turret toggle: `GuardPostState.attack_enabled[i]` toggled via build menu UI
+- Turret toggle: `WaypointState.attack_enabled[i]` toggled via build menu UI
 
 ### 9. building_damage_system (combat.rs, Step::Behavior)
 - Reads `BuildingDamageMsg` events via `MessageReader`
@@ -193,8 +193,8 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Hide dead | `GpuUpdate::HideNpc` resets position, target, arrival, health |
 | CPU → GPU | Stand ground | `GpuUpdate::SetTarget` to own position when in attack range (stops movement, allows proj dodge) |
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
-| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + guard_post_attack_system + building attack fallback) |
-| CPU → GPU | Guard post slots | `sync_guard_post_slots` allocates NPC slots for guard posts, sets position/faction/speed=0/health=999/sprite=-1 — GPU spatial grid auto-populates `combat_targets[slot]` with nearest enemy |
+| CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + waypoint_attack_system + building attack fallback) |
+| CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 — GPU spatial grid auto-populates `combat_targets[slot]` with nearest enemy |
 | CPU | Building damage | `process_proj_hits` checks active projectile positions against `BuildingSpatialGrid` → `BuildingDamageMsg` on collision → `building_damage_system` |
 
 ## Debug

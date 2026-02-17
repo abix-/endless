@@ -10,7 +10,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 use crate::gpu::NpcSpriteTexture;
 use crate::resources::{SelectedNpc, SelectedBuilding};
 use crate::settings::UserSettings;
-use crate::world::{WorldGrid, build_tileset, TERRAIN_TILES, BUILDING_TILES};
+use crate::world::{WorldData, WorldGrid, build_tileset, TERRAIN_TILES, BUILDING_TILES};
 
 // =============================================================================
 // CONSTANTS
@@ -349,11 +349,19 @@ fn click_to_select_system(
     grid: Res<WorldGrid>,
     mut squad_state: ResMut<crate::resources::SquadState>,
     build_ctx: Res<crate::resources::BuildMenuContext>,
+    mut ui_state: ResMut<crate::resources::UiState>,
+    mut world_data: ResMut<WorldData>,
 ) {
-    // Right-click cancels squad target placement
-    if mouse.just_pressed(MouseButton::Right) && squad_state.placing_target {
-        squad_state.placing_target = false;
-        return;
+    // Right-click cancels squad target placement or mine assignment
+    if mouse.just_pressed(MouseButton::Right) {
+        if squad_state.placing_target {
+            squad_state.placing_target = false;
+            return;
+        }
+        if ui_state.assigning_mine.is_some() {
+            ui_state.assigning_mine = None;
+            return;
+        }
     }
 
     if !mouse.just_pressed(MouseButton::Left) { return; }
@@ -391,6 +399,23 @@ fn click_to_select_system(
             squad_state.squads[si as usize].target = Some(world_pos);
         }
         squad_state.placing_target = false;
+        return;
+    }
+
+    // Mine assignment — snap to nearest gold mine within radius
+    if let Some(mh_idx) = ui_state.assigning_mine {
+        let snap_radius = 60.0;
+        let best = world_data.gold_mines.iter()
+            .map(|m| (m.position.distance(world_pos), m.position))
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some((dist, mine_pos)) = best {
+            if dist < snap_radius {
+                if let Some(mh) = world_data.miner_homes.get_mut(mh_idx) {
+                    mh.assigned_mine = Some(mine_pos);
+                }
+            }
+        }
+        ui_state.assigning_mine = None;
         return;
     }
 

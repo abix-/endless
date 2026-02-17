@@ -92,7 +92,7 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Combat pipeline ────────────────▶ [combat.md]
     │   ├─ Behavior systems ───────────────▶ [behavior.md]
     │   ├─ Economy systems ────────────────▶ [economy.md]
-    │   ├─ AI player system ─────────────▶ personality-driven build/unlock/upgrade for non-player factions; active flag for deferred migration camps
+    │   ├─ AI player system ─────────────▶ personality-driven build/unlock/upgrade for non-player factions; wilderness waypoint placement near mines; active flag for deferred migration camps
     │   └─ Audio (systems/audio.rs) ───▶ music jukebox (22 tracks, random no-repeat, speed control), SFX scaffold
     │
     └─ Test Framework (tests/)
@@ -134,11 +134,11 @@ rust/
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, MiningProgress, Archer/Farmer/Miner markers, Migrating)
-  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, guard post turret, squad limits, mining, building HP, building costs, 8x8 base build area)
-  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, GuardPostState, SquadState, GoldStorage, MineStates, MinerProgressRender, BuildingHpState, HelpCatalog, etc.)
+  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, waypoint turret (disabled), squad limits, mining, building HP, building costs, 8x8 base build area, WAYPOINT_COVER_RADIUS)
+  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, WaypointState, SquadState, GoldStorage, MineStates, MinerProgressRender, BuildingHpState, HelpCatalog, etc.)
   src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
   src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v4, auto_upgrades, autosave_hours, music/sfx volume, music speed, tutorial_completed)
-  src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind()
+  src/world.rs          # World data structs (GoldMine, MinerHome, FarmerHome, ArcherHome, Waypoint), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), place_waypoint_at_world_pos(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale + audio volume), escape/time controls, keyboard toggles (Q=squads, H=help), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
     main_menu.rs        # Main menu with difficulty presets (Easy/Normal/Hard), world config sliders (farms + gold mines top-level, farmer/archer homes under AI Towns, tents under Raider Camps), Play / Load Game / Debug Tests, restart tutorial button
@@ -170,11 +170,11 @@ rust/
     stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, UPGRADE_REGISTRY (16 upgrades, prereqs + multi-resource cost), UPGRADE_RENDER_ORDER (tree UI layout), resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system, upgrade helpers (upgrade_unlocked/upgrade_available/deduct_upgrade_cost/format_upgrade_cost/missing_prereqs/upgrade_effect_summary/branch_total/expansion_cost)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
-    combat.rs           # Attack cooldown, targeting, building attack fallback, guard post turret, building_damage_system
+    combat.rs           # Attack cooldown, targeting, building attack fallback, waypoint turret (disabled by default), building_damage_system
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, mine regen, respawning, building spawners, squad cleanup, migration spawn/attach/settle
-    ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), weighted random scoring, AiBuildRes SystemParam bundle
+    ai_player.rs        # AI decision system with personalities (Aggressive/Balanced/Economic), weighted random scoring, AiBuildRes SystemParam bundle, wilderness waypoint placement near uncovered mines
     audio.rs            # Music jukebox (22 tracks, random no-repeat, volume + speed control), SFX scaffold
     energy.rs           # Energy drain/recovery
     sync.rs             # GPU state sync
@@ -188,7 +188,7 @@ rust/
       arrow.png                       # Arrow projectile sprite (single texture, white)
       house.png                       # Farmer Home building sprite (32x32, External tileset)
       barracks.png                    # Archer Home building sprite (32x32, External tileset)
-      guard_post.png                  # Guard post building sprite (32x32, External tileset)
+      waypoint.png                    # Waypoint building sprite (32x32, External tileset)
     sounds/
       music/not-jam-music/  # 22 .ogg tracks (Not Jam Music Pack, CC0)
     shaders/

@@ -262,6 +262,57 @@ fn has_empty_slot(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> bool 
 }
 
 // ============================================================================
+// WILDERNESS WAYPOINT PLACEMENT (MINE EXTENSION)
+// ============================================================================
+
+/// Find the best position for a wilderness waypoint covering an uncovered gold mine.
+/// Returns the mine position closest to the town center that isn't already covered
+/// by a friendly waypoint within WAYPOINT_COVER_RADIUS.
+fn find_mine_waypoint_pos(
+    center: Vec2, world_data: &WorldData, ti: u32,
+) -> Option<Vec2> {
+    let cover_r = WAYPOINT_COVER_RADIUS;
+
+    // Friendly waypoints for this town (alive only)
+    let friendly: Vec<Vec2> = world_data.waypoints.iter()
+        .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
+        .map(|w| w.position)
+        .collect();
+
+    let mut best: Option<(Vec2, f32)> = None;
+
+    for mine in &world_data.gold_mines {
+        if mine.position.x < -9000.0 { continue; }
+
+        // Check if any friendly waypoint already covers this mine
+        let covered = friendly.iter().any(|wp| (*wp - mine.position).length() < cover_r);
+        if covered { continue; }
+
+        // Score: prefer closer mines
+        let dist = (mine.position - center).length();
+        if best.map_or(true, |(_, d)| dist < d) {
+            best = Some((mine.position, dist));
+        }
+    }
+
+    best.map(|(pos, _)| pos)
+}
+
+/// Count uncovered gold mines for scoring.
+fn count_uncovered_mines(_center: Vec2, world_data: &WorldData, ti: u32) -> usize {
+    let cover_r = WAYPOINT_COVER_RADIUS;
+    let friendly: Vec<Vec2> = world_data.waypoints.iter()
+        .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
+        .map(|w| w.position)
+        .collect();
+
+    world_data.gold_mines.iter()
+        .filter(|m| m.position.x > -9000.0)
+        .filter(|m| !friendly.iter().any(|wp| (*wp - m.position).length() < cover_r))
+        .count()
+}
+
+// ============================================================================
 // AI DECISION SYSTEM
 // ============================================================================
 
@@ -336,16 +387,30 @@ pub fn ai_decision_system(
                     let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0);
                     let house_need = 1.0 + (farms as f32 - houses as f32).max(0.0);
                     let barracks_need = if barracks < bt { 1.0 + (bt - barracks) as f32 } else { 0.5 };
-                    let gp_need = if waypoints < barracks { 1.0 + (barracks - waypoints) as f32 } else { 0.5 };
 
                     if food >= building_cost(BuildKind::Farm) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
                     if food >= building_cost(BuildKind::FarmerHome) { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
                     if food >= building_cost(BuildKind::ArcherHome) { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
-                    if food >= building_cost(BuildKind::Waypoint) { scores.push((AiAction::BuildWaypoint, gw * gp_need)); }
                     let ms_target = player.personality.miner_home_target(houses);
                     if mine_shafts < ms_target && food >= building_cost(BuildKind::MinerHome) {
                         let ms_need = 1.0 + (ms_target - mine_shafts) as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
+                    }
+                }
+
+                // Waypoints: wilderness placement (independent of town grid slots)
+                // Score when there are uncovered mines to extend patrol toward
+                if food >= building_cost(BuildKind::Waypoint) {
+                    let uncovered = count_uncovered_mines(center, &res.world.world_data, ti);
+                    if uncovered > 0 {
+                        let mine_need = 1.0 + uncovered as f32;
+                        scores.push((AiAction::BuildWaypoint, gw * mine_need));
+                    } else if waypoints < barracks {
+                        // Fallback: still need waypoints for patrol coverage even without mines
+                        let gp_need = 1.0 + (barracks - waypoints) as f32;
+                        if has_slots {
+                            scores.push((AiAction::BuildWaypoint, gw * gp_need));
+                        }
                     }
                 }
             }
@@ -423,6 +488,20 @@ fn execute_action(
             tdi, center, res, grid_idx),
         AiAction::BuildWaypoint => {
             let cost = building_cost(BuildKind::Waypoint);
+            // Try wilderness placement near uncovered mine first
+            if let Some(mine_pos) = find_mine_waypoint_pos(center, &res.world.world_data, ti) {
+                if world::place_waypoint_at_world_pos(
+                    &mut res.world.grid, &mut res.world.world_data,
+                    &mut res.world.building_hp, &mut res.food_storage,
+                    tdi, mine_pos, cost,
+                ).is_ok() {
+                    res.world.dirty.patrols = true;
+                    res.world.dirty.building_grid = true;
+                    res.world.dirty.waypoint_slots = true;
+                    return Some("built waypoint near mine".into());
+                }
+            }
+            // Fallback: in-grid placement
             let tg = res.world.town_grids.grids.get(grid_idx)?;
             let (row, col) = find_waypoint_slot(tg, center, &res.world.grid, &res.world.world_data, ti)?;
             let ok = world::build_and_pay(&mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,

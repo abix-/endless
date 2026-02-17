@@ -96,7 +96,7 @@ NPC rendering uses GPU storage buffers instead of per-instance vertex attributes
 | 2 | `npc_visual_buf` | `NpcVisualBuffers.visual` (CPU upload) | 32B ([f32;8]) |
 | 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 96B (6×[f32;4]) |
 
-**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `NpcGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Reset to `-1.0` sentinel each frame — phantom slots (e.g. guard post NPC slots with no ECS entity) stay hidden via `sprite_col < 0`.
+**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `NpcGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Reset to `-1.0` sentinel each frame — phantom slots (e.g. waypoint NPC slots with no ECS entity) stay hidden via `sprite_col < 0`.
 
 **Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). Reset to `-1.0` sentinel each frame — `col < 0` means unequipped/inactive.
 
@@ -395,9 +395,9 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 | Sleep icon | `sleep.png` | 16×16 | 1×1 (single sprite) | Sleep indicator overlay |
 | Farmer Home | `house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Archer Home | `barracks.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
-| Guard Post | `guard_post.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
+| Waypoint | `waypoint.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 
-`SpriteAssets` holds handles for all loaded textures including the three external building sprites (`house_texture`, `barracks_texture`, `guard_post_texture`). NPC instanced rendering textures are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon), extracted to render world for quad bind group creation.
+`SpriteAssets` holds handles for all loaded textures including the three external building sprites (`house_texture`, `barracks_texture`, `waypoint_texture`). NPC instanced rendering textures are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon), extracted to render world for quad bind group creation.
 
 ## Equipment Layers
 
@@ -432,13 +432,13 @@ Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase a
 
 **Slot Indicators** (`ui/mod.rs`): Building grid indicators use Sprite entities at z=-0.3 with a `SlotIndicator` marker component — not gizmos, because Bevy gizmos render in a separate pass after all Transparent2d items and can't be z-sorted with them. Green "+" crosshairs mark empty unlocked slots, dim bracket corners mark adjacent locked slots. Indicators are rebuilt when `TownGrids` or `WorldGrid` changes, and despawned on game cleanup.
 
-**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(usize)` for a standalone 32×32 PNG (index into extra images slice). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad; FarmerHome, ArcherHome, and GuardPost use External (dedicated PNGs).
+**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(usize)` for a standalone 32×32 PNG (index into extra images slice). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad; FarmerHome, ArcherHome, and Waypoint use External (dedicated PNGs).
 
-**`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array`. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images directly into the layer. Called twice — once with `TERRAIN_TILES` (11 tiles, no extras) and once with `BUILDING_TILES` (8 tiles, extras: house.png, barracks.png, guard_post.png).
+**`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array`. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images directly into the layer. Called twice — once with `TERRAIN_TILES` (11 tiles, no extras) and once with `BUILDING_TILES` (8 tiles, extras: house.png, barracks.png, waypoint.png).
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
-**`Building::tileset_index()`**: Maps building variant to building tileset array index (0-7). Fountain=0, Bed=1, GuardPost=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7.
+**`Building::tileset_index()`**: Maps building variant to building tileset array index (0-7). Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7.
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 

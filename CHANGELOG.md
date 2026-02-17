@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-16p
+
+- **stage 14b: AI expansion + waypoint rename + wilderness placement** — AI expansion brain: dynamic miner targets per personality, slot fullness scaling for expansion urgency, boosted expansion weights; disabled turrets on waypoints (code preserved for future Tower building); full rename GuardPost→Waypoint across 35 files with serde back-compat aliases; `place_waypoint_at_world_pos()` for wilderness placement (player + AI); AI territorial strategy places waypoints near uncovered gold mines; `WAYPOINT_COVER_RADIUS` (200px) determines mine coverage
+
 ## 2026-02-16n
 
 - **mining progress cycle** — miners now work a 4-game-hour cycle at the mine with a gold progress bar overhead (`MiningProgress` component, `MINE_WORK_HOURS=4.0`); bar fills left-to-right in gold color (atlas_id=6.0 shader path); when full, miner extracts `MINE_EXTRACT_PER_CYCLE` (5) gold scaled by GoldYield upgrade and returns home; tired miners extract partial gold proportional to progress; combat flee/leash properly cleans up mining state + occupancy

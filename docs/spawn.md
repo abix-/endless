@@ -87,13 +87,13 @@ Deterministic: adjective + job noun. Adjective cycles through a 10-word list, no
 
 Checks `ResetFlag`. If set, clears `NpcEntityMap`, `PopulationStats`, and resets `SlotAllocator`.
 
-**Town index convention**: NPCs and buildings both use direct WorldData town indices. Villager towns are at even indices (0, 2, 4...), raider camps at odd indices (1, 3, 5...). `build_patrol_route()` is `pub(crate)` and filters guard posts by `town_idx` directly (no `÷2` conversion).
+**Town index convention**: NPCs and buildings both use direct WorldData town indices. Villager towns are at even indices (0, 2, 4...), raider camps at odd indices (1, 3, 5...). `build_patrol_route()` is `pub(crate)` and filters waypoints by `town_idx` directly (no `÷2` conversion).
 
 ## Building Spawners
 
 All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from `WorldData.farmer_homes` + `WorldData.archer_homes` + `WorldData.miner_homes` + `WorldData.tents` and spawns 1 NPC per entry via `SlotAllocator` + `SpawnNpcMsg`. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
 
-When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Camp grids only allow Tent placement; villager grids allow Farm/GuardPost/FarmerHome/ArcherHome/MinerHome.
+When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Camp grids only allow Tent placement; villager grids allow Farm/Waypoint/FarmerHome/ArcherHome/MinerHome.
 
 Destroying a spawner building tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
 
@@ -101,5 +101,5 @@ All spawners set home to building position (FarmerHome/ArcherHome/MinerHome/Tent
 
 ## Known Issues
 
-- **No spawn validation**: Doesn't verify town_idx is valid or that guard posts exist. Bad input silently creates an archer with no patrol route.
+- **No spawn validation**: Doesn't verify town_idx is valid or that waypoints exist. Bad input silently creates an archer with no patrol route.
 - **One-frame GPU delay**: GPU writes go through message collection → populate_buffer_writes → extract → upload. NPC won't render until the frame after Bevy processes the spawn.

@@ -25,7 +25,7 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 ├─ Step::Combat (chained)
 │     cooldown_system → attack_system → damage_system →
 │     death_system → xp_grant_system → death_cleanup_system →
-│     guard_post_attack_system
+│     waypoint_attack_system
 │
 ├─ Step::Behavior
 │     rebuild_building_grid_system (before decision_system, spawner_respawn_system),

@@ -83,6 +83,7 @@ pub struct Tent {
 pub struct MinerHome {
     pub position: Vec2,
     pub town_idx: u32,
+    pub assigned_mine: Option<Vec2>,
 }
 
 /// A gold mine in the wilderness (unowned, any faction can mine).
@@ -261,7 +262,7 @@ pub fn place_building(
             world_data.tents.push(Tent { position: snapped_pos, town_idx });
         }
         Building::MinerHome { town_idx } => {
-            world_data.miner_homes.push(MinerHome { position: snapped_pos, town_idx });
+            world_data.miner_homes.push(MinerHome { position: snapped_pos, town_idx, assigned_mine: None });
         }
         _ => {} // Fountain, Camp, GoldMine not player-placeable
     }
@@ -276,6 +277,7 @@ pub fn resolve_spawner_npc(
     towns: &[Town],
     bgrid: &BuildingSpatialGrid,
     occupancy: &BuildingOccupancy,
+    miner_homes: &[MinerHome],
 ) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
     let town_faction = towns.get(entry.town_idx as usize)
         .map(|t| t.faction).unwrap_or(0);
@@ -302,10 +304,15 @@ pub fn resolve_spawner_npc(
             (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Tent")
         }
         3 => {
-            // MinerHome -> Miner: find nearest gold mine
-            let mine = find_nearest_free(
-                entry.position, bgrid, BuildingKind::GoldMine, occupancy, None,
-            ).unwrap_or(entry.position);
+            // MinerHome -> Miner: use assigned mine or find nearest
+            let assigned = miner_homes.iter()
+                .find(|mh| (mh.position - entry.position).length() < 1.0)
+                .and_then(|mh| mh.assigned_mine);
+            let mine = assigned.unwrap_or_else(|| {
+                find_nearest_free(
+                    entry.position, bgrid, BuildingKind::GoldMine, occupancy, None,
+                ).unwrap_or(entry.position)
+            });
             (4, town_faction, mine.x, mine.y, -1, 0, "Miner", "Miner Home")
         }
         _ => {
@@ -363,6 +370,56 @@ pub fn build_and_pay(
     register_spawner(spawner_state, building, town_data_idx as i32, snapped, 0.0);
     building_hp.push_for(&building);
     true
+}
+
+/// Place a waypoint at an arbitrary world position (not tied to town grid).
+/// Used for wilderness placement by players and AI territorial expansion.
+/// Snaps to the nearest grid cell, validates empty + not water, deducts food.
+pub fn place_waypoint_at_world_pos(
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    building_hp: &mut BuildingHpState,
+    food_storage: &mut FoodStorage,
+    town_data_idx: usize,
+    world_pos: Vec2,
+    cost: i32,
+) -> Result<(), &'static str> {
+    let (gc, gr) = grid.world_to_grid(world_pos);
+    let snapped = grid.grid_to_world(gc, gr);
+
+    // Validate: cell exists, empty, not water
+    let cell = grid.cell(gc, gr).ok_or("cell out of bounds")?;
+    if cell.building.is_some() { return Err("cell already has a building"); }
+    if cell.terrain == Biome::Water { return Err("cannot build on water"); }
+
+    // Deduct food
+    let food = food_storage.food.get_mut(town_data_idx).ok_or("invalid town")?;
+    if *food < cost { return Err("not enough food"); }
+    *food -= cost;
+
+    // Auto-assign patrol_order
+    let ti = town_data_idx as u32;
+    let existing = world_data.waypoints.iter()
+        .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
+        .count() as u32;
+
+    let building = Building::Waypoint { town_idx: ti, patrol_order: existing };
+
+    // Place on grid
+    if let Some(cell) = grid.cell_mut(gc, gr) {
+        cell.building = Some(building);
+    }
+
+    // Register in WorldData + HP
+    world_data.waypoints.push(Waypoint {
+        position: snapped,
+        town_idx: ti,
+        patrol_order: existing,
+        npc_slot: None,
+    });
+    building_hp.push_for(&building);
+
+    Ok(())
 }
 
 /// Expand one town's buildable area by one ring and convert new ring terrain to Dirt.

@@ -45,14 +45,14 @@ Static world data, immutable after initialization.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| WorldData | towns, farms, beds, guard_posts, farmer_homes, archer_homes, tents, miner_homes, gold_mines | All building positions and metadata |
+| WorldData | towns, farms, beds, waypoints, farmer_homes, archer_homes, tents, miner_homes, gold_mines | All building positions and metadata |
 | SpawnerState | `Vec<SpawnerEntry>` — one per FarmerHome/ArcherHome/Tent/MinerHome | Building→NPC links + respawn timers |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress + `Vec<Vec2>` positions | Per-farm growth tracking; methods: `push_farm()`, `harvest()`, `tombstone()` (resets all 3 vecs, marks position offscreen) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, guard posts, towns, gold mines, archer homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
-| BuildingHpState | Parallel Vecs of `f32` HP per building type (guard_posts, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |
-| DirtyFlags | `building_grid`, `patrols`, `healing_zones`, `guard_post_slots`, `squads` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds; `guard_post_slots` triggers NPC slot alloc/free in `sync_guard_post_slots`; `squads` gates `squad_cleanup_system` (set by death/spawn/UI); `patrol_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
+| BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, waypoints, towns, gold mines, archer homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
+| BuildingHpState | Parallel Vecs of `f32` HP per building type (waypoints, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |
+| DirtyFlags | `building_grid`, `patrols`, `healing_zones`, `waypoint_slots`, `squads` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds; `waypoint_slots` triggers NPC slot alloc/free in `sync_waypoint_slots`; `squads` gates `squad_cleanup_system` (set by death/spawn/UI); `patrol_swap` queues patrol order swap from UI (applied by `rebuild_patrol_routes_system`) |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 | GameAudio | `music_volume: f32`, `sfx_volume: f32`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings |
 
@@ -63,7 +63,7 @@ Static world data, immutable after initialization.
 | Town | name, center (Vec2), faction, sprite_type (0=fountain, 1=tent) |
 | Farm | position (Vec2), town_idx |
 | Bed | position (Vec2), town_idx |
-| GuardPost | position (Vec2), town_idx, patrol_order, npc_slot (Option\<usize\>) |
+| Waypoint | position (Vec2), town_idx, patrol_order, npc_slot (Option\<usize\>) |
 | FarmerHome | position (Vec2), town_idx |
 | ArcherHome | position (Vec2), town_idx |
 | Tent | position (Vec2), town_idx |
@@ -83,13 +83,13 @@ Helper functions: `find_nearest_location()`, `find_location_within_radius()`, `f
 
 **WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<Building>`.
 
-**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `GuardPost { town_idx, patrol_order }`, `Camp { town_idx }`, `FarmerHome { town_idx }`, `ArcherHome { town_idx }`, `Tent { town_idx }`, `MinerHome { town_idx }`, `GoldMine` (unowned — no town_idx).
+**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `Waypoint { town_idx, patrol_order }`, `Camp { town_idx }`, `FarmerHome { town_idx }`, `ArcherHome { town_idx }`, `Tent { town_idx }`, `MinerHome { town_idx }`, `GoldMine` (unowned — no town_idx).
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
 **WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px camp distance, 2 farmers / 2 archers / 0 raiders per town (testing defaults), 2 gold mines per town.
 
-**`generate_world()`**: Takes config and populates WorldGrid, WorldData, TownGrids, and MineStates. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Villager towns get 1 fountain, 2 farms, N FarmerHomes + N ArcherHomes (spiral-placed), then 4 guard posts on the outer ring. Raider camps get a Camp center + N Tents (spiral-placed from slider). Both town types get a TownGrid with expandable building slots. Gold mines placed in wilderness between settlements (min 300px from any town, min 400px between mines, `gold_mines_per_town × total_towns` count). Building positions are generated via `spiral_slots()` — a spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
+**`generate_world()`**: Takes config and populates WorldGrid, WorldData, TownGrids, and MineStates. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Villager towns get 1 fountain, 2 farms, N FarmerHomes + N ArcherHomes (spiral-placed), then 4 waypoints on the outer ring. Raider camps get a Camp center + N Tents (spiral-placed from slider). Both town types get a TownGrid with expandable building slots. Gold mines placed in wilderness between settlements (min 300px from any town, min 400px between mines, `gold_mines_per_town × total_towns` count). Building positions are generated via `spiral_slots()` — a spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
 
 ### Town Building Grid
 
@@ -100,14 +100,14 @@ Per-town slot tracking for the building system. Each town (villager and raider c
 | TownGrid | town_data_idx: usize, area_level: i32 |
 | TownGrids | grids: `Vec<TownGrid>` (one per town — villager + camp) |
 | BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildKind>`, hover_world_pos: Vec2, ghost_sprites: `HashMap<BuildKind, Handle<Image>>` |
-| BuildKind | Farm, GuardPost, FarmerHome, ArcherHome, Tent, MinerHome, Destroy |
+| BuildKind | Farm, Waypoint, FarmerHome, ArcherHome, Tent, MinerHome, Destroy |
 | DestroyRequest | `Option<(usize, usize)>` — (grid_col, grid_row), set by inspector, processed by `process_destroy_system` |
 
 Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `build_bounds(grid) -> (min_row, max_row, min_col, max_col)`, `is_slot_buildable(grid, row, col)`, `find_town_slot(world_pos, towns, grids)`.
 
 Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `build_and_pay()` additionally deducts food, registers spawner, and pushes HP entry to `BuildingHpState`. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. `destroy_building()` shared helper consolidates all destroy side effects: `remove_building()` + spawner tombstone + HP zero + combat log — used by click-destroy, inspector-destroy, and `building_damage_system` (HP→0). Tombstone deletion preserves parallel Vec indices (FarmStates, BuildingHpState). Fountains, camps, and gold mines cannot be destroyed.
 
-Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=4, MinerHome=4, ArcherHome=4, GuardPost=1, Tent=3.
+Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=4, MinerHome=4, ArcherHome=4, Waypoint=1, Tent=3.
 
 ## Food & Economy
 
@@ -252,7 +252,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | BuildMenuContext | town_data_idx, selected_build (`Option<BuildKind>`), hover_world_pos, ghost_sprites (`HashMap<BuildKind, Handle<Image>>`) | build_menu_system (init_sprite_cache populates ghost_sprites), build_ghost_system | build_place_click_system, draw_slot_indicators |
 | DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
-| GuardPostState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | guard_post_attack_system (auto-sync length), build_menu (toggle) | guard_post_attack_system |
+| WaypointState | timers: `Vec<f32>`, attack_enabled: `Vec<bool>` | waypoint_attack_system (auto-sync length), build_menu (toggle) | waypoint_attack_system |
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
@@ -285,8 +285,8 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 `AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until camp settles). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
 Personality drives build order, upgrade priority, food reserve, and town policies:
-- **Aggressive**: military first (archer homes → guard posts → economy), zero food reserve, combat upgrades prioritized, miner homes = 1/3 of farmer homes
-- **Balanced**: economy and military in tandem (farm → farmer home → archer home → guard post), 10 food reserve, miner homes = 1/2 of farmer homes
+- **Aggressive**: military first (archer homes → waypoints → economy), zero food reserve, combat upgrades prioritized, miner homes = 1/3 of farmer homes
+- **Balanced**: economy and military in tandem (farm → farmer home → archer home → waypoint), 10 food reserve, miner homes = 1/2 of farmer homes
 - **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized, miner homes = 2/3 of farmer homes
 
 Slot selection: economy buildings (farms, farmer homes, archer homes) prefer inner slots (closest to center). Guard posts prefer outer slots (farthest from center) with minimum Manhattan distance of 5 between posts. Raider tents cluster around camp center (inner slots).

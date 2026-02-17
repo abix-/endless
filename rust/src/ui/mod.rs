@@ -369,7 +369,7 @@ fn game_startup_system(
         let town_data_idx = entry.town_idx as usize;
 
         let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
-            world::resolve_spawner_npc(entry, &world_state.world_data.towns, &extra.bgrid, &startup_claimed);
+            world::resolve_spawner_npc(entry, &world_state.world_data.towns, &extra.bgrid, &startup_claimed, &world_state.world_data.miner_homes);
         // Mark farm as claimed so next farmer picks a different one
         if work_x > 0.0 { startup_claimed.claim(Vec2::new(work_x, work_y)); }
 
@@ -726,7 +726,7 @@ fn build_place_click_system(
         let cell_building = world_state.grid.cell(gc, gr).and_then(|c| c.building);
         let is_destructible = cell_building
             .as_ref()
-            .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
+            .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
             .unwrap_or(false);
         if !is_destructible { return; }
         let is_waypoint = matches!(cell_building, Some(world::Building::Waypoint { .. }));
@@ -746,7 +746,27 @@ fn build_place_click_system(
         return;
     }
 
-    // Build mode: place building on empty slot
+    // Waypoint: wilderness placement (snap to world grid, not town grid)
+    if kind == BuildKind::Waypoint {
+        let cost = crate::constants::building_cost(BuildKind::Waypoint);
+        if world::place_waypoint_at_world_pos(
+            &mut world_state.grid, &mut world_state.world_data,
+            &mut world_state.building_hp, &mut food_storage,
+            town_data_idx, world_pos, cost,
+        ).is_ok() {
+            world_state.dirty.patrols = true;
+            world_state.dirty.waypoint_slots = true;
+            world_state.dirty.building_grid = true;
+            combat_log.push(
+                CombatEventKind::Harvest,
+                game_time.day(), game_time.hour(), game_time.minute(),
+                format!("Built waypoint in {}", town_name),
+            );
+        }
+        return;
+    }
+
+    // Build mode: place building on empty slot (town grid)
     let Some(town_grid) = world_state.town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return };
     if !world::is_slot_buildable(town_grid, row, col) { return; }
     if row == 0 && col == 0 { return; }
@@ -755,17 +775,11 @@ fn build_place_click_system(
     let cost = crate::constants::building_cost(kind);
     let (building, label) = match kind {
         BuildKind::Farm => (world::Building::Farm { town_idx }, "farm"),
-        BuildKind::Waypoint => {
-            let existing_posts = world_state.world_data.waypoints.iter()
-                .filter(|g| g.town_idx == town_idx && g.position.x > -9000.0)
-                .count() as u32;
-            (world::Building::Waypoint { town_idx, patrol_order: existing_posts }, "waypoint")
-        }
         BuildKind::FarmerHome => (world::Building::FarmerHome { town_idx }, "house"),
         BuildKind::ArcherHome => (world::Building::ArcherHome { town_idx }, "barracks"),
         BuildKind::Tent => (world::Building::Tent { town_idx }, "tent"),
         BuildKind::MinerHome => (world::Building::MinerHome { town_idx }, "mine shaft"),
-        BuildKind::Destroy => unreachable!(),
+        BuildKind::Waypoint | BuildKind::Destroy => unreachable!(),
     };
 
     let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
@@ -778,10 +792,6 @@ fn build_place_click_system(
         row, col, center, cost,
     ) { return; }
 
-    if kind == BuildKind::Waypoint {
-        world_state.dirty.patrols = true;
-        world_state.dirty.waypoint_slots = true;
-    }
     world_state.dirty.building_grid = true;
 
     combat_log.push(
@@ -842,7 +852,45 @@ fn build_ghost_system(
     let Ok((cam_transform, projection)) = camera_query.single() else { return };
     let world_pos = screen_to_world(cursor_pos, cam_transform, projection, window);
 
-    // Snap to town grid
+    // Waypoint: snap to world grid (wilderness placement)
+    if kind == BuildKind::Waypoint {
+        let (gc, gr) = grid.world_to_grid(world_pos);
+        let snapped = grid.grid_to_world(gc, gr);
+        build_ctx.hover_world_pos = snapped;
+        let cell = grid.cell(gc, gr);
+        let empty = cell.map(|c| c.building.is_none()).unwrap_or(false);
+        let not_water = cell.map(|c| c.terrain != world::Biome::Water).unwrap_or(false);
+        let valid = empty && not_water;
+        build_ctx.show_cursor_hint = !valid;
+
+        let color = if valid {
+            Color::srgba(1.0, 1.0, 1.0, 0.7)
+        } else {
+            Color::srgba(0.8, 0.2, 0.2, 0.5)
+        };
+        let ghost_image = build_ctx.ghost_sprites.get(&kind).cloned().unwrap_or_default();
+        let ghost_z = 0.5;
+
+        if let Some((_, mut transform, mut sprite)) = ghost_query.iter_mut().next() {
+            transform.translation = Vec3::new(snapped.x, snapped.y, ghost_z);
+            sprite.color = color;
+            sprite.image = ghost_image;
+        } else {
+            commands.spawn((
+                Sprite {
+                    color,
+                    image: ghost_image,
+                    custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)),
+                    ..default()
+                },
+                Transform::from_xyz(snapped.x, snapped.y, ghost_z),
+                BuildGhost,
+            ));
+        }
+        return;
+    }
+
+    // Snap to town grid (non-waypoint buildings)
     let Some(town_data_idx) = build_ctx.town_data_idx else { return };
     let Some(town) = world_data.towns.get(town_data_idx) else { return };
     let center = town.center;
@@ -856,7 +904,7 @@ fn build_ghost_system(
     let has_building = cell.map(|c| c.building.is_some()).unwrap_or(false);
     let is_fountain = cell
         .and_then(|c| c.building.as_ref())
-        .map(|b| matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
+        .map(|b| matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
         .unwrap_or(false);
 
     let town_grid = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx);
@@ -995,7 +1043,7 @@ fn process_destroy_system(
     let cell_building = cell.and_then(|c| c.building);
     let is_destructible = cell_building
         .as_ref()
-        .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. }))
+        .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
         .unwrap_or(false);
     if !is_destructible { return; }
     let is_waypoint = matches!(cell_building, Some(world::Building::Waypoint { .. }));
@@ -1147,6 +1195,22 @@ fn game_cleanup_system(
     *squad_state = Default::default();
     *world.world_state.dirty = DirtyFlags::default();
     healing_cache.by_faction.clear();
+
+    // Reset gameplay resources missed by original cleanup
+    *gameplay.upgrades = Default::default();
+    *gameplay.upgrade_queue = Default::default();
+    *gameplay.policies = Default::default();
+    *gameplay.auto_upgrade = Default::default();
+    *gameplay.npc_logs = Default::default();
+    *gameplay.npc_meta = Default::default();
+    *gameplay.npcs_by_town = Default::default();
+    *gameplay.migration = Default::default();
+    *gameplay.waypoint_state = Default::default();
+    *gameplay.selected_npc = Default::default();
+    *gameplay.selected_building = Default::default();
+    *gameplay.follow = Default::default();
+    *gameplay.food_events = Default::default();
+    *gameplay.proj_slots = Default::default();
 
     info!("Game cleanup complete");
 }

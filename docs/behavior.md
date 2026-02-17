@@ -15,7 +15,7 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 - `FarmParams`: farm states, `BuildingOccupancy` tracking, world data
 - `EconomyParams`: food storage, food events, population stats
 - `DecisionExtras`: npc logs, raid queue, combat log, policies, squad state, timings, town upgrades
-- `Res<BuildingSpatialGrid>`: CPU-side spatial grid for O(1) building lookups (farms, guard posts, towns, gold mines)
+- `Res<BuildingSpatialGrid>`: CPU-side spatial grid for O(1) building lookups (farms, waypoints, towns, gold mines)
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 
@@ -286,13 +286,13 @@ Archers have a `PatrolRoute` with ordered posts (built from WorldData at spawn).
 4. Arrive → `OnDuty` again
 5. After last post, wrap to post 0
 
-Each town has 4 guard posts at corners. Archers cycle clockwise. Patrol routes are rebuilt by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) only when `DirtyFlags.patrols` is set — i.e. when guard posts are built, destroyed, or reordered via the Patrols tab. The system applies any pending `DirtyFlags.patrol_swap` from the UI, then builds routes once per town (cached) and assigns to all archers in that town. Current patrol index is clamped to the new route length.
+Each town has 4 waypoints at corners. Archers cycle clockwise. Patrol routes are rebuilt by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) only when `DirtyFlags.patrols` is set — i.e. when waypoints are built, destroyed, or reordered via the Patrols tab. The system applies any pending `DirtyFlags.patrol_swap` from the UI, then builds routes once per town (cached) and assigns to all archers in that town. Current patrol index is clamped to the new route length.
 
 ## Squads
 
 Player-directed archer groups. 10 squads available, each with a target position on the map. Archers are reassigned (not spawned) — existing patrol archers get a `SquadId` component and follow squad orders instead of patrolling.
 
-**Behavior override**: In `decision_system`'s squad sync block, archers with `SquadId` check `SquadState.squads[id].target`. If a target exists, the archer walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as guard post). If no target is set, falls through to normal patrol.
+**Behavior override**: In `decision_system`'s squad sync block, archers with `SquadId` check `SquadState.squads[id].target`. If a target exists, the archer walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as waypoint). If no target is set, falls through to normal patrol.
 
 **Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` archers are redirected only when the squad target moves >100px from the archer's position. `Patrolling`, `GoingToRest`, and `Resting` archers are left alone (already heading to target or resting). Other activities (`Idle`, `Wandering`) get redirected immediately.
 

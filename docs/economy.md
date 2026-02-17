@@ -74,7 +74,7 @@ game_time_system (every frame)
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick
 - Tombstoned entries (position.x < -9000) are skipped (building was destroyed)
-- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth): FarmerHome → Farmer (nearest **free** farm via `find_nearest_free`), ArcherHome → Archer (nearest guard post via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Same function used by `game_startup_system` for initial NPC spawns.
+- Spawn mapping resolved by `world::resolve_spawner_npc()` (single source of truth): FarmerHome → Farmer (nearest **free** farm via `find_nearest_free`), ArcherHome → Archer (nearest waypoint via `find_location_within_radius`), Tent → Raider (home = tent position), MinerHome → Miner (nearest gold mine via `find_nearest_free`). All types look up faction from `world_data.towns[town_idx].faction`. Same function used by `game_startup_system` for initial NPC spawns.
 
 ### starvation_system
 - Runs when `game_time.hour_ticked` is true
@@ -233,7 +233,7 @@ Flat costs via `building_cost(kind)` in `constants.rs` (no difficulty scaling):
 | FarmerHome | 4 |
 | MinerHome | 4 |
 | ArcherHome | 4 |
-| GuardPost | 1 |
+| Waypoint | 1 |
 | Tent | 3 |
 
 Both player build menu and AI player use `building_cost()` for affordability checks.

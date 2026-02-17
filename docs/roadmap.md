@@ -107,24 +107,23 @@ SystemParam bundle consolidation:
 *Done when: AI towns grow beyond their starting 7×7 grid, compete for gold mines via patrol routes, and a passive AI that doesn't expand gets outcompeted and dies.*
 
 Chunk 1 — AI expansion brain (`systems/ai_player.rs` only):
-- [ ] Add `miner_home_target()` to `AiPersonality` (Aggressive: houses/4, Balanced: houses/2, Economic: houses/1) — replace hardcoded `houses / 3`
-- [ ] Dynamic expansion priority: calculate slot fullness (used/total), multiply expansion upgrade weight (idx 15) by `2 + 4*(fullness-0.7)/0.3` when fullness > 0.7
-- [ ] Emergency expansion: when `!has_slots`, apply 10× multiplier to expansion weight so it dominates all other upgrades
-- [ ] Boost base expansion weights: Aggressive 4→8, Balanced 3→10, Economic 4→12
+- [x] Add `miner_home_target()` to `AiPersonality` (Aggressive: houses/4, Balanced: houses/2, Economic: houses/1) — replace hardcoded `houses / 3`
+- [x] Dynamic expansion priority: calculate slot fullness (used/total), multiply expansion upgrade weight (idx 15) by `2 + 4*(fullness-0.7)/0.3` when fullness > 0.7
+- [x] Emergency expansion: when `!has_slots`, apply 10× multiplier to expansion weight so it dominates all other upgrades
+- [x] Boost base expansion weights: Aggressive 4→8, Balanced 3→10, Economic 4→12
 
-Chunk 2 — Guard post rework (remove turret, patrol-only):
-- [ ] Delete `guard_post_attack_system` from `systems/combat.rs` and its scheduling in `lib.rs`
-- [ ] Remove turret constants from `constants.rs` (GUARD_POST_RANGE/DAMAGE/COOLDOWN/PROJ_SPEED/PROJ_LIFETIME)
-- [ ] Remove `GuardPostState` turret timer/enabled fields from `resources.rs` (keep the resource if patrol data lives there)
-- [ ] Remove guard post `npc_slot` allocation from `sync_guard_post_slots` in `systems/combat.rs` — posts no longer need GPU slots for targeting
-- [ ] Clean up turret references in UI (`build_menu.rs` label, `left_panel.rs` help text, `game_hud.rs` inspector)
-- [ ] Remove backlog item "Guard post turret upgrades" from roadmap
+Chunk 2 — Disable turrets on waypoints (code preserved for future Tower building):
+- [x] `attack_enabled` defaults to `false` on new waypoints (turret code preserved for future Tower)
+- [x] UI: build menu shows "Patrol waypoint" help text, inspector hides turret toggle
+- [x] Full rename GuardPost → Waypoint across 35 files with serde back-compat aliases
 
-Chunk 3 — Wilderness guard post placement:
-- [ ] Allow guard posts outside town grid bounds — new placement path that snaps to WorldGrid cells without requiring TownGrid slot
-- [ ] AI places guard posts near gold mines: score mine distance × mine gold × lack-of-existing-patrols
-- [ ] AI patrol routes cover territory + nearest contested mine(s)
-- [ ] Player can place guard posts anywhere on revealed map (not just town grid)
+Chunk 3 — Wilderness waypoint placement + AI territorial expansion:
+- [x] `place_waypoint_at_world_pos()` in `world.rs` — snaps to grid cell, validates empty + not water, deducts food
+- [x] Player wilderness placement: waypoint ghost snaps to world grid, build_place_click bypasses town grid
+- [x] AI mine extension: `find_mine_waypoint_pos()` finds closest uncovered gold mine, `count_uncovered_mines()` scores urgency
+- [x] AI waypoint scoring moved outside `has_slots` block — wilderness placement independent of town grid
+- [x] AI execution: try mine position first, fallback to in-grid placement
+- [ ] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
 
 **Stage 14c: Generic Growth & Contestable Mines**
 

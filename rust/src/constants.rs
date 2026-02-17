@@ -32,6 +32,7 @@ pub const PUSH_CONSTANTS_SIZE: usize = 48;
 pub const EQUIP_SWORD: (f32, f32) = (45.0, 6.0);
 pub const EQUIP_HELMET: (f32, f32) = (28.0, 0.0);
 pub const FOOD_SPRITE: (f32, f32) = (24.0, 9.0);
+pub const GOLD_SPRITE: (f32, f32) = (41.0, 11.0);
 
 // Visual indicator sprites (column, row) — placeholder coordinates, verify against atlas
 pub const SLEEP_SPRITE: (f32, f32) = (24.0, 7.0);
@@ -265,6 +266,8 @@ pub const MINE_MIN_SPACING: f32 = 400.0;
 // ============================================================================
 
 pub const WAYPOINT_HP: f32 = 200.0;
+/// Distance within which a waypoint "covers" a gold mine (AI territory logic).
+pub const WAYPOINT_COVER_RADIUS: f32 = 200.0;
 pub const ARCHER_HOME_HP: f32 = 150.0;
 pub const FARMER_HOME_HP: f32 = 100.0;
 pub const MINER_HOME_HP: f32 = 100.0;

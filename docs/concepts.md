@@ -418,7 +418,7 @@ pub struct WorldData {
     pub towns: Vec<Town>,
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
-    pub guard_posts: Vec<GuardPost>,
+    pub waypoints: Vec<Waypoint>,
 }
 ```
 

@@ -58,7 +58,7 @@ ECS → GPU (upload):
   build_visual_upload (PostUpdate, chained after populate_gpu_state):
     Single O(N) pass: ECS query + NpcGpuState → NpcVisualUpload
     Packs visual_data [f32;8] + equip_data [f32;24] per NPC in GPU-ready format
-    Both arrays reset to -1.0 sentinel each frame; phantom slots (guard posts) have no ECS entity and stay hidden
+    Both arrays reset to -1.0 sentinel each frame; phantom slots (waypoints) have no ECS entity and stay hidden
 
   extract_npc_data (ExtractSchedule, zero-clone):
     Extract<Res<NpcGpuState>> → per-dirty-index write_buffer to NpcGpuBuffers
