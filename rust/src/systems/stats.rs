@@ -54,7 +54,7 @@ impl Default for CombatConfig {
             range: 150.0, cooldown: 1.0, projectile_speed: 500.0, projectile_lifetime: 0.5,
         });
         attacks.insert(BaseAttackType::Ranged, AttackTypeStats {
-            range: 300.0, cooldown: 1.5, projectile_speed: 200.0, projectile_lifetime: 3.0,
+            range: 100.0, cooldown: 1.5, projectile_speed: 100.0, projectile_lifetime: 1.5,
         });
 
         Self { jobs, attacks, heal_rate: 5.0, heal_radius: 150.0 }
@@ -65,7 +65,7 @@ impl Default for CombatConfig {
 // TOWN UPGRADES
 // ============================================================================
 
-pub const UPGRADE_COUNT: usize = 16;
+pub const UPGRADE_COUNT: usize = 18;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(usize)]
@@ -79,6 +79,8 @@ pub enum UpgradeType {
     MinerHp = 10, MinerMoveSpeed = 11, GoldYield = 12,
     // Town
     HealingRate = 13, FountainRadius = 14, TownArea = 15,
+    // Arrow (applies to Archer + Raider + Fighter ranged)
+    ProjectileSpeed = 16, ProjectileLifetime = 17,
 }
 
 pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
@@ -88,6 +90,7 @@ pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
     0.15, 0.20, 0.05,  // farm yield, farmer hp, farmer move speed
     0.20, 0.05, 0.15,  // miner hp, miner move speed, gold yield
     0.20, 0.0, 0.0,    // healing rate, fountain radius (flat), town area (discrete)
+    0.08, 0.08,         // projectile speed, projectile lifetime
 ];
 
 // ============================================================================
@@ -157,6 +160,12 @@ pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
     UpgradeNode { label: "Fountain",     short: "Fount",  tooltip: "+24px fountain range per level",  category: "Town",    cost: &[(G, 1)], prereqs: &[prereq(13, 1)] },
     // 15: Expansion — root, custom slot-based cost
     UpgradeNode { label: "Expansion",    short: "Area",   tooltip: "+1 buildable radius per level",  category: "Town",     cost: &[(F, 1), (G, 1)], prereqs: &[] },
+
+    // Arrow (16-17): applies to military ranged attacks
+    // 16: Arrow Speed — requires Range Lv1
+    UpgradeNode { label: "Arrow Speed",  short: "ASpd",   tooltip: "+8% arrow speed per level",      category: "Military", cost: &[(G, 1)], prereqs: &[prereq(2, 1)] },
+    // 17: Arrow Range — requires Range Lv1
+    UpgradeNode { label: "Arrow Range",  short: "ARng",   tooltip: "+8% arrow flight distance per level", category: "Military", cost: &[(G, 1)], prereqs: &[prereq(2, 1)] },
 ];
 
 /// True if this town has unlocked projectile dodge.
@@ -175,6 +184,8 @@ pub const UPGRADE_RENDER_ORDER: &[(&str, &[(usize, u8)])] = &[
     ("Military", &[
         (1, 0),   // Attack (root)
         (2, 1),   // Range (req Attack)
+        (16, 2),  // Arrow Speed (req Range)
+        (17, 2),  // Arrow Range (req Range)
         (3, 1),   // Attack Speed (req Attack)
         (4, 0),   // Move Speed (root)
         (5, 1),   // Alert (req Move Speed)
@@ -213,7 +224,7 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
     let lv = level as f32;
     match idx {
         // Multiplicative: +X% per level
-        0 | 1 | 2 | 4 | 5 | 7 | 8 | 9 | 10 | 11 | 12 | 13 => {
+        0 | 1 | 2 | 4 | 5 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 16 | 17 => {
             let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{:.0}%", lv * pct * 100.0) };
             let next = format!("+{:.0}%", (lv + 1.0) * pct * 100.0);
             (now, next)
@@ -373,7 +384,8 @@ fn is_combat_upgrade(idx: usize) -> bool {
     matches!(idx,
         0 | 1 | 2 | 3 | 4 | // Military: HP, Attack, Range, AttackSpeed, MoveSpeed
         8 | 9 |              // Farmer: HP, MoveSpeed
-        10 | 11              // Miner: HP, MoveSpeed
+        10 | 11 |            // Miner: HP, MoveSpeed
+        16 | 17              // Arrow: ProjectileSpeed, ProjectileLifetime
     )
 }
 
@@ -419,13 +431,21 @@ pub fn resolve_combat_stats(
         Job::Miner  => 1.0 + town[UpgradeType::MinerMoveSpeed as usize] as f32 * UPGRADE_PCT[11],
     };
     let cooldown_mult = 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[3]);
+    let upgrade_proj_speed = match job {
+        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::ProjectileSpeed as usize] as f32 * UPGRADE_PCT[16],
+        _ => 1.0,
+    };
+    let upgrade_proj_life = match job {
+        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::ProjectileLifetime as usize] as f32 * UPGRADE_PCT[17],
+        _ => 1.0,
+    };
 
     CachedStats {
         damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,
         range: atk_base.range * upgrade_range,
         cooldown: atk_base.cooldown * cooldown_mult,
-        projectile_speed: atk_base.projectile_speed,
-        projectile_lifetime: atk_base.projectile_lifetime,
+        projectile_speed: atk_base.projectile_speed * upgrade_proj_speed,
+        projectile_lifetime: atk_base.projectile_lifetime * upgrade_proj_life,
         max_health: job_base.max_health * upgrade_hp * trait_hp * level_mult,
         speed: job_base.speed * upgrade_speed * trait_speed,
     }

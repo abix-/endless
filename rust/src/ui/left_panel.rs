@@ -122,6 +122,19 @@ pub struct FactionsParams<'w> {
 }
 
 #[derive(Clone)]
+struct SquadSnapshot {
+    squad_idx: usize,
+    members: usize,
+    target_size: usize,
+    patrol_enabled: bool,
+    rest_when_tired: bool,
+    target: Option<Vec2>,
+    commander_kind: Option<crate::world::BuildingKind>,
+    commander_index: Option<usize>,
+    commander_cooldown: Option<f32>,
+}
+
+#[derive(Clone)]
 struct AiSnapshot {
     faction: i32,
     town_name: String,
@@ -150,6 +163,7 @@ struct AiSnapshot {
     mines_enabled: usize,
     reserve_food: i32,
     center: Vec2,
+    squads: Vec<SquadSnapshot>,
 }
 
 #[derive(Default)]
@@ -234,7 +248,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &profiler.spawner_state, &mut profiler.mining_policy, &mut dirty, &mut jump_target),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
-                LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state),
+                LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state),
                 LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration),
                 LeftPanelTab::Help => help_content(ui),
             }
@@ -992,6 +1006,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
 
 fn rebuild_factions_cache(
     factions: &FactionsParams,
+    squad_state: &SquadState,
     world_data: &WorldData,
     policies: &TownPolicies,
     mining_policy: &MiningPolicy,
@@ -999,6 +1014,7 @@ fn rebuild_factions_cache(
 ) {
     fn push_snapshot(
         factions: &FactionsParams,
+        squad_state: &SquadState,
         world_data: &WorldData,
         policies: &TownPolicies,
         mining_policy: &MiningPolicy,
@@ -1060,6 +1076,35 @@ fn rebuild_factions_cache(
         let reserve_food = personality
             .map(|p| p.food_reserve_per_spawner() * spawner_count)
             .unwrap_or(0);
+        let ai_player = factions.ai_state.players.iter().find(|p| p.town_data_idx == tdi);
+        let squads = squad_state.squads.iter().enumerate()
+            .filter_map(|(si, squad)| {
+                let owned = match squad.owner {
+                    SquadOwner::Player => faction == 0,
+                    SquadOwner::Town(owner_tdi) => owner_tdi == tdi,
+                };
+                if !owned || squad.members.is_empty() {
+                    return None;
+                }
+
+                let (commander_kind, commander_index, commander_cooldown) = ai_player
+                    .and_then(|p| p.squad_cmd.get(&si))
+                    .map(|cmd| (cmd.target_kind, Some(cmd.target_index), Some(cmd.cooldown)))
+                    .unwrap_or((None, None, None));
+
+                Some(SquadSnapshot {
+                    squad_idx: si,
+                    members: squad.members.len(),
+                    target_size: squad.target_size,
+                    patrol_enabled: squad.patrol_enabled,
+                    rest_when_tired: squad.rest_when_tired,
+                    target: squad.target,
+                    commander_kind,
+                    commander_index,
+                    commander_cooldown,
+                })
+            })
+            .collect();
 
         cache.snapshots.push(AiSnapshot {
             faction,
@@ -1089,6 +1134,7 @@ fn rebuild_factions_cache(
             mines_enabled,
             reserve_food,
             center,
+            squads,
         });
     }
 
@@ -1096,7 +1142,7 @@ fn rebuild_factions_cache(
 
     // Include player faction (faction 0) in Factions view.
     if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
-        push_snapshot(factions, world_data, policies, mining_policy, cache, player_tdi, "Player", "Human", None, Vec::new());
+        push_snapshot(factions, squad_state, world_data, policies, mining_policy, cache, player_tdi, "Player", "Human", None, Vec::new());
     }
 
     for player in factions.ai_state.players.iter() {
@@ -1110,6 +1156,7 @@ fn rebuild_factions_cache(
         let last_actions: Vec<String> = player.last_actions.iter().rev().cloned().collect();
         push_snapshot(
             factions,
+            squad_state,
             world_data,
             policies,
             mining_policy,
@@ -1126,6 +1173,7 @@ fn rebuild_factions_cache(
 fn factions_content(
     ui: &mut egui::Ui,
     factions: &FactionsParams,
+    squad_state: &SquadState,
     world_data: &WorldData,
     policies: &TownPolicies,
     mining_policy: &MiningPolicy,
@@ -1136,7 +1184,7 @@ fn factions_content(
     // Rebuild cache every 30 frames
     cache.frame_counter += 1;
     if cache.frame_counter % 30 == 1 || cache.snapshots.is_empty() {
-        rebuild_factions_cache(factions, world_data, policies, mining_policy, cache);
+        rebuild_factions_cache(factions, squad_state, world_data, policies, mining_policy, cache);
     }
 
     if cache.snapshots.is_empty() {
@@ -1361,6 +1409,50 @@ fn factions_content(
         right.label(format!("Mines in Radius: {}", snap.mines_in_radius));
         right.label(format!("Discovered: {}  Enabled: {}", snap.mines_discovered, snap.mines_enabled));
         right.label(format!("Miners: {} / Miner Homes: {}", snap.miners, snap.miner_homes));
+
+        right.separator();
+        right.label("Squad Commander");
+        if snap.squads.is_empty() {
+            right.small("No squads with members.");
+        } else {
+            right.small(format!("Active squads: {}", snap.squads.len()));
+            for squad in &snap.squads {
+                let has_target = squad.target.is_some();
+                let patrol = if squad.patrol_enabled { "On" } else { "Off" };
+                let rest = if squad.rest_when_tired { "On" } else { "Off" };
+
+                right.group(|ui| {
+                    ui.label(format!(
+                        "Squad {}  Members: {}  Size target: {}",
+                        squad.squad_idx + 1,
+                        squad.members,
+                        squad.target_size
+                    ));
+                    ui.small(format!("Target set: {}  Patrol: {}  Rest when tired: {}", if has_target { "Yes" } else { "No" }, patrol, rest));
+
+                    if let Some(target) = squad.target {
+                        ui.horizontal(|ui| {
+                            ui.small(format!("Target: ({:.0}, {:.0})", target.x, target.y));
+                            if ui.small_button("Jump Target").clicked() {
+                                *jump_target = Some(target);
+                            }
+                        });
+                    } else {
+                        ui.small("Target: none");
+                    }
+
+                    if let Some(kind) = squad.commander_kind {
+                        let idx = squad.commander_index.unwrap_or(0);
+                        let cd = squad.commander_cooldown.unwrap_or(0.0).max(0.0);
+                        ui.small(format!("Commander target: {:?} #{}  Retarget CD: {:.1}s", kind, idx, cd));
+                    } else if snap.faction == 0 {
+                        ui.small("Commander: manual/player");
+                    } else {
+                        ui.small("Commander: AI (no target lock)");
+                    }
+                });
+            }
+        }
 
         if !snap.last_actions.is_empty() {
             right.separator();

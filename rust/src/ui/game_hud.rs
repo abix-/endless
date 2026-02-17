@@ -647,6 +647,7 @@ fn inspector_content(
     let mut state_str = String::new();
     let mut home_str = String::new();
     let mut faction_str = String::new();
+    let mut faction_id: Option<i32> = None;
     let mut home_pos: Option<Vec2> = None;
     let mut is_mining_at_mine = false;
 
@@ -656,6 +657,7 @@ fn inspector_content(
         home_pos = Some(home.0);
         home_str = format!("({:.0}, {:.0})", home.0.x, home.0.y);
         faction_str = format!("{} (town {})", faction.0, town_id.0);
+        faction_id = Some(faction.0);
         is_mining_at_mine = matches!(activity, Activity::MiningAtMine);
 
         let mut parts: Vec<&str> = Vec::new();
@@ -666,7 +668,18 @@ fn inspector_content(
     }
 
     tipped(ui, format!("State: {}", state_str), catalog.0.get("npc_state").unwrap_or(&""));
-    ui.label(format!("Faction: {}  Home: {}", faction_str, home_str));
+    ui.horizontal(|ui| {
+        if let Some(fid) = faction_id {
+            if ui.link(format!("Faction: {}", faction_str)).clicked() {
+                ui_state.left_panel_open = true;
+                ui_state.left_panel_tab = LeftPanelTab::Factions;
+                ui_state.pending_faction_select = Some(fid);
+            }
+        } else {
+            ui.label(format!("Faction: {}", faction_str));
+        }
+        ui.label(format!("Home: {}", home_str));
+    });
 
     // Mine assignment for miners (same UI as MinerHome building inspector)
     if meta.job == 4 {
@@ -895,9 +908,16 @@ fn building_inspector_content(
     // Header
     ui.strong(building_name(&building));
 
-    // Town name
+    // Town + faction
     if let Some(town) = world_data.towns.get(town_idx) {
         ui.label(format!("Town: {}", town.name));
+        if ui.link(format!("Faction: {}", town.faction)).clicked() {
+            ui_state.left_panel_open = true;
+            ui_state.left_panel_tab = LeftPanelTab::Factions;
+            ui_state.pending_faction_select = Some(town.faction);
+        }
+    } else if matches!(building, Building::GoldMine) {
+        ui.label("Faction: Unowned");
     }
 
     // Per-type details

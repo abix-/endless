@@ -312,21 +312,21 @@ impl AiPersonality {
         }
     }
 
-    /// Upgrade weights indexed by UpgradeType discriminant (16 entries).
+    /// Upgrade weights indexed by UpgradeType discriminant (18 entries).
     /// Only entries with weight > 0 are scored.
     fn upgrade_weights(self, kind: AiKind) -> [f32; UPGRADE_COUNT] {
         // Weight table indexed by upgrade enum discriminant.
         // Larger values increase chance in weighted random selection.
         match kind {
-            //                             MHP MAt MRn AS  MMS Alt Ddg FYd FHP FMS mHP mMS GYd Hel Fnt Exp
+            //                             MHP MAt MRn AS  MMS Alt Ddg FYd FHP FMS mHP mMS GYd Hel Fnt Exp PSp PLf
             AiKind::Raider => match self {
-                Self::Economic =>         [4., 4., 0., 4., 6., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2.],
-                _ =>                      [4., 6., 2., 6., 4., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2.],
+                Self::Economic =>         [4., 4., 0., 4., 6., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 0., 0.],
+                _ =>                      [4., 6., 2., 6., 4., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 0., 0.],
             },
             AiKind::Builder => match self {
-                Self::Aggressive =>       [6., 8., 4., 6., 4., 0., 0., 2., 1., 0., 1., 0., 1., 1., 0., 8.],
-                Self::Balanced =>         [5., 5., 2., 4., 3., 0., 0., 5., 3., 1., 3., 1., 2., 3., 0., 10.],
-                Self::Economic =>         [3., 2., 1., 2., 2., 0., 0., 8., 5., 2., 5., 2., 4., 5., 0., 12.],
+                Self::Aggressive =>       [6., 8., 4., 6., 4., 0., 0., 2., 1., 0., 1., 0., 1., 1., 0., 8., 3., 3.],
+                Self::Balanced =>         [5., 5., 2., 4., 3., 0., 0., 5., 3., 1., 3., 1., 2., 3., 0., 10., 2., 2.],
+                Self::Economic =>         [3., 2., 1., 2., 2., 0., 0., 8., 5., 2., 5., 2., 4., 5., 0., 12., 1., 1.],
             },
         }
     }

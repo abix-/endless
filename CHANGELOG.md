@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-17k
+
+- **crash handler** — custom panic hook in `main.rs` catches crashes, copies full report (backtrace + location + version) to clipboard via `arboard`, writes `crash.log` next to executable, and shows native Windows `MessageBoxW` error dialog
+- **arrow upgrades** — two new upgrades: Arrow Speed (#16) and Arrow Range (#17), +8% per level, require Range Lv1; applied to Archer/Raider/Fighter projectile stats in `resolve_combat_stats()`; AI weight arrays expanded to 18
+- **ranged rebalance** — base ranged stats reduced (range 300→100, speed 200→100, lifetime 3.0→1.5) to make arrow upgrades meaningful progression
+- **inspector faction links** — NPC and building inspectors show clickable faction links that open Factions tab with that faction selected
+- **factions squad commander view** — Factions tab now displays per-faction squad details: member count, target position (with jump button), patrol/rest state, and AI commander targeting info
+
 ## 2026-02-17j
 
 - **AI squad commander** — aggressive AI towns now group archers into squads and dispatch them to attack enemy buildings via `ai_squad_commander_system`; uses same `Squad` struct and behavior code path as player squads
