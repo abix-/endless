@@ -335,6 +335,27 @@ fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     score
 }
 
+fn economic_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    let (r, c) = slot;
+    let radial = r * r + c * c;
+    let on_axis = r == 0 || c == 0;
+    let mut score = if on_axis { 500 - radial * 4 } else { -300 - radial };
+
+    if on_axis {
+        if r == 0 && c != 0 {
+            let step = if c > 0 { 1 } else { -1 };
+            if snapshot.farms.contains(&(0, c - step)) { score += 220; }
+            if snapshot.farms.contains(&(0, c + step)) { score += 40; }
+        } else if c == 0 && r != 0 {
+            let step = if r > 0 { 1 } else { -1 };
+            if snapshot.farms.contains(&(r - step, 0)) { score += 220; }
+            if snapshot.farms.contains(&(r + step, 0)) { score += 40; }
+        }
+    }
+
+    score
+}
+
 fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     let (r, c) = slot;
     let mut edge_farm = 0i32;
@@ -358,6 +379,43 @@ fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 
         return i32::MIN / 4;
     }
     edge_farm * 90 + diag_farm * 35 + near_homes * 10 + near_archers * 5
+}
+
+fn economic_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    let (r, c) = slot;
+    let mut score = 0i32;
+    let on_axis = r == 0 || c == 0;
+    if on_axis {
+        score -= 120;
+    }
+
+    for &(fr, fc) in &snapshot.farms {
+        if fc == 0 && fr != 0 {
+            if slot == (fr, 1) || slot == (fr, -1) {
+                score += 260;
+            }
+        } else if fr == 0 && fc != 0 {
+            if slot == (1, fc) || slot == (-1, fc) {
+                score += 260;
+            }
+        }
+
+        let manhattan = (r - fr).abs() + (c - fc).abs();
+        if manhattan == 1 {
+            score += 20;
+        }
+    }
+
+    for &(hr, hc) in &snapshot.farmer_homes {
+        let d = (r - hr).abs() + (c - hc).abs();
+        if d == 0 {
+            score -= 200;
+        } else if d == 1 {
+            score -= 25;
+        }
+    }
+
+    score
 }
 
 fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
@@ -798,7 +856,7 @@ pub fn ai_decision_system(
         let Some(action) = weighted_pick(&scores) else { continue };
         let label = execute_action(
             action, ti, tdi, center, waypoints, &mut res,
-            player.grid_idx, snapshots.towns.get(&tdi), *difficulty,
+            player.grid_idx, snapshots.towns.get(&tdi), player.personality, *difficulty,
         );
         if label.is_some() {
             snapshots.towns.remove(&tdi);
@@ -877,7 +935,7 @@ fn try_build_inner(
 /// Execute the chosen action, returning a log label on success.
 fn execute_action(
     action: AiAction, ti: u32, tdi: usize, center: Vec2, waypoints: usize,
-    res: &mut AiBuildRes, grid_idx: usize, snapshot: Option<&AiTownSnapshot>, _difficulty: Difficulty,
+    res: &mut AiBuildRes, grid_idx: usize, snapshot: Option<&AiTownSnapshot>, personality: AiPersonality, _difficulty: Difficulty,
 ) -> Option<String> {
     match action {
         AiAction::BuildTent => try_build_inner(
@@ -885,8 +943,13 @@ fn execute_action(
             tdi, center, res, grid_idx),
         AiAction::BuildFarm => {
             let tg = res.world.town_grids.grids.get(grid_idx)?;
+            let farm_score = if personality == AiPersonality::Balanced {
+                economic_farm_ray_score
+            } else {
+                farm_slot_score
+            };
             let (row, col) = pick_slot_from_snapshot_or_inner(
-                snapshot, tg, center, &res.world.grid, farm_slot_score,
+                snapshot, tg, center, &res.world.grid, farm_score,
             )?;
             try_build_at_slot(
                 Building::Farm { town_idx: ti },
@@ -901,8 +964,13 @@ fn execute_action(
         }
         AiAction::BuildFarmerHome => {
             let tg = res.world.town_grids.grids.get(grid_idx)?;
+            let home_score = if personality == AiPersonality::Balanced {
+                economic_house_side_score
+            } else {
+                farmer_home_border_score
+            };
             let (row, col) = pick_slot_from_snapshot_or_inner(
-                snapshot, tg, center, &res.world.grid, farmer_home_border_score,
+                snapshot, tg, center, &res.world.grid, home_score,
             )?;
             try_build_at_slot(
                 Building::FarmerHome { town_idx: ti },
