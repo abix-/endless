@@ -61,6 +61,9 @@ fn min_waypoint_spacing(
     town_idx: u32,
     candidate: Vec2,
 ) -> i32 {
+    // Distance metric here is "grid steps" (taxicab):
+    // |row_a - row_b| + |col_a - col_b|.
+    // That means diagonal movement is counted as two steps.
     let (cc, cr) = grid.world_to_grid(candidate);
     world_data.waypoints.iter()
         .filter(|w| w.town_idx == town_idx && world::is_alive(w.position))
@@ -98,10 +101,16 @@ fn recalc_waypoint_patrol_order_clockwise(
     ids.sort_by(|&a, &b| {
         let pa = world_data.waypoints[a].position - center;
         let pb = world_data.waypoints[b].position - center;
+        // Convert vector to angle using atan2 so we can sort by rotation.
+        // We use (x,y) ordering intentionally to make 0 point at +Y ("north")
+        // for this game's patrol convention.
         let mut aa = pa.x.atan2(pa.y);
         let mut ab = pb.x.atan2(pb.y);
+        // atan2 returns [-pi, pi]. Shift to [0, 2pi) for clean clockwise sort.
         if aa < 0.0 { aa += std::f32::consts::TAU; }
         if ab < 0.0 { ab += std::f32::consts::TAU; }
+        // Tie-breaker: if two waypoints share same angle, nearer one comes first.
+        // `length_squared()` avoids sqrt and preserves ordering.
         aa.partial_cmp(&ab).unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| pa.length_squared().partial_cmp(&pb.length_squared()).unwrap_or(std::cmp::Ordering::Equal))
     });
@@ -262,7 +271,9 @@ impl AiPersonality {
         // Desired military housing ratio relative to civilian farmer homes.
         match self {
             Self::Aggressive => houses.max(1),
+            // Balanced aims for about half as many archer homes as farmer homes.
             Self::Balanced   => (houses / 2).max(1),
+            // Economic keeps military lighter: about one archer home per 3 farmer homes.
             Self::Economic   => 1 + houses / 3,
         }
     }
@@ -272,7 +283,9 @@ impl AiPersonality {
         // Desired worker-housing ratio relative to farm count.
         match self {
             Self::Aggressive => farms.max(1),
+            // Balanced tends toward ~1 farmer home per farm.
             Self::Balanced => (farms + 1).max(1),
+            // Economic tends toward ~2 farmer homes per farm.
             Self::Economic => (farms * 2).max(1),
         }
     }
@@ -482,14 +495,20 @@ fn balanced_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     // Balanced-personality farm pattern:
     // prefer straight rays on cardinal axes from town center, with continuity bonus.
     let (r, c) = slot;
+    // `radial` is squared distance from town center in grid space.
+    // Squared distance is cheaper than sqrt and good enough for ranking.
     let radial = r * r + c * c;
     let on_axis = r == 0 || c == 0;
+    // High base score for axis slots, strong penalty for off-axis.
+    // Additional `-radial*4` keeps growth close-in before extending outward.
     let mut score = if on_axis { 500 - radial * 4 } else { -300 - radial };
 
     if on_axis {
         if r == 0 && c != 0 {
             let step = if c > 0 { 1 } else { -1 };
+            // Big reward if this extends an existing chain from center outward.
             if snapshot.farms.contains(&(0, c - step)) { score += 220; }
+            // Smaller reward for having the next slot already filled.
             if snapshot.farms.contains(&(0, c + step)) { score += 40; }
         } else if c == 0 && r != 0 {
             let step = if r > 0 { 1 } else { -1 };
@@ -506,22 +525,33 @@ fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 
     // Then reward stronger farm adjacency and moderate proximity to existing homes.
     let nc = count_neighbors(snapshot, slot);
     if nc.edge_farms == 0 && nc.diag_farms == 0 {
+        // "Impossible" score so this candidate almost never wins:
+        // i32::MIN/4 leaves headroom to avoid overflow if weights are added later.
         return i32::MIN / 4;
     }
+    // Weighted linear score:
+    // edge farm contact matters most, then diagonal farm contact, then home adjacency.
     nc.edge_farms * 90 + nc.diag_farms * 35 + nc.farmer_homes * 10 + nc.archer_homes * 5
 }
 
 fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     // Balanced-personality housing pattern:
-    // keep houses beside farm rays (off-axis), not directly on the farm axis.
+    // farms tend to form straight "rays" from town center (north/south/east/west).
+    // This scorer places farmer houses to the SIDE of those rays instead of on top of them.
     let (r, c) = slot;
     let mut score = 0i32;
     let on_axis = r == 0 || c == 0;
     if on_axis {
+        // Penalize slots on the center axes (row 0 or col 0).
+        // Reason: we want those lanes mostly for farms and movement, not houses.
         score -= 120;
     }
 
     for &(fr, fc) in &snapshot.farms {
+        // Side-of-ray bonus:
+        // - If farm is on vertical ray (col=0), reward houses at (farm_row, +/-1).
+        // - If farm is on horizontal ray (row=0), reward houses at (+/-1, farm_col).
+        // This creates "farm in lane, houses on both shoulders" layout.
         if fc == 0 && fr != 0 {
             if slot == (fr, 1) || slot == (fr, -1) {
                 score += 260;
@@ -532,6 +562,9 @@ fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32
             }
         }
 
+        // Adjacency bonus:
+        // grid_steps = |row_delta| + |col_delta| (up/down/left/right step count).
+        // If exactly 1, this house touches a farm edge, which is desirable.
         let grid_steps = (r - fr).abs() + (c - fc).abs();
         if grid_steps == 1 {
             score += 20;
@@ -539,6 +572,9 @@ fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32
     }
 
     for &(hr, hc) in &snapshot.farmer_homes {
+        // Anti-clumping:
+        // - Massive penalty for overlap (distance 0) to prevent duplicate placement.
+        // - Small penalty for direct adjacency (distance 1) to keep spacing readable.
         let d = (r - hr).abs() + (c - hc).abs();
         if d == 0 {
             score -= 200;
@@ -555,7 +591,9 @@ fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     // prefer being near economic core, avoid over-clumping with other archer homes.
     let nc = count_neighbors(snapshot, slot);
     let near_farms = nc.edge_farms + nc.diag_farms;
+    // Archers should protect economic core, but not stack on top of each other.
     let mut score = near_farms * 40 + nc.farmer_homes * 35 - nc.archer_homes * 20;
+    // Extra bonus for dense "value zone" (many farms/homes nearby).
     if near_farms + nc.farmer_homes >= 4 { score += 60; }
     score
 }
@@ -565,13 +603,17 @@ fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i3
     // With no mines, fallback to center-biased placement.
     if mine_positions.is_empty() {
         let (r, c) = slot;
+        // No mine targets: fallback to center preference.
         return -(r * r + c * c);
     }
     let wp = world::town_grid_to_world(center, slot.0, slot.1);
+    // `best` = squared distance to nearest mine from this candidate slot.
     let best = mine_positions.iter()
         .map(|m| (wp - *m).length_squared())
         .fold(f32::INFINITY, f32::min);
     let radial = slot.0 * slot.0 + slot.1 * slot.1;
+    // Lower distance should rank higher, so return negative cost.
+    // Add small center bias via `-radial` as tie-breaker.
     -(best as i32) - radial
 }
 
@@ -599,6 +641,8 @@ fn find_waypoint_slot(
 
         let radial = r * r + c * c;
         if best.map_or(true, |(_, best_spacing, best_radial)| {
+            // Primary objective: maximize spacing from existing waypoints.
+            // Secondary objective (tie-break): choose farther-out perimeter slot.
             min_spacing > best_spacing || (min_spacing == best_spacing && radial > best_radial)
         }) {
             best = Some(((r, c), min_spacing, radial));
@@ -761,6 +805,7 @@ fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f
     // - uncovered mines
     // - nearest uncovered mine
     // - all mine positions (for miner-home placement scoring)
+    // Compare squared distances to avoid sqrt in hot loops.
     let radius_sq = mining_radius * mining_radius;
     let friendly: Vec<Vec2> = world_data.waypoints.iter()
         .filter(|w| w.town_idx == ti && world::is_alive(w.position))
@@ -780,11 +825,13 @@ fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f
         } else {
             outside_radius += 1;
         }
+        // A mine is "covered" if any friendly waypoint is within cover radius.
         if !friendly.iter().any(|wp| (*wp - m.position).length() < WAYPOINT_COVER_RADIUS) {
             uncovered.push(m.position);
         }
     }
 
+    // Choose the uncovered mine nearest to town center for likely next waypoint target.
     let nearest_uncovered = uncovered.iter()
         .min_by(|a, b| a.distance(center).partial_cmp(&b.distance(center)).unwrap())
         .copied();
@@ -822,7 +869,9 @@ impl TownContext {
         let slot_fullness = res.world.town_grids.grids.get(grid_idx)
             .map(|tg| {
                 let (min_r, max_r, min_c, max_c) = world::build_bounds(tg);
+                // Total candidate build slots inside town bounds, minus center tile.
                 let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
+                // Normalize occupancy to [0,1] where 1.0 means "effectively full".
                 1.0 - empty_count as f32 / total.max(1.0)
             })
             .unwrap_or(0.0);
@@ -993,9 +1042,12 @@ pub fn ai_decision_system(
                     }
                 }
                 if ctx.slot_fullness > 0.7 {
+                    // Expansion urgency ramps from 1x to ~6x as fullness moves 70% -> 100%.
+                    // Formula: base 2x + linear ramp up to +4x over the last 30%.
                     w *= 2.0 + 4.0 * (ctx.slot_fullness - 0.7) / 0.3;
                 }
                 if !ctx.has_slots {
+                    // Hard boost when no build slots remain.
                     w *= 10.0;
                 }
             }
