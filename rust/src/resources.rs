@@ -741,6 +741,10 @@ pub struct UiState {
     pub assigning_mine: Option<usize>,
     /// Double-click on fountain sets this to the faction number; Factions tab consumes it.
     pub pending_faction_select: Option<i32>,
+    /// Preferred inspector tab after latest click when both NPC and building are selected.
+    pub inspector_prefer_npc: bool,
+    /// Monotonic click counter for inspector tab auto-focus application.
+    pub inspector_click_seq: u64,
 }
 
 impl Default for UiState {
@@ -753,6 +757,8 @@ impl Default for UiState {
             combat_log_visible: true,
             assigning_mine: None,
             pending_faction_select: None,
+            inspector_prefer_npc: true,
+            inspector_click_seq: 0,
         }
     }
 }

@@ -207,6 +207,7 @@ pub struct InspectorTabState {
 pub struct InspectorUiState {
     rename: InspectorRenameState,
     tabs: InspectorTabState,
+    last_click_seq: u64,
 }
 
 /// Bottom panel: NPC/building inspector.
@@ -244,6 +245,9 @@ pub fn bottom_panel_system(
             inspector_state.tabs.show_npc = true;
         } else if has_building && !has_npc {
             inspector_state.tabs.show_npc = false;
+        } else if has_npc && has_building && inspector_state.last_click_seq != panel_state.ui_state.inspector_click_seq {
+            inspector_state.tabs.show_npc = panel_state.ui_state.inspector_prefer_npc;
+            inspector_state.last_click_seq = panel_state.ui_state.inspector_click_seq;
         }
 
         let frame = egui::Frame::new()

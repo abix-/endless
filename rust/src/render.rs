@@ -482,6 +482,25 @@ fn click_to_select_system(
     } else {
         selected_building.active = false;
     }
+
+    // Default active inspector tab by click proximity.
+    if best_idx >= 0 && building.is_some() {
+        let npc_x = positions[best_idx as usize * 2];
+        let npc_y = positions[best_idx as usize * 2 + 1];
+        let bpos = grid.grid_to_world(col, row);
+        let npc_dx = world_pos.x - npc_x;
+        let npc_dy = world_pos.y - npc_y;
+        let bld_dx = world_pos.x - bpos.x;
+        let bld_dy = world_pos.y - bpos.y;
+        let npc_d2 = npc_dx * npc_dx + npc_dy * npc_dy;
+        let bld_d2 = bld_dx * bld_dx + bld_dy * bld_dy;
+        ui_state.inspector_prefer_npc = npc_d2 <= bld_d2;
+    } else if best_idx >= 0 {
+        ui_state.inspector_prefer_npc = true;
+    } else if building.is_some() {
+        ui_state.inspector_prefer_npc = false;
+    }
+    ui_state.inspector_click_seq = ui_state.inspector_click_seq.saturating_add(1);
 }
 
 // =============================================================================
