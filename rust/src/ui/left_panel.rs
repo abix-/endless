@@ -115,7 +115,6 @@ pub struct FactionsParams<'w> {
     ai_state: Res<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
     gold_storage: Res<'w, GoldStorage>,
-    mining_policy: Res<'w, MiningPolicy>,
     spawner_state: Res<'w, SpawnerState>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
@@ -235,7 +234,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &profiler.spawner_state, &mut profiler.mining_policy, &mut dirty, &mut jump_target),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
-                LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &mut factions_cache, &mut jump_target, &mut ui_state),
+                LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state),
                 LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration),
                 LeftPanelTab::Help => help_content(ui),
             }
@@ -994,12 +993,14 @@ fn rebuild_factions_cache(
     factions: &FactionsParams,
     world_data: &WorldData,
     policies: &TownPolicies,
+    mining_policy: &MiningPolicy,
     cache: &mut FactionsCache,
 ) {
     fn push_snapshot(
         factions: &FactionsParams,
         world_data: &WorldData,
         policies: &TownPolicies,
+        mining_policy: &MiningPolicy,
         cache: &mut FactionsCache,
         tdi: usize,
         kind_name: &'static str,
@@ -1043,11 +1044,11 @@ fn rebuild_factions_cache(
             .filter(|m| is_alive(m.position))
             .filter(|m| (m.position - center).length_squared() <= mining_radius * mining_radius)
             .count();
-        let discovered = factions.mining_policy.discovered_mines.get(tdi);
+        let discovered = mining_policy.discovered_mines.get(tdi);
         let mines_discovered = discovered.map(|v| v.len()).unwrap_or(0);
         let mines_enabled = discovered.map(|v| {
             v.iter()
-                .filter(|&&mine_idx| factions.mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true))
+                .filter(|&&mine_idx| mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true))
                 .count()
         }).unwrap_or(0);
         let spawner_count = factions.spawner_state.0.iter()
@@ -1094,7 +1095,7 @@ fn rebuild_factions_cache(
 
     // Include player faction (faction 0) in Factions view.
     if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
-        push_snapshot(factions, world_data, policies, cache, player_tdi, "Player", "Human", None, Vec::new());
+        push_snapshot(factions, world_data, policies, mining_policy, cache, player_tdi, "Player", "Human", None, Vec::new());
     }
 
     for player in factions.ai_state.players.iter() {
@@ -1110,6 +1111,7 @@ fn rebuild_factions_cache(
             factions,
             world_data,
             policies,
+            mining_policy,
             cache,
             tdi,
             kind_name,
@@ -1125,6 +1127,7 @@ fn factions_content(
     factions: &FactionsParams,
     world_data: &WorldData,
     policies: &TownPolicies,
+    mining_policy: &MiningPolicy,
     cache: &mut FactionsCache,
     jump_target: &mut Option<Vec2>,
     ui_state: &mut UiState,
@@ -1132,7 +1135,7 @@ fn factions_content(
     // Rebuild cache every 30 frames
     cache.frame_counter += 1;
     if cache.frame_counter % 30 == 1 || cache.snapshots.is_empty() {
-        rebuild_factions_cache(factions, world_data, policies, cache);
+        rebuild_factions_cache(factions, world_data, policies, mining_policy, cache);
     }
 
     if cache.snapshots.is_empty() {
