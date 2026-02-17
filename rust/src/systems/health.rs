@@ -84,7 +84,7 @@ pub fn death_system(
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, &Activity, Option<&AssignedFarm>), With<Dead>>,
+    query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, &Activity, Option<&AssignedFarm>, Option<&WorkPosition>), With<Dead>>,
     mut res: CleanupResources,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut combat_log: ResMut<CombatLog>,
@@ -98,7 +98,7 @@ pub fn death_cleanup_system(
     if !query.is_empty() {
         res.dirty.squads = true;
     }
-    for (entity, npc_idx, job, town_id, faction, activity, assigned_farm) in query.iter() {
+    for (entity, npc_idx, job, town_id, faction, activity, assigned_farm, work_position) in query.iter() {
         let idx = npc_idx.0;
 
         // Deselect if the selected NPC died
@@ -109,13 +109,18 @@ pub fn death_cleanup_system(
         despawn_count += 1;
         pop_dec_alive(&mut res.pop_stats, *job, town_id.0);
         pop_inc_dead(&mut res.pop_stats, *job, town_id.0);
-        if matches!(activity, Activity::Working) {
+        if matches!(activity, Activity::Working | Activity::MiningAtMine) {
             pop_dec_working(&mut res.pop_stats, *job, town_id.0);
         }
 
         // Release assigned farm if any
         if let Some(assigned) = assigned_farm {
             res.farm_occupancy.release(assigned.0);
+        }
+
+        // Release mine occupancy if miner was working at a mine
+        if let Some(wp) = work_position {
+            res.farm_occupancy.release(wp.0);
         }
 
         // Remove from raid queue if raider was waiting

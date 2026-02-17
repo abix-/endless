@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-16r
+
+- **fix: mine occupancy leak on miner death** — `death_cleanup_system` now releases `WorkPosition` occupancy when a miner dies mid-mining; previously the mine stayed permanently "occupied" causing tended growth without a living miner
+- **fix: pop_dec_working for miners** — `MiningAtMine` now counted as working activity in death cleanup (was only `Working` for farmers)
+- **miner NPC inspector: set mine** — clicking a miner shows the same "Set Mine"/"Clear" UI as the MinerHome building inspector; extracted shared `mine_assignment_ui()` helper (DRY)
+
 ## 2026-02-16q
 
 - **miner home mine assignment** — click-to-assign UI on miner home inspector: "Set Mine" enters placement mode (like squad targets), click a gold mine to assign it; "Clear" reverts to auto (nearest mine); `MinerHome.assigned_mine` persisted in save/load via `MinerHomeSave`; behavior decision + spawn both respect assignment
