@@ -192,7 +192,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
   - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
-  - `Mining { mine_pos }` → find mine at position, check gold > 0, claim occupancy via `BuildingOccupancy`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
+  - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `BuildingOccupancy`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
   - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
 - Removes `AtDestination` after handling
 

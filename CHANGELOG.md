@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-02-16t
+
+- **DRY: position-based building lookups** — `WorldData::miner_home_at()` and `gold_mine_at()` replace 7 inline `iter().position(|m| (m.position - pos).length() < 1.0)` calls across economy.rs, left_panel.rs, game_hud.rs
+- **DRY: alive building counts** — `WorldData::building_counts(town_idx)` returns `TownBuildingCounts` struct; replaces identical 6-line counting blocks in ai_player.rs and left_panel.rs
+- **DRY: dirty-flag cascades** — `DirtyFlags::mark_building_changed(kind)` replaces 6 scattered flag-setting blocks across ui/mod.rs (3×), combat.rs, ai_player.rs (2×)
+- **DRY: uncovered mines** — `uncovered_mines()` shared helper in ai_player.rs replaces duplicated waypoint-filtering logic between `find_mine_waypoint_pos` and `count_uncovered_mines`
+- **cleanup: unused param** — removed `_center` from `count_uncovered_mines`; fixed test indentation in friendly_fire_buildings.rs
+
+## 2026-02-16s
+
+- **stage 14d: auto-mining policy** — `MiningPolicy` resource with `mining_policy_system` (discovery within configurable radius, round-robin miner distribution across enabled mines, stale assignment clearing); Policies tab mining section (radius slider 0–5000px, per-mine enable/disable checkboxes, assigned miner counts, jump-to-mine); gold mine inspector auto-mining ON/OFF toggle; manual override preserved via `MinerHome.manual_mine`; dirty-flag gated (`DirtyFlags.mining`)
+- **AI town snapshot cache** — `AiTownSnapshot` caches per-town building positions and empty slots; smart slot scoring heuristics (farm clustering via 2×2 block detection, farmer-home adjacency to farms, archer gap-filling, miner-toward-mine); `farmer_home_target()` personality method (Aggressive 1:1, Balanced farms+1, Economic 2× for shift coverage); `pick_best_empty_slot()` generic scorer with `find_inner_slot` fallback
+- **dirty-flagged AI perimeter waypoint sync** — `sync_patrol_perimeter_system` prunes in-town waypoints that no longer sit on the territory perimeter after building changes; gated by `DirtyFlags.patrol_perimeter`; preserves wilderness/mine outpost waypoints
+- **mine occupancy limits** — `MAX_MINE_OCCUPANCY` constant; behavior system skips full mines; HUD shows occupancy count on gold mine inspector
+- **gold mine naming + policy mine list UX** — consistent "Gold Mine #N" naming via `gold_mine_name()` helper; policy mine list shows per-mine assigned miner count and distance
+- **friendly-fire building regression test** — 4-phase test: ranged shooter fires through vertical wall of 10 friendly farms at enemy target; verifies target lock, projectile activity, NPC damage dealt, and zero friendly farm damage
+
 ## 2026-02-16r
 
 - **fix: mine occupancy leak on miner death** — `death_cleanup_system` now releases `WorkPosition` occupancy when a miner dies mid-mining; previously the mine stayed permanently "occupied" causing tended growth without a living miner

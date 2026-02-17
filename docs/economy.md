@@ -207,6 +207,7 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
 | MinerProgressRender | positions + progress for active miners | sync_miner_progress_render → render world (ExtractResource) |
 | BuildingOccupancy | private map, methods: claim/release/is_occupied/count/clear | decision_system, death_cleanup, game_startup, spawner_respawn |
+| MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | CampState | max_pop, respawn_timers, forage_timers | camp_forage_system |
 | RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | decision_system, death_cleanup |
 | SpawnerState | `Vec<SpawnerEntry>` — building→NPC links + respawn timers | spawner_respawn_system, game_startup |
@@ -250,6 +251,13 @@ Both player build menu and AI player use `building_cost()` for affordability che
 - Only regenerates when mine has no occupant (`BuildingOccupancy.is_occupied()` returns false)
 - Rate: `MINE_REGEN_RATE` (2.0 gold/hour), capped at `MINE_MAX_GOLD` (200.0) per mine
 - Uses `MineStates` resource — parallel Vecs of gold, max_gold, and positions per mine
+
+### mining_policy_system
+- Gated by `DirtyFlags.mining` — only runs when mining topology/policy changes (radius slider, mine toggle, miner spawn/death)
+- **Discovery**: scans `WorldData.gold_mines` within `PolicySet.mining_radius` of each faction-0 town center, populates `MiningPolicy.discovered_mines[town_idx]`
+- **Distribution**: collects alive auto-assigned miners per town (skips `MinerHome.manual_mine == true`), round-robin assigns across enabled discovered mines via `MinerHome.assigned_mine`
+- **Stale clearing**: if assigned mine falls outside radius or disabled, clears `assigned_mine` on auto-assigned miners
+- `MAX_MINE_OCCUPANCY` in `constants.rs` limits concurrent miners per mine; behavior system (`decision_system`) skips full mines
 
 ### squad_cleanup_system
 - Dirty-flag gated via `DirtyFlags.squads` — skips entirely when no squad-relevant changes occurred

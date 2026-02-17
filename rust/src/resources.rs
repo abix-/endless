@@ -1342,6 +1342,28 @@ pub struct DirtyFlags {
     /// Set by left_panel, consumed by rebuild_patrol_routes_system.
     pub patrol_swap: Option<(usize, usize)>,
 }
+impl DirtyFlags {
+    /// Mark all relevant dirty flags after a building is destroyed or built.
+    pub fn mark_building_changed(&mut self, kind: crate::world::BuildingKind) {
+        self.building_grid = true;
+        if kind == crate::world::BuildingKind::Waypoint {
+            self.patrols = true;
+            self.waypoint_slots = true;
+            self.patrol_perimeter = true;
+        }
+        if matches!(kind,
+            crate::world::BuildingKind::Farm
+            | crate::world::BuildingKind::FarmerHome
+            | crate::world::BuildingKind::ArcherHome
+            | crate::world::BuildingKind::MinerHome
+        ) {
+            self.patrol_perimeter = true;
+        }
+        if kind == crate::world::BuildingKind::MinerHome {
+            self.mining = true;
+        }
+    }
+}
 impl Default for DirtyFlags {
     fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, waypoint_slots: true, squads: true, mining: true, patrol_swap: None } }
 }

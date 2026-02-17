@@ -738,8 +738,7 @@ fn build_place_click_system(
             .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
             .unwrap_or(false);
         if !is_destructible { return; }
-        let is_waypoint = matches!(cell_building, Some(world::Building::Waypoint { .. }));
-        let is_miner_home = matches!(cell_building, Some(world::Building::MinerHome { .. }));
+        let bld_kind = cell_building.as_ref().map(|b| b.kind());
 
         let _ = world::destroy_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
@@ -748,14 +747,9 @@ fn build_place_click_system(
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
         );
-        if is_waypoint {
-            world_state.dirty.patrols = true;
-            world_state.dirty.waypoint_slots = true;
+        if let Some(bk) = bld_kind {
+            world_state.dirty.mark_building_changed(bk);
         }
-        if is_miner_home {
-            world_state.dirty.mining = true;
-        }
-        world_state.dirty.building_grid = true;
         return;
     }
 
@@ -767,9 +761,7 @@ fn build_place_click_system(
             &mut world_state.building_hp, &mut food_storage,
             town_data_idx, world_pos, cost,
         ).is_ok() {
-            world_state.dirty.patrols = true;
-            world_state.dirty.waypoint_slots = true;
-            world_state.dirty.building_grid = true;
+            world_state.dirty.mark_building_changed(world::BuildingKind::Waypoint);
             combat_log.push(
                 CombatEventKind::Harvest,
                 game_time.day(), game_time.hour(), game_time.minute(),
@@ -805,10 +797,7 @@ fn build_place_click_system(
         row, col, center, cost,
     ) { return; }
 
-    world_state.dirty.building_grid = true;
-    if kind == BuildKind::MinerHome {
-        world_state.dirty.mining = true;
-    }
+    world_state.dirty.mark_building_changed(building.kind());
 
     combat_log.push(
         CombatEventKind::Harvest,
@@ -1062,8 +1051,7 @@ fn process_destroy_system(
         .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
         .unwrap_or(false);
     if !is_destructible { return; }
-    let is_waypoint = matches!(cell_building, Some(world::Building::Waypoint { .. }));
-    let is_miner_home = matches!(cell_building, Some(world::Building::MinerHome { .. }));
+    let bld_kind = cell_building.as_ref().map(|b| b.kind());
 
     // Find which town this building belongs to, derive town center
     let town_idx = cell_building
@@ -1088,14 +1076,9 @@ fn process_destroy_system(
         &format!("Destroyed building in {}", town_name),
     ).is_ok() {
         selected_building.active = false;
-        if is_waypoint {
-            world_state.dirty.patrols = true;
-            world_state.dirty.waypoint_slots = true;
+        if let Some(bk) = bld_kind {
+            world_state.dirty.mark_building_changed(bk);
         }
-        if is_miner_home {
-            world_state.dirty.mining = true;
-        }
-        world_state.dirty.building_grid = true;
     }
 }
 

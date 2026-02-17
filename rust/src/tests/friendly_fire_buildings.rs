@@ -99,9 +99,9 @@ pub fn setup(
     });
 
     if let Ok(mut cam) = camera_query.single_mut() {
-    // Center on the shooter/farm/target lane so test behavior is visible immediately.
-    cam.translation.x = 500.0;
-    cam.translation.y = 320.0;
+        // Center on the shooter/farm/target lane so test behavior is visible immediately.
+        cam.translation.x = 500.0;
+        cam.translation.y = 320.0;
     }
 
     test_state.phase_name = "Waiting for shooter target lock...".into();

@@ -551,6 +551,40 @@ pub fn remove_building(
     Ok(())
 }
 
+impl WorldData {
+    /// Find miner home index by position (grid-snapped, < 1px tolerance).
+    pub fn miner_home_at(&self, pos: Vec2) -> Option<usize> {
+        self.miner_homes.iter().position(|m| (m.position - pos).length() < 1.0)
+    }
+
+    /// Find gold mine index by position (grid-snapped, < 1px tolerance).
+    pub fn gold_mine_at(&self, pos: Vec2) -> Option<usize> {
+        self.gold_mines.iter().position(|m| (m.position - pos).length() < 1.0)
+    }
+
+    /// Count alive buildings per type for a town.
+    pub fn building_counts(&self, town_idx: u32) -> TownBuildingCounts {
+        let alive = |pos: Vec2, ti: u32| ti == town_idx && pos.x > -9000.0;
+        TownBuildingCounts {
+            farms: self.farms.iter().filter(|f| alive(f.position, f.town_idx)).count(),
+            farmer_homes: self.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
+            archer_homes: self.archer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
+            waypoints: self.waypoints.iter().filter(|w| alive(w.position, w.town_idx)).count(),
+            miner_homes: self.miner_homes.iter().filter(|m| alive(m.position, m.town_idx)).count(),
+            tents: self.tents.iter().filter(|t| alive(t.position, t.town_idx)).count(),
+        }
+    }
+}
+
+pub struct TownBuildingCounts {
+    pub farms: usize,
+    pub farmer_homes: usize,
+    pub archer_homes: usize,
+    pub waypoints: usize,
+    pub miner_homes: usize,
+    pub tents: usize,
+}
+
 /// Find the index of a building in its WorldData vec by position match.
 fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec2) -> Option<usize> {
     let near = |p: Vec2| (p - pos).length() < 1.0;
@@ -560,7 +594,7 @@ fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec
         Building::FarmerHome { .. } => world_data.farmer_homes.iter().position(|h| near(h.position)),
         Building::ArcherHome { .. } => world_data.archer_homes.iter().position(|a| near(a.position)),
         Building::Tent { .. } => world_data.tents.iter().position(|t| near(t.position)),
-        Building::MinerHome { .. } => world_data.miner_homes.iter().position(|m| near(m.position)),
+        Building::MinerHome { .. } => world_data.miner_home_at(pos),
         _ => None,
     }
 }

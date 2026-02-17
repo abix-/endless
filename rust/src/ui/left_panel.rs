@@ -735,7 +735,7 @@ fn policies_content(
     let mut assigned_per_mine: Vec<usize> = vec![0; world_data.gold_mines.len()];
     spawner_state.0.iter()
         .filter(|e| e.building_kind == 3 && e.town_idx == town_idx as i32 && e.npc_slot >= 0 && e.position.x > -9000.0)
-        .filter_map(|e| world_data.miner_homes.iter().position(|m| (m.position - e.position).length() < 1.0))
+        .filter_map(|e| world_data.miner_home_at(e.position))
         .filter(|&mh_idx| {
             world_data.miner_homes.get(mh_idx)
                 .map(|m| !m.manual_mine && m.assigned_mine.is_some())
@@ -743,7 +743,7 @@ fn policies_content(
         })
         .for_each(|mh_idx| {
             let Some(mine_pos) = world_data.miner_homes.get(mh_idx).and_then(|m| m.assigned_mine) else { return; };
-            let Some(mine_idx) = world_data.gold_mines.iter().position(|m| (m.position - mine_pos).length() < 1.0) else { return; };
+            let Some(mine_idx) = world_data.gold_mine_at(mine_pos) else { return; };
             if let Some(c) = assigned_per_mine.get_mut(mine_idx) {
                 *c += 1;
             }
@@ -1008,13 +1008,13 @@ fn rebuild_factions_cache(
             .map(|t| t.center).unwrap_or_default();
         let faction = world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
 
-        let alive_check = |pos: Vec2, idx: u32| idx == ti && pos.x > -9000.0;
-        let farms = world_data.farms.iter().filter(|f| alive_check(f.position, f.town_idx)).count();
-        let farmer_homes = world_data.farmer_homes.iter().filter(|h| alive_check(h.position, h.town_idx)).count();
-        let archer_homes = world_data.archer_homes.iter().filter(|b| alive_check(b.position, b.town_idx)).count();
-        let waypoints = world_data.waypoints.iter().filter(|g| alive_check(g.position, g.town_idx)).count();
-        let tents = world_data.tents.iter().filter(|t| alive_check(t.position, t.town_idx)).count();
-        let miner_homes = world_data.miner_homes.iter().filter(|ms| alive_check(ms.position, ms.town_idx)).count();
+        let counts = world_data.building_counts(ti);
+        let farms = counts.farms;
+        let farmer_homes = counts.farmer_homes;
+        let archer_homes = counts.archer_homes;
+        let waypoints = counts.waypoints;
+        let tents = counts.tents;
+        let miner_homes = counts.miner_homes;
 
         let ti_i32 = tdi as i32;
         let alive_spawner = |kind: i32| factions.spawner_state.0.iter()

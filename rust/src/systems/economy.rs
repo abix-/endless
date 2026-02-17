@@ -378,9 +378,7 @@ pub fn mining_policy_system(
             if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
                 continue;
             }
-            let Some(mh_idx) = world_data.miner_homes.iter()
-                .position(|m| (m.position - entry.position).length() < 1.0)
-            else {
+            let Some(mh_idx) = world_data.miner_home_at(entry.position) else {
                 continue;
             };
             if world_data.miner_homes[mh_idx].manual_mine {

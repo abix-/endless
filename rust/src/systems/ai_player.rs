@@ -585,41 +585,8 @@ fn has_empty_slot(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> bool 
 // WILDERNESS WAYPOINT PLACEMENT (MINE EXTENSION)
 // ============================================================================
 
-/// Find the best position for a wilderness waypoint covering an uncovered gold mine.
-/// Returns the mine position closest to the town center that isn't already covered
-/// by a friendly waypoint within WAYPOINT_COVER_RADIUS.
-fn find_mine_waypoint_pos(
-    center: Vec2, world_data: &WorldData, ti: u32,
-) -> Option<Vec2> {
-    let cover_r = WAYPOINT_COVER_RADIUS;
-
-    // Friendly waypoints for this town (alive only)
-    let friendly: Vec<Vec2> = world_data.waypoints.iter()
-        .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
-        .map(|w| w.position)
-        .collect();
-
-    let mut best: Option<(Vec2, f32)> = None;
-
-    for mine in &world_data.gold_mines {
-        if mine.position.x < -9000.0 { continue; }
-
-        // Check if any friendly waypoint already covers this mine
-        let covered = friendly.iter().any(|wp| (*wp - mine.position).length() < cover_r);
-        if covered { continue; }
-
-        // Score: prefer closer mines
-        let dist = (mine.position - center).length();
-        if best.map_or(true, |(_, d)| dist < d) {
-            best = Some((mine.position, dist));
-        }
-    }
-
-    best.map(|(pos, _)| pos)
-}
-
-/// Count uncovered gold mines for scoring.
-fn count_uncovered_mines(_center: Vec2, world_data: &WorldData, ti: u32) -> usize {
+/// Gold mines not covered by any friendly waypoint within WAYPOINT_COVER_RADIUS.
+fn uncovered_mines(world_data: &WorldData, ti: u32) -> Vec<Vec2> {
     let cover_r = WAYPOINT_COVER_RADIUS;
     let friendly: Vec<Vec2> = world_data.waypoints.iter()
         .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
@@ -629,7 +596,16 @@ fn count_uncovered_mines(_center: Vec2, world_data: &WorldData, ti: u32) -> usiz
     world_data.gold_mines.iter()
         .filter(|m| m.position.x > -9000.0)
         .filter(|m| !friendly.iter().any(|wp| (*wp - m.position).length() < cover_r))
-        .count()
+        .map(|m| m.position)
+        .collect()
+}
+
+/// Find the closest uncovered mine to town center for wilderness waypoint placement.
+fn find_mine_waypoint_pos(
+    center: Vec2, world_data: &WorldData, ti: u32,
+) -> Option<Vec2> {
+    uncovered_mines(world_data, ti).into_iter()
+        .min_by(|a, b| a.distance(center).partial_cmp(&b.distance(center)).unwrap())
 }
 
 // ============================================================================
@@ -685,12 +661,12 @@ pub fn ai_decision_system(
         let pname = player.personality.name();
         let ti = tdi as u32;
 
-        let alive = |pos: Vec2, idx: u32| idx == ti && pos.x > -9000.0;
-        let farms = res.world.world_data.farms.iter().filter(|f| alive(f.position, f.town_idx)).count();
-        let houses = res.world.world_data.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count();
-        let barracks = res.world.world_data.archer_homes.iter().filter(|b| alive(b.position, b.town_idx)).count();
-        let waypoints = res.world.world_data.waypoints.iter().filter(|g| alive(g.position, g.town_idx)).count();
-        let mine_shafts = res.world.world_data.miner_homes.iter().filter(|ms| alive(ms.position, ms.town_idx)).count();
+        let counts = res.world.world_data.building_counts(ti);
+        let farms = counts.farms;
+        let houses = counts.farmer_homes;
+        let barracks = counts.archer_homes;
+        let waypoints = counts.waypoints;
+        let mine_shafts = counts.miner_homes;
 
         let has_slots = snapshots.towns.get(&tdi)
             .map(|s| !s.empty_slots.is_empty())
@@ -748,7 +724,7 @@ pub fn ai_decision_system(
                 // Waypoints: wilderness placement (independent of town grid slots)
                 // Score when there are uncovered mines to extend patrol toward
                 if food >= building_cost(BuildKind::Waypoint) {
-                    let uncovered = count_uncovered_mines(center, &res.world.world_data, ti);
+                    let uncovered = uncovered_mines(&res.world.world_data, ti).len();
                     if uncovered > 0 {
                         let mine_need = 1.0 + uncovered as f32;
                         scores.push((AiAction::BuildWaypoint, gw * mine_need));
@@ -814,21 +790,9 @@ pub fn ai_decision_system(
     }
 }
 
-/// Try to build a standard building at the nearest inner slot.
+/// Mark dirty flags after AI builds a building.
 fn mark_dirty_after_build(res: &mut AiBuildRes, building: Building) {
-    res.world.dirty.building_grid = true;
-    if matches!(
-        building,
-        Building::Farm { .. }
-            | Building::FarmerHome { .. }
-            | Building::ArcherHome { .. }
-            | Building::MinerHome { .. }
-    ) {
-        res.world.dirty.patrol_perimeter = true;
-    }
-    if matches!(building, Building::MinerHome { .. }) {
-        res.world.dirty.mining = true;
-    }
+    res.world.dirty.mark_building_changed(building.kind());
 }
 
 fn try_build_at_slot(
@@ -967,9 +931,7 @@ fn execute_action(
                     &mut res.world.building_hp, &mut res.food_storage,
                     tdi, mine_pos, cost,
                 ).is_ok() {
-                    res.world.dirty.patrols = true;
-                    res.world.dirty.building_grid = true;
-                    res.world.dirty.waypoint_slots = true;
+                    res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);
                     return Some("built waypoint near mine".into());
                 }
             }
@@ -981,10 +943,7 @@ fn execute_action(
                 Building::Waypoint { town_idx: ti, patrol_order: waypoints as u32 },
                 tdi, row, col, center, cost);
             if ok {
-                res.world.dirty.patrols = true;
-                res.world.dirty.patrol_perimeter = true;
-                res.world.dirty.building_grid = true;
-                res.world.dirty.waypoint_slots = true;
+                res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);
             }
             ok.then_some("built waypoint".into())
         }

@@ -587,7 +587,7 @@ fn inspector_content(
     // Mine assignment for miners (same UI as MinerHome building inspector)
     if meta.job == 4 {
         if let Some(hp) = home_pos {
-            let mh_idx = world_data.miner_homes.iter().position(|m| (m.position - hp).length() < 1.0);
+            let mh_idx = world_data.miner_home_at(hp);
             if let Some(mh_idx) = mh_idx {
                 ui.separator();
                 mine_assignment_ui(ui, world_data, mh_idx, hp, dirty, ui_state);
@@ -716,7 +716,7 @@ fn mine_assignment_ui(
     let manual = world_data.miner_homes[mh_idx].manual_mine;
     if let Some(mine_pos) = assigned {
         let dist = mine_pos.distance(ref_pos);
-        if let Some(mine_idx) = world_data.gold_mines.iter().position(|m| (m.position - mine_pos).length() < 1.0) {
+        if let Some(mine_idx) = world_data.gold_mine_at(mine_pos) {
             ui.label(format!("Mine: {} - {:.0}px", crate::ui::gold_mine_name(mine_idx), dist));
         } else {
             ui.label(format!("Mine: ({:.0}, {:.0}) - {:.0}px", mine_pos.x, mine_pos.y, dist));
@@ -839,7 +839,7 @@ fn building_inspector_content(
             // Mine assignment UI (MinerHome only)
             if matches!(building, Building::MinerHome { .. }) {
                 ui.separator();
-                let mh_idx = world_data.miner_homes.iter().position(|m| (m.position - world_pos).length() < 1.0);
+                let mh_idx = world_data.miner_home_at(world_pos);
                 if let Some(mh_idx) = mh_idx {
                     mine_assignment_ui(ui, world_data, mh_idx, world_pos, dirty, ui_state);
                 }
@@ -880,7 +880,7 @@ fn building_inspector_content(
 
         Building::GoldMine => {
             let world_pos = bld.grid.grid_to_world(col, row);
-            if let Some(mine_idx) = world_data.gold_mines.iter().position(|m| (m.position - world_pos).length() < 1.0) {
+            if let Some(mine_idx) = world_data.gold_mine_at(world_pos) {
                 ui.label(format!("Name: {}", crate::ui::gold_mine_name(mine_idx)));
                 if mine_idx >= mining_policy.mine_enabled.len() {
                     mining_policy.mine_enabled.resize(mine_idx + 1, true);

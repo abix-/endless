@@ -514,24 +514,7 @@ pub fn building_damage_system(
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
         );
-        if msg.kind == BuildingKind::Waypoint {
-            world.dirty.patrols = true;
-            world.dirty.waypoint_slots = true;
-            world.dirty.patrol_perimeter = true;
-        }
-        if matches!(
-            msg.kind,
-            BuildingKind::Farm
-                | BuildingKind::FarmerHome
-                | BuildingKind::ArcherHome
-                | BuildingKind::MinerHome
-        ) {
-            world.dirty.patrol_perimeter = true;
-        }
-        if msg.kind == BuildingKind::MinerHome {
-            world.dirty.mining = true;
-        }
-        world.dirty.building_grid = true;
+        world.dirty.mark_building_changed(msg.kind);
 
         // Kill the linked NPC if alive
         if npc_slot >= 0 {
