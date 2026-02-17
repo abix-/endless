@@ -1364,23 +1364,38 @@ impl AiPersonality {
     }
 }
 
-/// Find enemy target for an AI squad, with personality-based kind filtering.
-fn pick_ai_target(
+fn pick_ai_target_unclaimed(
     bgrid: &BuildingSpatialGrid,
-    center: Vec2, faction: i32, personality: AiPersonality, role: SquadRole,
+    center: Vec2,
+    faction: i32,
+    personality: AiPersonality,
+    role: SquadRole,
+    claimed: &HashSet<(BuildingKind, usize)>,
 ) -> Option<(BuildingKind, usize, Vec2)> {
     if role != SquadRole::Attack { return None; }
+
+    let find_nearest_unclaimed = |allowed_kinds: &[BuildingKind]| -> Option<(BuildingKind, usize, Vec2)> {
+        let mut best_d2 = f32::MAX;
+        let mut result: Option<(BuildingKind, usize, Vec2)> = None;
+        let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
+        bgrid.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |bref| {
+            if bref.faction == faction || bref.faction < 0 { return; }
+            if !allowed_kinds.contains(&bref.kind) { return; }
+            if claimed.contains(&(bref.kind, bref.index)) { return; }
+            let dx = bref.position.x - center.x;
+            let dy = bref.position.y - center.y;
+            let d2 = dx * dx + dy * dy;
+            if d2 <= r2 && d2 < best_d2 {
+                best_d2 = d2;
+                result = Some((bref.kind, bref.index, bref.position));
+            }
+        });
+        result
+    };
+
     let preferred = personality.attack_kinds(role);
-    // Try preferred kinds first.
-    if let Some(hit) = world::find_nearest_enemy_building_filtered(
-        center, bgrid, faction, AI_ATTACK_SEARCH_RADIUS, preferred,
-    ) {
-        return Some(hit);
-    }
-    // Fallback to any attackable building.
-    world::find_nearest_enemy_building_filtered(
-        center, bgrid, faction, AI_ATTACK_SEARCH_RADIUS, AiPersonality::fallback_attack_kinds(),
-    )
+    find_nearest_unclaimed(preferred)
+        .or_else(|| find_nearest_unclaimed(AiPersonality::fallback_attack_kinds()))
 }
 
 /// Rebuild squad_indices for one AI player by scanning SquadState ownership.
@@ -1461,6 +1476,7 @@ pub fn ai_squad_commander_system(
             .map(|i| personality.attack_split_weight(i))
             .sum::<usize>()
             .max(1);
+        let mut claimed_targets: HashSet<(BuildingKind, usize)> = HashSet::new();
         for (role_idx, &si) in squad_indices.iter().enumerate() {
             let role = if role_idx == 0 {
                 SquadRole::Reserve
@@ -1512,27 +1528,52 @@ pub fn ai_squad_commander_system(
             if cmd.cooldown > 0.0 {
                 cmd.cooldown -= dt;
             }
+            if role != SquadRole::Attack {
+                cmd.target_kind = None;
+                if let Some(squad) = squad_state.squads.get_mut(si) {
+                    if squad.target.is_some() {
+                        squad.target = None;
+                    }
+                }
+                continue;
+            }
 
             // Validate current target is still alive.
-            let target_alive = cmd.target_kind
+            let mut target_alive = cmd.target_kind
                 .and_then(|kind| resolve_building_pos(&world_data, kind, cmd.target_index))
                 .is_some();
+            let target_conflicts = if let Some(kind) = cmd.target_kind {
+                if target_alive {
+                    !claimed_targets.insert((kind, cmd.target_index))
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
 
-            if !target_alive {
+            if !target_alive || target_conflicts {
                 // Target died — clear and allow immediate retarget.
                 cmd.target_kind = None;
                 cmd.cooldown = 0.0;
+                target_alive = false;
+                if target_conflicts {
+                    if let Some(squad) = squad_state.squads.get_mut(si) {
+                        squad.target = None;
+                    }
+                }
             }
 
             // Skip retarget if cooldown hasn't expired or target is alive.
             if cmd.cooldown > 0.0 || target_alive { continue; }
 
             // Pick new target.
-            if let Some((kind, index, pos)) = pick_ai_target(
-                &bgrid, center, faction, personality, role,
+            if let Some((kind, index, pos)) = pick_ai_target_unclaimed(
+                &bgrid, center, faction, personality, role, &claimed_targets,
             ) {
                 cmd.target_kind = Some(kind);
                 cmd.target_index = index;
+                claimed_targets.insert((kind, index));
                 cmd.cooldown = personality.retarget_cooldown()
                     + rand::rng().random_range(-RETARGET_JITTER..RETARGET_JITTER);
 

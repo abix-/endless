@@ -72,7 +72,14 @@ pub fn register_ui(app: &mut App) {
     app.add_systems(EguiPrimaryContextPass, (
         game_hud::top_bar_system,
         left_panel::left_panel_system,
-        (game_hud::bottom_panel_system, game_hud::combat_log_system, game_hud::selection_overlay_system, game_hud::target_overlay_system, game_hud::squad_overlay_system),
+        (
+            game_hud::bottom_panel_system,
+            game_hud::combat_log_system,
+            game_hud::selection_overlay_system,
+            game_hud::target_overlay_system,
+            game_hud::squad_overlay_system,
+            game_hud::faction_squad_overlay_system,
+        ),
         build_menu::build_menu_system,
         pause_menu_system,
         game_hud::save_toast_system,
@@ -641,7 +648,7 @@ fn pause_menu_system(
                     let prev_debug = (settings.debug_coordinates, settings.debug_all_npcs,
                         settings.debug_readback, settings.debug_combat,
                         settings.debug_spawns, settings.debug_behavior, settings.debug_profiler,
-                        settings.show_terrain_sprites);
+                        settings.show_terrain_sprites, settings.show_all_faction_squad_lines);
                     ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
                     ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
                     ui.checkbox(&mut settings.debug_readback, "GPU Readback");
@@ -650,10 +657,11 @@ fn pause_menu_system(
                     ui.checkbox(&mut settings.debug_behavior, "Behavior Logging");
                     ui.checkbox(&mut settings.debug_profiler, "System Profiler");
                     ui.checkbox(&mut settings.show_terrain_sprites, "Show Terrain Sprites");
+                    ui.checkbox(&mut settings.show_all_faction_squad_lines, "Show All Faction Squad Lines");
                     let now_debug = (settings.debug_coordinates, settings.debug_all_npcs,
                         settings.debug_readback, settings.debug_combat,
                         settings.debug_spawns, settings.debug_behavior, settings.debug_profiler,
-                        settings.show_terrain_sprites);
+                        settings.show_terrain_sprites, settings.show_all_faction_squad_lines);
                     if prev_debug != now_debug {
                         crate::settings::save_settings(&settings);
                     }

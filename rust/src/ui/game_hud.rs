@@ -1,5 +1,7 @@
 //! In-game HUD — top resource bar, bottom panel (inspector + combat log), target overlay.
 
+use std::collections::HashMap;
+
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -1419,6 +1421,117 @@ pub fn squad_overlay_system(
                 hint_color,
             );
         }
+    }
+
+    Ok(())
+}
+
+/// Draw commander arrows for currently selected faction in Factions tab.
+/// Arrows run from faction fountain/town center to each squad target.
+pub fn faction_squad_overlay_system(
+    mut contexts: EguiContexts,
+    ui_state: Res<UiState>,
+    settings: Res<UserSettings>,
+    world_data: Res<WorldData>,
+    squad_state: Res<SquadState>,
+    camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
+    windows: Query<&Window>,
+) -> Result {
+    let show_all = settings.show_all_faction_squad_lines;
+    let selected_faction = if ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Factions {
+        ui_state.factions_overlay_faction
+    } else {
+        None
+    };
+    if !show_all && selected_faction.is_none() {
+        return Ok(());
+    }
+
+    let Ok(window) = windows.single() else { return Ok(()); };
+    let Ok((transform, projection)) = camera_query.single() else { return Ok(()); };
+
+    let zoom = match projection {
+        Projection::Orthographic(ortho) => 1.0 / ortho.scale,
+        _ => 1.0,
+    };
+    let cam = transform.translation.truncate();
+    let viewport = egui::Vec2::new(window.width(), window.height());
+    let center = viewport * 0.5;
+    let to_screen = |p: Vec2| -> egui::Pos2 {
+        egui::Pos2::new(
+            center.x + (p.x - cam.x) * zoom,
+            center.y - (p.y - cam.y) * zoom,
+        )
+    };
+
+    let ctx = contexts.ctx_mut()?;
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let palette = [
+        egui::Color32::from_rgb(255, 90, 90),
+        egui::Color32::from_rgb(90, 180, 255),
+        egui::Color32::from_rgb(100, 230, 120),
+        egui::Color32::from_rgb(255, 210, 70),
+        egui::Color32::from_rgb(210, 120, 255),
+    ];
+
+    // Build per-faction arrow start positions once (prefer fountain; fallback to town center).
+    let mut start_by_faction: HashMap<i32, Vec2> = HashMap::new();
+    for town in world_data.towns.iter() {
+        let entry = start_by_faction.entry(town.faction).or_insert(town.center);
+        if town.sprite_type == 0 {
+            *entry = town.center;
+        }
+    }
+
+    // Per-faction color index so multiple factions can be drawn together without rescanning.
+    let mut color_idx_by_faction: HashMap<i32, usize> = HashMap::new();
+
+    for (si, squad) in squad_state.squads.iter().enumerate() {
+        let faction = match squad.owner {
+            SquadOwner::Player => 0,
+            SquadOwner::Town(tdi) => match world_data.towns.get(tdi) {
+                Some(t) => t.faction,
+                None => continue,
+            },
+        };
+        if !show_all && selected_faction != Some(faction) { continue; }
+        let Some(target_world) = squad.target else { continue; };
+        if squad.members.is_empty() { continue; }
+        let Some(start_world) = start_by_faction.get(&faction).copied() else { continue; };
+
+        let color_idx = color_idx_by_faction.entry(faction).or_insert(0usize);
+        let color = palette[*color_idx % palette.len()];
+        *color_idx += 1;
+        let start = to_screen(start_world);
+        let end = to_screen(target_world);
+        let line = end - start;
+        let len = line.length();
+        if len < 6.0 { continue; }
+        let dir = line / len;
+        let perp = egui::vec2(-dir.y, dir.x);
+
+        painter.line_segment([start, end], egui::Stroke::new(2.0, color));
+
+        let head_len = 12.0;
+        let head_w = 6.0;
+        let base = end - dir * head_len;
+        let p1 = base + perp * head_w;
+        let p2 = base - perp * head_w;
+        painter.add(egui::Shape::convex_polygon(vec![end, p1, p2], color, egui::Stroke::NONE));
+
+        let label_pos = end + perp * 10.0;
+        let label = if show_all {
+            format!("F{} Squad {}", faction, si + 1)
+        } else {
+            format!("Squad {}", si + 1)
+        };
+        painter.text(
+            label_pos,
+            egui::Align2::LEFT_BOTTOM,
+            label,
+            egui::FontId::proportional(12.0),
+            color,
+        );
     }
 
     Ok(())

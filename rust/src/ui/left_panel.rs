@@ -197,8 +197,12 @@ pub fn left_panel_system(
 ) -> Result {
     let _t = profiler.timings.scope("ui_left_panel");
     if !ui_state.left_panel_open {
+        ui_state.factions_overlay_faction = None;
         *prev_tab = LeftPanelTab::Roster;
         return Ok(());
+    }
+    if ui_state.left_panel_tab != LeftPanelTab::Factions {
+        ui_state.factions_overlay_faction = None;
     }
 
     let ctx = contexts.ctx_mut()?;
@@ -1221,6 +1225,7 @@ fn factions_content(
     ui.separator();
 
     let snap = &cache.snapshots[cache.selected_idx];
+    ui_state.factions_overlay_faction = Some(snap.faction);
     let kind_color = match snap.kind_name {
         "Builder" => egui::Color32::from_rgb(80, 180, 255),
         _ => egui::Color32::from_rgb(220, 80, 80),
