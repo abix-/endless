@@ -44,7 +44,8 @@ macro_rules! town_building_slots {
     }
 }
 
-/// Minimum Manhattan distance between waypoints on the town grid.
+/// Minimum grid-step distance between waypoints on the town grid
+/// (counting only up/down/left/right steps, not diagonals).
 const MIN_WAYPOINT_SPACING: i32 = 5;
 /// Patrol posts sit one slot outside controlled buildings.
 const TERRITORY_PERIMETER_PADDING: i32 = 1;
@@ -52,7 +53,7 @@ const DEFAULT_MINING_RADIUS: f32 = 300.0;
 const MINING_RADIUS_STEP: f32 = 300.0;
 const MAX_MINING_RADIUS: f32 = 5000.0;
 
-/// Minimum Manhattan grid-distance from `candidate` to any existing waypoint for this town.
+/// Minimum grid-step distance from `candidate` to any existing waypoint for this town.
 /// Returns `i32::MAX` if no waypoints exist.
 fn min_waypoint_spacing(
     grid: &WorldGrid,
@@ -531,8 +532,8 @@ fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32
             }
         }
 
-        let manhattan = (r - fr).abs() + (c - fc).abs();
-        if manhattan == 1 {
+        let grid_steps = (r - fr).abs() + (c - fc).abs();
+        if grid_steps == 1 {
             score += 20;
         }
     }
