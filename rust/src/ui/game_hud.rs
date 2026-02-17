@@ -162,6 +162,7 @@ pub struct BuildingInspectorData<'w> {
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
     building_hp: Res<'w, BuildingHpState>,
+    waypoint_state: Res<'w, WaypointState>,
 }
 
 #[derive(SystemParam)]
@@ -876,8 +877,40 @@ fn building_inspector_content(
             }
         }
 
-        Building::Waypoint { patrol_order, .. } => {
+        Building::Waypoint { patrol_order, town_idx } => {
+            let world_pos = bld.grid.grid_to_world(col, row);
             ui.label(format!("Patrol order: {}", patrol_order));
+
+            // Find waypoint data index
+            if let Some(wp_idx) = world_data.waypoints.iter().position(|w| {
+                w.town_idx == *town_idx && (w.position - world_pos).length() < 1.0
+            }) {
+                // Attack enabled toggle
+                if let Some(&attack) = bld.waypoint_state.attack_enabled.get(wp_idx) {
+                    let label = if attack { "Turret: ON" } else { "Turret: OFF" };
+                    ui.label(label);
+                }
+
+                // Assigned archer from spawner (ArcherHome spawners near waypoints assign via patrol)
+                let ti = *town_idx as i32;
+                if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
+                    e.building_kind == 1 && e.town_idx == ti
+                        && e.npc_slot >= 0
+                        && {
+                            let slot = e.npc_slot as usize;
+                            slot < meta_cache.0.len() && meta_cache.0[slot].town_id == ti
+                        }
+                        && (e.position - world_pos).length() < 200.0
+                }) {
+                    if entry.npc_slot >= 0 {
+                        let slot = entry.npc_slot as usize;
+                        if slot < meta_cache.0.len() {
+                            let meta = &meta_cache.0[slot];
+                            ui.label(format!("Archer: {} (Lv.{})", meta.name, meta.level));
+                        }
+                    }
+                }
+            }
         }
 
         Building::Fountain { .. } => {

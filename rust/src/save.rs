@@ -1428,8 +1428,10 @@ pub fn load_game_system(
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 
-    // 4. Rebuild spatial grid
+    // 4. Rebuild spatial grid + building GPU slots
     tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
+    tracking.building_slots.clear();
+    world::allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(
         &save, &mut commands,

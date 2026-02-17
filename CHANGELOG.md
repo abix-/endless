@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-17g
+
+- **waypoint building inspector** — waypoint inspector now shows patrol order, turret on/off status from `WaypointState`, and nearby archer name + level from spawner lookup; `BuildingInspectorData` extended with `WaypointState`
+- **F9 load allocates building GPU slots** — `load_game_system` now clears and calls `allocate_all_building_slots` after applying save data, matching the menu load path
+- **town positions snapped to grid** — world gen now snaps player, AI town, and camp center positions to grid cell centers so fountain sprites align with their grid cells
+
 ## 2026-02-17f
 
 - **save version checking** — `SAVE_VERSION` bumped to 2; `farm_growth` now saves only farm entries (mines in `mine_growth`); `apply_save` version-gates v1 farm_growth interpretation (clips to farm_count); `read_save_from` logs migration from older versions; version changelog comment above constant

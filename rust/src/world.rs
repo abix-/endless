@@ -1572,6 +1572,9 @@ pub fn generate_world(
             if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
         }
         if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+            // Snap to grid cell center so fountain sprite aligns with its grid cell
+            let (gc, gr) = grid.world_to_grid(pos);
+            let pos = grid.grid_to_world(gc, gr);
             player_positions.push(pos);
             all_positions.push(pos);
         }
@@ -1606,6 +1609,8 @@ pub fn generate_world(
             if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
         }
         if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+            let (gc, gr) = grid.world_to_grid(pos);
+            let pos = grid.grid_to_world(gc, gr);
             ai_town_positions.push(pos);
             all_positions.push(pos);
         }
@@ -1637,6 +1642,8 @@ pub fn generate_world(
             if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
         }
         if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
+            let (gc, gr) = grid.world_to_grid(pos);
+            let pos = grid.grid_to_world(gc, gr);
             camp_positions.push(pos);
             all_positions.push(pos);
         }
