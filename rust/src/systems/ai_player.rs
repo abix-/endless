@@ -24,6 +24,7 @@ pub struct AiBuildRes<'w> {
     world: WorldState<'w>,
     food_storage: ResMut<'w, FoodStorage>,
     upgrade_queue: ResMut<'w, UpgradeQueue>,
+    policies: ResMut<'w, TownPolicies>,
 }
 
 /// Minimum Manhattan distance between waypoints on the town grid.
@@ -70,6 +71,7 @@ enum AiAction {
     BuildWaypoint,
     BuildTent,
     BuildMinerHome,
+    ExpandMiningRadius,
     Upgrade(usize), // upgrade index into UPGRADE_PCT
 }
 
@@ -101,14 +103,19 @@ impl AiPersonality {
                 prioritize_healing: false,
                 archer_flee_hp: 0.0,
                 farmer_flee_hp: 0.30,
+                mining_radius: 300.0,
                 ..PolicySet::default()
             },
-            Self::Balanced => PolicySet::default(),
+            Self::Balanced => PolicySet {
+                mining_radius: 300.0,
+                ..PolicySet::default()
+            },
             Self::Economic => PolicySet {
                 archer_leash: true,
                 prioritize_healing: true,
                 archer_flee_hp: 0.25,
                 farmer_flee_hp: 0.50,
+                mining_radius: 300.0,
                 ..PolicySet::default()
             },
         }
@@ -141,12 +148,12 @@ impl AiPersonality {
         }
     }
 
-    /// Miner home target count relative to houses.
-    fn miner_home_target(self, houses: usize) -> usize {
+    /// Desired miners per discovered gold mine in policy radius.
+    fn miners_per_mine_target(self) -> usize {
         match self {
-            Self::Aggressive => (houses / 4).max(1),
-            Self::Balanced   => (houses / 2).max(1),
-            Self::Economic   => houses.max(1),
+            Self::Aggressive => 1,
+            Self::Balanced => 2,
+            Self::Economic => 4,
         }
     }
 
@@ -688,6 +695,7 @@ pub fn ai_decision_system(
 
         // Score all eligible actions
         let mut scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
+        let mut miner_target_for_expansion = 0usize;
 
         match player.kind {
             AiKind::Raider => {
@@ -700,7 +708,20 @@ pub fn ai_decision_system(
                 let (fw, hw, bw, gw) = player.personality.building_weights();
                 let bt = player.personality.archer_home_target(houses);
                 let ht = player.personality.farmer_home_target(farms);
-                let ms_target = player.personality.miner_home_target(houses);
+                let mining_radius = res.policies.policies.get(tdi)
+                    .map(|p| p.mining_radius)
+                    .unwrap_or(300.0);
+                let mines_in_radius = res.world.world_data.gold_mines.iter()
+                    .filter(|m| m.position.x > -9000.0)
+                    .filter(|m| (m.position - center).length_squared() <= mining_radius * mining_radius)
+                    .count();
+                let mines_outside_radius = res.world.world_data.gold_mines.iter()
+                    .filter(|m| m.position.x > -9000.0)
+                    .filter(|m| (m.position - center).length_squared() > mining_radius * mining_radius)
+                    .count();
+                let miners_per_mine = player.personality.miners_per_mine_target();
+                let ms_target = mines_in_radius * miners_per_mine;
+                miner_target_for_expansion = ms_target;
                 let house_deficit = ht.saturating_sub(houses);
                 let barracks_deficit = bt.saturating_sub(barracks);
                 let miner_deficit = ms_target.saturating_sub(mine_shafts);
@@ -717,6 +738,9 @@ pub fn ai_decision_system(
                     if miner_deficit > 0 && food >= building_cost(BuildKind::MinerHome) {
                         let ms_need = 1.0 + miner_deficit as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
+                    } else if miner_deficit == 0 && mines_outside_radius > 0 {
+                        let expand_need = 1.0 + mines_outside_radius as f32;
+                        scores.push((AiAction::ExpandMiningRadius, fw * 0.6 * expand_need));
                     }
                 }
 
@@ -751,11 +775,10 @@ pub fn ai_decision_system(
                 if matches!(player.kind, AiKind::Builder) {
                     let ht = player.personality.farmer_home_target(farms);
                     let bt = player.personality.archer_home_target(houses);
-                    let ms_target = player.personality.miner_home_target(houses);
                     let wants_more_homes = has_slots && (
                         (houses < ht && food >= building_cost(BuildKind::FarmerHome))
                             || (barracks < bt && food >= building_cost(BuildKind::ArcherHome))
-                            || (mine_shafts < ms_target && food >= building_cost(BuildKind::MinerHome))
+                            || (mine_shafts < miner_target_for_expansion && food >= building_cost(BuildKind::MinerHome))
                     );
                     if wants_more_homes {
                         continue;
@@ -923,6 +946,17 @@ fn execute_action(
                 row,
                 col,
             )
+        }
+        AiAction::ExpandMiningRadius => {
+            let Some(policy) = res.policies.policies.get_mut(tdi) else { return None; };
+            let old = policy.mining_radius;
+            let new = (old + 300.0).min(5000.0);
+            if new <= old {
+                return None;
+            }
+            policy.mining_radius = new;
+            res.world.dirty.mining = true;
+            Some(format!("expanded mining radius to {:.0}px", new))
         }
         AiAction::BuildWaypoint => {
             let cost = building_cost(BuildKind::Waypoint);

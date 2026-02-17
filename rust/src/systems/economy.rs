@@ -338,7 +338,7 @@ pub fn mining_policy_system(
 
     for town_idx in 0..world_data.towns.len() {
         let town = &world_data.towns[town_idx];
-        if town.faction != 0 {
+        if town.faction < 0 {
             mining.discovered_mines[town_idx].clear();
             continue;
         }
@@ -359,7 +359,7 @@ pub fn mining_policy_system(
     }
 
     for town_idx in 0..world_data.towns.len() {
-        if world_data.towns[town_idx].faction != 0 { continue; }
+        if world_data.towns[town_idx].faction < 0 { continue; }
 
         let enabled_mines: Vec<usize> = mining.discovered_mines[town_idx]
             .iter()
@@ -602,6 +602,9 @@ pub fn migration_spawn_system(
     // Create inactive AiPlayer (activated on settlement)
     let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
     let personality = personalities[rng.random_range(0..personalities.len())];
+    if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
+        *policy = personality.default_policies();
+    }
     ai_state.players.push(AiPlayer {
         town_data_idx,
         grid_idx,
