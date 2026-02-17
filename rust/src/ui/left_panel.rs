@@ -227,7 +227,7 @@ pub fn left_panel_system(
             match ui_state.left_panel_tab {
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
-                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &profiler.spawner_state, &mut profiler.mining_policy, &mut dirty),
+                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &profiler.spawner_state, &mut profiler.mining_policy, &mut dirty, &mut jump_target),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &mut factions_cache, &mut jump_target),
@@ -603,6 +603,7 @@ fn policies_content(
     spawner_state: &SpawnerState,
     mining_policy: &mut MiningPolicy,
     dirty: &mut DirtyFlags,
+    jump_target: &mut Option<Vec2>,
 ) {
     let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
 
@@ -731,7 +732,8 @@ fn policies_content(
         }
     }
 
-    let assigned_auto = spawner_state.0.iter()
+    let mut assigned_per_mine: Vec<usize> = vec![0; world_data.gold_mines.len()];
+    spawner_state.0.iter()
         .filter(|e| e.building_kind == 3 && e.town_idx == town_idx as i32 && e.npc_slot >= 0 && e.position.x > -9000.0)
         .filter_map(|e| world_data.miner_homes.iter().position(|m| (m.position - e.position).length() < 1.0))
         .filter(|&mh_idx| {
@@ -739,7 +741,14 @@ fn policies_content(
                 .map(|m| !m.manual_mine && m.assigned_mine.is_some())
                 .unwrap_or(false)
         })
-        .count();
+        .for_each(|mh_idx| {
+            let Some(mine_pos) = world_data.miner_homes.get(mh_idx).and_then(|m| m.assigned_mine) else { return; };
+            let Some(mine_idx) = world_data.gold_mines.iter().position(|m| (m.position - mine_pos).length() < 1.0) else { return; };
+            if let Some(c) = assigned_per_mine.get_mut(mine_idx) {
+                *c += 1;
+            }
+        });
+    let assigned_auto: usize = assigned_per_mine.iter().sum();
 
     ui.label(format!("{}/{} mines enabled, {} miners assigned", enabled_count, discovered.len(), assigned_auto));
 
@@ -750,14 +759,21 @@ fn policies_content(
             let Some(mine) = world_data.gold_mines.get(mine_idx) else { continue };
             let dist = mine.position.distance(world_data.towns[town_idx].center);
             let mut enabled = mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true);
-            let label = format!("Mine #{} ({:.0}px)", mine_idx + 1, dist);
-            if ui.checkbox(&mut enabled, label).changed() {
-                if mine_idx >= mining_policy.mine_enabled.len() {
-                    mining_policy.mine_enabled.resize(mine_idx + 1, true);
+            let mine_name = crate::ui::gold_mine_name(mine_idx);
+            let assigned_here = assigned_per_mine.get(mine_idx).copied().unwrap_or(0);
+            ui.horizontal(|ui| {
+                if ui.checkbox(&mut enabled, "").changed() {
+                    if mine_idx >= mining_policy.mine_enabled.len() {
+                        mining_policy.mine_enabled.resize(mine_idx + 1, true);
+                    }
+                    mining_policy.mine_enabled[mine_idx] = enabled;
+                    dirty.mining = true;
                 }
-                mining_policy.mine_enabled[mine_idx] = enabled;
-                dirty.mining = true;
-            }
+                if ui.button(mine_name).on_hover_text("Jump to mine").clicked() {
+                    *jump_target = Some(mine.position);
+                }
+                ui.small(format!("{:.0}px, {} assigned", dist, assigned_here));
+            });
         }
     }
 }

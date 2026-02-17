@@ -38,6 +38,11 @@ pub fn tipped(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, tip: &str) -
     ui.add(egui::Button::new(text).frame(false)).on_hover_text(tip)
 }
 
+/// Stable display name for a gold mine index used across all inspectors/policies.
+pub fn gold_mine_name(mine_idx: usize) -> String {
+    format!("Gold Mine {}", mine_idx + 1)
+}
+
 /// Apply user's UI scale to all egui contexts via EguiContextSettings.
 fn apply_ui_scale(
     settings: Res<crate::settings::UserSettings>,
