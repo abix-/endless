@@ -967,6 +967,14 @@ pub fn ai_decision_system(
         let reserve = player.personality.food_reserve_per_spawner() * spawner_count;
         // Food reserve rule: if town is at/below reserve, skip spending this tick.
         if food <= reserve { continue; }
+        // Hunger signal: 0.0 = comfortable (food >= 2×reserve), 1.0 = at floor.
+        // Drives farm + farmer home urgency when food margin is thin.
+        let hunger = if reserve > 0 {
+            (1.0 - (food - reserve) as f32 / reserve as f32).clamp(0.0, 1.0)
+        } else {
+            // Aggressive (reserve=0): absolute threshold proxy.
+            if food < 5 { 0.8 } else if food < 10 { 0.4 } else { 0.0 }
+        };
 
         let mining_radius = res.policies.policies.get(tdi)
             .map(|p| p.mining_radius)
@@ -1013,8 +1021,14 @@ pub fn ai_decision_system(
                 if ctx.has_slots {
                     // Deficit-driven need model:
                     // when below target ratios, multiply base weight to catch up.
-                    let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0);
-                    let house_need = if house_deficit > 0 { 1.0 + house_deficit as f32 } else { 0.5 };
+                    let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0) + hunger * 4.0;
+                    let house_need = if house_deficit > 0 {
+                        1.0 + house_deficit as f32 + hunger * 3.0
+                    } else if hunger > 0.3 {
+                        1.0 + hunger * 2.0
+                    } else {
+                        0.5
+                    };
                     let barracks_need = if barracks_deficit > 0 { 1.0 + barracks_deficit as f32 } else { 0.5 };
 
                     if ctx.food >= building_cost(BuildKind::Farm) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
