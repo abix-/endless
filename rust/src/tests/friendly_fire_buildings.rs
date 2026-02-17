@@ -11,7 +11,7 @@ use crate::world::{self, WorldCell};
 
 use super::TestState;
 
-const FRIENDLY_FARM_POS: Vec2 = Vec2::new(520.0, 320.0);
+const FRIENDLY_FARM_POS: Vec2 = Vec2::new(500.0, 320.0);
 
 pub fn setup(
     mut slot_alloc: ResMut<SlotAllocator>,
@@ -77,7 +77,7 @@ pub fn setup(
     let target = slot_alloc.alloc().expect("slot alloc");
     spawn_events.write(SpawnNpcMsg {
         slot_idx: target,
-        x: 700.0,
+        x: 620.0,
         y: 320.0,
         job: 0, // farmer (not dedicated ranged combat)
         faction: 1,
@@ -164,3 +164,4 @@ pub fn tick(
         _ => {}
     }
 }
+
