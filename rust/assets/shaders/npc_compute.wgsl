@@ -380,7 +380,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let diff3 = pos - other_pos3;
                 let dist_sq3 = dot(diff3, diff3);
 
-                let same_faction = factions[other3] == my_faction;
+                let same_faction = factions[other3] == my_faction || factions[other3] == -1;
 
                 // Threat assessment within threat_radius
                 if (dist_sq3 <= threat_radius_sq) {

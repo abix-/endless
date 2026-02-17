@@ -67,7 +67,7 @@ attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or ap
 | Health | `f32` | Current HP (default 100.0) |
 | Dead | marker | Inserted when health <= 0 |
 | LastHitBy | `i32` | NPC slot index of last attacker (-1 = no attacker). Inserted by damage_system, read by xp_grant_system. |
-| Faction | `struct(i32)` | Faction ID (0=Player, 1+=AI settlements). NPCs attack different factions. |
+| Faction | `struct(i32)` | Faction ID (-1=Neutral, 0=Player, 1+=AI settlements). NPCs attack different factions. Neutral (-1) is treated as same-faction by GPU combat targeting and projectile collision. |
 | BaseAttackType | enum | `Melee` or `Ranged` — keys into `CombatConfig.attacks` HashMap |
 | CachedStats | struct | `damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed` — resolved from `CombatConfig` via `resolve_combat_stats()` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
@@ -84,7 +84,7 @@ Execution order is **chained** — each system completes before the next starts.
 
 ### 2. attack_system (combat.rs)
 - Reads `GpuReadState.combat_targets` for each NPC with CachedStats + BaseAttackType
-- **Skips** NPCs with `Activity::Returning` or `Activity::GoingToRest` (prevents target override for NPCs heading home to deliver food or rest)
+- **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)
 - If target is valid (not -1) and in bounds:
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range**: sets `SetTarget` to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.

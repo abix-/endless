@@ -148,7 +148,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 if (npc_idx < 0 || npc_idx >= nc) { continue; }
 
                 // Skip same faction (no friendly fire)
-                if (npc_factions[npc_idx] == my_faction) { continue; }
+                if (npc_factions[npc_idx] == my_faction || npc_factions[npc_idx] == -1) { continue; }
 
                 // Skip dead NPCs
                 if (npc_healths[npc_idx] <= 0.0) { continue; }

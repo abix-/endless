@@ -3,6 +3,9 @@
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
 pub const MAX_NPC_COUNT: usize = 100000;
 
+/// Neutral faction — friendly to everyone. Used for world-owned buildings (gold mines).
+pub const FACTION_NEUTRAL: i32 = -1;
+
 // Spatial grid lives on GPU only — see gpu.rs (256×256 cells × 128px = 32,768px coverage).
 
 /// Minimum distance NPCs try to maintain from each other.

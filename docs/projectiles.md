@@ -54,7 +54,7 @@ For each active projectile:
 1. **Lifetime**: `lifetime -= delta`. If <= 0, deactivate, hide at (-9999, -9999), and write `proj_hits[i] = (-2, 0)` (expired sentinel for CPU slot recycling).
 2. **Movement**: `pos += velocity * delta`
 3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood of NPC spatial grid:
-   - Skip same faction (no friendly fire)
+   - Skip same faction or neutral faction -1 (no friendly fire)
    - Skip dead NPCs (`health <= 0`)
    - Oriented rectangle collision (long along velocity, thin perpendicular)
    - If hit: write `hit = ivec2(npc_idx, 0)`, deactivate, hide.

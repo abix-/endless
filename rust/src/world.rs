@@ -482,7 +482,7 @@ pub fn allocate_all_building_slots(
     for (i, m) in world_data.gold_mines.iter().enumerate() {
         if m.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::GoldMine, i,
-            m.position, 0, GOLD_MINE_HP);
+            m.position, FACTION_NEUTRAL, GOLD_MINE_HP);
     }
 
     info!("Allocated {} building GPU slots", building_slots.len());

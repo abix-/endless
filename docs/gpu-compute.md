@@ -119,7 +119,7 @@ Four phases per thread (tiers 2+3):
 
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 
-**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (300px, 9×9 cells) for combatants, `threat_radius` (200px, 7×7 cells) for non-combatants. For each NPC in neighboring cells, checks: alive (health > 0), not self. Combat targeting (tier 3 only) tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
+**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (300px, 9×9 cells) for combatants, `threat_radius` (200px, 7×7 cells) for non-combatants. For each NPC in neighboring cells, checks: alive (health > 0), not self. Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting (tier 3 only) tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
 
 ## GPU Buffers
 
@@ -136,7 +136,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 4 | grid_data | i32[] | — | Not uploaded | NPC indices per cell (written by mode 1) |
 | 5 | arrivals | i32 | 4B | NpcGpuState.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
 | 6 | backoff | i32 | 4B | Not uploaded | TCP-style collision backoff counter (read/written by mode 2) |
-| 7 | factions | i32 | 4B | NpcGpuState.factions | 0=Villager, 1+=Raider camps. Init: -1 sentinel (no faction). COPY_SRC for readback. |
+| 7 | factions | i32 | 4B | NpcGpuState.factions | -1=Neutral (unspawned/world buildings), 0=Player, 1+=AI. Init: -1. Neutral treated as same-faction in combat targeting + projectile collision. COPY_SRC for readback. |
 | 8 | healths | f32 | 4B | NpcGpuState.healths | Current HP (COPY_SRC for readback) |
 | 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader, init -1) |
 | 10 | params | Params (uniform) | — | NpcComputeParams | Count, delta (0 when paused), grid config, thresholds |

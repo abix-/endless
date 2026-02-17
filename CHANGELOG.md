@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-17c
+
+- **neutral faction (-1)** — `FACTION_NEUTRAL` constant; GPU compute and projectile shaders treat faction -1 as same-faction (never targeted, no friendly fire); gold mines assigned neutral faction instead of player faction 0
+- **no combat while resting** — `attack_system` skips NPCs with `Activity::Resting` in addition to `Returning` and `GoingToRest`; prevents sleeping archers from firing
+
 ## 2026-02-17b
 
 - **hybrid GPU buffer writes** — `extract_npc_data` now uses per-buffer dirty flags instead of single `dirty: bool`; GPU-authoritative buffers (positions/arrivals) use per-index sparse writes (~10-50 calls/frame), CPU-authoritative buffers (targets/speeds/factions/healths/flags) use single bulk `write_buffer` per dirty buffer; reduces wgpu staging allocation overhead

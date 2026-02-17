@@ -72,7 +72,7 @@ pub fn attack_system(
         let i = npc_idx.0;
 
         // Don't re-engage NPCs heading home (fled combat, delivering food, or resting)
-        if matches!(activity, Activity::Returning { .. } | Activity::GoingToRest) {
+        if matches!(activity, Activity::Returning { .. } | Activity::GoingToRest | Activity::Resting) {
             if combat_state.is_fighting() {
                 *combat_state = CombatState::None;
             }
