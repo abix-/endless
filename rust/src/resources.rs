@@ -208,6 +208,8 @@ pub struct SelectedBuilding {
     pub col: usize,
     pub row: usize,
     pub active: bool,
+    pub kind: Option<crate::world::BuildingKind>,
+    pub index: Option<usize>,
 }
 
 /// Camera follow mode — when true, camera tracks the selected NPC.

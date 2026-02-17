@@ -10,7 +10,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 use crate::gpu::NpcSpriteTexture;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings};
 use crate::settings::UserSettings;
-use crate::world::{WorldData, WorldGrid, build_tileset, build_building_atlas, TERRAIN_TILES, BUILDING_TILES};
+use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, TERRAIN_TILES, BUILDING_TILES};
 
 // =============================================================================
 // CONSTANTS
@@ -464,12 +464,50 @@ fn click_to_select_system(
     let (col, row) = grid.world_to_grid(world_pos);
     let building = grid.cell(col, row).and_then(|c| c.building.as_ref());
 
+    // Find nearest building via the same distance-based hit-test style as NPC selection.
+    let building_select_radius = 24.0_f32;
+    let mut best_building_dist = building_select_radius;
+    let mut best_building: Option<(BuildingKind, usize, Vec2)> = None;
+    for i in 0..npc_count {
+        let Some((kind, bidx)) = building_slots.get_building(i) else { continue };
+        let px = positions[i * 2];
+        let py = positions[i * 2 + 1];
+        if px < -9000.0 { continue; }
+
+        let dx = world_pos.x - px;
+        let dy = world_pos.y - py;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist < best_building_dist {
+            best_building_dist = dist;
+            best_building = Some((kind, bidx, Vec2::new(px, py)));
+        }
+    }
+    // Fallback to clicked cell building when available.
+    if let Some(b) = building {
+        let bpos = grid.grid_to_world(col, row);
+        let dx = world_pos.x - bpos.x;
+        let dy = world_pos.y - bpos.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist < best_building_dist {
+            if let Some(bidx) = crate::world::find_building_data_index(&world_data, *b, bpos) {
+                best_building = Some((b.kind(), bidx, bpos));
+            }
+        }
+    }
+
     // Keep up to one NPC and one building selected from the same click.
     selected.0 = best_idx;
-    if building.is_some() {
-        *selected_building = SelectedBuilding { col, row, active: true };
+    if let Some((kind, bidx, bpos)) = best_building {
+        let (bcol, brow) = grid.world_to_grid(bpos);
+        *selected_building = SelectedBuilding {
+            col: bcol,
+            row: brow,
+            active: true,
+            kind: Some(kind),
+            index: Some(bidx),
+        };
 
-        // Double-click fountain → open Factions tab for that faction
+        // Double-click fountain -> open Factions tab for that faction.
         if is_double {
             if let Some(crate::world::Building::Fountain { town_idx }) = building {
                 if let Some(town) = world_data.towns.get(*town_idx as usize) {
@@ -481,13 +519,15 @@ fn click_to_select_system(
         }
     } else {
         selected_building.active = false;
+        selected_building.kind = None;
+        selected_building.index = None;
     }
 
     // Default active inspector tab by click proximity.
-    if best_idx >= 0 && building.is_some() {
+    if best_idx >= 0 && best_building.is_some() {
         let npc_x = positions[best_idx as usize * 2];
         let npc_y = positions[best_idx as usize * 2 + 1];
-        let bpos = grid.grid_to_world(col, row);
+        let (_, _, bpos) = best_building.unwrap_or((BuildingKind::Farm, 0, grid.grid_to_world(col, row)));
         let npc_dx = world_pos.x - npc_x;
         let npc_dy = world_pos.y - npc_y;
         let bld_dx = world_pos.x - bpos.x;
@@ -497,7 +537,7 @@ fn click_to_select_system(
         ui_state.inspector_prefer_npc = npc_d2 <= bld_d2;
     } else if best_idx >= 0 {
         ui_state.inspector_prefer_npc = true;
-    } else if building.is_some() {
+    } else if best_building.is_some() {
         ui_state.inspector_prefer_npc = false;
     }
     ui_state.inspector_click_seq = ui_state.inspector_click_seq.saturating_add(1);
@@ -584,3 +624,4 @@ fn sync_terrain_tilemap(
         }
     }
 }
+

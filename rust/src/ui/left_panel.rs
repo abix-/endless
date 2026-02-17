@@ -113,6 +113,7 @@ pub struct SquadParams<'w, 's> {
 pub struct FactionsParams<'w> {
     ai_state: Res<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
+    gold_storage: Res<'w, GoldStorage>,
     spawner_state: Res<'w, SpawnerState>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
@@ -126,6 +127,7 @@ struct AiSnapshot {
     kind_name: &'static str,
     personality_name: &'static str,
     food: i32,
+    gold: i32,
     farmers: usize,
     archers: usize,
     raiders: usize,
@@ -1026,6 +1028,7 @@ fn rebuild_factions_cache(
         let miners = alive_spawner(3);
 
         let food = factions.food_storage.food.get(tdi).copied().unwrap_or(0);
+        let gold = factions.gold_storage.gold.get(tdi).copied().unwrap_or(0);
         let (alive, dead, kills) = factions.faction_stats.stats.get(faction as usize)
             .map(|s| (s.alive, s.dead, s.kills))
             .unwrap_or((0, 0, 0));
@@ -1044,6 +1047,7 @@ fn rebuild_factions_cache(
             kind_name,
             personality_name,
             food,
+            gold,
             farmers,
             archers,
             raiders,
@@ -1156,6 +1160,8 @@ fn factions_content(
             *jump_target = Some(snap.center);
         }
         ui.label(format!("Food: {}", snap.food));
+        ui.separator();
+        ui.label(format!("Gold: {}", snap.gold));
     });
     ui.label(format!("Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills));
     ui.separator();

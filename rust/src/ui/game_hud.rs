@@ -9,7 +9,7 @@ use crate::gpu::NpcGpuState;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::ui::tipped;
-use crate::world::{WorldData, WorldGrid, Building, BuildingOccupancy};
+use crate::world::{WorldData, WorldGrid, Building, BuildingKind, BuildingOccupancy};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType};
 
 // ============================================================================
@@ -267,10 +267,8 @@ pub fn bottom_panel_system(
                     } else {
                         "NPC".to_string()
                     };
-                    let bld_label = bld_data.grid
-                        .cell(bld_data.selected_building.col, bld_data.selected_building.row)
-                        .and_then(|c| c.building.as_ref())
-                        .map(|b| format!("Building: {}", building_name(b)))
+                    let bld_label = selected_building_info(&bld_data.selected_building, &bld_data.grid, &world_data)
+                        .map(|(b, _, _, _)| format!("Building: {}", building_name(&b)))
                         .unwrap_or_else(|| "Building".to_string());
 
                     ui.horizontal(|ui| {
@@ -293,16 +291,17 @@ pub fn bottom_panel_system(
                 // Destroy button for selected buildings (not fountains/camps)
                 let show_building = has_building && (!has_npc || !show_npc);
                 if show_building {
-                    let col = bld_data.selected_building.col;
-                    let row = bld_data.selected_building.row;
-                    let is_destructible = bld_data.grid.cell(col, row)
-                        .and_then(|c| c.building.as_ref())
-                        .map(|b| !matches!(b, Building::Fountain { .. } | Building::Camp { .. } | Building::GoldMine))
+                    let selected_info = selected_building_info(&bld_data.selected_building, &bld_data.grid, &world_data);
+                    let is_destructible = selected_info
+                        .as_ref()
+                        .map(|(b, _, _, _)| !matches!(b, Building::Fountain { .. } | Building::Camp { .. } | Building::GoldMine))
                         .unwrap_or(false);
                     if is_destructible {
                         ui.separator();
                         if ui.button(egui::RichText::new("Destroy").color(egui::Color32::from_rgb(220, 80, 80))).clicked() {
-                            panel_state.destroy_request.0 = Some((col, row));
+                            if let Some((_, _, col, row)) = selected_info {
+                                panel_state.destroy_request.0 = Some((col, row));
+                            }
                         }
                     }
                 }
@@ -787,6 +786,53 @@ pub fn building_town_idx(building: &Building) -> u32 {
     }
 }
 
+fn building_from_kind_index(world_data: &WorldData, kind: BuildingKind, index: usize) -> Option<(Building, Vec2)> {
+    match kind {
+        BuildingKind::Farm => world_data.farms.get(index).map(|b| (Building::Farm { town_idx: b.town_idx }, b.position)),
+        BuildingKind::Waypoint => world_data.waypoints.get(index)
+            .map(|b| (Building::Waypoint { town_idx: b.town_idx, patrol_order: b.patrol_order }, b.position)),
+        BuildingKind::FarmerHome => world_data.farmer_homes.get(index)
+            .map(|b| (Building::FarmerHome { town_idx: b.town_idx }, b.position)),
+        BuildingKind::ArcherHome => world_data.archer_homes.get(index)
+            .map(|b| (Building::ArcherHome { town_idx: b.town_idx }, b.position)),
+        BuildingKind::Tent => world_data.tents.get(index).map(|b| (Building::Tent { town_idx: b.town_idx }, b.position)),
+        BuildingKind::MinerHome => world_data.miner_homes.get(index)
+            .map(|b| (Building::MinerHome { town_idx: b.town_idx }, b.position)),
+        BuildingKind::Bed => world_data.beds.get(index).map(|b| (Building::Bed { town_idx: b.town_idx }, b.position)),
+        BuildingKind::Town => world_data.towns.get(index).map(|t| {
+            let b = if t.sprite_type == 0 {
+                Building::Fountain { town_idx: index as u32 }
+            } else {
+                Building::Camp { town_idx: index as u32 }
+            };
+            (b, t.center)
+        }),
+        BuildingKind::GoldMine => world_data.gold_mines.get(index).map(|m| (Building::GoldMine, m.position)),
+    }
+}
+
+fn selected_building_info(
+    selected: &SelectedBuilding,
+    grid: &WorldGrid,
+    world_data: &WorldData,
+) -> Option<(Building, Vec2, usize, usize)> {
+    if !selected.active { return None; }
+
+    if let (Some(kind), Some(index)) = (selected.kind, selected.index) {
+        if let Some((building, pos)) = building_from_kind_index(world_data, kind, index) {
+            let (col, row) = grid.world_to_grid(pos);
+            return Some((building, pos, col, row));
+        }
+    }
+
+    let col = selected.col;
+    let row = selected.row;
+    let cell = grid.cell(col, row)?;
+    let building = cell.building?;
+    let pos = grid.grid_to_world(col, row);
+    Some((building, pos, col, row))
+}
+
 /// Mine assignment UI: show assigned mine, "Set Mine" / "Clear" buttons.
 /// Shared by building inspector (MinerHome) and NPC inspector (Miner).
 fn mine_assignment_ui(
@@ -840,15 +886,14 @@ fn building_inspector_content(
     settings: &UserSettings,
     combat_log: &CombatLog,
 ) {
-    let col = bld.selected_building.col;
-    let row = bld.selected_building.row;
-    let Some(cell) = bld.grid.cell(col, row) else { return };
-    let Some(building) = &cell.building else { return };
+    let Some((building, world_pos, col, row)) =
+        selected_building_info(&bld.selected_building, &bld.grid, world_data)
+    else { return };
 
-    let town_idx = building_town_idx(building) as usize;
+    let town_idx = building_town_idx(&building) as usize;
 
     // Header
-    ui.strong(building_name(building));
+    ui.strong(building_name(&building));
 
     // Town name
     if let Some(town) = world_data.towns.get(town_idx) {
@@ -856,10 +901,9 @@ fn building_inspector_content(
     }
 
     // Per-type details
-    match building {
+    match &building {
         Building::Farm { .. } => {
             // Find farm index by matching grid position
-            let world_pos = bld.grid.grid_to_world(col, row);
             if let Some(farm_idx) = world_data.farms.iter().position(|f| {
                 (f.position - world_pos).length() < 1.0
             }) {
@@ -898,8 +942,6 @@ fn building_inspector_content(
                 Building::MinerHome { .. } => (3, "Miner"),
                 _ => (2, "Raider"),
             };
-            let world_pos = bld.grid.grid_to_world(col, row);
-
             // Find matching spawner entry
             if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
                 e.building_kind == kind
@@ -968,7 +1010,6 @@ fn building_inspector_content(
         }
 
         Building::GoldMine => {
-            let world_pos = bld.grid.grid_to_world(col, row);
             if let Some(mine_idx) = world_data.gold_mine_at(world_pos) {
                 ui.label(format!("Name: {}", crate::ui::gold_mine_name(mine_idx)));
                 if mine_idx >= mining_policy.mine_enabled.len() {
@@ -1009,9 +1050,8 @@ fn building_inspector_content(
     // Copy Debug Info — gated behind debug_coordinates (same as NPC inspector)
     if settings.debug_coordinates {
         ui.separator();
-        let world_pos = bld.grid.grid_to_world(col, row);
         let kind = building.kind();
-        let data_idx = crate::world::find_building_data_index(world_data, *building, world_pos);
+        let data_idx = crate::world::find_building_data_index(world_data, building, world_pos);
         let (hp, max_hp) = data_idx
             .and_then(|i| bld.building_hp.get(kind, i))
             .map(|hp| (hp, BuildingHpState::max_hp(kind)))
@@ -1021,7 +1061,7 @@ fn building_inspector_content(
         ui.label(format!("HP: {:.0}/{:.0}  Kind: {:?}", hp, max_hp, kind));
 
         if ui.button("Copy Debug Info").clicked() {
-            let name = building_name(building);
+            let name = building_name(&building);
             let town_name = world_data.towns.get(town_idx)
                 .map(|t| t.name.as_str()).unwrap_or("?");
             let mut info = format!(
@@ -1100,6 +1140,7 @@ pub fn selection_overlay_system(
     selected_building: Res<SelectedBuilding>,
     gpu_state: Res<GpuReadState>,
     grid: Res<WorldGrid>,
+    world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
 ) -> Result {
@@ -1144,10 +1185,18 @@ pub fn selection_overlay_system(
 
     // Building selection: tile/building footprint is larger (one grid cell ~= 32 world units).
     if selected_building.active {
-        let col = selected_building.col;
-        let row = selected_building.row;
-        if grid.cell(col, row).and_then(|c| c.building.as_ref()).is_some() {
-            let wp = grid.grid_to_world(col, row);
+        let bpos = selected_building_info(&selected_building, &grid, &world_data)
+            .map(|(_, pos, _, _)| pos)
+            .or_else(|| {
+                let col = selected_building.col;
+                let row = selected_building.row;
+                if grid.cell(col, row).and_then(|c| c.building.as_ref()).is_some() {
+                    Some(grid.grid_to_world(col, row))
+                } else {
+                    None
+                }
+            });
+        if let Some(wp) = bpos {
             let screen = egui::Pos2::new(
                 center.x + (wp.x - cam.x) * zoom,
                 center.y - (wp.y - cam.y) * zoom,
