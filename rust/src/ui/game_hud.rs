@@ -1351,6 +1351,7 @@ pub fn squad_overlay_system(
     ];
 
     for (i, squad) in squad_state.squads.iter().enumerate() {
+        if !squad.is_player() { continue; }
         let Some(target) = squad.target else { continue };
         if squad.members.is_empty() { continue; }
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-02-17j
+
+- **AI squad commander** — aggressive AI towns now group archers into squads and dispatch them to attack enemy buildings via `ai_squad_commander_system`; uses same `Squad` struct and behavior code path as player squads
+- **`SquadOwner` enum** — `Player` or `Town(usize)` on each squad; first 10 indices permanently player-reserved, AI squads appended after; `npc_matches_owner()` helper for owner-safe recruitment
+- **per-squad command state** — `AiSquadCmdState` with independent cooldown + `BuildingRef` target identity (kind + index, validated alive each cycle); desynchronized init cooldowns prevent AI wave synchronization
+- **personality-driven squad allocation** — Aggressive: 1 attack squad (100% archers, 15s retarget). Balanced: 2 squads (60% attack military-first, 40% reserve patrol, 25s retarget). Economic: 1 raiding party (25% archers targeting farms only, 40s retarget)
+- **`find_nearest_enemy_building_filtered()`** — new variant in `world.rs` accepting `&[BuildingKind]` allowed set for personality-based target filtering with broad fallback
+- **owner-safe squad cleanup** — `squad_cleanup_system` generalized to recruit per-owner via `TownId` matching instead of hardcoded player-only
+- **UI isolation** — left panel and squad overlay filtered to `is_player()` squads; hotkeys 1-0 unchanged (player-reserved indices)
+- **save/load** — `Squad.owner` persisted with `#[serde(default)]` for backward compatibility; AI squad indices rebuilt from ownership scan on load
+
 ## 2026-02-17i
 
 - **DRY: `TownContext` per-tick bundle** — unified 6 loose locals (center, food, empty_count, has_slots, slot_fullness, cached_mines) into `TownContext` struct with `build()` constructor; `execute_action` signature reduced from 10 params to 6

@@ -1221,7 +1221,23 @@ impl Default for TownPolicies {
 // SQUADS
 // ============================================================================
 
-/// A player-controlled squad of archers.
+/// Who controls a squad — player or an AI town.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum SquadOwner {
+    #[default]
+    Player,
+    Town(usize), // town_data_idx
+}
+
+/// Returns true if the NPC's town matches the squad owner.
+pub fn npc_matches_owner(owner: SquadOwner, npc_town_id: i32, player_town: i32) -> bool {
+    match owner {
+        SquadOwner::Player => npc_town_id == player_town,
+        SquadOwner::Town(tdi) => npc_town_id == tdi as i32,
+    }
+}
+
+/// A squad of archers (player-controlled or AI-commanded).
 #[derive(Clone)]
 pub struct Squad {
     /// NPC slot indices of archers in this squad.
@@ -1234,6 +1250,12 @@ pub struct Squad {
     pub patrol_enabled: bool,
     /// If true, squad members go home to rest when tired.
     pub rest_when_tired: bool,
+    /// Squad owner: Player (indices 0..MAX_SQUADS) or AI Town (appended after).
+    pub owner: SquadOwner,
+}
+
+impl Squad {
+    pub fn is_player(&self) -> bool { self.owner == SquadOwner::Player }
 }
 
 impl Default for Squad {
@@ -1244,11 +1266,12 @@ impl Default for Squad {
             target_size: 0,
             patrol_enabled: true,
             rest_when_tired: true,
+            owner: SquadOwner::Player,
         }
     }
 }
 
-/// All squads + UI state. 10 squads, pre-initialized.
+/// All squads + UI state. First MAX_SQUADS are player-reserved; AI squads appended after.
 #[derive(Resource)]
 pub struct SquadState {
     pub squads: Vec<Squad>,
@@ -1265,6 +1288,21 @@ impl Default for SquadState {
             selected: 0,
             placing_target: false,
         }
+    }
+}
+
+impl SquadState {
+    /// Allocate a new squad with the given owner. Returns the squad index.
+    pub fn alloc_squad(&mut self, owner: SquadOwner) -> usize {
+        let idx = self.squads.len();
+        self.squads.push(Squad { owner, ..Default::default() });
+        idx
+    }
+
+    /// Iterate squads owned by a specific AI town.
+    pub fn squads_for_town(&self, tdi: usize) -> impl Iterator<Item = (usize, &Squad)> {
+        self.squads.iter().enumerate()
+            .filter(move |(_, s)| s.owner == SquadOwner::Town(tdi))
     }
 }
 

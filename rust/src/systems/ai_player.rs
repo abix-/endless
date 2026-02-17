@@ -15,7 +15,8 @@ use rand::Rng;
 use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::world::{self, Building, WorldData, WorldGrid};
+use crate::components::{Archer, Dead, NpcIndex, TownId};
+use crate::world::{self, Building, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
 use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, UPGRADE_COUNT};
 
 // Rust orientation notes for readers coming from PowerShell:
@@ -348,6 +349,20 @@ fn weighted_pick(scores: &[(AiAction, f32)]) -> Option<AiAction> {
     scores.last().map(|(a, _)| *a)
 }
 
+/// Per-squad AI command state — independent cooldown and target memory.
+#[derive(Clone, Default)]
+pub struct AiSquadCmdState {
+    /// Target building identity (kind + index). Validated alive each cycle.
+    pub target_kind: Option<BuildingKind>,
+    pub target_index: usize,
+    /// Seconds remaining before retarget is allowed.
+    pub cooldown: f32,
+}
+
+/// Attack vs reserve role for multi-squad personalities.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SquadRole { Attack, Reserve }
+
 pub struct AiPlayer {
     pub town_data_idx: usize,
     pub grid_idx: usize,
@@ -355,9 +370,21 @@ pub struct AiPlayer {
     pub personality: AiPersonality,
     pub last_actions: VecDeque<String>,
     pub active: bool,
+    /// Indices into SquadState.squads owned by this AI.
+    pub squad_indices: Vec<usize>,
+    /// Per-squad command state keyed by squad index.
+    pub squad_cmd: HashMap<usize, AiSquadCmdState>,
 }
 
 const MAX_ACTION_HISTORY: usize = 3;
+
+// Commander cooldowns (real-time seconds) per personality.
+const AGGRESSIVE_RETARGET_COOLDOWN: f32 = 15.0;
+const BALANCED_RETARGET_COOLDOWN: f32 = 25.0;
+const ECONOMIC_RETARGET_COOLDOWN: f32 = 40.0;
+const RETARGET_JITTER: f32 = 2.0;
+// Search radius for enemy buildings from town center.
+const AI_ATTACK_SEARCH_RADIUS: f32 = 5000.0;
 
 #[derive(Resource, Default)]
 pub struct AiPlayerState {
@@ -1249,4 +1276,238 @@ fn log_ai(log: &mut CombatLog, gt: &GameTime, faction: i32, town: &str, personal
     // Centralized AI log format so all decisions read consistently in the combat log.
     log.push(CombatEventKind::Ai, faction, gt.day(), gt.hour(), gt.minute(),
         format!("{} [{}] {}", town, personality, what));
+}
+
+// ============================================================================
+// AI SQUAD COMMANDER
+// ============================================================================
+
+/// Resolve a building's position from WorldData by kind + index.
+/// Returns None if index is out of bounds or building is dead.
+fn resolve_building_pos(world_data: &WorldData, kind: BuildingKind, index: usize) -> Option<Vec2> {
+    let pos = match kind {
+        BuildingKind::Farm => world_data.farms.get(index).map(|b| b.position),
+        BuildingKind::FarmerHome => world_data.farmer_homes.get(index).map(|b| b.position),
+        BuildingKind::ArcherHome => world_data.archer_homes.get(index).map(|b| b.position),
+        BuildingKind::Waypoint => world_data.waypoints.get(index).map(|b| b.position),
+        BuildingKind::Tent => world_data.tents.get(index).map(|b| b.position),
+        BuildingKind::MinerHome => world_data.miner_homes.get(index).map(|b| b.position),
+        BuildingKind::Town => world_data.towns.get(index).map(|b| b.center),
+        BuildingKind::GoldMine => world_data.gold_mines.get(index).map(|b| b.position),
+        BuildingKind::Bed => world_data.beds.get(index).map(|b| b.position),
+    }?;
+    if world::is_alive(pos) { Some(pos) } else { None }
+}
+
+impl AiPersonality {
+    fn retarget_cooldown(self) -> f32 {
+        match self {
+            Self::Aggressive => AGGRESSIVE_RETARGET_COOLDOWN,
+            Self::Balanced => BALANCED_RETARGET_COOLDOWN,
+            Self::Economic => ECONOMIC_RETARGET_COOLDOWN,
+        }
+    }
+
+    fn desired_squad_count(self) -> usize {
+        match self {
+            Self::Aggressive => 1,
+            Self::Balanced => 2,
+            Self::Economic => 1,
+        }
+    }
+
+    /// Preferred building kinds to attack, by personality and squad role.
+    fn attack_kinds(self, role: SquadRole) -> &'static [BuildingKind] {
+        match role {
+            SquadRole::Reserve => &[], // reserve squads don't attack
+            SquadRole::Attack => match self {
+                Self::Aggressive => &[
+                    BuildingKind::Farm, BuildingKind::FarmerHome,
+                    BuildingKind::ArcherHome, BuildingKind::Waypoint,
+                    BuildingKind::Tent, BuildingKind::MinerHome,
+                ],
+                Self::Balanced => &[BuildingKind::ArcherHome, BuildingKind::Waypoint],
+                Self::Economic => &[BuildingKind::Farm],
+            },
+        }
+    }
+
+    /// Broad fallback set when preferred kinds yield no target.
+    fn fallback_attack_kinds() -> &'static [BuildingKind] {
+        &[
+            BuildingKind::Farm, BuildingKind::FarmerHome,
+            BuildingKind::ArcherHome, BuildingKind::Waypoint,
+            BuildingKind::Tent, BuildingKind::MinerHome,
+        ]
+    }
+}
+
+/// Find enemy target for an AI squad, with personality-based kind filtering.
+fn pick_ai_target(
+    bgrid: &BuildingSpatialGrid,
+    center: Vec2, faction: i32, personality: AiPersonality, role: SquadRole,
+) -> Option<(BuildingKind, usize, Vec2)> {
+    if role == SquadRole::Reserve { return None; }
+    let preferred = personality.attack_kinds(role);
+    // Try preferred kinds first.
+    if let Some(hit) = world::find_nearest_enemy_building_filtered(
+        center, bgrid, faction, AI_ATTACK_SEARCH_RADIUS, preferred,
+    ) {
+        return Some(hit);
+    }
+    // Fallback to any attackable building.
+    world::find_nearest_enemy_building_filtered(
+        center, bgrid, faction, AI_ATTACK_SEARCH_RADIUS, AiPersonality::fallback_attack_kinds(),
+    )
+}
+
+/// Rebuild squad_indices for one AI player by scanning SquadState ownership.
+pub fn rebuild_squad_indices(player: &mut AiPlayer, squads: &[Squad]) {
+    player.squad_indices.clear();
+    for (i, s) in squads.iter().enumerate() {
+        if s.owner == SquadOwner::Town(player.town_data_idx) {
+            player.squad_indices.push(i);
+        }
+    }
+}
+
+/// AI squad commander — runs every frame, per-squad cooldown gated.
+/// Only sets shared squad knobs: target, target_size, patrol_enabled, rest_when_tired.
+pub fn ai_squad_commander_system(
+    time: Res<Time>,
+    mut ai_state: ResMut<AiPlayerState>,
+    mut squad_state: ResMut<SquadState>,
+    world_data: Res<WorldData>,
+    bgrid: Res<BuildingSpatialGrid>,
+    archers: Query<(&TownId, &NpcIndex), (With<Archer>, Without<Dead>)>,
+    mut combat_log: ResMut<CombatLog>,
+    game_time: Res<GameTime>,
+    mut dirty: ResMut<DirtyFlags>,
+    timings: Res<SystemTimings>,
+) {
+    let _t = timings.scope("ai_squad_commander");
+    let dt = time.delta_secs();
+
+    // Count alive archers per town (shared across all AI players).
+    let mut archers_by_town: HashMap<i32, usize> = HashMap::new();
+    for (town_id, _) in archers.iter() {
+        *archers_by_town.entry(town_id.0).or_default() += 1;
+    }
+
+    for pi in 0..ai_state.players.len() {
+        let player = &ai_state.players[pi];
+        if !player.active { continue; }
+        // Only Builder AIs use squads (Raiders have tents, not archer homes).
+        if player.kind != AiKind::Builder { continue; }
+
+        let tdi = player.town_data_idx;
+        let personality = player.personality;
+        let Some(town) = world_data.towns.get(tdi) else { continue };
+        let center = town.center;
+        let faction = town.faction;
+
+        // --- Self-healing squad allocation ---
+        let desired = personality.desired_squad_count();
+        let owned: usize = squad_state.squads.iter()
+            .filter(|s| s.owner == SquadOwner::Town(tdi))
+            .count();
+        if owned < desired {
+            for _ in owned..desired {
+                let idx = squad_state.alloc_squad(SquadOwner::Town(tdi));
+                // Desynchronized init cooldown to prevent synchronized AI waves.
+                let base_cd = personality.retarget_cooldown();
+                let jitter = rand::rng().random_range(0.3..1.0);
+                ai_state.players[pi].squad_cmd.insert(idx, AiSquadCmdState {
+                    target_kind: None,
+                    target_index: 0,
+                    cooldown: base_cd * jitter,
+                });
+            }
+        }
+
+        // Rebuild squad_indices from ownership scan (authoritative source).
+        rebuild_squad_indices(&mut ai_state.players[pi], &squad_state.squads);
+        let squad_indices = ai_state.players[pi].squad_indices.clone();
+        if squad_indices.is_empty() { continue; }
+
+        // --- Set target_size per squad ---
+        let archer_count = archers_by_town.get(&(tdi as i32)).copied().unwrap_or(0);
+        for (role_idx, &si) in squad_indices.iter().enumerate() {
+            let role = if personality == AiPersonality::Balanced && role_idx == 1 {
+                SquadRole::Reserve
+            } else {
+                SquadRole::Attack
+            };
+
+            let new_target_size = match role {
+                SquadRole::Attack => match personality {
+                    AiPersonality::Aggressive => archer_count,
+                    AiPersonality::Balanced => archer_count * 60 / 100,
+                    AiPersonality::Economic => archer_count.max(8) / 4,
+                },
+                SquadRole::Reserve => {
+                    // Reserve gets remainder.
+                    let attack_size = archer_count * 60 / 100;
+                    archer_count.saturating_sub(attack_size)
+                }
+            };
+
+            if let Some(squad) = squad_state.squads.get_mut(si) {
+                if squad.target_size != new_target_size {
+                    squad.target_size = new_target_size;
+                    dirty.squads = true;
+                }
+                // Set squad policies based on role.
+                let should_patrol = role == SquadRole::Reserve;
+                if squad.patrol_enabled != should_patrol {
+                    squad.patrol_enabled = should_patrol;
+                }
+                if !squad.rest_when_tired {
+                    squad.rest_when_tired = true;
+                }
+            }
+
+            // --- Per-squad retarget ---
+            let cmd = ai_state.players[pi].squad_cmd.entry(si).or_default();
+
+            // Decrement cooldown.
+            if cmd.cooldown > 0.0 {
+                cmd.cooldown -= dt;
+            }
+
+            // Validate current target is still alive.
+            let target_alive = cmd.target_kind
+                .and_then(|kind| resolve_building_pos(&world_data, kind, cmd.target_index))
+                .is_some();
+
+            if !target_alive {
+                // Target died — clear and allow immediate retarget.
+                cmd.target_kind = None;
+                cmd.cooldown = 0.0;
+            }
+
+            // Skip retarget if cooldown hasn't expired or target is alive.
+            if cmd.cooldown > 0.0 || target_alive { continue; }
+
+            // Pick new target.
+            if let Some((kind, index, pos)) = pick_ai_target(
+                &bgrid, center, faction, personality, role,
+            ) {
+                cmd.target_kind = Some(kind);
+                cmd.target_index = index;
+                cmd.cooldown = personality.retarget_cooldown()
+                    + rand::rng().random_range(-RETARGET_JITTER..RETARGET_JITTER);
+
+                if let Some(squad) = squad_state.squads.get_mut(si) {
+                    squad.target = Some(pos);
+                }
+
+                let town_name = &town.name;
+                let pname = personality.name();
+                let member_count = squad_state.squads.get(si).map(|s| s.members.len()).unwrap_or(0);
+                log_ai(&mut combat_log, &game_time, faction, town_name, pname,
+                    &format!("dispatched {} archers to {:?}", member_count, kind));
+            }
+        }
+    }
 }

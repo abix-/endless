@@ -3,7 +3,7 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rand::Rng;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::components::*;
 use crate::resources::*;
@@ -420,7 +420,7 @@ pub fn mining_policy_system(
 }
 
 /// Remove dead NPCs from squad member lists, auto-recruit to target_size,
-/// and dismiss excess if over target.
+/// and dismiss excess if over target. Owner-aware: recruits by TownId match.
 pub fn squad_cleanup_system(
     mut commands: Commands,
     mut squad_state: ResMut<SquadState>,
@@ -436,26 +436,28 @@ pub fn squad_cleanup_system(
     dirty.squads = false;
     let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0) as i32;
 
-    // Phase 1: remove dead members
+    // Phase 1: remove dead members (all squads)
     for squad in squad_state.squads.iter_mut() {
         squad.members.retain(|&slot| npc_map.0.contains_key(&slot));
     }
 
-    // Phase 2: keep Default Squad (1) as the live pool of unsquadded player archers.
+    // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player archers.
+    // Player-only — AI squads handle recruitment via target_size in Phase 4.
     if let Some(default_squad) = squad_state.squads.get_mut(0) {
-        for (entity, npc_idx, town) in available_guards.iter() {
-            if town.0 != player_town { continue; }
-            commands.entity(entity).insert(SquadId(0));
-            if !default_squad.members.contains(&npc_idx.0) {
-                default_squad.members.push(npc_idx.0);
+        if default_squad.is_player() {
+            for (entity, npc_idx, town) in available_guards.iter() {
+                if town.0 != player_town { continue; }
+                commands.entity(entity).insert(SquadId(0));
+                if !default_squad.members.contains(&npc_idx.0) {
+                    default_squad.members.push(npc_idx.0);
+                }
             }
         }
     }
 
-    // Phase 3: dismiss excess (target_size > 0 and members > target_size)
+    // Phase 3: dismiss excess (target_size > 0 and members > target_size, all squads)
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
         if squad.target_size > 0 && squad.members.len() > squad.target_size {
-            let excess = squad.members.len() - squad.target_size;
             let to_dismiss: Vec<usize> = squad.members.drain(squad.target_size..).collect();
             for slot in &to_dismiss {
                 for (entity, npc_idx, sid) in squad_guards.iter() {
@@ -465,27 +467,38 @@ pub fn squad_cleanup_system(
                     }
                 }
             }
-            let _ = excess; // suppress unused
         }
     }
 
-    // Phase 4: auto-recruit to fill target_size
+    // Phase 4: auto-recruit to fill target_size (owner-aware)
     let assigned_slots: HashSet<usize> = squad_state.squads.iter()
         .flat_map(|s| s.members.iter().copied())
         .collect();
-    let mut pool: Vec<(Entity, usize)> = available_guards.iter()
-        .filter(|(_, npc_idx, town)| town.0 == player_town && !assigned_slots.contains(&npc_idx.0))
-        .map(|(e, ni, _)| (e, ni.0))
-        .collect();
+
+    // Build per-owner pools: group available (unsquadded) archers by town.
+    // Each squad draws from its owner's pool only.
+    let mut pool_by_town: HashMap<i32, Vec<(Entity, usize)>> = HashMap::new();
+    for (entity, npc_idx, town) in available_guards.iter() {
+        if assigned_slots.contains(&npc_idx.0) { continue; }
+        pool_by_town.entry(town.0).or_default().push((entity, npc_idx.0));
+    }
 
     for (si, squad) in squad_state.squads.iter_mut().enumerate() {
         if squad.target_size == 0 { continue; }
+        let town_key = match squad.owner {
+            SquadOwner::Player => player_town,
+            SquadOwner::Town(tdi) => tdi as i32,
+        };
+        let pool = match pool_by_town.get_mut(&town_key) {
+            Some(p) => p,
+            None => continue,
+        };
         while squad.members.len() < squad.target_size {
             if let Some((entity, slot)) = pool.pop() {
                 commands.entity(entity).insert(SquadId(si as i32));
                 squad.members.push(slot);
             } else {
-                break; // no more available guards
+                break;
             }
         }
     }
@@ -612,6 +625,8 @@ pub fn migration_spawn_system(
         personality,
         last_actions: std::collections::VecDeque::new(),
         active: false,
+        squad_indices: Vec::new(),
+        squad_cmd: HashMap::new(),
     });
 
     // Find nearest player town center as wander target

@@ -268,13 +268,19 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| SquadState | `squads: Vec<Squad>` (10), `selected: i32`, `placing_target: bool` | left_panel (target_size DragValue, dismiss), click_to_select (target placement), game_escape (cancel placement), squad_cleanup_system (auto-recruit/dismiss) | decision_system, squad_overlay_system, squad_cleanup_system |
+| SquadState | `squads: Vec<Squad>` (first 10 player-reserved, AI appended after), `selected: i32`, `placing_target: bool` | left_panel, click_to_select, game_escape, squad_cleanup_system, ai_squad_commander_system | decision_system, squad_overlay_system, squad_cleanup_system, ai_squad_commander_system |
 
-`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss).
+`SquadOwner` enum: `Player` (default) or `Town(usize)` (town_data_idx). Determines which town's archers get recruited into the squad.
 
-`SquadId(i32)` component (0-9) added to archers when recruited into a squad. Removed on dismiss. Archers with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
+`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`.
+
+`SquadId(i32)` component added to archers when recruited into a squad. Removed on dismiss. Archers with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
 
 `placing_target`: when true, next left-click on the map sets the selected squad's target. Cancelled by ESC or right-click.
+
+`npc_matches_owner(owner, npc_town_id, player_town)`: helper for owner-safe recruitment in `squad_cleanup_system`. Player squads recruit from player-town archers; `Town(tdi)` squads recruit from archers with matching `TownId`.
+
+UI filtering: left panel and squad overlay only show `is_player()` squads. Hotkeys 1-0 map to indices 0-9 (always player-reserved).
 
 ## AI Players
 
@@ -284,12 +290,12 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | AiPlayerState | `players: Vec<AiPlayer>` — one per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
 | NpcDecisionConfig | `interval: f32` (seconds between Tier 3 decisions, default 2.0) | main_menu (from settings) | decision_system |
 
-`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until camp settles). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
+`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until camp settles), `squad_indices: Vec<usize>` (indices into SquadState.squads), `squad_cmd: HashMap<usize, AiSquadCmdState>` (per-squad command state with independent cooldown + target identity). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
-Personality drives build order, upgrade priority, food reserve, and town policies:
-- **Aggressive**: military first (archer homes → waypoints → economy), zero food reserve, combat upgrades prioritized, miner homes = 1/3 of farmer homes
-- **Balanced**: economy and military in tandem (farm → farmer home → archer home → waypoint), 10 food reserve, miner homes = 1/2 of farmer homes
-- **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized, miner homes = 2/3 of farmer homes
+Personality drives build order, upgrade priority, food reserve, town policies, and **squad behavior**:
+- **Aggressive**: military first (archer homes → waypoints → economy), zero food reserve, combat upgrades prioritized, miner homes = 1/3 of farmer homes. 1 attack squad using 100% of archers, retargets every 15s, attacks nearest enemy anything.
+- **Balanced**: economy and military in tandem (farm → farmer home → archer home → waypoint), 10 food reserve, miner homes = 1/2 of farmer homes. 2 squads: attack (60%) targets military first, reserve (40%) patrols. Retargets every 25s.
+- **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized, miner homes = 2/3 of farmer homes. 1 small raiding party (25% of archers) targeting enemy farms only. Retargets every 40s.
 
 Slot selection: economy buildings (farms, farmer homes, archer homes) prefer inner slots (closest to center). Guard posts prefer outer slots (farthest from center) with minimum Manhattan distance of 5 between posts. Raider tents cluster around camp center (inner slots).
 

@@ -185,6 +185,8 @@ pub struct SquadSave {
     pub target_size: usize,
     pub patrol_enabled: bool,
     pub rest_when_tired: bool,
+    #[serde(default)]
+    pub owner: SquadOwner,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -581,6 +583,7 @@ pub fn collect_save_data(
         target_size: s.target_size,
         patrol_enabled: s.patrol_enabled,
         rest_when_tired: s.rest_when_tired,
+        owner: s.owner,
     }).collect();
 
     // Faction stats
@@ -892,17 +895,22 @@ pub fn apply_save(
     }).collect();
     auto_upgrade.flags.resize(num_towns.max(16), [false; UPGRADE_COUNT]);
 
-    // Squads
-    for (i, ss) in save.squads.iter().enumerate() {
-        if i < squad_state.squads.len() {
-            squad_state.squads[i] = Squad {
-                members: ss.members.clone(),
-                target: ss.target.map(to_vec2),
-                target_size: ss.target_size,
-                patrol_enabled: ss.patrol_enabled,
-                rest_when_tired: ss.rest_when_tired,
-            };
-        }
+    // Squads — load all saved squads (player + AI).
+    // First MAX_SQUADS are player-reserved; extras are AI squads.
+    squad_state.squads.clear();
+    for ss in save.squads.iter() {
+        squad_state.squads.push(Squad {
+            members: ss.members.clone(),
+            target: ss.target.map(to_vec2),
+            target_size: ss.target_size,
+            patrol_enabled: ss.patrol_enabled,
+            rest_when_tired: ss.rest_when_tired,
+            owner: ss.owner,
+        });
+    }
+    // Ensure at least MAX_SQUADS player squads exist.
+    while squad_state.squads.len() < crate::constants::MAX_SQUADS {
+        squad_state.squads.push(Squad::default());
     }
     squad_state.selected = 0;
     squad_state.placing_target = false;
@@ -940,7 +948,13 @@ pub fn apply_save(
             },
             last_actions: VecDeque::new(),
             active: p.active,
+            squad_indices: Vec::new(),
+            squad_cmd: std::collections::HashMap::new(),
         }).collect();
+        // Rebuild AI squad indices by scanning SquadState ownership (authoritative).
+        for player in ai_state.players.iter_mut() {
+            rebuild_squad_indices(player, &squad_state.squads);
+        }
     }
 
     // Migration state

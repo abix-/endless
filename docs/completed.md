@@ -1,6 +1,42 @@
 # Completed Features
 
-279 items across 25 subsystems. Moved from roadmap for readability.
+Completed items moved from roadmap for readability.
+
+### Roadmap Migration (Stages 14, 14b, 14d, 15, 18)
+- [x] Stage 14: food consumption added (hourly eating restores HP/energy)
+- [x] Stage 14: starvation effects added (HP drain + speed penalty)
+- [x] Stage 14: building costs rebalanced by difficulty (Easy/Normal/Hard)
+- [x] Stage 15 GPU extract: zero-clone GPU upload (`Extract<Res<T>>` + `queue.write_buffer()`)
+- [x] Stage 15 GPU extract: removed `ExtractResourcePlugin::<GpuReadState>` render-world clone path
+- [x] Stage 15 GPU extract: `ProjBufferWrites` moved to zero-clone `extract_proj_data` path
+- [x] Stage 15 GPU-native rendering: vertex reads `NpcGpuBuffers` storage directly (no CPU->GPU instance rebuild)
+- [x] Stage 15 GPU-native rendering: `NpcVisualBuffers` added (`visual [f32;8]`, `equip [f32;24]`)
+- [x] Stage 15 GPU-native rendering: `vertex_npc` instance encoding (`slot`/`layer`) with `npc_count` in `CameraUniform`
+- [x] Stage 15 GPU-native rendering: pipeline specialization key `(hdr, samples, storage_mode)` with dual entry points
+- [x] Stage 15 GPU-native rendering: farm sprites + building HP bars moved to `NpcMiscBuffers` + `DrawMisc`
+- [x] Stage 15 perf: deleted `prepare_proj_buffers` (merged into `extract_proj_data`)
+- [x] Stage 15 perf: eliminated `ProjPositionState` + `GpuReadState` extraction
+- [x] Stage 15 perf: gated `rebuild_building_grid_system` to run on dirty world/building state
+- [x] Stage 15 perf: replaced `decision_system` `count_nearby_factions` checks with GPU spatial-grid readback query
+- [x] Stage 15 perf: optimized `healing_system` town-zone checks with faction-indexed/cached data
+- [x] Stage 15 perf: optimized `guard_post_attack_system` target acquisition via slot-indexed GPU `combat_targets`
+- [x] Stage 15 perf: combat log UI made incremental (skip full rebuild/sort when unchanged)
+- [x] Stage 15 perf: DirtyFlags lifecycle hardened across startup/load/cleanup paths
+- [x] Stage 15 perf: `squad_cleanup_system` changed from always-on to event/interval-driven
+- [x] Stage 15 SystemParam bundles: `WorldState` added and adopted in high-churn systems
+- [x] Stage 15 SystemParam bundles: `EconomyState` added and adopted in core systems
+- [x] Stage 14b chunk 1: AI expansion brain upgrades (`miner_home_target`, fullness weighting, emergency multiplier, reweighted personalities)
+- [x] Stage 14b chunk 2: waypoint turret defaults disabled + UI update + GuardPost -> Waypoint rename
+- [x] Stage 14b chunk 3: wilderness waypoint placement + AI mine-aware waypoint expansion path
+- [x] Stage 14d mining policy: `PolicySet.mining_radius`, `MiningPolicy`, `MinerHome.manual_mine`, `DirtyFlags.mining`
+- [x] Stage 14d mining policy: discover/distribute/clear-stale mining assignments via `mining_policy_system`
+- [x] Stage 14d mining policy: policies tab mining controls (radius slider, mine toggles, assignment summary)
+- [x] Stage 14d mining policy: gold mine inspector auto-mining toggle
+- [x] Stage 14d mining policy: manual miner assignment override preserved (`Set Mine`/`Clear`)
+- [x] Stage 14d mining policy: startup/spawn/death integration for mining dirty-flag updates
+- [x] Stage 18 save/load: full state serialization + F5/F9 quicksave/quickload + save/load toasts
+- [x] Stage 18 save/load: main-menu load path + autosave rotation
+- [x] Backlog bug fixed: projectile double-hit against buildings removed by unifying collision through GPU NPC-slot path
 
 ### Spawning & Rendering
 - [x] NPCs spawn with jobs (archer, farmer, raider, fighter, miner)

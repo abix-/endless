@@ -894,6 +894,30 @@ pub fn find_nearest_enemy_building(
     result
 }
 
+/// Find the nearest enemy building within radius, filtered to specific building kinds.
+/// Returns (kind, index, position) of nearest matching enemy building.
+pub fn find_nearest_enemy_building_filtered(
+    from: Vec2, bgrid: &BuildingSpatialGrid, npc_faction: i32, radius: f32,
+    allowed_kinds: &[BuildingKind],
+) -> Option<(BuildingKind, usize, Vec2)> {
+    let r2 = radius * radius;
+    let mut best_d2 = f32::MAX;
+    let mut result: Option<(BuildingKind, usize, Vec2)> = None;
+    bgrid.for_each_nearby(from, radius, |bref| {
+        if bref.faction == npc_faction { return; }
+        if bref.faction < 0 { return; }
+        if !allowed_kinds.contains(&bref.kind) { return; }
+        let dx = bref.position.x - from.x;
+        let dy = bref.position.y - from.y;
+        let d2 = dx * dx + dy * dy;
+        if d2 <= r2 && d2 < best_d2 {
+            best_d2 = d2;
+            result = Some((bref.kind, bref.index, bref.position));
+        }
+    });
+    result
+}
+
 /// Convert Vec2 to integer key for HashMap lookup.
 /// Uses rounded coordinates so slight position differences still match.
 pub fn pos_to_key(pos: Vec2) -> (i32, i32) {

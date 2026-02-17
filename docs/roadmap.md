@@ -12,7 +12,7 @@ Target: 20,000+ NPCs @ 60fps with pure Bevy ECS + WGSL compute + GPU instanced r
 
 ## Completed
 
-See [completed.md](completed.md) - 267 items across 30 subsystems.
+See [completed.md](completed.md) for completed work moved out of active stages.
 
 ## Stages
 
@@ -24,10 +24,7 @@ Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
 
 - [ ] Raid escalation: wave size and stats increase every N game-hours
 - [ ] Differentiate job base stats (raiders hit harder, archers are tankier, farmers are fragile)
-- [x] Food consumption: NPCs eat hourly, eating restores HP/energy
-- [x] Starvation effects: no food -> HP drain, speed penalty (desertion TBD)
 - [ ] Loss condition: all town NPCs dead + no spawners -> game over screen
-- [x] Building costs rebalanced (difficulty-scaled: Easy/Normal/Hard)
 - [ ] Building construction time: 10s at 1x game speed (scales with time_scale), building is inert during construction
   - `ConstructionQueue` resource with `ConstructionEntry` (position, total/remaining secs, spawner_idx, growth_idx)
   - `build_and_pay()` passes `respawn_timer = -1.0` (dormant) to `register_spawner()` and pushes a `ConstructionEntry`
@@ -45,9 +42,7 @@ Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
 *Done when: `NpcGpuState` ExtractResource clone eliminated, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
 
 GPU extract optimization (see [specs/gpu-visual-direct-upload.md](specs/gpu-visual-direct-upload.md)):
-- [x] Zero-clone GPU upload: `NpcGpuState` + `NpcVisualUpload` via `Extract<Res<T>>` + `queue.write_buffer()` (eliminates 6.4MB/frame clone)
-- [x] Delete `ExtractResourcePlugin::<GpuReadState>` — was cloning ~1.2MB/frame to render world where nothing read it
-- [x] `ProjBufferWrites` zero-clone: `Extract<Res<T>>` + `extract_proj_data` replaces both `write_proj_buffers` and `prepare_proj_buffers`; shared `write_dirty_f32`/`write_dirty_i32` helpers DRY with NPC extract
+Completed (see [completed.md](completed.md)).
 
 Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
 - [ ] Split single 250x250 TilemapChunk per layer into 32x32 tile chunks
@@ -58,29 +53,15 @@ Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
 
 GPU-native NPC rendering (see [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md)):
-- [x] Vertex shader reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2), eliminating CPU→GPU instance buffer rebuild
-- [x] `NpcVisualBuffers` resource: `visual` `[f32;8]` per slot (sprite/flash/color) + `equip` `[f32;24]` per slot (6 layers), full-buffer uploaded per frame (V1)
-- [x] `vertex_npc` shader entry point: instance offset encoding (`slot = instance_index % npc_count`, `layer = instance_index / npc_count`), `npc_count` in `CameraUniform`
-- [x] One pipeline with `storage_mode` specialization key `(hdr, samples, storage_mode)`, two entry points (`vertex` / `vertex_npc`)
-- [x] Farm sprites + building HP bars split to `NpcMiscBuffers` with `RawBufferVec<InstanceData>` + `DrawMisc` command
+Completed work moved to [completed.md](completed.md).
 - [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`
 - [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation (GpuReadState extraction already deleted)
 
 Every-frame review backlog:
-- [x] `prepare_proj_buffers` deleted — merged into `extract_proj_data` (ExtractSchedule, zero-clone)
-- [x] `ProjPositionState` + `GpuReadState` extraction eliminated — zero-clone or not extracted
 - [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
 - [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
 - [ ] `top_bar_system` HUD counts: replace repeated `spawner_state` full scans with cached/incremental counters.
 - [ ] `sync_building_hp_render`: rebuild only when `BuildingHpState`/`WorldData` changes (or via dirty flag), not every frame.
-- [x] Gate `rebuild_building_grid_system` so `BuildingSpatialGrid::rebuild()` only runs when world/building data changes (or via dirty flag), not every frame.
-- [x] Replace `decision_system` threat checks (`count_nearby_factions`) with GPU spatial grid query â€” piggybacks on existing Mode 2 combat targeting scan, packed u32 readback (enemies<<16|allies)
-- [x] Optimize `healing_system` town-zone checks (faction-indexed town lists / cached radii) to reduce per-frame NPC x town iteration.
-- [x] Optimize `guard_post_attack_system` target acquisition to avoid full guard-post x NPC scans on fire-ready ticks. Option D: guard posts get NPC `SlotAllocator` indices; GPU spatial grid auto-populates `combat_targets[gp_slot]`. `sync_guard_post_slots` (dirty-flag gated) allocates/frees slots; attack system reads one array index per post — O(1).
-- [x] Make combat log UI incremental (cache merged entries and skip per-frame full rebuild/sort when source logs are unchanged).
-- [x] DirtyFlags lifecycle hardening: eliminate stale cache/flag carry-over across state transitions and load paths.
-  - All load/startup/cleanup paths reset via `*dirty = DirtyFlags::default()` (ui/mod.rs game_startup, game_load, game_cleanup + save.rs load_game).
-  - `game_cleanup_system` clears `HealingZoneCache.by_faction`.
 - [ ] DirtyFlags regression tests (state transitions + load): add automated coverage for cleanup/enter behavior.
   - Add tests (likely in `tests/vertical_slice.rs` or dedicated `tests/dirty_flags.rs`) that exercise:
     1. `OnExit(AppState::Playing)` cleanup resets `DirtyFlags` and clears `HealingZoneCache`.
@@ -88,15 +69,11 @@ Every-frame review backlog:
     3. Menu-load and in-game load both set `dirty.healing_zones = true` and clear `dirty.patrol_swap`.
     4. `update_healing_zone_cache` rebuilds then clears `dirty.healing_zones`.
   - Done when tests fail on current bug states and pass after fixes, guarding against regressions.
-- [x] Change `squad_cleanup_system` from always-on per-frame maintenance to event/interval-driven updates keyed to membership/spawn/death changes.
 - [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
 - [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.
 
 SystemParam bundle consolidation:
-- [x] Add shared `WorldState` bundle in `resources.rs` for world/grid/building mutation paths.
-- [x] Adopt `WorldState` in high-churn systems: `ai_decision_system`, `building_damage_system`, `sync_guard_post_slots`, `build_place_click_system`, `process_destroy_system`, `game_startup_system`, `game_cleanup_system`, `migration_settle_system`, `process_upgrades_system`.
-- [x] Add shared `EconomyState` bundle in `resources.rs` for food/gold/mine/events/population mutation.
-- [x] Adopt `EconomyState` in core paths: `decision_system`, `arrival_system`, `camp_forage_system`, `process_upgrades_system`.
+Completed bundle work moved to [completed.md](completed.md).
 - [ ] Create `GameLog` bundle in `resources.rs`: `{ combat_log: ResMut<CombatLog>, game_time: Res<GameTime>, timings: Res<SystemTimings> }` and migrate systems still carrying this triple directly.
 - [ ] Move/replace remaining ad-hoc bundles in `systems/behavior.rs` (keep only bundles with genuine local-only value; shared bundles live in `resources.rs`).
 - [ ] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
@@ -107,22 +84,13 @@ SystemParam bundle consolidation:
 *Done when: AI towns grow beyond their starting 7×7 grid, compete for gold mines via patrol routes, and a passive AI that doesn't expand gets outcompeted and dies.*
 
 Chunk 1 — AI expansion brain (`systems/ai_player.rs` only):
-- [x] Add `miner_home_target()` to `AiPersonality` (Aggressive: houses/4, Balanced: houses/2, Economic: houses/1) — replace hardcoded `houses / 3`
-- [x] Dynamic expansion priority: calculate slot fullness (used/total), multiply expansion upgrade weight (idx 15) by `2 + 4*(fullness-0.7)/0.3` when fullness > 0.7
-- [x] Emergency expansion: when `!has_slots`, apply 10× multiplier to expansion weight so it dominates all other upgrades
-- [x] Boost base expansion weights: Aggressive 4→8, Balanced 3→10, Economic 4→12
+Complete (see [completed.md](completed.md)).
 
 Chunk 2 — Disable turrets on waypoints (code preserved for future Tower building):
-- [x] `attack_enabled` defaults to `false` on new waypoints (turret code preserved for future Tower)
-- [x] UI: build menu shows "Patrol waypoint" help text, inspector hides turret toggle
-- [x] Full rename GuardPost → Waypoint across 35 files with serde back-compat aliases
+Complete (see [completed.md](completed.md)).
 
 Chunk 3 — Wilderness waypoint placement + AI territorial expansion:
-- [x] `place_waypoint_at_world_pos()` in `world.rs` — snaps to grid cell, validates empty + not water, deducts food
-- [x] Player wilderness placement: waypoint ghost snaps to world grid, build_place_click bypasses town grid
-- [x] AI mine extension: `analyze_mines()` single-pass computes in_radius, outside_radius, uncovered mines, nearest_uncovered
-- [x] AI waypoint scoring moved outside `has_slots` block — wilderness placement independent of town grid
-- [x] AI execution: try mine position first, fallback to in-grid placement
+Mostly complete (see [completed.md](completed.md)).
 - [ ] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
 
 **Stage 14c: Generic Growth & Contestable Mines**
@@ -143,38 +111,7 @@ Refactor FarmStates → GrowthStates (see plan file `velvet-crunching-torvalds.m
 
 *Done when: player sets a mining radius from the town fountain in the Policies tab, gold mines within that radius are auto-discovered, and all available miners are auto-distributed across enabled mines — no per-miner micromanagement needed.*
 
-Mining policy resource + dirty-flag system:
-- [x] `PolicySet.mining_radius: f32` — distance from fountain (default 2000.0, range 0–5000), slider in Policies tab
-- [x] `MiningPolicy` resource: `discovered_mines: Vec<Vec<usize>>` (per-town list of gold mine indices within radius), `mine_enabled: Vec<bool>` (per gold mine toggle, default true on discovery)
-- [x] `MinerHome.manual_mine: bool` — true when player clicked "Set Mine" manually; policy system skips these miners
-- [x] `DirtyFlags.mining: bool` (default true) — triggers on: radius slider change, mine toggle, miner home built/destroyed, miner spawn/death
-
-Discovery + distribution system (`mining_policy_system` in `systems/economy.rs`):
-- [x] **Discover**: for each faction-0 town, scan `WorldData.gold_mines` within `PolicySet.mining_radius` of `town.center`, populate `MiningPolicy.discovered_mines[town_idx]`, grow `mine_enabled` for new mines (default true)
-- [x] **Distribute**: collect alive miners per town from `SpawnerState` (building_kind==3, npc_slot>=0), skip miners where `MinerHome.manual_mine==true`, even-split remaining across enabled discovered mines by setting `MinerHome.assigned_mine`
-- [x] **Clear stale**: if mine falls outside radius or disabled, clear `assigned_mine` on auto-assigned miners (manual overrides untouched)
-- [x] Gated by `DirtyFlags.mining` — O(miners × mines) only on topology changes, not per-frame
-- [x] Register system in `lib.rs` Step::Behavior set
-
-Policies tab UI (`ui/left_panel.rs` `policies_content`):
-- [x] "Mining" section after Farmers: `mining_radius` slider (0–5000, step 100), sets `dirty.mining = true` on change
-- [x] List of discovered mines with enable/disable checkboxes, sets `dirty.mining = true` on toggle
-- [x] Summary: "3/5 mines enabled, 6 miners assigned"
-
-Gold mine inspector toggle (`ui/game_hud.rs`):
-- [x] "Auto-mining: ON/OFF" toggle button on gold mine building inspector, sets `MiningPolicy.mine_enabled[idx]` + `dirty.mining = true`
-
-Manual override preserved:
-- [x] Existing "Set Mine" / "Clear" buttons stay on MinerHome and Miner NPC inspectors
-- [x] "Set Mine" click sets `MinerHome.manual_mine = true`, "Clear" sets it to false
-- [x] Behavior system (`Action::Work → Job::Miner`) unchanged — already reads `assigned_mine` first, falls back to nearest
-
-Init + spawner integration:
-- [x] Init `MiningPolicy` in `ui/mod.rs` game startup (`.insert_resource(MiningPolicy::default())`)
-- [x] `spawner_respawn_system` and death cleanup set `dirty.mining = true` for miner buildings
-- [x] `MinerHome` default: `manual_mine: false`, `assigned_mine: None`
-
-Files: `resources.rs` (PolicySet + MiningPolicy + DirtyFlags), `world.rs` (MinerHome.manual_mine), `constants.rs` (DEFAULT_MINING_RADIUS), `systems/economy.rs` (mining_policy_system), `systems/mod.rs` (re-export), `lib.rs` (register), `ui/left_panel.rs` (policies mining section), `ui/game_hud.rs` (mine toggle + manual_mine flag), `ui/mod.rs` (init resource), `systems/spawn.rs` or `economy.rs` (dirty flag on spawn/death)
+Complete (see [completed.md](completed.md)).
 
 **Stage 16: Combat Depth**
 
@@ -225,11 +162,7 @@ Files: `resources.rs` (PolicySet + MiningPolicy + DirtyFlags), `world.rs` (Miner
 
 *Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off - NPCs in the same positions, same HP, same upgrades, same food.*
 
-- [x] Serialize full game state (WorldData, SpawnerState, TownUpgrades, TownPolicies, FoodStorage, GameTime, NPC positions/states/stats)
-- [x] F5 quicksave / F9 quickload with JSON serialization
-- [x] Toast notification ("Game Saved" / "Game Loaded") with fade
-- [x] Load from main menu (currently in-game only)
-- [x] Autosave every N game-hours (3 rotating slots, configurable interval on main menu)
+Core save/load shipped (see [completed.md](completed.md)).
 - [ ] Save slot selection (3 slots)
 
 **Stage 19: Loot & Equipment**
@@ -247,8 +180,7 @@ Files: `resources.rs` (PolicySet + MiningPolicy + DirtyFlags), `world.rs` (Miner
 
 *Done when: player spends Food or Gold to buy tech-tree upgrades with prerequisites (no research building), and branch progression visibly unlocks stronger nodes (e.g., ArcherHome Lv2 unlock path, Military damage tier path).*
 
-Chunk 1: Prerequisites + Currency [x] (see [completed.md](completed.md))
-Chunk 2: Per-NPC-Type Redesign [x] (see [completed.md](completed.md))
+Chunks 1-2 complete (see [completed.md](completed.md)).
 
 Chunk 3: Energy Nodes
 - [ ] Add `UpgradeType` variants: `MilitaryStamina`, `FarmerStamina`, `MinerStamina` (bump `UPGRADE_COUNT`)
@@ -356,7 +288,7 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 ## Backlog
 
 ### Bugs
-- [x] ~~**Projectile double-hit: buildings take phantom damage from NPC hits.**~~ Fixed: buildings unified as GPU NPC slots — single collision path via GPU spatial grid, no separate CPU building collision loop.
+- [ ] No active roadmap bugs listed right now.
 
 ### DRY & Single Source of Truth
 - [ ] Replace hardcoded town indices in HUD (player/camp assumptions) with faction/town lookup helpers

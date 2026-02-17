@@ -6,7 +6,7 @@ pub mod build_menu;
 pub mod left_panel;
 pub mod tutorial;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
@@ -423,7 +423,7 @@ fn game_startup_system(
                 if let Some(policy) = extra.policies.policies.get_mut(tdi) {
                     *policy = personality.default_policies();
                 }
-                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality, last_actions: VecDeque::new(), active: true });
+                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality, last_actions: VecDeque::new(), active: true, squad_indices: Vec::new(), squad_cmd: HashMap::new() });
                 // Log AI player joining
                 extra.combat_log.push(CombatEventKind::Ai, -1, 1, 6, 0,
                     format!("{} [{}] joined the game", town.name, personality.name()));

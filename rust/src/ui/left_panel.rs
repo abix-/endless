@@ -839,8 +839,9 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, jump_target: &mut 
 fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMetaCache, _world_data: &WorldData, commands: &mut Commands, dirty: &mut DirtyFlags) {
     let selected = squad.squad_state.selected;
 
-    // Squad list
+    // Squad list (player-owned only — AI squads are hidden from UI)
     for i in 0..squad.squad_state.squads.len() {
+        if !squad.squad_state.squads[i].is_player() { continue; }
         let count = squad.squad_state.squads[i].members.len();
         let has_target = squad.squad_state.squads[i].target.is_some();
         let patrol_on = squad.squad_state.squads[i].patrol_enabled;
