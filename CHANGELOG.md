@@ -2,7 +2,7 @@
 
 ## 2026-02-17d
 
-- **fix archers attacking own waypoints** — GPU combat targeting scan now skips building slots (speed=0) for both combat targeting and threat assessment; buildings were valid targets in the spatial grid scan despite being same-faction due to stale/uninitialized faction data on newly allocated waypoint NPC slots; building attacks are already handled CPU-side via `find_nearest_enemy_building()`
+- **fix archers attacking own waypoints** — GPU combat targeting scan now skips building slots (speed=0) for both combat targeting and threat assessment; CPU `attack_system` validates GPU targets via `NpcEntityMap` (rejects building proxy slots, stale dead slots), faction check (rejects same-faction/neutral from stale readback), and health check (rejects dead targets); defense-in-depth against transient GPU readback state
 
 ## 2026-02-17c
 

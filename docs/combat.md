@@ -85,7 +85,8 @@ Execution order is **chained** — each system completes before the next starts.
 ### 2. attack_system (combat.rs)
 - Reads `GpuReadState.combat_targets` for each NPC with CachedStats + BaseAttackType
 - **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)
-- If target is valid (not -1) and in bounds:
+- **Validates GPU target** before engaging — rejects self-targets (`ti == i`), non-NPC slots (`NpcEntityMap` lookup), same-faction or neutral targets (`GpuReadState.factions`), and dead targets (`GpuReadState.health <= 0`). Invalid targets clear `CombatState` and skip.
+- If target is valid (not -1), passes validation, and in bounds:
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range**: sets `SetTarget` to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage

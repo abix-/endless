@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{WAYPOINT_RANGE, WAYPOINT_DAMAGE, WAYPOINT_COOLDOWN, WAYPOINT_PROJ_SPEED, WAYPOINT_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, WaypointState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, WaypointState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingSlotMap;
@@ -47,6 +47,7 @@ pub fn attack_system(
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
+    npc_map: Res<NpcEntityMap>,
     bgrid: Res<BuildingSpatialGrid>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
@@ -138,6 +139,21 @@ pub fn attack_system(
         targets_found += 1;
 
         let ti = target_idx as usize;
+
+        // Validate GPU target: must be a real live enemy NPC (not building slot, self, or stale)
+        if ti == i || !npc_map.0.contains_key(&ti) {
+            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+            continue;
+        }
+        let target_faction = gpu_state.factions.get(ti).copied().unwrap_or(-1);
+        if target_faction < 0 || target_faction == faction.0 {
+            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+            continue;
+        }
+        if gpu_state.health.get(ti).copied().unwrap_or(0.0) <= 0.0 {
+            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+            continue;
+        }
 
         if i * 2 + 1 >= positions.len() || ti * 2 + 1 >= positions.len() {
             bounds_failures += 1;
