@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-17f
+
+- **save version checking** — `SAVE_VERSION` bumped to 2; `farm_growth` now saves only farm entries (mines in `mine_growth`); `apply_save` version-gates v1 farm_growth interpretation (clips to farm_count); `read_save_from` logs migration from older versions; version changelog comment above constant
+- **click-to-select skips building slots** — `click_to_select_system` filters out building GPU slots via `BuildingSlotMap::is_building()`, preventing accidental selection of invisible building proxies
+- **pop count from PopulationStats** — top bar total population now uses `PopulationStats` sum instead of `SlotAllocator::alive()`, which includes building slots
+
 ## 2026-02-17e
 
 - **buildings rendered via GPU instanced pipeline** — buildings moved from TilemapChunk layer to the NPC storage buffer render path; building atlas generated as 32x320 vertical strip texture (`build_building_atlas`); `allocate_building_slot` now sets real tileset indices (atlas_id=7) instead of hiding with col=-1; building visual data filled by fallback loop in `build_visual_upload`

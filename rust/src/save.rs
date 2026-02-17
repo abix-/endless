@@ -24,7 +24,10 @@ fn to_vec2(a: [f32; 2]) -> Vec2 { Vec2::new(a[0], a[1]) }
 // SAVE FORMAT STRUCTS
 // ============================================================================
 
-const SAVE_VERSION: u32 = 1;
+// Save format changelog:
+// v1: initial format
+// v2: farm_growth contains only farm entries (mines moved to mine_growth)
+const SAVE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 pub struct SaveData {
@@ -530,8 +533,10 @@ pub fn collect_save_data(
         town_data_idx: g.town_data_idx, area_level: g.area_level,
     }).collect();
 
-    // Farm growth
+    // Farm growth (v2: farms only, mines stored separately in mine_growth)
+    let farm_count = world_data.farms.len();
     let farm_growth: Vec<FarmGrowthSave> = farm_states.states.iter().zip(farm_states.progress.iter())
+        .take(farm_count)
         .map(|(s, p)| FarmGrowthSave {
             state: match s { FarmGrowthState::Growing => 0, FarmGrowthState::Ready => 1 },
             progress: *p,
@@ -708,6 +713,9 @@ pub fn read_save_from(path: &std::path::Path) -> Result<SaveData, String> {
     if data.version > SAVE_VERSION {
         return Err(format!("save version {} > supported {}", data.version, SAVE_VERSION));
     }
+    if data.version < SAVE_VERSION {
+        info!("Migrating save from v{} to v{}", data.version, SAVE_VERSION);
+    }
     Ok(data)
 }
 
@@ -746,6 +754,8 @@ pub fn apply_save(
     npcs_by_town: &mut NpcsByTownCache,
     slots: &mut SlotAllocator,
 ) {
+    info!("Applying save version {}", save.version);
+
     // World grid
     grid.width = save.grid_width;
     grid.height = save.grid_height;
@@ -811,10 +821,16 @@ pub fn apply_save(
     let mine_count = save.gold_mines.len();
     farm_states.kinds = vec![crate::resources::GrowthKind::Farm; farm_count];
     farm_states.kinds.extend(vec![crate::resources::GrowthKind::Mine; mine_count]);
-    farm_states.states = save.farm_growth.iter().map(|fg| {
+    // v1: farm_growth contained farms+mines combined; v2+: farms only
+    let farm_growth = if save.version < 2 {
+        &save.farm_growth[..farm_count.min(save.farm_growth.len())]
+    } else {
+        &save.farm_growth[..]
+    };
+    farm_states.states = farm_growth.iter().map(|fg| {
         if fg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing }
     }).collect();
-    farm_states.progress = save.farm_growth.iter().map(|fg| fg.progress).collect();
+    farm_states.progress = farm_growth.iter().map(|fg| fg.progress).collect();
     farm_states.positions = save.farms.iter().map(|f| to_vec2(f.position)).collect();
     farm_states.town_indices = save.farms.iter().map(|f| Some(f.town_idx as u32)).collect();
     // Append mine entries

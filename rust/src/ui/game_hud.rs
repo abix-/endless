@@ -23,7 +23,6 @@ pub fn top_bar_system(
     pop_stats: Res<PopulationStats>,
     food_storage: Res<FoodStorage>,
     gold_storage: Res<GoldStorage>,
-    slots: Res<SlotAllocator>,
     world_data: Res<WorldData>,
     mut ui_state: ResMut<UiState>,
     spawner_state: Res<SpawnerState>,
@@ -114,7 +113,7 @@ pub fn top_bar_system(
                     let barracks = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.town_idx == 0 && s.position.x > -9000.0).count();
                     tipped(ui, format!("Archers: {}/{}", guards, barracks), catalog.0.get("archers").unwrap_or(&""));
                     tipped(ui, format!("Farmers: {}/{}", farmers, houses), catalog.0.get("farmers").unwrap_or(&""));
-                    let total_alive = slots.alive();
+                    let total_alive: i32 = pop_stats.0.values().map(|s| s.alive).sum();
                     let total_spawners = spawner_state.0.iter().filter(|s| s.position.x > -9000.0).count();
                     tipped(ui, format!("Pop: {}/{}", total_alive, total_spawners), catalog.0.get("pop").unwrap_or(&""));
                 });

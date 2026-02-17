@@ -355,6 +355,7 @@ fn click_to_select_system(
     grid: Res<WorldGrid>,
     mut squad_state: ResMut<crate::resources::SquadState>,
     build_ctx: Res<crate::resources::BuildMenuContext>,
+    building_slots: Res<crate::resources::BuildingSlotMap>,
     mut ui_state: ResMut<crate::resources::UiState>,
     mut world_data: ResMut<WorldData>,
     time: Res<Time<Real>>,
@@ -442,6 +443,7 @@ fn click_to_select_system(
         let px = positions[i * 2];
         let py = positions[i * 2 + 1];
         if px < -9000.0 { continue; }
+        if building_slots.is_building(i) { continue; }
 
         let dx = world_pos.x - px;
         let dy = world_pos.y - py;

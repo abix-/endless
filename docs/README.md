@@ -132,12 +132,12 @@ rust/
   src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU NPC rendering (storage buffers) + misc/projectile rendering (instance buffers)
-  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning (terrain only), TerrainChunk sync, building atlas creation, click_to_select_system (double-click fountain → Factions tab)
+  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning (terrain only), TerrainChunk sync, building atlas creation, click_to_select_system (double-click fountain → Factions tab, filters building GPU slots)
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, MiningProgress, Archer/Farmer/Miner markers, Migrating)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, waypoint turret (disabled), squad limits, mining, MAX_MINE_OCCUPANCY, building HP, building costs, 8x8 base build area, WAYPOINT_COVER_RADIUS, MAX_NPC_COUNT=100K, ATLAS_* IDs)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, WaypointState, SquadState, GoldStorage, MineStates, MinerProgressRender, BuildingHpState, MiningPolicy, BuildingSlotMap, HelpCatalog, etc.)
-  src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
+  src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles, SAVE_VERSION with version-gated migration in apply_save)
   src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v4, auto_upgrades, autosave_hours, music/sfx volume, music speed, tutorial_completed, log_faction_filter)
   src/world.rs          # World data structs (GoldMine, MinerHome{assigned_mine}, FarmerHome, ArcherHome, Waypoint), world grid, procedural generation (mine placement), tileset builder (build_tileset for terrain array, build_building_atlas for building strip), town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), building GPU slot allocation (allocate_building_slot with tileset_idx, free_building_slot, allocate_all_building_slots), TILESET_* constants, shared helpers: build_and_pay(), place_waypoint_at_world_pos(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind(), WorldData::miner_home_at()/gold_mine_at()/building_counts()
   src/ui/
