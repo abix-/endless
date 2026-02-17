@@ -97,6 +97,7 @@ impl Plugin for RenderPlugin {
                 click_to_select_system,
                 spawn_world_tilemap,
                 sync_terrain_tilemap,
+                sync_terrain_visibility,
             ));
     }
 }
@@ -623,6 +624,23 @@ fn sync_terrain_tilemap(
         for (i, cell) in grid.cells.iter().enumerate() {
             if i >= tile_data.0.len() { break; }
             tile_data.0[i] = Some(TileData::from_tileset_index(cell.terrain.tileset_index(i)));
+        }
+    }
+}
+
+/// Toggle terrain tile visibility from user debug setting.
+fn sync_terrain_visibility(
+    user_settings: Res<UserSettings>,
+    mut chunks: Query<&mut Visibility, With<TerrainChunk>>,
+) {
+    let vis = if user_settings.show_terrain_sprites {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
+    for mut v in chunks.iter_mut() {
+        if *v != vis {
+            *v = vis;
         }
     }
 }

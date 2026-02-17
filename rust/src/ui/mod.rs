@@ -508,6 +508,11 @@ fn game_escape_system(
             squad_state.placing_target = false;
             return;
         }
+        // Close left panel before opening/toggling pause menu.
+        if ui_state.left_panel_open {
+            ui_state.left_panel_open = false;
+            return;
+        }
         if build_ctx.selected_build.is_some() {
             build_ctx.selected_build = None;
             return;
@@ -635,7 +640,8 @@ fn pause_menu_system(
                     ui.label("Debug:");
                     let prev_debug = (settings.debug_coordinates, settings.debug_all_npcs,
                         settings.debug_readback, settings.debug_combat,
-                        settings.debug_spawns, settings.debug_behavior, settings.debug_profiler);
+                        settings.debug_spawns, settings.debug_behavior, settings.debug_profiler,
+                        settings.show_terrain_sprites);
                     ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
                     ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
                     ui.checkbox(&mut settings.debug_readback, "GPU Readback");
@@ -643,9 +649,11 @@ fn pause_menu_system(
                     ui.checkbox(&mut settings.debug_spawns, "Spawn Logging");
                     ui.checkbox(&mut settings.debug_behavior, "Behavior Logging");
                     ui.checkbox(&mut settings.debug_profiler, "System Profiler");
+                    ui.checkbox(&mut settings.show_terrain_sprites, "Show Terrain Sprites");
                     let now_debug = (settings.debug_coordinates, settings.debug_all_npcs,
                         settings.debug_readback, settings.debug_combat,
-                        settings.debug_spawns, settings.debug_behavior, settings.debug_profiler);
+                        settings.debug_spawns, settings.debug_behavior, settings.debug_profiler,
+                        settings.show_terrain_sprites);
                     if prev_debug != now_debug {
                         crate::settings::save_settings(&settings);
                     }
@@ -1103,6 +1111,12 @@ struct CleanupWorld<'w> {
     food_storage: ResMut<'w, FoodStorage>,
     faction_stats: ResMut<'w, FactionStats>,
     gpu_state: ResMut<'w, GpuReadState>,
+    npc_gpu_data: ResMut<'w, crate::gpu::NpcGpuData>,
+    npc_gpu_state: ResMut<'w, crate::gpu::NpcGpuState>,
+    npc_visual_upload: ResMut<'w, crate::gpu::NpcVisualUpload>,
+    proj_gpu_data: ResMut<'w, crate::gpu::ProjGpuData>,
+    proj_compute_params: ResMut<'w, crate::gpu::ProjComputeParams>,
+    proj_buffer_writes: ResMut<'w, crate::gpu::ProjBufferWrites>,
     game_time: ResMut<'w, GameTime>,
     tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     build_menu_ctx: ResMut<'w, BuildMenuContext>,
@@ -1123,6 +1137,7 @@ struct CleanupDebug<'w> {
 
 #[derive(SystemParam)]
 struct CleanupGameplay<'w> {
+    growth_states: ResMut<'w, GrowthStates>,
     upgrades: ResMut<'w, TownUpgrades>,
     upgrade_queue: ResMut<'w, UpgradeQueue>,
     policies: ResMut<'w, TownPolicies>,
@@ -1190,6 +1205,12 @@ fn game_cleanup_system(
     *world.gold_storage = Default::default();
     *world.world_state.building_hp = Default::default();
     *building_hp_render = Default::default();
+    *world.npc_gpu_data = Default::default();
+    *world.npc_gpu_state = Default::default();
+    *world.npc_visual_upload = Default::default();
+    *world.proj_gpu_data = Default::default();
+    *world.proj_compute_params = Default::default();
+    *world.proj_buffer_writes = Default::default();
 
     // Reset debug/tracking resources
     *debug.combat_debug = Default::default();
@@ -1209,6 +1230,7 @@ fn game_cleanup_system(
     healing_cache.by_faction.clear();
 
     // Reset gameplay resources missed by original cleanup
+    *gameplay.growth_states = Default::default();
     *gameplay.upgrades = Default::default();
     *gameplay.upgrade_queue = Default::default();
     *gameplay.policies = Default::default();

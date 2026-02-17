@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 4;
+const SETTINGS_VERSION: u32 = 5;
 
 /// Persisted user settings. Saved to `Documents\Endless\settings.json`.
 #[derive(Resource, Serialize, Deserialize, Clone)]
@@ -60,6 +60,8 @@ pub struct UserSettings {
     pub debug_behavior: bool,
     #[serde(default)]
     pub debug_profiler: bool,
+    #[serde(default = "default_true")]
+    pub show_terrain_sprites: bool,
     // Town policies
     #[serde(default)]
     pub policy: PolicySet,
@@ -153,6 +155,7 @@ impl Default for UserSettings {
             debug_spawns: false,
             debug_behavior: false,
             debug_profiler: false,
+            show_terrain_sprites: true,
             policy: PolicySet::default(),
             ai_towns: 5,
             raider_camps: 5,

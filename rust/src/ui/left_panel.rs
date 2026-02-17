@@ -190,7 +190,7 @@ pub fn left_panel_system(
     mut commands: Commands,
     mut roster_state: Local<RosterState>,
     mut factions_cache: Local<FactionsCache>,
-    settings: Res<UserSettings>,
+    mut settings: ResMut<UserSettings>,
     catalog: Res<HelpCatalog>,
     mut prev_tab: Local<LeftPanelTab>,
     mut dirty: ResMut<DirtyFlags>,
@@ -203,6 +203,7 @@ pub fn left_panel_system(
 
     let ctx = contexts.ctx_mut()?;
     let debug_all = settings.debug_all_npcs;
+    let help_text_size = settings.help_text_size;
 
     let tab_name = match ui_state.left_panel_tab {
         LeftPanelTab::Roster => "Roster",
@@ -238,7 +239,7 @@ pub fn left_panel_system(
         .show(ctx, |ui| {
             // Inline help text at the top of every tab
             if let Some(tip) = catalog.0.get(tab_help_key) {
-                ui.label(egui::RichText::new(*tip).size(settings.help_text_size));
+                ui.label(egui::RichText::new(*tip).size(help_text_size));
                 ui.separator();
             }
 
@@ -249,7 +250,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &squad.squad_state, &world_data, &policies, &profiler.mining_policy, &mut factions_cache, &mut jump_target, &mut ui_state),
-                LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration),
+                LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration, &mut settings),
                 LeftPanelTab::Help => help_content(ui),
             }
         });
@@ -1268,152 +1269,131 @@ fn factions_content(
         let left = &mut left_slice[0];
         let right = &mut right_slice[0];
 
-        left.label("Units");
+        left.label("Economy");
+        left.label(format!("Workforce: {} (Farmers {} + Miners {})", snap.farmers + snap.miners, snap.farmers, snap.miners));
         left.label(format!("Farmers: {}/{}", snap.farmers, snap.farmer_homes));
-        left.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
-        left.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
         left.label(format!("Miners: {}/{}", snap.miners, snap.miner_homes));
         left.separator();
 
-        left.label("Buildings");
+        left.label("Economy Buildings");
         left.label(format!("Farms: {}", snap.farms));
-        left.label(format!("Waypoints: {}", snap.waypoints));
         left.label(format!("Farmer Homes: {}", snap.farmer_homes));
-        left.label(format!("Archer Homes: {}", snap.archer_homes));
-        left.label(format!("Tents: {}", snap.tents));
         left.label(format!("Miner Homes: {}", snap.miner_homes));
         left.separator();
 
-        left.label("Upgrade Categories");
-        for (branch, nodes) in UPGRADE_RENDER_ORDER {
-            let total = branch_total(&snap.upgrades, branch);
-            left.collapsing(format!("{} (Total Lv{})", branch, total), |ui| {
-                let grid_id = format!("intel_upgrades_{}_{}", branch, cache.selected_idx);
-                egui::Grid::new(grid_id).num_columns(3).striped(true).show(ui, |ui| {
-                    for &(idx, depth) in *nodes {
-                        let Some(upg) = UPGRADE_REGISTRY.get(idx) else { continue };
-                        let level = snap.upgrades[idx];
-                        let (now_effect, _next_effect) = upgrade_effect_summary(idx, level);
-                        let indented_name = format!("{}{}", "  ".repeat(depth as usize), upg.label);
+        left.label("Mining Policy");
+        left.label(format!("Radius: {:.0}px", snap.mining_radius));
+        left.label(format!("Reserve Food: {}", snap.reserve_food));
+        left.label(format!("Mines in Radius: {}", snap.mines_in_radius));
+        left.label(format!("Discovered: {}  Enabled: {}", snap.mines_discovered, snap.mines_enabled));
+        left.separator();
 
-                        ui.label(indented_name);
-                        ui.label(format!("Lv{}", level));
-                        ui.label(now_effect);
-                        ui.end_row();
-                    }
-                });
+        left.label("Economy Stats");
+        egui::Grid::new(format!("intel_economy_stats_grid_{}_{}", snap.faction, cache.selected_idx))
+            .num_columns(2)
+            .striped(true)
+            .show(left, |ui| {
+                if let Some(base) = farmer_base {
+                    ui.label("Farmer HP");
+                    ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * farmer_hp_mult));
+                    ui.end_row();
+
+                    ui.label("Farmer Speed");
+                    ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * farmer_speed_mult));
+                    ui.end_row();
+                }
+
+                if let Some(base) = miner_base {
+                    ui.label("Miner HP");
+                    ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * miner_hp_mult));
+                    ui.end_row();
+
+                    ui.label("Miner Speed");
+                    ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * miner_speed_mult));
+                    ui.end_row();
+                }
+
+                ui.label("Food Yield");
+                ui.label(format!("{:.0}% of base", farm_yield_mult * 100.0));
+                ui.end_row();
+
+                ui.label("Gold Yield");
+                ui.label(format!("{:.0}% of base", gold_yield_mult * 100.0));
+                ui.end_row();
+
+                ui.label("Healing Rate");
+                ui.label(format!("{:.1}/s -> {:.1}/s", factions.combat_config.heal_rate, factions.combat_config.heal_rate * healing_mult));
+                ui.end_row();
+
+                ui.label("Fountain Radius");
+                ui.label(format!("{:.0}px -> {:.0}px", factions.combat_config.heal_radius, factions.combat_config.heal_radius + fountain_bonus));
+                ui.end_row();
+
+                ui.label("Build Area Expansion");
+                ui.label(format!("+{}", lv[UpgradeType::TownArea as usize]));
+                ui.end_row();
             });
-        }
 
-        right.label("Effective Stats");
-        egui::Grid::new("intel_effective_stats_grid").num_columns(2).striped(true).show(right, |ui| {
-            ui.strong("Military");
-            ui.label("");
-            ui.end_row();
-
-            if let Some(base) = archer_base {
-                ui.label("HP (Archer/Raider)");
-                ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * military_hp_mult));
-                ui.end_row();
-
-                ui.label("Damage (Archer/Raider)");
-                ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * military_dmg_mult));
-                ui.end_row();
-
-                ui.label("Move Speed (Archer/Raider)");
-                ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * military_speed_mult));
-                ui.end_row();
-            }
-
-            if let Some(base) = ranged_base {
-                ui.label("Range (Ranged)");
-                ui.label(format!("{:.0} -> {:.0}", base.range, base.range * military_range_mult));
-                ui.end_row();
-
-                ui.label("Attack Cooldown (Ranged)");
-                ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
-                ui.end_row();
-            }
-
-            if let Some(base) = melee_base {
-                ui.label("Attack Cooldown (Melee)");
-                ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
-                ui.end_row();
-            }
-
-            ui.label("Alert Radius");
-            ui.label(format!("{:.0}% of base", alert_mult * 100.0));
-            ui.end_row();
-
-            ui.label("Dodge");
-            ui.label(if lv[UpgradeType::Dodge as usize] > 0 { "Unlocked" } else { "Locked" });
-            ui.end_row();
-
-            ui.strong("Farmer");
-            ui.label("");
-            ui.end_row();
-
-            if let Some(base) = farmer_base {
-                ui.label("HP");
-                ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * farmer_hp_mult));
-                ui.end_row();
-
-                ui.label("Move Speed");
-                ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * farmer_speed_mult));
-                ui.end_row();
-            }
-
-            ui.label("Food Yield");
-            ui.label(format!("{:.0}% of base", farm_yield_mult * 100.0));
-            ui.end_row();
-
-            ui.strong("Miner");
-            ui.label("");
-            ui.end_row();
-
-            if let Some(base) = miner_base {
-                ui.label("HP");
-                ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * miner_hp_mult));
-                ui.end_row();
-
-                ui.label("Move Speed");
-                ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * miner_speed_mult));
-                ui.end_row();
-            }
-
-            ui.label("Gold Yield");
-            ui.label(format!("{:.0}% of base", gold_yield_mult * 100.0));
-            ui.end_row();
-
-            ui.strong("Town");
-            ui.label("");
-            ui.end_row();
-
-            ui.label("Healing Rate");
-            ui.label(format!("{:.1}/s -> {:.1}/s", factions.combat_config.heal_rate, factions.combat_config.heal_rate * healing_mult));
-            ui.end_row();
-
-            ui.label("Fountain Radius");
-            ui.label(format!("{:.0}px -> {:.0}px", factions.combat_config.heal_radius, factions.combat_config.heal_radius + fountain_bonus));
-            ui.end_row();
-
-            ui.label("Build Area Expansion");
-            ui.label(format!("+{}", lv[UpgradeType::TownArea as usize]));
-            ui.end_row();
-        });
-
+        right.label("Military");
+        right.label(format!("Force: {} (Archers {} + Raiders {})", snap.archers + snap.raiders, snap.archers, snap.raiders));
+        right.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
+        right.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
         right.separator();
-        right.label("Mining Policy");
-        right.label(format!("Radius: {:.0}px", snap.mining_radius));
-        right.label(format!("Reserve Food: {}", snap.reserve_food));
-        right.label(format!("Mines in Radius: {}", snap.mines_in_radius));
-        right.label(format!("Discovered: {}  Enabled: {}", snap.mines_discovered, snap.mines_enabled));
-        right.label(format!("Miners: {} / Miner Homes: {}", snap.miners, snap.miner_homes));
+
+        right.label("Military Buildings");
+        right.label(format!("Archer Homes: {}", snap.archer_homes));
+        right.label(format!("Waypoints: {}", snap.waypoints));
+        right.label(format!("Tents: {}", snap.tents));
+        right.separator();
+
+        right.label("Military Stats");
+        egui::Grid::new(format!("intel_military_stats_grid_{}_{}", snap.faction, cache.selected_idx))
+            .num_columns(2)
+            .striped(true)
+            .show(right, |ui| {
+                if let Some(base) = archer_base {
+                    ui.label("HP (Archer/Raider)");
+                    ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * military_hp_mult));
+                    ui.end_row();
+
+                    ui.label("Damage (Archer/Raider)");
+                    ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * military_dmg_mult));
+                    ui.end_row();
+
+                    ui.label("Move Speed (Archer/Raider)");
+                    ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * military_speed_mult));
+                    ui.end_row();
+                }
+
+                if let Some(base) = ranged_base {
+                    ui.label("Range (Ranged)");
+                    ui.label(format!("{:.0} -> {:.0}", base.range, base.range * military_range_mult));
+                    ui.end_row();
+
+                    ui.label("Attack Cooldown (Ranged)");
+                    ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
+                    ui.end_row();
+                }
+
+                if let Some(base) = melee_base {
+                    ui.label("Attack Cooldown (Melee)");
+                    ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
+                    ui.end_row();
+                }
+
+                ui.label("Alert Radius");
+                ui.label(format!("{:.0}% of base", alert_mult * 100.0));
+                ui.end_row();
+
+                ui.label("Dodge");
+                ui.label(if lv[UpgradeType::Dodge as usize] > 0 { "Unlocked" } else { "Locked" });
+                ui.end_row();
+            });
 
         right.separator();
         right.label("Squad Commander");
         if snap.squads.is_empty() {
-            right.small("No squads with members.");
+            right.label("No squads with members.");
         } else {
             let mut squads = snap.squads.clone();
             squads.sort_by_key(|s| s.squad_idx);
@@ -1446,12 +1426,12 @@ fn factions_content(
                 }
             }
 
-            right.small(format!("Active squads: {}", squads.len()));
+            right.label(format!("Active squads: {}", squads.len()));
             if snap.faction == 0 {
-                right.small("Commander: Manual");
+                right.label("Commander: Manual");
             } else {
-                right.small("Commander: AI");
-                right.small(format!(
+                right.label("Commander: AI");
+                right.label(format!(
                     "Defense: {}  Offense: {}  Active attack squads: {}",
                     defense_archers, offense_archers, attack_squads_active
                 ));
@@ -1461,13 +1441,13 @@ fn factions_content(
                 .striped(true)
                 .num_columns(7)
                 .show(right, |ui| {
-                    ui.small("Role");
-                    ui.small("Squad");
-                    ui.small("Members");
-                    ui.small("State");
-                    ui.small("Target");
-                    ui.small("CD");
-                    ui.small("Jump");
+                    ui.label("Role");
+                    ui.label("Squad");
+                    ui.label("Members");
+                    ui.label("State");
+                    ui.label("Target");
+                    ui.label("CD");
+                    ui.label("Jump");
                     ui.end_row();
 
                     for (i, squad) in squads.iter().enumerate() {
@@ -1492,18 +1472,18 @@ fn factions_content(
                         };
                         let cd = squad.commander_cooldown.unwrap_or(0.0).max(0.0);
 
-                        ui.small(role);
-                        ui.small(format!("#{}", squad.squad_idx + 1));
-                        ui.small(format!("{}/{}", squad.members, squad.target_size));
-                        ui.small(&state).on_hover_text("PATROL = holds local patrol when idle, REST = returns home when tired, LOCK = commander has an active target lock");
-                        ui.small(target);
-                        ui.small(format!("{:.1}s", cd));
+                        ui.label(role);
+                        ui.label(format!("#{}", squad.squad_idx + 1));
+                        ui.label(format!("{}/{}", squad.members, squad.target_size));
+                        ui.label(&state).on_hover_text("PATROL = holds local patrol when idle, REST = returns home when tired, LOCK = commander has an active target lock");
+                        ui.label(target);
+                        ui.label(format!("{:.1}s", cd));
                         if let Some(target) = squad.target {
-                            if ui.small_button("Jump").clicked() {
+                            if ui.button("Jump").clicked() {
                                 *jump_target = Some(target);
                             }
                         } else {
-                            ui.small("-");
+                            ui.label("-");
                         }
                         ui.end_row();
                     }
@@ -1524,7 +1504,12 @@ fn factions_content(
 // PROFILER CONTENT
 // ============================================================================
 
-fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings, migration: &mut MigrationState) {
+fn profiler_content(
+    ui: &mut egui::Ui,
+    timings: &SystemTimings,
+    migration: &mut MigrationState,
+    user_settings: &mut UserSettings,
+) {
     let frame_ms = timings.get_frame_ms();
     ui.label(egui::RichText::new(format!("Frame: {:.2} ms", frame_ms)).strong());
     ui.separator();
@@ -1533,6 +1518,12 @@ fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings, migration: &mut 
     egui::CollapsingHeader::new(egui::RichText::new("Debug Actions").strong())
         .default_open(false)
         .show(ui, |ui| {
+            let prev_terrain = user_settings.show_terrain_sprites;
+            ui.checkbox(&mut user_settings.show_terrain_sprites, "Show Terrain Sprites");
+            if prev_terrain != user_settings.show_terrain_sprites {
+                settings::save_settings(user_settings);
+            }
+            ui.separator();
             let has_active = migration.active.is_some();
             let btn = ui.add_enabled(!has_active, egui::Button::new("Spawn Migration Group"));
             if btn.clicked() {
