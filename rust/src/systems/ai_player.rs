@@ -32,6 +32,59 @@ const MIN_WAYPOINT_SPACING: i32 = 5;
 /// Patrol posts sit one slot outside controlled buildings.
 const TERRITORY_PERIMETER_PADDING: i32 = 1;
 
+fn waypoint_spacing_ok(
+    grid: &WorldGrid,
+    world_data: &WorldData,
+    town_idx: u32,
+    candidate: Vec2,
+) -> bool {
+    let (cc, cr) = grid.world_to_grid(candidate);
+    world_data.waypoints.iter()
+        .filter(|w| w.town_idx == town_idx && w.position.x > -9000.0)
+        .all(|w| {
+            let (wc, wr) = grid.world_to_grid(w.position);
+            (cc as i32 - wc as i32).abs() + (cr as i32 - wr as i32).abs() >= MIN_WAYPOINT_SPACING
+        })
+}
+
+fn recalc_waypoint_patrol_order_clockwise(
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    town_idx: u32,
+) {
+    let Some(center) = world_data.towns.get(town_idx as usize).map(|t| t.center) else { return; };
+
+    let mut ids: Vec<usize> = world_data.waypoints.iter().enumerate()
+        .filter(|(_, w)| w.town_idx == town_idx && w.position.x > -9000.0)
+        .map(|(i, _)| i)
+        .collect();
+
+    // Clockwise around town center, starting at north (+Y).
+    ids.sort_by(|&a, &b| {
+        let pa = world_data.waypoints[a].position - center;
+        let pb = world_data.waypoints[b].position - center;
+        let mut aa = pa.x.atan2(pa.y);
+        let mut ab = pb.x.atan2(pb.y);
+        if aa < 0.0 { aa += std::f32::consts::TAU; }
+        if ab < 0.0 { ab += std::f32::consts::TAU; }
+        aa.partial_cmp(&ab).unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| pa.length_squared().partial_cmp(&pb.length_squared()).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    for (order, &idx) in ids.iter().enumerate() {
+        let pos = world_data.waypoints[idx].position;
+        world_data.waypoints[idx].patrol_order = order as u32;
+        let (gc, gr) = grid.world_to_grid(pos);
+        if let Some(cell) = grid.cell_mut(gc, gr) {
+            if let Some(Building::Waypoint { town_idx: ti, patrol_order }) = cell.building.as_mut() {
+                if *ti == town_idx {
+                    *patrol_order = order as u32;
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct AiTownSnapshot {
     center: Vec2,
@@ -461,28 +514,21 @@ fn find_waypoint_slot(
     let perimeter = territory_perimeter_slots(&occupied, tg);
     if perimeter.is_empty() { return None; }
 
-    // Existing in-town waypoint grid positions for this town
-    let existing: Vec<(i32, i32)> = world_data.waypoints.iter()
-        .filter(|gp| gp.town_idx == ti && gp.position.x > -9000.0)
-        .filter(|gp| {
-            let (row, col) = world::world_to_town_grid(center, gp.position);
-            world::is_slot_buildable(tg, row, col)
-        })
-        .map(|gp| world::world_to_town_grid(center, gp.position))
-        .collect();
-
     let mut best: Option<((i32, i32), i32, i32)> = None;
     for &(r, c) in &perimeter {
         if r == 0 && c == 0 { continue; }
         let pos = world::town_grid_to_world(center, r, c);
         let (gc, gr) = grid.world_to_grid(pos);
         if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
-
-        let min_spacing = existing.iter()
-            .map(|&(er, ec)| (r - er).abs() + (c - ec).abs())
+        if !waypoint_spacing_ok(grid, world_data, ti, pos) { continue; }
+        let min_spacing = world_data.waypoints.iter()
+            .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
+            .map(|w| {
+                let (wc, wr) = grid.world_to_grid(w.position);
+                (gc as i32 - wc as i32).abs() + (gr as i32 - wr as i32).abs()
+            })
             .min()
             .unwrap_or(i32::MAX);
-        if min_spacing < MIN_WAYPOINT_SPACING { continue; }
 
         let radial = r * r + c * c;
         if best.map_or(true, |(_, best_spacing, best_radial)| {
@@ -576,6 +622,9 @@ fn sync_town_perimeter_waypoints(
         if world::remove_building(grid, world_data, farm_states, row, col, center).is_ok() {
             removed += 1;
         }
+    }
+    if removed > 0 {
+        recalc_waypoint_patrol_order_clockwise(grid, world_data, ti);
     }
     removed
 }
@@ -1035,12 +1084,14 @@ fn execute_action(
             let cost = building_cost(BuildKind::Waypoint);
             // Try wilderness placement near uncovered mine first
             if let Some(mine_pos) = find_mine_waypoint_pos(center, &res.world.world_data, ti) {
-                if world::place_waypoint_at_world_pos(
+                if waypoint_spacing_ok(&res.world.grid, &res.world.world_data, ti, mine_pos)
+                    && world::place_waypoint_at_world_pos(
                     &mut res.world.grid, &mut res.world.world_data,
                     &mut res.world.building_hp, &mut res.food_storage,
                     &mut res.world.slot_alloc, &mut res.world.building_slots,
                     tdi, mine_pos, cost,
                 ).is_ok() {
+                    recalc_waypoint_patrol_order_clockwise(&mut res.world.grid, &mut res.world.world_data, ti);
                     res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);
                     return Some("built waypoint near mine".into());
                 }
@@ -1054,6 +1105,7 @@ fn execute_action(
                 Building::Waypoint { town_idx: ti, patrol_order: waypoints as u32 },
                 tdi, row, col, center, cost);
             if ok {
+                recalc_waypoint_patrol_order_clockwise(&mut res.world.grid, &mut res.world.world_data, ti);
                 res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);
             }
             ok.then_some("built waypoint".into())

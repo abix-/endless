@@ -10,6 +10,7 @@ use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UpgradeType, UPGRADE_COUNT, UPGRADE_PCT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total};
 use crate::systems::{AiPlayerState, AiKind};
+use crate::systems::ai_player::AiPersonality;
 use crate::world::WorldData;
 
 // ============================================================================
@@ -114,6 +115,7 @@ pub struct FactionsParams<'w> {
     ai_state: Res<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
     gold_storage: Res<'w, GoldStorage>,
+    mining_policy: Res<'w, MiningPolicy>,
     spawner_state: Res<'w, SpawnerState>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
@@ -143,11 +145,11 @@ struct AiSnapshot {
     kills: i32,
     upgrades: [u8; UPGRADE_COUNT],
     last_actions: Vec<String>,
-    archer_aggressive: bool,
-    archer_leash: bool,
-    archer_flee_hp: f32,
-    farmer_flee_hp: f32,
-    prioritize_healing: bool,
+    mining_radius: f32,
+    mines_in_radius: usize,
+    mines_discovered: usize,
+    mines_enabled: usize,
+    reserve_food: i32,
     center: Vec2,
 }
 
@@ -1002,6 +1004,7 @@ fn rebuild_factions_cache(
         tdi: usize,
         kind_name: &'static str,
         personality_name: &'static str,
+        personality: Option<AiPersonality>,
         last_actions: Vec<String>,
     ) {
         let ti = tdi as u32;
@@ -1035,11 +1038,26 @@ fn rebuild_factions_cache(
         let upgrades = factions.upgrades.levels.get(tdi).copied().unwrap_or([0; UPGRADE_COUNT]);
 
         let policy = policies.policies.get(tdi);
-        let archer_aggressive = policy.map(|p| p.archer_aggressive).unwrap_or(false);
-        let archer_leash = policy.map(|p| p.archer_leash).unwrap_or(true);
-        let archer_flee_hp = policy.map(|p| p.archer_flee_hp).unwrap_or(0.15);
-        let farmer_flee_hp = policy.map(|p| p.farmer_flee_hp).unwrap_or(0.30);
-        let prioritize_healing = policy.map(|p| p.prioritize_healing).unwrap_or(true);
+        let mining_radius = policy.map(|p| p.mining_radius).unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
+        let mines_in_radius = world_data.gold_mines.iter()
+            .filter(|m| m.position.x > -9000.0)
+            .filter(|m| (m.position - center).length_squared() <= mining_radius * mining_radius)
+            .count();
+        let discovered = factions.mining_policy.discovered_mines.get(tdi);
+        let mines_discovered = discovered.map(|v| v.len()).unwrap_or(0);
+        let mines_enabled = discovered.map(|v| {
+            v.iter()
+                .filter(|&&mine_idx| factions.mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true))
+                .count()
+        }).unwrap_or(0);
+        let spawner_count = factions.spawner_state.0.iter()
+            .filter(|s| s.position.x > -9000.0)
+            .filter(|s| s.town_idx == tdi as i32)
+            .filter(|s| matches!(s.building_kind, 0 | 1 | 2 | 3))
+            .count() as i32;
+        let reserve_food = personality
+            .map(|p| p.food_reserve_per_spawner() * spawner_count)
+            .unwrap_or(0);
 
         cache.snapshots.push(AiSnapshot {
             faction,
@@ -1063,11 +1081,11 @@ fn rebuild_factions_cache(
             kills,
             upgrades,
             last_actions,
-            archer_aggressive,
-            archer_leash,
-            archer_flee_hp,
-            farmer_flee_hp,
-            prioritize_healing,
+            mining_radius,
+            mines_in_radius,
+            mines_discovered,
+            mines_enabled,
+            reserve_food,
             center,
         });
     }
@@ -1076,7 +1094,7 @@ fn rebuild_factions_cache(
 
     // Include player faction (faction 0) in Factions view.
     if let Some(player_tdi) = world_data.towns.iter().position(|t| t.faction == 0) {
-        push_snapshot(factions, world_data, policies, cache, player_tdi, "Player", "Human", Vec::new());
+        push_snapshot(factions, world_data, policies, cache, player_tdi, "Player", "Human", None, Vec::new());
     }
 
     for player in factions.ai_state.players.iter() {
@@ -1096,6 +1114,7 @@ fn rebuild_factions_cache(
             tdi,
             kind_name,
             player.personality.name(),
+            Some(player.personality),
             last_actions,
         );
     }
@@ -1332,11 +1351,12 @@ fn factions_content(
         });
 
         right.separator();
-        right.label("Policies");
-        right.label(format!("Archer Aggressive: {}", if snap.archer_aggressive { "On" } else { "Off" }));
-        right.label(format!("Archer Leash: {}", if snap.archer_leash { "On" } else { "Off" }));
-        right.label(format!("Prioritize Healing: {}", if snap.prioritize_healing { "On" } else { "Off" }));
-        right.label(format!("Flee HP: Archer {:.0}% / Farmer {:.0}%", snap.archer_flee_hp * 100.0, snap.farmer_flee_hp * 100.0));
+        right.label("Mining Policy");
+        right.label(format!("Radius: {:.0}px", snap.mining_radius));
+        right.label(format!("Reserve Food: {}", snap.reserve_food));
+        right.label(format!("Mines in Radius: {}", snap.mines_in_radius));
+        right.label(format!("Discovered: {}  Enabled: {}", snap.mines_discovered, snap.mines_enabled));
+        right.label(format!("Miners: {} / Miner Homes: {}", snap.miners, snap.miner_homes));
 
         if !snap.last_actions.is_empty() {
             right.separator();
