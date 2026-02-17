@@ -1050,6 +1050,8 @@ pub enum OffDutyBehavior {
     WanderTown,
 }
 
+fn default_policy_mining_radius() -> f32 { crate::constants::DEFAULT_MINING_RADIUS }
+
 /// Per-town behavior configuration. Controls flee thresholds, work schedules, off-duty behavior.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PolicySet {
@@ -1070,6 +1072,8 @@ pub struct PolicySet {
     pub farmer_off_duty: OffDutyBehavior,
     #[serde(alias = "guard_off_duty")]
     pub archer_off_duty: OffDutyBehavior,
+    #[serde(default = "default_policy_mining_radius")]
+    pub mining_radius: f32,
 }
 
 impl Default for PolicySet {
@@ -1087,8 +1091,18 @@ impl Default for PolicySet {
             archer_schedule: WorkSchedule::Both,
             farmer_off_duty: OffDutyBehavior::GoToBed,
             archer_off_duty: OffDutyBehavior::GoToBed,
+            mining_radius: crate::constants::DEFAULT_MINING_RADIUS,
         }
     }
+}
+
+/// Auto-mining cache and per-mine enable state.
+#[derive(Resource, Default)]
+pub struct MiningPolicy {
+    /// Per-town discovered gold mine indices within policy radius.
+    pub discovered_mines: Vec<Vec<usize>>,
+    /// Per-gold-mine global enabled toggle.
+    pub mine_enabled: Vec<bool>,
 }
 
 // ============================================================================
@@ -1322,12 +1336,13 @@ pub struct DirtyFlags {
     pub healing_zones: bool,
     pub waypoint_slots: bool,
     pub squads: bool,
+    pub mining: bool,
     /// Pending patrol order swap from UI (waypoint indices).
     /// Set by left_panel, consumed by rebuild_patrol_routes_system.
     pub patrol_swap: Option<(usize, usize)>,
 }
 impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, waypoint_slots: true, squads: true, patrol_swap: None } }
+    fn default() -> Self { Self { building_grid: true, patrols: true, healing_zones: true, waypoint_slots: true, squads: true, mining: true, patrol_swap: None } }
 }
 
 // ============================================================================

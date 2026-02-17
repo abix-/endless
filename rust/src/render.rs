@@ -411,6 +411,7 @@ fn click_to_select_system(
         if let Some((dist, mine_pos)) = best {
             if dist < snap_radius {
                 if let Some(mh) = world_data.miner_homes.get_mut(mh_idx) {
+                    mh.manual_mine = true;
                     mh.assigned_mine = Some(mine_pos);
                 }
             }

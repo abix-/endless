@@ -130,6 +130,8 @@ pub struct MinerHomeSave {
     pub town_idx: u32,
     #[serde(default)]
     pub assigned_mine: Option<[f32; 2]>,
+    #[serde(default)]
+    pub manual_mine: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -519,6 +521,7 @@ pub fn collect_save_data(
     let miner_homes: Vec<MinerHomeSave> = world_data.miner_homes.iter().map(|m| MinerHomeSave {
         position: v2(m.position), town_idx: m.town_idx,
         assigned_mine: m.assigned_mine.map(|p| v2(p)),
+        manual_mine: m.manual_mine,
     }).collect();
     let gold_mines_save: Vec<[f32; 2]> = world_data.gold_mines.iter().map(|m| v2(m.position)).collect();
 
@@ -779,6 +782,7 @@ pub fn apply_save(
     world_data.miner_homes = save.miner_homes.iter().map(|m| world::MinerHome {
         position: to_vec2(m.position), town_idx: m.town_idx,
         assigned_mine: m.assigned_mine.map(|p| to_vec2(p)),
+        manual_mine: m.manual_mine,
     }).collect();
     world_data.gold_mines = save.gold_mines.iter().map(|p| world::GoldMine {
         position: to_vec2(*p),

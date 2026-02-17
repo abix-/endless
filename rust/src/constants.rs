@@ -272,6 +272,9 @@ pub const MINE_MIN_SETTLEMENT_DIST: f32 = 300.0;
 /// Minimum distance between gold mines.
 pub const MINE_MIN_SPACING: f32 = 400.0;
 
+/// Default town policy radius (pixels) for auto-mining discovery around fountain.
+pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
+
 // ============================================================================
 // BUILDING HP
 // ============================================================================

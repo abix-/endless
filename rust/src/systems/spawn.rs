@@ -170,6 +170,7 @@ pub fn spawn_npc_system(
                 ec.insert(LeashRange { distance: 400.0 });
             }
             Job::Miner => {
+                dirty.mining = true;
                 ec.insert(Energy::default());
                 ec.insert(Miner);
             }
@@ -222,4 +223,3 @@ pub(crate) fn build_patrol_route(world: &WorldData, town_idx: u32) -> Vec<Vec2> 
     posts.sort_by_key(|(order, _)| *order);
     posts.into_iter().map(|(_, pos)| pos).collect()
 }
-

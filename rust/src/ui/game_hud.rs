@@ -162,6 +162,14 @@ pub struct BuildingInspectorData<'w> {
     town_upgrades: Res<'w, TownUpgrades>,
 }
 
+#[derive(SystemParam)]
+pub struct BottomPanelUiState<'w> {
+    destroy_request: ResMut<'w, DestroyRequest>,
+    ui_state: ResMut<'w, UiState>,
+    mining_policy: ResMut<'w, MiningPolicy>,
+    dirty: ResMut<'w, DirtyFlags>,
+}
+
 #[derive(Default)]
 pub struct LogFilterState {
     pub show_kills: bool,
@@ -202,9 +210,8 @@ pub fn bottom_panel_system(
     mut follow: ResMut<FollowSelected>,
     settings: Res<UserSettings>,
     catalog: Res<HelpCatalog>,
-    mut destroy_request: ResMut<DestroyRequest>,
+    mut panel_state: BottomPanelUiState,
     mut rename_state: Local<InspectorRenameState>,
-    mut ui_state: ResMut<UiState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -228,7 +235,7 @@ pub fn bottom_panel_system(
                 inspector_content(
                     ui, &data, &mut meta_cache, &mut rename_state, &bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
-                    &mut ui_state,
+                    &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty,
                 );
                 // Destroy button for selected buildings (not fountains/camps)
                 if has_building && !has_npc {
@@ -241,7 +248,7 @@ pub fn bottom_panel_system(
                     if is_destructible {
                         ui.separator();
                         if ui.button(egui::RichText::new("Destroy").color(egui::Color32::from_rgb(220, 80, 80))).clicked() {
-                            destroy_request.0 = Some((col, row));
+                            panel_state.destroy_request.0 = Some((col, row));
                         }
                     }
                 }
@@ -431,13 +438,15 @@ fn inspector_content(
     catalog: &HelpCatalog,
     copy_text: &mut Option<String>,
     ui_state: &mut UiState,
+    mining_policy: &mut MiningPolicy,
+    dirty: &mut DirtyFlags,
 ) {
     let sel = data.selected.0;
     if sel < 0 {
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, meta_cache, ui_state);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state);
             return;
         }
         ui.label("Click an NPC or building to inspect");
@@ -581,7 +590,7 @@ fn inspector_content(
             let mh_idx = world_data.miner_homes.iter().position(|m| (m.position - hp).length() < 1.0);
             if let Some(mh_idx) = mh_idx {
                 ui.separator();
-                mine_assignment_ui(ui, world_data, mh_idx, hp, ui_state);
+                mine_assignment_ui(ui, world_data, mh_idx, hp, dirty, ui_state);
                 // Show mine productivity when actively mining
                 if is_mining_at_mine {
                     if let Some(mine_pos) = world_data.miner_homes.get(mh_idx).and_then(|mh| mh.assigned_mine) {
@@ -700,22 +709,29 @@ fn mine_assignment_ui(
     world_data: &mut WorldData,
     mh_idx: usize,
     ref_pos: Vec2,
+    dirty: &mut DirtyFlags,
     ui_state: &mut UiState,
 ) {
     let assigned = world_data.miner_homes[mh_idx].assigned_mine;
+    let manual = world_data.miner_homes[mh_idx].manual_mine;
     if let Some(mine_pos) = assigned {
         let dist = mine_pos.distance(ref_pos);
         ui.label(format!("Mine: ({:.0}, {:.0}) — {:.0}px", mine_pos.x, mine_pos.y, dist));
     } else {
         ui.label("Mine: Auto (nearest)");
     }
+    ui.small(if manual { "Mode: Manual" } else { "Mode: Auto-policy" });
     ui.horizontal(|ui| {
         if ui.button("Set Mine").clicked() {
+            world_data.miner_homes[mh_idx].manual_mine = true;
+            dirty.mining = true;
             ui_state.assigning_mine = Some(mh_idx);
         }
-        if assigned.is_some() {
+        if assigned.is_some() || manual {
             if ui.button("Clear").clicked() {
+                world_data.miner_homes[mh_idx].manual_mine = false;
                 world_data.miner_homes[mh_idx].assigned_mine = None;
+                dirty.mining = true;
             }
         }
     });
@@ -726,6 +742,8 @@ fn building_inspector_content(
     ui: &mut egui::Ui,
     bld: &BuildingInspectorData,
     world_data: &mut WorldData,
+    mining_policy: &mut MiningPolicy,
+    dirty: &mut DirtyFlags,
     meta_cache: &NpcMetaCache,
     ui_state: &mut UiState,
 ) {
@@ -819,7 +837,7 @@ fn building_inspector_content(
                 ui.separator();
                 let mh_idx = world_data.miner_homes.iter().position(|m| (m.position - world_pos).length() < 1.0);
                 if let Some(mh_idx) = mh_idx {
-                    mine_assignment_ui(ui, world_data, mh_idx, world_pos, ui_state);
+                    mine_assignment_ui(ui, world_data, mh_idx, world_pos, dirty, ui_state);
                 }
             }
         }
@@ -858,6 +876,17 @@ fn building_inspector_content(
 
         Building::GoldMine => {
             let world_pos = bld.grid.grid_to_world(col, row);
+            if let Some(mine_idx) = world_data.gold_mines.iter().position(|m| (m.position - world_pos).length() < 1.0) {
+                if mine_idx >= mining_policy.mine_enabled.len() {
+                    mining_policy.mine_enabled.resize(mine_idx + 1, true);
+                }
+                let enabled = mining_policy.mine_enabled[mine_idx];
+                let label = if enabled { "Auto-mining: ON" } else { "Auto-mining: OFF" };
+                if ui.button(label).clicked() {
+                    mining_policy.mine_enabled[mine_idx] = !enabled;
+                    dirty.mining = true;
+                }
+            }
             // Find mine in GrowthStates
             if let Some(gi) = bld.farm_states.positions.iter().position(|p| (*p - world_pos).length() < 1.0) {
                 let progress = bld.farm_states.progress.get(gi).copied().unwrap_or(0.0);

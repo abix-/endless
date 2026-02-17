@@ -84,6 +84,7 @@ pub struct MinerHome {
     pub position: Vec2,
     pub town_idx: u32,
     pub assigned_mine: Option<Vec2>,
+    pub manual_mine: bool,
 }
 
 /// A gold mine in the wilderness (unowned, any faction can mine).
@@ -262,7 +263,7 @@ pub fn place_building(
             world_data.tents.push(Tent { position: snapped_pos, town_idx });
         }
         Building::MinerHome { town_idx } => {
-            world_data.miner_homes.push(MinerHome { position: snapped_pos, town_idx, assigned_mine: None });
+            world_data.miner_homes.push(MinerHome { position: snapped_pos, town_idx, assigned_mine: None, manual_mine: false });
         }
         _ => {} // Fountain, Camp, GoldMine not player-placeable
     }

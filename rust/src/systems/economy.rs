@@ -248,6 +248,7 @@ pub fn spawner_respawn_system(
     farm_occupancy: Res<BuildingOccupancy>,
     timings: Res<SystemTimings>,
     bgrid: Res<BuildingSpatialGrid>,
+    mut dirty: ResMut<DirtyFlags>,
 ) {
     let _t = timings.scope("spawner_respawn");
     if !game_time.hour_ticked {
@@ -265,6 +266,9 @@ pub fn spawner_respawn_system(
             if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
                 entry.npc_slot = -1;
                 entry.respawn_timer = SPAWNER_RESPAWN_HOURS;
+                if entry.building_kind == 3 {
+                    dirty.mining = true;
+                }
             }
         }
 
@@ -298,12 +302,119 @@ pub fn spawner_respawn_system(
                 });
                 entry.npc_slot = slot as i32;
                 entry.respawn_timer = -1.0;
+                if entry.building_kind == 3 {
+                    dirty.mining = true;
+                }
 
                 combat_log.push(
                     CombatEventKind::Spawn,
                     game_time.day(), game_time.hour(), game_time.minute(),
                     format!("{} respawned from {}", job_name, building_name),
                 );
+            }
+        }
+    }
+}
+
+/// Rebuild auto-mining discovery + assignments when mining topology/policy changes.
+pub fn mining_policy_system(
+    mut world_data: ResMut<WorldData>,
+    policies: Res<TownPolicies>,
+    spawner_state: Res<SpawnerState>,
+    npc_map: Res<NpcEntityMap>,
+    mut mining: ResMut<MiningPolicy>,
+    mut dirty: ResMut<DirtyFlags>,
+    timings: Res<SystemTimings>,
+) {
+    let _t = timings.scope("mining_policy");
+    if !dirty.mining { return; }
+    dirty.mining = false;
+
+    mining.discovered_mines.resize(world_data.towns.len(), Vec::new());
+    if mining.mine_enabled.len() < world_data.gold_mines.len() {
+        mining.mine_enabled.resize(world_data.gold_mines.len(), true);
+    }
+
+    for town_idx in 0..world_data.towns.len() {
+        let town = &world_data.towns[town_idx];
+        if town.faction != 0 {
+            mining.discovered_mines[town_idx].clear();
+            continue;
+        }
+        let radius = policies.policies
+            .get(town_idx)
+            .map(|p| p.mining_radius)
+            .unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
+        let r2 = radius * radius;
+
+        let mut discovered = Vec::new();
+        for (mine_idx, mine) in world_data.gold_mines.iter().enumerate() {
+            let d = mine.position - town.center;
+            if d.length_squared() <= r2 {
+                discovered.push(mine_idx);
+            }
+        }
+        mining.discovered_mines[town_idx] = discovered;
+    }
+
+    for town_idx in 0..world_data.towns.len() {
+        if world_data.towns[town_idx].faction != 0 { continue; }
+
+        let enabled_mines: Vec<usize> = mining.discovered_mines[town_idx]
+            .iter()
+            .copied()
+            .filter(|&mi| mi < mining.mine_enabled.len() && mining.mine_enabled[mi])
+            .collect();
+
+        let enabled_positions: Vec<Vec2> = enabled_mines.iter()
+            .filter_map(|&mi| world_data.gold_mines.get(mi).map(|m| m.position))
+            .collect();
+
+        let mut auto_homes: Vec<usize> = Vec::new();
+        for entry in spawner_state.0.iter() {
+            if entry.building_kind != 3 || entry.town_idx != town_idx as i32 || entry.npc_slot < 0 {
+                continue;
+            }
+            if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
+                continue;
+            }
+            let Some(mh_idx) = world_data.miner_homes.iter()
+                .position(|m| (m.position - entry.position).length() < 1.0)
+            else {
+                continue;
+            };
+            if world_data.miner_homes[mh_idx].manual_mine {
+                continue;
+            }
+            auto_homes.push(mh_idx);
+        }
+
+        for &mh_idx in &auto_homes {
+            let Some(mh) = world_data.miner_homes.get(mh_idx) else { continue };
+            if let Some(pos) = mh.assigned_mine {
+                let still_enabled = enabled_positions.iter().any(|p| (*p - pos).length() < 1.0);
+                if !still_enabled {
+                    // clear stale assignment if disabled or no longer discovered
+                    if let Some(mh_mut) = world_data.miner_homes.get_mut(mh_idx) {
+                        mh_mut.assigned_mine = None;
+                    }
+                }
+            }
+        }
+
+        if enabled_positions.is_empty() {
+            for &mh_idx in &auto_homes {
+                if let Some(mh_mut) = world_data.miner_homes.get_mut(mh_idx) {
+                    mh_mut.assigned_mine = None;
+                }
+            }
+            continue;
+        }
+
+        for (i, &mh_idx) in auto_homes.iter().enumerate() {
+            let mine_pos = enabled_positions[i % enabled_positions.len()];
+            if let Some(mh_mut) = world_data.miner_homes.get_mut(mh_idx) {
+                mh_mut.assigned_mine = Some(mine_pos);
             }
         }
     }

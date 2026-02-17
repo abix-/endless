@@ -37,7 +37,7 @@ use resources::{
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     WaypointState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
-    DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState,
+    DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
 use systems::*;
@@ -250,6 +250,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<systems::stats::UpgradeQueue>()
        .init_resource::<AutoUpgrade>()
        .init_resource::<TownPolicies>()
+       .init_resource::<MiningPolicy>()
        .init_resource::<save::SaveLoadRequest>()
        .init_resource::<save::SaveToast>()
        .init_resource::<GameAudio>()
@@ -307,6 +308,7 @@ pub fn build_app(app: &mut App) {
            growth_system,
            camp_forage_system,
            spawner_respawn_system,
+           mining_policy_system.after(spawner_respawn_system).before(decision_system),
            starvation_system,
            decision_system,
            farm_visual_system,

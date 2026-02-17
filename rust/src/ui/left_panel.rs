@@ -20,6 +20,8 @@ use crate::world::WorldData;
 pub struct ProfilerParams<'w> {
     timings: Res<'w, SystemTimings>,
     migration: ResMut<'w, MigrationState>,
+    spawner_state: Res<'w, SpawnerState>,
+    mining_policy: ResMut<'w, MiningPolicy>,
 }
 
 // ============================================================================
@@ -225,7 +227,7 @@ pub fn left_panel_system(
             match ui_state.left_panel_tab {
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
                 LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
-                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data),
+                LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &profiler.spawner_state, &mut profiler.mining_policy, &mut dirty),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
                 LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &mut factions_cache, &mut jump_target),
@@ -594,7 +596,14 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
 // POLICIES CONTENT
 // ============================================================================
 
-fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: &WorldData) {
+fn policies_content(
+    ui: &mut egui::Ui,
+    policies: &mut TownPolicies,
+    world_data: &WorldData,
+    spawner_state: &SpawnerState,
+    mining_policy: &mut MiningPolicy,
+    dirty: &mut DirtyFlags,
+) {
     let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
 
     if town_idx >= policies.policies.len() {
@@ -693,6 +702,64 @@ fn policies_content(ui: &mut egui::Ui, policies: &mut TownPolicies, world_data: 
         2 => OffDutyBehavior::WanderTown,
         _ => OffDutyBehavior::GoToBed,
     };
+
+    // -- Mining --
+    ui.add_space(8.0);
+    ui.label(egui::RichText::new("Mining").strong());
+
+    let mut mining_radius = policy.mining_radius;
+    let slider = egui::Slider::new(&mut mining_radius, 0.0..=5000.0)
+        .step_by(100.0)
+        .suffix(" px");
+    if ui.add(slider).changed() {
+        policy.mining_radius = mining_radius;
+        dirty.mining = true;
+    }
+
+    if mining_policy.discovered_mines.len() <= town_idx {
+        mining_policy.discovered_mines.resize(town_idx + 1, Vec::new());
+    }
+    if mining_policy.mine_enabled.len() < world_data.gold_mines.len() {
+        mining_policy.mine_enabled.resize(world_data.gold_mines.len(), true);
+    }
+
+    let discovered = mining_policy.discovered_mines[town_idx].clone();
+    let mut enabled_count = 0usize;
+    for &mine_idx in &discovered {
+        if mine_idx < mining_policy.mine_enabled.len() && mining_policy.mine_enabled[mine_idx] {
+            enabled_count += 1;
+        }
+    }
+
+    let assigned_auto = spawner_state.0.iter()
+        .filter(|e| e.building_kind == 3 && e.town_idx == town_idx as i32 && e.npc_slot >= 0 && e.position.x > -9000.0)
+        .filter_map(|e| world_data.miner_homes.iter().position(|m| (m.position - e.position).length() < 1.0))
+        .filter(|&mh_idx| {
+            world_data.miner_homes.get(mh_idx)
+                .map(|m| !m.manual_mine && m.assigned_mine.is_some())
+                .unwrap_or(false)
+        })
+        .count();
+
+    ui.label(format!("{}/{} mines enabled, {} miners assigned", enabled_count, discovered.len(), assigned_auto));
+
+    if discovered.is_empty() {
+        ui.small("No discovered mines in radius.");
+    } else {
+        for &mine_idx in &discovered {
+            let Some(mine) = world_data.gold_mines.get(mine_idx) else { continue };
+            let dist = mine.position.distance(world_data.towns[town_idx].center);
+            let mut enabled = mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true);
+            let label = format!("Mine #{} ({:.0}px)", mine_idx + 1, dist);
+            if ui.checkbox(&mut enabled, label).changed() {
+                if mine_idx >= mining_policy.mine_enabled.len() {
+                    mining_policy.mine_enabled.resize(mine_idx + 1, true);
+                }
+                mining_policy.mine_enabled[mine_idx] = enabled;
+                dirty.mining = true;
+            }
+        }
+    }
 }
 
 // ============================================================================

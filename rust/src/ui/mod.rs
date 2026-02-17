@@ -173,6 +173,7 @@ struct StartupExtra<'w> {
     gold_storage: ResMut<'w, GoldStorage>,
     bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
+    mining_policy: ResMut<'w, MiningPolicy>,
 }
 
 /// Load a saved game when entering Playing state (if load_on_enter is set).
@@ -187,6 +188,7 @@ fn game_load_system(
     mut gpu_updates: MessageWriter<crate::messages::GpuUpdateMsg>,
     combat_config: Res<crate::systems::stats::CombatConfig>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+    mut mining_policy: ResMut<MiningPolicy>,
 ) {
     if !save_request.load_on_enter { return; }
     save_request.load_on_enter = false;
@@ -222,6 +224,7 @@ fn game_load_system(
     // Rebuild spatial grid
     tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
     *tracking.dirty = DirtyFlags::default();
+    *mining_policy = MiningPolicy::default();
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
@@ -287,6 +290,7 @@ fn game_startup_system(
         &mut world_state.farm_states,
         &mut world_state.town_grids,
     );
+    *extra.mining_policy = MiningPolicy::default();
 
     // Build spatial grid for startup find calls
     extra.bgrid.rebuild(&world_state.world_data, world_state.grid.width as f32 * world_state.grid.cell_size);
@@ -730,6 +734,7 @@ fn build_place_click_system(
             .unwrap_or(false);
         if !is_destructible { return; }
         let is_waypoint = matches!(cell_building, Some(world::Building::Waypoint { .. }));
+        let is_miner_home = matches!(cell_building, Some(world::Building::MinerHome { .. }));
 
         let _ = world::destroy_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
@@ -741,6 +746,9 @@ fn build_place_click_system(
         if is_waypoint {
             world_state.dirty.patrols = true;
             world_state.dirty.waypoint_slots = true;
+        }
+        if is_miner_home {
+            world_state.dirty.mining = true;
         }
         world_state.dirty.building_grid = true;
         return;
@@ -793,6 +801,9 @@ fn build_place_click_system(
     ) { return; }
 
     world_state.dirty.building_grid = true;
+    if kind == BuildKind::MinerHome {
+        world_state.dirty.mining = true;
+    }
 
     combat_log.push(
         CombatEventKind::Harvest,
@@ -1047,6 +1058,7 @@ fn process_destroy_system(
         .unwrap_or(false);
     if !is_destructible { return; }
     let is_waypoint = matches!(cell_building, Some(world::Building::Waypoint { .. }));
+    let is_miner_home = matches!(cell_building, Some(world::Building::MinerHome { .. }));
 
     // Find which town this building belongs to, derive town center
     let town_idx = cell_building
@@ -1074,6 +1086,9 @@ fn process_destroy_system(
         if is_waypoint {
             world_state.dirty.patrols = true;
             world_state.dirty.waypoint_slots = true;
+        }
+        if is_miner_home {
+            world_state.dirty.mining = true;
         }
         world_state.dirty.building_grid = true;
     }

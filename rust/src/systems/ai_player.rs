@@ -461,7 +461,12 @@ fn try_build_inner(
     let ok = world::build_and_pay(&mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
         &mut res.food_storage, &mut res.world.spawner_state, &mut res.world.building_hp,
         building, tdi, row, col, center, cost);
-    if ok { res.world.dirty.building_grid = true; }
+    if ok {
+        res.world.dirty.building_grid = true;
+        if matches!(building, Building::MinerHome { .. }) {
+            res.world.dirty.mining = true;
+        }
+    }
     ok.then_some(format!("built {label}"))
 }
 

@@ -518,6 +518,9 @@ pub fn building_damage_system(
             world.dirty.patrols = true;
             world.dirty.waypoint_slots = true;
         }
+        if msg.kind == BuildingKind::MinerHome {
+            world.dirty.mining = true;
+        }
         world.dirty.building_grid = true;
 
         // Kill the linked NPC if alive

@@ -127,6 +127,9 @@ pub fn death_cleanup_system(
         if *job == Job::Raider {
             res.raid_queue.remove(faction.0, entity);
         }
+        if *job == Job::Miner {
+            res.dirty.mining = true;
+        }
 
         // Track kill statistics for UI (faction 0 = player/villager, 1+ = raiders)
         if faction.0 == 0 {
