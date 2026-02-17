@@ -74,6 +74,7 @@ fn min_waypoint_spacing(
 fn waypoint_spacing_ok(
     grid: &WorldGrid, world_data: &WorldData, town_idx: u32, candidate: Vec2,
 ) -> bool {
+    // Small helper so call sites read like English: "is spacing OK?"
     min_waypoint_spacing(grid, world_data, town_idx, candidate) >= MIN_WAYPOINT_SPACING
 }
 
@@ -82,6 +83,9 @@ fn recalc_waypoint_patrol_order_clockwise(
     world_data: &mut WorldData,
     town_idx: u32,
 ) {
+    // Rebuild patrol order from geometry, not history:
+    // sort all living waypoints of this town by angle around town center.
+    // This guarantees stable clockwise ordering after add/remove operations.
     let Some(center) = world_data.towns.get(town_idx as usize).map(|t| t.center) else { return; };
 
     let mut ids: Vec<usize> = world_data.waypoints.iter().enumerate()
@@ -146,11 +150,14 @@ macro_rules! territory_building_sets {
 }
 
 impl AiTownSnapshot {
+    // Snapshot utility: union all territory-defining building slots into one set.
     fn all_building_slots(&self) -> HashSet<(i32, i32)> {
         territory_building_sets!(snapshot self).collect()
     }
 }
 
+// Fallback utility: produce the same territory set directly from world state.
+// Keep behavior equivalent to `AiTownSnapshot::all_building_slots`.
 fn all_building_slots_from_world(
     world_data: &WorldData, ti: u32, center: Vec2,
 ) -> HashSet<(i32, i32)> {
@@ -191,6 +198,7 @@ enum AiAction {
 }
 
 impl AiPersonality {
+    // Human-readable label for UI/logging.
     pub fn name(self) -> &'static str {
         match self {
             Self::Aggressive => "Aggressive",
@@ -210,6 +218,7 @@ impl AiPersonality {
 
     /// Town policies tuned per personality.
     pub fn default_policies(self) -> PolicySet {
+        // Default policy baseline used when a town first gets an AI profile.
         match self {
             Self::Aggressive => PolicySet {
                 archer_aggressive: true,
@@ -238,6 +247,8 @@ impl AiPersonality {
 
     /// Base weights for building types: (farm, house, barracks, waypoint)
     fn building_weights(self) -> (f32, f32, f32, f32) {
+        // Relative urgency for (farm, farmer home, archer home, waypoint).
+        // These are multipliers, not hard guarantees.
         match self {
             Self::Aggressive => (10.0, 10.0, 30.0, 20.0),
             Self::Balanced   => (20.0, 20.0, 15.0, 10.0),
@@ -247,6 +258,7 @@ impl AiPersonality {
 
     /// Barracks target count relative to houses.
     fn archer_home_target(self, houses: usize) -> usize {
+        // Desired military housing ratio relative to civilian farmer homes.
         match self {
             Self::Aggressive => houses.max(1),
             Self::Balanced   => (houses / 2).max(1),
@@ -256,6 +268,7 @@ impl AiPersonality {
 
     /// Farmer home target count relative to farms.
     fn farmer_home_target(self, farms: usize) -> usize {
+        // Desired worker-housing ratio relative to farm count.
         match self {
             Self::Aggressive => farms.max(1),
             Self::Balanced => (farms + 1).max(1),
@@ -265,6 +278,7 @@ impl AiPersonality {
 
     /// Desired miners per discovered gold mine in policy radius.
     fn miners_per_mine_target(self) -> usize {
+        // Economic personality invests the most in mining saturation.
         match self {
             Self::Aggressive => 1,
             Self::Balanced => 2,
@@ -274,6 +288,8 @@ impl AiPersonality {
 
     /// Weight for expanding mining radius (Aggressive expands eagerly, Economic conservatively).
     fn expand_mining_weight(self) -> f32 {
+        // Controls how quickly personality chooses policy expansion
+        // once current mine coverage is saturated.
         match self {
             Self::Aggressive => 12.0,
             Self::Balanced => 8.0,
@@ -284,6 +300,8 @@ impl AiPersonality {
     /// Upgrade weights indexed by UpgradeType discriminant (16 entries).
     /// Only entries with weight > 0 are scored.
     fn upgrade_weights(self, kind: AiKind) -> [f32; UPGRADE_COUNT] {
+        // Weight table indexed by upgrade enum discriminant.
+        // Larger values increase chance in weighted random selection.
         match kind {
             //                             MHP MAt MRn AS  MMS Alt Ddg FYd FHP FMS mHP mMS GYd Hel Fnt Exp
             AiKind::Raider => match self {
@@ -301,6 +319,10 @@ impl AiPersonality {
 
 /// Weighted random selection from scored actions.
 fn weighted_pick(scores: &[(AiAction, f32)]) -> Option<AiAction> {
+    // Standard weighted-random draw:
+    // 1) sum all weights
+    // 2) roll in [0,total)
+    // 3) walk cumulative weight until roll falls inside a bucket
     let total: f32 = scores.iter().map(|(_, s)| *s).sum();
     if total <= 0.0 { return None; }
     let roll = rand::rng().random_range(0.0..total);
@@ -336,6 +358,8 @@ pub struct AiPlayerState {
 fn find_inner_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid,
 ) -> Option<(i32, i32)> {
+    // Deterministic fallback placement policy:
+    // choose the empty slot closest to town center.
     world::empty_slots(tg, center, grid).into_iter()
         .min_by_key(|&(r, c)| r * r + c * c)
 }
@@ -346,6 +370,8 @@ fn build_town_snapshot(
     tg: &world::TownGrid,
     town_data_idx: usize,
 ) -> Option<AiTownSnapshot> {
+    // Build one cached view of this town used during this AI tick.
+    // Purpose: avoid recomputing per-building slot sets repeatedly while scoring.
     let town = world_data.towns.get(town_data_idx)?;
     let center = town.center;
     let ti = town_data_idx as u32;
@@ -412,8 +438,15 @@ fn count_neighbors(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> NeighborCount
 fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     let (r, c) = slot;
     let nc = count_neighbors(snapshot, slot);
+    // Base preference:
+    // - reward adjacency to farms (stronger for orthogonal neighbors than diagonal)
+    // - mildly reward being near farmer homes (keeps food production near workers)
     let mut score = nc.edge_farms * 24 + nc.diag_farms * 12 + nc.farmer_homes * 8;
 
+    // Shape bonus:
+    // Check all four 2x2 blocks that could include this candidate slot.
+    // If placing here would complete a dense farm block, reward heavily.
+    // This encourages compact agricultural clusters instead of sparse scatter.
     let two_by_two = [(0, 0), (-1, 0), (0, -1), (-1, -1)];
     for (or, oc) in two_by_two {
         let r0 = r + or;
@@ -429,7 +462,14 @@ fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
         }
     }
 
+    // Line bonus:
+    // Extra reward when candidate touches multiple orthogonal farms,
+    // which tends to create contiguous rows/columns with better density.
     if nc.edge_farms >= 2 { score += 30; }
+
+    // Bootstrap rule:
+    // For the very first farms, bias toward the town center so early layout
+    // starts compact before local-cluster signals become available.
     if snapshot.farms.is_empty() {
         let radial = r * r + c * c;
         score -= radial / 2;
@@ -438,6 +478,8 @@ fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
 }
 
 fn balanced_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    // Balanced-personality farm pattern:
+    // prefer straight rays on cardinal axes from town center, with continuity bonus.
     let (r, c) = slot;
     let radial = r * r + c * c;
     let on_axis = r == 0 || c == 0;
@@ -459,6 +501,8 @@ fn balanced_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
 }
 
 fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    // Farmer homes should border farms; reject positions with no nearby farms.
+    // Then reward stronger farm adjacency and moderate proximity to existing homes.
     let nc = count_neighbors(snapshot, slot);
     if nc.edge_farms == 0 && nc.diag_farms == 0 {
         return i32::MIN / 4;
@@ -467,6 +511,8 @@ fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 
 }
 
 fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    // Balanced-personality housing pattern:
+    // keep houses beside farm rays (off-axis), not directly on the farm axis.
     let (r, c) = slot;
     let mut score = 0i32;
     let on_axis = r == 0 || c == 0;
@@ -504,6 +550,8 @@ fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32
 }
 
 fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+    // Archer homes act as defensive fillers:
+    // prefer being near economic core, avoid over-clumping with other archer homes.
     let nc = count_neighbors(snapshot, slot);
     let near_farms = nc.edge_farms + nc.diag_farms;
     let mut score = near_farms * 40 + nc.farmer_homes * 35 - nc.archer_homes * 20;
@@ -512,6 +560,8 @@ fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
 }
 
 fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i32)) -> i32 {
+    // Miner homes should move toward global mine availability.
+    // With no mines, fallback to center-biased placement.
     if mine_positions.is_empty() {
         let (r, c) = slot;
         return -(r * r + c * c);
@@ -528,6 +578,10 @@ fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i3
 fn find_waypoint_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, world_data: &WorldData, ti: u32,
 ) -> Option<(i32, i32)> {
+    // Waypoint placement policy (in-town fallback):
+    // 1) compute perimeter around owned territory
+    // 2) discard occupied/unbuildable/too-close candidates
+    // 3) choose candidate maximizing spacing, then radial distance
     let occupied = controlled_territory_slots(None, world_data, center, ti);
     if occupied.is_empty() { return None; }
     let perimeter = territory_perimeter_slots(&occupied, tg);
@@ -574,6 +628,7 @@ fn controlled_territory_slots(
 fn territory_perimeter_slots(
     occupied: &HashSet<(i32, i32)>, tg: &world::TownGrid,
 ) -> HashSet<(i32, i32)> {
+    // Convert occupied territory slots into a one-cell perimeter ring.
     let mut out = HashSet::new();
     let dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
@@ -602,6 +657,9 @@ fn sync_town_perimeter_waypoints(
     town_grids: &world::TownGrids,
     town_data_idx: usize,
 ) -> usize {
+    // Maintenance pass:
+    // if town territory changed, prune in-town waypoints no longer on perimeter.
+    // Wilderness waypoints are preserved.
     let Some(town) = world_data.towns.get(town_data_idx) else { return 0; };
     let Some(tg) = town_grids.grids.iter().find(|g| g.town_data_idx == town_data_idx) else { return 0; };
     let center = town.center;
@@ -647,6 +705,7 @@ pub fn sync_patrol_perimeter_system(
     game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
 ) {
+    // Dirty-flag system: only runs when perimeter-affecting state changed.
     let _t = timings.scope("sync_patrol_perimeter");
     if !world.dirty.patrol_perimeter { return; }
     world.dirty.patrol_perimeter = false;
@@ -829,6 +888,7 @@ pub fn ai_decision_system(
             .filter(|s| s.is_population_spawner())
             .count() as i32;
         let reserve = player.personality.food_reserve_per_spawner() * spawner_count;
+        // Food reserve rule: if town is at/below reserve, skip spending this tick.
         if food <= reserve { continue; }
 
         let mining_radius = res.policies.policies.get(tdi)
@@ -855,11 +915,13 @@ pub fn ai_decision_system(
 
         match player.kind {
             AiKind::Raider => {
+                // Raider AI has a smaller economy action set.
                 if ctx.has_slots && ctx.food >= building_cost(BuildKind::Tent) {
                     scores.push((AiAction::BuildTent, 30.0));
                 }
             }
             AiKind::Builder => {
+                // Builder AI scores economic + military + mining expansion actions.
                 let (fw, hw, bw, gw) = player.personality.building_weights();
                 let bt = player.personality.archer_home_target(houses);
                 let ht = player.personality.farmer_home_target(farms);
@@ -872,6 +934,8 @@ pub fn ai_decision_system(
                 let miner_deficit = ms_target.saturating_sub(mine_shafts);
 
                 if ctx.has_slots {
+                    // Deficit-driven need model:
+                    // when below target ratios, multiply base weight to catch up.
                     let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0);
                     let house_need = if house_deficit > 0 { 1.0 + house_deficit as f32 } else { 0.5 };
                     let barracks_need = if barracks_deficit > 0 { 1.0 + barracks_deficit as f32 } else { 0.5 };
@@ -889,6 +953,7 @@ pub fn ai_decision_system(
                 }
 
                 if ctx.food >= building_cost(BuildKind::Waypoint) {
+                    // Prefer uncovered mine support; otherwise maintain patrol coverage parity.
                     let uncovered = mines.uncovered.len();
                     if uncovered > 0 {
                         let mine_need = 1.0 + uncovered as f32;
@@ -912,6 +977,8 @@ pub fn ai_decision_system(
             if !upgrade_available(&levels, idx, ctx.food, gold) { continue; }
             let mut w = weight;
             if idx == 15 {
+                // Expansion upgrade is delayed while town still has cheap,
+                // high-value building actions available.
                 if matches!(player.kind, AiKind::Builder) {
                     let ht = player.personality.farmer_home_target(farms);
                     let bt = player.personality.archer_home_target(houses);
@@ -964,6 +1031,7 @@ fn try_build_at_slot(
     row: i32,
     col: i32,
 ) -> Option<String> {
+    // Thin wrapper around world::build_and_pay that returns a user-facing log label.
     let ok = world::build_and_pay(
         &mut res.world.grid,
         &mut res.world.world_data,
@@ -1005,6 +1073,7 @@ fn try_build_inner(
     building: Building, cost: i32, label: &str,
     tdi: usize, center: Vec2, res: &mut AiBuildRes, grid_idx: usize,
 ) -> Option<String> {
+    // Build using deterministic center-nearest slot.
     let tg = res.world.town_grids.grids.get(grid_idx)?;
     let (row, col) = find_inner_slot(tg, center, &res.world.grid)?;
     try_build_at_slot(building, cost, label, tdi, center, res, row, col)
@@ -1016,6 +1085,7 @@ fn try_build_scored(
     snapshot: Option<&AiTownSnapshot>,
     score_fn: fn(&AiTownSnapshot, (i32, i32)) -> i32,
 ) -> Option<String> {
+    // Build using snapshot-aware scoring with inner-slot fallback.
     let tg = res.world.town_grids.grids.get(grid_idx)?;
     let (row, col) = pick_slot_from_snapshot_or_inner(snapshot, tg, center, &res.world.grid, score_fn)?;
     try_build_at_slot(building, building_cost(kind), label, tdi, center, res, row, col)
@@ -1074,6 +1144,8 @@ fn execute_action(
             try_build_miner_home(ctx, mines, res, snapshot)
         }
         AiAction::ExpandMiningRadius => {
+            // Policy action, not building placement.
+            // Expands search radius for mines in fixed-size steps with max cap.
             let Some(policy) = res.policies.policies.get_mut(ctx.tdi) else { return None; };
             let old = policy.mining_radius;
             let new = (old + MINING_RADIUS_STEP).min(MAX_MINING_RADIUS);
@@ -1096,6 +1168,8 @@ fn execute_action(
                     Some(world::town_grid_to_world(ctx.center, row, col))
                 });
             let Some(pos) = wp_pos else { return None; };
+            // Placement is world-position based (not town-slot based),
+            // so this supports both in-town and wilderness waypoint targets.
             if world::place_waypoint_at_world_pos(
                 &mut res.world.grid, &mut res.world.world_data,
                 &mut res.world.building_hp, &mut res.food_storage,
@@ -1119,6 +1193,7 @@ fn execute_action(
 
 
 fn log_ai(log: &mut CombatLog, gt: &GameTime, faction: i32, town: &str, personality: &str, what: &str) {
+    // Centralized AI log format so all decisions read consistently in the combat log.
     log.push(CombatEventKind::Ai, faction, gt.day(), gt.hour(), gt.minute(),
         format!("{} [{}] {}", town, personality, what));
 }
