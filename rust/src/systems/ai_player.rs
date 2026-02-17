@@ -18,6 +18,13 @@ use crate::systemparams::WorldState;
 use crate::world::{self, Building, WorldData, WorldGrid};
 use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, UPGRADE_COUNT};
 
+// Rust orientation notes for readers coming from PowerShell:
+// - `Option<T>` is Rust's explicit nullable type (`Some(value)` or `None`).
+// - `match` is a safe, exhaustive switch. The compiler ensures all cases are handled.
+// - `&T` means "borrowed reference" (read-only by default). `&mut T` is mutable borrow.
+// - Iterator chains (`iter().filter().map().collect()`) are the Rust equivalent of pipeline transforms.
+// - The compiler enforces aliasing rules at compile time, replacing many runtime null/state checks.
+
 /// Mutable world resources needed for AI building. Bundled to stay under Bevy's 16-param limit.
 #[derive(SystemParam)]
 pub struct AiBuildRes<'w> {
@@ -122,6 +129,7 @@ struct AiTownSnapshot {
 /// Adding a new territory-defining building? Add it here — both paths expand from this.
 macro_rules! territory_building_sets {
     (snapshot $snap:expr) => {
+        // Snapshot path: already normalized into HashSets.
         $snap.farms.iter()
             .chain(&$snap.farmer_homes)
             .chain(&$snap.archer_homes)
@@ -129,6 +137,7 @@ macro_rules! territory_building_sets {
             .copied()
     };
     (world $wd:expr, $ti:expr, $center:expr) => {
+        // World path: derive slots from live world arrays using the same conversion pipeline.
         town_building_slots!($wd.farms, $ti, $center)
             .chain(town_building_slots!($wd.farmer_homes, $ti, $center))
             .chain(town_building_slots!($wd.archer_homes, $ti, $center))
@@ -361,6 +370,9 @@ fn pick_best_empty_slot<F>(snapshot: &AiTownSnapshot, mut score: F) -> Option<(i
 where
     F: FnMut((i32, i32)) -> i32,
 {
+    // Generic scoring function:
+    // `F: FnMut(...)` means caller can pass any closure/function that scores one slot.
+    // We keep the "best so far" as Option<(slot, score)> to handle empty input safely.
     let mut best: Option<((i32, i32), i32)> = None;
     for &slot in &snapshot.empty_slots {
         let s = score(slot);
@@ -379,6 +391,8 @@ struct NeighborCounts {
 }
 
 fn count_neighbors(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> NeighborCounts {
+    // 3x3 neighborhood scan around the candidate slot.
+    // This is a common scoring primitive reused by multiple building scorers.
     let (r, c) = slot;
     let mut nc = NeighborCounts { edge_farms: 0, diag_farms: 0, farmer_homes: 0, archer_homes: 0 };
     for dr in -1..=1 {
@@ -546,6 +560,10 @@ fn controlled_territory_slots(
     center: Vec2,
     ti: u32,
 ) -> HashSet<(i32, i32)> {
+    // `Option<&AiTownSnapshot>` lets caller pass a cache when available.
+    // Pattern:
+    // - fast path: use snapshot (already precomputed)
+    // - fallback: compute from world state
     if let Some(snap) = snapshot {
         return snap.all_building_slots();
     }
@@ -677,6 +695,12 @@ struct MineAnalysis {
 }
 
 fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f32) -> MineAnalysis {
+    // Single-pass analysis over alive gold mines.
+    // We derive multiple outputs from one loop to avoid duplicate scans:
+    // - count in/out of radius
+    // - uncovered mines
+    // - nearest uncovered mine
+    // - all mine positions (for miner-home placement scoring)
     let radius_sq = mining_radius * mining_radius;
     let friendly: Vec<Vec2> = world_data.waypoints.iter()
         .filter(|w| w.town_idx == ti && world::is_alive(w.position))
@@ -726,6 +750,8 @@ impl TownContext {
         snapshot: Option<&AiTownSnapshot>,
         res: &AiBuildRes, kind: AiKind, mining_radius: f32,
     ) -> Option<Self> {
+        // Constructor centralizes per-tick derived values.
+        // Returning `Option<Self>` avoids panics if required world/town data is missing.
         let center = snapshot.map(|s| s.center)
             .or_else(|| res.world.world_data.towns.get(tdi).map(|t| t.center))?;
         let ti = tdi as u32;
@@ -741,7 +767,9 @@ impl TownContext {
             })
             .unwrap_or(0.0);
         let mines = match kind {
+            // Builder AIs use mine analysis for scoring/execution.
             AiKind::Builder => Some(analyze_mines(&res.world.world_data, center, ti, mining_radius)),
+            // Raider AIs don't use mining logic.
             AiKind::Raider => None,
         };
         Some(Self { center, ti, tdi, grid_idx, food, has_slots: empty_count > 0, slot_fullness, mines })
@@ -767,6 +795,8 @@ pub fn ai_decision_system(
     mut snapshots: Local<AiTownSnapshotCache>,
     timings: Res<SystemTimings>,
 ) {
+    // System timing gate:
+    // runs every `decision_interval`, not every frame.
     let _t = timings.scope("ai_decision");
     *timer += time.delta_secs();
     if *timer < config.decision_interval { return; }
@@ -778,6 +808,9 @@ pub fn ai_decision_system(
     }
 
     for pi in 0..ai_state.players.len() {
+        // Two-step style common in Rust ECS:
+        // 1) gather immutable state and score actions
+        // 2) perform one mutating action
         let player = &ai_state.players[pi];
         if !player.active { continue; }
         let tdi = player.town_data_idx;
@@ -902,6 +935,7 @@ pub fn ai_decision_system(
         }
 
         // Pick and execute
+        // Weighted random keeps behavior varied while still guided by priorities.
         let Some(action) = weighted_pick(&scores) else { continue };
         let label = execute_action(
             action, &ctx, &mut res,
@@ -957,6 +991,8 @@ fn pick_slot_from_snapshot_or_inner(
     grid: &WorldGrid,
     score: fn(&AiTownSnapshot, (i32, i32)) -> i32,
 ) -> Option<(i32, i32)> {
+    // If snapshot exists, use expensive scoring over known empty slots.
+    // If no snapshot/candidate, fallback to deterministic inner-slot policy.
     if let Some(snap) = snapshot {
         if let Some(slot) = pick_best_empty_slot(snap, |s| score(snap, s)) {
             return Some(slot);
@@ -989,6 +1025,8 @@ fn try_build_miner_home(
     ctx: &TownContext, mines: &MineAnalysis, res: &mut AiBuildRes,
     snapshot: Option<&AiTownSnapshot>,
 ) -> Option<String> {
+    // Miner homes are intentionally special-cased:
+    // score depends on mine positions from per-tick MineAnalysis, not only local adjacency.
     let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
     let slot = if let Some(snap) = snapshot {
         pick_best_empty_slot(snap, |s| miner_toward_mine_score(&mines.all_positions, ctx.center, s))
@@ -1012,6 +1050,8 @@ fn execute_action(
     personality: AiPersonality,
     _difficulty: Difficulty,
 ) -> Option<String> {
+    // Action execution uses `match` on enum variant.
+    // This gives explicit, compile-checked control flow per action type.
     match action {
         AiAction::BuildTent => try_build_inner(
             Building::Tent { town_idx: ctx.ti }, building_cost(BuildKind::Tent), "tent",
@@ -1045,6 +1085,7 @@ fn execute_action(
             Some(format!("expanded mining radius to {:.0}px", new))
         }
         AiAction::BuildWaypoint => {
+            // Builder-only guard: if mines are unavailable, skip action safely.
             let Some(mines) = &ctx.mines else { return None; };
             let cost = building_cost(BuildKind::Waypoint);
             let wp_pos = mines.nearest_uncovered
