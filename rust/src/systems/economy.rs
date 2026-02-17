@@ -307,7 +307,7 @@ pub fn spawner_respawn_system(
                 }
 
                 combat_log.push(
-                    CombatEventKind::Spawn,
+                    CombatEventKind::Spawn, faction,
                     game_time.day(), game_time.hour(), game_time.minute(),
                     format!("{} respawned from {}", job_name, building_name),
                 );
@@ -635,7 +635,7 @@ pub fn migration_spawn_system(
         member_slots,
     });
 
-    combat_log.push(CombatEventKind::Raid, game_time.day(), game_time.hour(), game_time.minute(),
+    combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
         format!("A raider band approaches from the {}!", direction));
     info!("Migration spawned: {} raiders from {} edge, faction {}", group_size, direction, next_faction);
 }
@@ -755,7 +755,7 @@ pub fn migration_settle_system(
     world_state.dirty.waypoint_slots = true;
     tilemap_spawned.0 = false; // force tilemap rebuild with new terrain + buildings
 
-    combat_log.push(CombatEventKind::Raid, game_time.day(), game_time.hour(), game_time.minute(),
+    combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
         format!("A raider band has settled nearby!"));
     info!("Migration settled at ({:.0}, {:.0}), town_data_idx={}", avg_x, avg_y, town_data_idx);
 

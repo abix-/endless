@@ -586,7 +586,7 @@ pub struct TownBuildingCounts {
 }
 
 /// Find the index of a building in its WorldData vec by position match.
-fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec2) -> Option<usize> {
+pub fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec2) -> Option<usize> {
     let near = |p: Vec2| (p - pos).length() < 1.0;
     match building {
         Building::Farm { .. } => world_data.farms.iter().position(|f| near(f.position)),
@@ -595,7 +595,9 @@ fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec
         Building::ArcherHome { .. } => world_data.archer_homes.iter().position(|a| near(a.position)),
         Building::Tent { .. } => world_data.tents.iter().position(|t| near(t.position)),
         Building::MinerHome { .. } => world_data.miner_home_at(pos),
-        _ => None,
+        Building::Bed { .. } => world_data.beds.iter().position(|b| near(b.position)),
+        Building::Fountain { town_idx } | Building::Camp { town_idx } => Some(town_idx as usize),
+        Building::GoldMine => world_data.gold_mine_at(pos),
     }
 }
 
@@ -638,9 +640,18 @@ pub fn destroy_building(
         }
     }
 
-    // Combat log
+    // Combat log — derive faction from building's town_idx
+    let bld_town = match building {
+        Building::Fountain { town_idx } | Building::Farm { town_idx }
+        | Building::Bed { town_idx } | Building::Waypoint { town_idx, .. }
+        | Building::Camp { town_idx } | Building::FarmerHome { town_idx }
+        | Building::ArcherHome { town_idx } | Building::Tent { town_idx }
+        | Building::MinerHome { town_idx } => town_idx as usize,
+        Building::GoldMine => 0,
+    };
+    let faction = world_data.towns.get(bld_town).map(|t| t.faction).unwrap_or(0);
     combat_log.push(
-        CombatEventKind::Harvest,
+        CombatEventKind::Harvest, faction,
         game_time.day(), game_time.hour(), game_time.minute(),
         reason.to_string(),
     );

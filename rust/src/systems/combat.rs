@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{WAYPOINT_RANGE, WAYPOINT_DAMAGE, WAYPOINT_COOLDOWN, WAYPOINT_PROJ_SPEED, WAYPOINT_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, WaypointState, BuildingHpState, SystemTimings, CombatLog, GameTime, SlotAllocator};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, WaypointState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, SlotAllocator};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid};
@@ -327,7 +327,7 @@ pub fn process_proj_hits(
         });
 
         if let Some((kind, index)) = hit {
-            building_damage_events.write(BuildingDamageMsg { kind, index, amount: damage });
+            building_damage_events.write(BuildingDamageMsg { kind, index, amount: damage, attacker_faction: proj_faction });
             proj_alloc.free(slot);
             if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
                 queue.push(ProjGpuUpdate::Deactivate { idx: slot });
@@ -468,10 +468,10 @@ pub fn building_damage_system(
         if *hp <= 0.0 { continue; } // already dead
 
         *hp -= msg.amount;
-        if *hp > 0.0 { continue; } // still alive
-        *hp = 0.0;
+        let new_hp = (*hp).max(0.0);
+        let max_hp = BuildingHpState::max_hp(msg.kind);
 
-        // Building destroyed — find its position and town to call destroy_building
+        // Look up position and town for logging (needed for both damage + destruction)
         let (pos, town_idx) = match msg.kind {
             BuildingKind::Waypoint => world.world_data.waypoints.get(msg.index)
                 .map(|g| (g.position, g.town_idx as usize)),
@@ -495,10 +495,23 @@ pub fn building_damage_system(
 
         if pos.x < -9000.0 { continue; } // already tombstoned
 
-        let center = world.world_data.towns.get(town_idx)
-            .map(|t| t.center).unwrap_or_default();
         let town_name = world.world_data.towns.get(town_idx)
             .map(|t| t.name.clone()).unwrap_or_default();
+        let attacker_name = world.world_data.towns.get(msg.attacker_faction as usize)
+            .map(|t| t.name.as_str()).unwrap_or("?");
+
+        // Log every damage hit to combat log
+        let defender_faction = world.world_data.towns.get(town_idx).map(|t| t.faction).unwrap_or(0);
+        combat_log.push(CombatEventKind::BuildingDamage, defender_faction,
+            game_time.day(), game_time.hour(), game_time.minute(),
+            format!("{:?} in {} hit by {} for {:.0} ({:.0}/{:.0} HP)", msg.kind, town_name, attacker_name, msg.amount, new_hp, max_hp));
+
+        *hp = new_hp;
+        if new_hp > 0.0 { continue; } // still alive
+
+        // Building destroyed
+        let center = world.world_data.towns.get(town_idx)
+            .map(|t| t.center).unwrap_or_default();
         let (trow, tcol) = world::world_to_town_grid(center, pos);
 
         // Capture linked NPC slot BEFORE destroy_building tombstones the spawner

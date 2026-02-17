@@ -142,7 +142,8 @@ pub fn arrival_system(
 
         // Harvest check: if farm became Ready while working, harvest it
         if let Some(farm_idx) = find_by_pos(&world_data.farms, farm_pos) {
-            if farm_states.harvest(farm_idx, Some(town.0 as usize), &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, &mut combat_log, &game_time) {
+            let fac = world_data.towns.get(town.0 as usize).map(|t| t.faction).unwrap_or(0);
+            if farm_states.harvest(farm_idx, Some(town.0 as usize), &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, &mut combat_log, &game_time, fac) {
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)");
             }
         }
@@ -346,7 +347,7 @@ pub fn decision_system(
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
 
                                 // Check if farm is ready to harvest
-                                if farms.states.harvest(farm_idx, Some(town_id.0 as usize), &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, combat_log, &game_time) {
+                                if farms.states.harvest(farm_idx, Some(town_id.0 as usize), &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, combat_log, &game_time, faction.0) {
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working");
                                 } else {
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)");
@@ -380,7 +381,7 @@ pub fn decision_system(
                             });
 
                         if let Some((farm_idx, _)) = ready_farm {
-                            farms.states.harvest(farm_idx, None, &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, combat_log, &game_time);
+                            farms.states.harvest(farm_idx, None, &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, combat_log, &game_time, faction.0);
 
                             *activity = Activity::Returning { has_food: true, gold: 0 };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -419,7 +420,7 @@ pub fn decision_system(
                                 * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize])).round() as i32;
                             farms.states.harvest(gi, None,
                                 &mut economy.food_storage, &mut economy.gold_storage,
-                                &mut economy.food_events, combat_log, &game_time);
+                                &mut economy.food_events, combat_log, &game_time, faction.0);
                             *activity = Activity::Returning { has_food: false, gold: gold_amount };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
@@ -748,7 +749,7 @@ pub fn decision_system(
                             * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize])).round() as i32;
                         farms.states.harvest(gi, None,
                             &mut economy.food_storage, &mut economy.gold_storage,
-                            &mut economy.food_events, combat_log, &game_time);
+                            &mut economy.food_events, combat_log, &game_time, faction.0);
                         farms.occupancy.release(mine_pos);
                         commands.entity(entity).remove::<WorkPosition>();
                         *activity = Activity::Returning { has_food: false, gold: gold_amount };
@@ -1016,7 +1017,7 @@ pub fn decision_system(
                                 let group_size = queue.len();
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                                     format!("Raid group of {} dispatched!", group_size));
-                                combat_log.push(CombatEventKind::Raid, game_time.day(), game_time.hour(), game_time.minute(),
+                                combat_log.push(CombatEventKind::Raid, faction.0, game_time.day(), game_time.hour(), game_time.minute(),
                                     format!("{} Raiders dispatched to farm", group_size));
                                 for (raider_entity, raider_idx) in queue.drain(..) {
                                     // Can't mutate other entities' Activity here — use commands

@@ -592,6 +592,7 @@ impl GrowthStates {
         food_events: &mut FoodEvents,
         combat_log: &mut CombatLog,
         game_time: &GameTime,
+        faction: i32,
     ) -> bool {
         if idx >= self.states.len() || self.states[idx] != FarmGrowthState::Ready {
             return false;
@@ -608,7 +609,7 @@ impl GrowthStates {
                         });
                     }
                     combat_log.push(
-                        CombatEventKind::Harvest,
+                        CombatEventKind::Harvest, faction,
                         game_time.day(), game_time.hour(), game_time.minute(),
                         format!("Farm #{} harvested", idx),
                     );
@@ -618,7 +619,7 @@ impl GrowthStates {
                         gold_storage.gold[town_idx] += crate::constants::MINE_EXTRACT_PER_CYCLE;
                     }
                     combat_log.push(
-                        CombatEventKind::Harvest,
+                        CombatEventKind::Harvest, faction,
                         game_time.day(), game_time.hour(), game_time.minute(),
                         format!("Mine #{} harvested ({} gold)", idx, crate::constants::MINE_EXTRACT_PER_CYCLE),
                     );
@@ -751,6 +752,8 @@ pub struct UiState {
     pub combat_log_visible: bool,
     /// Index into world_data.miner_homes — next click assigns a gold mine.
     pub assigning_mine: Option<usize>,
+    /// Double-click on fountain sets this to the faction number; Factions tab consumes it.
+    pub pending_faction_select: Option<i32>,
 }
 
 impl Default for UiState {
@@ -762,6 +765,7 @@ impl Default for UiState {
             left_panel_tab: LeftPanelTab::default(),
             combat_log_visible: true,
             assigning_mine: None,
+            pending_faction_select: None,
         }
     }
 }
@@ -838,6 +842,7 @@ pub enum CombatEventKind {
     Harvest,
     LevelUp,
     Ai,
+    BuildingDamage,
 }
 
 /// A single combat log entry.
@@ -847,6 +852,7 @@ pub struct CombatLogEntry {
     pub hour: i32,
     pub minute: i32,
     pub kind: CombatEventKind,
+    pub faction: i32,
     pub message: String,
 }
 
@@ -859,11 +865,11 @@ pub struct CombatLog {
 }
 
 impl CombatLog {
-    pub fn push(&mut self, kind: CombatEventKind, day: i32, hour: i32, minute: i32, message: String) {
+    pub fn push(&mut self, kind: CombatEventKind, faction: i32, day: i32, hour: i32, minute: i32, message: String) {
         if self.entries.len() >= COMBAT_LOG_MAX {
             self.entries.pop_front();
         }
-        self.entries.push_back(CombatLogEntry { day, hour, minute, kind, message });
+        self.entries.push_back(CombatLogEntry { day, hour, minute, kind, faction, message });
     }
 }
 
@@ -1278,6 +1284,8 @@ pub struct TutorialState {
     pub initial_archer_homes: usize,
     pub initial_miner_homes: usize,
     pub camera_start: Vec2,
+    /// Wall-clock seconds when tutorial started (for 10-minute auto-end).
+    pub start_time: f64,
 }
 
 impl Default for TutorialState {
@@ -1290,6 +1298,7 @@ impl Default for TutorialState {
             initial_archer_homes: 0,
             initial_miner_homes: 0,
             camera_start: Vec2::ZERO,
+            start_time: 0.0,
         }
     }
 }

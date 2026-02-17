@@ -160,6 +160,7 @@ pub struct BuildingInspectorData<'w> {
     food_storage: Res<'w, FoodStorage>,
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
+    building_hp: Res<'w, BuildingHpState>,
 }
 
 #[derive(SystemParam)]
@@ -179,10 +180,13 @@ pub struct LogFilterState {
     pub show_levelups: bool,
     pub show_npc_activity: bool,
     pub show_ai: bool,
+    pub show_building_damage: bool,
+    /// -1 = all factions, 0 = my faction only
+    pub faction_filter: i32,
     pub initialized: bool,
     // Cached merged log entries — skip rebuild when sources unchanged
     cached_selected_npc: i32,
-    cached_filters: (bool, bool, bool, bool, bool, bool, bool),
+    cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, i32),
     cached_entries: Vec<(i64, egui::Color32, String, String)>,
 }
 
@@ -292,13 +296,15 @@ pub fn combat_log_system(
         filter_state.show_levelups = settings.log_levelups;
         filter_state.show_npc_activity = settings.log_npc_activity;
         filter_state.show_ai = settings.log_ai;
+        filter_state.show_building_damage = settings.log_building_damage;
+        filter_state.faction_filter = settings.log_faction_filter;
         filter_state.initialized = true;
     }
 
     let prev_filters = (
         filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
         filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
-        filter_state.show_ai,
+        filter_state.show_ai, filter_state.show_building_damage, filter_state.faction_filter,
     );
 
     let frame = egui::Frame::new()
@@ -316,6 +322,14 @@ pub fn combat_log_system(
         .show(ctx, |ui| {
             // Filter checkboxes
             ui.horizontal_wrapped(|ui| {
+                let faction_label = if filter_state.faction_filter == -1 { "All" } else { "Mine" };
+                egui::ComboBox::from_id_salt("log_faction_filter")
+                    .selected_text(faction_label)
+                    .width(50.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut filter_state.faction_filter, -1, "All");
+                        ui.selectable_value(&mut filter_state.faction_filter, 0, "Mine");
+                    });
                 ui.checkbox(&mut filter_state.show_kills, "Deaths");
                 ui.checkbox(&mut filter_state.show_spawns, "Spawns");
                 ui.checkbox(&mut filter_state.show_raids, "Raids");
@@ -323,6 +337,7 @@ pub fn combat_log_system(
                 ui.checkbox(&mut filter_state.show_levelups, "Levels");
                 ui.checkbox(&mut filter_state.show_npc_activity, "NPC");
                 ui.checkbox(&mut filter_state.show_ai, "AI");
+                ui.checkbox(&mut filter_state.show_building_damage, "Buildings");
             });
 
             ui.separator();
@@ -331,7 +346,7 @@ pub fn combat_log_system(
             let curr_filters = (
                 filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
                 filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
-                filter_state.show_ai,
+                filter_state.show_ai, filter_state.show_building_damage, filter_state.faction_filter,
             );
             let needs_rebuild = data.combat_log.is_changed()
                 || data.npc_logs.is_changed()
@@ -349,8 +364,13 @@ pub fn combat_log_system(
                         CombatEventKind::Harvest => filter_state.show_harvests,
                         CombatEventKind::LevelUp => filter_state.show_levelups,
                         CombatEventKind::Ai => filter_state.show_ai,
+                        CombatEventKind::BuildingDamage => filter_state.show_building_damage,
                     };
                     if !show { continue; }
+                    // Faction filter: "Mine" shows player (0) + global (-1) events only
+                    if filter_state.faction_filter == 0 && entry.faction != 0 && entry.faction != -1 {
+                        continue;
+                    }
 
                     let color = match entry.kind {
                         CombatEventKind::Kill => egui::Color32::from_rgb(220, 80, 80),
@@ -359,6 +379,7 @@ pub fn combat_log_system(
                         CombatEventKind::Harvest => egui::Color32::from_rgb(200, 200, 60),
                         CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
                         CombatEventKind::Ai => egui::Color32::from_rgb(180, 120, 220),
+                        CombatEventKind::BuildingDamage => egui::Color32::from_rgb(220, 130, 50),
                     };
 
                     let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
@@ -401,7 +422,7 @@ pub fn combat_log_system(
     let curr_filters = (
         filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
         filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
-        filter_state.show_ai,
+        filter_state.show_ai, filter_state.show_building_damage, filter_state.faction_filter,
     );
     if curr_filters != prev_filters {
         settings.log_kills = filter_state.show_kills;
@@ -411,6 +432,8 @@ pub fn combat_log_system(
         settings.log_levelups = filter_state.show_levelups;
         settings.log_npc_activity = filter_state.show_npc_activity;
         settings.log_ai = filter_state.show_ai;
+        settings.log_building_damage = filter_state.show_building_damage;
+        settings.log_faction_filter = filter_state.faction_filter;
         settings::save_settings(&settings);
     }
 
@@ -446,7 +469,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log);
             return;
         }
         ui.label("Click an NPC or building to inspect");
@@ -750,6 +773,10 @@ fn building_inspector_content(
     dirty: &mut DirtyFlags,
     meta_cache: &NpcMetaCache,
     ui_state: &mut UiState,
+    copy_text: &mut Option<String>,
+    game_time: &GameTime,
+    settings: &UserSettings,
+    combat_log: &CombatLog,
 ) {
     let col = bld.selected_building.col;
     let row = bld.selected_building.row;
@@ -914,6 +941,56 @@ fn building_inspector_content(
                     ui.label(format!("Miners: {} ({:.0}% speed)", occupants, mult * 100.0));
                 }
             }
+        }
+    }
+
+    // Copy Debug Info — gated behind debug_coordinates (same as NPC inspector)
+    if settings.debug_coordinates {
+        ui.separator();
+        let world_pos = bld.grid.grid_to_world(col, row);
+        let kind = building.kind();
+        let data_idx = crate::world::find_building_data_index(world_data, *building, world_pos);
+        let (hp, max_hp) = data_idx
+            .and_then(|i| bld.building_hp.get(kind, i))
+            .map(|hp| (hp, BuildingHpState::max_hp(kind)))
+            .unwrap_or((0.0, 0.0));
+
+        ui.label(format!("Pos: ({:.0}, {:.0})  Grid: ({}, {})", world_pos.x, world_pos.y, col, row));
+        ui.label(format!("HP: {:.0}/{:.0}  Kind: {:?}", hp, max_hp, kind));
+
+        if ui.button("Copy Debug Info").clicked() {
+            let name = building_name(building);
+            let town_name = world_data.towns.get(town_idx)
+                .map(|t| t.name.as_str()).unwrap_or("?");
+            let mut info = format!(
+                "{name} [{kind:?}]\n\
+                 Town: {town}\n\
+                 Pos: ({px:.0}, {py:.0})  Grid: ({col}, {row})\n\
+                 HP: {hp:.0}/{max:.0}\n\
+                 Day {day} {hour:02}:{min:02}\n\
+                 ---\n",
+                name = name,
+                kind = kind,
+                town = town_name,
+                px = world_pos.x,
+                py = world_pos.y,
+                col = col,
+                row = row,
+                hp = hp,
+                max = max_hp,
+                day = game_time.day(),
+                hour = game_time.hour(),
+                min = game_time.minute(),
+            );
+            // Append building damage log entries (same pattern as NPC log in copy)
+            let prefix = format!("{:?} in {}", kind, town_name);
+            for entry in &combat_log.entries {
+                if entry.kind == CombatEventKind::BuildingDamage && entry.message.starts_with(&prefix) {
+                    info.push_str(&format!("D{}:{:02}:{:02} {}\n",
+                        entry.day, entry.hour, entry.minute, entry.message));
+                }
+            }
+            *copy_text = Some(info);
         }
     }
 }

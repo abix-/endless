@@ -64,11 +64,11 @@ Bevy ECS (lib.rs build_app)
     │   ├─ Main menu: difficulty presets + world config sliders + Play / Load Game / Debug Tests / Restart Tutorial
     │   ├─ Game startup: world gen + NPC spawn (OnEnter Playing)
     │   ├─ Top bar: panel toggles left, town name + time center, stats (food + gold) + FPS right
-    │   ├─ Floating windows: NPC/building inspector with combat stats + equipment + status (bottom-left) + combat log with filters (bottom-right)
+    │   ├─ Floating windows: NPC/building inspector with combat stats + equipment + status (bottom-left) + combat log with faction filter + type filters (bottom-right)
     │   ├─ Left panel: floating Window with Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Factions (I) / Help (H)
     │   ├─ Jukebox overlay: top-right, track picker dropdown + pause/skip/loop/speed controls
     │   ├─ Build menu: bottom-center horizontal bar with building sprites + help text; click-to-place with grid-snapped ghost preview; destroy mode in bar + inspector
-    │   ├─ Tutorial: 20-step guided walkthrough (camera → building → NPC interaction → upgrades → policies → patrols → squads); condition-driven auto-advance + manual Next/Skip
+    │   ├─ Tutorial: 20-step guided walkthrough (camera → building → NPC interaction → upgrades → policies → patrols → squads); condition-driven auto-advance + manual Next/Skip + 10-min auto-end
     │   ├─ Pause menu (ESC): Resume, Settings (UI scale, scroll speed, background FPS, music/SFX volume, log/debug filters), Exit to Main Menu
     │   └─ Game cleanup: despawn + reset (OnExit Playing)
     │
@@ -132,21 +132,21 @@ rust/
   src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU NPC rendering (storage buffers) + misc/projectile rendering (instance buffers)
-  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync
+  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync, click_to_select_system (double-click fountain → Factions tab)
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, MiningProgress, Archer/Farmer/Miner markers, Migrating)
   src/constants.rs      # Tuning parameters (grid size, separation, energy rates, waypoint turret (disabled), squad limits, mining, MAX_MINE_OCCUPANCY, building HP, building costs, 8x8 base build area, WAYPOINT_COVER_RADIUS)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, WaypointState, SquadState, GoldStorage, MineStates, MinerProgressRender, BuildingHpState, MiningPolicy, HelpCatalog, etc.)
   src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
-  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v4, auto_upgrades, autosave_hours, music/sfx volume, music speed, tutorial_completed)
+  src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v4, auto_upgrades, autosave_hours, music/sfx volume, music speed, tutorial_completed, log_faction_filter)
   src/world.rs          # World data structs (GoldMine, MinerHome{assigned_mine}, FarmerHome, ArcherHome, Waypoint), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), place_waypoint_at_world_pos(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind(), WorldData::miner_home_at()/gold_mine_at()/building_counts()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale + audio volume), escape/time controls, keyboard toggles (Q=squads, H=help), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
     main_menu.rs        # Main menu with difficulty presets (Easy/Normal/Hard), world config sliders (farms + gold mines top-level, farmer/archer homes under AI Towns, tents under Raider Camps), Play / Load Game / Debug Tests, restart tutorial button
-    game_hud.rs         # Top bar (food + gold + FPS), jukebox overlay (track picker + pause/skip/loop/speed), floating inspector with combat stats/equipment/status (bottom-left) + combat log (bottom-right), mine assignment UI (click-to-assign), target overlay, squad overlay
+    game_hud.rs         # Top bar (food + gold + FPS), jukebox overlay (track picker + pause/skip/loop/speed), floating inspector with combat stats/equipment/status (bottom-left) + combat log with faction filter dropdown (bottom-right), mine assignment UI (click-to-assign), target overlay, squad overlay
     left_panel.rs       # Tabbed floating Window: Roster (R) / Upgrades (U) / Policies (P) / Patrols (T) / Squads (Q) / Factions (I) / Help (H) — policy persistence on tab leave
     build_menu.rs       # Bottom-center build bar: building sprites with cached atlas extraction, click-to-place, destroy mode, cursor hint
-    tutorial.rs         # 20-step guided tutorial: condition-driven hints (action triggers + info-only Next steps), skip per-step or all, persisted completion in UserSettings
+    tutorial.rs         # 20-step guided tutorial: condition-driven hints (action triggers + info-only Next steps), skip per-step or all, 10-minute auto-end timeout, persisted completion in UserSettings
   src/tests/
     mod.rs              # Test framework (TestState, menu UI, HUD, cleanup)
     vertical_slice.rs   # Full core loop test (8 phases, spawn→combat→death→respawn)

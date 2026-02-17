@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-16u
+
+- **double-click fountain → factions tab** — double-clicking a fountain building opens the Factions tab pre-selected to that fountain's faction; `DoubleClickState` tracks last click time/position in `click_to_select_system`; `UiState.pending_faction_select` bridges render→UI
+- **tutorial 10-minute auto-end** — tutorial auto-completes after 600s wall-clock time (`Time<Real>`); `TutorialState.start_time` set on init, checked each frame
+- **combat log faction filter** — `CombatLogEntry` now carries `faction: i32` (-1=global, 0=player, 1+=AI); "All"/"Mine" dropdown in combat log filters entries by faction; persisted in `UserSettings.log_faction_filter`; all 14 `push()` call sites across 9 files updated with faction param
+- **roadmap: projectile double-hit bug** — documented phantom building damage from NPC projectile hits (same slot checked twice per frame)
+
 ## 2026-02-16t
 
 - **DRY: position-based building lookups** — `WorldData::miner_home_at()` and `gold_mine_at()` replace 7 inline `iter().position(|m| (m.position - pos).length() < 1.0)` calls across economy.rs, left_panel.rs, game_hud.rs

@@ -230,7 +230,7 @@ pub fn left_panel_system(
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &profiler.spawner_state, &mut profiler.mining_policy, &mut dirty, &mut jump_target),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
-                LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &mut factions_cache, &mut jump_target),
+                LeftPanelTab::Factions => factions_content(ui, &factions, &world_data, &policies, &mut factions_cache, &mut jump_target, &mut ui_state),
                 LeftPanelTab::Profiler => profiler_content(ui, &profiler.timings, &mut profiler.migration),
                 LeftPanelTab::Help => help_content(ui),
             }
@@ -1103,6 +1103,7 @@ fn factions_content(
     policies: &TownPolicies,
     cache: &mut FactionsCache,
     jump_target: &mut Option<Vec2>,
+    ui_state: &mut UiState,
 ) {
     // Rebuild cache every 30 frames
     cache.frame_counter += 1;
@@ -1113,6 +1114,13 @@ fn factions_content(
     if cache.snapshots.is_empty() {
         ui.label("No AI settlements");
         return;
+    }
+
+    // Consume pending faction selection from double-click
+    if let Some(faction) = ui_state.pending_faction_select.take() {
+        if let Some(idx) = cache.snapshots.iter().position(|s| s.faction == faction) {
+            cache.selected_idx = idx;
+        }
     }
 
     if cache.selected_idx >= cache.snapshots.len() {

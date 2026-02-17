@@ -39,6 +39,11 @@ pub struct UserSettings {
     pub log_npc_activity: bool,
     #[serde(default = "default_true")]
     pub log_ai: bool,
+    #[serde(default = "default_true")]
+    pub log_building_damage: bool,
+    /// -1 = all factions, 0 = my faction only
+    #[serde(default = "default_neg1")]
+    pub log_faction_filter: i32,
     // Debug visibility (pause menu settings)
     #[serde(default)]
     pub debug_coordinates: bool,
@@ -106,6 +111,7 @@ pub struct UserSettings {
 fn default_gold_mines() -> usize { 2 }
 
 fn default_true() -> bool { true }
+fn default_neg1() -> i32 { -1 }
 fn default_farms() -> usize { 2 }
 fn default_five() -> usize { 5 }
 fn default_ai_interval() -> f32 { 5.0 }
@@ -136,6 +142,8 @@ impl Default for UserSettings {
             log_levelups: true,
             log_npc_activity: true,
             log_ai: true,
+            log_building_damage: true,
+            log_faction_filter: -1,
             gen_style: 1,
             background_fps: false,
             debug_coordinates: false,

@@ -206,7 +206,7 @@ pub fn spawn_npc_system(
         // Combat log: spawn event (only after initial startup, day > 1 or hour > 6)
         if game_time.total_hours() > 0 {
             let job_str = crate::job_name(msg.job);
-            combat_log.push(CombatEventKind::Spawn,
+            combat_log.push(CombatEventKind::Spawn, msg.faction,
                 game_time.day(), game_time.hour(), game_time.minute(),
                 format!("{} #{} spawned", job_str, idx));
         }

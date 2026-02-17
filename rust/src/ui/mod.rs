@@ -419,7 +419,7 @@ fn game_startup_system(
                 }
                 extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality, last_actions: VecDeque::new(), active: true });
                 // Log AI player joining
-                extra.combat_log.push(CombatEventKind::Ai, 1, 6, 0,
+                extra.combat_log.push(CombatEventKind::Ai, -1, 1, 6, 0,
                     format!("{} [{}] joined the game", town.name, personality.name()));
             }
         }
@@ -451,6 +451,7 @@ fn tutorial_init_system(
     world_data: Res<world::WorldData>,
     camera_query: Query<&Transform, With<crate::render::MainCamera>>,
     game_time: Res<GameTime>,
+    time: Res<Time<Real>>,
 ) {
     // Reset tutorial state regardless (clean slate)
     *tutorial = TutorialState::default();
@@ -475,6 +476,7 @@ fn tutorial_init_system(
         tutorial.camera_start = Vec2::new(transform.translation.x, transform.translation.y);
     }
 
+    tutorial.start_time = time.elapsed_secs_f64();
     tutorial.step = 1;
     info!("Tutorial started (farms={}, farmer_homes={}, waypoints={}, archer_homes={}, miner_homes={})",
         tutorial.initial_farms, tutorial.initial_farmer_homes,
@@ -763,7 +765,7 @@ fn build_place_click_system(
         ).is_ok() {
             world_state.dirty.mark_building_changed(world::BuildingKind::Waypoint);
             combat_log.push(
-                CombatEventKind::Harvest,
+                CombatEventKind::Harvest, 0,
                 game_time.day(), game_time.hour(), game_time.minute(),
                 format!("Built waypoint in {}", town_name),
             );
@@ -800,7 +802,7 @@ fn build_place_click_system(
     world_state.dirty.mark_building_changed(building.kind());
 
     combat_log.push(
-        CombatEventKind::Harvest,
+        CombatEventKind::Harvest, 0,
         game_time.day(), game_time.hour(), game_time.minute(),
         format!("Built {} at ({},{}) in {}", label, row, col, town_name),
     );

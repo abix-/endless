@@ -146,7 +146,7 @@ pub fn death_cleanup_system(
         } else {
             format!("{} '{}' Lv.{} died", job_str, meta.name, meta.level)
         };
-        combat_log.push(CombatEventKind::Kill, game_time.day(), game_time.hour(), game_time.minute(), msg);
+        combat_log.push(CombatEventKind::Kill, faction.0, game_time.day(), game_time.hour(), game_time.minute(), msg);
 
         // Track per-faction stats (alive/dead)
         res.faction_stats.dec_alive(faction.0);

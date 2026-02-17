@@ -248,7 +248,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| UiState | build_menu_open, pause_menu_open, left_panel_open, left_panel_tab (LeftPanelTab enum) | ui_toggle_system (keyboard), top_bar (buttons), left_panel tabs, pause_menu | All panel systems |
+| UiState | build_menu_open, pause_menu_open, left_panel_open, left_panel_tab (LeftPanelTab enum), pending_faction_select (Option\<i32\>) | ui_toggle_system (keyboard), top_bar (buttons), left_panel tabs, pause_menu, click_to_select_system (fountain double-click) | All panel systems |
 | CombatLog | `VecDeque<CombatLogEntry>` (max 200) | death_cleanup, spawn_npc, decision_system, arrival_system, build_menu_system | bottom_panel_system |
 | BuildMenuContext | town_data_idx, selected_build (`Option<BuildKind>`), hover_world_pos, ghost_sprites (`HashMap<BuildKind, Handle<Image>>`) | build_menu_system (init_sprite_cache populates ghost_sprites), build_ghost_system | build_place_click_system, draw_slot_indicators |
 | DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
@@ -257,9 +257,9 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | SpawnerState | `Vec<SpawnerEntry>` — building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome), town_idx, position, npc_slot, respawn_timer | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts) |
 | UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
-`UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads, Factions, Help. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. Reset on game cleanup.
+`UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads, Factions, Help. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. `pending_faction_select`: set by double-clicking a fountain in `click_to_select_system`, consumed by `factions_content` to pre-select the matching faction. Reset on game cleanup.
 
-`CombatLog` is a ring buffer of global events with 6 kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai. Each entry has day/hour/minute timestamps and a message string. `push()` evicts oldest when at capacity. AI entries (purple in HUD) log build/unlock/upgrade actions.
+`CombatLog` is a ring buffer of global events with 7 kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai, BuildingDamage. Each entry has day/hour/minute timestamps, a `faction: i32` (-1=global, 0=player, 1+=AI), and a message string. `push()` evicts oldest when at capacity. AI entries (purple in HUD) log build/unlock/upgrade actions. Combat log UI has "All"/"Mine" faction filter dropdown — "Mine" shows player (0) and global (-1) events only.
 
 `PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicies` on game startup, saved when leaving the Policies tab in the left panel.
 

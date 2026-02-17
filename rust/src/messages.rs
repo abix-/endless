@@ -38,6 +38,7 @@ pub struct BuildingDamageMsg {
     pub kind: crate::world::BuildingKind,
     pub index: usize,
     pub amount: f32,
+    pub attacker_faction: i32,
 }
 
 /// Reassign an NPC to a different job (Farmer <-> Guard).

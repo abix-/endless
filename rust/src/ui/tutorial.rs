@@ -87,6 +87,8 @@ fn step_complete(
     }
 }
 
+const TUTORIAL_TIMEOUT_SECS: f64 = 600.0; // 10 minutes
+
 pub fn tutorial_ui_system(
     mut contexts: EguiContexts,
     mut tutorial: ResMut<TutorialState>,
@@ -97,9 +99,18 @@ pub fn tutorial_ui_system(
     camera_query: Query<&Transform, With<MainCamera>>,
     selected_npc: Res<SelectedNpc>,
     follow: Res<FollowSelected>,
+    time: Res<Time<Real>>,
 ) -> Result {
     // Not active
     if tutorial.step == 0 || tutorial.step == 255 { return Ok(()); }
+
+    // Auto-end after 10 minutes
+    if time.elapsed_secs_f64() - tutorial.start_time >= TUTORIAL_TIMEOUT_SECS {
+        tutorial.step = 255;
+        settings.tutorial_completed = true;
+        settings::save_settings(&settings);
+        return Ok(());
+    }
 
     let ctx = contexts.ctx_mut()?;
 

@@ -8,7 +8,7 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
 use crate::gpu::NpcSpriteTexture;
-use crate::resources::{SelectedNpc, SelectedBuilding};
+use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, build_tileset, TERRAIN_TILES, BUILDING_TILES};
 
@@ -336,6 +336,13 @@ fn camera_follow_system(
     }
 }
 
+/// Tracks last click for double-click detection.
+#[derive(Default)]
+struct DoubleClickState {
+    last_time: f64,
+    last_pos: Vec2,
+}
+
 /// Left click to select nearest NPC within 20px.
 /// Skips when egui wants the pointer (clicking UI buttons).
 fn click_to_select_system(
@@ -351,6 +358,8 @@ fn click_to_select_system(
     build_ctx: Res<crate::resources::BuildMenuContext>,
     mut ui_state: ResMut<crate::resources::UiState>,
     mut world_data: ResMut<WorldData>,
+    time: Res<Time<Real>>,
+    mut dbl_click: Local<DoubleClickState>,
 ) {
     // Right-click cancels squad target placement or mine assignment
     if mouse.just_pressed(MouseButton::Right) {
@@ -442,6 +451,13 @@ fn click_to_select_system(
         }
     }
 
+    // Double-click detection
+    let now = time.elapsed_secs_f64();
+    let is_double = (now - dbl_click.last_time) < 0.4
+        && (world_pos - dbl_click.last_pos).length() < 5.0;
+    dbl_click.last_time = now;
+    dbl_click.last_pos = world_pos;
+
     if best_idx >= 0 {
         // NPC found — select it, clear building selection
         selected.0 = best_idx;
@@ -451,8 +467,19 @@ fn click_to_select_system(
         selected.0 = -1;
         let (col, row) = grid.world_to_grid(world_pos);
         if let Some(cell) = grid.cell(col, row) {
-            if cell.building.is_some() {
+            if let Some(building) = &cell.building {
                 *selected_building = SelectedBuilding { col, row, active: true };
+
+                // Double-click fountain → open Factions tab for that faction
+                if is_double {
+                    if let crate::world::Building::Fountain { town_idx } = building {
+                        if let Some(town) = world_data.towns.get(*town_idx as usize) {
+                            ui_state.left_panel_open = true;
+                            ui_state.left_panel_tab = LeftPanelTab::Factions;
+                            ui_state.pending_faction_select = Some(town.faction);
+                        }
+                    }
+                }
             } else {
                 selected_building.active = false;
             }

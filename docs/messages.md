@@ -52,7 +52,7 @@ Three message types used for intra-ECS communication:
 |---------|--------|---------|
 | SpawnNpcMsg | slot_idx, x, y, job, faction, town_idx, home_x/y, work_x/y, starting_post, attack_type | MessageWriter → MessageReader |
 | DamageMsg | npc_index, amount, attacker (i32, -1=no attacker) | MessageWriter → MessageReader |
-| BuildingDamageMsg | kind (BuildingKind), index (usize), amount (f32) | attack_system → building_damage_system |
+| BuildingDamageMsg | kind (BuildingKind), index (usize), amount (f32), attacker_faction (i32) | attack_system → building_damage_system |
 | GpuUpdateMsg | GpuUpdate enum (see below) | MessageWriter → collect_gpu_updates |
 | ReassignMsg | npc_index, new_job | Defined but unused (placeholder for future role reassignment) |
 

@@ -591,7 +591,7 @@ pub fn xp_grant_system(
             // Combat log
             let name = &meta.name;
             let job_str = crate::job_name(meta.job);
-            combat_log.push(CombatEventKind::LevelUp,
+            combat_log.push(CombatEventKind::LevelUp, killer_faction.0,
                 game_time.day(), game_time.hour(), game_time.minute(),
                 format!("{} '{}' reached Lv.{}", job_str, name, new_level));
         }
