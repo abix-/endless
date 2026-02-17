@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-17e
+
+- **buildings rendered via GPU instanced pipeline** — buildings moved from TilemapChunk layer to the NPC storage buffer render path; building atlas generated as 32x320 vertical strip texture (`build_building_atlas`); `allocate_building_slot` now sets real tileset indices (atlas_id=7) instead of hiding with col=-1; building visual data filled by fallback loop in `build_visual_upload`
+- **explicit render pass ordering** — 5 deterministic sort keys replace single sort_key=0.5; `StorageDrawMode` enum with 3 shader-def variants (`MODE_BUILDING_BODY`, `MODE_NPC_BODY`, `MODE_NPC_OVERLAY`) via Bevy's `#ifdef` preprocessor; generic `DrawStoragePass<const BODY_ONLY: bool>` replaces `DrawNpcsStorage`; `CompareFunction::Always` eliminates depth-test ordering ambiguity
+- **render order contract** — ORDER_BUILDING_BODY (0.2) < ORDER_BUILDING_OVERLAY (0.3) < ORDER_NPC_BODY (0.5) < ORDER_NPC_OVERLAY (0.6) < ORDER_PROJECTILES (1.0); `queue_phase_item` helper reduces queue boilerplate
+- **terrain opaque** — terrain TilemapChunk changed from `AlphaMode2d::Blend` to `Opaque`; building TilemapChunk removed entirely (`BuildingChunk`, `sync_building_tilemap` deleted)
+- **ATLAS_* constants** — `constants.rs` now has canonical atlas ID constants (ATLAS_CHAR through ATLAS_BUILDING); TILESET_* constants in `world.rs` map building variants to strip indices with compile-time assertions
+
 ## 2026-02-17d
 
 - **fix archers attacking own waypoints** — GPU combat targeting scan now skips building slots (speed=0) for both combat targeting and threat assessment; CPU `attack_system` validates GPU targets via `NpcEntityMap` (rejects building proxy slots, stale dead slots), faction check (rejects same-faction/neutral from stale readback), and health check (rejects dead targets); defense-in-depth against transient GPU readback state

@@ -296,3 +296,16 @@ pub const GOLD_MINE_HP: f32 = 200.0;
 
 /// Radius for projectile-vs-building collision detection on CPU.
 pub const BUILDING_HIT_RADIUS: f32 = 20.0;
+
+// ============================================================================
+// ATLAS IDS (shared between gpu.rs, render.rs, and npc_render.wgsl)
+// ============================================================================
+
+pub const ATLAS_CHAR: f32 = 0.0;
+pub const ATLAS_WORLD: f32 = 1.0;
+pub const ATLAS_HEAL: f32 = 2.0;
+pub const ATLAS_SLEEP: f32 = 3.0;
+pub const ATLAS_ARROW: f32 = 4.0;
+pub const ATLAS_BUILDING_HP: f32 = 5.0;
+pub const ATLAS_MINING_BAR: f32 = 6.0;
+pub const ATLAS_BUILDING: f32 = 7.0;

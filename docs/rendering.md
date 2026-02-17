@@ -2,12 +2,12 @@
 
 ## Overview
 
-Two rendering systems work together: **terrain and buildings** use Bevy's built-in `TilemapChunk` (two layers on the same grid — terrain opaque at z=-1, buildings alpha-blended at z=-0.5, zero per-frame CPU cost), while **NPCs, equipment, farms, building HP bars, and projectiles** use a custom GPU pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. Two render paths share one pipeline with a `storage_mode` specialization key:
+**Terrain** uses Bevy's built-in `TilemapChunk` (single layer, `AlphaMode2d::Opaque`, z=-1). **Everything else** — buildings, NPCs, equipment, farms, building HP bars, projectiles — uses a custom GPU pipeline via Bevy's RenderCommand pattern in the Transparent2d phase. Explicit sort keys guarantee deterministic layer ordering (`CompareFunction::Always`, no depth testing between passes). Two render paths share one pipeline with a `StorageDrawMode` specialization key:
 
-- **Storage buffer path** (NPCs): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). 7 layers (body + 4 equipment + 2 indicators) rendered via 7 `draw_indexed` calls with instance offset encoding — shader derives `slot = instance_index % npc_count`, `layer = instance_index / npc_count`.
-- **Instance buffer path** (farms, building HP bars, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1).
+- **Storage buffer path** (buildings + NPCs): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Three specialized variants via `#ifdef` shader defs: `MODE_BUILDING_BODY` (layer 0, building atlas only), `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-6, non-building only).
+- **Instance buffer path** (building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1).
 
-Five textures bound simultaneously — `atlas_id` selects which to sample (0=character, 1=world, 2=heal halo, 3=sleep icon, 4=arrow). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold).
+Six textures bound simultaneously (group 0, bindings 0-11) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal halo, 3=sleep icon, 4=arrow, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BUILDING`).
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -40,28 +40,35 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       ▼
                                prepare_npc_buffers
                                (buffer creation + sentinel init on first frame,
-                                build NpcMiscBuffers for farms/BHP/mining progress,
+                                build BuildingOverlayBuffers for farms/BHP/mining progress,
                                 create bind group 2 from NpcGpuBuffers + NpcVisualBuffers)
                                       │
                                       ▼
                             prepare_npc_texture_bind_group
-                            (5 textures: char + world + heal + sleep + arrow)
+                            (6 textures: char + world + heal + sleep + arrow + building;
+                             building atlas falls back to char_image until loaded)
                             prepare_npc_camera_bind_group
                             (CameraUniform with npc_count)
                                       │
                                       ▼
                                   queue_npcs
-                               (DrawMiscCommands sort_key=0.4,
-                                DrawNpcStorageCommands sort_key=0.5)
+                               (DrawBuildingBodyCommands sort_key=0.2,
+                                DrawBuildingOverlayCommands sort_key=0.3,
+                                DrawNpcBodyCommands sort_key=0.5,
+                                DrawNpcOverlayCommands sort_key=0.6)
                                       │
                                       ▼
-                    DrawMiscCommands (farms/BHP, instance path):
-                      SetItemPipeline → SetNpcTextureBindGroup<0>
-                      → SetNpcCameraBindGroup<1> → DrawMisc
+                    DrawBuildingBodyCommands (buildings, storage path):
+                      MODE_BUILDING_BODY — layer 0, building atlas only
 
-                    DrawNpcStorageCommands (NPCs, storage path):
-                      SetItemPipeline → SetNpcTextureBindGroup<0>
-                      → SetNpcCameraBindGroup<1> → DrawNpcsStorage
+                    DrawBuildingOverlayCommands (farms/BHP, instance path):
+                      Instance buffer, building HP bars + farm growth + mine progress
+
+                    DrawNpcBodyCommands (NPC bodies, storage path):
+                      MODE_NPC_BODY — layer 0, non-building only
+
+                    DrawNpcOverlayCommands (NPC overlays, storage path):
+                      MODE_NPC_OVERLAY — layers 1-6, non-building only
 
 ProjBufferWrites     ──Extract<Res<T>>──▶ zero-clone immutable read
 ProjPositionState    ──Extract<Res<T>>──▶ zero-clone immutable read
@@ -87,7 +94,7 @@ ProjBatch entity     ──extract_proj_batch──▶ ProjBatch entity
 
 NPC rendering uses GPU storage buffers instead of per-instance vertex attributes. The vertex shader (`vertex_npc`) reads positions and health directly from compute shader output — no GPU→CPU→GPU round-trip.
 
-**Bind group 2** (NPC data, set by `DrawNpcsStorage`):
+**Bind group 2** (NPC data, set by `DrawStoragePass`):
 
 | Binding | Buffer | Source | Per-NPC Size |
 |---------|--------|--------|-------------|
@@ -96,7 +103,7 @@ NPC rendering uses GPU storage buffers instead of per-instance vertex attributes
 | 2 | `npc_visual_buf` | `NpcVisualBuffers.visual` (CPU upload) | 32B ([f32;8]) |
 | 3 | `npc_equip` | `NpcVisualBuffers.equip` (CPU upload) | 96B (6×[f32;4]) |
 
-**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `NpcGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Reset to `-1.0` sentinel each frame — phantom slots (e.g. waypoint NPC slots with no ECS entity) stay hidden via `sprite_col < 0`.
+**Visual buffer layout** (`[f32; 8]` per slot): `[sprite_col, sprite_row, body_atlas, flash, r, g, b, a]`. Built by `build_visual_upload` from `NpcGpuState.sprite_indices`, `.flash_values`, and ECS Faction/Job components. Reset to `-1.0` sentinel each frame — phantom slots stay hidden via `sprite_col < 0`. Building slots (no ECS entity) are filled by a fallback loop that reads `sprite_indices` directly (col, row, atlas from `SetSpriteFrame` messages).
 
 **Equipment buffer layout** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`): Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). Reset to `-1.0` sentinel each frame — `col < 0` means unequipped/inactive.
 
@@ -133,17 +140,17 @@ pub struct InstanceData {
 }
 ```
 
-**Farm sprites** (in `NpcMiscBuffers`, drawn by `DrawMisc`):
+**Farm sprites** (in `BuildingOverlayBuffers`, drawn by `DrawBuildingOverlay`):
 - atlas_id=1.0 (world atlas), sprite=(24,9), scale=16
 - Color: golden [1.0, 0.85, 0.0] when ready, green [0.4, 0.8, 0.2] when growing
 - Health = growth progress (0.0-1.0, shown as progress bar)
 
-**Building HP bars** (in `NpcMiscBuffers`, drawn by `DrawMisc`):
+**Building HP bars** (in `BuildingOverlayBuffers`, drawn by `DrawBuildingOverlay`):
 - atlas_id=5.0, scale=32.0 (building-sized)
 - Shader discards all sprite pixels for atlas_id >= 4.5, keeping only the health bar in bottom 15%
 - Only buildings with HP < max are included (from `BuildingHpRender` resource)
 
-**Mining progress bars** (in `NpcMiscBuffers`, drawn by `DrawMisc`):
+**Mining progress bars** (in `BuildingOverlayBuffers`, drawn by `DrawBuildingOverlay`):
 - atlas_id=6.0, scale=12.0, positioned +12y above miner
 - Shader renders gold-colored bar (1.0, 0.85, 0.0) in bottom 15%, discards rest
 - Always shown while mining (no < 0.99 gate like building HP bars)
@@ -192,25 +199,28 @@ The vertex shader scales the unit quad by the per-instance `scale` field (16.0 f
 | 0 | Vertex | Static quad (4 vertices) | 16B | @location(0) quad_pos, @location(1) quad_uv |
 | 1 | Instance | Per-instance data (N instances) | 52B | @location(2) instance_pos, @location(3) sprite_cell, @location(4) color, @location(5) health, @location(6) flash, @location(7) scale, @location(8) atlas_id, @location(9) rotation |
 
-Both paths share `quad_vertex_layout()` (slot 0). The instance path adds `instance_vertex_layout()` (slot 1). Selected via `storage_mode` bool in pipeline specialization key `(hdr, samples, storage_mode)`.
+Both paths share `quad_vertex_layout()` (slot 0). The instance path adds `instance_vertex_layout()` (slot 1). Selected via `StorageDrawMode` in pipeline specialization key `(hdr, samples, Option<StorageDrawMode>)`. `None` = instance path, `Some(mode)` = storage path with shader def gating.
 
 ## Sprite Atlases
 
-Five textures are bound simultaneously at group 0 (bindings 0-9). Per-instance/per-slot `atlas_id` selects which to sample.
+Six textures are bound simultaneously at group 0 (bindings 0-11). Per-instance/per-slot `atlas_id` selects which to sample.
 
-| Atlas | Bindings | File | Size | Grid | Used By |
-|-------|----------|------|------|------|---------|
-| Character | 0-1 | `roguelikeChar_transparent.png` | 918×203 | 54×12 | NPCs, equipment |
-| World | 2-3 | `roguelikeSheet_transparent.png` | 968×526 | 57×31 | Terrain, buildings, farms |
-| Heal halo | 4-5 | `heal.png` | 16×16 | 1×1 | Healing halo overlay |
-| Sleep icon | 6-7 | `sleep.png` | 16×16 | 1×1 | Sleep indicator overlay |
-| Arrow | 8-9 | `arrow.png` | 16×16 | 1×1 | Projectile sprite |
+| Atlas | Bindings | atlas_id | File | Size | Used By |
+|-------|----------|----------|------|------|---------|
+| Character | 0-1 | 0 | `roguelikeChar_transparent.png` | 918×203 | NPCs, equipment |
+| World | 2-3 | 1 | `roguelikeSheet_transparent.png` | 968×526 | Farms |
+| Heal halo | 4-5 | 2 | `heal.png` | 16×16 | Healing overlay |
+| Sleep icon | 6-7 | 3 | `sleep.png` | 16×16 | Sleep indicator |
+| Arrow | 8-9 | 4 | `arrow.png` | 16×16 | Projectile sprite |
+| Building | 10-11 | 7 | (generated at runtime) | 32×320 | Building sprites |
 
-Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
+Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The building atlas is a vertical strip of 10 tiles (32×32 each), generated at runtime by `build_building_atlas()` from individual building sprites. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
 
 ```wgsl
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
-    if atlas_id >= 1.5 {
+    if is_building_atlas(atlas_id) {
+        return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / BLDG_LAYERS);
+    } else if atlas_id >= 1.5 {
         return quad_uv;  // Single-sprite textures (heal, sleep, arrow)
     } else if atlas_id < 0.5 {
         // Character atlas: 918×203
@@ -220,7 +230,7 @@ fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) 
 }
 ```
 
-The fragment shader dispatches by `atlas_id` in descending order: mining progress bar (≥5.5) renders gold bar and discards, building HP bar-only (≥4.5) renders health bar and discards, arrow projectile (≥3.5) samples `arrow_texture`, sleep (≥2.5) samples `sleep_texture`, heal (≥1.5) samples `heal_texture`, then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). Sleep and heal both early-return after texture sampling with color tint applied.
+The fragment shader dispatches by `atlas_id` — building (7) first, then descending: mining progress bar (≥5.5) renders gold bar and discards, building HP bar-only (≥4.5) renders health bar and discards, arrow projectile (≥3.5) samples `arrow_texture`, sleep (≥2.5) samples `sleep_texture`, heal (≥1.5) samples `heal_texture`, then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). Sleep and heal both early-return after texture sampling with color tint applied.
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
@@ -304,55 +314,48 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_npc_data` | Zero-clone GPU upload: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals, bulk for CPU-authoritative targets/speeds/factions/healths/flags) + unconditional visual/equip writes via `Extract<Res<T>>` |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
-| PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), build misc instance buffer (farms/BHP), create bind group 2 |
+| PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), build BuildingOverlayBuffers (farms/BHP/mining), create bind group 2 |
 | Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build via `Extract<Res<T>>` |
-| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture (char + world + heal + sleep + arrow) |
+| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture (6 textures: char + world + heal + sleep + arrow + building; building falls back to char_image until atlas loads) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from NpcGpuData) |
-| Queue | `queue_npcs` | Add DrawMiscCommands (sort_key=0.4) + DrawNpcStorageCommands (sort_key=0.5) |
+| Queue | `queue_npcs` | Add DrawBuildingBodyCommands (0.2), DrawBuildingOverlayCommands (0.3), DrawNpcBodyCommands (0.5), DrawNpcOverlayCommands (0.6) |
 | Queue | `queue_projs` | Add DrawProjCommands (sort_key=1.0, above NPCs) |
-| Render | `DrawMiscCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawMisc |
-| Render | `DrawNpcStorageCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawNpcsStorage |
-| Render | `DrawProjCommands` | SetItemPipeline → SetNpcTextureBindGroup → SetNpcCameraBindGroup → DrawProjs |
+| Render | `DrawBuildingBodyCommands` | Storage path, `#ifdef MODE_BUILDING_BODY` — layer 0, building atlas only |
+| Render | `DrawBuildingOverlayCommands` | Instance path — farms, building HP bars, mine progress |
+| Render | `DrawNpcBodyCommands` | Storage path, `#ifdef MODE_NPC_BODY` — layer 0, non-building only |
+| Render | `DrawNpcOverlayCommands` | Storage path, `#ifdef MODE_NPC_OVERLAY` — layers 1-6, non-building only |
+| Render | `DrawProjCommands` | Instance path — arrow projectiles |
 
 ## RenderCommand Pattern
 
-Bevy's RenderCommand trait defines GPU commands for drawing. Three command chains share one pipeline (specialized via `storage_mode`):
+Bevy's RenderCommand trait defines GPU commands for drawing. Five command chains share one pipeline (specialized via `Option<StorageDrawMode>`):
 
-**NPC storage path** — body + 6 equipment layers via storage buffers:
+**Generic storage draw** — `DrawStoragePass<const BODY_ONLY: bool>`:
 ```rust
-type DrawNpcStorageCommands = (
-    SetItemPipeline,           // Pipeline specialized with storage_mode=true
-    SetNpcTextureBindGroup<0>, // Bind sprite textures at group 0
-    SetNpcCameraBindGroup<1>,  // Bind camera uniform at group 1 (includes npc_count)
-    DrawNpcsStorage,           // Set bind group 2 + quad, 7 draw_indexed calls
-);
+// BODY_ONLY=true: 1 draw_indexed (layer 0 only)
+// BODY_ONLY=false: 6 draw_indexed (layers 1-6)
+type DrawBuildingBodyCommands = (..., DrawStoragePass<true>);  // + MODE_BUILDING_BODY shader def
+type DrawNpcBodyCommands = (..., DrawStoragePass<true>);       // + MODE_NPC_BODY shader def
+type DrawNpcOverlayCommands = (..., DrawStoragePass<false>);   // + MODE_NPC_OVERLAY shader def
 ```
 
-`DrawNpcsStorage::render()` sets bind group 2 (NPC storage buffers), then issues 7 `draw_indexed` calls with instance offset encoding: `(layer * npc_count)..((layer + 1) * npc_count)`. The shader derives `slot` and `layer` from `instance_index`. Hidden NPCs (`pos.x < -9000`) and empty equipment slots (`col < 0`) are culled by moving clip_position off-screen.
+The shader derives `slot` and `layer` from `instance_index`. Compile-time `#ifdef` gating discards unwanted slots per pass (buildings vs non-buildings). Hidden NPCs (`pos.x < -9000`) and empty equipment slots (`col < 0`) are culled by moving clip_position off-screen.
 
-**Misc instance path** — farms, building HP bars:
+**Building overlay instance path** — farms, building HP bars, mine progress:
 ```rust
-type DrawMiscCommands = (
-    SetItemPipeline,           // Pipeline specialized with storage_mode=false
-    SetNpcTextureBindGroup<0>,
-    SetNpcCameraBindGroup<1>,
-    DrawMisc,                  // Set quad + instance buffer, single draw_indexed
-);
+type DrawBuildingOverlayCommands = (..., DrawBuildingOverlay);
 ```
 
-`DrawMisc::render()` reads `NpcMiscBuffers` — a small `RawBufferVec<InstanceData>` (~100-200 entries) built each frame from `FarmStates` + `BuildingHpRender` + `MinerProgressRender`.
+`DrawBuildingOverlay::render()` reads `BuildingOverlayBuffers` — a small `RawBufferVec<InstanceData>` (~100-200 entries) built each frame from `FarmStates` + `BuildingHpRender` + `MinerProgressRender`.
 
 **Projectile instance path** — shares quad geometry, separate instance buffer:
 ```rust
-type DrawProjCommands = (
-    SetItemPipeline,           // Pipeline specialized with storage_mode=false
-    SetNpcTextureBindGroup<0>,
-    SetNpcCameraBindGroup<1>,
-    DrawProjs,                 // Uses NPC quad + proj instance buffer
-);
+type DrawProjCommands = (..., DrawProjs);
 ```
 
 `DrawProjs::render()` reads `ProjRenderBuffers` — sharing static quad/index from `NpcRenderBuffers`. Faction-colored: blue for villagers, per-faction color for raiders.
+
+**Sort key helper** — `queue_phase_item()` adds a single `Transparent2d` item, used by both `queue_npcs` and `queue_projs` to avoid repetitive phase item construction.
 
 ## Camera
 
@@ -397,7 +400,7 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 | Archer Home | `barracks.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Waypoint | `waypoint.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 
-`SpriteAssets` holds handles for all loaded textures including the three external building sprites (`house_texture`, `barracks_texture`, `waypoint_texture`). NPC instanced rendering textures are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon), extracted to render world for quad bind group creation.
+`SpriteAssets` holds handles for all loaded textures including the three external building sprites (`house_texture`, `barracks_texture`, `waypoint_texture`). NPC instanced rendering textures are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon, `arrow_handle` for arrow, `building_handle` for building atlas), extracted to render world for bind group creation. The building atlas handle is set later by `spawn_world_tilemap` (not at startup like the others); `prepare_npc_texture_bind_group` falls back to `char_image` until it's available.
 
 ## Equipment Layers
 
@@ -419,43 +422,39 @@ Current equipment assignments:
 - **Raiders**: Weapon (45, 6) — character atlas
 - **Carried food**: Item layer (24, 9) — world atlas, set when raider steals food, cleared on delivery
 
-## World Tilemap (Terrain + Buildings)
+## World Tilemap (Terrain Only)
 
-Both terrain and buildings are rendered via Bevy's built-in `TilemapChunk` — two separate layer entities on the same grid (default 250×250, up to 1000×1000). Each layer is a single quad mesh where a fragment shader does per-pixel tile lookup from a `texture_2d_array` tileset. Currently one chunk per layer — a future optimization (see roadmap: Chunked Tilemap spec) will split into 32×32 chunks for off-screen culling.
+Terrain is rendered via Bevy's built-in `TilemapChunk` — a single layer entity on the grid (default 250×250, up to 1000×1000). A single quad mesh with a fragment shader does per-pixel tile lookup from a `texture_2d_array` tileset. Currently one chunk — a future optimization (see roadmap: Chunked Tilemap spec) will split into 32×32 chunks for off-screen culling.
 
 | Layer | Z | Alpha | Content | Tileset |
 |-------|---|-------|---------|---------|
-| Terrain | -1.0 | Blend | Every cell filled (biome tiles) | 11 tiles (`TERRAIN_TILES`) |
-| Buildings | -0.5 | Blend | `None` for empty, building tile where placed | 8 tiles (`BUILDING_TILES`) |
+| Terrain | -1.0 | Opaque | Every cell filled (biome tiles) | 11 tiles (`TERRAIN_TILES`) |
 
-Both layers use `AlphaMode2d::Blend` so they render in the Transparent2d phase alongside NPCs (sort_key=0.5). Using `Opaque` would place terrain in the Opaque2d phase which renders *after* Transparent2d, causing terrain to draw over NPCs regardless of z-value.
+Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU instanced pipeline (storage buffer path with `atlas_id=7`, sort_key=0.2 via `DrawBuildingBodyCommands`).
 
 **Slot Indicators** (`ui/mod.rs`): Building grid indicators use Sprite entities at z=-0.3 with a `SlotIndicator` marker component — not gizmos, because Bevy gizmos render in a separate pass after all Transparent2d items and can't be z-sorted with them. Green "+" crosshairs mark empty unlocked slots, dim bracket corners mark adjacent locked slots. Indicators are rebuilt when `TownGrids` or `WorldGrid` changes, and despawned on game cleanup.
 
 **`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(usize)` for a standalone 32×32 PNG (index into extra images slice). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad; FarmerHome, ArcherHome, and Waypoint use External (dedicated PNGs).
 
-**`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array`. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images directly into the layer. Called twice — once with `TERRAIN_TILES` (11 tiles, no extras) and once with `BUILDING_TILES` (8 tiles, extras: house.png, barracks.png, waypoint.png).
+**`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array` for terrain. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images. Called once with `TERRAIN_TILES` (11 tiles, no extras).
+
+**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×320 vertical strip `texture_2d` for the building atlas (10 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `NpcSpriteTexture.building_handle`. TILESET_* constants map building variants to strip indices.
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
-**`Building::tileset_index()`**: Maps building variant to building tileset array index (0-7). Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7.
+**`Building::tileset_index()`**: Maps building variant to building strip index (0-9). Uses `TILESET_*` constants. Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7, MinerHome=8, GoldMine=9 (10 tiles total via `BUILDING_TILES`).
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 
-**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Terrain layer spawned with `TerrainChunk` marker, building layer with `BuildingChunk` marker — both for runtime tile sync queries. Terrain layer has all cells filled (opaque). Building layer has `None` for empty cells — the alpha blend mode makes empty cells transparent so terrain shows through.
+**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Spawns terrain chunk with `TerrainChunk` marker. Also creates the building atlas and stores it in `NpcSpriteTexture.building_handle`.
 
 **`TerrainChunk`** marker component (`render.rs`): Attached to the terrain TilemapChunk entity so `sync_terrain_tilemap` can query it for runtime terrain updates (e.g. slot unlock → Dirt).
 
-**`BuildingChunk`** marker component (`render.rs`): Attached to the building TilemapChunk entity so `sync_building_tilemap` can query it.
-
 **`sync_terrain_tilemap`** system (`render.rs`, Update schedule): Runs when `WorldGrid.is_changed()`. Rebuilds terrain `TilemapChunkTileData` from current grid cells. Needed because slot unlocking (player or AI) changes terrain biome to Dirt at runtime.
-
-**`sync_building_tilemap`** system (`render.rs`, Update schedule): Runs when `WorldGrid.is_changed()`. Rebuilds building `TilemapChunkTileData` from current grid cells, so buildings placed or destroyed at runtime appear/disappear on the tilemap immediately. Bevy detects `Changed<TilemapChunkTileData>` and re-uploads to GPU.
 
 ## Known Issues
 
 - **Health bar mode hardcoded**: Only "when damaged" mode (show when health < 99%). Off/always modes need a uniform or config resource.
 - **MaxHealth hardcoded**: Health normalization divides by 100.0. When upgrades change MaxHealth, normalization must use per-NPC max.
 - **Equipment sprite tuning**: Equipment sprites have updated atlas coordinates — use `npc-visuals` test scene to review layers. Food sprite is on world atlas (24,9).
-- **Single sort key for all NPC layers**: All 7 NPC layers share sort_key=0.5 in Transparent2d phase. Layer ordering is correct within the single DrawNpcsStorage call (7 sequential draw_indexed), but layers can't interleave with other phase items.
-- **Single tilemap chunk per layer**: At 1000×1000 (1M tiles), `command_buffer_generation_tasks` costs ~10ms because Bevy processes all tiles even when most are off-screen. Splitting into 32×32 chunks enables off-screen culling (see roadmap spec).
+- **Single tilemap chunk**: At 1000×1000 (1M tiles), `command_buffer_generation_tasks` costs ~10ms because Bevy processes all tiles even when most are off-screen. Splitting into 32×32 chunks enables off-screen culling (see roadmap spec).

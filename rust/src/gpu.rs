@@ -377,6 +377,23 @@ pub fn build_visual_upload(
         upload.equip_data[eq + 22] = hla;
         upload.equip_data[eq + 23] = 0.0;
     }
+
+    // Building slots: no ECS entity, sprite data from SetSpriteFrame in sprite_indices
+    for idx in 0..npc_count {
+        let base = idx * 8;
+        if upload.visual_data[base] >= 0.0 { continue; } // already written by NPC loop
+        let si = idx * 4;
+        let col = gpu_state.sprite_indices.get(si).copied().unwrap_or(-1.0);
+        if col < 0.0 { continue; } // truly empty slot
+        upload.visual_data[base]     = col;
+        upload.visual_data[base + 1] = gpu_state.sprite_indices.get(si + 1).copied().unwrap_or(0.0);
+        upload.visual_data[base + 2] = gpu_state.sprite_indices.get(si + 2).copied().unwrap_or(0.0);
+        upload.visual_data[base + 3] = 0.0; // no flash
+        upload.visual_data[base + 4] = 1.0; // r (white tint)
+        upload.visual_data[base + 5] = 1.0; // g
+        upload.visual_data[base + 6] = 1.0; // b
+        upload.visual_data[base + 7] = 1.0; // a
+    }
 }
 
 /// Drain GPU_UPDATE_QUEUE and apply updates to NpcGpuState.
@@ -816,6 +833,7 @@ pub struct NpcSpriteTexture {
     pub heal_handle: Option<Handle<Image>>,
     pub sleep_handle: Option<Handle<Image>>,
     pub arrow_handle: Option<Handle<Image>>,
+    pub building_handle: Option<Handle<Image>>,
 }
 
 /// GPU buffers for projectile compute.

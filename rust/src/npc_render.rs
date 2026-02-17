@@ -21,7 +21,7 @@ use bevy::{
         render_asset::RenderAssets,
         render_phase::{
             AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            RenderCommandResult, SetItemPipeline, SortedRenderPhase, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
             binding_types::{sampler, storage_buffer_read_only, texture_2d, uniform_buffer},
@@ -52,6 +52,30 @@ use crate::render::{CameraState, MainCamera};
 
 /// Layer count: body + 4 equipment layers + status + healing.
 pub const LAYER_COUNT: usize = 7;
+
+// =============================================================================
+// RENDER ORDER CONTRACT
+// =============================================================================
+// Sort keys for Transparent2d phase items. Sole ordering mechanism (depth_compare = Always).
+//   (tilemap)          Terrain               Bevy internal
+//   0.2                Building bodies       StorageDrawMode::BuildingBody
+//   0.3                Building overlays     Instance buffer (HP bars, farm/mine progress)
+//   0.5                NPC bodies            StorageDrawMode::NpcBody
+//   0.6                NPC overlays          StorageDrawMode::NpcOverlay (equipment layers 1-6)
+//   1.0                Projectiles           Instance buffer
+pub const ORDER_BUILDING_BODY: f32 = 0.2;
+pub const ORDER_BUILDING_OVERLAY: f32 = 0.3;
+pub const ORDER_NPC_BODY: f32 = 0.5;
+pub const ORDER_NPC_OVERLAY: f32 = 0.6;
+pub const ORDER_PROJECTILES: f32 = 1.0;
+
+/// Which storage-buffer draw pass to specialize. Maps to shader_defs in vertex_npc.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StorageDrawMode {
+    BuildingBody,
+    NpcBody,
+    NpcOverlay,
+}
 
 /// Marker component for the NPC batch entity.
 #[derive(Component, Clone)]
@@ -120,9 +144,9 @@ pub struct NpcVisualBuffers {
     pub bind_group: Option<BindGroup>,
 }
 
-/// Instance buffer for non-NPC sprites (farms, building HP bars).
+/// Instance buffer for building overlays (farms, building HP bars, mine progress).
 #[derive(Resource)]
-pub struct NpcMiscBuffers {
+pub struct BuildingOverlayBuffers {
     pub instances: RawBufferVec<InstanceData>,
     pub count: u32,
 }
@@ -170,11 +194,12 @@ pub struct NpcCameraBindGroup {
 // RENDER COMMANDS
 // =============================================================================
 
-/// Draw command for NPC storage buffer path — 7 draw calls (body + 6 equipment layers).
-/// Shader derives layer from instance_index / npc_count.
-pub struct DrawNpcsStorage;
+/// Generic storage buffer draw command. BODY_ONLY selects layer range:
+/// - true: layer 0 only (1 draw call). Shader #ifdef gates building vs NPC.
+/// - false: layers 1..LAYER_COUNT (6 draw calls, equipment/status overlays).
+pub struct DrawStoragePass<const BODY_ONLY: bool>;
 
-impl<P: PhaseItem> RenderCommand<P> for DrawNpcsStorage {
+impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<BODY_ONLY> {
     type Param = (SRes<NpcRenderBuffers>, SRes<NpcVisualBuffers>, SRes<NpcGpuData>);
     type ViewQuery = ();
     type ItemQuery = ();
@@ -200,20 +225,23 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNpcsStorage {
         pass.set_vertex_buffer(0, npc_buffers.vertex_buffer.slice(..));
         pass.set_index_buffer(npc_buffers.index_buffer.slice(..), IndexFormat::Uint16);
 
-        // 7 draw calls — shader derives layer = instance_index / npc_count
-        for layer in 0..LAYER_COUNT as u32 {
-            pass.draw_indexed(0..6, 0, (layer * npc_count)..((layer + 1) * npc_count));
+        if BODY_ONLY {
+            pass.draw_indexed(0..6, 0, 0..npc_count);
+        } else {
+            for layer in 1..LAYER_COUNT as u32 {
+                pass.draw_indexed(0..6, 0, (layer * npc_count)..((layer + 1) * npc_count));
+            }
         }
 
         RenderCommandResult::Success
     }
 }
 
-/// Draw command for misc instance buffer path (farms, building HP bars).
-pub struct DrawMisc;
+/// Draw command for building overlay instance buffer path (farms, building HP bars, mine progress).
+pub struct DrawBuildingOverlay;
 
-impl<P: PhaseItem> RenderCommand<P> for DrawMisc {
-    type Param = (SRes<NpcRenderBuffers>, SRes<NpcMiscBuffers>);
+impl<P: PhaseItem> RenderCommand<P> for DrawBuildingOverlay {
+    type Param = (SRes<NpcRenderBuffers>, SRes<BuildingOverlayBuffers>);
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -224,19 +252,19 @@ impl<P: PhaseItem> RenderCommand<P> for DrawMisc {
         params: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let (npc_buffers, misc_buffers) = params;
+        let (npc_buffers, overlay_buffers) = params;
         let npc_buffers = npc_buffers.into_inner();
-        let misc_buffers = misc_buffers.into_inner();
+        let overlay_buffers = overlay_buffers.into_inner();
 
-        if misc_buffers.count == 0 { return RenderCommandResult::Skip; }
-        let Some(instance_buffer) = misc_buffers.instances.buffer() else {
+        if overlay_buffers.count == 0 { return RenderCommandResult::Skip; }
+        let Some(instance_buffer) = overlay_buffers.instances.buffer() else {
             return RenderCommandResult::Skip;
         };
 
         pass.set_vertex_buffer(0, npc_buffers.vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, instance_buffer.slice(..));
         pass.set_index_buffer(npc_buffers.index_buffer.slice(..), IndexFormat::Uint16);
-        pass.draw_indexed(0..6, 0, 0..misc_buffers.count);
+        pass.draw_indexed(0..6, 0, 0..overlay_buffers.count);
 
         RenderCommandResult::Success
     }
@@ -286,20 +314,36 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNpcCameraBindGroup<I>
     }
 }
 
-/// NPC storage buffer draw commands (body + equipment via storage buffers).
-type DrawNpcStorageCommands = (
+/// Building body draw commands (storage buffer, layer 0, building atlas only).
+type DrawBuildingBodyCommands = (
     SetItemPipeline,
     SetNpcTextureBindGroup<0>,
     SetNpcCameraBindGroup<1>,
-    DrawNpcsStorage,
+    DrawStoragePass<true>,
 );
 
-/// Misc instance draw commands (farms, building HP bars).
-type DrawMiscCommands = (
+/// NPC body draw commands (storage buffer, layer 0, non-building only).
+type DrawNpcBodyCommands = (
     SetItemPipeline,
     SetNpcTextureBindGroup<0>,
     SetNpcCameraBindGroup<1>,
-    DrawMisc,
+    DrawStoragePass<true>,
+);
+
+/// NPC overlay draw commands (storage buffer, layers 1-6, non-building only).
+type DrawNpcOverlayCommands = (
+    SetItemPipeline,
+    SetNpcTextureBindGroup<0>,
+    SetNpcCameraBindGroup<1>,
+    DrawStoragePass<false>,
+);
+
+/// Building overlay instance draw commands (farms, building HP bars, mine progress).
+type DrawBuildingOverlayCommands = (
+    SetItemPipeline,
+    SetNpcTextureBindGroup<0>,
+    SetNpcCameraBindGroup<1>,
+    DrawBuildingOverlay,
 );
 
 /// Draw command for projectiles. Shares NPC quad geometry, uses proj instance buffer.
@@ -362,8 +406,10 @@ impl Plugin for NpcRenderPlugin {
         };
 
         render_app
-            .add_render_command::<Transparent2d, DrawNpcStorageCommands>()
-            .add_render_command::<Transparent2d, DrawMiscCommands>()
+            .add_render_command::<Transparent2d, DrawBuildingBodyCommands>()
+            .add_render_command::<Transparent2d, DrawBuildingOverlayCommands>()
+            .add_render_command::<Transparent2d, DrawNpcBodyCommands>()
+            .add_render_command::<Transparent2d, DrawNpcOverlayCommands>()
             .add_render_command::<Transparent2d, DrawProjCommands>()
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
             .add_systems(
@@ -631,7 +677,7 @@ fn prepare_npc_buffers(
     gpu_buffers: Option<Res<NpcGpuBuffers>>,
     existing_render: Option<ResMut<NpcRenderBuffers>>,
     existing_visual: Option<ResMut<NpcVisualBuffers>>,
-    existing_misc: Option<ResMut<NpcMiscBuffers>>,
+    existing_misc: Option<ResMut<BuildingOverlayBuffers>>,
     growth_states: Option<Res<crate::resources::GrowthStates>>,
     building_hp_render: Option<Res<crate::resources::BuildingHpRender>>,
 ) {
@@ -707,7 +753,7 @@ fn prepare_npc_buffers(
         misc.instances = misc_instances;
         misc.count = misc_count;
     } else {
-        commands.insert_resource(NpcMiscBuffers {
+        commands.insert_resource(BuildingOverlayBuffers {
             instances: misc_instances,
             count: misc_count,
         });
@@ -809,6 +855,7 @@ fn prepare_npc_texture_bind_group(
     pipeline_cache: Res<PipelineCache>,
     sprite_texture: Option<Res<NpcSpriteTexture>>,
     gpu_images: Res<RenderAssets<GpuImage>>,
+    mut building_atlas_ready: Local<bool>,
 ) {
     let Some(pipeline) = pipeline else { return };
     let Some(sprite_texture) = sprite_texture else { return };
@@ -822,6 +869,17 @@ fn prepare_npc_texture_bind_group(
     let Some(heal_image) = gpu_images.get(heal_handle) else { return };
     let Some(sleep_image) = gpu_images.get(sleep_handle) else { return };
     let Some(arrow_image) = gpu_images.get(arrow_handle) else { return };
+
+    // Building atlas: fallback to char_image until spawn_world_tilemap creates it
+    let building_image = sprite_texture.building_handle.as_ref()
+        .and_then(|h| gpu_images.get(h));
+    if !*building_atlas_ready {
+        if building_image.is_some() {
+            info!("Building atlas bound");
+            *building_atlas_ready = true;
+        }
+    }
+    let building_image = building_image.unwrap_or(char_image);
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.texture_bind_group_layout);
 
@@ -839,6 +897,8 @@ fn prepare_npc_texture_bind_group(
             &sleep_image.sampler,
             &arrow_image.texture_view,
             &arrow_image.sampler,
+            &building_image.texture_view,
+            &building_image.sampler,
         )),
     );
 
@@ -888,7 +948,28 @@ fn prepare_npc_camera_bind_group(
 // QUEUE
 // =============================================================================
 
-/// Queue NPC storage buffer + misc instance draws into Transparent2d phase.
+/// Add a single Transparent2d phase item with the given draw function, pipeline, and sort key.
+fn queue_phase_item(
+    phase: &mut SortedRenderPhase<Transparent2d>,
+    draw_function: bevy::render::render_phase::DrawFunctionId,
+    pipeline: bevy::render::render_resource::CachedRenderPipelineId,
+    sort_key: f32,
+    view_entity: Entity,
+    batch_entity: Entity,
+) {
+    phase.add(Transparent2d {
+        entity: (view_entity, MainEntity::from(batch_entity)),
+        draw_function,
+        pipeline,
+        sort_key: FloatOrd(sort_key),
+        batch_range: 0..1,
+        extra_index: PhaseItemExtraIndex::None,
+        extracted_index: usize::MAX,
+        indexed: true,
+    });
+}
+
+/// Queue building/NPC storage + building overlay instance draws into Transparent2d phase.
 fn queue_npcs(
     draw_functions: Res<DrawFunctions<Transparent2d>>,
     pipeline: Res<NpcPipeline>,
@@ -896,7 +977,7 @@ fn queue_npcs(
     pipeline_cache: Res<PipelineCache>,
     render_buffers: Option<Res<NpcRenderBuffers>>,
     visual_buffers: Option<Res<NpcVisualBuffers>>,
-    misc_buffers: Option<Res<NpcMiscBuffers>>,
+    overlay_buffers: Option<Res<BuildingOverlayBuffers>>,
     gpu_data: Option<Res<NpcGpuData>>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
     views: Query<(Entity, &ExtractedView, &Msaa)>,
@@ -910,12 +991,14 @@ fn queue_npcs(
 
     let has_npcs = visual_buffers.as_ref().is_some_and(|vb| vb.bind_group.is_some())
         && gpu_data.as_ref().is_some_and(|d| d.npc_count > 0);
-    let has_misc = misc_buffers.as_ref().is_some_and(|m| m.count > 0);
+    let has_building_overlays = overlay_buffers.as_ref().is_some_and(|m| m.count > 0);
 
-    if !has_npcs && !has_misc { return; }
+    if !has_npcs && !has_building_overlays { return; }
 
-    let npc_draw = draw_functions.read().id::<DrawNpcStorageCommands>();
-    let misc_draw = draw_functions.read().id::<DrawMiscCommands>();
+    let building_body_draw = draw_functions.read().id::<DrawBuildingBodyCommands>();
+    let building_overlay_draw = draw_functions.read().id::<DrawBuildingOverlayCommands>();
+    let npc_body_draw = draw_functions.read().id::<DrawNpcBodyCommands>();
+    let npc_overlay_draw = draw_functions.read().id::<DrawNpcOverlayCommands>();
 
     for (view_entity, view, msaa) in &views {
         let Some(transparent_phase) = transparent_phases.get_mut(&view.retained_view_entity) else {
@@ -923,40 +1006,30 @@ fn queue_npcs(
         };
 
         for batch_entity in &npc_batch {
-            let entity = (view_entity, MainEntity::from(batch_entity));
-
-            // Misc (farms/BHP) below NPCs
-            if has_misc {
-                let pipeline_id = pipelines.specialize(
-                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), false),
+            if has_npcs {
+                let building_body_pid = pipelines.specialize(
+                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::BuildingBody)),
                 );
-                transparent_phase.add(Transparent2d {
-                    entity,
-                    draw_function: misc_draw,
-                    pipeline: pipeline_id,
-                    sort_key: FloatOrd(0.4),
-                    batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::None,
-                    extracted_index: usize::MAX,
-                    indexed: true,
-                });
+                queue_phase_item(transparent_phase, building_body_draw, building_body_pid, ORDER_BUILDING_BODY, view_entity, batch_entity);
             }
 
-            // NPCs via storage buffers
-            if has_npcs {
-                let pipeline_id = pipelines.specialize(
-                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), true),
+            if has_building_overlays {
+                let overlay_pid = pipelines.specialize(
+                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), None),
                 );
-                transparent_phase.add(Transparent2d {
-                    entity,
-                    draw_function: npc_draw,
-                    pipeline: pipeline_id,
-                    sort_key: FloatOrd(0.5),
-                    batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::None,
-                    extracted_index: usize::MAX,
-                    indexed: true,
-                });
+                queue_phase_item(transparent_phase, building_overlay_draw, overlay_pid, ORDER_BUILDING_OVERLAY, view_entity, batch_entity);
+            }
+
+            if has_npcs {
+                let npc_body_pid = pipelines.specialize(
+                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::NpcBody)),
+                );
+                queue_phase_item(transparent_phase, npc_body_draw, npc_body_pid, ORDER_NPC_BODY, view_entity, batch_entity);
+
+                let npc_overlay_pid = pipelines.specialize(
+                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::NpcOverlay)),
+                );
+                queue_phase_item(transparent_phase, npc_overlay_draw, npc_overlay_pid, ORDER_NPC_OVERLAY, view_entity, batch_entity);
             }
         }
     }
@@ -1041,36 +1114,54 @@ fn instance_vertex_layout() -> VertexBufferLayout {
 }
 
 impl SpecializedRenderPipeline for NpcPipeline {
-    type Key = (bool, u32, bool); // (HDR, MSAA sample count, storage_mode)
+    type Key = (bool, u32, Option<StorageDrawMode>); // (HDR, MSAA, storage mode or instance)
 
-    fn specialize(&self, (hdr, sample_count, storage_mode): Self::Key) -> RenderPipelineDescriptor {
+    fn specialize(&self, (hdr, sample_count, mode): Self::Key) -> RenderPipelineDescriptor {
         let format = if hdr {
             TextureFormat::Rgba16Float
         } else {
             TextureFormat::Rgba8UnormSrgb
         };
 
-        let (label, layout, entry_point, buffers) = if storage_mode {
-            (
-                "npc_storage_pipeline",
-                vec![
-                    self.texture_bind_group_layout.clone(),
-                    self.camera_bind_group_layout.clone(),
-                    self.npc_data_bind_group_layout.clone(),
-                ],
+        let storage_layout = vec![
+            self.texture_bind_group_layout.clone(),
+            self.camera_bind_group_layout.clone(),
+            self.npc_data_bind_group_layout.clone(),
+        ];
+        let instance_layout = vec![
+            self.texture_bind_group_layout.clone(),
+            self.camera_bind_group_layout.clone(),
+        ];
+
+        let (label, layout, entry_point, buffers, vertex_shader_defs) = match mode {
+            Some(StorageDrawMode::BuildingBody) => (
+                "building_body_pipeline",
+                storage_layout,
                 "vertex_npc",
                 vec![quad_vertex_layout()],
-            )
-        } else {
-            (
+                vec!["MODE_BUILDING_BODY".into()],
+            ),
+            Some(StorageDrawMode::NpcBody) => (
+                "npc_body_pipeline",
+                storage_layout,
+                "vertex_npc",
+                vec![quad_vertex_layout()],
+                vec!["MODE_NPC_BODY".into()],
+            ),
+            Some(StorageDrawMode::NpcOverlay) => (
+                "npc_overlay_pipeline",
+                storage_layout,
+                "vertex_npc",
+                vec![quad_vertex_layout()],
+                vec!["MODE_NPC_OVERLAY".into()],
+            ),
+            None => (
                 "npc_instance_pipeline",
-                vec![
-                    self.texture_bind_group_layout.clone(),
-                    self.camera_bind_group_layout.clone(),
-                ],
+                instance_layout,
                 "vertex",
                 vec![quad_vertex_layout(), instance_vertex_layout()],
-            )
+                vec![],
+            ),
         };
 
         RenderPipelineDescriptor {
@@ -1078,7 +1169,7 @@ impl SpecializedRenderPipeline for NpcPipeline {
             layout,
             vertex: VertexState {
                 shader: self.shader.clone(),
-                shader_defs: vec![],
+                shader_defs: vertex_shader_defs,
                 entry_point: Some(Cow::from(entry_point)),
                 buffers,
             },
@@ -1093,10 +1184,12 @@ impl SpecializedRenderPipeline for NpcPipeline {
                 })],
             }),
             primitive: PrimitiveState::default(),
+            // Depth policy: these passes are strictly 2D at z=0 with no occluders.
+            // CompareFunction::Always makes sort-key the sole ordering guarantee.
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: false,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_compare: CompareFunction::Always,
                 stencil: StencilState::default(),
                 bias: DepthBiasState::default(),
             }),
@@ -1119,6 +1212,8 @@ impl FromWorld for NpcPipeline {
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
                 (
+                    texture_2d(TextureSampleType::Float { filterable: true }),
+                    sampler(SamplerBindingType::Filtering),
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                     texture_2d(TextureSampleType::Float { filterable: true }),
@@ -1214,19 +1309,10 @@ fn queue_projs(
             continue;
         };
 
-        let pipeline_id = pipelines.specialize(&pipeline_cache, &pipeline, (view.hdr, msaa.samples(), false));
+        let pipeline_id = pipelines.specialize(&pipeline_cache, &pipeline, (view.hdr, msaa.samples(), None));
 
         for batch_entity in &proj_batch {
-            transparent_phase.add(Transparent2d {
-                entity: (view_entity, MainEntity::from(batch_entity)),
-                draw_function,
-                pipeline: pipeline_id,
-                sort_key: FloatOrd(1.0),
-                batch_range: 0..1,
-                extra_index: PhaseItemExtraIndex::None,
-                extracted_index: usize::MAX,
-                indexed: true,
-            });
+            queue_phase_item(transparent_phase, draw_function, pipeline_id, ORDER_PROJECTILES, view_entity, batch_entity);
         }
     }
 }

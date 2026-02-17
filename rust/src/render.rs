@@ -10,7 +10,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 use crate::gpu::NpcSpriteTexture;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings};
 use crate::settings::UserSettings;
-use crate::world::{WorldData, WorldGrid, build_tileset, TERRAIN_TILES, BUILDING_TILES};
+use crate::world::{WorldData, WorldGrid, build_tileset, build_building_atlas, TERRAIN_TILES, BUILDING_TILES};
 
 // =============================================================================
 // CONSTANTS
@@ -96,7 +96,6 @@ impl Plugin for RenderPlugin {
                 camera_follow_system,
                 click_to_select_system,
                 spawn_world_tilemap,
-                sync_building_tilemap,
                 sync_terrain_tilemap,
             ));
     }
@@ -503,18 +502,15 @@ pub struct TilemapSpawned(pub bool);
 #[derive(Component)]
 pub struct TerrainChunk;
 
-/// Marker component on the building TilemapChunk layer for runtime tile updates.
-#[derive(Component)]
-pub struct BuildingChunk;
-
-/// Spawn terrain + building TilemapChunk layers. Runs once when WorldGrid is populated
-/// and the world atlas image is loaded.
+/// Spawn terrain TilemapChunk + building atlas for instanced renderer.
+/// Runs once when WorldGrid is populated and all images are loaded.
 fn spawn_world_tilemap(
     mut commands: Commands,
     grid: Res<WorldGrid>,
     assets: Res<SpriteAssets>,
     mut images: ResMut<Assets<Image>>,
     mut spawned: ResMut<TilemapSpawned>,
+    mut npc_sprite_tex: ResMut<NpcSpriteTexture>,
 ) {
     if spawned.0 || grid.width == 0 { return; }
     let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
@@ -523,13 +519,13 @@ fn spawn_world_tilemap(
     let Some(waypoint_img) = images.get(&assets.waypoint_texture).cloned() else { return; };
     let Some(miner_house_img) = images.get(&assets.miner_house_texture).cloned() else { return; };
 
-    // Terrain layer: every cell filled, opaque. Tagged with TerrainChunk for runtime sync.
+    // Terrain layer
     let terrain_tileset = build_tileset(&atlas, &TERRAIN_TILES, &[], &mut images);
     let terrain_tiles: Vec<Option<TileData>> = grid.cells.iter().enumerate()
         .map(|(i, cell)| Some(TileData::from_tileset_index(cell.terrain.tileset_index(i))))
         .collect();
-    let world_w_t = grid.width as f32 * grid.cell_size;
-    let world_h_t = grid.height as f32 * grid.cell_size;
+    let world_w = grid.width as f32 * grid.cell_size;
+    let world_h = grid.height as f32 * grid.cell_size;
     commands.spawn((
         TilemapChunk {
             chunk_size: UVec2::new(grid.width as u32, grid.height as u32),
@@ -538,56 +534,25 @@ fn spawn_world_tilemap(
             alpha_mode: AlphaMode2d::Blend,
         },
         TilemapChunkTileData(terrain_tiles),
-        Transform::from_xyz(world_w_t / 2.0, world_h_t / 2.0, -1.0),
+        Transform::from_xyz(world_w / 2.0, world_h / 2.0, -1.0),
         TerrainChunk,
     ));
 
-    // Building layer: None for empty cells, building tile where placed.
-    // Spawned with BuildingChunk marker for runtime tile updates.
-    let building_tileset = build_tileset(
+    // Building atlas for NPC instanced renderer (replaces building TilemapChunk)
+    let building_atlas = build_building_atlas(
         &atlas,
         &BUILDING_TILES,
         &[&house_img, &barracks_img, &waypoint_img, &miner_house_img],
         &mut images,
     );
-    let building_tiles: Vec<Option<TileData>> = grid.cells.iter()
-        .map(|cell| cell.building.as_ref().map(|b| TileData::from_tileset_index(b.tileset_index())))
-        .collect();
-    let building_count = building_tiles.iter().filter(|t| t.is_some()).count();
-    let world_w = grid.width as f32 * grid.cell_size;
-    let world_h = grid.height as f32 * grid.cell_size;
-    commands.spawn((
-        TilemapChunk {
-            chunk_size: UVec2::new(grid.width as u32, grid.height as u32),
-            tile_display_size: UVec2::new(grid.cell_size as u32, grid.cell_size as u32),
-            tileset: building_tileset,
-            alpha_mode: AlphaMode2d::Blend,
-        },
-        TilemapChunkTileData(building_tiles),
-        Transform::from_xyz(world_w / 2.0, world_h / 2.0, -0.5),
-        BuildingChunk,
-    ));
-
-    info!("World tilemap spawned: {}x{} grid, {} buildings", grid.width, grid.height, building_count);
-    spawned.0 = true;
-}
-
-/// Sync building tilemap tiles when WorldGrid changes at runtime (building placed/destroyed).
-fn sync_building_tilemap(
-    grid: Res<WorldGrid>,
-    mut chunks: Query<&mut TilemapChunkTileData, With<BuildingChunk>>,
-    timings: Res<SystemTimings>,
-) {
-    let _t = timings.scope("sync_tilemap");
-    if !grid.is_changed() || grid.width == 0 { return; }
-
-    for mut tile_data in chunks.iter_mut() {
-        for (i, cell) in grid.cells.iter().enumerate() {
-            if i >= tile_data.0.len() { break; }
-            tile_data.0[i] = cell.building.as_ref()
-                .map(|b| TileData::from_tileset_index(b.tileset_index()));
-        }
+    if let Some(img) = images.get(&building_atlas) {
+        assert_eq!(img.height(), 32 * BUILDING_TILES.len() as u32,
+            "building atlas height mismatch");
     }
+    npc_sprite_tex.building_handle = Some(building_atlas);
+
+    info!("World tilemap spawned: {}x{} grid", grid.width, grid.height);
+    spawned.0 = true;
 }
 
 /// Sync terrain tilemap tiles when WorldGrid terrain changes (slot unlock → Dirt).

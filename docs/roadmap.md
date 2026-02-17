@@ -210,6 +210,17 @@ Files: `resources.rs` (PolicySet + MiningPolicy + DirtyFlags), `world.rs` (Miner
 - [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
 - [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
 
+**Stage 17b: Roads**
+
+*Done when: player builds a road from town to a gold mine, NPCs visibly snap onto it, walk faster with no collision, and step off when their destination requires it.*
+
+- [ ] Road building: player and AI place road segments on grid tiles (like walls, connects to adjacent roads)
+- [ ] NPC road attraction: attraction strength parameter pulls nearby NPCs onto road (snapping, not teleporting)
+- [ ] Road speed bonus: NPCs on road tiles get increased movement speed
+- [ ] Road collision bypass: NPCs on road skip NPC-NPC collision (GPU spatial grid ignore flag or separate movement mode)
+- [ ] Road exit: NPCs leave road when destination is off-road (attraction releases when target bearing diverges)
+- [ ] AI road building: AI towns build roads between key buildings (home clusters → farms, mines, waypoints)
+
 **Stage 18: Save/Load**
 
 *Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off - NPCs in the same positions, same HP, same upgrades, same food.*

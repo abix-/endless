@@ -379,12 +379,12 @@ pub fn build_and_pay(
     let data_idx = find_building_data_index(world_data, building, snapped).unwrap_or(0);
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
     let max_hp = BuildingHpState::max_hp(kind);
-    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, max_hp);
+    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, max_hp, building.tileset_index());
 
     true
 }
 
-/// Allocate an NPC GPU slot for a building (invisible, speed=0, for collision detection).
+/// Allocate an NPC GPU slot for a building (speed=0, rendered via instanced pipeline).
 fn allocate_building_slot(
     slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingSlotMap,
@@ -393,6 +393,7 @@ fn allocate_building_slot(
     pos: Vec2,
     faction: i32,
     max_hp: f32,
+    tileset_idx: u16,
 ) {
     let Some(slot) = slot_alloc.alloc() else {
         warn!("No NPC slots available for building {:?}", kind);
@@ -406,8 +407,10 @@ fn allocate_building_slot(
         queue.push(GpuUpdate::SetHealth { idx: slot, health: max_hp });
         queue.push(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 });
         queue.push(GpuUpdate::SetFlags { idx: slot, flags: 0 });
-        // sprite_col = -1.0 hides from NPC rendering (still tilemap-rendered)
-        queue.push(GpuUpdate::SetSpriteFrame { idx: slot, col: -1.0, row: 0.0, atlas: 0.0 });
+        queue.push(GpuUpdate::SetSpriteFrame {
+            idx: slot, col: tileset_idx as f32, row: 0.0,
+            atlas: crate::constants::ATLAS_BUILDING,
+        });
     }
 }
 
@@ -443,46 +446,47 @@ pub fn allocate_all_building_slots(
     for (i, wp) in world_data.waypoints.iter().enumerate() {
         if wp.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, i,
-            wp.position, town_faction(wp.town_idx), WAYPOINT_HP);
+            wp.position, town_faction(wp.town_idx), WAYPOINT_HP, TILESET_WAYPOINT);
     }
     for (i, f) in world_data.farms.iter().enumerate() {
         if f.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Farm, i,
-            f.position, town_faction(f.town_idx as u32), FARM_HP);
+            f.position, town_faction(f.town_idx as u32), FARM_HP, TILESET_FARM);
     }
     for (i, h) in world_data.farmer_homes.iter().enumerate() {
         if h.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::FarmerHome, i,
-            h.position, town_faction(h.town_idx as u32), FARMER_HOME_HP);
+            h.position, town_faction(h.town_idx as u32), FARMER_HOME_HP, TILESET_FARMER_HOME);
     }
     for (i, a) in world_data.archer_homes.iter().enumerate() {
         if a.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::ArcherHome, i,
-            a.position, town_faction(a.town_idx as u32), ARCHER_HOME_HP);
+            a.position, town_faction(a.town_idx as u32), ARCHER_HOME_HP, TILESET_ARCHER_HOME);
     }
     for (i, t) in world_data.tents.iter().enumerate() {
         if t.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Tent, i,
-            t.position, town_faction(t.town_idx as u32), TENT_HP);
+            t.position, town_faction(t.town_idx as u32), TENT_HP, TILESET_TENT);
     }
     for (i, m) in world_data.miner_homes.iter().enumerate() {
         if m.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::MinerHome, i,
-            m.position, town_faction(m.town_idx as u32), MINER_HOME_HP);
+            m.position, town_faction(m.town_idx as u32), MINER_HOME_HP, TILESET_MINER_HOME);
     }
     for (i, b) in world_data.beds.iter().enumerate() {
         if b.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Bed, i,
-            b.position, town_faction(b.town_idx as u32), BED_HP);
+            b.position, town_faction(b.town_idx as u32), BED_HP, TILESET_BED);
     }
     for (i, t) in world_data.towns.iter().enumerate() {
+        let tileset_idx = if t.sprite_type == 1 { TILESET_CAMP } else { TILESET_FOUNTAIN };
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::Town, i,
-            t.center, t.faction, TOWN_HP);
+            t.center, t.faction, TOWN_HP, tileset_idx);
     }
     for (i, m) in world_data.gold_mines.iter().enumerate() {
         if m.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::GoldMine, i,
-            m.position, FACTION_NEUTRAL, GOLD_MINE_HP);
+            m.position, FACTION_NEUTRAL, GOLD_MINE_HP, TILESET_GOLD_MINE);
     }
 
     info!("Allocated {} building GPU slots", building_slots.len());
@@ -540,7 +544,7 @@ pub fn place_waypoint_at_world_pos(
 
     // Allocate GPU NPC slot for collision
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-    allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, data_idx, snapped, faction, BuildingHpState::max_hp(BuildingKind::Waypoint));
+    allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, data_idx, snapped, faction, BuildingHpState::max_hp(BuildingKind::Waypoint), TILESET_WAYPOINT);
 
     Ok(())
 }
@@ -1176,11 +1180,36 @@ pub const BUILDING_TILES: [TileSpec; 10] = [
     TileSpec::External(3),    // 9: MinerHome (miner_house.png)
 ];
 
-/// Extract tiles from the world atlas and build a texture_2d_array for TilemapChunk.
-/// Each layer is 32x32 pixels. Single sprites are nearest-neighbor 2x upscaled.
-/// Quad sprites composite four 16x16 sprites into quadrants.
-/// The atlas has 1px margins (17px cells).
-pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images: &mut Assets<Image>) -> Handle<Image> {
+// Tileset indices -- must match BUILDING_TILES order above
+pub const TILESET_FOUNTAIN: u16 = 0;
+pub const TILESET_BED: u16 = 1;
+pub const TILESET_WAYPOINT: u16 = 2;
+pub const TILESET_FARM: u16 = 3;
+pub const TILESET_CAMP: u16 = 4;
+pub const TILESET_FARMER_HOME: u16 = 5;
+pub const TILESET_ARCHER_HOME: u16 = 6;
+pub const TILESET_TENT: u16 = 7;
+pub const TILESET_GOLD_MINE: u16 = 8;
+pub const TILESET_MINER_HOME: u16 = 9;
+
+// Compile-time guard: BUILDING_TILES length and index mapping
+const _: () = {
+    assert!(BUILDING_TILES.len() == 10);
+    assert!(TILESET_FOUNTAIN as usize == 0);
+    assert!(TILESET_BED as usize == 1);
+    assert!(TILESET_WAYPOINT as usize == 2);
+    assert!(TILESET_FARM as usize == 3);
+    assert!(TILESET_CAMP as usize == 4);
+    assert!(TILESET_FARMER_HOME as usize == 5);
+    assert!(TILESET_ARCHER_HOME as usize == 6);
+    assert!(TILESET_TENT as usize == 7);
+    assert!(TILESET_GOLD_MINE as usize == 8);
+    assert!(TILESET_MINER_HOME as usize == 9);
+};
+
+/// Composite tiles into a vertical strip buffer (32 x 32*layers).
+/// Core logic shared by tilemap tileset and building atlas.
+fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec<u8>, u32) {
     let sprite = SPRITE_SIZE as u32;    // 16
     let out_size = sprite * 2;          // 32
     let cell_size = CELL as u32;        // 17
@@ -1207,7 +1236,7 @@ pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images
         let l = layer as u32;
         match *spec {
             TileSpec::Single(col, row) => {
-                // Nearest-neighbor 2x upscale: each src pixel → 2x2 dst pixels
+                // Nearest-neighbor 2x upscale: each src pixel -> 2x2 dst pixels
                 let src_x = col * cell_size;
                 let src_y = row * cell_size;
                 for ty in 0..sprite {
@@ -1237,8 +1266,6 @@ pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images
                 let ext_w = ext.width();
                 let ext_h = ext.height();
 
-                // External sprites may be authored at 16x16 or 32x32.
-                // The tileset layer is always 32x32, so 16x16 inputs are 2x upscaled.
                 if ext_w == out_size && ext_h == out_size {
                     let layer_bytes = (out_size * out_size * 4) as usize;
                     if ext_data.len() >= layer_bytes {
@@ -1264,6 +1291,13 @@ pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images
         }
     }
 
+    (data, layers)
+}
+
+/// Tilemap: strip -> texture_2d_array (for TilemapChunk).
+pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images: &mut Assets<Image>) -> Handle<Image> {
+    let (data, layers) = build_tile_strip(atlas, tiles, extra);
+    let out_size = SPRITE_SIZE as u32 * 2;
     let mut image = Image::new(
         Extent3d {
             width: out_size,
@@ -1275,9 +1309,25 @@ pub fn build_tileset(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images
         TextureFormat::Rgba8UnormSrgb,
         Default::default(),
     );
-
     image.reinterpret_stacked_2d_as_array(layers).expect("tileset reinterpret failed");
     images.add(image)
+}
+
+/// Building atlas: strip as texture_2d (for NPC instanced shader).
+pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image], images: &mut Assets<Image>) -> Handle<Image> {
+    let (data, layers) = build_tile_strip(atlas, tiles, extra);
+    let out_size = SPRITE_SIZE as u32 * 2;
+    images.add(Image::new(
+        Extent3d {
+            width: out_size,
+            height: out_size * layers,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        Default::default(),
+    ))
 }
 
 /// Building occupying a grid cell.
@@ -1327,16 +1377,16 @@ impl Building {
     /// Map building variant to tileset array index (matches BUILDING_TILES order).
     pub fn tileset_index(&self) -> u16 {
         match self {
-            Building::Fountain { .. } => 0,
-            Building::Bed { .. } => 1,
-            Building::Waypoint { .. } => 2,
-            Building::Farm { .. } => 3,
-            Building::Camp { .. } => 4,
-            Building::FarmerHome { .. } => 5,
-            Building::ArcherHome { .. } => 6,
-            Building::Tent { .. } => 7,
-            Building::GoldMine => 8,
-            Building::MinerHome { .. } => 9,
+            Building::Fountain { .. } => TILESET_FOUNTAIN,
+            Building::Bed { .. } => TILESET_BED,
+            Building::Waypoint { .. } => TILESET_WAYPOINT,
+            Building::Farm { .. } => TILESET_FARM,
+            Building::Camp { .. } => TILESET_CAMP,
+            Building::FarmerHome { .. } => TILESET_FARMER_HOME,
+            Building::ArcherHome { .. } => TILESET_ARCHER_HOME,
+            Building::Tent { .. } => TILESET_TENT,
+            Building::GoldMine => TILESET_GOLD_MINE,
+            Building::MinerHome { .. } => TILESET_MINER_HOME,
         }
     }
 }

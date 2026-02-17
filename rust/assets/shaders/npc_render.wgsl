@@ -54,6 +54,10 @@ struct VertexOutput {
 @group(0) @binding(8) var arrow_texture: texture_2d<f32>;
 @group(0) @binding(9) var arrow_sampler: sampler;
 
+// Building atlas (bind group 0, bindings 10-11) — vertical strip, 32x32 per tile
+@group(0) @binding(10) var building_texture: texture_2d<f32>;
+@group(0) @binding(11) var building_sampler: sampler;
+
 // Camera uniform (bind group 1)
 struct Camera {
     pos: vec2<f32>,
@@ -93,12 +97,23 @@ const WORLD_TEX_H: f32 = 526.0;
 // Degenerate triangle — moves vertex off-screen to discard
 const HIDDEN: vec4<f32> = vec4<f32>(0.0, 0.0, -2.0, 1.0);
 
+// Building atlas: 10 tiles in a vertical strip (backed by compile-time assert in world.rs)
+const BLDG_LAYERS: f32 = 10.0;
+
+// Atlas ID 7 = building (source of truth: constants.rs)
+fn is_building_atlas(id: f32) -> bool {
+    return id > 6.5 && id < 7.5;
+}
+
 // =============================================================================
 // SHARED HELPERS
 // =============================================================================
 
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
-    if atlas_id >= 1.5 {
+    if is_building_atlas(atlas_id) {
+        // Building atlas: vertical strip, sprite_col selects tile layer
+        return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / BLDG_LAYERS);
+    } else if atlas_id >= 1.5 {
         // Single-sprite textures (heal, sleep, arrow): UV = quad_uv directly
         return quad_uv;
     } else if atlas_id < 0.5 {
@@ -200,6 +215,23 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
         }
     }
 
+    // Pass-specific gating (compile-time via shader_defs)
+#ifdef MODE_BUILDING_BODY
+    if layer != 0u || !is_building_atlas(atlas_id) { out.clip_position = HIDDEN; return out; }
+#endif
+#ifdef MODE_NPC_BODY
+    if layer != 0u || is_building_atlas(atlas_id) { out.clip_position = HIDDEN; return out; }
+#endif
+#ifdef MODE_NPC_OVERLAY
+    if layer == 0u || is_building_atlas(atlas_id) { out.clip_position = HIDDEN; return out; }
+#endif
+
+    // Buildings: 32x32 scale, suppress NPC HP bar
+    if is_building_atlas(atlas_id) {
+        scale = 32.0;
+        health = 1.0; // suppress NPC HP bar; BuildingHpRender handles via atlas_id=5
+    }
+
     out.clip_position = world_to_clip(pos + in.quad_pos * scale);
     out.uv = calc_uv(sprite_col, sprite_row, atlas_id, in.quad_uv);
     out.color = color;
@@ -217,6 +249,13 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Building sprite (atlas_id 7) — must come before bar branches to avoid discard
+    if is_building_atlas(in.atlas_id) {
+        let tex_color = textureSample(building_texture, building_sampler, in.uv);
+        if tex_color.a < 0.1 { discard; }
+        return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+    }
+
     // Mining progress bar (atlas_id 6): gold bar in bottom 15%, discard rest
     if in.atlas_id >= 5.5 {
         if in.quad_uv.y > 0.85 {

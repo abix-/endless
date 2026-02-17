@@ -79,9 +79,9 @@ Bevy ECS (lib.rs build_app)
     │   └─ WGSL shader (shaders/npc_compute.wgsl)
     │
     ├─ NPC Rendering (npc_render.rs) ─────────▶ [rendering.md]
-    │   ├─ RenderCommand + Transparent2d phase
-    │   ├─ Storage buffer path (NPCs): vertex shader reads compute output directly
-    │   ├─ Instance buffer path (farms, BHP, projectiles)
+    │   ├─ RenderCommand + Transparent2d phase, explicit sort-key ordering
+    │   ├─ Storage buffer path (buildings + NPCs): 3 shader-def variants via StorageDrawMode
+    │   ├─ Instance buffer path (building overlays, projectiles)
     │   └─ WGSL shader (shaders/npc_render.wgsl)
     │
     ├─ Sprite Rendering (render.rs) ───────────▶ [rendering.md]
@@ -110,7 +110,7 @@ Frame execution order ───────────────────�
 |-----|---------------|--------|
 | [frame-loop.md](frame-loop.md) | Per-frame execution order, main/render world timing | 8/10 |
 | [gpu-compute.md](gpu-compute.md) | Compute shaders, spatial grid, separation physics, combat targeting, GPU→ECS readback | 8/10 |
-| [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, dual atlas, RenderCommand pipeline, camera controls, health bars, FPS overlay | 8/10 |
+| [rendering.md](rendering.md) | TilemapChunk terrain, GPU instanced buildings/NPCs/equipment, 6-atlas pipeline, explicit sort-key pass ordering, RenderCommand pattern, camera controls, health bars | 8/10 |
 | [combat.md](combat.md) | Attack → damage → death → XP grant → cleanup, slot recycling | 8/10 |
 | [spawn.md](spawn.md) | Single spawn path, job-as-template, slot allocation | 7/10 |
 | [behavior.md](behavior.md) | Decision system, utility AI, state machine, energy, patrol, flee/leash | 7/10 |
@@ -132,14 +132,14 @@ rust/
   src/lib.rs            # build_app(), AppState enum, system scheduling, helpers
   src/gpu.rs            # GPU compute via Bevy render graph
   src/npc_render.rs     # GPU NPC rendering (storage buffers) + misc/projectile rendering (instance buffers)
-  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync, click_to_select_system (double-click fountain → Factions tab)
+  src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning (terrain only), TerrainChunk sync, building atlas creation, click_to_select_system (double-click fountain → Factions tab)
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, MiningProgress, Archer/Farmer/Miner markers, Migrating)
-  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, waypoint turret (disabled), squad limits, mining, MAX_MINE_OCCUPANCY, building HP, building costs, 8x8 base build area, WAYPOINT_COVER_RADIUS, MAX_NPC_COUNT=100K)
+  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, waypoint turret (disabled), squad limits, mining, MAX_MINE_OCCUPANCY, building HP, building costs, 8x8 base build area, WAYPOINT_COVER_RADIUS, MAX_NPC_COUNT=100K, ATLAS_* IDs)
   src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, WaypointState, SquadState, GoldStorage, MineStates, MinerProgressRender, BuildingHpState, MiningPolicy, BuildingSlotMap, HelpCatalog, etc.)
   src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
   src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v4, auto_upgrades, autosave_hours, music/sfx volume, music speed, tutorial_completed, log_faction_filter)
-  src/world.rs          # World data structs (GoldMine, MinerHome{assigned_mine}, FarmerHome, ArcherHome, Waypoint), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), building GPU slot allocation (allocate_building_slot, free_building_slot, allocate_all_building_slots), shared helpers: build_and_pay(), place_waypoint_at_world_pos(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind(), WorldData::miner_home_at()/gold_mine_at()/building_counts()
+  src/world.rs          # World data structs (GoldMine, MinerHome{assigned_mine}, FarmerHome, ArcherHome, Waypoint), world grid, procedural generation (mine placement), tileset builder (build_tileset for terrain array, build_building_atlas for building strip), town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), building GPU slot allocation (allocate_building_slot with tileset_idx, free_building_slot, allocate_all_building_slots), TILESET_* constants, shared helpers: build_and_pay(), place_waypoint_at_world_pos(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind(), WorldData::miner_home_at()/gold_mine_at()/building_counts()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale + audio volume), escape/time controls, keyboard toggles (Q=squads, H=help), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
     main_menu.rs        # Main menu with difficulty presets (Easy/Normal/Hard), world config sliders (farms + gold mines top-level, farmer/archer homes under AI Towns, tents under Raider Camps), Play / Load Game / Debug Tests, restart tutorial button

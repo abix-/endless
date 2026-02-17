@@ -13,7 +13,7 @@ Main World (ECS)                       Render World (GPU)
 ├─ NpcComputeParams ─────────────────▶ ExtractResource (cloned each frame)
 ├─ NpcGpuState ──────────────────────▶ Extract<Res<T>> (zero-clone immutable read, per-buffer dirty flags)
 ├─ NpcVisualUpload ──────────────────▶ Extract<Res<T>> (zero-clone immutable read)
-├─ NpcSpriteTexture (char+world+heal+sleep) ▶ ExtractResource
+├─ NpcSpriteTexture (char+world+heal+sleep+arrow+building) ▶ ExtractResource
 ├─ GpuReadState ─────────────────────────▶ main-world only (no extraction)
 ├─ ProjPositionState ────────────────────▶ Extract<Res<T>> (zero-clone, for extract_proj_data)
 │                                      │

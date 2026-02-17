@@ -821,7 +821,7 @@ pub fn auto_start_next_test(
 fn cleanup_test_world(
     mut commands: Commands,
     entity_query: Query<Entity, Or<(With<NpcIndex>, With<FarmReadyMarker>)>>,
-    tilemap_query: Query<Entity, Or<(With<crate::render::TerrainChunk>, With<crate::render::BuildingChunk>)>>,
+    tilemap_query: Query<Entity, With<crate::render::TerrainChunk>>,
     mut core: CleanupCore,
     mut extra: CleanupExtra,
 ) {
