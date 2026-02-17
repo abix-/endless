@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-02-17i
+
+- **DRY: `TownContext` per-tick bundle** — unified 6 loose locals (center, food, empty_count, has_slots, slot_fullness, cached_mines) into `TownContext` struct with `build()` constructor; `execute_action` signature reduced from 10 params to 6
+- **type-safe mine access** — `TownContext.mines: Option<MineAnalysis>` is `Some` for Builder, `None` for Raider; builder-only arms (BuildWaypoint, BuildMinerHome) guard with `let Some(mines) = &ctx.mines else { return None }` — invalid state is unrepresentable
+- **mine data single source of truth** — removed `all_gold_mines` from `AiTownSnapshot`; `MineAnalysis.all_positions` is now the only mine position source; `miner_toward_mine_score` takes `&[Vec2]` instead of `&AiTownSnapshot`
+- **DRY: `NeighborCounts` + `count_neighbors()`** — extracted shared 3x3 adjacency traversal from `farm_slot_score`, `farmer_home_border_score`, `archer_fill_score` into single helper
+- **DRY: `territory_building_sets!` macro** — single definition of the 4 building types that constitute owned territory; both `all_building_slots()` and `all_building_slots_from_world()` consume only macro output
+- **DRY: mining radius constants** — replaced 5 occurrences of hardcoded `300.0`/`5000.0` with `DEFAULT_MINING_RADIUS`, `MINING_RADIUS_STEP`, `MAX_MINING_RADIUS`
+- **`is_population_spawner()` helper** — `SpawnerEntry` method replaces raw `matches!(building_kind, 0|1|2|3)` in ai_player and left_panel
+- **`try_build_miner_home()`** — separate build path for miner homes using `ctx.mines.all_positions` instead of snapshot fn pointer, avoiding `unwrap()` inside closures
+
 ## 2026-02-17h
 
 - **bug fix: waypoint pruning full teardown** — `sync_town_perimeter_waypoints` now calls `destroy_building()` instead of `remove_building()`, fixing stale GPU slots and spawner leaks when waypoints are pruned

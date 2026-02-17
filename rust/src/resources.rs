@@ -896,6 +896,16 @@ pub struct SpawnerEntry {
     pub respawn_timer: f32,   // game hours remaining (-1 = not respawning)
 }
 
+impl SpawnerEntry {
+    /// True if this entry is a population-spawning building (not a non-spawner sentinel).
+    #[inline]
+    pub fn is_population_spawner(&self) -> bool {
+        matches!(self.building_kind,
+            crate::world::SPAWNER_FARMER | crate::world::SPAWNER_ARCHER |
+            crate::world::SPAWNER_TENT | crate::world::SPAWNER_MINER)
+    }
+}
+
 /// All building spawners in the world. Each FarmerHome/ArcherHome/Tent/MinerHome gets one entry.
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);

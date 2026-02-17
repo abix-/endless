@@ -1054,7 +1054,7 @@ fn rebuild_factions_cache(
         let spawner_count = factions.spawner_state.0.iter()
             .filter(|s| is_alive(s.position))
             .filter(|s| s.town_idx == tdi as i32)
-            .filter(|s| matches!(s.building_kind, 0 | 1 | 2 | 3))
+            .filter(|s| s.is_population_spawner())
             .count() as i32;
         let reserve_food = personality
             .map(|p| p.food_reserve_per_spawner() * spawner_count)
