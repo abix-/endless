@@ -543,7 +543,6 @@ pub fn sync_patrol_perimeter_system(
 
     if removed_total > 0 {
         world.dirty.patrols = true;
-        world.dirty.waypoint_slots = true;
         world.dirty.building_grid = true;
     }
 }

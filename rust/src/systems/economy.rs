@@ -765,7 +765,6 @@ pub fn migration_settle_system(
 
     // Mark dirty for building grid + tilemap rebuild
     world_state.dirty.building_grid = true;
-    world_state.dirty.waypoint_slots = true;
     tilemap_spawned.0 = false; // force tilemap rebuild with new terrain + buildings
 
     combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),

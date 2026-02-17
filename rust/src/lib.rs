@@ -303,7 +303,6 @@ pub fn build_app(app: &mut App) {
            death_system,
            xp_grant_system,
            death_cleanup_system,
-           sync_waypoint_slots,
            waypoint_attack_system,
        ).chain().in_set(Step::Combat))
        // Behavior

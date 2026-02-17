@@ -891,25 +891,6 @@ fn building_inspector_content(
                     ui.label(label);
                 }
 
-                // Assigned archer from spawner (ArcherHome spawners near waypoints assign via patrol)
-                let ti = *town_idx as i32;
-                if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
-                    e.building_kind == 1 && e.town_idx == ti
-                        && e.npc_slot >= 0
-                        && {
-                            let slot = e.npc_slot as usize;
-                            slot < meta_cache.0.len() && meta_cache.0[slot].town_id == ti
-                        }
-                        && (e.position - world_pos).length() < 200.0
-                }) {
-                    if entry.npc_slot >= 0 {
-                        let slot = entry.npc_slot as usize;
-                        if slot < meta_cache.0.len() {
-                            let meta = &meta_cache.0[slot];
-                            ui.label(format!("Archer: {} (Lv.{})", meta.name, meta.level));
-                        }
-                    }
-                }
             }
         }
 

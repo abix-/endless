@@ -54,8 +54,6 @@ pub struct Waypoint {
     pub town_idx: u32,
     /// Patrol order (0-3 for clockwise perimeter)
     pub patrol_order: u32,
-    /// NPC slot index for GPU spatial grid targeting (None = not yet allocated)
-    pub npc_slot: Option<usize>,
 }
 
 /// A farmer home that supports 1 farmer (building spawner).
@@ -251,7 +249,6 @@ pub fn place_building(
                 position: snapped_pos,
                 town_idx,
                 patrol_order,
-                npc_slot: None,
             });
         }
         Building::FarmerHome { town_idx } => {
@@ -538,7 +535,6 @@ pub fn place_waypoint_at_world_pos(
         position: snapped,
         town_idx: ti,
         patrol_order: existing,
-        npc_slot: None,
     });
     building_hp.push_for(&building);
 
@@ -1782,7 +1778,6 @@ fn place_town_buildings(
             position: post_pos,
             town_idx,
             patrol_order: order as u32,
-            npc_slot: None,
         });
     }
 

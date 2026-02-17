@@ -323,56 +323,13 @@ pub fn process_proj_hits(
     hit_state.0.clear();
 }
 
-/// Sync waypoint NPC slots: allocate for new posts, free for tombstoned posts.
-/// Gated by DirtyFlags::waypoint_slots — only runs when waypoints are built/destroyed/loaded.
-pub fn sync_waypoint_slots(
-    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
-    mut world: WorldState,
-    timings: Res<SystemTimings>,
-) {
-    let _t = timings.scope("sync_waypoints");
-    if !world.dirty.waypoint_slots { return; }
-    world.dirty.waypoint_slots = false;
-
-    // Collect new allocations needing faction set (can't borrow towns during waypoints iter_mut)
-    let mut new_slots: Vec<(usize, u32)> = Vec::new(); // (slot, town_idx)
-
-    for gp in world.world_data.waypoints.iter_mut() {
-        let alive = gp.position.x > -9000.0;
-        match (alive, gp.npc_slot) {
-            (true, None) => {
-                let Some(slot) = world.slot_alloc.alloc() else { continue };
-                gp.npc_slot = Some(slot);
-                // Match spawn.rs order: Position, Target, Speed, Health, SpriteFrame
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: slot, x: gp.position.x, y: gp.position.y }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: slot, x: gp.position.x, y: gp.position.y }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: 999.0 }));
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: slot, col: -1.0, row: 0.0, atlas: 0.0 }));
-                new_slots.push((slot, gp.town_idx));
-            }
-            (false, Some(slot)) => {
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: slot }));
-                world.slot_alloc.free(slot);
-                gp.npc_slot = None;
-            }
-            _ => {}
-        }
-    }
-
-    // Set factions for newly allocated slots (needs immutable towns access, separate from iter_mut)
-    for (slot, town_idx) in new_slots {
-        let faction = world.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: slot, faction }));
-    }
-}
-
 /// Waypoint turret auto-attack: reads GPU combat_targets for nearest enemy, fires projectile.
 /// State length auto-syncs with WorldData.waypoints (handles runtime building).
 pub fn waypoint_attack_system(
     time: Res<Time>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
+    building_slots: Res<BuildingSlotMap>,
     mut gp_state: ResMut<WaypointState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
@@ -392,7 +349,7 @@ pub fn waypoint_attack_system(
     for (i, post) in world_data.waypoints.iter().enumerate() {
         if i >= gp_state.timers.len() { break; }
         if !gp_state.attack_enabled[i] { continue; }
-        let Some(slot) = post.npc_slot else { continue }; // No GPU slot yet
+        let Some(slot) = building_slots.get_slot(BuildingKind::Waypoint, i) else { continue };
 
         // Decrement cooldown
         if gp_state.timers[i] > 0.0 {

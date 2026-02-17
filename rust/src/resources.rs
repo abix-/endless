@@ -1376,7 +1376,6 @@ pub struct DirtyFlags {
     pub patrols: bool,
     pub patrol_perimeter: bool,
     pub healing_zones: bool,
-    pub waypoint_slots: bool,
     pub squads: bool,
     pub mining: bool,
     /// Pending patrol order swap from UI (waypoint indices).
@@ -1389,7 +1388,6 @@ impl DirtyFlags {
         self.building_grid = true;
         if kind == crate::world::BuildingKind::Waypoint {
             self.patrols = true;
-            self.waypoint_slots = true;
             self.patrol_perimeter = true;
         }
         if matches!(kind,
@@ -1406,7 +1404,7 @@ impl DirtyFlags {
     }
 }
 impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, waypoint_slots: true, squads: true, mining: true, patrol_swap: None } }
+    fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, squads: true, mining: true, patrol_swap: None } }
 }
 
 // ============================================================================
