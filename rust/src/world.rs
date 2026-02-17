@@ -10,6 +10,17 @@ use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID
 use crate::resources::{GrowthStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, BuildingSlotMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
 use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
 
+/// True if a position has not been tombstoned (i.e. the entity still exists).
+/// Tombstoned entities have position.x = -99999.0; this checks > -9000.0.
+#[inline]
+pub fn is_alive(pos: Vec2) -> bool { pos.x > -9000.0 }
+
+/// Spawner building_kind constants (match `Building::spawner_kind()` return values).
+pub const SPAWNER_FARMER: i32 = 0;
+pub const SPAWNER_ARCHER: i32 = 1;
+pub const SPAWNER_TENT: i32 = 2;
+pub const SPAWNER_MINER: i32 = 3;
+
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
 // ============================================================================
@@ -162,6 +173,23 @@ pub fn build_bounds(grid: &TownGrid) -> (i32, i32, i32, i32) {
 pub fn is_slot_buildable(grid: &TownGrid, row: i32, col: i32) -> bool {
     let (min_row, max_row, min_col, max_col) = build_bounds(grid);
     row >= min_row && row <= max_row && col >= min_col && col <= max_col
+}
+
+/// All empty buildable slots in a town grid (excludes center 0,0).
+pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid) -> Vec<(i32, i32)> {
+    let (min_row, max_row, min_col, max_col) = build_bounds(tg);
+    let mut out = Vec::new();
+    for r in min_row..=max_row {
+        for c in min_col..=max_col {
+            if r == 0 && c == 0 { continue; }
+            let pos = town_grid_to_world(center, r, c);
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true) {
+                out.push((r, c));
+            }
+        }
+    }
+    out
 }
 
 /// Find which town (villager or camp) has a buildable slot matching the given grid coords.
@@ -355,6 +383,7 @@ pub fn build_and_pay(
     building_hp: &mut BuildingHpState,
     slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingSlotMap,
+    dirty: &mut DirtyFlags,
     building: Building,
     town_data_idx: usize,
     row: i32, col: i32,
@@ -378,6 +407,7 @@ pub fn build_and_pay(
     let max_hp = BuildingHpState::max_hp(kind);
     allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, max_hp, building.tileset_index());
 
+    dirty.mark_building_changed(kind);
     true
 }
 
@@ -519,7 +549,7 @@ pub fn place_waypoint_at_world_pos(
     // Auto-assign patrol_order
     let ti = town_data_idx as u32;
     let existing = world_data.waypoints.iter()
-        .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
+        .filter(|w| w.town_idx == ti && is_alive(w.position))
         .count() as u32;
 
     let building = Building::Waypoint { town_idx: ti, patrol_order: existing };
@@ -686,7 +716,7 @@ impl WorldData {
 
     /// Count alive buildings per type for a town.
     pub fn building_counts(&self, town_idx: u32) -> TownBuildingCounts {
-        let alive = |pos: Vec2, ti: u32| ti == town_idx && pos.x > -9000.0;
+        let alive = |pos: Vec2, ti: u32| ti == town_idx && is_alive(pos);
         TownBuildingCounts {
             farms: self.farms.iter().filter(|f| alive(f.position, f.town_idx)).count(),
             farmer_homes: self.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
@@ -1347,10 +1377,10 @@ impl Building {
     /// Single source of truth for the building→spawner mapping.
     pub fn spawner_kind(&self) -> Option<i32> {
         match self {
-            Building::FarmerHome { .. } => Some(0),
-            Building::ArcherHome { .. } => Some(1),
-            Building::Tent { .. } => Some(2),
-            Building::MinerHome { .. } => Some(3),
+            Building::FarmerHome { .. } => Some(SPAWNER_FARMER),
+            Building::ArcherHome { .. } => Some(SPAWNER_ARCHER),
+            Building::Tent { .. } => Some(SPAWNER_TENT),
+            Building::MinerHome { .. } => Some(SPAWNER_MINER),
             _ => None,
         }
     }

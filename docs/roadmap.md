@@ -120,7 +120,7 @@ Chunk 2 — Disable turrets on waypoints (code preserved for future Tower buildi
 Chunk 3 — Wilderness waypoint placement + AI territorial expansion:
 - [x] `place_waypoint_at_world_pos()` in `world.rs` — snaps to grid cell, validates empty + not water, deducts food
 - [x] Player wilderness placement: waypoint ghost snaps to world grid, build_place_click bypasses town grid
-- [x] AI mine extension: `find_mine_waypoint_pos()` finds closest uncovered gold mine, `count_uncovered_mines()` scores urgency
+- [x] AI mine extension: `analyze_mines()` single-pass computes in_radius, outside_radius, uncovered mines, nearest_uncovered
 - [x] AI waypoint scoring moved outside `has_slots` block — wilderness placement independent of town grid
 - [x] AI execution: try mine position first, fallback to in-grid placement
 - [ ] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)

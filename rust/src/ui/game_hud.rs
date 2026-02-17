@@ -9,7 +9,7 @@ use crate::gpu::NpcGpuState;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::ui::tipped;
-use crate::world::{WorldData, WorldGrid, Building, BuildingKind, BuildingOccupancy};
+use crate::world::{WorldData, WorldGrid, Building, BuildingKind, BuildingOccupancy, is_alive, SPAWNER_FARMER, SPAWNER_ARCHER};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType};
 
 // ============================================================================
@@ -109,12 +109,12 @@ pub fn top_bar_system(
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
-                    let houses = spawner_state.0.iter().filter(|s| s.building_kind == 0 && s.town_idx == 0 && s.position.x > -9000.0).count();
-                    let barracks = spawner_state.0.iter().filter(|s| s.building_kind == 1 && s.town_idx == 0 && s.position.x > -9000.0).count();
+                    let houses = spawner_state.0.iter().filter(|s| s.building_kind == SPAWNER_FARMER && s.town_idx == 0 && is_alive(s.position)).count();
+                    let barracks = spawner_state.0.iter().filter(|s| s.building_kind == SPAWNER_ARCHER && s.town_idx == 0 && is_alive(s.position)).count();
                     tipped(ui, format!("Archers: {}/{}", guards, barracks), catalog.0.get("archers").unwrap_or(&""));
                     tipped(ui, format!("Farmers: {}/{}", farmers, houses), catalog.0.get("farmers").unwrap_or(&""));
                     let total_alive: i32 = pop_stats.0.values().map(|s| s.alive).sum();
-                    let total_spawners = spawner_state.0.iter().filter(|s| s.position.x > -9000.0).count();
+                    let total_spawners = spawner_state.0.iter().filter(|s| is_alive(s.position)).count();
                     tipped(ui, format!("Pop: {}/{}", total_alive, total_spawners), catalog.0.get("pop").unwrap_or(&""));
                 });
             });
@@ -946,7 +946,7 @@ fn building_inspector_content(
             if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
                 e.building_kind == kind
                     && (e.position - world_pos).length() < 1.0
-                    && e.position.x > -9000.0
+                    && is_alive(e.position)
             }) {
                 ui.label(format!("Spawns: {}", spawns_label));
 
@@ -1167,7 +1167,7 @@ pub fn selection_overlay_system(
         if idx * 2 + 1 < positions.len() {
             let x = positions[idx * 2];
             let y = positions[idx * 2 + 1];
-            if x > -9000.0 {
+            if is_alive(Vec2::new(x, y)) {
                 let screen = egui::Pos2::new(
                     center.x + (x - cam.x) * zoom,
                     center.y - (y - cam.y) * zoom,
@@ -1191,7 +1191,7 @@ pub fn selection_overlay_system(
             if i + 1 < gpu_state.positions.len() {
                 let x = gpu_state.positions[i];
                 let y = gpu_state.positions[i + 1];
-                if x > -9000.0 { Some(Vec2::new(x, y)) } else { None }
+                { let p = Vec2::new(x, y); if is_alive(p) { Some(p) } else { None } }
             } else {
                 None
             }
@@ -1201,7 +1201,7 @@ pub fn selection_overlay_system(
                 if i + 1 < gpu_state.positions.len() {
                     let x = gpu_state.positions[i];
                     let y = gpu_state.positions[i + 1];
-                    if x > -9000.0 { Some(Vec2::new(x, y)) } else { None }
+                    { let p = Vec2::new(x, y); if is_alive(p) { Some(p) } else { None } }
                 } else {
                     None
                 }

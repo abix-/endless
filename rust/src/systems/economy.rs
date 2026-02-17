@@ -10,7 +10,7 @@ use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
     CAMP_SPAWN_CHECK_HOURS, MAX_DYNAMIC_CAMPS, CAMP_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_CAMP};
-use crate::world::{self, WorldData, WorldGrid, BuildingOccupancy, BuildingSpatialGrid, TownGrids};
+use crate::world::{self, WorldData, WorldGrid, BuildingOccupancy, BuildingSpatialGrid, TownGrids, SPAWNER_MINER};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
 use crate::systems::ai_player::{AiPlayer, AiPlayerState, AiKind, AiPersonality};
@@ -267,7 +267,7 @@ pub fn spawner_respawn_system(
             if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
                 entry.npc_slot = -1;
                 entry.respawn_timer = SPAWNER_RESPAWN_HOURS;
-                if entry.building_kind == 3 {
+                if entry.building_kind == SPAWNER_MINER {
                     dirty.mining = true;
                 }
             }
@@ -303,7 +303,7 @@ pub fn spawner_respawn_system(
                 });
                 entry.npc_slot = slot as i32;
                 entry.respawn_timer = -1.0;
-                if entry.building_kind == 3 {
+                if entry.building_kind == SPAWNER_MINER {
                     dirty.mining = true;
                 }
 
@@ -698,7 +698,7 @@ pub fn migration_settle_system(
     for &slot in &mg.member_slots {
         let x = gpu_state.positions.get(slot * 2).copied().unwrap_or(-9999.0);
         let y = gpu_state.positions.get(slot * 2 + 1).copied().unwrap_or(-9999.0);
-        if x > -9000.0 {
+        if world::is_alive(Vec2::new(x, y)) {
             sum_x += x;
             sum_y += y;
             count += 1;

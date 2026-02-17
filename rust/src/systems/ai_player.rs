@@ -32,19 +32,29 @@ const MIN_WAYPOINT_SPACING: i32 = 5;
 /// Patrol posts sit one slot outside controlled buildings.
 const TERRITORY_PERIMETER_PADDING: i32 = 1;
 
-fn waypoint_spacing_ok(
+/// Minimum Manhattan grid-distance from `candidate` to any existing waypoint for this town.
+/// Returns `i32::MAX` if no waypoints exist.
+fn min_waypoint_spacing(
     grid: &WorldGrid,
     world_data: &WorldData,
     town_idx: u32,
     candidate: Vec2,
-) -> bool {
+) -> i32 {
     let (cc, cr) = grid.world_to_grid(candidate);
     world_data.waypoints.iter()
-        .filter(|w| w.town_idx == town_idx && w.position.x > -9000.0)
-        .all(|w| {
+        .filter(|w| w.town_idx == town_idx && world::is_alive(w.position))
+        .map(|w| {
             let (wc, wr) = grid.world_to_grid(w.position);
-            (cc as i32 - wc as i32).abs() + (cr as i32 - wr as i32).abs() >= MIN_WAYPOINT_SPACING
+            (cc as i32 - wc as i32).abs() + (cr as i32 - wr as i32).abs()
         })
+        .min()
+        .unwrap_or(i32::MAX)
+}
+
+fn waypoint_spacing_ok(
+    grid: &WorldGrid, world_data: &WorldData, town_idx: u32, candidate: Vec2,
+) -> bool {
+    min_waypoint_spacing(grid, world_data, town_idx, candidate) >= MIN_WAYPOINT_SPACING
 }
 
 fn recalc_waypoint_patrol_order_clockwise(
@@ -55,7 +65,7 @@ fn recalc_waypoint_patrol_order_clockwise(
     let Some(center) = world_data.towns.get(town_idx as usize).map(|t| t.center) else { return; };
 
     let mut ids: Vec<usize> = world_data.waypoints.iter().enumerate()
-        .filter(|(_, w)| w.town_idx == town_idx && w.position.x > -9000.0)
+        .filter(|(_, w)| w.town_idx == town_idx && world::is_alive(w.position))
         .map(|(i, _)| i)
         .collect();
 
@@ -92,6 +102,7 @@ struct AiTownSnapshot {
     farms: HashSet<(i32, i32)>,
     farmer_homes: HashSet<(i32, i32)>,
     archer_homes: HashSet<(i32, i32)>,
+    miner_homes: HashSet<(i32, i32)>,
     gold_mines: Vec<Vec2>,
 }
 
@@ -265,21 +276,8 @@ pub struct AiPlayerState {
 fn find_inner_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid,
 ) -> Option<(i32, i32)> {
-    let mut best: Option<((i32, i32), i32)> = None;
-    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
-    for r in min_row..=max_row {
-        for c in min_col..=max_col {
-            if r == 0 && c == 0 { continue; }
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
-            let dist_sq = r * r + c * c;
-            if best.map_or(true, |(_, d)| dist_sq < d) {
-                best = Some(((r, c), dist_sq));
-            }
-        }
-    }
-    best.map(|(slot, _)| slot)
+    world::empty_slots(tg, center, grid).into_iter()
+        .min_by_key(|&(r, c)| r * r + c * c)
 }
 
 fn build_town_snapshot(
@@ -293,32 +291,25 @@ fn build_town_snapshot(
     let ti = town_data_idx as u32;
 
     let farms = world_data.farms.iter()
-        .filter(|f| f.town_idx == ti && f.position.x > -9000.0)
+        .filter(|f| f.town_idx == ti && world::is_alive(f.position))
         .map(|f| world::world_to_town_grid(center, f.position))
         .collect();
     let farmer_homes = world_data.farmer_homes.iter()
-        .filter(|h| h.town_idx == ti && h.position.x > -9000.0)
+        .filter(|h| h.town_idx == ti && world::is_alive(h.position))
         .map(|h| world::world_to_town_grid(center, h.position))
         .collect();
     let archer_homes = world_data.archer_homes.iter()
-        .filter(|h| h.town_idx == ti && h.position.x > -9000.0)
+        .filter(|h| h.town_idx == ti && world::is_alive(h.position))
         .map(|h| world::world_to_town_grid(center, h.position))
         .collect();
-    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
-    let mut empty_slots = Vec::new();
-    for r in min_row..=max_row {
-        for c in min_col..=max_col {
-            if r == 0 && c == 0 { continue; }
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true) {
-                empty_slots.push((r, c));
-            }
-        }
-    }
+    let miner_homes = world_data.miner_homes.iter()
+        .filter(|h| h.town_idx == ti && world::is_alive(h.position))
+        .map(|h| world::world_to_town_grid(center, h.position))
+        .collect();
+    let empty_slots = world::empty_slots(tg, center, grid);
 
     let gold_mines = world_data.gold_mines.iter()
-        .filter(|m| m.position.x > -9000.0)
+        .filter(|m| world::is_alive(m.position))
         .map(|m| m.position)
         .collect();
 
@@ -328,6 +319,7 @@ fn build_town_snapshot(
         farms,
         farmer_homes,
         archer_homes,
+        miner_homes,
         gold_mines,
     })
 }
@@ -388,7 +380,7 @@ fn farm_slot_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     score
 }
 
-fn economic_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+fn balanced_farm_ray_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     let (r, c) = slot;
     let radial = r * r + c * c;
     let on_axis = r == 0 || c == 0;
@@ -434,7 +426,7 @@ fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 
     edge_farm * 90 + diag_farm * 35 + near_homes * 10 + near_archers * 5
 }
 
-fn economic_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
+fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     let (r, c) = slot;
     let mut score = 0i32;
     let on_axis = r == 0 || c == 0;
@@ -509,7 +501,7 @@ fn miner_toward_mine_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
 fn find_waypoint_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, world_data: &WorldData, ti: u32,
 ) -> Option<(i32, i32)> {
-    let occupied = controlled_territory_slots(world_data, center, ti);
+    let occupied = controlled_territory_slots(None, world_data, center, ti);
     if occupied.is_empty() { return None; }
     let perimeter = territory_perimeter_slots(&occupied, tg);
     if perimeter.is_empty() { return None; }
@@ -520,15 +512,8 @@ fn find_waypoint_slot(
         let pos = world::town_grid_to_world(center, r, c);
         let (gc, gr) = grid.world_to_grid(pos);
         if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
-        if !waypoint_spacing_ok(grid, world_data, ti, pos) { continue; }
-        let min_spacing = world_data.waypoints.iter()
-            .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
-            .map(|w| {
-                let (wc, wr) = grid.world_to_grid(w.position);
-                (gc as i32 - wc as i32).abs() + (gr as i32 - wr as i32).abs()
-            })
-            .min()
-            .unwrap_or(i32::MAX);
+        let min_spacing = min_waypoint_spacing(grid, world_data, ti, pos);
+        if min_spacing < MIN_WAYPOINT_SPACING { continue; }
 
         let radial = r * r + c * c;
         if best.map_or(true, |(_, best_spacing, best_radial)| {
@@ -541,32 +526,26 @@ fn find_waypoint_slot(
 }
 
 /// Grid slots controlled by this town's owned buildings.
+/// Uses snapshot if available, otherwise scans WorldData.
 fn controlled_territory_slots(
-    world_data: &WorldData, center: Vec2, ti: u32,
+    snapshot: Option<&AiTownSnapshot>,
+    world_data: &WorldData,
+    center: Vec2,
+    ti: u32,
 ) -> HashSet<(i32, i32)> {
+    if let Some(snap) = snapshot {
+        let mut slots = snap.farms.clone();
+        slots.extend(&snap.farmer_homes);
+        slots.extend(&snap.archer_homes);
+        slots.extend(&snap.miner_homes);
+        return slots;
+    }
     let mut slots = HashSet::new();
-
-    for f in &world_data.farms {
-        if f.town_idx == ti && f.position.x > -9000.0 {
-            slots.insert(world::world_to_town_grid(center, f.position));
-        }
-    }
-    for h in &world_data.farmer_homes {
-        if h.town_idx == ti && h.position.x > -9000.0 {
-            slots.insert(world::world_to_town_grid(center, h.position));
-        }
-    }
-    for h in &world_data.archer_homes {
-        if h.town_idx == ti && h.position.x > -9000.0 {
-            slots.insert(world::world_to_town_grid(center, h.position));
-        }
-    }
-    for h in &world_data.miner_homes {
-        if h.town_idx == ti && h.position.x > -9000.0 {
-            slots.insert(world::world_to_town_grid(center, h.position));
-        }
-    }
-
+    let alive_town = |pos: Vec2, town: u32| town == ti && world::is_alive(pos);
+    for f in &world_data.farms { if alive_town(f.position, f.town_idx) { slots.insert(world::world_to_town_grid(center, f.position)); } }
+    for h in &world_data.farmer_homes { if alive_town(h.position, h.town_idx) { slots.insert(world::world_to_town_grid(center, h.position)); } }
+    for h in &world_data.archer_homes { if alive_town(h.position, h.town_idx) { slots.insert(world::world_to_town_grid(center, h.position)); } }
+    for h in &world_data.miner_homes { if alive_town(h.position, h.town_idx) { slots.insert(world::world_to_town_grid(center, h.position)); } }
     slots
 }
 
@@ -593,6 +572,12 @@ fn sync_town_perimeter_waypoints(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     farm_states: &mut GrowthStates,
+    spawner_state: &mut SpawnerState,
+    building_hp: &mut BuildingHpState,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
+    combat_log: &mut CombatLog,
+    game_time: &GameTime,
     town_grids: &world::TownGrids,
     town_data_idx: usize,
 ) -> usize {
@@ -601,14 +586,14 @@ fn sync_town_perimeter_waypoints(
     let center = town.center;
     let ti = town_data_idx as u32;
 
-    let occupied = controlled_territory_slots(world_data, center, ti);
+    let occupied = controlled_territory_slots(None, world_data, center, ti);
     if occupied.is_empty() { return 0; }
     let perimeter = territory_perimeter_slots(&occupied, tg);
     if perimeter.is_empty() { return 0; }
 
     let mut prune_slots: Vec<(i32, i32)> = Vec::new();
     for wp in &world_data.waypoints {
-        if wp.town_idx != ti || wp.position.x <= -9000.0 { continue; }
+        if wp.town_idx != ti || !world::is_alive(wp.position) { continue; }
         let slot = world::world_to_town_grid(center, wp.position);
         // Preserve wilderness/mine outposts: only prune waypoints inside town build area.
         if !world::is_slot_buildable(tg, slot.0, slot.1) { continue; }
@@ -619,7 +604,11 @@ fn sync_town_perimeter_waypoints(
 
     let mut removed = 0usize;
     for (row, col) in prune_slots {
-        if world::remove_building(grid, world_data, farm_states, row, col, center).is_ok() {
+        if world::destroy_building(
+            grid, world_data, farm_states, spawner_state, building_hp,
+            slot_alloc, building_slots, combat_log, game_time,
+            row, col, center, "waypoint pruned (perimeter shifted)",
+        ).is_ok() {
             removed += 1;
         }
     }
@@ -633,6 +622,8 @@ fn sync_town_perimeter_waypoints(
 pub fn sync_patrol_perimeter_system(
     mut world: WorldState,
     ai_state: Res<AiPlayerState>,
+    mut combat_log: ResMut<CombatLog>,
+    game_time: Res<GameTime>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("sync_patrol_perimeter");
@@ -650,6 +641,12 @@ pub fn sync_patrol_perimeter_system(
             &mut world.grid,
             &mut world.world_data,
             &mut world.farm_states,
+            &mut world.spawner_state,
+            &mut world.building_hp,
+            &mut world.slot_alloc,
+            &mut world.building_slots,
+            &mut combat_log,
+            &game_time,
             &world.town_grids,
             town_idx,
         );
@@ -661,64 +658,47 @@ pub fn sync_patrol_perimeter_system(
     }
 }
 
-/// Count empty buildable slots in a town grid.
-fn count_empty_slots(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> i32 {
-    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
-    let mut count = 0;
-    for r in min_row..=max_row {
-        for c in min_col..=max_col {
-            if r == 0 && c == 0 { continue; }
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true) {
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
-/// Check if any empty slot exists in the town grid.
-fn has_empty_slot(tg: &world::TownGrid, center: Vec2, grid: &WorldGrid) -> bool {
-    let (min_row, max_row, min_col, max_col) = world::build_bounds(tg);
-    for r in min_row..=max_row {
-        for c in min_col..=max_col {
-            if r == 0 && c == 0 { continue; }
-            let pos = world::town_grid_to_world(center, r, c);
-            let (gc, gr) = grid.world_to_grid(pos);
-            if grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 // ============================================================================
-// WILDERNESS WAYPOINT PLACEMENT (MINE EXTENSION)
+// MINE ANALYSIS (single-pass over gold_mines per AI tick)
 // ============================================================================
 
-/// Gold mines not covered by any friendly waypoint within WAYPOINT_COVER_RADIUS.
-fn uncovered_mines(world_data: &WorldData, ti: u32) -> Vec<Vec2> {
-    let cover_r = WAYPOINT_COVER_RADIUS;
+/// Pre-computed mine stats for one AI town. Built once, used by scoring + execution.
+struct MineAnalysis {
+    in_radius: usize,
+    outside_radius: usize,
+    uncovered: Vec<Vec2>,
+    /// Closest uncovered mine to town center (for wilderness waypoint placement).
+    nearest_uncovered: Option<Vec2>,
+}
+
+fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f32) -> MineAnalysis {
+    let radius_sq = mining_radius * mining_radius;
     let friendly: Vec<Vec2> = world_data.waypoints.iter()
-        .filter(|w| w.town_idx == ti && w.position.x > -9000.0)
+        .filter(|w| w.town_idx == ti && world::is_alive(w.position))
         .map(|w| w.position)
         .collect();
 
-    world_data.gold_mines.iter()
-        .filter(|m| m.position.x > -9000.0)
-        .filter(|m| !friendly.iter().any(|wp| (*wp - m.position).length() < cover_r))
-        .map(|m| m.position)
-        .collect()
-}
+    let mut in_radius = 0usize;
+    let mut outside_radius = 0usize;
+    let mut uncovered = Vec::new();
 
-/// Find the closest uncovered mine to town center for wilderness waypoint placement.
-fn find_mine_waypoint_pos(
-    center: Vec2, world_data: &WorldData, ti: u32,
-) -> Option<Vec2> {
-    uncovered_mines(world_data, ti).into_iter()
+    for m in &world_data.gold_mines {
+        if !world::is_alive(m.position) { continue; }
+        if (m.position - center).length_squared() <= radius_sq {
+            in_radius += 1;
+        } else {
+            outside_radius += 1;
+        }
+        if !friendly.iter().any(|wp| (*wp - m.position).length() < WAYPOINT_COVER_RADIUS) {
+            uncovered.push(m.position);
+        }
+    }
+
+    let nearest_uncovered = uncovered.iter()
         .min_by(|a, b| a.distance(center).partial_cmp(&b.distance(center)).unwrap())
+        .copied();
+
+    MineAnalysis { in_radius, outside_radius, uncovered, nearest_uncovered }
 }
 
 // ============================================================================
@@ -764,7 +744,7 @@ pub fn ai_decision_system(
 
         let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let spawner_count = res.world.spawner_state.0.iter()
-            .filter(|s| s.position.x > -9000.0)
+            .filter(|s| world::is_alive(s.position))
             .filter(|s| s.town_idx == tdi as i32)
             .filter(|s| matches!(s.building_kind, 0 | 1 | 2 | 3))
             .count() as i32;
@@ -790,7 +770,7 @@ pub fn ai_decision_system(
             .map(|s| !s.empty_slots.is_empty())
             .or_else(|| {
                 res.world.town_grids.grids.get(player.grid_idx)
-                    .map(|tg| has_empty_slot(tg, center, &res.world.grid))
+                    .map(|tg| !world::empty_slots(tg, center, &res.world.grid).is_empty())
             })
             .unwrap_or(false);
 
@@ -800,7 +780,7 @@ pub fn ai_decision_system(
                 let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32; // -1 for center
                 let empty = snapshots.towns.get(&tdi)
                     .map(|s| s.empty_slots.len() as i32)
-                    .unwrap_or_else(|| count_empty_slots(tg, center, &res.world.grid));
+                    .unwrap_or_else(|| world::empty_slots(tg, center, &res.world.grid).len() as i32);
                 1.0 - empty as f32 / total.max(1.0)
             })
             .unwrap_or(0.0);
@@ -808,6 +788,7 @@ pub fn ai_decision_system(
         // Score all eligible actions
         let mut scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
         let mut miner_target_for_expansion = 0usize;
+        let mut cached_mines: Option<MineAnalysis> = None;
 
         match player.kind {
             AiKind::Raider => {
@@ -823,16 +804,11 @@ pub fn ai_decision_system(
                 let mining_radius = res.policies.policies.get(tdi)
                     .map(|p| p.mining_radius)
                     .unwrap_or(300.0);
-                let mines_in_radius = res.world.world_data.gold_mines.iter()
-                    .filter(|m| m.position.x > -9000.0)
-                    .filter(|m| (m.position - center).length_squared() <= mining_radius * mining_radius)
-                    .count();
-                let mines_outside_radius = res.world.world_data.gold_mines.iter()
-                    .filter(|m| m.position.x > -9000.0)
-                    .filter(|m| (m.position - center).length_squared() > mining_radius * mining_radius)
-                    .count();
+                let mines = analyze_mines(&res.world.world_data, center, ti, mining_radius);
+                cached_mines = Some(mines);
+                let mines = cached_mines.as_ref().unwrap();
                 let miners_per_mine = player.personality.miners_per_mine_target();
-                let ms_target = mines_in_radius * miners_per_mine;
+                let ms_target = mines.in_radius * miners_per_mine;
                 miner_target_for_expansion = ms_target;
                 let house_deficit = ht.saturating_sub(houses);
                 let barracks_deficit = bt.saturating_sub(barracks);
@@ -850,8 +826,8 @@ pub fn ai_decision_system(
                     if miner_deficit > 0 && food >= building_cost(BuildKind::MinerHome) {
                         let ms_need = 1.0 + miner_deficit as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
-                    } else if miner_deficit == 0 && mines_outside_radius > 0 {
-                        let expand_need = 1.0 + mines_outside_radius as f32;
+                    } else if miner_deficit == 0 && mines.outside_radius > 0 {
+                        let expand_need = 1.0 + mines.outside_radius as f32;
                         scores.push((AiAction::ExpandMiningRadius, fw * 0.6 * expand_need));
                     }
                 }
@@ -859,7 +835,7 @@ pub fn ai_decision_system(
                 // Waypoints: wilderness placement (independent of town grid slots)
                 // Score when there are uncovered mines to extend patrol toward
                 if food >= building_cost(BuildKind::Waypoint) {
-                    let uncovered = uncovered_mines(&res.world.world_data, ti).len();
+                    let uncovered = mines.uncovered.len();
                     if uncovered > 0 {
                         let mine_need = 1.0 + uncovered as f32;
                         scores.push((AiAction::BuildWaypoint, gw * mine_need));
@@ -911,6 +887,7 @@ pub fn ai_decision_system(
         let label = execute_action(
             action, ti, tdi, center, waypoints, &mut res,
             player.grid_idx, snapshots.towns.get(&tdi), player.personality, *difficulty,
+            cached_mines.as_ref(),
         );
         if label.is_some() {
             snapshots.towns.remove(&tdi);
@@ -923,11 +900,6 @@ pub fn ai_decision_system(
             actions.push_back(what);
         }
     }
-}
-
-/// Mark dirty flags after AI builds a building.
-fn mark_dirty_after_build(res: &mut AiBuildRes, building: Building) {
-    res.world.dirty.mark_building_changed(building.kind());
 }
 
 fn try_build_at_slot(
@@ -949,6 +921,7 @@ fn try_build_at_slot(
         &mut res.world.building_hp,
         &mut res.world.slot_alloc,
         &mut res.world.building_slots,
+        &mut res.world.dirty,
         building,
         tdi,
         row,
@@ -956,9 +929,6 @@ fn try_build_at_slot(
         center,
         cost,
     );
-    if ok {
-        mark_dirty_after_build(res, building);
-    }
     ok.then_some(format!("built {label}"))
 }
 
@@ -986,89 +956,43 @@ fn try_build_inner(
     try_build_at_slot(building, cost, label, tdi, center, res, row, col)
 }
 
+fn try_build_scored(
+    building: Building, kind: BuildKind, label: &str,
+    tdi: usize, center: Vec2, res: &mut AiBuildRes, grid_idx: usize,
+    snapshot: Option<&AiTownSnapshot>,
+    score_fn: fn(&AiTownSnapshot, (i32, i32)) -> i32,
+) -> Option<String> {
+    let tg = res.world.town_grids.grids.get(grid_idx)?;
+    let (row, col) = pick_slot_from_snapshot_or_inner(snapshot, tg, center, &res.world.grid, score_fn)?;
+    try_build_at_slot(building, building_cost(kind), label, tdi, center, res, row, col)
+}
+
 /// Execute the chosen action, returning a log label on success.
 fn execute_action(
     action: AiAction, ti: u32, tdi: usize, center: Vec2, waypoints: usize,
     res: &mut AiBuildRes, grid_idx: usize, snapshot: Option<&AiTownSnapshot>, personality: AiPersonality, _difficulty: Difficulty,
+    cached_mines: Option<&MineAnalysis>,
 ) -> Option<String> {
     match action {
         AiAction::BuildTent => try_build_inner(
             Building::Tent { town_idx: ti }, building_cost(BuildKind::Tent), "tent",
             tdi, center, res, grid_idx),
         AiAction::BuildFarm => {
-            let tg = res.world.town_grids.grids.get(grid_idx)?;
-            let farm_score = if personality == AiPersonality::Balanced {
-                economic_farm_ray_score
-            } else {
-                farm_slot_score
-            };
-            let (row, col) = pick_slot_from_snapshot_or_inner(
-                snapshot, tg, center, &res.world.grid, farm_score,
-            )?;
-            try_build_at_slot(
-                Building::Farm { town_idx: ti },
-                building_cost(BuildKind::Farm),
-                "farm",
-                tdi,
-                center,
-                res,
-                row,
-                col,
-            )
+            let score = if personality == AiPersonality::Balanced { balanced_farm_ray_score } else { farm_slot_score };
+            try_build_scored(Building::Farm { town_idx: ti }, BuildKind::Farm, "farm",
+                tdi, center, res, grid_idx, snapshot, score)
         }
         AiAction::BuildFarmerHome => {
-            let tg = res.world.town_grids.grids.get(grid_idx)?;
-            let home_score = if personality == AiPersonality::Balanced {
-                economic_house_side_score
-            } else {
-                farmer_home_border_score
-            };
-            let (row, col) = pick_slot_from_snapshot_or_inner(
-                snapshot, tg, center, &res.world.grid, home_score,
-            )?;
-            try_build_at_slot(
-                Building::FarmerHome { town_idx: ti },
-                building_cost(BuildKind::FarmerHome),
-                "farmer home",
-                tdi,
-                center,
-                res,
-                row,
-                col,
-            )
+            let score = if personality == AiPersonality::Balanced { balanced_house_side_score } else { farmer_home_border_score };
+            try_build_scored(Building::FarmerHome { town_idx: ti }, BuildKind::FarmerHome, "farmer home",
+                tdi, center, res, grid_idx, snapshot, score)
         }
-        AiAction::BuildArcherHome => {
-            let tg = res.world.town_grids.grids.get(grid_idx)?;
-            let (row, col) = pick_slot_from_snapshot_or_inner(
-                snapshot, tg, center, &res.world.grid, archer_fill_score,
-            )?;
-            try_build_at_slot(
-                Building::ArcherHome { town_idx: ti },
-                building_cost(BuildKind::ArcherHome),
-                "archer home",
-                tdi,
-                center,
-                res,
-                row,
-                col,
-            )
-        }
-        AiAction::BuildMinerHome => {
-            let tg = res.world.town_grids.grids.get(grid_idx)?;
-            let (row, col) = pick_slot_from_snapshot_or_inner(
-                snapshot, tg, center, &res.world.grid, miner_toward_mine_score,
-            )?;
-            try_build_at_slot(
-                Building::MinerHome { town_idx: ti },
-                building_cost(BuildKind::MinerHome),
-                "miner home",
-                tdi,
-                center,
-                res,
-                row,
-                col,
-            )
-        }
+        AiAction::BuildArcherHome => try_build_scored(
+            Building::ArcherHome { town_idx: ti }, BuildKind::ArcherHome, "archer home",
+            tdi, center, res, grid_idx, snapshot, archer_fill_score),
+        AiAction::BuildMinerHome => try_build_scored(
+            Building::MinerHome { town_idx: ti }, BuildKind::MinerHome, "miner home",
+            tdi, center, res, grid_idx, snapshot, miner_toward_mine_score),
         AiAction::ExpandMiningRadius => {
             let Some(policy) = res.policies.policies.get_mut(tdi) else { return None; };
             let old = policy.mining_radius;
@@ -1082,8 +1006,14 @@ fn execute_action(
         }
         AiAction::BuildWaypoint => {
             let cost = building_cost(BuildKind::Waypoint);
-            // Try wilderness placement near uncovered mine first
-            if let Some(mine_pos) = find_mine_waypoint_pos(center, &res.world.world_data, ti) {
+            // Use precomputed mine analysis from scoring phase when available
+            let mining_radius = res.policies.policies.get(tdi).map(|p| p.mining_radius).unwrap_or(300.0);
+            let fallback;
+            let mines_ref = match cached_mines {
+                Some(m) => m,
+                None => { fallback = analyze_mines(&res.world.world_data, center, ti, mining_radius); &fallback }
+            };
+            if let Some(mine_pos) = mines_ref.nearest_uncovered {
                 if waypoint_spacing_ok(&res.world.grid, &res.world.world_data, ti, mine_pos)
                     && world::place_waypoint_at_world_pos(
                     &mut res.world.grid, &mut res.world.world_data,
@@ -1101,12 +1031,11 @@ fn execute_action(
             let (row, col) = find_waypoint_slot(tg, center, &res.world.grid, &res.world.world_data, ti)?;
             let ok = world::build_and_pay(&mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
                 &mut res.food_storage, &mut res.world.spawner_state, &mut res.world.building_hp,
-                &mut res.world.slot_alloc, &mut res.world.building_slots,
+                &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
                 Building::Waypoint { town_idx: ti, patrol_order: waypoints as u32 },
                 tdi, row, col, center, cost);
             if ok {
                 recalc_waypoint_patrol_order_clockwise(&mut res.world.grid, &mut res.world.world_data, ti);
-                res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);
             }
             ok.then_some("built waypoint".into())
         }

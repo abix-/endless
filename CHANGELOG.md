@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-02-17h
+
+- **bug fix: waypoint pruning full teardown** — `sync_town_perimeter_waypoints` now calls `destroy_building()` instead of `remove_building()`, fixing stale GPU slots and spawner leaks when waypoints are pruned
+- **DRY: `is_alive()` sentinel helper** — replaced 42 occurrences of `pos.x > -9000.0` across 8 files with `world::is_alive(pos)`; only the definition references the magic number
+- **DRY: `empty_slots()` unified scan** — single `world::empty_slots()` replaces 4 inline grid-walk copies; deleted `count_empty_slots`, `has_empty_slot`; `find_inner_slot` rewritten as 2-line `min_by_key`
+- **DRY: `try_build_scored()` unified build arms** — collapsed 4 near-identical BuildFarm/BuildFarmerHome/BuildArcherHome/BuildMinerHome match arms (~60 lines → ~12)
+- **DRY: `MineAnalysis` single-pass** — replaced `uncovered_mines()` + `find_mine_waypoint_pos()` with `analyze_mines()` computing all mine metrics in one traversal; precomputed result passed from scoring to execution phase
+- **DRY: `build_and_pay()` now includes dirty flag** — folded `dirty.mark_building_changed()` into `build_and_pay()`, removed separate dirty calls from AI and player build paths
+- **DRY: spawner constants** — replaced raw `building_kind == 0|1|2|3` with `SPAWNER_FARMER/ARCHER/TENT/MINER` constants
+- **DRY: territory from snapshot** — `controlled_territory_slots` derives from `AiTownSnapshot` (union of 4 building sets) instead of re-scanning WorldData
+- **DRY: waypoint spacing** — extracted `min_waypoint_spacing()` as single source of truth; `waypoint_spacing_ok()` is a one-liner wrapper
+- **rename: `economic_*` → `balanced_*`** — `balanced_farm_ray_score` and `balanced_house_side_score` match the personality that uses them
+
 ## 2026-02-17g
 
 - **waypoint building inspector** — waypoint inspector now shows patrol order, turret on/off status from `WaypointState`, and nearby archer name + level from spawner lookup; `BuildingInspectorData` extended with `WaypointState`

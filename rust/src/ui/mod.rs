@@ -803,12 +803,10 @@ fn build_place_click_system(
     if !world::build_and_pay(
         &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
         &mut food_storage, &mut world_state.spawner_state, &mut world_state.building_hp,
-        &mut world_state.slot_alloc, &mut world_state.building_slots,
+        &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
         building, town_data_idx,
         row, col, center, cost,
     ) { return; }
-
-    world_state.dirty.mark_building_changed(building.kind());
 
     combat_log.push(
         CombatEventKind::Harvest, 0,

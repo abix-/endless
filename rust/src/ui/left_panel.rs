@@ -11,7 +11,7 @@ use crate::settings::{self, UserSettings};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UpgradeType, UPGRADE_COUNT, UPGRADE_PCT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total};
 use crate::systems::{AiPlayerState, AiKind};
 use crate::systems::ai_player::AiPersonality;
-use crate::world::WorldData;
+use crate::world::{WorldData, is_alive, SPAWNER_MINER};
 
 // ============================================================================
 // PROFILER PARAMS
@@ -739,7 +739,7 @@ fn policies_content(
 
     let mut assigned_per_mine: Vec<usize> = vec![0; world_data.gold_mines.len()];
     spawner_state.0.iter()
-        .filter(|e| e.building_kind == 3 && e.town_idx == town_idx as i32 && e.npc_slot >= 0 && e.position.x > -9000.0)
+        .filter(|e| e.building_kind == SPAWNER_MINER && e.town_idx == town_idx as i32 && e.npc_slot >= 0 && is_alive(e.position))
         .filter_map(|e| world_data.miner_home_at(e.position))
         .filter(|&mh_idx| {
             world_data.miner_homes.get(mh_idx)
@@ -797,7 +797,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, jump_target: &mut 
 
     // Collect non-tombstoned posts for this town, sorted by patrol_order
     let mut posts: Vec<(usize, u32, Vec2)> = world_data.waypoints.iter().enumerate()
-        .filter(|(_, p)| p.town_idx == town_pair_idx && p.position.x > -9000.0)
+        .filter(|(_, p)| p.town_idx == town_pair_idx && is_alive(p.position))
         .map(|(i, p)| (i, p.patrol_order, p.position))
         .collect();
     posts.sort_by_key(|(_, order, _)| *order);
@@ -1024,7 +1024,7 @@ fn rebuild_factions_cache(
 
         let ti_i32 = tdi as i32;
         let alive_spawner = |kind: i32| factions.spawner_state.0.iter()
-            .filter(|s| s.building_kind == kind && s.town_idx == ti_i32 && s.npc_slot >= 0 && s.position.x > -9000.0).count();
+            .filter(|s| s.building_kind == kind && s.town_idx == ti_i32 && s.npc_slot >= 0 && is_alive(s.position)).count();
         let farmers = alive_spawner(0);
         let archers = alive_spawner(1);
         let raiders = alive_spawner(2);
@@ -1040,7 +1040,7 @@ fn rebuild_factions_cache(
         let policy = policies.policies.get(tdi);
         let mining_radius = policy.map(|p| p.mining_radius).unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
         let mines_in_radius = world_data.gold_mines.iter()
-            .filter(|m| m.position.x > -9000.0)
+            .filter(|m| is_alive(m.position))
             .filter(|m| (m.position - center).length_squared() <= mining_radius * mining_radius)
             .count();
         let discovered = factions.mining_policy.discovered_mines.get(tdi);
@@ -1051,7 +1051,7 @@ fn rebuild_factions_cache(
                 .count()
         }).unwrap_or(0);
         let spawner_count = factions.spawner_state.0.iter()
-            .filter(|s| s.position.x > -9000.0)
+            .filter(|s| is_alive(s.position))
             .filter(|s| s.town_idx == tdi as i32)
             .filter(|s| matches!(s.building_kind, 0 | 1 | 2 | 3))
             .count() as i32;

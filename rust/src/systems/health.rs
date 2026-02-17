@@ -327,49 +327,49 @@ pub fn healing_system(
 
     let farm_entries: Vec<(usize, Vec2, u32)> = world_data.farms.iter()
         .enumerate()
-        .filter(|(_, b)| b.position.x > -9000.0)
+        .filter(|(_, b)| crate::world::is_alive(b.position))
         .map(|(i, b)| (i, b.position, b.town_idx))
         .collect();
     heal_buildings(BuildingKind::Farm, &mut building_hp.farms, &farm_entries);
 
     let waypoint_entries: Vec<(usize, Vec2, u32)> = world_data.waypoints.iter()
         .enumerate()
-        .filter(|(_, b)| b.position.x > -9000.0)
+        .filter(|(_, b)| crate::world::is_alive(b.position))
         .map(|(i, b)| (i, b.position, b.town_idx))
         .collect();
     heal_buildings(BuildingKind::Waypoint, &mut building_hp.waypoints, &waypoint_entries);
 
     let farmer_home_entries: Vec<(usize, Vec2, u32)> = world_data.farmer_homes.iter()
         .enumerate()
-        .filter(|(_, b)| b.position.x > -9000.0)
+        .filter(|(_, b)| crate::world::is_alive(b.position))
         .map(|(i, b)| (i, b.position, b.town_idx))
         .collect();
     heal_buildings(BuildingKind::FarmerHome, &mut building_hp.farmer_homes, &farmer_home_entries);
 
     let archer_home_entries: Vec<(usize, Vec2, u32)> = world_data.archer_homes.iter()
         .enumerate()
-        .filter(|(_, b)| b.position.x > -9000.0)
+        .filter(|(_, b)| crate::world::is_alive(b.position))
         .map(|(i, b)| (i, b.position, b.town_idx))
         .collect();
     heal_buildings(BuildingKind::ArcherHome, &mut building_hp.archer_homes, &archer_home_entries);
 
     let tent_entries: Vec<(usize, Vec2, u32)> = world_data.tents.iter()
         .enumerate()
-        .filter(|(_, b)| b.position.x > -9000.0)
+        .filter(|(_, b)| crate::world::is_alive(b.position))
         .map(|(i, b)| (i, b.position, b.town_idx))
         .collect();
     heal_buildings(BuildingKind::Tent, &mut building_hp.tents, &tent_entries);
 
     let miner_home_entries: Vec<(usize, Vec2, u32)> = world_data.miner_homes.iter()
         .enumerate()
-        .filter(|(_, b)| b.position.x > -9000.0)
+        .filter(|(_, b)| crate::world::is_alive(b.position))
         .map(|(i, b)| (i, b.position, b.town_idx))
         .collect();
     heal_buildings(BuildingKind::MinerHome, &mut building_hp.miner_homes, &miner_home_entries);
 
     let bed_entries: Vec<(usize, Vec2, u32)> = world_data.beds.iter()
         .enumerate()
-        .filter(|(_, b)| b.position.x > -9000.0)
+        .filter(|(_, b)| crate::world::is_alive(b.position))
         .map(|(i, b)| (i, b.position, b.town_idx))
         .collect();
     heal_buildings(BuildingKind::Bed, &mut building_hp.beds, &bed_entries);

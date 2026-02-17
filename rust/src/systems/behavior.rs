@@ -389,7 +389,7 @@ pub fn decision_system(
                         } else {
                             // Farm not ready - find a different farm (exclude current one)
                             let other_farm = farms.world.farms.iter()
-                                .filter(|f| f.position.x > -9000.0) // skip tombstoned
+                                .filter(|f| crate::world::is_alive(f.position)) // skip tombstoned
                                 .filter(|f| f.position.distance(pos) > FARM_ARRIVAL_RADIUS)
                                 .min_by(|a, b| {
                                     a.position.distance_squared(pos)
@@ -934,7 +934,7 @@ pub fn decision_system(
                         let assigned = farms.world.miner_homes.iter()
                             .find(|mh| (mh.position - home.0).length() < 1.0)
                             .and_then(|mh| mh.assigned_mine)
-                            .filter(|p| p.x > -9000.0);
+                            .filter(|p| crate::world::is_alive(*p));
 
                         let mine_target = if let Some(assigned_pos) = assigned {
                             // Use assigned mine directly

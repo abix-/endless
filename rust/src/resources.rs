@@ -987,7 +987,7 @@ impl BuildingHpState {
         macro_rules! chain_buildings {
             ($buildings:expr, $hps:expr, $max:expr) => {
                 $buildings.iter().zip($hps.iter()).filter_map(move |(b, &hp)| {
-                    if b.position.x > -9000.0 && hp < $max && hp > 0.0 {
+                    if crate::world::is_alive(b.position) && hp < $max && hp > 0.0 {
                         Some((b.position, hp / $max))
                     } else { None }
                 })
