@@ -488,18 +488,18 @@ fn extract_npc_data(
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
     let start = if profiling { Some(std::time::Instant::now()) } else { None };
 
-    // Compute data: one bulk write_buffer per buffer (7 calls instead of thousands)
+    // Compute data: hybrid writes
+    // GPU-authoritative (positions/arrivals): per-index writes (spawn/death only, ~10-50/frame)
+    // CPU-authoritative (rest): bulk writes (1 call per buffer instead of thousands)
     if let Some(gpu_bufs) = gpu_buffers {
-        if gpu_state.dirty {
-            let n = gpu_data.npc_count as usize;
-            write_bulk(&render_queue, &gpu_bufs.positions, &gpu_state.positions, n * 2);
-            write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2);
-            write_bulk(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, n);
-            write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n);
-            write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n);
-            write_bulk(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, n);
-            write_bulk(&render_queue, &gpu_bufs.npc_flags, &gpu_state.npc_flags, n);
-        }
+        let n = gpu_data.npc_count as usize;
+        if gpu_state.dirty_positions { write_dirty_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2); }
+        if gpu_state.dirty_arrivals  { write_dirty_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1); }
+        if gpu_state.dirty_targets   { write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2); }
+        if gpu_state.dirty_speeds    { write_bulk(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, n); }
+        if gpu_state.dirty_factions  { write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n); }
+        if gpu_state.dirty_healths   { write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n); }
+        if gpu_state.dirty_flags     { write_bulk(&render_queue, &gpu_bufs.npc_flags, &gpu_state.npc_flags, n); }
     }
 
     // Visual data: bulk write_buffer

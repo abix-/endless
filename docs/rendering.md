@@ -34,8 +34,8 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                                extract_npc_data (ExtractSchedule)
-                               (per-dirty-index write_buffer for compute fields,
-                                bulk write_buffer for visual + equip arrays)
+                               (hybrid writes: per-dirty-index for GPU-authoritative,
+                                bulk write_buffer for CPU-authoritative + visual/equip)
                                       │
                                       ▼
                                prepare_npc_buffers
@@ -301,7 +301,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Phase | System | Purpose |
 |-------|--------|---------|
 | Extract | `extract_npc_batch` | Despawn stale render world NpcBatch, then clone fresh from main world |
-| Extract | `extract_npc_data` | Zero-clone GPU upload: per-dirty-index compute writes + bulk visual/equip writes via `Extract<Res<T>>` |
+| Extract | `extract_npc_data` | Zero-clone GPU upload: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals, bulk for CPU-authoritative targets/speeds/factions/healths/flags) + unconditional visual/equip writes via `Extract<Res<T>>` |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), build misc instance buffer (farms/BHP), create bind group 2 |

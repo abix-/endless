@@ -11,7 +11,7 @@ Main World (ECS)                       Render World (GPU)
 │                                      │
 ├─ NpcGpuData ───────────────────────▶ ExtractResource (cloned each frame)
 ├─ NpcComputeParams ─────────────────▶ ExtractResource (cloned each frame)
-├─ NpcGpuState ──────────────────────▶ Extract<Res<T>> (zero-clone immutable read)
+├─ NpcGpuState ──────────────────────▶ Extract<Res<T>> (zero-clone immutable read, per-buffer dirty flags)
 ├─ NpcVisualUpload ──────────────────▶ Extract<Res<T>> (zero-clone immutable read)
 ├─ NpcSpriteTexture (char+world+heal+sleep) ▶ ExtractResource
 ├─ GpuReadState ─────────────────────────▶ main-world only (no extraction)
@@ -21,8 +21,9 @@ Main World (ECS)                       Render World (GPU)
 │                                      │   └─ Create GPU buffers (no staging — Bevy Readback handles it)
 │                                      │
 │                                      ├─ extract_npc_data (ExtractSchedule)
-│                                      │   ├─ Per-dirty-index write_buffer for compute fields
-│                                      │   └─ Bulk write_buffer for visual + equip arrays
+│                                      │   ├─ GPU-authoritative (positions/arrivals): per-dirty-index write_buffer
+│                                      │   ├─ CPU-authoritative (targets/speeds/factions/healths/flags): bulk write_buffer
+│                                      │   └─ Visual + equip arrays: unconditional bulk write_buffer
 │                                      │
 │                                      ├─ prepare_npc_bind_groups (PrepareBindGroups)
 │                                      │   └─ 3 bind groups (one per mode, different uniform)
@@ -53,7 +54,7 @@ Main World (ECS)                       Render World (GPU)
 ```
 ECS → GPU (upload):
   GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
-    → populate_gpu_state → NpcGpuState (per-field dirty indices)
+    → populate_gpu_state → NpcGpuState (per-buffer dirty flags + per-index tracking for GPU-authoritative buffers)
 
   build_visual_upload (PostUpdate, chained after populate_gpu_state):
     Single O(N) pass: ECS query + NpcGpuState → NpcVisualUpload
@@ -61,7 +62,9 @@ ECS → GPU (upload):
     Both arrays reset to -1.0 sentinel each frame; phantom slots (waypoints) have no ECS entity and stay hidden
 
   extract_npc_data (ExtractSchedule, zero-clone):
-    Extract<Res<NpcGpuState>> → per-dirty-index write_buffer to NpcGpuBuffers
+    Extract<Res<NpcGpuState>> → hybrid writes to NpcGpuBuffers:
+      GPU-authoritative (positions/arrivals): per-dirty-index write_buffer (~10-50 calls/frame)
+      CPU-authoritative (targets/speeds/factions/healths/flags): 1 bulk write_buffer per dirty buffer
     Extract<Res<NpcVisualUpload>> → bulk write_buffer to NpcVisualBuffers
 
 GPU → ECS (readback, Bevy async Readback):
@@ -126,14 +129,14 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 
 | Binding | Name | Type | Per-NPC Size | Uploaded From | Purpose |
 |---------|------|------|-------------|---------------|---------|
-| 0 | positions | vec2\<f32\> | 8B | NpcGpuState.positions | Current XY, read/written by shader |
+| 0 | positions | vec2\<f32\> | 8B | NpcGpuState.positions | Current XY, read/written by shader. Init: -9999 sentinel (hidden). GPU-authoritative: per-index writes only. |
 | 1 | goals | vec2\<f32\> | 8B | NpcGpuState.targets | Movement target |
 | 2 | speeds | f32 | 4B | NpcGpuState.speeds | Movement speed |
 | 3 | grid_counts | atomic\<i32\>[] | — | Not uploaded | NPCs per grid cell (atomically written by mode 0+1) |
 | 4 | grid_data | i32[] | — | Not uploaded | NPC indices per cell (written by mode 1) |
 | 5 | arrivals | i32 | 4B | NpcGpuState.arrivals | Settled flag (0=moving, 1=arrived), reset on SetTarget |
 | 6 | backoff | i32 | 4B | Not uploaded | TCP-style collision backoff counter (read/written by mode 2) |
-| 7 | factions | i32 | 4B | NpcGpuState.factions | 0=Villager, 1+=Raider camps (COPY_SRC for readback) |
+| 7 | factions | i32 | 4B | NpcGpuState.factions | 0=Villager, 1+=Raider camps. Init: -1 sentinel (no faction). COPY_SRC for readback. |
 | 8 | healths | f32 | 4B | NpcGpuState.healths | Current HP (COPY_SRC for readback) |
 | 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader, init -1) |
 | 10 | params | Params (uniform) | — | NpcComputeParams | Count, delta (0 when paused), grid config, thresholds |

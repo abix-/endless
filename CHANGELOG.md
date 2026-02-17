@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-17b
+
+- **hybrid GPU buffer writes** — `extract_npc_data` now uses per-buffer dirty flags instead of single `dirty: bool`; GPU-authoritative buffers (positions/arrivals) use per-index sparse writes (~10-50 calls/frame), CPU-authoritative buffers (targets/speeds/factions/healths/flags) use single bulk `write_buffer` per dirty buffer; reduces wgpu staging allocation overhead
+- **CPU/GPU default alignment** — `NpcGpuState` defaults now match GPU buffer initialization: positions=-9999 (tombstone sentinel), factions=-1 (no faction), healths=0; GPU compute buffers for positions and factions use `create_buffer_with_data` with matching sentinels; fixes archers attacking phantom faction-0 slots on bulk upload
+
 ## 2026-02-17a
 
 - **buildings as GPU NPC slots** — buildings (farms, waypoints, homes, tents, mines, beds, towns) now occupy invisible NPC GPU slots for projectile collision; eliminates the CPU `BuildingSpatialGrid` collision loop in `process_proj_hits` and fixes the double-hit bug where projectiles damaged both NPCs and nearby buildings in the same frame

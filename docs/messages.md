@@ -58,7 +58,7 @@ Three message types used for intra-ECS communication:
 
 ## GPU Update Messages
 
-Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector system `collect_gpu_updates` runs after Step::Behavior and drains all messages into `GPU_UPDATE_QUEUE` with a single Mutex lock. Then `populate_gpu_state` (PostUpdate) drains the queue into `NpcGpuState` flat arrays with per-field dirty tracking. `build_visual_upload` (chained after) packs ECS visual data into `NpcVisualUpload`. Both are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
+Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector system `collect_gpu_updates` runs after Step::Behavior and drains all messages into `GPU_UPDATE_QUEUE` with a single Mutex lock. Then `populate_gpu_state` (PostUpdate) drains the queue into `NpcGpuState` flat arrays with per-buffer dirty flags (7 bools: `dirty_positions`, `dirty_targets`, `dirty_speeds`, `dirty_factions`, `dirty_healths`, `dirty_arrivals`, `dirty_flags`). GPU-authoritative buffers (positions/arrivals) also track per-index dirty lists for sparse writes. `build_visual_upload` (chained after) packs ECS visual data into `NpcVisualUpload`. Both are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
 
 | Variant | Fields | Producer Systems |
 |---------|--------|------------------|

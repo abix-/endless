@@ -142,7 +142,6 @@ pub struct NpcGpuState {
     // --- Flags (bit 0: combat scan enabled) ---
     pub npc_flags: Vec<u32>,
     // --- Per-buffer dirty flags (compute only — visual is rebuilt each frame) ---
-    /// Positions are GPU-authoritative (compute shader moves NPCs), so only upload on spawn/teleport/hide.
     pub dirty_positions: bool,
     pub dirty_targets: bool,
     pub dirty_speeds: bool,
@@ -150,6 +149,10 @@ pub struct NpcGpuState {
     pub dirty_healths: bool,
     pub dirty_arrivals: bool,
     pub dirty_flags: bool,
+    // --- Per-index tracking for GPU-authoritative buffers (positions + arrivals) ---
+    // GPU compute writes these every frame; CPU only touches them on spawn/teleport/hide/retarget.
+    pub position_dirty_indices: Vec<usize>,
+    pub arrival_dirty_indices: Vec<usize>,
 }
 
 /// GPU-ready packed arrays for NPC visual/equip data. Rebuilt each frame by build_visual_upload.
@@ -168,11 +171,11 @@ impl Default for NpcGpuState {
     fn default() -> Self {
         let max = MAX_NPCS as usize;
         Self {
-            positions: vec![0.0; max * 2],
+            positions: vec![-9999.0; max * 2],
             targets: vec![0.0; max * 2],
             speeds: vec![100.0; max],
-            factions: vec![0; max],
-            healths: vec![100.0; max],
+            factions: vec![-1; max],
+            healths: vec![0.0; max],
             arrivals: vec![0; max],
             sprite_indices: vec![0.0; max * 4],
             flash_values: vec![0.0; max],
@@ -184,6 +187,8 @@ impl Default for NpcGpuState {
             dirty_healths: false,
             dirty_arrivals: false,
             dirty_flags: false,
+            position_dirty_indices: Vec::new(),
+            arrival_dirty_indices: Vec::new(),
         }
     }
 }
@@ -197,8 +202,8 @@ impl NpcGpuState {
                 if i + 1 < self.positions.len() {
                     self.positions[i] = *x;
                     self.positions[i + 1] = *y;
-                    self.dirty = true;
-
+                    self.dirty_positions = true;
+                    self.position_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetTarget { idx, x, y } => {
@@ -206,41 +211,37 @@ impl NpcGpuState {
                 if i + 1 < self.targets.len() {
                     self.targets[i] = *x;
                     self.targets[i + 1] = *y;
-                    self.dirty = true;
-
+                    self.dirty_targets = true;
                 }
                 // Reset arrival flag so GPU resumes movement toward new target
                 if *idx < self.arrivals.len() {
                     self.arrivals[*idx] = 0;
-
+                    self.dirty_arrivals = true;
+                    self.arrival_dirty_indices.push(*idx);
                 }
             }
             GpuUpdate::SetSpeed { idx, speed } => {
                 if *idx < self.speeds.len() {
                     self.speeds[*idx] = *speed;
-                    self.dirty = true;
-
+                    self.dirty_speeds = true;
                 }
             }
             GpuUpdate::SetFaction { idx, faction } => {
                 if *idx < self.factions.len() {
                     self.factions[*idx] = *faction;
-                    self.dirty = true;
-
+                    self.dirty_factions = true;
                 }
             }
             GpuUpdate::SetHealth { idx, health } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = *health;
-                    self.dirty = true;
-
+                    self.dirty_healths = true;
                 }
             }
             GpuUpdate::ApplyDamage { idx, amount } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = (self.healths[*idx] - amount).max(0.0);
-                    self.dirty = true;
-
+                    self.dirty_healths = true;
                 }
             }
             GpuUpdate::HideNpc { idx } => {
@@ -248,8 +249,8 @@ impl NpcGpuState {
                 if i + 1 < self.positions.len() {
                     self.positions[i] = -9999.0;
                     self.positions[i + 1] = -9999.0;
-                    self.dirty = true;
-
+                    self.dirty_positions = true;
+                    self.position_dirty_indices.push(*idx);
                 }
             }
             // Visual-only messages — no compute dirty flag
@@ -269,8 +270,7 @@ impl NpcGpuState {
             GpuUpdate::SetFlags { idx, flags } => {
                 if *idx < self.npc_flags.len() {
                     self.npc_flags[*idx] = *flags;
-                    self.dirty = true;
-
+                    self.dirty_flags = true;
                 }
             }
         }
@@ -383,8 +383,16 @@ pub fn build_visual_upload(
 /// Runs in main world each frame before extraction.
 pub fn populate_gpu_state(mut state: ResMut<NpcGpuState>, time: Res<Time>, slots: Res<SlotAllocator>, timings: Res<SystemTimings>) {
     let _t = timings.scope("populate_gpu");
-    // Reset compute dirty flag
-    state.dirty = false;
+    // Reset per-buffer dirty flags + GPU-authoritative dirty indices
+    state.dirty_positions = false;
+    state.dirty_targets = false;
+    state.dirty_speeds = false;
+    state.dirty_factions = false;
+    state.dirty_healths = false;
+    state.dirty_arrivals = false;
+    state.dirty_flags = false;
+    state.position_dirty_indices.clear();
+    state.arrival_dirty_indices.clear();
 
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for update in queue.drain(..) {
@@ -565,7 +573,8 @@ fn setup_readback_buffers(
 ) {
     // Create readback target buffers (COPY_DST for compute→copy, COPY_SRC for Readback to map)
     let npc_pos_buf = {
-        let mut buf = ShaderStorageBuffer::new(&vec![0u8; MAX_NPCS as usize * 8], RenderAssetUsages::RENDER_WORLD);
+        let init_pos: Vec<f32> = vec![-9999.0; MAX_NPCS as usize * 2];
+        let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_pos), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
     };
@@ -854,11 +863,10 @@ fn init_npc_compute_pipeline(
 
     // Create GPU buffers
     let buffers = NpcGpuBuffers {
-        positions: render_device.create_buffer(&BufferDescriptor {
+        positions: render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("npc_positions"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 2]>()) as u64,
+            contents: bytemuck::cast_slice(&vec![-9999.0f32; MAX_NPCS as usize * 2]),
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
         }),
         targets: render_device.create_buffer(&BufferDescriptor {
             label: Some("npc_targets"),
@@ -896,11 +904,10 @@ fn init_npc_compute_pipeline(
             usage: BufferUsages::STORAGE,
             mapped_at_creation: false,
         }),
-        factions: render_device.create_buffer(&BufferDescriptor {
+        factions: render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("factions"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
+            contents: bytemuck::cast_slice(&vec![-1i32; MAX_NPCS as usize]),
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
         }),
         healths: render_device.create_buffer(&BufferDescriptor {
             label: Some("healths"),
