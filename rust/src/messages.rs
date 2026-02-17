@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, AtomicBool};
 
 // ============================================================================
 // EVENT TYPES
@@ -93,6 +94,8 @@ pub enum GpuUpdate {
     SetSpriteFrame { idx: usize, col: f32, row: f32, atlas: f32 },
     /// Set damage flash intensity (1.0 = full white, decays to 0.0)
     SetDamageFlash { idx: usize, intensity: f32 },
+    /// Set NPC flags (bit 0: combat scan enabled)
+    SetFlags { idx: usize, flags: u32 },
 }
 
 pub static GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>> = Mutex::new(Vec::new());
@@ -123,6 +126,29 @@ pub static PROJ_GPU_UPDATE_QUEUE: Mutex<Vec<ProjGpuUpdate>> = Mutex::new(Vec::ne
 // GPU→CPU readback now uses Bevy's async Readback + ReadbackComplete observers.
 // Static Mutexes (GPU_READ_STATE, PROJ_HIT_STATE, PROJ_POSITION_STATE) deleted.
 // See gpu.rs setup_readback_buffers() and resources.rs (GpuReadState, ProjHitState, ProjPositionState).
+
+// ============================================================================
+// RENDER-WORLD PROFILING (atomic, lock-free)
+// ============================================================================
+
+pub static RENDER_PROFILING: AtomicBool = AtomicBool::new(false);
+
+pub const RT_EXTRACT_NPC: usize = 0;
+pub const RT_EXTRACT_PROJ: usize = 1;
+pub const RT_PREPARE_NPC: usize = 2;
+pub const RT_QUEUE_NPC: usize = 3;
+pub const RT_GPU_COMPUTE: usize = 4;
+pub const RT_PROJ_COMPUTE: usize = 5;
+pub const RT_NPC_BINDS: usize = 6;
+pub const RT_PROJ_BINDS: usize = 7;
+pub const RT_COUNT: usize = 8;
+
+pub static RENDER_TIMINGS: [AtomicU32; RT_COUNT] = [const { AtomicU32::new(0) }; RT_COUNT];
+
+pub const RT_NAMES: [&str; RT_COUNT] = [
+    "r:extract_npc", "r:extract_proj", "r:prepare_npc", "r:queue_npc",
+    "r:gpu_compute", "r:proj_compute", "r:npc_binds", "r:proj_binds",
+];
 
 // ============================================================================
 // GAME CONFIG (write-once from GDScript, drained into Res<GameConfig>)

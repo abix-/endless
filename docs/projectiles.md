@@ -63,12 +63,16 @@ For each active projectile:
 
 `ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` handles two phases:
 
-**Phase 1 — NPC hits** (from GPU hit buffer):
+**NPC + Building hits** (from GPU hit buffer):
 ```
 for slot in 0..min(proj_alloc.next, hit_state.len()):
     skip if proj_writes.active[slot] == 0 (inactive, stale in readback)
     if hit.x >= 0 and hit.y == 0 (collision):
-        push DamageMsg { npc_index: hit.x, amount: damage }
+        if BuildingSlotMap.is_building(hit.x):
+            look up (kind, index) via BuildingSlotMap.get_building()
+            push BuildingDamageMsg { kind, index, amount, attacker_faction }
+        else:
+            push DamageMsg { npc_index: hit.x, amount: damage }
         recycle slot via ProjSlotAllocator
         send ProjGpuUpdate::Deactivate to GPU
     if hit.x == -2 (expired sentinel):
@@ -76,19 +80,7 @@ for slot in 0..min(proj_alloc.next, hit_state.len()):
         send ProjGpuUpdate::Deactivate to GPU
 ```
 
-**Phase 2 — Building collision** (CPU-side, from `ProjPositionState` + `BuildingSpatialGrid`):
-```
-for slot in 0..proj_alloc.next:
-    skip if inactive or dead position
-    read position from ProjPositionState, faction from ProjBufferWrites
-    query BuildingSpatialGrid.for_each_nearby(pos, 20px):
-        skip same-faction buildings
-        if distance < 20px hit radius:
-            push BuildingDamageMsg { kind, index, amount: damage }
-            recycle slot + deactivate on GPU
-```
-
-Buildings aren't in the GPU spatial grid, so building collision is done CPU-side using the readback projectile positions. The 20px hit radius (~half building tile size) provides reasonable collision.
+Buildings occupy NPC GPU slots (speed=0, sprite hidden via col=-1). The projectile compute shader detects building hits through the NPC spatial grid — no separate CPU building collision pass needed. `BuildingSlotMap` routes hits to `BuildingDamageMsg` vs `DamageMsg`.
 
 ## GPU Buffers
 

@@ -1118,6 +1118,7 @@ pub struct LoadNpcTracking<'w> {
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
     pub bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     pub healing_cache: ResMut<'w, HealingZoneCache>,
+    pub building_slots: ResMut<'w, BuildingSlotMap>,
 }
 
 // ============================================================================
@@ -1254,6 +1255,8 @@ pub fn spawn_npcs_from_save(
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx, faction: npc.faction }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: npc.health }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row, atlas: 0.0 }));
+        let combat_flags = if matches!(job, Job::Archer | Job::Raider | Job::Fighter) { 1u32 } else { 0u32 };
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx, flags: combat_flags }));
 
         let activity = npc.activity.to_activity();
         let combat_state = npc.combat_state.to_combat_state();

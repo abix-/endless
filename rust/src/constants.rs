@@ -1,7 +1,7 @@
 //! Constants - Tuning parameters for the NPC system
 
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
-pub const MAX_NPC_COUNT: usize = 50000;
+pub const MAX_NPC_COUNT: usize = 100000;
 
 // Spatial grid lives on GPU only — see gpu.rs (256×256 cells × 128px = 32,768px coverage).
 

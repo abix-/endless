@@ -8,7 +8,7 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
 use crate::gpu::NpcSpriteTexture;
-use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab};
+use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, build_tileset, TERRAIN_TILES, BUILDING_TILES};
 
@@ -360,7 +360,9 @@ fn click_to_select_system(
     mut world_data: ResMut<WorldData>,
     time: Res<Time<Real>>,
     mut dbl_click: Local<DoubleClickState>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("click_select");
     // Right-click cancels squad target placement or mine assignment
     if mouse.just_pressed(MouseButton::Right) {
         if squad_state.placing_target {
@@ -574,7 +576,9 @@ fn spawn_world_tilemap(
 fn sync_building_tilemap(
     grid: Res<WorldGrid>,
     mut chunks: Query<&mut TilemapChunkTileData, With<BuildingChunk>>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("sync_tilemap");
     if !grid.is_changed() || grid.width == 0 { return; }
 
     for mut tile_data in chunks.iter_mut() {
@@ -590,7 +594,9 @@ fn sync_building_tilemap(
 fn sync_terrain_tilemap(
     grid: Res<WorldGrid>,
     mut chunks: Query<&mut TilemapChunkTileData, With<TerrainChunk>>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("sync_terrain");
     if !grid.is_changed() || grid.width == 0 { return; }
 
     for mut tile_data in chunks.iter_mut() {

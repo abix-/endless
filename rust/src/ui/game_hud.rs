@@ -31,7 +31,9 @@ pub fn top_bar_system(
     time: Res<Time>,
     mut avg_fps: Local<f32>,
     settings: Res<crate::settings::UserSettings>,
+    timings: Res<SystemTimings>,
 ) -> Result {
+    let _t = timings.scope("ui_top_bar");
     let ctx = contexts.ctx_mut()?;
 
     let frame = egui::Frame::new()
@@ -216,7 +218,9 @@ pub fn bottom_panel_system(
     catalog: Res<HelpCatalog>,
     mut panel_state: BottomPanelUiState,
     mut rename_state: Local<InspectorRenameState>,
+    timings: Res<SystemTimings>,
 ) -> Result {
+    let _t = timings.scope("ui_bottom");
     let ctx = contexts.ctx_mut()?;
 
     let mut copy_text: Option<String> = None;

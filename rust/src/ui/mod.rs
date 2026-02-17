@@ -21,7 +21,7 @@ use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality, TownUpgrades, UpgradeQueue};
-use crate::world::{self, WorldGenConfig};
+use crate::world::{self, WorldGenConfig, allocate_all_building_slots};
 
 /// Render a small "?" button (frameless) that shows help text on hover.
 pub fn help_tip(ui: &mut egui::Ui, catalog: &HelpCatalog, key: &str) {
@@ -231,6 +231,9 @@ fn game_load_system(
     *tracking.dirty = DirtyFlags::default();
     *mining_policy = MiningPolicy::default();
 
+    // Allocate GPU slots for buildings (collision via GPU compute)
+    allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
+
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
         &save, &mut commands,
@@ -270,7 +273,6 @@ fn game_startup_system(
     mut faction_stats: ResMut<FactionStats>,
     mut camp_state: ResMut<CampState>,
     mut game_config: ResMut<GameConfig>,
-    mut slots: ResMut<SlotAllocator>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut game_time: ResMut<GameTime>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
@@ -364,6 +366,10 @@ fn game_startup_system(
         for _ in &world_state.world_data.gold_mines { hp.gold_mines.push(GOLD_MINE_HP); }
     }
 
+    // Allocate GPU NPC slots for all buildings (invisible, speed=0, for collision)
+    world_state.building_slots.clear();
+    allocate_all_building_slots(&world_state.world_data, &mut world_state.slot_alloc, &mut world_state.building_slots);
+
     // Reset farm occupancy for fresh game
     world_state.building_occupancy.clear();
 
@@ -374,7 +380,7 @@ fn game_startup_system(
     // Spawn 1 NPC per building spawner (instant, no timer)
     let mut total = 0;
     for entry in world_state.spawner_state.0.iter_mut() {
-        let Some(slot) = slots.alloc() else { break };
+        let Some(slot) = world_state.slot_alloc.alloc() else { break };
         let town_data_idx = entry.town_idx as usize;
 
         let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
@@ -745,6 +751,7 @@ fn build_place_click_system(
         let _ = world::destroy_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
             &mut world_state.spawner_state, &mut world_state.building_hp,
+            &mut world_state.slot_alloc, &mut world_state.building_slots,
             &mut combat_log, &game_time,
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
@@ -761,6 +768,7 @@ fn build_place_click_system(
         if world::place_waypoint_at_world_pos(
             &mut world_state.grid, &mut world_state.world_data,
             &mut world_state.building_hp, &mut food_storage,
+            &mut world_state.slot_alloc, &mut world_state.building_slots,
             town_data_idx, world_pos, cost,
         ).is_ok() {
             world_state.dirty.mark_building_changed(world::BuildingKind::Waypoint);
@@ -795,6 +803,7 @@ fn build_place_click_system(
     if !world::build_and_pay(
         &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
         &mut food_storage, &mut world_state.spawner_state, &mut world_state.building_hp,
+        &mut world_state.slot_alloc, &mut world_state.building_slots,
         building, town_data_idx,
         row, col, center, cost,
     ) { return; }
@@ -1073,6 +1082,7 @@ fn process_destroy_system(
     if world::destroy_building(
         &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
         &mut world_state.spawner_state, &mut world_state.building_hp,
+        &mut world_state.slot_alloc, &mut world_state.building_slots,
         &mut combat_log, &game_time,
         trow, tcol, center,
         &format!("Destroyed building in {}", town_name),
@@ -1091,7 +1101,6 @@ fn process_destroy_system(
 // SystemParam bundles to keep cleanup under 16-param limit
 #[derive(SystemParam)]
 struct CleanupWorld<'w> {
-    slot_alloc: ResMut<'w, SlotAllocator>,
     world_state: WorldState<'w>,
     food_storage: ResMut<'w, FoodStorage>,
     faction_stats: ResMut<'w, FactionStats>,
@@ -1167,7 +1176,7 @@ fn game_cleanup_system(
     }
 
     // Reset world resources
-    world.slot_alloc.reset();
+    world.world_state.slot_alloc.reset();
     *world.world_state.world_data = Default::default();
     *world.food_storage = Default::default();
     *world.world_state.farm_states = Default::default();
@@ -1216,6 +1225,7 @@ fn game_cleanup_system(
     *gameplay.follow = Default::default();
     *gameplay.food_events = Default::default();
     *gameplay.proj_slots = Default::default();
+    world.world_state.building_slots.clear();
 
     info!("Game cleanup complete");
 }

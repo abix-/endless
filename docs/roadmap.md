@@ -345,7 +345,7 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 ## Backlog
 
 ### Bugs
-- [ ] **Projectile double-hit: buildings take phantom damage from NPC hits.** In `process_proj_hits` (combat.rs), the NPC hit loop (GPU readback, lines 260-301) frees projectile slots and queues `ProjGpuUpdate::Deactivate`, but `proj_writes.active[slot]` stays `1` until the deactivate queue is processed later in the GPU update pass. The building collision loop (lines 304-336) runs immediately after and checks `proj_writes.active[slot]` — still sees `1`, so the SAME projectile that already hit an NPC also checks against `BuildingSpatialGrid`. If a building is within 20px of the NPC impact point (common — NPCs fight near buildings), the building takes damage too. This causes interior buildings deep inside AI territory to show damage with no perimeter combat, because their own defending NPCs standing near buildings get hit by enemy arrows, and those arrows also register building hits. **Fix:** track which slots were freed in the NPC hit loop (e.g., a `freed_this_frame: HashSet<usize>` or a `Vec<bool>`) and skip them in the building collision loop. One-line guard: `if freed_slots[slot] { continue; }` at line 307.
+- [x] ~~**Projectile double-hit: buildings take phantom damage from NPC hits.**~~ Fixed: buildings unified as GPU NPC slots — single collision path via GPU spatial grid, no separate CPU building collision loop.
 
 ### DRY & Single Source of Truth
 - [ ] Replace hardcoded town indices in HUD (player/camp assumptions) with faction/town lookup helpers

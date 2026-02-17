@@ -162,10 +162,11 @@ Execution order is **chained** — each system completes before the next starts.
 ### 9. building_damage_system (combat.rs, Step::Behavior)
 - Reads `BuildingDamageMsg` events via `MessageReader`
 - Decrements `BuildingHpState` by `msg.amount` for the target building kind + index
+- Syncs HP to GPU: looks up NPC slot via `BuildingSlotMap.get_slot()`, writes `GpuUpdate::SetHealth` with new HP
 - Skips already-dead buildings (HP <= 0)
 - When HP reaches 0:
   1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
-  2. Calls `destroy_building()` shared helper (grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log)
+  2. Calls `destroy_building()` shared helper (grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log + free building NPC slot)
   3. Kills linked NPC via `GpuUpdate::HideNpc` + `SetHealth(0.0)`
 - Profiled under `"building_damage"` scope
 
@@ -196,7 +197,8 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
 | CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + waypoint_attack_system + building attack fallback) |
 | CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 — GPU spatial grid auto-populates `combat_targets[slot]` with nearest enemy |
-| CPU | Building damage | `process_proj_hits` checks active projectile positions against `BuildingSpatialGrid` → `BuildingDamageMsg` on collision → `building_damage_system` |
+| CPU → GPU | Building HP sync | `building_damage_system` writes `GpuUpdate::SetHealth` to sync building GPU slot HP after damage |
+| GPU | Building collision | Buildings occupy NPC GPU slots (speed=0, hidden sprite). Projectile compute shader detects hits via NPC spatial grid. `process_proj_hits` routes building slot hits to `BuildingDamageMsg` via `BuildingSlotMap` lookup. |
 
 ## Debug
 

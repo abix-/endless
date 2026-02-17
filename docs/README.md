@@ -135,11 +135,11 @@ rust/
   src/render.rs         # 2D camera, texture atlases, TilemapChunk spawning, TerrainChunk + BuildingChunk sync, click_to_select_system (double-click fountain → Factions tab)
   src/messages.rs       # Static queues (GpuUpdate), Message types
   src/components.rs     # ECS components (NpcIndex, Job, Energy, Health, LastHitBy, BaseAttackType, CachedStats, Activity/CombatState enums, SquadId, CarriedGold, MiningProgress, Archer/Farmer/Miner markers, Migrating)
-  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, waypoint turret (disabled), squad limits, mining, MAX_MINE_OCCUPANCY, building HP, building costs, 8x8 base build area, WAYPOINT_COVER_RADIUS)
-  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, WaypointState, SquadState, GoldStorage, MineStates, MinerProgressRender, BuildingHpState, MiningPolicy, HelpCatalog, etc.)
+  src/constants.rs      # Tuning parameters (grid size, separation, energy rates, waypoint turret (disabled), squad limits, mining, MAX_MINE_OCCUPANCY, building HP, building costs, 8x8 base build area, WAYPOINT_COVER_RADIUS, MAX_NPC_COUNT=100K)
+  src/resources.rs      # Bevy resources (SlotAllocator, GameTime, FactionStats, WaypointState, SquadState, GoldStorage, MineStates, MinerProgressRender, BuildingHpState, MiningPolicy, BuildingSlotMap, HelpCatalog, etc.)
   src/save.rs            # Save/load system (F5/F9 quicksave/load, autosave with 3 rotating slots, save file picker via list_saves/read_save_from, SaveData serialization, SystemParam bundles)
   src/settings.rs       # UserSettings persistence (serde JSON save/load, version migration v4, auto_upgrades, autosave_hours, music/sfx volume, music speed, tutorial_completed, log_faction_filter)
-  src/world.rs          # World data structs (GoldMine, MinerHome{assigned_mine}, FarmerHome, ArcherHome, Waypoint), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), shared helpers: build_and_pay(), place_waypoint_at_world_pos(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind(), WorldData::miner_home_at()/gold_mine_at()/building_counts()
+  src/world.rs          # World data structs (GoldMine, MinerHome{assigned_mine}, FarmerHome, ArcherHome, Waypoint), world grid, procedural generation (mine placement), tileset builder, town grid, building placement/removal, BuildingSpatialGrid (CPU spatial grid for O(1) building lookups, faction-aware), building GPU slot allocation (allocate_building_slot, free_building_slot, allocate_all_building_slots), shared helpers: build_and_pay(), place_waypoint_at_world_pos(), register_spawner(), resolve_spawner_npc(), destroy_building(), find_nearest_enemy_building(), Building::kind()/spawner_kind(), WorldData::miner_home_at()/gold_mine_at()/building_counts()
   src/ui/
     mod.rs              # register_ui(), game startup (+ policy load), cleanup, pause menu (+ debug settings + UI scale + audio volume), escape/time controls, keyboard toggles (Q=squads, H=help), build ghost preview, slot indicators, process_destroy_system, apply_ui_scale
     main_menu.rs        # Main menu with difficulty presets (Easy/Normal/Hard), world config sliders (farms + gold mines top-level, farmer/archer homes under AI Towns, tents under Raider Camps), Play / Load Game / Debug Tests, restart tutorial button
@@ -172,7 +172,7 @@ rust/
     stats.rs            # CombatConfig, TownUpgrades, UpgradeQueue, UPGRADE_REGISTRY (16 upgrades, prereqs + multi-resource cost), UPGRADE_RENDER_ORDER (tree UI layout), resolve_combat_stats(), xp_grant_system, process_upgrades_system, auto_upgrade_system, upgrade helpers (upgrade_unlocked/upgrade_available/deduct_upgrade_cost/format_upgrade_cost/missing_prereqs/upgrade_effect_summary/branch_total/expansion_cost)
     drain.rs            # Queue drain systems, reset, collect_gpu_updates
     movement.rs         # GPU position readback, arrival detection
-    combat.rs           # Attack cooldown, targeting, building attack fallback, waypoint turret (disabled by default), building_damage_system
+    combat.rs           # Attack cooldown, targeting, building attack fallback, waypoint turret (disabled by default), building_damage_system (GPU HP sync via BuildingSlotMap)
     health.rs           # Damage, death, cleanup, healing
     behavior.rs         # Unified decision system, arrivals
     economy.rs          # Game time, farm growth, mine regen, mining_policy_system (auto-discovery + miner distribution), respawning, building spawners, squad cleanup, migration spawn/attach/settle

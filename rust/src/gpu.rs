@@ -45,7 +45,7 @@ use crate::world::WorldData;
 const SHADER_ASSET_PATH: &str = "shaders/npc_compute.wgsl";
 const PROJ_SHADER_ASSET_PATH: &str = "shaders/projectile_compute.wgsl";
 const WORKGROUP_SIZE: u32 = 64;
-const MAX_NPCS: u32 = 50000;
+const MAX_NPCS: u32 = 100000;
 const MAX_PROJECTILES: u32 = 50_000;
 /// 256×256 cells × 128px = 32,768px — covers max 1000×1000 world (32,000px).
 const GRID_WIDTH: u32 = 256;
@@ -139,15 +139,17 @@ pub struct NpcGpuState {
     pub sprite_indices: Vec<f32>,
     /// Damage flash intensity: 0.0-1.0 per NPC (decays at 5.0/s)
     pub flash_values: Vec<f32>,
-    // --- Dirty tracking (compute only — visual is rebuilt each frame) ---
-    /// Whether any compute data changed this frame
-    pub dirty: bool,
-    pub position_dirty_indices: Vec<usize>,
-    pub target_dirty_indices: Vec<usize>,
-    pub speed_dirty_indices: Vec<usize>,
-    pub faction_dirty_indices: Vec<usize>,
-    pub health_dirty_indices: Vec<usize>,
-    pub arrival_dirty_indices: Vec<usize>,
+    // --- Flags (bit 0: combat scan enabled) ---
+    pub npc_flags: Vec<u32>,
+    // --- Per-buffer dirty flags (compute only — visual is rebuilt each frame) ---
+    /// Positions are GPU-authoritative (compute shader moves NPCs), so only upload on spawn/teleport/hide.
+    pub dirty_positions: bool,
+    pub dirty_targets: bool,
+    pub dirty_speeds: bool,
+    pub dirty_factions: bool,
+    pub dirty_healths: bool,
+    pub dirty_arrivals: bool,
+    pub dirty_flags: bool,
 }
 
 /// GPU-ready packed arrays for NPC visual/equip data. Rebuilt each frame by build_visual_upload.
@@ -174,13 +176,14 @@ impl Default for NpcGpuState {
             arrivals: vec![0; max],
             sprite_indices: vec![0.0; max * 4],
             flash_values: vec![0.0; max],
-            dirty: false,
-            position_dirty_indices: Vec::new(),
-            target_dirty_indices: Vec::new(),
-            speed_dirty_indices: Vec::new(),
-            faction_dirty_indices: Vec::new(),
-            health_dirty_indices: Vec::new(),
-            arrival_dirty_indices: Vec::new(),
+            npc_flags: vec![0; max],
+            dirty_positions: false,
+            dirty_targets: false,
+            dirty_speeds: false,
+            dirty_factions: false,
+            dirty_healths: false,
+            dirty_arrivals: false,
+            dirty_flags: false,
         }
     }
 }
@@ -195,7 +198,7 @@ impl NpcGpuState {
                     self.positions[i] = *x;
                     self.positions[i + 1] = *y;
                     self.dirty = true;
-                    self.position_dirty_indices.push(*idx);
+
                 }
             }
             GpuUpdate::SetTarget { idx, x, y } => {
@@ -204,40 +207,40 @@ impl NpcGpuState {
                     self.targets[i] = *x;
                     self.targets[i + 1] = *y;
                     self.dirty = true;
-                    self.target_dirty_indices.push(*idx);
+
                 }
                 // Reset arrival flag so GPU resumes movement toward new target
                 if *idx < self.arrivals.len() {
                     self.arrivals[*idx] = 0;
-                    self.arrival_dirty_indices.push(*idx);
+
                 }
             }
             GpuUpdate::SetSpeed { idx, speed } => {
                 if *idx < self.speeds.len() {
                     self.speeds[*idx] = *speed;
                     self.dirty = true;
-                    self.speed_dirty_indices.push(*idx);
+
                 }
             }
             GpuUpdate::SetFaction { idx, faction } => {
                 if *idx < self.factions.len() {
                     self.factions[*idx] = *faction;
                     self.dirty = true;
-                    self.faction_dirty_indices.push(*idx);
+
                 }
             }
             GpuUpdate::SetHealth { idx, health } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = *health;
                     self.dirty = true;
-                    self.health_dirty_indices.push(*idx);
+
                 }
             }
             GpuUpdate::ApplyDamage { idx, amount } => {
                 if *idx < self.healths.len() {
                     self.healths[*idx] = (self.healths[*idx] - amount).max(0.0);
                     self.dirty = true;
-                    self.health_dirty_indices.push(*idx);
+
                 }
             }
             GpuUpdate::HideNpc { idx } => {
@@ -246,7 +249,7 @@ impl NpcGpuState {
                     self.positions[i] = -9999.0;
                     self.positions[i + 1] = -9999.0;
                     self.dirty = true;
-                    self.position_dirty_indices.push(*idx);
+
                 }
             }
             // Visual-only messages — no compute dirty flag
@@ -261,6 +264,13 @@ impl NpcGpuState {
             GpuUpdate::SetDamageFlash { idx, intensity } => {
                 if *idx < self.flash_values.len() {
                     self.flash_values[*idx] = *intensity;
+                }
+            }
+            GpuUpdate::SetFlags { idx, flags } => {
+                if *idx < self.npc_flags.len() {
+                    self.npc_flags[*idx] = *flags;
+                    self.dirty = true;
+
                 }
             }
         }
@@ -371,15 +381,10 @@ pub fn build_visual_upload(
 
 /// Drain GPU_UPDATE_QUEUE and apply updates to NpcGpuState.
 /// Runs in main world each frame before extraction.
-pub fn populate_gpu_state(mut state: ResMut<NpcGpuState>, time: Res<Time>, slots: Res<SlotAllocator>) {
-    // Reset compute dirty flags
+pub fn populate_gpu_state(mut state: ResMut<NpcGpuState>, time: Res<Time>, slots: Res<SlotAllocator>, timings: Res<SystemTimings>) {
+    let _t = timings.scope("populate_gpu");
+    // Reset compute dirty flag
     state.dirty = false;
-    state.position_dirty_indices.clear();
-    state.target_dirty_indices.clear();
-    state.speed_dirty_indices.clear();
-    state.faction_dirty_indices.clear();
-    state.health_dirty_indices.clear();
-    state.arrival_dirty_indices.clear();
 
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for update in queue.drain(..) {
@@ -524,7 +529,8 @@ impl ProjBufferWrites {
 }
 
 /// Drain PROJ_GPU_UPDATE_QUEUE and apply updates to ProjBufferWrites.
-pub fn populate_proj_buffer_writes(mut writes: ResMut<ProjBufferWrites>) {
+pub fn populate_proj_buffer_writes(mut writes: ResMut<ProjBufferWrites>, timings: Res<SystemTimings>) {
+    let _t = timings.scope("populate_proj");
     writes.dirty = false;
     writes.spawn_dirty_indices.clear();
     writes.deactivate_dirty_indices.clear();
@@ -741,7 +747,9 @@ fn update_gpu_data(
     game_time: Res<GameTime>,
     upgrades: Res<TownUpgrades>,
     world_data: Res<WorldData>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("update_gpu_data");
     let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
     gpu_data.npc_count = slots.count() as u32;
     gpu_data.delta = dt;
@@ -772,6 +780,7 @@ pub struct NpcGpuBuffers {
     pub healths: Buffer,
     pub combat_targets: Buffer,
     pub threat_counts: Buffer,
+    pub npc_flags: Buffer,
 }
 
 /// Bind groups for compute passes (one per mode, different uniform buffer).
@@ -911,6 +920,12 @@ fn init_npc_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
+        npc_flags: render_device.create_buffer(&BufferDescriptor {
+            label: Some("npc_flags"),
+            size: (MAX_NPCS as usize * std::mem::size_of::<u32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
     };
 
     commands.insert_resource(buffers);
@@ -952,6 +967,8 @@ fn init_npc_compute_pipeline(
                 storage_buffer_read_only::<Vec<i32>>(false),      // proj_factions
                 // 16: threat counts output (packed enemies<<16 | allies)
                 storage_buffer::<Vec<u32>>(false),
+                // 17: npc_flags (bit 0: combat scan enabled)
+                storage_buffer_read_only::<Vec<u32>>(false),
             ),
         ),
     );
@@ -989,6 +1006,11 @@ fn prepare_npc_bind_groups(
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
 ) {
+    use std::sync::atomic::Ordering;
+    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_NPC_BINDS};
+    let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
+    let start = if profiling { Some(std::time::Instant::now()) } else { None };
+
     let Some(pipeline) = pipeline else { return };
     let Some(buffers) = buffers else { return };
     let Some(proj) = proj_buffers else { return };
@@ -1030,6 +1052,7 @@ fn prepare_npc_bind_groups(
     );
 
     let threat_bind = buffers.threat_counts.as_entire_buffer_binding();
+    let flags_bind = buffers.npc_flags.as_entire_buffer_binding();
 
     let mode0 = render_device.create_bind_group(
         Some("npc_compute_bg_mode0"),
@@ -1044,6 +1067,7 @@ fn prepare_npc_bind_groups(
             proj_bind.0.clone(), proj_bind.1.clone(),
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
             threat_bind.clone(),
+            flags_bind.clone(),
         )),
     );
     let mode1 = render_device.create_bind_group(
@@ -1059,6 +1083,7 @@ fn prepare_npc_bind_groups(
             proj_bind.0.clone(), proj_bind.1.clone(),
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
             threat_bind.clone(),
+            flags_bind.clone(),
         )),
     );
     let mode2 = render_device.create_bind_group(
@@ -1074,10 +1099,15 @@ fn prepare_npc_bind_groups(
             proj_bind.0.clone(), proj_bind.1.clone(),
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
             threat_bind.clone(),
+            flags_bind.clone(),
         )),
     );
 
     commands.insert_resource(NpcBindGroups { mode0, mode1, mode2 });
+
+    if let Some(s) = start {
+        RENDER_TIMINGS[RT_NPC_BINDS].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+    }
 }
 
 
@@ -1135,6 +1165,11 @@ impl render_graph::Node for NpcComputeNode {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), render_graph::NodeRunError> {
+        use std::sync::atomic::Ordering;
+        use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_GPU_COMPUTE};
+        let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
+        let start = if profiling { Some(std::time::Instant::now()) } else { None };
+
         // Only run if ready
         if !matches!(self.state, NpcComputeState::Ready) {
             return Ok(());
@@ -1233,6 +1268,9 @@ impl render_graph::Node for NpcComputeNode {
             );
         }
 
+        if let Some(s) = start {
+            RENDER_TIMINGS[RT_GPU_COMPUTE].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+        }
         Ok(())
     }
 }
@@ -1249,7 +1287,9 @@ fn update_proj_gpu_data(
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
     game_time: Res<GameTime>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("update_proj_gpu");
     let pc = proj_alloc.next as u32;
     let nc = slots.count() as u32;
     let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
@@ -1394,6 +1434,11 @@ fn prepare_proj_bind_groups(
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
 ) {
+    use std::sync::atomic::Ordering;
+    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_PROJ_BINDS};
+    let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
+    let start = if profiling { Some(std::time::Instant::now()) } else { None };
+
     let Some(pipeline) = pipeline else { return };
     let Some(proj) = proj_buffers else { return };
     let Some(npc) = npc_buffers else { return };
@@ -1477,6 +1522,10 @@ fn prepare_proj_bind_groups(
     );
 
     commands.insert_resource(ProjBindGroups { mode0, mode1, mode2 });
+
+    if let Some(s) = start {
+        RENDER_TIMINGS[RT_PROJ_BINDS].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+    }
 }
 
 enum ProjComputeState {
@@ -1525,6 +1574,11 @@ impl render_graph::Node for ProjectileComputeNode {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), render_graph::NodeRunError> {
+        use std::sync::atomic::Ordering;
+        use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_PROJ_COMPUTE};
+        let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
+        let start = if profiling { Some(std::time::Instant::now()) } else { None };
+
         if !matches!(self.state, ProjComputeState::Ready) {
             return Ok(());
         }
@@ -1600,6 +1654,9 @@ impl render_graph::Node for ProjectileComputeNode {
             );
         }
 
+        if let Some(s) = start {
+            RENDER_TIMINGS[RT_PROJ_COMPUTE].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+        }
         Ok(())
     }
 }

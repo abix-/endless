@@ -782,7 +782,8 @@ pub fn ai_decision_system(
             snapshots.towns.remove(&tdi);
         }
         if let Some(what) = label {
-            log_ai(&mut combat_log, &game_time, &town_name, pname, &what);
+            let faction = res.world.world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
+            log_ai(&mut combat_log, &game_time, faction, &town_name, pname, &what);
             let actions = &mut ai_state.players[pi].last_actions;
             if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
             actions.push_back(what);
@@ -812,6 +813,8 @@ fn try_build_at_slot(
         &mut res.food_storage,
         &mut res.world.spawner_state,
         &mut res.world.building_hp,
+        &mut res.world.slot_alloc,
+        &mut res.world.building_slots,
         building,
         tdi,
         row,
@@ -929,6 +932,7 @@ fn execute_action(
                 if world::place_waypoint_at_world_pos(
                     &mut res.world.grid, &mut res.world.world_data,
                     &mut res.world.building_hp, &mut res.food_storage,
+                    &mut res.world.slot_alloc, &mut res.world.building_slots,
                     tdi, mine_pos, cost,
                 ).is_ok() {
                     res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);
@@ -940,6 +944,7 @@ fn execute_action(
             let (row, col) = find_waypoint_slot(tg, center, &res.world.grid, &res.world.world_data, ti)?;
             let ok = world::build_and_pay(&mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
                 &mut res.food_storage, &mut res.world.spawner_state, &mut res.world.building_hp,
+                &mut res.world.slot_alloc, &mut res.world.building_slots,
                 Building::Waypoint { town_idx: ti, patrol_order: waypoints as u32 },
                 tdi, row, col, center, cost);
             if ok {
@@ -956,7 +961,7 @@ fn execute_action(
 }
 
 
-fn log_ai(log: &mut CombatLog, gt: &GameTime, town: &str, personality: &str, what: &str) {
-    log.push(CombatEventKind::Ai, gt.day(), gt.hour(), gt.minute(),
+fn log_ai(log: &mut CombatLog, gt: &GameTime, faction: i32, town: &str, personality: &str, what: &str) {
+    log.push(CombatEventKind::Ai, faction, gt.day(), gt.hour(), gt.minute(),
         format!("{} [{}] {}", town, personality, what));
 }

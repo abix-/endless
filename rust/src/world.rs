@@ -7,7 +7,8 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
-use crate::resources::{GrowthStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, CombatLog, CombatEventKind, GameTime, DirtyFlags};
+use crate::resources::{GrowthStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, BuildingSlotMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
+use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -355,6 +356,8 @@ pub fn build_and_pay(
     food_storage: &mut FoodStorage,
     spawner_state: &mut SpawnerState,
     building_hp: &mut BuildingHpState,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
     building: Building,
     town_data_idx: usize,
     row: i32, col: i32,
@@ -370,7 +373,119 @@ pub fn build_and_pay(
     let snapped = grid.grid_to_world(gc, gr);
     register_spawner(spawner_state, building, town_data_idx as i32, snapped, 0.0);
     building_hp.push_for(&building);
+
+    // Allocate GPU NPC slot for building collision
+    let kind = building.kind();
+    let data_idx = find_building_data_index(world_data, building, snapped).unwrap_or(0);
+    let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
+    let max_hp = BuildingHpState::max_hp(kind);
+    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, max_hp);
+
     true
+}
+
+/// Allocate an NPC GPU slot for a building (invisible, speed=0, for collision detection).
+fn allocate_building_slot(
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
+    kind: BuildingKind,
+    data_idx: usize,
+    pos: Vec2,
+    faction: i32,
+    max_hp: f32,
+) {
+    let Some(slot) = slot_alloc.alloc() else {
+        warn!("No NPC slots available for building {:?}", kind);
+        return;
+    };
+    building_slots.insert(kind, data_idx, slot);
+    if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+        queue.push(GpuUpdate::SetPosition { idx: slot, x: pos.x, y: pos.y });
+        queue.push(GpuUpdate::SetTarget { idx: slot, x: pos.x, y: pos.y });
+        queue.push(GpuUpdate::SetFaction { idx: slot, faction });
+        queue.push(GpuUpdate::SetHealth { idx: slot, health: max_hp });
+        queue.push(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 });
+        queue.push(GpuUpdate::SetFlags { idx: slot, flags: 0 });
+        // sprite_col = -1.0 hides from NPC rendering (still tilemap-rendered)
+        queue.push(GpuUpdate::SetSpriteFrame { idx: slot, col: -1.0, row: 0.0, atlas: 0.0 });
+    }
+}
+
+/// Free an NPC GPU slot when a building is destroyed.
+fn free_building_slot(
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
+    kind: BuildingKind,
+    data_idx: usize,
+) {
+    if let Some(slot) = building_slots.remove_by_building(kind, data_idx) {
+        if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
+            queue.push(GpuUpdate::HideNpc { idx: slot });
+            queue.push(GpuUpdate::SetHealth { idx: slot, health: 0.0 });
+        }
+        slot_alloc.free(slot);
+    }
+}
+
+/// Allocate GPU NPC slots for all existing buildings in WorldData.
+/// Called at game startup and when loading a save.
+pub fn allocate_all_building_slots(
+    world_data: &WorldData,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
+) {
+    use crate::constants::*;
+
+    let town_faction = |town_idx: u32| -> i32 {
+        world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0)
+    };
+
+    for (i, wp) in world_data.waypoints.iter().enumerate() {
+        if wp.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, i,
+            wp.position, town_faction(wp.town_idx), WAYPOINT_HP);
+    }
+    for (i, f) in world_data.farms.iter().enumerate() {
+        if f.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Farm, i,
+            f.position, town_faction(f.town_idx as u32), FARM_HP);
+    }
+    for (i, h) in world_data.farmer_homes.iter().enumerate() {
+        if h.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::FarmerHome, i,
+            h.position, town_faction(h.town_idx as u32), FARMER_HOME_HP);
+    }
+    for (i, a) in world_data.archer_homes.iter().enumerate() {
+        if a.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::ArcherHome, i,
+            a.position, town_faction(a.town_idx as u32), ARCHER_HOME_HP);
+    }
+    for (i, t) in world_data.tents.iter().enumerate() {
+        if t.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Tent, i,
+            t.position, town_faction(t.town_idx as u32), TENT_HP);
+    }
+    for (i, m) in world_data.miner_homes.iter().enumerate() {
+        if m.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::MinerHome, i,
+            m.position, town_faction(m.town_idx as u32), MINER_HOME_HP);
+    }
+    for (i, b) in world_data.beds.iter().enumerate() {
+        if b.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Bed, i,
+            b.position, town_faction(b.town_idx as u32), BED_HP);
+    }
+    for (i, t) in world_data.towns.iter().enumerate() {
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Town, i,
+            t.center, t.faction, TOWN_HP);
+    }
+    for (i, m) in world_data.gold_mines.iter().enumerate() {
+        if m.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::GoldMine, i,
+            m.position, 0, GOLD_MINE_HP);
+    }
+
+    info!("Allocated {} building GPU slots", building_slots.len());
 }
 
 /// Place a waypoint at an arbitrary world position (not tied to town grid).
@@ -381,6 +496,8 @@ pub fn place_waypoint_at_world_pos(
     world_data: &mut WorldData,
     building_hp: &mut BuildingHpState,
     food_storage: &mut FoodStorage,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
     town_data_idx: usize,
     world_pos: Vec2,
     cost: i32,
@@ -412,6 +529,7 @@ pub fn place_waypoint_at_world_pos(
     }
 
     // Register in WorldData + HP
+    let data_idx = world_data.waypoints.len();
     world_data.waypoints.push(Waypoint {
         position: snapped,
         town_idx: ti,
@@ -419,6 +537,10 @@ pub fn place_waypoint_at_world_pos(
         npc_slot: None,
     });
     building_hp.push_for(&building);
+
+    // Allocate GPU NPC slot for collision
+    let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
+    allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, data_idx, snapped, faction, BuildingHpState::max_hp(BuildingKind::Waypoint));
 
     Ok(())
 }
@@ -609,6 +731,8 @@ pub fn destroy_building(
     farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
     building_hp: &mut BuildingHpState,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
     combat_log: &mut CombatLog,
     game_time: &GameTime,
     row: i32, col: i32,
@@ -624,6 +748,11 @@ pub fn destroy_building(
         .and_then(|c| c.building)
         .ok_or("no building")?;
     let hp_index = find_building_data_index(world_data, building, snapped);
+
+    // Free GPU NPC slot
+    if let Some(idx) = hp_index {
+        free_building_slot(slot_alloc, building_slots, building.kind(), idx);
+    }
 
     // Grid clear + WorldData tombstone
     remove_building(grid, world_data, farm_states, row, col, town_center)?;
@@ -839,7 +968,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // BUILDING SPATIAL GRID
 // ============================================================================
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum BuildingKind { Farm, Waypoint, Town, GoldMine, ArcherHome, FarmerHome, Tent, MinerHome, Bed }
 
 #[derive(Clone, Copy)]
@@ -973,7 +1102,9 @@ pub fn rebuild_building_grid_system(
     mut dirty: ResMut<DirtyFlags>,
     world_data: Res<WorldData>,
     grid: Res<WorldGrid>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("rebuild_grid");
     if grid.width == 0 || !dirty.building_grid { return; }
     dirty.building_grid = false;
     bgrid.rebuild(&world_data, grid.width as f32 * grid.cell_size);

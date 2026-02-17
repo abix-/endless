@@ -178,6 +178,7 @@ pub fn left_panel_system(
     mut prev_tab: Local<LeftPanelTab>,
     mut dirty: ResMut<DirtyFlags>,
 ) -> Result {
+    let _t = profiler.timings.scope("ui_left_panel");
     if !ui_state.left_panel_open {
         *prev_tab = LeftPanelTab::Roster;
         return Ok(());
@@ -1383,6 +1384,11 @@ fn profiler_content(ui: &mut egui::Ui, timings: &SystemTimings, migration: &mut 
         }
     }
     timing_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Compute untracked time (render pipeline, vsync, ECS scheduling)
+    let systems_total: f32 = timing_entries.iter().map(|(_, ms)| ms).sum();
+    let untracked = (frame_ms - systems_total).max(0.0);
+    timing_entries.push(("render + other", untracked));
 
     // Check if any entry has a paired count
     let has_counts = !count_map.is_empty();

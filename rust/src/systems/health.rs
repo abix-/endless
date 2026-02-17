@@ -180,7 +180,9 @@ pub fn update_healing_zone_cache(
     world_data: Res<WorldData>,
     combat_config: Res<CombatConfig>,
     upgrades: Res<TownUpgrades>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("healing_zones");
     if !dirty.healing_zones { return; }
 
     let max_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0);

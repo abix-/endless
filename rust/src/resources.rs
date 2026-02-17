@@ -12,7 +12,6 @@ use crate::constants::MAX_NPC_COUNT;
 #[derive(Resource)]
 pub struct SystemTimings {
     data: Mutex<HashMap<&'static str, f32>>,
-    frame_start: Mutex<Option<std::time::Instant>>,
     pub frame_ms: Mutex<f32>,
     pub enabled: bool,
 }
@@ -21,7 +20,6 @@ impl Default for SystemTimings {
     fn default() -> Self {
         Self {
             data: Mutex::new(HashMap::new()),
-            frame_start: Mutex::new(None),
             frame_ms: Mutex::new(0.0),
             enabled: false,
         }
@@ -37,23 +35,12 @@ impl SystemTimings {
         }
     }
 
-    pub fn begin_frame(&self) {
+    /// Record true frame time from Bevy's Time::delta (captures render + vsync + everything).
+    pub fn record_frame_delta(&self, dt_secs: f32) {
         if self.enabled {
-            if let Ok(mut start) = self.frame_start.lock() {
-                *start = Some(std::time::Instant::now());
-            }
-        }
-    }
-
-    pub fn end_frame(&self) {
-        if self.enabled {
-            if let Ok(start) = self.frame_start.lock() {
-                if let Some(s) = *start {
-                    let ms = s.elapsed().as_secs_f64() as f32 * 1000.0;
-                    if let Ok(mut fm) = self.frame_ms.lock() {
-                        *fm = *fm * 0.95 + ms * 0.05;
-                    }
-                }
+            let ms = dt_secs * 1000.0;
+            if let Ok(mut fm) = self.frame_ms.lock() {
+                *fm = *fm * 0.95 + ms * 0.05;
             }
         }
     }
@@ -367,7 +354,7 @@ pub struct NpcLogCache(pub Vec<VecDeque<NpcLogEntry>>);
 
 impl Default for NpcLogCache {
     fn default() -> Self {
-        Self((0..MAX_NPC_COUNT).map(|_| VecDeque::with_capacity(NPC_LOG_CAPACITY)).collect())
+        Self((0..MAX_NPC_COUNT).map(|_| VecDeque::new()).collect())
     }
 }
 
@@ -1013,6 +1000,51 @@ impl BuildingHpState {
                     } else { None }
                 })
             )
+    }
+}
+
+/// Bidirectional map between buildings and NPC GPU slots.
+/// Buildings occupy NPC slots for GPU collision detection (invisible, speed=0).
+#[derive(Resource, Default)]
+pub struct BuildingSlotMap {
+    to_slot: HashMap<(crate::world::BuildingKind, usize), usize>,
+    from_slot: HashMap<usize, (crate::world::BuildingKind, usize)>,
+}
+
+impl BuildingSlotMap {
+    pub fn insert(&mut self, kind: crate::world::BuildingKind, index: usize, slot: usize) {
+        self.to_slot.insert((kind, index), slot);
+        self.from_slot.insert(slot, (kind, index));
+    }
+
+    pub fn remove_by_building(&mut self, kind: crate::world::BuildingKind, index: usize) -> Option<usize> {
+        if let Some(slot) = self.to_slot.remove(&(kind, index)) {
+            self.from_slot.remove(&slot);
+            Some(slot)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_slot(&self, kind: crate::world::BuildingKind, index: usize) -> Option<usize> {
+        self.to_slot.get(&(kind, index)).copied()
+    }
+
+    pub fn get_building(&self, slot: usize) -> Option<(crate::world::BuildingKind, usize)> {
+        self.from_slot.get(&slot).copied()
+    }
+
+    pub fn is_building(&self, slot: usize) -> bool {
+        self.from_slot.contains_key(&slot)
+    }
+
+    pub fn clear(&mut self) {
+        self.to_slot.clear();
+        self.from_slot.clear();
+    }
+
+    pub fn len(&self) -> usize {
+        self.to_slot.len()
     }
 }
 

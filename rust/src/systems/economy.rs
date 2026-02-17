@@ -1,5 +1,6 @@
 //! Economy systems - Game time, population tracking, farm growth, camp foraging, respawning
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rand::Rng;
 use std::collections::HashSet;
@@ -495,6 +496,17 @@ pub fn squad_cleanup_system(
 // ============================================================================
 
 /// Check trigger conditions and spawn a migrating raider group at a map edge.
+/// Per-town resources that need extending when a new faction spawns.
+#[derive(SystemParam)]
+pub struct MigrationResources<'w> {
+    pub food_storage: ResMut<'w, FoodStorage>,
+    pub gold_storage: ResMut<'w, GoldStorage>,
+    pub faction_stats: ResMut<'w, FactionStats>,
+    pub camp_state: ResMut<'w, CampState>,
+    pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
+    pub policies: ResMut<'w, TownPolicies>,
+}
+
 /// Runs every CAMP_SPAWN_CHECK_HOURS game hours. Group walks toward nearest player town
 /// via Home + Wander behavior, then settles when close enough (handled by migration_settle_system).
 pub fn migration_spawn_system(
@@ -502,19 +514,16 @@ pub fn migration_spawn_system(
     mut migration_state: ResMut<MigrationState>,
     mut world_data: ResMut<WorldData>,
     mut town_grids: ResMut<TownGrids>,
-    mut food_storage: ResMut<FoodStorage>,
-    mut gold_storage: ResMut<GoldStorage>,
-    mut faction_stats: ResMut<FactionStats>,
-    mut camp_state: ResMut<CampState>,
-    mut npcs_by_town: ResMut<NpcsByTownCache>,
-    mut policies: ResMut<TownPolicies>,
+    mut res: MigrationResources,
     mut ai_state: ResMut<AiPlayerState>,
     mut slots: ResMut<SlotAllocator>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut combat_log: ResMut<CombatLog>,
     grid: Res<WorldGrid>,
     difficulty: Res<Difficulty>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("migration_spawn");
     let debug_force = migration_state.debug_spawn;
     if debug_force {
         migration_state.debug_spawn = false;
@@ -534,7 +543,7 @@ pub fn migration_spawn_system(
         let camp_count = world_data.towns.iter().filter(|t| t.sprite_type == 1).count();
         let player_town = world_data.towns.iter().position(|t| t.faction == 0);
         let Some(player_idx) = player_town else { return };
-        let player_alive = faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
+        let player_alive = res.faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
         let needed_camps = (player_alive as i32 / VILLAGERS_PER_CAMP) as usize;
         if camp_count >= needed_camps { return; }
         if camp_count >= MAX_DYNAMIC_CAMPS { return; }
@@ -543,7 +552,7 @@ pub fn migration_spawn_system(
     // Count player alive NPCs (needed for group size calc)
     let player_town = world_data.towns.iter().position(|t| t.faction == 0);
     let Some(player_idx) = player_town else { return };
-    let player_alive = faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
+    let player_alive = res.faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
 
     // Determine group size
     let scaling = difficulty.migration_scaling().max(1);
@@ -581,14 +590,14 @@ pub fn migration_spawn_system(
 
     // Extend per-town resources
     let num_towns = world_data.towns.len();
-    food_storage.food.resize(num_towns, 0);
-    gold_storage.gold.resize(num_towns, 0);
-    faction_stats.stats.resize(num_towns, FactionStat::default());
-    camp_state.max_pop.resize(num_towns, 10);
-    camp_state.respawn_timers.resize(num_towns, 0.0);
-    camp_state.forage_timers.resize(num_towns, 0.0);
-    npcs_by_town.0.resize(num_towns, Vec::new());
-    policies.policies.resize(num_towns, PolicySet::default());
+    res.food_storage.food.resize(num_towns, 0);
+    res.gold_storage.gold.resize(num_towns, 0);
+    res.faction_stats.stats.resize(num_towns, FactionStat::default());
+    res.camp_state.max_pop.resize(num_towns, 10);
+    res.camp_state.respawn_timers.resize(num_towns, 0.0);
+    res.camp_state.forage_timers.resize(num_towns, 0.0);
+    res.npcs_by_town.0.resize(num_towns, Vec::new());
+    res.policies.policies.resize(num_towns, PolicySet::default());
 
     // Create inactive AiPlayer (activated on settlement)
     let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
@@ -647,7 +656,9 @@ pub fn migration_attach_system(
     migration_state: Res<MigrationState>,
     npc_map: Res<NpcEntityMap>,
     existing: Query<&Migrating>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("migration_attach");
     let Some(mg) = &migration_state.active else { return };
     for &slot in &mg.member_slots {
         if let Some(&entity) = npc_map.0.get(&slot) {
@@ -672,7 +683,9 @@ pub fn migration_settle_system(
     npc_map: Res<NpcEntityMap>,
     config: Res<world::WorldGenConfig>,
     migrating_query: Query<(Entity, &NpcIndex), With<Migrating>>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("migration_settle");
     let Some(mg) = &migration_state.active else { return };
 
     // Compute average position of living migration group members from GPU readback

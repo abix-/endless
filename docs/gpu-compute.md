@@ -100,15 +100,23 @@ One thread per grid cell. Atomically clears `grid_counts[cell]` to 0. Early exit
 One thread per NPC. Computes cell from `floor(pos / cell_size)`, atomically increments `grid_counts[cell]`, writes NPC index into `grid_data[cell * max_per_cell + slot]`. Skips hidden NPCs (pos.x < -9000).
 
 ### Mode 2: Separation + Movement + Combat Targeting
-One thread per NPC. Four phases per thread:
+One thread per NPC. Three-tier optimization based on NPC type:
 
-**Separation + dodge** (single 3x3 grid scan): For each neighbor within `separation_radius`, computes push-away force proportional to overlap. Asymmetric push: moving NPCs (settled=0) push through settled ones (0.2x strength), settled NPCs get shoved by movers (2.0x). Same-faction neighbors get 1.5x push to spread out convoys. Exact overlaps use golden angle spread. Dodge is computed in the same loop: for moving NPCs approaching other moving NPCs within 2x `separation_radius`, dodges perpendicular to movement direction. Detects head-on (0.5), crossing (0.4), and overtaking (0.3) scenarios via dot-product convergence check. Consistent side-picking via index comparison (`i < j`). Dodge scaled by `strength * 0.7`. Total avoidance clamped to `speed * 1.5` to prevent wild overshoot.
+**Tier 1 — Buildings (speed=0)**: Early exit. Writes `combat_targets[i] = -1`, `threat_counts[i] = 0`, returns. Buildings are in the grid for projectile collision only — they don't move, separate, or target.
+
+**Tier 2 — Non-combatants (npc_flags bit 0 = 0, farmers/miners)**: Full separation + movement. Threat scan uses `threat_radius` (7×7=49 cells). Skips the expensive combat targeting scan (9×9=81 cells). Writes `combat_targets[i] = -1`.
+
+**Tier 3 — Combatants (npc_flags bit 0 = 1, archers/raiders/fighters/waypoints)**: Full separation + movement + combat targeting. Scans `combat_range` radius (9×9=81 cells) for both threat assessment and nearest enemy targeting.
+
+Four phases per thread (tiers 2+3):
+
+**Separation + dodge** (single 3x3 grid scan): For each neighbor within `separation_radius`, computes push-away force proportional to overlap. **Skips neighbors with speed=0** (buildings are collision-only, no separation force). Asymmetric push: moving NPCs (settled=0) push through settled ones (0.2x strength), settled NPCs get shoved by movers (2.0x). Same-faction neighbors get 1.5x push to spread out convoys. Exact overlaps use golden angle spread. Dodge is computed in the same loop: for moving NPCs approaching other moving NPCs within 2x `separation_radius`, dodges perpendicular to movement direction. Detects head-on (0.5), crossing (0.4), and overtaking (0.3) scenarios via dot-product convergence check. Consistent side-picking via index comparison (`i < j`). Dodge scaled by `strength * 0.7`. Total avoidance clamped to `speed * 1.5` to prevent wild overshoot.
 
 **Projectile dodge** (spatial grid scan): After separation, scans 3x3 neighborhood of the projectile spatial grid (built by projectile compute modes 0+1 in the previous frame). For each enemy projectile within 60px heading toward the NPC (approach dot > 0.3), computes a perpendicular dodge force. Direction is away from the projectile's path (consistent side-picking via `select`). Urgency scales linearly with proximity (closer = stronger). Normalized and scaled to `speed * 1.5`. Applied as a separate force in the position update (`movement + avoidance + proj_dodge`), independent of avoidance clamping. 1-frame latency is acceptable: at 60fps, an arrow at speed 500 moves ~8px — within the 60px dodge radius.
 
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 
-**Combat targeting + threat assessment**: Searches grid cells within `combat_range / cell_size + 1` radius around NPC's cell. For each NPC in neighboring cells, checks: alive (health > 0), not self. Combat targeting tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none). Threat assessment piggybacks on the same loop: counts enemies and allies within `threat_radius` (200px, subset of `combat_range` 300px), packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations, eliminating the old O(N) linear scan.
+**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (300px, 9×9 cells) for combatants, `threat_radius` (200px, 7×7 cells) for non-combatants. For each NPC in neighboring cells, checks: alive (health > 0), not self. Combat targeting (tier 3 only) tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
 
 ## GPU Buffers
 
@@ -135,6 +143,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 14 | proj_velocities | vec2\<f32\>[] | — | ProjGpuBuffers.velocities (read) | Projectile velocities for approach check |
 | 15 | proj_factions | i32[] | — | ProjGpuBuffers.factions (read) | Projectile factions for friendly fire skip |
 | 16 | threat_counts | u32 | 4B | Not uploaded | Packed threat assessment: (enemies << 16 \| allies) per NPC |
+| 17 | npc_flags | u32 | 4B | NpcGpuState.npc_flags | Bit 0: combat scan enabled (archers/raiders/fighters/waypoints). Buildings + farmers/miners = 0. |
 
 ### NPC Visual Storage Buffers (npc_render.rs)
 
@@ -197,7 +206,7 @@ The render shader (`shaders/npc_render.wgsl`) shares `calc_uv()`, `world_to_clip
 
 ```rust
 const WORKGROUP_SIZE: u32 = 64;
-const MAX_NPCS: u32 = 50000;
+const MAX_NPCS: u32 = 100000;
 const GRID_WIDTH: u32 = 256;
 const GRID_HEIGHT: u32 = 256;
 const MAX_PER_CELL: u32 = 48;

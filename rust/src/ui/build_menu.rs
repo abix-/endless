@@ -142,7 +142,9 @@ pub(crate) fn build_menu_system(
     sprites: Res<SpriteAssets>,
     mut images: ResMut<Assets<Image>>,
     mut cache: Local<BuildSpriteCache>,
+    timings: Res<SystemTimings>,
 ) -> Result {
+    let _t = timings.scope("ui_build_menu");
     // Initialize sprite cache (one-time, before borrowing egui context)
     init_sprite_cache(&mut cache, &mut contexts, &sprites, &mut images, &mut build_ctx);
 

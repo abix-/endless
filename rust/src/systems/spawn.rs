@@ -119,6 +119,9 @@ pub fn spawn_npc_system(
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx, faction: msg.faction }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: cached.max_health }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row, atlas: 0.0 }));
+        // Combat scan flag: fighters need full 81-cell scan, others get reduced threat-only scan
+        let combat_flags = if matches!(job, Job::Archer | Job::Raider | Job::Fighter) { 1u32 } else { 0u32 };
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx, flags: combat_flags }));
 
         // Base entity (all NPCs get these)
         let mut ec = commands.spawn((

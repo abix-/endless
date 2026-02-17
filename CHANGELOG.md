@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-17a
+
+- **buildings as GPU NPC slots** — buildings (farms, waypoints, homes, tents, mines, beds, towns) now occupy invisible NPC GPU slots for projectile collision; eliminates the CPU `BuildingSpatialGrid` collision loop in `process_proj_hits` and fixes the double-hit bug where projectiles damaged both NPCs and nearby buildings in the same frame
+- **three-tier GPU compute optimization** — Mode 2 now has three tiers via `npc_flags` buffer (binding 17): buildings (speed=0) early exit, non-combatants (farmers/miners) scan only `threat_radius` (7×7 cells), combatants (archers/raiders/fighters) do full `combat_range` scan (9×9 cells); ~33% reduction in Mode 2 GPU work
+- **MAX_NPC_COUNT 50K → 100K** — accommodates building slots alongside NPC slots; `NpcLogCache` changed to lazy init (`VecDeque::new()`) to avoid 464MB pre-allocation at 100K
+- **BuildingSlotMap resource** — bidirectional HashMap mapping `(BuildingKind, index) ↔ NPC slot`; allocated at startup/load, freed on destroy; `WorldState` SystemParam extended with `slot_alloc` and `building_slots`
+- **building GPU HP sync** — `building_damage_system` writes `SetHealth` to GPU after damage so projectile compute sees updated building HP
+
 ## 2026-02-16u
 
 - **double-click fountain → factions tab** — double-clicking a fountain building opens the Factions tab pre-selected to that fountain's faction; `DoubleClickState` tracks last click time/position in `click_to_select_system`; `UiState.pending_faction_select` bridges render→UI

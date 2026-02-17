@@ -71,7 +71,7 @@ Job-specific templates:
 | Raider | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Stealer`, `LeashRange(400)`, `EquippedWeapon` |
 | Fighter | `BaseAttackType` (Melee or Ranged via attack_type), `AttackTimer(0)` |
 
-GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs). Colors and equipment sprites are derived from ECS components by `sync_visual_sprites` (not sent as messages).
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for archers/raiders/fighters, 0 for farmers/miners — controls GPU combat scan tier). Colors and equipment sprites are derived from ECS components by `sync_visual_sprites` (not sent as messages).
 
 Sprite assignments: Farmer=(1,6), Archer=(0,11), Raider=(0,6), Fighter=(7,0), Miner=(1,6) (brown tint differentiates)
 

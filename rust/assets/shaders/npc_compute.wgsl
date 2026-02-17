@@ -46,6 +46,9 @@ struct Params {
 // Threat assessment output: packed (enemies << 16 | allies) per NPC
 @group(0) @binding(16) var<storage, read_write> threat_counts: array<u32>;
 
+// NPC flags: bit 0 = combat scan enabled (archers/raiders/waypoints)
+@group(0) @binding(17) var<storage, read> npc_flags: array<u32>;
+
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x;
@@ -105,6 +108,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
+    // Buildings (speed=0): in grid for collision but skip all Mode 2 work
+    if (speed == 0.0) {
+        combat_targets[i] = -1;
+        threat_counts[i] = 0u;
+        return;
+    }
+
     let to_goal = goal - pos;
     let dist_to_goal = length(to_goal);
     let wants_goal = settled == 0;
@@ -153,6 +163,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 if (j < 0 || u32(j) >= params.count) { continue; }
 
                 let other_pos = positions[j];
+                if (speeds[j] == 0.0) { continue; }  // Skip buildings (collision-only)
                 var diff = pos - other_pos;
                 let dist_sq = dot(diff, diff);
                 let neighbor_settled = arrivals[j];
@@ -331,9 +342,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    let range_sq = params.combat_range * params.combat_range;
+    let needs_combat = (npc_flags[i] & 1u) != 0u;
+    let scan_range = select(params.threat_radius, params.combat_range, needs_combat);
+    let range_sq = scan_range * scan_range;
     let threat_radius_sq = params.threat_radius * params.threat_radius;
-    let search_r = i32(ceil(params.combat_range / params.cell_size)) + 1;
+    let search_r = i32(ceil(scan_range / params.cell_size)) + 1;
 
     // Use post-movement position for combat targeting
     let my_cx = i32(pos.x / params.cell_size);
@@ -387,6 +400,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    combat_targets[i] = best_target;
+    combat_targets[i] = select(-1, best_target, needs_combat);
     threat_counts[i] = (threat_enemies << 16u) | (threat_allies & 0xFFFFu);
 }

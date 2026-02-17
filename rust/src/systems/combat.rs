@@ -4,9 +4,10 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{WAYPOINT_RANGE, WAYPOINT_DAMAGE, WAYPOINT_COOLDOWN, WAYPOINT_PROJ_SPEED, WAYPOINT_PROJ_LIFETIME};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, WaypointState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, SlotAllocator};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, WaypointState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
+use crate::resources::BuildingSlotMap;
 use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid};
 
 /// Decrement attack cooldown timers each frame.
@@ -240,25 +241,21 @@ pub fn attack_system(
     );
 }
 
-/// Process GPU projectile hits: convert to DamageMsg events and recycle slots.
-/// Also checks active projectiles against BuildingSpatialGrid for building collisions.
+/// Process GPU projectile hits: convert to DamageMsg or BuildingDamageMsg events and recycle slots.
+/// Building hits are detected by the GPU collision pipeline (buildings occupy NPC slots with speed=0).
 /// Runs before attack_system so freed slots can be reused for new projectiles.
 pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
     mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
-    proj_pos: Res<crate::resources::ProjPositionState>,
     mut hit_state: ResMut<ProjHitState>,
-    bgrid: Res<BuildingSpatialGrid>,
+    building_slots: Res<BuildingSlotMap>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_proj_hits");
-    // Only iterate up to high-water mark — readback returns full MAX buffer but
-    // slots beyond proj_alloc.next were never allocated (stale/zero data)
     let max_slot = proj_alloc.next.min(hit_state.0.len());
     for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
-        // Skip inactive projectiles (deactivated but stale in readback)
         if slot < proj_writes.active.len() && proj_writes.active[slot] == 0 {
             continue;
         }
@@ -267,7 +264,6 @@ pub fn process_proj_hits(
         let processed = hit[1];
 
         if npc_idx >= 0 && processed == 0 {
-            // Collision detected — apply damage and recycle slot
             let damage = if slot < proj_writes.damages.len() {
                 proj_writes.damages[slot]
             } else {
@@ -275,16 +271,26 @@ pub fn process_proj_hits(
             };
 
             if damage > 0.0 {
-                let shooter = if slot < proj_writes.shooters.len() {
-                    proj_writes.shooters[slot]
+                // Check if the hit NPC slot is actually a building
+                if let Some((kind, index)) = building_slots.get_building(npc_idx as usize) {
+                    let attacker_faction = if slot < proj_writes.factions.len() {
+                        proj_writes.factions[slot]
+                    } else { 0 };
+                    building_damage_events.write(BuildingDamageMsg {
+                        kind, index, amount: damage, attacker_faction,
+                    });
                 } else {
-                    -1
-                };
-                damage_events.write(DamageMsg {
-                    npc_index: npc_idx as usize,
-                    amount: damage,
-                    attacker: shooter,
-                });
+                    let shooter = if slot < proj_writes.shooters.len() {
+                        proj_writes.shooters[slot]
+                    } else {
+                        -1
+                    };
+                    damage_events.write(DamageMsg {
+                        npc_index: npc_idx as usize,
+                        amount: damage,
+                        attacker: shooter,
+                    });
+                }
             }
 
             proj_alloc.free(slot);
@@ -292,7 +298,6 @@ pub fn process_proj_hits(
                 queue.push(ProjGpuUpdate::Deactivate { idx: slot });
             }
         } else if npc_idx == -2 {
-            // Expired projectile (lifetime ran out) — recycle slot
             proj_alloc.free(slot);
             if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
                 queue.push(ProjGpuUpdate::Deactivate { idx: slot });
@@ -300,49 +305,16 @@ pub fn process_proj_hits(
         }
     }
     hit_state.0.clear();
-
-    // Building collision: check active projectiles against BuildingSpatialGrid
-    let hit_radius = 20.0; // building tile is 32px, check within ~half tile
-    for slot in 0..proj_alloc.next {
-        if slot >= proj_writes.active.len() || proj_writes.active[slot] == 0 { continue; }
-
-        let i2 = slot * 2;
-        if i2 + 1 >= proj_pos.0.len() { continue; }
-        let px = proj_pos.0[i2];
-        let py = proj_pos.0[i2 + 1];
-        if px < -9000.0 { continue; }
-
-        let proj_faction = if slot < proj_writes.factions.len() { proj_writes.factions[slot] } else { continue };
-        let damage = if slot < proj_writes.damages.len() { proj_writes.damages[slot] } else { 0.0 };
-        if damage <= 0.0 { continue; }
-
-        // Collect hit (can't borrow building_damage_events inside for_each_nearby closure)
-        let pos = Vec2::new(px, py);
-        let mut hit: Option<(BuildingKind, usize)> = None;
-        bgrid.for_each_nearby(pos, hit_radius, |bref| {
-            if hit.is_some() { return; }
-            if bref.faction == proj_faction { return; }
-            if bref.position.distance(pos) > hit_radius { return; }
-            hit = Some((bref.kind, bref.index));
-        });
-
-        if let Some((kind, index)) = hit {
-            building_damage_events.write(BuildingDamageMsg { kind, index, amount: damage, attacker_faction: proj_faction });
-            proj_alloc.free(slot);
-            if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
-                queue.push(ProjGpuUpdate::Deactivate { idx: slot });
-            }
-        }
-    }
 }
 
 /// Sync waypoint NPC slots: allocate for new posts, free for tombstoned posts.
 /// Gated by DirtyFlags::waypoint_slots — only runs when waypoints are built/destroyed/loaded.
 pub fn sync_waypoint_slots(
-    mut slots: ResMut<SlotAllocator>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut world: WorldState,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("sync_waypoints");
     if !world.dirty.waypoint_slots { return; }
     world.dirty.waypoint_slots = false;
 
@@ -353,7 +325,7 @@ pub fn sync_waypoint_slots(
         let alive = gp.position.x > -9000.0;
         match (alive, gp.npc_slot) {
             (true, None) => {
-                let Some(slot) = slots.alloc() else { continue };
+                let Some(slot) = world.slot_alloc.alloc() else { continue };
                 gp.npc_slot = Some(slot);
                 // Match spawn.rs order: Position, Target, Speed, Health, SpriteFrame
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: slot, x: gp.position.x, y: gp.position.y }));
@@ -365,7 +337,7 @@ pub fn sync_waypoint_slots(
             }
             (false, Some(slot)) => {
                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: slot }));
-                slots.free(slot);
+                world.slot_alloc.free(slot);
                 gp.npc_slot = None;
             }
             _ => {}
@@ -507,6 +479,12 @@ pub fn building_damage_system(
             format!("{:?} in {} hit by {} for {:.0} ({:.0}/{:.0} HP)", msg.kind, town_name, attacker_name, msg.amount, new_hp, max_hp));
 
         *hp = new_hp;
+
+        // Sync HP to GPU building slot
+        if let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) {
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: new_hp }));
+        }
+
         if new_hp > 0.0 { continue; } // still alive
 
         // Building destroyed
@@ -523,6 +501,7 @@ pub fn building_damage_system(
         let _ = world::destroy_building(
             &mut world.grid, &mut world.world_data, &mut world.farm_states,
             &mut world.spawner_state, &mut world.building_hp,
+            &mut world.slot_alloc, &mut world.building_slots,
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
@@ -542,7 +521,9 @@ pub fn sync_building_hp_render(
     building_hp: Res<BuildingHpState>,
     world_data: Res<WorldData>,
     mut render: ResMut<crate::resources::BuildingHpRender>,
+    timings: Res<SystemTimings>,
 ) {
+    let _t = timings.scope("sync_hp_render");
     render.positions.clear();
     render.health_pcts.clear();
     for (pos, pct) in building_hp.iter_damaged(&world_data) {

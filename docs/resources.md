@@ -22,7 +22,7 @@ Pre-computed per-NPC data for UI queries, indexed by slot.
 | Resource | Per-NPC Data | Writers | Readers |
 |----------|-------------|---------|---------|
 | NpcMetaCache | name, level, xp, town_id, job | spawn_npc_system, xp_grant_system, inspector rename | UI queries |
-| NpcLogCache | `VecDeque<NpcLogEntry>` (100 cap, circular) | behavior/decision systems | UI queries |
+| NpcLogCache | `VecDeque<NpcLogEntry>` (100 cap, circular, lazy init) | behavior/decision systems | UI queries |
 | NpcsByTownCache | `Vec<Vec<usize>>` — NPC slots grouped by town | spawn/death systems | UI queries |
 
 `NpcLogCache.push(idx, day, hour, minute, message)` adds timestamped entries. Oldest evicted at capacity.
@@ -51,6 +51,7 @@ Static world data, immutable after initialization.
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress + `Vec<Vec2>` positions | Per-farm growth tracking; methods: `push_farm()`, `harvest()`, `tombstone()` (resets all 3 vecs, marks position offscreen) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, waypoints, towns, gold mines, archer homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
+| BuildingSlotMap | bidirectional `HashMap<(BuildingKind, usize), usize>` | Maps buildings ↔ NPC GPU slots; buildings occupy invisible NPC slots (speed=0, sprite hidden) for GPU projectile collision; allocated at startup/load, freed on building destroy |
 | BuildingHpState | Parallel Vecs of `f32` HP per building type (waypoints, farmer_homes, archer_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; initialized on game startup, pushed on build, zeroed on destroy |
 | DirtyFlags | `building_grid`, `patrols`, `patrol_perimeter`, `healing_zones`, `waypoint_slots`, `squads`, `mining` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds; `waypoint_slots` triggers NPC slot alloc/free in `sync_waypoint_slots`; `squads` gates `squad_cleanup_system` (set by death/spawn/UI); `mining` gates `mining_policy_system`; `patrol_perimeter` gates `sync_patrol_perimeter_system`; `patrol_swap` queues patrol order swap from UI; `mark_building_changed(kind)` helper sets the right combo of flags for build/destroy events |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |

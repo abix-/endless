@@ -446,6 +446,16 @@ fn extract_camera_state(
 /// Upload NPC compute + visual data directly to GPU buffers during Extract phase.
 // --- Shared dirty-write helpers (used by both NPC and projectile extract) ---
 
+/// Bulk-write the first `count` elements of `data` to `buf` in a single write_buffer call.
+/// Replaces per-index write_dirty_* for NPCs (thousands of staging buffer allocations → 1).
+fn write_bulk<T: bytemuck::NoUninit>(queue: &RenderQueue, buf: &Buffer, data: &[T], count: usize) {
+    let count = count.min(data.len());
+    if count > 0 {
+        queue.write_buffer(buf, 0, bytemuck::cast_slice(&data[..count]));
+    }
+}
+
+/// Per-index write for small dirty sets (projectile spawn/deactivate — typically <100 per frame).
 fn write_dirty_f32(queue: &RenderQueue, buf: &Buffer, data: &[f32], indices: &[usize], stride: usize) {
     for &idx in indices {
         let start = idx * stride;
@@ -467,20 +477,28 @@ fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[u
 /// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
 fn extract_npc_data(
     gpu_state: Extract<Res<NpcGpuState>>,
+    gpu_data: Extract<Res<NpcGpuData>>,
     visual_upload: Extract<Res<NpcVisualUpload>>,
     gpu_buffers: Option<Res<NpcGpuBuffers>>,
     visual_buffers: Option<Res<NpcVisualBuffers>>,
     render_queue: Res<RenderQueue>,
 ) {
-    // Compute data: per-dirty-index write_buffer
+    use std::sync::atomic::Ordering;
+    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_EXTRACT_NPC};
+    let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
+    let start = if profiling { Some(std::time::Instant::now()) } else { None };
+
+    // Compute data: one bulk write_buffer per buffer (7 calls instead of thousands)
     if let Some(gpu_bufs) = gpu_buffers {
         if gpu_state.dirty {
-            write_dirty_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2);
-            write_dirty_f32(&render_queue, &gpu_bufs.targets, &gpu_state.targets, &gpu_state.target_dirty_indices, 2);
-            write_dirty_f32(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, &gpu_state.speed_dirty_indices, 1);
-            write_dirty_i32(&render_queue, &gpu_bufs.factions, &gpu_state.factions, &gpu_state.faction_dirty_indices, 1);
-            write_dirty_f32(&render_queue, &gpu_bufs.healths, &gpu_state.healths, &gpu_state.health_dirty_indices, 1);
-            write_dirty_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1);
+            let n = gpu_data.npc_count as usize;
+            write_bulk(&render_queue, &gpu_bufs.positions, &gpu_state.positions, n * 2);
+            write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2);
+            write_bulk(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, n);
+            write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n);
+            write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n);
+            write_bulk(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, n);
+            write_bulk(&render_queue, &gpu_bufs.npc_flags, &gpu_state.npc_flags, n);
         }
     }
 
@@ -490,6 +508,10 @@ fn extract_npc_data(
             render_queue.write_buffer(&vis_bufs.visual, 0, bytemuck::cast_slice(&visual_upload.visual_data));
             render_queue.write_buffer(&vis_bufs.equip, 0, bytemuck::cast_slice(&visual_upload.equip_data));
         }
+    }
+
+    if let Some(s) = start {
+        RENDER_TIMINGS[RT_EXTRACT_NPC].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -505,6 +527,10 @@ fn extract_proj_data(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 ) {
+    use std::sync::atomic::Ordering;
+    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_EXTRACT_PROJ};
+    let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
+    let start = if profiling { Some(std::time::Instant::now()) } else { None };
     // --- Compute data: per-dirty-index write_buffer ---
     if let Some(gpu_bufs) = gpu_buffers {
         if writes.dirty {
@@ -585,6 +611,10 @@ fn extract_proj_data(
             instance_count: actual_count,
         });
     }
+
+    if let Some(s) = start {
+        RENDER_TIMINGS[RT_EXTRACT_PROJ].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+    }
 }
 
 // =============================================================================
@@ -605,6 +635,10 @@ fn prepare_npc_buffers(
     growth_states: Option<Res<crate::resources::GrowthStates>>,
     building_hp_render: Option<Res<crate::resources::BuildingHpRender>>,
 ) {
+    use std::sync::atomic::Ordering;
+    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_PREPARE_NPC};
+    let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
+    let start = if profiling { Some(std::time::Instant::now()) } else { None };
     // --- Misc instance buffer (farms + building HP bars) ---
     let mut misc_instances = RawBufferVec::new(BufferUsages::VERTEX);
 
@@ -761,6 +795,10 @@ fn prepare_npc_buffers(
             index_buffer,
         });
     }
+
+    if let Some(s) = start {
+        RENDER_TIMINGS[RT_PREPARE_NPC].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
+    }
 }
 
 /// Prepare texture bind group (dual atlas: character + world).
@@ -864,6 +902,10 @@ fn queue_npcs(
     views: Query<(Entity, &ExtractedView, &Msaa)>,
     npc_batch: Query<Entity, With<NpcBatch>>,
 ) {
+    use std::sync::atomic::Ordering;
+    use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_QUEUE_NPC};
+    let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
+    let start = if profiling { Some(std::time::Instant::now()) } else { None };
     let Some(_render_buffers) = render_buffers else { return };
 
     let has_npcs = visual_buffers.as_ref().is_some_and(|vb| vb.bind_group.is_some())
@@ -917,6 +959,10 @@ fn queue_npcs(
                 });
             }
         }
+    }
+
+    if let Some(s) = start {
+        RENDER_TIMINGS[RT_QUEUE_NPC].store((s.elapsed().as_secs_f64() as f32 * 1000.0).to_bits(), Ordering::Relaxed);
     }
 }
 
