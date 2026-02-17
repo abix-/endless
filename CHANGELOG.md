@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-17d
+
+- **fix archers attacking own waypoints** — GPU combat targeting scan now skips building slots (speed=0) for both combat targeting and threat assessment; buildings were valid targets in the spatial grid scan despite being same-faction due to stale/uninitialized faction data on newly allocated waypoint NPC slots; building attacks are already handled CPU-side via `find_nearest_enemy_building()`
+
 ## 2026-02-17c
 
 - **neutral faction (-1)** — `FACTION_NEUTRAL` constant; GPU compute and projectile shaders treat faction -1 as same-faction (never targeted, no friendly fire); gold mines assigned neutral faction instead of player faction 0
