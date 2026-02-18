@@ -132,7 +132,7 @@ pub fn roster_panel_system(
         // Sort headers — pre-compute arrow strings to avoid borrow conflict
         fn arrow_str(state: &RosterState, col: SortColumn) -> &'static str {
             if state.sort_column == Some(col) {
-                if state.sort_descending { " \u{25BC}" } else { " \u{25B2}" }
+                if state.sort_descending { " v" } else { " ^" }
             } else {
                 ""
             }

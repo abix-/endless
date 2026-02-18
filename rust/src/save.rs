@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use serde::{Serialize, Deserialize};
 
 use crate::components::*;
-use crate::constants::MAX_SQUADS;
+use crate::constants::{MAX_SQUADS, ItemKind};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::*;
 use crate::systems::stats::{TownUpgrades, CombatConfig, resolve_combat_stats, decode_upgrade_levels, decode_auto_upgrade_flags};
@@ -285,7 +285,7 @@ pub enum ActivitySave {
     HealingAtFountain { recover_until: f32 },
     Wandering,
     Raiding { target: [f32; 2] },
-    Returning { has_food: bool, gold: i32 },
+    Returning { loot: Vec<(ItemKind, i32)> },
     Mining { mine_pos: [f32; 2] },
     MiningAtMine,
 }
@@ -304,7 +304,7 @@ impl ActivitySave {
             Activity::HealingAtFountain { recover_until } => Self::HealingAtFountain { recover_until: *recover_until },
             Activity::Wandering => Self::Wandering,
             Activity::Raiding { target } => Self::Raiding { target: v2(*target) },
-            Activity::Returning { has_food, gold } => Self::Returning { has_food: *has_food, gold: *gold },
+            Activity::Returning { loot } => Self::Returning { loot: loot.clone() },
             Activity::Mining { mine_pos } => Self::Mining { mine_pos: v2(*mine_pos) },
             Activity::MiningAtMine => Self::MiningAtMine,
         }
@@ -323,7 +323,7 @@ impl ActivitySave {
             Self::HealingAtFountain { recover_until } => Activity::HealingAtFountain { recover_until: *recover_until },
             Self::Wandering => Activity::Wandering,
             Self::Raiding { target } => Activity::Raiding { target: to_vec2(*target) },
-            Self::Returning { has_food, gold } => Activity::Returning { has_food: *has_food, gold: *gold },
+            Self::Returning { loot } => Activity::Returning { loot: loot.clone() },
             Self::Mining { mine_pos } => Activity::Mining { mine_pos: to_vec2(*mine_pos) },
             Self::MiningAtMine => Activity::MiningAtMine,
         }

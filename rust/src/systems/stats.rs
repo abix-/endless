@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use bevy::prelude::*;
-use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction};
-use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES};
+use crate::components::{Job, BaseAttackType, CachedStats, CombatState, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction, Activity, Home};
+use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES, ItemKind};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
 use crate::systemparams::{EconomyState, WorldState};
@@ -327,12 +327,12 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
 
     match node.display {
         EffectDisplay::Percentage => {
-            let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{:.0}%", lv * pct * 100.0) };
+            let now = if level == 0 { "-".to_string() } else { format!("+{:.0}%", lv * pct * 100.0) };
             let next = format!("+{:.0}%", (lv + 1.0) * pct * 100.0);
             (now, next)
         }
         EffectDisplay::CooldownReduction => {
-            let now = if level == 0 { "\u{2014}".to_string() } else {
+            let now = if level == 0 { "-".to_string() } else {
                 let reduction = (1.0 - 1.0 / (1.0 + lv * pct)) * 100.0;
                 format!("-{:.0}%", reduction)
             };
@@ -346,12 +346,12 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
             (now, next)
         }
         EffectDisplay::FlatPixels(px_per_level) => {
-            let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}px", level as i32 * px_per_level) };
+            let now = if level == 0 { "-".to_string() } else { format!("+{}px", level as i32 * px_per_level) };
             let next = format!("+{}px", (level as i32 + 1) * px_per_level);
             (now, next)
         }
         EffectDisplay::Discrete => {
-            let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}", level) };
+            let now = if level == 0 { "-".to_string() } else { format!("+{}", level) };
             let next = format!("+{}", level + 1);
             (now, next)
         }
@@ -710,8 +710,8 @@ pub fn auto_upgrade_system(
 
 /// Grant XP to killers when NPCs die. Runs between death_system and death_cleanup_system.
 pub fn xp_grant_system(
-    dead_query: Query<(&NpcIndex, Option<&LastHitBy>), With<Dead>>,
-    mut killer_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed, &Faction), Without<Dead>>,
+    dead_query: Query<(&NpcIndex, &Job, Option<&LastHitBy>), With<Dead>>,
+    mut killer_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed, &Faction, &mut Activity, &Home, &mut CombatState), Without<Dead>>,
     npc_map: Res<NpcEntityMap>,
     mut npc_meta: ResMut<NpcMetaCache>,
     mut faction_stats: ResMut<FactionStats>,
@@ -723,13 +723,13 @@ pub fn xp_grant_system(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("xp_grant");
-    for (_dead_idx, last_hit) in dead_query.iter() {
+    for (_dead_idx, dead_job, last_hit) in dead_query.iter() {
         let Some(last_hit) = last_hit else { continue };
         if last_hit.0 < 0 { continue; }
         let killer_slot = last_hit.0 as usize;
 
         let Some(&killer_entity) = npc_map.0.get(&killer_slot) else { continue };
-        let Ok((npc_idx, job, town_id, atk_type, personality, mut health, mut cached, mut speed, killer_faction)) = killer_query.get_mut(killer_entity) else { continue };
+        let Ok((npc_idx, job, town_id, atk_type, personality, mut health, mut cached, mut speed, killer_faction, mut activity, home, mut combat_state)) = killer_query.get_mut(killer_entity) else { continue };
 
         faction_stats.inc_kills(killer_faction.0);
         let idx = npc_idx.0;
@@ -760,6 +760,30 @@ pub fn xp_grant_system(
             combat_log.push(CombatEventKind::LevelUp, killer_faction.0,
                 game_time.day(), game_time.hour(), game_time.minute(),
                 format!("{} '{}' reached Lv.{}", job_str, name, new_level));
+        }
+
+        // Loot: killer picks up loot from dead NPC and carries it home
+        let drop = &npc_def(*dead_job).loot_drop;
+        let amount = if drop.min == drop.max { drop.min } else {
+            drop.min + (meta.xp as i32 % (drop.max - drop.min + 1)) // deterministic spread
+        };
+        if amount > 0 {
+            // Disengage combat — loot delivery is highest priority
+            *combat_state = CombatState::None;
+            // Accumulate into existing Returning loot or create new
+            if matches!(&*activity, Activity::Returning { .. }) {
+                activity.add_loot(drop.item, amount);
+            } else {
+                *activity = Activity::Returning { loot: vec![(drop.item, amount)] };
+            }
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+
+            let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
+            let killer_name = &npc_meta.0[idx].name;
+            let killer_job = crate::job_name(npc_meta.0[idx].job);
+            combat_log.push(CombatEventKind::Loot, killer_faction.0,
+                game_time.day(), game_time.hour(), game_time.minute(),
+                format!("{} '{}' looted {} {}", killer_job, killer_name, amount, item_name));
         }
     }
 }

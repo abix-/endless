@@ -831,6 +831,7 @@ pub enum CombatEventKind {
     LevelUp,
     Ai,
     BuildingDamage,
+    Loot,
 }
 
 /// A single combat log entry.
@@ -1394,10 +1395,10 @@ impl HelpCatalog {
         m.insert("npc_state", "What this NPC is currently doing. Working = at their job. Resting = recovering energy at home. Fighting = in combat.");
         m.insert("npc_energy", "Energy drains while active, recovers while resting at home. NPCs go rest when energy drops below 50, resume at 80.");
         m.insert("npc_trait", "Personality trait. 40% of NPCs spawn with one. Brave = never flees. Swift = +25% speed. Hardy = +25% HP.");
-        m.insert("npc_level", "Archers level up from kills. +1% all stats per level. XP needed = (level+1)\u{00b2} \u{00d7} 100.");
+        m.insert("npc_level", "Archers level up from kills. +1% all stats per level. XP needed = (level+1)^2 x 100.");
 
         // Getting started
-        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n\u{2022} Build Farms + Farmer Homes for food\n\u{2022} Build Waypoints + Archer Homes for defense\n\u{2022} Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads, H=help");
+        m.insert("getting_started", "Welcome! Right-click green '+' slots to build.\n- Build Farms + Farmer Homes for food\n- Build Waypoints + Archer Homes for defense\n- Raiders will attack your farms\nKeys: R=roster, U=upgrades, P=policies, T=patrols, Q=squads, H=help");
 
         Self(m)
     }

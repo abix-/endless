@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use crate::components::*;
+use crate::constants::ItemKind;
 use crate::resources::*;
 
 use super::{TestState, TestSetupParams};
@@ -71,9 +72,9 @@ pub fn tick(
     for activity in activity_query.iter() {
         match activity {
             Activity::Raiding { .. } => raiding += 1,
-            Activity::Returning { has_food, .. } => {
+            Activity::Returning { loot } => {
                 returning += 1;
-                if *has_food { carrying += 1; }
+                if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) { carrying += 1; }
             }
             _ => {}
         }

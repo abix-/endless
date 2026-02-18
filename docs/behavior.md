@@ -139,7 +139,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 | Component | Variants | Purpose |
 |-----------|----------|---------|
-| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain{recover_until}, Wandering, Raiding{target}, Returning{has_food, gold}, Mining{mine_pos}, MiningAtMine` | What the NPC is *doing* — mutually exclusive |
+| Activity | `Idle, Working, OnDuty{ticks_waiting}, Patrolling, GoingToWork, GoingToRest, Resting, GoingToHeal, HealingAtFountain{recover_until}, Wandering, Raiding{target}, Returning{loot: Vec<(ItemKind, i32)>}, Mining{mine_pos}, MiningAtMine` | What the NPC is *doing* — mutually exclusive |
 | CombatState | `None, Fighting{origin}, Fleeing` | Whether the NPC is *fighting* — orthogonal to Activity |
 
 `Activity::is_transit()` returns true for Patrolling, GoingToWork, GoingToRest, GoingToHeal, Wandering, Raiding, Returning, Mining. Used by `gpu_position_readback` for arrival detection.
@@ -148,7 +148,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 `HealingAtFountain { recover_until: 0.75 }` — HP recovery at town fountain. NPC waits until HP >= threshold, then resumes. Separate from energy rest.
 
-`Returning { has_food: bool, gold: i32 }` — carried resources are part of the activity. `gold > 0` means miner is returning with extracted gold.
+`Returning { loot: Vec<(ItemKind, i32)> }` — carried resources are part of the activity. Loot accumulates from NPC kills (`npc_def.loot_drop`), building destruction (`BuildingDef::loot_drop()`), farm stealing, and mine extraction. Multiple loot types can be carried simultaneously.
 
 `Mining { mine_pos: Vec2 }` — miner walking to a gold mine. `MiningAtMine` — miner actively extracting gold (claims occupancy, progress-based 4-hour work cycle with gold progress bar overhead).
 
@@ -197,8 +197,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
-- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — archers use `archer_flee_hp`, farmers and miners use `farmer_flee_hp`, raiders hardcoded 0.50. `archer_aggressive` disables archer flee, `farmer_fight_back` disables farmer/miner flee. Dynamic threat assessment via GPU spatial grid (enemies vs allies within 200px, computed in npc_compute.wgsl Mode 2, packed u32 readback via `GpuReadState.threat_counts`, throttled every 30 frames on CPU)
-- If `CombatState::Fighting` + should leash: archers check `archer_leash` policy (if disabled, archers chase freely), raiders use per-entity `LeashRange` component
+- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — archers use `archer_flee_hp`, farmers and miners use `farmer_flee_hp`, raiders hardcoded 0.50. `archer_aggressive` disables archer flee, `farmer_fight_back` disables farmer/miner flee. Dynamic threat assessment via GPU spatial grid (enemies vs allies within 200px, computed in npc_compute.wgsl Mode 2, packed u32 readback via `GpuReadState.threat_counts`, throttled every 30 frames on CPU). Preserves existing `Activity::Returning` loot when fleeing.
+- If `CombatState::Fighting` + should leash: archers check `archer_leash` policy (if disabled, archers chase freely), raiders use per-entity `LeashRange` component. Preserves existing `Activity::Returning` loot when leashing.
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
 
 **Early arrival: GoingToHeal proximity check** (before transit skip)
@@ -213,7 +213,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 **Priority 5: Working/Mining progress**
 - If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release `AssignedFarm`
-- If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress` + `WorkPosition`, set `Activity::Returning { has_food: false, gold: extracted }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
+- If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress` + `WorkPosition`, set `Activity::Returning { loot: [(Gold, extracted)] }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
 
 **Priority 6: Patrol**
 - If `Activity::OnDuty { ticks_waiting }` + energy < `ENERGY_TIRED_THRESHOLD`: drop to `Idle` (falls through to scoring where Rest wins). **Squad exception**: archers in a squad with `rest_when_tired == false` stay on duty — they never leave post for energy reasons.
@@ -297,11 +297,11 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 **Behavior override**: In `decision_system`'s squad sync block, any NPC with `SquadId` checks `SquadState.squads[id].target`. If a target exists, the unit walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as waypoint). If no target is set and patrol disabled, unit stops (`Activity::Idle`). Squad sync also handles `Activity::Raiding` (raiders redirect to squad target).
 
-**Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` units are redirected only when the squad target moves >100px from the unit's position. `Patrolling`, `Raiding`, `GoingToRest`, and `Resting` units are left alone (already heading to target or resting). Other activities (`Idle`, `Wandering`, `Returning`) get redirected immediately.
+**Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` units are redirected only when the squad target moves >100px from the unit's position. `Patrolling`, `Raiding`, `GoingToRest`, `Resting`, and `Returning` units are left alone (already heading to target, resting, or carrying loot home). Other activities (`Idle`, `Wandering`) get redirected immediately.
 
 **Rest-when-tired**: Squad members respect `rest_when_tired` flag via four gates: (1) arrival handler catches tired members before `OnDuty`, (2) hard gate before combat priorities forces `GoingToRest`, (3) squad sync block skips resting members, (4) Priority 6 OnDuty+tired check skips leave-post when `rest_when_tired == false`. Gates 1-3 use hysteresis (enter at energy < 30, stay until energy ≥ 90). Gate 4 is the inverse — it prevents units from leaving post when the flag is off. `attack_system` skips `GoingToRest` NPCs to prevent GPU target override.
 
-**All survival behavior preserved**: Squad members still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities.
+**All survival behavior preserved**: Squad members still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities. Loot delivery takes priority over squad orders — NPCs with `Activity::Returning` carrying loot are not redirected until they deliver.
 
 **Raider behavior**: Raiders are squad-driven — if assigned to a squad with a target, the squad sync block redirects them. Raiders without a squad wander near their camp. The old `RaidQueue` (group formation + dispatch to farms) has been replaced by AI squad commander wave-based attacks.
 

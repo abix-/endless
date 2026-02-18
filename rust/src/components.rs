@@ -1,6 +1,7 @@
 //! ECS Components - Bevy entities have these attached
 
 use bevy::prelude::*;
+use crate::constants::ItemKind;
 
 // ============================================================================
 // CORE COMPONENTS
@@ -180,12 +181,23 @@ pub enum Activity {
     HealingAtFountain { recover_until: f32 },
     Wandering,
     Raiding { target: Vec2 },
-    Returning { has_food: bool, gold: i32 },
+    Returning { loot: Vec<(ItemKind, i32)> },
     Mining { mine_pos: Vec2 },
     MiningAtMine,
 }
 
 impl Activity {
+    /// Add loot to a Returning activity's loot vec. Merges matching ItemKind.
+    pub fn add_loot(&mut self, item: ItemKind, amount: i32) {
+        if let Self::Returning { loot } = self {
+            if let Some(entry) = loot.iter_mut().find(|(k, _)| *k == item) {
+                entry.1 += amount;
+            } else {
+                loot.push((item, amount));
+            }
+        }
+    }
+
     /// Is this NPC moving toward a destination?
     pub fn is_transit(&self) -> bool {
         matches!(self, Self::Patrolling | Self::GoingToWork | Self::GoingToRest
@@ -207,8 +219,8 @@ impl Activity {
             Self::HealingAtFountain { .. } => "Healing",
             Self::Wandering => "Wandering",
             Self::Raiding { .. } => "Raiding",
-            Self::Returning { has_food: true, .. } => "Returning (food)",
-            Self::Returning { gold, .. } if *gold > 0 => "Returning (gold)",
+            Self::Returning { loot } if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) => "Returning (gold)",
+            Self::Returning { loot } if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) => "Returning (food)",
             Self::Returning { .. } => "Returning",
             Self::Mining { .. } => "Mining",
             Self::MiningAtMine => "Mining",

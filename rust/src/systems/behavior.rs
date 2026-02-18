@@ -6,13 +6,13 @@
 //! - `decision_system`: Central priority-based decision making for ALL NPCs
 //!
 //! The decision system is the NPC's "brain" - all decisions flow through it:
-//! Priority 0: AtDestination? → Handle arrival transition
+//! Priority 0: AtDestination? -> Handle arrival transition
 //! Priority 1-3: Combat (flee/leash/skip)
-//! Priority 4a: HealingAtFountain? → Wake when HP recovered
-//! Priority 4b: Resting? → Wake when energy >= 90%
-//! Priority 5: Working + tired? → Stop work
-//! Priority 6: OnDuty + time_to_patrol? → Patrol
-//! Priority 7: Idle → Score Eat/Rest/Work/Wander (wounded → fountain)
+//! Priority 4a: HealingAtFountain? -> Wake when HP recovered
+//! Priority 4b: Resting? -> Wake when energy >= 90%
+//! Priority 5: Working + tired? -> Stop work
+//! Priority 6: OnDuty + time_to_patrol? -> Patrol
+//! Priority 7: Idle -> Score Eat/Rest/Work/Wander (wounded -> fountain)
 
 use bevy::prelude::*;
 
@@ -57,7 +57,7 @@ pub struct DecisionExtras<'w> {
 /// 1. Proximity-based delivery for Returning raiders
 /// 2. Working farmer drift check + harvest (continuous, not event-based)
 ///
-/// Arrival detection (transit → AtDestination) is handled by gpu_position_readback.
+/// Arrival detection (transit -> AtDestination) is handled by gpu_position_readback.
 /// All state transitions are handled by decision_system.
 pub fn arrival_system(
     // Query for Returning NPCs (proximity-based delivery) — Without<AssignedFarm> for disjointness
@@ -84,8 +84,8 @@ pub fn arrival_system(
     // 1. Proximity-based delivery for Returning raiders
     // ========================================================================
     for (_entity, npc_idx, town, home, _faction, mut activity) in returning_query.iter_mut() {
-        let (has_food, carried_gold) = match &*activity {
-            Activity::Returning { has_food, gold } => (*has_food, *gold),
+        let loot = match &*activity {
+            Activity::Returning { loot } => loot.clone(),
             _ => continue,
         };
 
@@ -100,19 +100,25 @@ pub fn arrival_system(
 
         if dist <= DELIVERY_RADIUS {
             let town_idx = town.0 as usize;
-            if has_food {
-                if town_idx < economy.food_storage.food.len() {
-                    economy.food_storage.food[town_idx] += 1;
+            for &(item, amount) in &loot {
+                if amount <= 0 { continue; }
+                match item {
+                    ItemKind::Food => {
+                        if town_idx < economy.food_storage.food.len() {
+                            economy.food_storage.food[town_idx] += amount;
+                        }
+                        economy.food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                            format!("Delivered {} food", amount));
+                    }
+                    ItemKind::Gold => {
+                        if town_idx < economy.gold_storage.gold.len() {
+                            economy.gold_storage.gold[town_idx] += amount;
+                        }
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
+                            format!("Delivered {} gold", amount));
+                    }
                 }
-                economy.food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Delivered food");
-            }
-            if carried_gold > 0 {
-                if town_idx < economy.gold_storage.gold.len() {
-                    economy.gold_storage.gold[town_idx] += carried_gold;
-                }
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("Delivered {} gold", carried_gold));
             }
             *activity = Activity::Idle;
         }
@@ -154,7 +160,7 @@ pub fn arrival_system(
 // FLEE / LEASH / RECOVERY SYSTEMS (generic)
 // ============================================================================
 
-/// Unpack GPU threat counts: packed u32 → (enemies, allies).
+/// Unpack GPU threat counts: packed u32 -> (enemies, allies).
 /// GPU computes these via spatial grid query each frame (see npc_compute.wgsl).
 #[inline]
 fn unpack_threat_counts(packed: u32) -> (u32, u32) {
@@ -211,14 +217,14 @@ static DECISION_FRAME: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 /// This is the NPC's "brain" - all decisions and state transitions flow through here.
 ///
 /// Priority order (first match wins):
-/// 0. AtDestination → Handle arrival transition
+/// 0. AtDestination -> Handle arrival transition
 /// 1-3. Combat (flee/leash/skip) — runs before transit skip so fighting NPCs can flee
 /// -- Skip transit NPCs --
-/// 4a. HealingAtFountain? → Wake when HP recovered
-/// 4b. Resting? → Wake when energy >= 90%
-/// 5. Working + tired? → Stop work
-/// 6. OnDuty + time_to_patrol? → Patrol
-/// 7. Idle → Score Eat/Rest/Work/Wander (wounded → fountain, tired → home)
+/// 4a. HealingAtFountain? -> Wake when HP recovered
+/// 4b. Resting? -> Wake when energy >= 90%
+/// 5. Working + tired? -> Stop work
+/// 6. OnDuty + time_to_patrol? -> Patrol
+/// 7. Idle -> Score Eat/Rest/Work/Wander (wounded -> fountain, tired -> home)
 pub fn decision_system(
     mut commands: Commands,
     // Main query: core NPC data (SquadId is Optional — only on squad-assigned guards)
@@ -272,7 +278,7 @@ pub fn decision_system(
         let idx = npc_idx.0;
 
         // ====================================================================
-        // Priority 0: AtDestination → Handle arrival transition
+        // Priority 0: AtDestination -> Handle arrival transition
         // ====================================================================
         if at_destination.is_some() {
             let _ps = if profiling { Some(std::time::Instant::now()) } else { None };
@@ -288,25 +294,25 @@ pub fn decision_system(
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                                     idx, x: home.0.x, y: home.0.y
                                 }));
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Rest (squad)");
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Rest (squad)");
                                 if let Some(s) = _ps { t_arrival += s.elapsed(); n_arrival += 1; }
                                 continue;
                             }
                         }
                     }
                     *activity = Activity::OnDuty { ticks_waiting: 0 };
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ OnDuty");
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> OnDuty");
                 }
                 Activity::GoingToRest => {
                     *activity = Activity::Resting;
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Resting");
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Resting");
                 }
                 Activity::GoingToHeal => {
                     let town_idx = town_id.0 as usize;
                     let threshold = policies.policies.get(town_idx)
                         .map(|p| p.recovery_hp).unwrap_or(0.8);
                     *activity = Activity::HealingAtFountain { recover_until: threshold };
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Healing");
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Healing");
                 }
                 Activity::GoingToWork => {
                     // Farmers: find farm at WorkPosition and start working
@@ -333,7 +339,7 @@ pub fn decision_system(
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm occupied, going to free farm");
                                 } else {
                                     *activity = Activity::Idle;
-                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied → Idle");
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
                                 }
                             } else {
                                 farms.occupancy.claim(farm_pos);
@@ -345,14 +351,14 @@ pub fn decision_system(
 
                                 // Check if farm is ready to harvest
                                 if farms.states.harvest(farm_idx, Some(town_id.0 as usize), &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, combat_log, &game_time, faction.0) {
-                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested → Working");
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Working");
                                 } else {
-                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working (tending)");
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Working (tending)");
                                 }
                             }
                         } else {
                             *activity = Activity::Idle;
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farm nearby → Idle");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farm nearby -> Idle");
                         }
                     } else {
                         let current_pos = if idx * 2 + 1 < positions.len() {
@@ -363,7 +369,7 @@ pub fn decision_system(
                         *activity = Activity::Working;
                         pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: current_pos.x, y: current_pos.y }));
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Working");
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Working");
                     }
                 }
                 Activity::Raiding { .. } => {
@@ -380,9 +386,9 @@ pub fn decision_system(
                         if let Some((farm_idx, _)) = ready_farm {
                             farms.states.harvest(farm_idx, None, &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, combat_log, &game_time, faction.0);
 
-                            *activity = Activity::Returning { has_food: true, gold: 0 };
+                            *activity = Activity::Returning { loot: vec![(ItemKind::Food, 1)] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food -> Returning");
                         } else {
                             // Farm not ready - find a different farm (exclude current one)
                             let other_farm = farms.world.farms().iter()
@@ -398,7 +404,7 @@ pub fn decision_system(
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm.position.x, y: farm.position.y }));
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm not ready, seeking another");
                             } else {
-                                *activity = Activity::Returning { has_food: false, gold: 0 };
+                                *activity = Activity::Returning { loot: vec![] };
                                 gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No other farms, returning");
                             }
@@ -417,10 +423,10 @@ pub fn decision_system(
                             farms.states.harvest(gi, None,
                                 &mut economy.food_storage, &mut economy.gold_storage,
                                 &mut economy.food_events, combat_log, &game_time, faction.0);
-                            *activity = Activity::Returning { has_food: false, gold: gold_amount };
+                            *activity = Activity::Returning { loot: vec![(ItemKind::Gold, gold_amount)] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                                format!("Harvested {} gold → Returning", gold_amount));
+                                format!("Harvested {} gold -> Returning", gold_amount));
                         } else {
                             // Mine still growing — claim occupancy and tend it
                             farms.occupancy.claim(mine_pos);
@@ -428,16 +434,16 @@ pub fn decision_system(
                             commands.entity(entity).insert(WorkPosition(mine_pos));
                             pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: mine_pos.x, y: mine_pos.y }));
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ MiningAtMine (tending)");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> MiningAtMine (tending)");
                         }
                     } else {
                         *activity = Activity::Idle;
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No mine nearby → Idle");
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No mine nearby -> Idle");
                     }
                 }
                 Activity::Wandering => {
                     *activity = Activity::Idle;
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Idle");
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Idle");
                 }
                 Activity::Returning { .. } => {
                     // Arrived home (proximity delivery handled by arrival_system, this is backup)
@@ -525,7 +531,9 @@ pub fn decision_system(
                         commands.entity(entity).remove::<WorkPosition>();
                     }
                     *combat_state = CombatState::None;
-                    *activity = Activity::Returning { has_food: false, gold: 0 };
+                    if !matches!(&*activity, Activity::Returning { .. }) {
+                        *activity = Activity::Returning { loot: vec![] };
+                    }
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Fled combat");
                     if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
@@ -552,9 +560,11 @@ pub fn decision_system(
                                 commands.entity(entity).remove::<WorkPosition>();
                             }
                             *combat_state = CombatState::None;
-                            *activity = Activity::Returning { has_food: false, gold: 0 };
+                            if !matches!(&*activity, Activity::Returning { .. }) {
+                                *activity = Activity::Returning { loot: vec![] };
+                            }
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Leashed → Returning");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Leashed -> Returning");
                             if let Some(s) = _ps { t_combat += s.elapsed(); n_combat += 1; }
                             continue;
                         }
@@ -604,8 +614,9 @@ pub fn decision_system(
                             }
                         }
                         Activity::Patrolling | Activity::Raiding { .. } |
-                        Activity::GoingToRest | Activity::Resting => {
-                            // Already heading to target or resting — no GPU write
+                        Activity::GoingToRest | Activity::Resting |
+                        Activity::Returning { .. } => {
+                            // Already heading to target, resting, or carrying loot — no redirect
                         }
                         _ => {
                             // Idle/Wandering/Returning/other — redirect to squad target
@@ -646,7 +657,7 @@ pub fn decision_system(
                             let threshold = policies.policies.get(town_idx)
                                 .map(|p| p.recovery_hp).unwrap_or(0.8);
                             *activity = Activity::HealingAtFountain { recover_until: threshold };
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Healing");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Healing");
                         }
                     }
                 }
@@ -662,7 +673,7 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Priority 4a: HealingAtFountain? → Wake when HP recovered
+        // Priority 4a: HealingAtFountain? -> Wake when HP recovered
         // ====================================================================
         if let Activity::HealingAtFountain { recover_until } = &*activity {
             if health.0 / 100.0 >= *recover_until {
@@ -687,7 +698,7 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Priority 4b: Resting? → Wake when energy recovered
+        // Priority 4b: Resting? -> Wake when energy recovered
         // ====================================================================
         if matches!(*activity, Activity::Resting) {
             if energy.0 >= ENERGY_WAKE_THRESHOLD {
@@ -709,7 +720,7 @@ pub fn decision_system(
                     farms.occupancy.release(assigned.0);
                     commands.entity(entity).remove::<AssignedFarm>();
                 }
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Stopped");
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Stopped");
             }
             continue;
         }
@@ -725,7 +736,7 @@ pub fn decision_system(
                         commands.entity(entity).remove::<WorkPosition>();
                         *activity = Activity::Mining { mine_pos };
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: mine_pos.x, y: mine_pos.y }));
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Pushed from mine → returning");
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Pushed from mine -> returning");
                         continue;
                     }
                 }
@@ -745,10 +756,10 @@ pub fn decision_system(
                             &mut economy.food_events, combat_log, &game_time, faction.0);
                         farms.occupancy.release(mine_pos);
                         commands.entity(entity).remove::<WorkPosition>();
-                        *activity = Activity::Returning { has_food: false, gold: gold_amount };
+                        *activity = Activity::Returning { loot: vec![(ItemKind::Gold, gold_amount)] };
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                            format!("Harvested {} gold → Returning", gold_amount));
+                            format!("Harvested {} gold -> Returning", gold_amount));
                         harvested = true;
                     }
                 }
@@ -757,7 +768,7 @@ pub fn decision_system(
                     farms.occupancy.release(mine_pos);
                     commands.entity(entity).remove::<WorkPosition>();
                     *activity = Activity::Idle;
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Mining → Tired → Idle");
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Mining -> Tired -> Idle");
                 }
             }
             // Still tending (mine growing via occupancy in growth_system)
@@ -765,7 +776,7 @@ pub fn decision_system(
         }
 
         // ====================================================================
-        // Priority 6: OnDuty (tired → leave post, else patrol when ready)
+        // Priority 6: OnDuty (tired -> leave post, else patrol when ready)
         // ====================================================================
         if let Activity::OnDuty { ticks_waiting } = &*activity {
             let ticks = *ticks_waiting;
@@ -774,7 +785,7 @@ pub fn decision_system(
                 .is_some_and(|s| !s.rest_when_tired);
             if energy.0 < ENERGY_TIRED_THRESHOLD && !squad_forces_stay {
                 *activity = Activity::Idle;
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Left post");
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Left post");
                 // Fall through to idle scoring — Rest will win
             } else {
                 let squad_patrol_enabled = squad_id
@@ -789,7 +800,7 @@ pub fn decision_system(
                         if let Some(pos) = patrol.posts.get(patrol.current) {
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: pos.x, y: pos.y }));
                         }
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Patrolling");
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Patrolling");
                     }
                 }
                 continue;
@@ -798,7 +809,7 @@ pub fn decision_system(
 
 
         // ====================================================================
-        // Priority 8: Idle → Score Eat/Rest/Work/Wander (policy-aware)
+        // Priority 8: Idle -> Score Eat/Rest/Work/Wander (policy-aware)
         // ====================================================================
         let _ps_idle = if profiling { Some(std::time::Instant::now()) } else { None };
         let en = energy.0;
@@ -820,7 +831,7 @@ pub fn decision_system(
                     let center = town.center;
                     *activity = Activity::GoingToHeal;
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded → Fountain");
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Wounded -> Fountain");
                     if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                     continue;
                 }
@@ -880,7 +891,7 @@ pub fn decision_system(
                         let center = town.center;
                         *activity = Activity::Wandering;
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: center.x, y: center.y }));
-                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Off-duty → Fountain");
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Off-duty -> Fountain");
                         if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                         continue;
                     }
@@ -904,7 +915,7 @@ pub fn decision_system(
                     economy.food_storage.food[town_idx] -= 1;
                     energy.0 = 100.0;
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                        format!("Ate (e:{:.0}→{:.0})", old_energy, energy.0));
+                        format!("Ate (e:{:.0}->{:.0})", old_energy, energy.0));
                 }
             }
             Action::Rest => {
@@ -959,7 +970,7 @@ pub fn decision_system(
                         if let Some(mine_pos) = mine_target {
                             *activity = Activity::Mining { mine_pos };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: mine_pos.x, y: mine_pos.y }));
-                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "→ Mining gold");
+                            npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Mining gold");
                         }
                         // No mines available — stay idle
                     }
@@ -971,7 +982,7 @@ pub fn decision_system(
                                     *activity = Activity::Patrolling;
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target.x, y: target.y }));
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                                        format!("Squad {} → target", sid.0 + 1));
+                                        format!("Squad {} -> target", sid.0 + 1));
                                     if let Some(s) = _ps_idle { t_idle += s.elapsed(); n_idle += 1; }
                                     continue;
                                 }

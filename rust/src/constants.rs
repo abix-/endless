@@ -193,6 +193,18 @@ pub struct AttackTypeStats {
     pub projectile_lifetime: f32,
 }
 
+/// What kind of item an NPC can carry or drop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ItemKind { Food, Gold }
+
+/// Loot dropped when an NPC dies.
+#[derive(Clone, Copy, Debug)]
+pub struct LootDrop {
+    pub item: ItemKind,
+    pub min: i32,
+    pub max: i32,
+}
+
 /// Complete NPC type definition — one entry per Job variant.
 #[derive(Clone, Copy, Debug)]
 pub struct NpcDef {
@@ -230,6 +242,8 @@ pub struct NpcDef {
     pub upgrade_category: Option<&'static str>,
     /// Which stats this NPC type can upgrade. Defines the upgrade branch content.
     pub upgrade_stats: &'static [UpgradeStatDef],
+    /// What this NPC drops when killed.
+    pub loot_drop: LootDrop,
 }
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
@@ -244,6 +258,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (80, 200, 80),
         home_building: BuildingKind::FarmerHome, is_camp_unit: false, default_count: 2,
         upgrade_category: Some("Farmer"), upgrade_stats: FARMER_UPGRADES,
+        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
     NpcDef {
         job: Job::Archer, label: "Archer", label_plural: "Archers",
@@ -256,6 +271,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (80, 100, 220),
         home_building: BuildingKind::ArcherHome, is_camp_unit: false, default_count: 4,
         upgrade_category: Some("Archer"), upgrade_stats: MILITARY_RANGED_UPGRADES,
+        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
     NpcDef {
         job: Job::Raider, label: "Raider", label_plural: "Raiders",
@@ -268,6 +284,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (220, 80, 80),
         home_building: BuildingKind::Tent, is_camp_unit: true, default_count: 1,
         upgrade_category: None, upgrade_stats: &[],
+        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
     NpcDef {
         job: Job::Fighter, label: "Fighter", label_plural: "Fighters",
@@ -281,6 +298,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (220, 220, 80),
         home_building: BuildingKind::FighterHome, is_camp_unit: false, default_count: 0,
         upgrade_category: Some("Fighter"), upgrade_stats: MILITARY_MELEE_UPGRADES,
+        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
     NpcDef {
         job: Job::Miner, label: "Miner", label_plural: "Miners",
@@ -293,6 +311,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (160, 110, 60),
         home_building: BuildingKind::MinerHome, is_camp_unit: false, default_count: 0,
         upgrade_category: Some("Miner"), upgrade_stats: MINER_UPGRADES,
+        loot_drop: LootDrop { item: ItemKind::Gold, min: 1, max: 2 },
     },
     NpcDef {
         job: Job::Crossbow, label: "Crossbow", label_plural: "Crossbows",
@@ -306,6 +325,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (140, 60, 220),
         home_building: BuildingKind::CrossbowHome, is_camp_unit: false, default_count: 0,
         upgrade_category: Some("Crossbow"), upgrade_stats: MILITARY_RANGED_UPGRADES,
+        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
 ];
 
@@ -652,6 +672,18 @@ pub struct BuildingDef {
     pub tombstone: fn(&mut WorldData, Vec2),
     /// Find index of building near position.
     pub find_index: fn(&WorldData, Vec2) -> Option<usize>,
+}
+
+impl BuildingDef {
+    /// Loot dropped when this building is destroyed: half the build cost as food.
+    pub fn loot_drop(&self) -> Option<LootDrop> {
+        let amount = self.cost / 2;
+        if amount > 0 {
+            Some(LootDrop { item: ItemKind::Food, min: amount, max: amount })
+        } else {
+            None
+        }
+    }
 }
 
 /// Single source of truth for all building types.

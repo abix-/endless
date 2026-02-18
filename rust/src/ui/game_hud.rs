@@ -6,9 +6,10 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
-use crate::constants::{building_def, npc_def, tileset_index};
+use crate::constants::{building_def, npc_def, tileset_index, ItemKind};
 use crate::components::*;
 use crate::gpu::NpcGpuState;
+use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::ui::tipped;
@@ -34,6 +35,7 @@ pub fn top_bar_system(
     time: Res<Time>,
     mut avg_fps: Local<f32>,
     settings: Res<crate::settings::UserSettings>,
+    mut camera_query: Query<&mut Transform, With<MainCamera>>,
     timings: Res<SystemTimings>,
 ) -> Result {
     let _t = timings.scope("ui_top_bar");
@@ -85,11 +87,24 @@ pub fn top_bar_system(
                     game_time.day(), game_time.hour(), game_time.minute(), period,
                     game_time.time_scale,
                     if game_time.paused { " [PAUSED]" } else { "" });
-                ui.painter().text(
-                    ui.max_rect().center(),
-                    egui::Align2::CENTER_CENTER,
-                    &center_text,
+                let galley = ui.painter().layout_no_wrap(
+                    center_text.clone(),
                     egui::FontId::default(),
+                    ui.style().visuals.text_color(),
+                );
+                let center = ui.max_rect().center();
+                let text_rect = egui::Rect::from_center_size(center, galley.size());
+                let center_id = ui.make_persistent_id("top_bar_center_town_name");
+                let center_resp = ui.interact(text_rect.expand2(egui::vec2(6.0, 4.0)), center_id, egui::Sense::click());
+                if center_resp.double_clicked() {
+                    if let (Some(town), Ok(mut cam)) = (world_data.towns.first(), camera_query.single_mut()) {
+                        cam.translation.x = town.center.x;
+                        cam.translation.y = town.center.y;
+                    }
+                }
+                ui.painter().galley(
+                    text_rect.left_top(),
+                    galley,
                     ui.style().visuals.text_color(),
                 );
 
@@ -194,12 +209,13 @@ pub struct LogFilterState {
     pub show_npc_activity: bool,
     pub show_ai: bool,
     pub show_building_damage: bool,
+    pub show_loot: bool,
     /// -1 = all factions, 0 = my faction only
     pub faction_filter: i32,
     pub initialized: bool,
     // Cached merged log entries — skip rebuild when sources unchanged
     cached_selected_npc: i32,
-    cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, i32),
+    cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, bool, i32),
     cached_entries: Vec<(i64, egui::Color32, String, String, Option<bevy::math::Vec2>)>,
 }
 
@@ -359,6 +375,7 @@ pub fn combat_log_system(
         filter_state.show_npc_activity = settings.log_npc_activity;
         filter_state.show_ai = settings.log_ai;
         filter_state.show_building_damage = settings.log_building_damage;
+        filter_state.show_loot = settings.log_loot;
         filter_state.faction_filter = settings.log_faction_filter;
         filter_state.initialized = true;
     }
@@ -366,7 +383,7 @@ pub fn combat_log_system(
     let prev_filters = (
         filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
         filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
-        filter_state.show_ai, filter_state.show_building_damage, filter_state.faction_filter,
+        filter_state.show_ai, filter_state.show_building_damage, filter_state.show_loot, filter_state.faction_filter,
     );
 
     let frame = egui::Frame::new()
@@ -400,6 +417,7 @@ pub fn combat_log_system(
                 ui.checkbox(&mut filter_state.show_npc_activity, "NPC");
                 ui.checkbox(&mut filter_state.show_ai, "AI");
                 ui.checkbox(&mut filter_state.show_building_damage, "Buildings");
+                ui.checkbox(&mut filter_state.show_loot, "Loot");
             });
 
             ui.separator();
@@ -408,7 +426,7 @@ pub fn combat_log_system(
             let curr_filters = (
                 filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
                 filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
-                filter_state.show_ai, filter_state.show_building_damage, filter_state.faction_filter,
+                filter_state.show_ai, filter_state.show_building_damage, filter_state.show_loot, filter_state.faction_filter,
             );
             let needs_rebuild = data.combat_log.is_changed()
                 || data.npc_logs.is_changed()
@@ -427,6 +445,7 @@ pub fn combat_log_system(
                         CombatEventKind::LevelUp => filter_state.show_levelups,
                         CombatEventKind::Ai => filter_state.show_ai,
                         CombatEventKind::BuildingDamage => filter_state.show_building_damage,
+                        CombatEventKind::Loot => filter_state.show_loot,
                     };
                     if !show { continue; }
                     // Faction filter: "Mine" shows player (0) + global (-1) events only
@@ -442,6 +461,7 @@ pub fn combat_log_system(
                         CombatEventKind::LevelUp => egui::Color32::from_rgb(80, 180, 255),
                         CombatEventKind::Ai => egui::Color32::from_rgb(180, 120, 220),
                         CombatEventKind::BuildingDamage => egui::Color32::from_rgb(220, 130, 50),
+                        CombatEventKind::Loot => egui::Color32::from_rgb(255, 215, 0),
                     };
 
                     let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
@@ -496,7 +516,7 @@ pub fn combat_log_system(
     let curr_filters = (
         filter_state.show_kills, filter_state.show_spawns, filter_state.show_raids,
         filter_state.show_harvests, filter_state.show_levelups, filter_state.show_npc_activity,
-        filter_state.show_ai, filter_state.show_building_damage, filter_state.faction_filter,
+        filter_state.show_ai, filter_state.show_building_damage, filter_state.show_loot, filter_state.faction_filter,
     );
     if curr_filters != prev_filters {
         settings.log_kills = filter_state.show_kills;
@@ -507,6 +527,7 @@ pub fn combat_log_system(
         settings.log_npc_activity = filter_state.show_npc_activity;
         settings.log_ai = filter_state.show_ai;
         settings.log_building_damage = filter_state.show_building_damage;
+        settings.log_loot = filter_state.show_loot;
         settings.log_faction_filter = filter_state.faction_filter;
         settings::save_settings(&settings);
     }
@@ -686,6 +707,7 @@ fn inspector_content(
     let mut home_pos: Option<Vec2> = None;
     let mut is_mining_at_mine = false;
 
+    let mut carried_loot: Vec<(ItemKind, i32)> = Vec::new();
     if let Some((_, _, home, faction, town_id, activity, combat, ..))
         = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
     {
@@ -695,6 +717,10 @@ fn inspector_content(
         faction_id = Some(faction.0);
         is_mining_at_mine = matches!(activity, Activity::MiningAtMine);
 
+        if let Activity::Returning { loot } = activity {
+            carried_loot = loot.clone();
+        }
+
         let mut parts: Vec<&str> = Vec::new();
         let combat_name = combat.name();
         if !combat_name.is_empty() { parts.push(combat_name); }
@@ -703,6 +729,15 @@ fn inspector_content(
     }
 
     tipped(ui, format!("State: {}", state_str), catalog.0.get("npc_state").unwrap_or(&""));
+    if !carried_loot.is_empty() {
+        let parts: Vec<String> = carried_loot.iter()
+            .filter(|(_, a)| *a > 0)
+            .map(|(k, a)| format!("{} {}", a, match k { ItemKind::Food => "food", ItemKind::Gold => "gold" }))
+            .collect();
+        if !parts.is_empty() {
+            ui.colored_label(egui::Color32::from_rgb(255, 200, 60), format!("Loot: {}", parts.join(", ")));
+        }
+    }
     ui.horizontal(|ui| {
         if let Some(fid) = faction_id {
             if ui.link(format!("Faction: {}", faction_str)).clicked() {

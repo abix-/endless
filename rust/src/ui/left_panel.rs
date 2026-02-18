@@ -587,7 +587,7 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
 
                             // Effect summary (now/next)
                             let (now, next) = upgrade_effect_summary(i, lv_i);
-                            ui.label(egui::RichText::new(format!("{} \u{2192} {}", now, next)).small().weak());
+                            ui.label(egui::RichText::new(format!("{} -> {}", now, next)).small().weak());
 
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let cost_text = format_upgrade_cost(i, lv_i);

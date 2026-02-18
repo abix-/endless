@@ -40,6 +40,8 @@ pub struct BuildingDamageMsg {
     pub index: usize,
     pub amount: f32,
     pub attacker_faction: i32,
+    /// NPC slot of the attacker (-1 = tower/unknown).
+    pub attacker: i32,
 }
 
 /// Reassign an NPC to a different job (Farmer <-> Guard).

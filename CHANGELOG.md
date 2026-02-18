@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-18x
+
+- **loot system fixes** — three bugs preventing player NPCs from keeping loot on kill: (1) squad sync catch-all was overwriting `Activity::Returning` with `Patrolling`, discarding loot; (2) `xp_grant_system` didn't clear `CombatState`, so flee/leash could wipe loot; (3) flee and leash paths replaced `Returning{loot}` with `Returning{loot: []}`. Fix: squad sync preserves Returning, xp_grant clears CombatState on loot (immediate disengage), flee/leash preserve existing loot.
+- **building loot via method** — `BuildingDef::loot_drop()` derives loot from `cost / 2` as food; replaces hardcoded `cost / 2` in `building_damage_system`; buildings with cost 0 (Fountain, Bed, Camp, GoldMine) drop nothing
+- **inspector shows carried loot** — gold-colored "Loot: N food/gold" line in NPC inspector when carrying loot home
+
 ## 2026-02-18w
 
 - **fix: carried gold tint** — gold sprite on returning miners was grayscale-tinted instead of natural colors; added early-return branch in `npc_render.wgsl` fragment shader for carried items (`atlas_id >= 0.5` on equipment layers) that bypasses the grayscale-then-tint pipeline

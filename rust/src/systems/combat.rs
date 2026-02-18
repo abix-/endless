@@ -2,9 +2,9 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::TowerStats;
+use crate::constants::{TowerStats, ItemKind, building_def};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, TowerKindState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, TowerKindState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
@@ -294,8 +294,11 @@ pub fn process_proj_hits(
                     let attacker_faction = if slot < proj_writes.factions.len() {
                         proj_writes.factions[slot]
                     } else { 0 };
+                    let attacker = if slot < proj_writes.shooters.len() {
+                        proj_writes.shooters[slot]
+                    } else { -1 };
                     building_damage_events.write(BuildingDamageMsg {
-                        kind, index, amount: damage, attacker_faction,
+                        kind, index, amount: damage, attacker_faction, attacker,
                     });
                 } else {
                     let shooter = if slot < proj_writes.shooters.len() {
@@ -423,6 +426,7 @@ pub fn building_tower_system(
 }
 
 /// Process building damage messages: decrement HP, destroy when HP reaches 0.
+/// On destruction, grants loot (half building cost as food) to the attacker NPC.
 pub fn building_damage_system(
     mut damage_reader: MessageReader<BuildingDamageMsg>,
     mut world: WorldState,
@@ -430,6 +434,9 @@ pub fn building_damage_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
+    npc_map: Res<NpcEntityMap>,
+    mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction), Without<Dead>>,
+    npc_meta: Res<NpcMetaCache>,
 ) {
     let _t = timings.scope("building_damage");
     for msg in damage_reader.read() {
@@ -493,6 +500,33 @@ pub fn building_damage_system(
         if npc_slot >= 0 {
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: npc_slot as usize }));
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: npc_slot as usize, health: 0.0 }));
+        }
+
+        // Loot: attacker picks up building loot and returns home
+        if let Some(drop) = building_def(msg.kind).loot_drop() {
+            let amount = if drop.min == drop.max { drop.min } else {
+                drop.min + ((msg.index as i32) % (drop.max - drop.min + 1))
+            };
+            if amount > 0 && msg.attacker >= 0 {
+                let attacker_slot = msg.attacker as usize;
+                if let Some(&attacker_entity) = npc_map.0.get(&attacker_slot) {
+                    if let Ok((npc_idx, mut activity, home, faction)) = loot_query.get_mut(attacker_entity) {
+                        if matches!(&*activity, Activity::Returning { .. }) {
+                            activity.add_loot(drop.item, amount);
+                        } else {
+                            *activity = Activity::Returning { loot: vec![(drop.item, amount)] };
+                        }
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: npc_idx.0, x: home.0.x, y: home.0.y }));
+
+                        let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
+                        let killer_name = &npc_meta.0[npc_idx.0].name;
+                        let killer_job = crate::job_name(npc_meta.0[npc_idx.0].job);
+                        combat_log.push(CombatEventKind::Loot, faction.0,
+                            game_time.day(), game_time.hour(), game_time.minute(),
+                            format!("{} '{}' looted {} {} from {:?}", killer_job, killer_name, amount, item_name, msg.kind));
+                    }
+                }
+            }
         }
     }
 }

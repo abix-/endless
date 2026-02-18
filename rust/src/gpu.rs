@@ -32,7 +32,7 @@ use bevy::{
 use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
-use crate::constants::{FOOD_SPRITE, GOLD_SPRITE};
+use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind};
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
 use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, SystemTimings};
 use crate::systems::stats::{self, TownUpgrades};
@@ -340,11 +340,17 @@ pub fn build_visual_upload(
         upload.equip_data[eq + 10] = 0.0;
         upload.equip_data[eq + 11] = 0.0;
 
-        // Layer 3: Item (food on returning raiders)
-        let (ic, ir, ia) = match activity {
-            Activity::Returning { has_food: true, .. } => (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0),
-            Activity::Returning { gold, .. } if *gold > 0 => (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0),
-            _ => (-1.0, 0.0, 0.0),
+        // Layer 3: Item (carried loot — gold takes display priority)
+        let (ic, ir, ia) = if let Activity::Returning { loot } = activity {
+            if loot.iter().any(|(k, a)| *k == ItemKind::Gold && *a > 0) {
+                (GOLD_SPRITE.0, GOLD_SPRITE.1, 1.0)
+            } else if loot.iter().any(|(k, a)| *k == ItemKind::Food && *a > 0) {
+                (FOOD_SPRITE.0, FOOD_SPRITE.1, 1.0)
+            } else {
+                (-1.0, 0.0, 0.0)
+            }
+        } else {
+            (-1.0, 0.0, 0.0)
         };
         upload.equip_data[eq + 12] = ic;
         upload.equip_data[eq + 13] = ir;
