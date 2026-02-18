@@ -92,55 +92,48 @@ reserve = food_reserve_per_spawner × spawner_count
 
 Every spawner building (farmer home, archer home, crossbow home, fighter home, miner home) counts. The AI won't spend food if at or below reserve. This prevents self-starvation but also slows building as the town grows.
 
-### Hunger Signal
+### Desire Signals
 
-Drives farm and farmer home urgency when food margin is thin. Computed after the reserve gate:
+Two desire signals computed once per tick, used as multiplicative gates on building scores:
 
+**Food desire** — drives farm and farmer home construction:
 ```
-hunger = clamp(1.0 - (food - reserve) / reserve, 0.0, 1.0)
+food_desire = clamp(1.0 - (food - reserve) / reserve, 0.0, 1.0)
 ```
-
-- `hunger = 0.0` → food is at 2× reserve or higher (comfortable)
-- `hunger = 1.0` → food is at reserve floor (maximum urgency)
+- `0.0` → food is at 2× reserve or higher (comfortable, no farms/houses built)
+- `1.0` → food is at reserve floor (maximum urgency)
 - Aggressive (reserve=0) uses absolute fallback: food < 5 → 0.8, food < 10 → 0.4, else 0.0
 
-Hunger boosts farm and farmer home need multipliers (see scoring below).
+**Military desire** — drives barracks, crossbow homes, and waypoint construction:
+```
+barracks_gap = (target - barracks) / target
+waypoint_gap = (barracks - waypoints) / barracks
+military_desire = clamp(barracks_gap × 0.75 + waypoint_gap × 0.25, 0.0, 1.0)
+```
 
 ## Building Scoring
 
-Each eligible action gets a score = `base_weight × need_multiplier`. All scores go into a weighted random draw.
+Each eligible action gets a score = `base_weight × need_multiplier`. All scores go into a weighted random draw. Desire signals act as multiplicative gates — when desire is 0, the corresponding building category scores 0.
 
 ### Need Multipliers
 
-**Farms:**
-```
-farm_need = 1.0 + max(houses - farms, 0) + hunger × 4.0
-```
-- Ratio signal: farms only get boosted when homes exceed farms
-- Hunger signal: up to +4.0 when at food floor (e.g., Balanced base 20 × 5.0 = score 100)
+**Farms:** `food_desire × max(houses - farms, 0)`
+- Zero when food is comfortable (food_desire = 0) or farms ≥ houses
+- Scales with both food pressure and farm deficit vs houses
 
-**Farmer homes:**
-```
-if house_deficit > 0:  1.0 + deficit + hunger × 3.0
-elif hunger > 0.3:     1.0 + hunger × 2.0     ← builds homes past target when hungry
-else:                  0.5                      ← relaxed when at target and fed
-```
+**Farmer homes:** `food_desire × min(deficit, 10)` when deficit > 0, else 0
+- Deficit capped at 10 to prevent runaway scores with large targets (Economic: 2× farms)
 
-**Archer homes:**
-```
-if barracks_deficit > 0:  1.0 + deficit + military_desire × 3.0
-else:                     0.5 + military_desire
-```
+**Archer homes:** `military_desire × deficit` when deficit > 0, else `military_desire × 0.5`
+- Maintenance trickle (0.5) when at target keeps slow replacement of losses
 
-**Crossbow homes:** Only scored when archer homes ≥ 2 (established military base). Uses barracks base weight × 0.6:
-```
-if xbow_homes < archer_homes / 2:  1.0 + military_desire × 2.0
-else:                               0.3 + military_desire
-```
+**Crossbow homes:** Only scored when archer homes ≥ 2. Uses barracks base weight × 0.6:
+- Below target: `military_desire × deficit`
+- At target: `military_desire × 0.5`
 
 **Miner homes:** Only scored when miner deficit > 0: `1.0 + deficit`. Uses house base weight `hw`.
 
-**Waypoints:** Scored when uncovered mines exist (mine_need = 1.0 + uncovered_count, no slot requirement) or when waypoints < total military homes (archer + crossbow) AND town has slots. Waypoint cost check is independent of `has_slots` since waypoints can be placed in wilderness.
+**Waypoints:** `military_desire × gap`. Scored when uncovered mines exist (gap = uncovered count, no slot requirement) or when waypoints < total military homes AND town has slots. Waypoint cost check is independent of `has_slots` since waypoints can be placed in wilderness.
 
 ### Raider AI
 

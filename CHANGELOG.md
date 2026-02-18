@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18y
+
+- **fix: AI desire-driven building scoring** — building need formulas changed from additive (constant floor + desire bonus) to multiplicative (desire × deficit); food_desire gates farm/house construction, military_desire gates barracks/crossbow/waypoint construction; when desire is 0 the corresponding building category scores 0 instead of maintaining a constant floor; fixes Economic AI building farms forever with 0% food desire and 65k food surplus
+
 ## 2026-02-18x
 
 - **loot system fixes** — three bugs preventing player NPCs from keeping loot on kill: (1) squad sync catch-all was overwriting `Activity::Returning` with `Patrolling`, discarding loot; (2) `xp_grant_system` didn't clear `CombatState`, so flee/leash could wipe loot; (3) flee and leash paths replaced `Returning{loot}` with `Returning{loot: []}`. Fix: squad sync preserves Returning, xp_grant clears CombatState on loot (immediate disengage), flee/leash preserve existing loot.

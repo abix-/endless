@@ -1147,20 +1147,20 @@ pub fn ai_decision_system(
                 let miner_deficit = ms_target.saturating_sub(mine_shafts);
 
                 if ctx.has_slots {
-                    // Deficit-driven need model:
-                    // when below target ratios, multiply base weight to catch up.
-                    let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0) + desires.food_desire * 4.0;
+                    // Desire-driven need model:
+                    // food_desire gates farm/house construction,
+                    // military_desire gates barracks/crossbow/waypoint construction.
+                    // Base personality weights set ratios within each category.
+                    let farm_need = desires.food_desire * (houses as f32 - farms as f32).max(0.0);
                     let house_need = if house_deficit > 0 {
-                        1.0 + house_deficit as f32 + desires.food_desire * 3.0
-                    } else if desires.food_desire > 0.3 {
-                        1.0 + desires.food_desire * 2.0
+                        desires.food_desire * (house_deficit as f32).min(10.0)
                     } else {
-                        0.5
+                        0.0
                     };
                     let barracks_need = if barracks_deficit > 0 {
-                        1.0 + barracks_deficit as f32 + desires.military_desire * 3.0
+                        desires.military_desire * barracks_deficit as f32
                     } else {
-                        0.5 + desires.military_desire
+                        desires.military_desire * 0.5
                     };
 
                     if ctx.food >= building_cost(BuildingKind::Farm) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
@@ -1169,9 +1169,9 @@ pub fn ai_decision_system(
                     // Crossbow homes: AI builds them once it has some archer homes established
                     if barracks >= 2 && ctx.food >= building_cost(BuildingKind::CrossbowHome) {
                         let xbow_need = if xbow_homes < barracks / 2 {
-                            1.0 + desires.military_desire * 2.0
+                            desires.military_desire * barracks.saturating_sub(xbow_homes * 2) as f32
                         } else {
-                            0.3 + desires.military_desire
+                            desires.military_desire * 0.5
                         };
                         scores.push((AiAction::BuildCrossbowHome, bw * 0.6 * xbow_need));
                     }
@@ -1188,10 +1188,10 @@ pub fn ai_decision_system(
                     // Prefer uncovered mine support; otherwise maintain patrol coverage parity.
                     let uncovered = mines.uncovered.len();
                     if uncovered > 0 {
-                        let mine_need = 1.0 + uncovered as f32 + desires.military_desire;
+                        let mine_need = desires.military_desire * uncovered as f32;
                         scores.push((AiAction::BuildWaypoint, gw * mine_need));
                     } else if waypoints < total_military_homes {
-                        let gp_need = 1.0 + (total_military_homes - waypoints) as f32 + desires.military_desire * 2.0;
+                        let gp_need = desires.military_desire * (total_military_homes - waypoints) as f32;
                         if ctx.has_slots {
                             scores.push((AiAction::BuildWaypoint, gw * gp_need));
                         }
