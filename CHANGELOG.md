@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18j
+
+- **registry-driven building save/load** — `BuildingDef` gains `save_key: Option<&'static str>`, `save_vec: fn(&WorldData) -> JsonValue`, `load_vec: fn(&mut WorldData, JsonValue)` fn pointers; all 12 registry entries carry save/load closures; SaveData replaces per-kind building fields (farms, beds, waypoints, etc.) with `#[serde(flatten)] building_data: HashMap<String, serde_json::Value>` that captures all building vecs by key; save function loops `BUILDING_REGISTRY` to serialize, load function loops to deserialize; 5 save-only structs deleted (TownSave, PosTownSave, WaypointSave, MinerHomeSave, BuildingHpSave); `BuildingHpState` gains `Serialize + Deserialize + Clone` for direct serialization; all world building structs (Farm, Bed, Waypoint, etc.) gain serde derives with `vec2_as_array` module for Vec2↔[f32;2] backwards-compatible format; GoldMine load_vec has fallback deserializer for old `[[x,y],...]` format
+
 ## 2026-02-18i
 
 - **delete BuildingSave** — `Building` enum gains `Serialize`/`Deserialize` derives directly; `BuildingSave` shadow enum and its 12-arm `from_building`/`to_building` conversions deleted from save.rs; save format uses `Building` directly (backwards-compatible via `#[serde(alias = "GuardPost")]` on Waypoint)

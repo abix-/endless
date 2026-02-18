@@ -1,6 +1,7 @@
 //! ECS Resources - Shared state accessible by all systems
 
 use bevy::prelude::*;
+use serde::{Serialize, Deserialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -913,12 +914,14 @@ impl SpawnerEntry {
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 
 /// Hit points for all buildings. Each Vec is parallel to the matching Vec in WorldData.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone, Serialize, Deserialize)]
 pub struct BuildingHpState {
     pub waypoints: Vec<f32>,
     pub farmer_homes: Vec<f32>,
     pub archer_homes: Vec<f32>,
+    #[serde(default)]
     pub crossbow_homes: Vec<f32>,
+    #[serde(default)]
     pub fighter_homes: Vec<f32>,
     pub tents: Vec<f32>,
     pub miner_homes: Vec<f32>,

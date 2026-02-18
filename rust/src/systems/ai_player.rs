@@ -272,7 +272,7 @@ impl AiPersonality {
     }
 
     /// Barracks target count relative to houses.
-    fn archer_home_target(self, houses: usize) -> usize {
+    pub fn archer_home_target(self, houses: usize) -> usize {
         // Desired military housing ratio relative to civilian farmer homes.
         match self {
             Self::Aggressive => houses.max(1),

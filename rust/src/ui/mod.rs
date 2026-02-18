@@ -220,7 +220,9 @@ fn game_load_system(
         }
     };
 
-    info!("Loading save from menu: {} NPCs, {} towns", save.npcs.len(), save.towns.len());
+    let town_count = save.building_data.get("towns")
+        .and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    info!("Loading save from menu: {} NPCs, {} towns", save.npcs.len(), town_count);
 
     // Apply save data to all game resources
     crate::save::apply_save(

@@ -155,6 +155,10 @@ struct AiSnapshot {
     mines_discovered: usize,
     mines_enabled: usize,
     reserve_food: i32,
+    food_desire: Option<f32>,
+    military_desire: Option<f32>,
+    food_desire_tip: String,
+    military_desire_tip: String,
     center: Vec2,
     squads: Vec<SquadSnapshot>,
 }
@@ -1071,6 +1075,63 @@ fn rebuild_factions_cache(
         let reserve_food = personality
             .map(|p| p.food_reserve_per_spawner() * spawner_count)
             .unwrap_or(0);
+
+        let farmer_homes = buildings.get(&BuildingKind::FarmerHome).copied().unwrap_or(0);
+        let archer_homes = buildings.get(&BuildingKind::ArcherHome).copied().unwrap_or(0);
+        let crossbow_homes = buildings.get(&BuildingKind::CrossbowHome).copied().unwrap_or(0);
+        let military_homes = archer_homes + crossbow_homes;
+        let waypoints = buildings.get(&BuildingKind::Waypoint).copied().unwrap_or(0);
+
+        let (food_desire, military_desire, food_desire_tip, military_desire_tip) = if let Some(p) = personality {
+            let food_desire = if reserve_food > 0 {
+                (1.0 - (food - reserve_food) as f32 / reserve_food as f32).clamp(0.0, 1.0)
+            } else if food < 5 {
+                0.8
+            } else if food < 10 {
+                0.4
+            } else {
+                0.0
+            };
+
+            let food_tip = if reserve_food > 0 {
+                format!(
+                    "Food desire = clamp(1 - (food - reserve) / reserve, 0..1)\nfood = {food}, reserve = {reserve_food}\n=> {:.0}%",
+                    food_desire * 100.0
+                )
+            } else {
+                format!(
+                    "Reserve <= 0 fallback:\nfood < 5 => 80%, food < 10 => 40%, else 0%\nfood = {food}\n=> {:.0}%",
+                    food_desire * 100.0
+                )
+            };
+
+            let barracks_target = p.archer_home_target(farmer_homes).max(1);
+            let barracks_gap = barracks_target.saturating_sub(military_homes) as f32 / barracks_target as f32;
+            let waypoint_gap = if military_homes > 0 {
+                military_homes.saturating_sub(waypoints) as f32 / military_homes as f32
+            } else {
+                0.0
+            };
+            let military_desire = (barracks_gap * 0.75 + waypoint_gap * 0.25).clamp(0.0, 1.0);
+            let military_tip = format!(
+                "Military desire = clamp(barracks_gap*0.75 + waypoint_gap*0.25, 0..1)\n\
+                 barracks_target = max(1, archer_home_target(farmer_homes)) = {barracks_target}\n\
+                 farmer_homes = {farmer_homes}, military_homes = {military_homes}, waypoints = {waypoints}\n\
+                 barracks_gap = {barracks_gap:.2}, waypoint_gap = {waypoint_gap:.2}\n\
+                 => {:.0}%",
+                military_desire * 100.0,
+            );
+
+            (Some(food_desire), Some(military_desire), food_tip, military_tip)
+        } else {
+            (
+                None,
+                None,
+                "Not applicable: desire metrics are only computed for AI factions.".to_string(),
+                "Not applicable: desire metrics are only computed for AI factions.".to_string(),
+            )
+        };
+
         let ai_player = factions.ai_state.players.iter().find(|p| p.town_data_idx == tdi);
         let squads = squad_state.squads.iter().enumerate()
             .filter_map(|(si, squad)| {
@@ -1120,6 +1181,10 @@ fn rebuild_factions_cache(
             mines_discovered,
             mines_enabled,
             reserve_food,
+            food_desire,
+            military_desire,
+            food_desire_tip,
+            military_desire_tip,
             center,
             squads,
         });
@@ -1221,6 +1286,18 @@ fn factions_content(
         ui.label(format!("Food: {}", snap.food));
         ui.separator();
         ui.label(format!("Gold: {}", snap.gold));
+        ui.separator();
+        let food_desire = snap.food_desire
+            .map(|v| format!("{:.0}%", v * 100.0))
+            .unwrap_or_else(|| "-".to_string());
+        ui.label(format!("Food Desire: {}", food_desire))
+            .on_hover_text(&snap.food_desire_tip);
+        ui.separator();
+        let military_desire = snap.military_desire
+            .map(|v| format!("{:.0}%", v * 100.0))
+            .unwrap_or_else(|| "-".to_string());
+        ui.label(format!("Military Desire: {}", military_desire))
+            .on_hover_text(&snap.military_desire_tip);
     });
     ui.label(format!("Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills));
     ui.separator();

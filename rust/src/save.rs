@@ -40,22 +40,6 @@ pub struct SaveData {
     pub terrain: Vec<u8>,                     // Biome as u8
     pub buildings: Vec<Option<world::Building>>,  // parallel to terrain
 
-    // World data
-    pub towns: Vec<TownSave>,
-    pub farms: Vec<PosTownSave>,
-    pub beds: Vec<PosTownSave>,
-    #[serde(alias = "guard_posts")]
-    pub waypoints: Vec<WaypointSave>,
-    pub farmer_homes: Vec<PosTownSave>,
-    pub archer_homes: Vec<PosTownSave>,
-    #[serde(default)]
-    pub crossbow_homes: Vec<PosTownSave>,
-    #[serde(default)]
-    pub fighter_homes: Vec<PosTownSave>,
-    pub tents: Vec<PosTownSave>,
-    pub miner_homes: Vec<MinerHomeSave>,
-    pub gold_mines: Vec<[f32; 2]>,
-
     // Town grids (area_level + town_data_idx)
     pub town_grids: Vec<TownGridSave>,
 
@@ -79,7 +63,7 @@ pub struct SaveData {
     pub spawners: Vec<SpawnerSave>,
 
     // Building HP
-    pub building_hp: BuildingHpSave,
+    pub building_hp: BuildingHpState,
 
     // Upgrades + policies
     pub upgrades: Vec<Vec<u8>>,
@@ -113,40 +97,15 @@ pub struct SaveData {
     // Migration state
     #[serde(default)]
     pub migration: Option<MigrationSave>,
+
+    // Building vecs + towns — registry-driven via #[serde(flatten)]
+    // Captures: towns, farms, beds, waypoints, farmer_homes, archer_homes,
+    // crossbow_homes, fighter_homes, tents, miner_homes, gold_mines
+    #[serde(flatten)]
+    pub building_data: std::collections::HashMap<String, serde_json::Value>,
 }
 
 // Sub-structs
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct TownSave {
-    pub name: String,
-    pub center: [f32; 2],
-    pub faction: i32,
-    pub sprite_type: i32,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PosTownSave {
-    pub position: [f32; 2],
-    pub town_idx: u32,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct MinerHomeSave {
-    pub position: [f32; 2],
-    pub town_idx: u32,
-    #[serde(default)]
-    pub assigned_mine: Option<[f32; 2]>,
-    #[serde(default)]
-    pub manual_mine: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct WaypointSave {
-    pub position: [f32; 2],
-    pub town_idx: u32,
-    pub patrol_order: u32,
-}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TownGridSave {
@@ -167,23 +126,6 @@ pub struct SpawnerSave {
     pub position: [f32; 2],
     pub npc_slot: i32,
     pub respawn_timer: f32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct BuildingHpSave {
-    pub waypoints: Vec<f32>,
-    pub farmer_homes: Vec<f32>,
-    pub archer_homes: Vec<f32>,
-    #[serde(default)]
-    pub crossbow_homes: Vec<f32>,
-    #[serde(default)]
-    pub fighter_homes: Vec<f32>,
-    pub tents: Vec<f32>,
-    pub miner_homes: Vec<f32>,
-    pub farms: Vec<f32>,
-    pub towns: Vec<f32>,
-    pub beds: Vec<f32>,
-    pub gold_mines: Vec<f32>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -466,45 +408,14 @@ pub fn collect_save_data(
         .map(|c| c.building)
         .collect();
 
-    // Towns
-    let towns: Vec<TownSave> = world_data.towns.iter().map(|t| TownSave {
-        name: t.name.clone(),
-        center: v2(t.center),
-        faction: t.faction,
-        sprite_type: t.sprite_type,
-    }).collect();
-
-    // Buildings
-    let farms: Vec<PosTownSave> = world_data.farms.iter().map(|f| PosTownSave {
-        position: v2(f.position), town_idx: f.town_idx,
-    }).collect();
-    let beds: Vec<PosTownSave> = world_data.beds.iter().map(|b| PosTownSave {
-        position: v2(b.position), town_idx: b.town_idx,
-    }).collect();
-    let waypoints: Vec<WaypointSave> = world_data.waypoints.iter().map(|g| WaypointSave {
-        position: v2(g.position), town_idx: g.town_idx, patrol_order: g.patrol_order,
-    }).collect();
-    let farmer_homes: Vec<PosTownSave> = world_data.farmer_homes.iter().map(|h| PosTownSave {
-        position: v2(h.position), town_idx: h.town_idx,
-    }).collect();
-    let archer_homes: Vec<PosTownSave> = world_data.archer_homes.iter().map(|h| PosTownSave {
-        position: v2(h.position), town_idx: h.town_idx,
-    }).collect();
-    let crossbow_homes: Vec<PosTownSave> = world_data.crossbow_homes.iter().map(|h| PosTownSave {
-        position: v2(h.position), town_idx: h.town_idx,
-    }).collect();
-    let fighter_homes: Vec<PosTownSave> = world_data.fighter_homes.iter().map(|h| PosTownSave {
-        position: v2(h.position), town_idx: h.town_idx,
-    }).collect();
-    let tents_save: Vec<PosTownSave> = world_data.tents.iter().map(|t| PosTownSave {
-        position: v2(t.position), town_idx: t.town_idx,
-    }).collect();
-    let miner_homes: Vec<MinerHomeSave> = world_data.miner_homes.iter().map(|m| MinerHomeSave {
-        position: v2(m.position), town_idx: m.town_idx,
-        assigned_mine: m.assigned_mine.map(|p| v2(p)),
-        manual_mine: m.manual_mine,
-    }).collect();
-    let gold_mines_save: Vec<[f32; 2]> = world_data.gold_mines.iter().map(|m| v2(m.position)).collect();
+    // Building vecs — registry-driven
+    let mut building_data: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+    building_data.insert("towns".to_string(), serde_json::to_value(&world_data.towns).unwrap());
+    for def in crate::constants::BUILDING_REGISTRY.iter() {
+        if let Some(key) = def.save_key {
+            building_data.insert(key.to_string(), (def.save_vec)(world_data));
+        }
+    }
 
     // Town grids
     let town_grids_save: Vec<TownGridSave> = town_grids.grids.iter().map(|g| TownGridSave {
@@ -529,20 +440,8 @@ pub fn collect_save_data(
         respawn_timer: s.respawn_timer,
     }).collect();
 
-    // Building HP
-    let building_hp_save = BuildingHpSave {
-        waypoints: building_hp.waypoints.clone(),
-        farmer_homes: building_hp.farmer_homes.clone(),
-        archer_homes: building_hp.archer_homes.clone(),
-        crossbow_homes: building_hp.crossbow_homes.clone(),
-        fighter_homes: building_hp.fighter_homes.clone(),
-        tents: building_hp.tents.clone(),
-        miner_homes: building_hp.miner_homes.clone(),
-        farms: building_hp.farms.clone(),
-        towns: building_hp.towns.clone(),
-        beds: building_hp.beds.clone(),
-        gold_mines: building_hp.gold_mines.clone(),
-    };
+    // Building HP — direct clone (BuildingHpState has serde derives)
+    let building_hp_save = building_hp.clone();
 
     // Upgrades (convert [u8; UPGRADE_COUNT] to Vec<u8>)
     let upgrades_save: Vec<Vec<u8>> = upgrades.levels.iter()
@@ -596,17 +495,7 @@ pub fn collect_save_data(
         grid_cell_size: grid.cell_size,
         terrain,
         buildings,
-        towns,
-        farms,
-        beds,
-        waypoints,
-        farmer_homes,
-        archer_homes,
-        crossbow_homes,
-        fighter_homes,
-        tents: tents_save,
-        miner_homes,
-        gold_mines: gold_mines_save,
+        building_data,
         town_grids: town_grids_save,
         total_seconds: game_time.total_seconds,
         seconds_per_hour: game_time.seconds_per_hour,
@@ -752,42 +641,17 @@ pub fn apply_save(
             building: *b,
         }).collect();
 
-    // World data
-    world_data.towns = save.towns.iter().map(|t| world::Town {
-        name: t.name.clone(), center: to_vec2(t.center), faction: t.faction, sprite_type: t.sprite_type,
-    }).collect();
-    world_data.farms = save.farms.iter().map(|f| world::Farm {
-        position: to_vec2(f.position), town_idx: f.town_idx,
-    }).collect();
-    world_data.beds = save.beds.iter().map(|b| world::Bed {
-        position: to_vec2(b.position), town_idx: b.town_idx,
-    }).collect();
-    world_data.waypoints = save.waypoints.iter().map(|g| world::Waypoint {
-        position: to_vec2(g.position), town_idx: g.town_idx, patrol_order: g.patrol_order,
-    }).collect();
-    world_data.farmer_homes = save.farmer_homes.iter().map(|h| world::FarmerHome {
-        position: to_vec2(h.position), town_idx: h.town_idx,
-    }).collect();
-    world_data.archer_homes = save.archer_homes.iter().map(|h| world::ArcherHome {
-        position: to_vec2(h.position), town_idx: h.town_idx,
-    }).collect();
-    world_data.crossbow_homes = save.crossbow_homes.iter().map(|h| world::CrossbowHome {
-        position: to_vec2(h.position), town_idx: h.town_idx,
-    }).collect();
-    world_data.fighter_homes = save.fighter_homes.iter().map(|h| world::FighterHome {
-        position: to_vec2(h.position), town_idx: h.town_idx,
-    }).collect();
-    world_data.tents = save.tents.iter().map(|t| world::Tent {
-        position: to_vec2(t.position), town_idx: t.town_idx,
-    }).collect();
-    world_data.miner_homes = save.miner_homes.iter().map(|m| world::MinerHome {
-        position: to_vec2(m.position), town_idx: m.town_idx,
-        assigned_mine: m.assigned_mine.map(|p| to_vec2(p)),
-        manual_mine: m.manual_mine,
-    }).collect();
-    world_data.gold_mines = save.gold_mines.iter().map(|p| world::GoldMine {
-        position: to_vec2(*p),
-    }).collect();
+    // World data — registry-driven building vecs
+    if let Some(val) = save.building_data.get("towns") {
+        world_data.towns = serde_json::from_value(val.clone()).unwrap_or_default();
+    }
+    for def in crate::constants::BUILDING_REGISTRY.iter() {
+        if let Some(key) = def.save_key {
+            if let Some(val) = save.building_data.get(key) {
+                (def.load_vec)(world_data, val.clone());
+            }
+        }
+    }
 
     // Town grids
     town_grids.grids = save.town_grids.iter().map(|g| world::TownGrid {
@@ -807,9 +671,9 @@ pub fn apply_save(
     food_storage.food = save.food.clone();
     gold_storage.gold = save.gold.clone();
 
-    // Growth states: farms first, then mines
-    let farm_count = save.farms.len();
-    let mine_count = save.gold_mines.len();
+    // Growth states: farms first, then mines (world_data already loaded above)
+    let farm_count = world_data.farms.len();
+    let mine_count = world_data.gold_mines.len();
     farm_states.kinds = vec![crate::resources::GrowthKind::Farm; farm_count];
     farm_states.kinds.extend(vec![crate::resources::GrowthKind::Mine; mine_count]);
     // v1: farm_growth contained farms+mines combined; v2+: farms only
@@ -822,12 +686,11 @@ pub fn apply_save(
         if fg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing }
     }).collect();
     farm_states.progress = farm_growth.iter().map(|fg| fg.progress).collect();
-    farm_states.positions = save.farms.iter().map(|f| to_vec2(f.position)).collect();
-    farm_states.town_indices = save.farms.iter().map(|f| Some(f.town_idx as u32)).collect();
+    farm_states.positions = world_data.farms.iter().map(|f| f.position).collect();
+    farm_states.town_indices = world_data.farms.iter().map(|f| Some(f.town_idx as u32)).collect();
     // Append mine entries
-    for (i, gm) in save.gold_mines.iter().enumerate() {
-        let pos = to_vec2(*gm);
-        farm_states.positions.push(pos);
+    for (i, gm) in world_data.gold_mines.iter().enumerate() {
+        farm_states.positions.push(gm.position);
         farm_states.town_indices.push(None);
         if let Some(mg) = save.mine_growth.get(i) {
             farm_states.states.push(if mg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing });
@@ -847,20 +710,8 @@ pub fn apply_save(
         respawn_timer: s.respawn_timer,
     }).collect();
 
-    // Building HP
-    *building_hp = BuildingHpState {
-        waypoints: save.building_hp.waypoints.clone(),
-        farmer_homes: save.building_hp.farmer_homes.clone(),
-        archer_homes: save.building_hp.archer_homes.clone(),
-        crossbow_homes: save.building_hp.crossbow_homes.clone(),
-        fighter_homes: save.building_hp.fighter_homes.clone(),
-        tents: save.building_hp.tents.clone(),
-        miner_homes: save.building_hp.miner_homes.clone(),
-        farms: save.building_hp.farms.clone(),
-        towns: save.building_hp.towns.clone(),
-        beds: save.building_hp.beds.clone(),
-        gold_mines: save.building_hp.gold_mines.clone(),
-    };
+    // Building HP — direct clone (BuildingHpState has serde derives)
+    *building_hp = save.building_hp.clone();
 
     // Upgrades
     upgrades.levels = save.upgrades.iter().map(|v| {
@@ -868,7 +719,7 @@ pub fn apply_save(
     }).collect();
 
     // Policies
-    let num_towns = save.towns.len();
+    let num_towns = world_data.towns.len();
     policies.policies = save.policies.clone();
     policies.policies.resize(num_towns.max(16), PolicySet::default());
 
@@ -1379,7 +1230,9 @@ pub fn load_game_system(
         }
     };
 
-    info!("Loading save: {} NPCs, {} towns", save.npcs.len(), save.towns.len());
+    let town_count = save.building_data.get("towns")
+        .and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    info!("Loading save: {} NPCs, {} towns", save.npcs.len(), town_count);
 
     // 1. Despawn all NPC entities + farm markers
     for entity in npc_query.iter() {

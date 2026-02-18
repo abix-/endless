@@ -7,6 +7,31 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
 
+/// Serialize Vec2 as [f32; 2] for save file backwards compat.
+pub mod vec2_as_array {
+    use bevy::prelude::Vec2;
+    use serde::{Serialize, Deserialize, Serializer, Deserializer};
+    pub fn serialize<S: Serializer>(v: &Vec2, s: S) -> Result<S::Ok, S::Error> {
+        [v.x, v.y].serialize(s)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec2, D::Error> {
+        let [x, y] = <[f32; 2]>::deserialize(d)?;
+        Ok(Vec2::new(x, y))
+    }
+}
+
+/// Serialize Option<Vec2> as Option<[f32; 2]>.
+mod opt_vec2_as_array {
+    use bevy::prelude::Vec2;
+    use serde::{Serializer, Deserializer, Serialize, Deserialize};
+    pub fn serialize<S: Serializer>(v: &Option<Vec2>, s: S) -> Result<S::Ok, S::Error> {
+        v.map(|v| [v.x, v.y]).serialize(s)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec2>, D::Error> {
+        Ok(<Option<[f32; 2]>>::deserialize(d)?.map(|[x, y]| Vec2::new(x, y)))
+    }
+}
+
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
 use crate::resources::{GrowthStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, BuildingSlotMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
 use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
@@ -32,31 +57,35 @@ pub const SHEET_SIZE: (f32, f32) = (968.0, 526.0);
 // ============================================================================
 
 /// A town (villager or raider settlement).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Town {
     pub name: String,
+    #[serde(with = "vec2_as_array")]
     pub center: Vec2,
     pub faction: i32,       // 0=Villager, 1+=Raider factions
     pub sprite_type: i32,   // 0=fountain, 1=tent
 }
 
 /// A farm building that farmers work at.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Farm {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// A bed where NPCs sleep.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Bed {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// A waypoint where guards patrol.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Waypoint {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
     /// Patrol order (0-3 for clockwise perimeter)
@@ -64,52 +93,61 @@ pub struct Waypoint {
 }
 
 /// A farmer home that supports 1 farmer (building spawner).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FarmerHome {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// An archer home that supports 1 archer (building spawner).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArcherHome {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// A tent that supports 1 raider (building spawner).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Tent {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// A crossbow home that supports 1 crossbowman (building spawner).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CrossbowHome {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// A fighter home that supports 1 fighter (building spawner).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FighterHome {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
 }
 
 /// A miner home that supports 1 miner (building spawner).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinerHome {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
+    #[serde(default, with = "opt_vec2_as_array")]
     pub assigned_mine: Option<Vec2>,
+    #[serde(default)]
     pub manual_mine: bool,
 }
 
 /// A gold mine in the wilderness (unowned, any faction can mine).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GoldMine {
+    #[serde(with = "vec2_as_array")]
     pub position: Vec2,
 }
 

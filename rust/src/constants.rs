@@ -4,6 +4,7 @@ use bevy::prelude::Vec2;
 use crate::components::{Job, BaseAttackType};
 use crate::world::{BuildingKind, Building, WorldData, is_alive};
 use crate::resources::BuildingHpState;
+use serde_json::Value as JsonValue;
 
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
 pub const MAX_NPC_COUNT: usize = 100000;
@@ -458,6 +459,12 @@ pub struct BuildingDef {
     pub hps_mut: fn(&mut BuildingHpState) -> &mut Vec<f32>,
     /// Extract town_idx from a Building instance of this kind.
     pub town_idx: fn(&Building) -> u32,
+    /// Save key in JSON (None for Fountain/Camp which share towns vec).
+    pub save_key: Option<&'static str>,
+    /// Serialize this kind's WorldData vec to JSON.
+    pub save_vec: fn(&WorldData) -> JsonValue,
+    /// Deserialize JSON into this kind's WorldData vec.
+    pub load_vec: fn(&mut WorldData, JsonValue),
 }
 
 /// Single source of truth for all building types.
@@ -480,6 +487,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.towns,
         hps_mut: |hp| &mut hp.towns,
         town_idx: |b| if let Building::Fountain { town_idx } = b { *town_idx } else { 0 },
+        save_key: None, save_vec: |_| JsonValue::Null, load_vec: |_, _| {},
     },
     // 1: Bed
     BuildingDef {
@@ -498,6 +506,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.beds,
         hps_mut: |hp| &mut hp.beds,
         town_idx: |b| if let Building::Bed { town_idx } = b { *town_idx } else { 0 },
+        save_key: Some("beds"),
+        save_vec: |wd| serde_json::to_value(&wd.beds).unwrap(),
+        load_vec: |wd, v| { wd.beds = serde_json::from_value(v).unwrap_or_default(); },
     },
     // 2: Waypoint
     BuildingDef {
@@ -516,6 +527,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.waypoints,
         hps_mut: |hp| &mut hp.waypoints,
         town_idx: |b| if let Building::Waypoint { town_idx, .. } = b { *town_idx } else { 0 },
+        save_key: Some("waypoints"),
+        save_vec: |wd| serde_json::to_value(&wd.waypoints).unwrap(),
+        load_vec: |wd, v| { wd.waypoints = serde_json::from_value(v).unwrap_or_default(); },
     },
     // 3: Farm
     BuildingDef {
@@ -534,6 +548,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.farms,
         hps_mut: |hp| &mut hp.farms,
         town_idx: |b| if let Building::Farm { town_idx } = b { *town_idx } else { 0 },
+        save_key: Some("farms"),
+        save_vec: |wd| serde_json::to_value(&wd.farms).unwrap(),
+        load_vec: |wd, v| { wd.farms = serde_json::from_value(v).unwrap_or_default(); },
     },
     // 4: Camp (raider town center)
     BuildingDef {
@@ -552,6 +569,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.towns,
         hps_mut: |hp| &mut hp.towns,
         town_idx: |b| if let Building::Camp { town_idx } = b { *town_idx } else { 0 },
+        save_key: None, save_vec: |_| JsonValue::Null, load_vec: |_, _| {},
     },
     // 5: Farmer Home
     BuildingDef {
@@ -571,6 +589,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.farmer_homes,
         hps_mut: |hp| &mut hp.farmer_homes,
         town_idx: |b| if let Building::FarmerHome { town_idx } = b { *town_idx } else { 0 },
+        save_key: Some("farmer_homes"),
+        save_vec: |wd| serde_json::to_value(&wd.farmer_homes).unwrap(),
+        load_vec: |wd, v| { wd.farmer_homes = serde_json::from_value(v).unwrap_or_default(); },
     },
     // 6: Archer Home
     BuildingDef {
@@ -590,6 +611,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.archer_homes,
         hps_mut: |hp| &mut hp.archer_homes,
         town_idx: |b| if let Building::ArcherHome { town_idx } = b { *town_idx } else { 0 },
+        save_key: Some("archer_homes"),
+        save_vec: |wd| serde_json::to_value(&wd.archer_homes).unwrap(),
+        load_vec: |wd, v| { wd.archer_homes = serde_json::from_value(v).unwrap_or_default(); },
     },
     // 7: Tent (raider spawner)
     BuildingDef {
@@ -609,6 +633,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.tents,
         hps_mut: |hp| &mut hp.tents,
         town_idx: |b| if let Building::Tent { town_idx } = b { *town_idx } else { 0 },
+        save_key: Some("tents"),
+        save_vec: |wd| serde_json::to_value(&wd.tents).unwrap(),
+        load_vec: |wd, v| { wd.tents = serde_json::from_value(v).unwrap_or_default(); },
     },
     // 8: Gold Mine
     BuildingDef {
@@ -627,6 +654,19 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.gold_mines,
         hps_mut: |hp| &mut hp.gold_mines,
         town_idx: |_| 0,
+        save_key: Some("gold_mines"),
+        save_vec: |wd| serde_json::to_value(&wd.gold_mines).unwrap(),
+        load_vec: |wd, v| {
+            // New format: [{"position":[x,y]}, ...]. Old format: [[x,y], ...]
+            wd.gold_mines = serde_json::from_value::<Vec<crate::world::GoldMine>>(v.clone())
+                .unwrap_or_else(|_| {
+                    serde_json::from_value::<Vec<[f32; 2]>>(v)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|[x, y]| crate::world::GoldMine { position: Vec2::new(x, y) })
+                        .collect()
+                });
+        },
     },
     // 9: Miner Home
     BuildingDef {
@@ -646,6 +686,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.miner_homes,
         hps_mut: |hp| &mut hp.miner_homes,
         town_idx: |b| if let Building::MinerHome { town_idx } = b { *town_idx } else { 0 },
+        save_key: Some("miner_homes"),
+        save_vec: |wd| serde_json::to_value(&wd.miner_homes).unwrap(),
+        load_vec: |wd, v| { wd.miner_homes = serde_json::from_value(v).unwrap_or_default(); },
     },
     // 10: Crossbow Home
     BuildingDef {
@@ -665,6 +708,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.crossbow_homes,
         hps_mut: |hp| &mut hp.crossbow_homes,
         town_idx: |b| if let Building::CrossbowHome { town_idx } = b { *town_idx } else { 0 },
+        save_key: Some("crossbow_homes"),
+        save_vec: |wd| serde_json::to_value(&wd.crossbow_homes).unwrap(),
+        load_vec: |wd, v| { wd.crossbow_homes = serde_json::from_value(v).unwrap_or_default(); },
     },
     // 11: Fighter Home
     BuildingDef {
@@ -685,6 +731,9 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps: |hp| &hp.fighter_homes,
         hps_mut: |hp| &mut hp.fighter_homes,
         town_idx: |b| if let Building::FighterHome { town_idx } = b { *town_idx } else { 0 },
+        save_key: Some("fighter_homes"),
+        save_vec: |wd| serde_json::to_value(&wd.fighter_homes).unwrap(),
+        load_vec: |wd, v| { wd.fighter_homes = serde_json::from_value(v).unwrap_or_default(); },
     },
 ];
 
