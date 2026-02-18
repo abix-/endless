@@ -28,6 +28,7 @@ Main World                        Render World
 NpcGpuState           ──Extract<Res<T>>──▶ zero-clone immutable read
 NpcVisualUpload       ──Extract<Res<T>>──▶ zero-clone immutable read
 NpcGpuData            ──ExtractResource──▶ NpcGpuData
+OverlayInstances      ──Extract<Res<T>>──▶ zero-clone → BuildingOverlayBuffers
 NpcGpuBuffers         ──(render world)──▶ positions + healths (bind group 2)
 Camera2d entity       ──extract_camera_state──▶ CameraState
 NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
@@ -40,7 +41,6 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       ▼
                                prepare_npc_buffers
                                (buffer creation + sentinel init on first frame,
-                                build BuildingOverlayBuffers for farms/BHP/mining progress,
                                 create bind group 2 from NpcGpuBuffers + NpcVisualBuffers)
                                       │
                                       ▼
@@ -214,7 +214,7 @@ Six textures are bound simultaneously at group 0 (bindings 0-11). Per-instance/p
 | Arrow | 8-9 | 4 | `arrow.png` | 16×16 | Projectile sprite |
 | Building | 10-11 | 7 | (generated at runtime) | 32×320 | Building sprites |
 
-Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The building atlas is a vertical strip of 10 tiles (32×32 each), generated at runtime by `build_building_atlas()` from individual building sprites. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
+Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The building atlas is a vertical strip of 11 tiles (32×32 each), generated at runtime by `build_building_atlas()` from individual building sprites. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
 
 ```wgsl
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
@@ -314,7 +314,8 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_npc_data` | Zero-clone GPU upload: hybrid writes (per-dirty-index for GPU-authoritative positions/arrivals, bulk for CPU-authoritative targets/speeds/factions/healths/flags) + unconditional visual/equip writes via `Extract<Res<T>>` |
 | Extract | `extract_proj_batch` | Despawn stale render world ProjBatch, then clone fresh from main world |
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
-| PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), build BuildingOverlayBuffers (farms/BHP/mining), create bind group 2 |
+| Extract | `extract_overlay_instances` | Zero-clone read of OverlayInstances → BuildingOverlayBuffers (farms/BHP/mining) with RawBufferVec reuse |
+| PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), create bind group 2 |
 | Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build via `Extract<Res<T>>` |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture (6 textures: char + world + heal + sleep + arrow + building; building falls back to char_image until atlas loads) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from NpcGpuData) |
@@ -346,7 +347,7 @@ The shader derives `slot` and `layer` from `instance_index`. Compile-time `#ifde
 type DrawBuildingOverlayCommands = (..., DrawBuildingOverlay);
 ```
 
-`DrawBuildingOverlay::render()` reads `BuildingOverlayBuffers` — a small `RawBufferVec<InstanceData>` (~100-200 entries) built each frame from `FarmStates` + `BuildingHpRender` + `MinerProgressRender`.
+`DrawBuildingOverlay::render()` reads `BuildingOverlayBuffers` — a small `RawBufferVec<InstanceData>` (~100-200 entries) built each frame from `OverlayInstances` (populated by `build_overlay_instances` from `GrowthStates` + `BuildingHpRender` + `MinerProgressRender` in PostUpdate, zero-clone extracted to render world).
 
 **Projectile instance path** — shares quad geometry, separate instance buffer:
 ```rust

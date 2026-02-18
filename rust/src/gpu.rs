@@ -58,27 +58,9 @@ const HIT_HALF_WIDTH: f32 = 4.0;
 // RESOURCES (Main World)
 // =============================================================================
 
-/// GPU buffer data extracted to render world each frame.
-#[derive(Resource, Clone, ExtractResource)]
-pub struct NpcGpuData {
-    /// Number of active NPCs
-    pub npc_count: u32,
-    /// Frame delta time
-    pub delta: f32,
-}
-
-impl Default for NpcGpuData {
-    fn default() -> Self {
-        Self {
-            npc_count: 0,
-            delta: 0.016,
-        }
-    }
-}
-
-/// GPU compute parameters (uniform buffer).
+/// GPU data extracted to render world each frame. Also serves as the compute uniform buffer.
 #[derive(Resource, Clone, ExtractResource, ShaderType)]
-pub struct NpcComputeParams {
+pub struct NpcGpuData {
     pub count: u32,
     pub separation_radius: f32,
     pub separation_strength: f32,
@@ -95,7 +77,7 @@ pub struct NpcComputeParams {
     pub threat_radius: f32,
 }
 
-impl Default for NpcComputeParams {
+impl Default for NpcGpuData {
     fn default() -> Self {
         Self {
             count: 0,
@@ -292,7 +274,7 @@ pub fn build_visual_upload(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("build_visual_upload");
-    let npc_count = gpu_data.npc_count as usize;
+    let npc_count = gpu_data.count as usize;
     upload.npc_count = npc_count;
 
     // Resize (reuses allocation if already large enough), fill with sentinels
@@ -432,23 +414,9 @@ pub fn populate_gpu_state(mut state: ResMut<NpcGpuState>, time: Res<Time>, slots
 // PROJECTILE RESOURCES (Main World)
 // =============================================================================
 
-/// Projectile GPU data extracted to render world each frame.
-#[derive(Resource, Clone, ExtractResource)]
-pub struct ProjGpuData {
-    pub proj_count: u32,
-    pub npc_count: u32,
-    pub delta: f32,
-}
-
-impl Default for ProjGpuData {
-    fn default() -> Self {
-        Self { proj_count: 0, npc_count: 0, delta: 0.016 }
-    }
-}
-
-/// Projectile compute parameters (uniform buffer).
+/// Projectile GPU data extracted to render world. Also serves as the compute uniform buffer.
 #[derive(Resource, Clone, ExtractResource, ShaderType)]
-pub struct ProjComputeParams {
+pub struct ProjGpuData {
     pub proj_count: u32,
     pub npc_count: u32,
     pub delta: f32,
@@ -461,7 +429,7 @@ pub struct ProjComputeParams {
     pub mode: u32,
 }
 
-impl Default for ProjComputeParams {
+impl Default for ProjGpuData {
     fn default() -> Self {
         Self {
             proj_count: 0,
@@ -701,7 +669,6 @@ impl Plugin for GpuComputePlugin {
     fn build(&self, app: &mut App) {
         // Initialize NPC resources in main world
         app.init_resource::<NpcGpuData>()
-            .init_resource::<NpcComputeParams>()
             .init_resource::<NpcGpuState>()
             .init_resource::<NpcVisualUpload>()
             .init_resource::<NpcSpriteTexture>()
@@ -710,7 +677,6 @@ impl Plugin for GpuComputePlugin {
 
         // Initialize projectile resources in main world
         app.init_resource::<ProjGpuData>()
-            .init_resource::<ProjComputeParams>()
             .init_resource::<ProjBufferWrites>()
             .add_systems(Update, update_proj_gpu_data)
             .add_systems(PostUpdate, populate_proj_buffer_writes);
@@ -722,13 +688,9 @@ impl Plugin for GpuComputePlugin {
         // NpcGpuState + NpcVisualUpload + ProjBufferWrites + ProjPositionState use Extract<Res<T>> (zero-clone)
         app.add_plugins((
             ExtractResourcePlugin::<NpcGpuData>::default(),
-            ExtractResourcePlugin::<NpcComputeParams>::default(),
             ExtractResourcePlugin::<NpcSpriteTexture>::default(),
             ExtractResourcePlugin::<ProjGpuData>::default(),
-            ExtractResourcePlugin::<ProjComputeParams>::default(),
             ExtractResourcePlugin::<ReadbackHandles>::default(),
-            ExtractResourcePlugin::<crate::resources::GrowthStates>::default(),
-            ExtractResourcePlugin::<crate::resources::BuildingHpRender>::default(),
         ));
 
         // Set up render world systems
@@ -767,7 +729,6 @@ struct ProjectileComputeLabel;
 /// Update GPU data from ECS each frame.
 fn update_gpu_data(
     mut gpu_data: ResMut<NpcGpuData>,
-    mut params: ResMut<NpcComputeParams>,
     slots: Res<SlotAllocator>,
     time: Res<Time>,
     game_time: Res<GameTime>,
@@ -777,14 +738,12 @@ fn update_gpu_data(
 ) {
     let _t = timings.scope("update_gpu_data");
     let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
-    gpu_data.npc_count = slots.count() as u32;
+    gpu_data.count = slots.count() as u32;
     gpu_data.delta = dt;
-    params.delta = dt;
-    params.count = slots.count() as u32;
 
     let player_town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
     let levels = upgrades.town_levels(player_town_idx);
-    params.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };
+    gpu_data.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };
 }
 
 // =============================================================================
@@ -982,7 +941,7 @@ fn init_npc_compute_pipeline(
                 // 9: combat_targets
                 storage_buffer::<Vec<i32>>(false),
                 // 10: params (uniform)
-                uniform_buffer::<NpcComputeParams>(false),
+                uniform_buffer::<NpcGpuData>(false),
                 // 11-12: projectile spatial grid (read only from NPC perspective)
                 storage_buffer_read_only::<Vec<i32>>(false),  // proj_grid_counts
                 storage_buffer_read_only::<Vec<i32>>(false),  // proj_grid_data
@@ -1026,7 +985,7 @@ fn prepare_npc_bind_groups(
     pipeline: Option<Res<NpcComputePipeline>>,
     buffers: Option<Res<NpcGpuBuffers>>,
     proj_buffers: Option<Res<ProjGpuBuffers>>,
-    params: Option<Res<NpcComputeParams>>,
+    gpu_data: Option<Res<NpcGpuData>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
@@ -1039,7 +998,7 @@ fn prepare_npc_bind_groups(
     let Some(pipeline) = pipeline else { return };
     let Some(buffers) = buffers else { return };
     let Some(proj) = proj_buffers else { return };
-    let Some(params) = params else { return };
+    let Some(params) = gpu_data else { return };
 
     // Create 3 uniform buffers (one per mode) for multi-dispatch
     let layout = &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
@@ -1209,7 +1168,7 @@ impl render_graph::Node for NpcComputeNode {
         let pipeline_cache = world.resource::<PipelineCache>();
         let pipeline = world.resource::<NpcComputePipeline>();
 
-        let npc_count = gpu_data.npc_count;
+        let npc_count = gpu_data.count;
         if npc_count == 0 {
             return Ok(());
         }
@@ -1307,7 +1266,6 @@ impl render_graph::Node for NpcComputeNode {
 /// Update projectile GPU data from ECS each frame.
 fn update_proj_gpu_data(
     mut proj_data: ResMut<ProjGpuData>,
-    mut proj_params: ResMut<ProjComputeParams>,
     slots: Res<SlotAllocator>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
@@ -1315,15 +1273,10 @@ fn update_proj_gpu_data(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("update_proj_gpu");
-    let pc = proj_alloc.next as u32;
-    let nc = slots.count() as u32;
     let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
-    proj_data.proj_count = pc;
-    proj_data.npc_count = nc;
+    proj_data.proj_count = proj_alloc.next as u32;
+    proj_data.npc_count = slots.count() as u32;
     proj_data.delta = dt;
-    proj_params.proj_count = pc;
-    proj_params.npc_count = nc;
-    proj_params.delta = dt;
 }
 
 fn init_proj_compute_pipeline(
@@ -1424,7 +1377,7 @@ fn init_proj_compute_pipeline(
                 storage_buffer_read_only::<Vec<i32>>(false),      // grid_counts
                 storage_buffer_read_only::<Vec<i32>>(false),      // grid_data
                 // 13: uniform params
-                uniform_buffer::<ProjComputeParams>(false),
+                uniform_buffer::<ProjGpuData>(false),
                 // 14-15: projectile spatial grid (read_write)
                 storage_buffer::<Vec<i32>>(false),                // proj_grid_counts
                 storage_buffer::<Vec<i32>>(false),                // proj_grid_data
@@ -1454,7 +1407,7 @@ fn prepare_proj_bind_groups(
     pipeline: Option<Res<ProjComputePipeline>>,
     proj_buffers: Option<Res<ProjGpuBuffers>>,
     npc_buffers: Option<Res<NpcGpuBuffers>>,
-    params: Option<Res<ProjComputeParams>>,
+    params: Option<Res<ProjGpuData>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,

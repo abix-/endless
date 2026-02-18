@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-18c
+
+- **consolidate GPU extractions** — 8→4 ExtractResourcePlugins: absorbed NpcComputeParams into NpcGpuData (derives ShaderType, serves as both extraction and compute uniform), absorbed ProjComputeParams into ProjGpuData (same pattern), replaced GrowthStates + BuildingHpRender per-feature extractions with generic OverlayInstances resource (zero-clone Extract<Res<T>> → BuildingOverlayBuffers with RawBufferVec reuse)
+- **fix building sprite UV** — BLDG_LAYERS shader constant 10→11 to match actual 11-tile building atlas; fixes building sprites rendering between two tiles
+
 ## 2026-02-18b
 
 - **building registry** — single source of truth `BUILDING_REGISTRY` in constants.rs: 11 `BuildingDef` entries define kind, tile spec, HP, cost, label, spawner, placement mode, tower stats; `building_def(kind)`, `tileset_index(kind)`, `building_cost(kind)` replace scattered constants

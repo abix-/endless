@@ -5,7 +5,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-use crate::constants::FOUNTAIN_TOWER;
+use crate::constants::{FOUNTAIN_TOWER, npc_def};
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
@@ -1253,7 +1253,7 @@ fn factions_content(
     let lv = &snap.upgrades;
     let archer_base = factions.combat_config.jobs.get(&Job::Archer);
     let crossbow_base = factions.combat_config.jobs.get(&Job::Crossbow);
-    let crossbow_atk = Some(&factions.combat_config.crossbow_attack);
+    let crossbow_atk = npc_def(Job::Crossbow).attack_override.as_ref();
     let farmer_base = factions.combat_config.jobs.get(&Job::Farmer);
     let miner_base = factions.combat_config.jobs.get(&Job::Miner);
     let ranged_base = factions.combat_config.attacks.get(&BaseAttackType::Ranged);

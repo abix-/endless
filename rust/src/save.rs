@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use serde::{Serialize, Deserialize};
 
 use crate::components::*;
-use crate::constants::*;
+use crate::constants::MAX_SQUADS;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::*;
 use crate::systems::stats::{TownUpgrades, CombatConfig, UPGRADE_COUNT, resolve_combat_stats, decode_upgrade_levels, decode_auto_upgrade_flags};
@@ -1272,14 +1272,8 @@ pub fn spawn_npcs_from_save(
             job, attack_type, npc.town_id, npc.level, &personality, combat_config, upgrades,
         );
 
-        let (sprite_col, sprite_row) = match job {
-            Job::Farmer => SPRITE_FARMER,
-            Job::Archer => SPRITE_ARCHER,
-            Job::Crossbow => SPRITE_CROSSBOW,
-            Job::Raider => SPRITE_RAIDER,
-            Job::Fighter => SPRITE_FIGHTER,
-            Job::Miner => SPRITE_MINER,
-        };
+        let def = crate::constants::npc_def(job);
+        let (sprite_col, sprite_row) = def.sprite;
         let idx = npc.slot;
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x: npc.position[0], y: npc.position[1] }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: npc.position[0], y: npc.position[1] }));
@@ -1309,65 +1303,40 @@ pub fn spawn_npcs_from_save(
             combat_state,
         ));
 
+        // Data-driven components from NPC registry
+        if def.has_energy { ec.insert(Energy(npc.energy)); }
+        if def.has_attack_timer { ec.insert(AttackTimer(0.0)); }
+        if let Some(w_default) = def.weapon {
+            let w = npc.weapon.unwrap_or([w_default.0, w_default.1]);
+            ec.insert(EquippedWeapon(w[0], w[1]));
+        }
+        if let Some(h_default) = def.helmet {
+            let h = npc.helmet.unwrap_or([h_default.0, h_default.1]);
+            ec.insert(EquippedHelmet(h[0], h[1]));
+        }
+        if def.stealer { ec.insert(Stealer); }
+        if let Some(d) = def.leash_range { ec.insert(LeashRange { distance: d }); }
+
+        // Marker components
         match job {
-            Job::Archer => {
-                ec.insert(Energy(npc.energy));
-                ec.insert(AttackTimer(0.0));
-                ec.insert(Archer);
-                let w = npc.weapon.unwrap_or([EQUIP_SWORD.0, EQUIP_SWORD.1]);
-                let h = npc.helmet.unwrap_or([EQUIP_HELMET.0, EQUIP_HELMET.1]);
-                ec.insert((EquippedWeapon(w[0], w[1]), EquippedHelmet(h[0], h[1])));
-                if let Some(a) = npc.armor {
-                    ec.insert(EquippedArmor(a[0], a[1]));
-                }
-                let patrol_posts = build_patrol_route(world_data, npc.town_id as u32);
-                if !patrol_posts.is_empty() {
-                    ec.insert(PatrolRoute { posts: patrol_posts, current: 0 });
-                }
+            Job::Archer => { ec.insert(Archer); }
+            Job::Farmer => { ec.insert(Farmer); }
+            Job::Miner => { ec.insert(Miner); }
+            Job::Crossbow => { ec.insert(Crossbow); }
+            _ => {}
+        }
+
+        // Save-specific optional data
+        if let Some(a) = npc.armor { ec.insert(EquippedArmor(a[0], a[1])); }
+        if let Some(cg) = npc.carried_gold { ec.insert(CarriedGold(cg)); }
+        if def.is_patrol_unit {
+            let patrol_posts = build_patrol_route(world_data, npc.town_id as u32);
+            if !patrol_posts.is_empty() {
+                ec.insert(PatrolRoute { posts: patrol_posts, current: 0 });
             }
-            Job::Crossbow => {
-                ec.insert(Energy(npc.energy));
-                ec.insert(AttackTimer(0.0));
-                ec.insert(Crossbow);
-                let w = npc.weapon.unwrap_or([EQUIP_SWORD.0, EQUIP_SWORD.1]);
-                let h = npc.helmet.unwrap_or([EQUIP_HELMET.0, EQUIP_HELMET.1]);
-                ec.insert((EquippedWeapon(w[0], w[1]), EquippedHelmet(h[0], h[1])));
-                if let Some(a) = npc.armor {
-                    ec.insert(EquippedArmor(a[0], a[1]));
-                }
-                let patrol_posts = build_patrol_route(world_data, npc.town_id as u32);
-                if !patrol_posts.is_empty() {
-                    ec.insert(PatrolRoute { posts: patrol_posts, current: 0 });
-                }
-            }
-            Job::Farmer => {
-                ec.insert(Energy(npc.energy));
-                ec.insert(Farmer);
-                if let Some(wp) = npc.work_position {
-                    ec.insert(WorkPosition(to_vec2(wp)));
-                }
-            }
-            Job::Raider => {
-                ec.insert(Energy(npc.energy));
-                ec.insert(AttackTimer(0.0));
-                ec.insert(Stealer);
-                let w = npc.weapon.unwrap_or([EQUIP_SWORD.0, EQUIP_SWORD.1]);
-                ec.insert(EquippedWeapon(w[0], w[1]));
-                ec.insert(LeashRange { distance: 400.0 });
-                if let Some(cg) = npc.carried_gold {
-                    ec.insert(CarriedGold(cg));
-                }
-            }
-            Job::Miner => {
-                ec.insert(Energy(npc.energy));
-                ec.insert(Miner);
-                if let Some(wp) = npc.work_position {
-                    ec.insert(WorkPosition(to_vec2(wp)));
-                }
-            }
-            Job::Fighter => {
-                ec.insert(AttackTimer(0.0));
-            }
+        }
+        if let Some(wp) = npc.work_position {
+            ec.insert(WorkPosition(to_vec2(wp)));
         }
 
         if let Some(sq) = npc.squad_id {

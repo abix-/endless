@@ -52,26 +52,29 @@ impl Job {
         }
     }
 
-    /// RGBA color for this job type. Alpha=1.0 means "has target" on GPU.
+    /// Display label from NPC registry.
+    pub fn label(&self) -> &'static str {
+        crate::constants::npc_def(*self).label
+    }
+
+    /// Sprite (col, row) from NPC registry.
+    pub fn sprite(&self) -> (f32, f32) {
+        crate::constants::npc_def(*self).sprite
+    }
+
+    /// RGBA color from NPC registry. Alpha=1.0 means "has target" on GPU.
     pub fn color(&self) -> (f32, f32, f32, f32) {
-        match self {
-            Job::Farmer => (0.0, 1.0, 0.0, 1.0),      // Green
-            Job::Archer => (0.0, 0.0, 1.0, 1.0),       // Blue
-            Job::Raider => (1.0, 0.0, 0.0, 1.0),       // Red
-            Job::Fighter => (1.0, 1.0, 0.0, 1.0),      // Yellow
-            Job::Miner => (0.6, 0.4, 0.2, 1.0),        // Brown
-            Job::Crossbow => (0.4, 0.0, 0.8, 1.0),     // Purple
-        }
+        crate::constants::npc_def(*self).color
     }
 
-    /// Returns true for jobs that patrol waypoints and use squads (Archer, Crossbow).
+    /// Returns true for jobs that patrol waypoints and use squads.
     pub fn is_patrol_unit(&self) -> bool {
-        matches!(self, Job::Archer | Job::Crossbow)
+        crate::constants::npc_def(*self).is_patrol_unit
     }
 
-    /// Returns true for combat-capable jobs (Archer, Crossbow, Raider, Fighter).
+    /// Returns true for combat-capable jobs.
     pub fn is_military(&self) -> bool {
-        matches!(self, Job::Archer | Job::Crossbow | Job::Raider | Job::Fighter)
+        crate::constants::npc_def(*self).is_military
     }
 }
 

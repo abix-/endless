@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction};
-use crate::constants::{FOUNTAIN_TOWER, TowerStats};
+use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
 use crate::systemparams::{EconomyState, WorldState};
@@ -22,22 +22,12 @@ pub struct JobStats {
     pub speed: f32,
 }
 
-/// Per-attack-type weapon stats. Determines "how does this NPC fight?"
-#[derive(Clone, Debug)]
-pub struct AttackTypeStats {
-    pub range: f32,
-    pub cooldown: f32,
-    pub projectile_speed: f32,
-    pub projectile_lifetime: f32,
-}
-
 /// Central combat configuration. All NPC stats resolve from this.
+/// Base job stats populated from NPC_REGISTRY.
 #[derive(Resource)]
 pub struct CombatConfig {
     pub jobs: HashMap<Job, JobStats>,
     pub attacks: HashMap<BaseAttackType, AttackTypeStats>,
-    /// Crossbow-specific attack stats (overrides Ranged base for Job::Crossbow).
-    pub crossbow_attack: AttackTypeStats,
     pub heal_rate: f32,
     pub heal_radius: f32,
 }
@@ -45,13 +35,13 @@ pub struct CombatConfig {
 impl Default for CombatConfig {
     fn default() -> Self {
         let mut jobs = HashMap::new();
-        // All jobs: 100 HP, 100 speed. Damage varies.
-        jobs.insert(Job::Archer, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
-        jobs.insert(Job::Raider, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
-        jobs.insert(Job::Farmer, JobStats { max_health: 100.0, damage: 0.0, speed: 100.0 });
-        jobs.insert(Job::Miner, JobStats { max_health: 100.0, damage: 0.0, speed: 100.0 });
-        jobs.insert(Job::Fighter, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
-        jobs.insert(Job::Crossbow, JobStats { max_health: 100.0, damage: 25.0, speed: 100.0 });
+        for def in NPC_REGISTRY {
+            jobs.insert(def.job, JobStats {
+                max_health: def.base_hp,
+                damage: def.base_damage,
+                speed: def.base_speed,
+            });
+        }
 
         let mut attacks = HashMap::new();
         attacks.insert(BaseAttackType::Melee, AttackTypeStats {
@@ -61,11 +51,7 @@ impl Default for CombatConfig {
             range: 100.0, cooldown: 1.5, projectile_speed: 100.0, projectile_lifetime: 1.5,
         });
 
-        let crossbow_attack = AttackTypeStats {
-            range: 150.0, cooldown: 2.0, projectile_speed: 150.0, projectile_lifetime: 1.5,
-        };
-
-        Self { jobs, attacks, crossbow_attack, heal_rate: 5.0, heal_radius: 150.0 }
+        Self { jobs, attacks, heal_rate: 5.0, heal_radius: 150.0 }
     }
 }
 
@@ -493,11 +479,9 @@ pub fn resolve_combat_stats(
     upgrades: &TownUpgrades,
 ) -> CachedStats {
     let job_base = config.jobs.get(&job).expect("missing job stats");
-    let atk_base = if job == Job::Crossbow {
-        &config.crossbow_attack
-    } else {
-        config.attacks.get(&attack_type).expect("missing attack type stats")
-    };
+    let def = npc_def(job);
+    let default_atk = config.attacks.get(&attack_type).expect("missing attack type stats");
+    let atk_base = def.attack_override.as_ref().unwrap_or(default_atk);
     let (trait_damage, trait_hp, trait_speed, _trait_yield) = personality.get_stat_multipliers();
     let level_mult = 1.0 + level as f32 * 0.01;
 

@@ -3,7 +3,6 @@
 use bevy::prelude::*;
 
 use crate::components::*;
-use crate::constants::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
     NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta,
@@ -110,14 +109,8 @@ pub fn spawn_npc_system(
         } else {
             (msg.x, msg.y)
         };
-        let (sprite_col, sprite_row) = match job {
-            Job::Farmer => SPRITE_FARMER,
-            Job::Archer => SPRITE_ARCHER,
-            Job::Raider => SPRITE_RAIDER,
-            Job::Fighter => SPRITE_FIGHTER,
-            Job::Miner => SPRITE_MINER,
-            Job::Crossbow => SPRITE_CROSSBOW,
-        };
+        let def = crate::constants::npc_def(job);
+        let (sprite_col, sprite_row) = def.sprite;
 
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: target_x, y: target_y }));
@@ -146,61 +139,34 @@ pub fn spawn_npc_system(
             CombatState::default(),
         ));
 
-        // Job template — determines component bundle
+        // Data-driven components from NPC registry
+        if def.has_energy { ec.insert(Energy::default()); }
+        if def.has_attack_timer { ec.insert(AttackTimer(0.0)); }
+        if let Some(w) = def.weapon { ec.insert(EquippedWeapon(w.0, w.1)); }
+        if let Some(h) = def.helmet { ec.insert(EquippedHelmet(h.0, h.1)); }
+        if def.stealer { ec.insert(Stealer); }
+        if let Some(d) = def.leash_range { ec.insert(LeashRange { distance: d }); }
+        if def.is_patrol_unit { dirty.squads = true; }
+        if job == Job::Miner { dirty.mining = true; }
+
+        // Marker components (distinct types for ECS query filtering)
         match job {
-            Job::Archer => {
-                dirty.squads = true;
-                ec.insert(Energy::default());
-                ec.insert(AttackTimer(0.0));
-                ec.insert(Archer);
-                ec.insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)));
-                if msg.starting_post >= 0 {
-                    let patrol_posts = build_patrol_route(&world_data, msg.town_idx as u32);
-                    ec.insert(PatrolRoute {
-                        posts: patrol_posts,
-                        current: msg.starting_post as usize,
-                    });
-                    ec.insert(Activity::OnDuty { ticks_waiting: 0 });
-                }
-            }
-            Job::Farmer => {
-                ec.insert(Energy::default());
-                ec.insert(Farmer);
-                if msg.work_x >= 0.0 {
-                    ec.insert(WorkPosition(Vec2::new(msg.work_x, msg.work_y)));
-                    ec.insert(Activity::GoingToWork);
-                }
-            }
-            Job::Raider => {
-                ec.insert(Energy::default());
-                ec.insert(AttackTimer(0.0));
-                ec.insert(Stealer);
-                ec.insert(EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1));
-                ec.insert(LeashRange { distance: 400.0 });
-            }
-            Job::Miner => {
-                dirty.mining = true;
-                ec.insert(Energy::default());
-                ec.insert(Miner);
-            }
-            Job::Crossbow => {
-                dirty.squads = true;
-                ec.insert(Energy::default());
-                ec.insert(AttackTimer(0.0));
-                ec.insert(Crossbow);
-                ec.insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)));
-                if msg.starting_post >= 0 {
-                    let patrol_posts = build_patrol_route(&world_data, msg.town_idx as u32);
-                    ec.insert(PatrolRoute {
-                        posts: patrol_posts,
-                        current: msg.starting_post as usize,
-                    });
-                    ec.insert(Activity::OnDuty { ticks_waiting: 0 });
-                }
-            }
-            Job::Fighter => {
-                ec.insert(AttackTimer(0.0));
-            }
+            Job::Archer => { ec.insert(Archer); }
+            Job::Farmer => { ec.insert(Farmer); }
+            Job::Miner => { ec.insert(Miner); }
+            Job::Crossbow => { ec.insert(Crossbow); }
+            _ => {}
+        }
+
+        // Conditional setup from message data
+        if def.is_patrol_unit && msg.starting_post >= 0 {
+            let patrol_posts = build_patrol_route(&world_data, msg.town_idx as u32);
+            ec.insert(PatrolRoute { posts: patrol_posts, current: msg.starting_post as usize });
+            ec.insert(Activity::OnDuty { ticks_waiting: 0 });
+        }
+        if job == Job::Farmer && msg.work_x >= 0.0 {
+            ec.insert(WorkPosition(Vec2::new(msg.work_x, msg.work_y)));
+            ec.insert(Activity::GoingToWork);
         }
 
         npc_map.0.insert(idx, ec.id());

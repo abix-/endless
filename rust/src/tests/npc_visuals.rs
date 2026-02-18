@@ -255,10 +255,10 @@ pub fn tick(
             let info = match col {
                 COL_BODY => {
                     let (sc, sr) = match row {
-                        ROW_ARCHER => SPRITE_ARCHER,
-                        ROW_FARMER => SPRITE_FARMER,
-                        ROW_RAIDER => SPRITE_RAIDER,
-                        ROW_FIGHTER => SPRITE_FIGHTER,
+                        ROW_ARCHER => npc_def(Job::Archer).sprite,
+                        ROW_FARMER => npc_def(Job::Farmer).sprite,
+                        ROW_RAIDER => npc_def(Job::Raider).sprite,
+                        ROW_FIGHTER => npc_def(Job::Fighter).sprite,
                         _ => (0.0, 0.0),
                     };
                     format!("({:.0},{:.0})", sc, sr)

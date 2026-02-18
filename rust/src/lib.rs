@@ -77,16 +77,9 @@ pub fn derive_npc_state(world: &World, entity: Entity) -> &'static str {
     "Idle"
 }
 
-/// Get job name from job ID.
+/// Get job name from job ID. Delegates to NPC registry.
 pub fn job_name(job: i32) -> &'static str {
-    match job {
-        0 => "Farmer",
-        1 => "Archer",
-        2 => "Raider",
-        3 => "Fighter",
-        4 => "Miner",
-        _ => "Unknown",
-    }
+    components::Job::from_i32(job).label()
 }
 
 /// Get trait name from trait ID.

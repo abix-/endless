@@ -312,7 +312,8 @@ pub fn resolve_spawner_npc(
     occupancy: &BuildingOccupancy,
     miner_homes: &[MinerHome],
 ) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
-    use crate::constants::{SpawnBehavior, BUILDING_REGISTRY};
+    use crate::constants::{SpawnBehavior, BUILDING_REGISTRY, npc_def};
+    use crate::components::Job;
 
     let town_faction = towns.get(entry.town_idx as usize)
         .map(|t| t.faction).unwrap_or(0);
@@ -327,23 +328,25 @@ pub fn resolve_spawner_npc(
         return (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown");
     };
 
+    let npc_label = npc_def(Job::from_i32(spawner.job)).label;
+
     match spawner.behavior {
         SpawnBehavior::FindNearestFarm => {
             let farm = find_nearest_free(
                 entry.position, bgrid, BuildingKind::Farm, occupancy, Some(entry.town_idx as u32),
             ).unwrap_or(entry.position);
-            (spawner.job, town_faction, farm.x, farm.y, -1, spawner.attack_type, spawner.npc_label, def.label)
+            (spawner.job, town_faction, farm.x, farm.y, -1, spawner.attack_type, npc_label, def.label)
         }
         SpawnBehavior::FindNearestWaypoint => {
             let post_idx = find_location_within_radius(
                 entry.position, bgrid, LocationKind::Waypoint, f32::MAX,
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-            (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, spawner.npc_label, def.label)
+            (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, npc_label, def.label)
         }
         SpawnBehavior::CampRaider => {
             let camp_faction = towns.get(entry.town_idx as usize)
                 .map(|t| t.faction).unwrap_or(1);
-            (spawner.job, camp_faction, -1.0, -1.0, -1, spawner.attack_type, spawner.npc_label, def.label)
+            (spawner.job, camp_faction, -1.0, -1.0, -1, spawner.attack_type, npc_label, def.label)
         }
         SpawnBehavior::Miner => {
             let assigned = miner_homes.iter()
@@ -354,7 +357,7 @@ pub fn resolve_spawner_npc(
                     entry.position, bgrid, BuildingKind::GoldMine, occupancy, None,
                 ).unwrap_or(entry.position)
             });
-            (spawner.job, town_faction, mine.x, mine.y, -1, spawner.attack_type, spawner.npc_label, def.label)
+            (spawner.job, town_faction, mine.x, mine.y, -1, spawner.attack_type, npc_label, def.label)
         }
     }
 }

@@ -12,6 +12,7 @@ pub mod farmer_cycle;
 pub mod raider_cycle;
 pub mod combat;
 pub mod projectiles;
+pub mod fountain_shot_stale;
 pub mod friendly_fire_buildings;
 pub mod healing;
 pub mod economy;
@@ -447,6 +448,22 @@ pub fn register_tests(app: &mut App) {
             .run_if(in_state(AppState::Running))
             .run_if(test_is("projectiles"))
             .after(Step::Behavior));
+
+    // fountain-shot-stale
+    registry.tests.push(TestEntry {
+        name: "fountain-shot-stale".into(),
+        description: "Fountain projectiles: detect alternating stale readback position pattern".into(),
+        phase_count: 3,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        fountain_shot_stale::setup.run_if(test_is("fountain-shot-stale")));
+    app.add_systems(Update,
+        fountain_shot_stale::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("fountain-shot-stale"))
+            .after(Step::Behavior));
+
     // friendly-fire-buildings
     registry.tests.push(TestEntry {
         name: "friendly-fire-buildings".into(),

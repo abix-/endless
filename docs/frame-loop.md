@@ -44,6 +44,8 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │       GPU_UPDATE_QUEUE → NpcGpuState (per-field dirty indices + flash decay)
 │     build_visual_upload
 │       ECS query + NpcGpuState → NpcVisualUpload (GPU-ready packed visual + equip)
+│     build_overlay_instances
+│       GrowthStates + BuildingHpRender + MinerProgressRender → OverlayInstances
 │
 ├─ update_gpu_data (sync npc_count + delta → NpcGpuData; delta=0 when paused)
 │
@@ -52,7 +54,8 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 │    NpcGpuState (Extract<Res<T>>, zero-clone)
 │    NpcVisualUpload (Extract<Res<T>>, zero-clone)
 │    ProjBufferWrites, ProjPositionState (Extract<Res<T>>, zero-clone)
-│    NpcGpuData, NpcComputeParams, NpcSpriteTexture (ExtractResource clone)
+│    NpcGpuData, NpcSpriteTexture (ExtractResource clone)
+│    OverlayInstances (Extract<Res<T>>, zero-clone → BuildingOverlayBuffers)
 │    extract_npc_batch, extract_proj_batch (marker entities)
 │    extract_npc_data (per-dirty-index + bulk write_buffer to GPU)
 │    extract_proj_data (per-dirty-index write_buffer + proj instance buffer build)
@@ -61,7 +64,7 @@ MAIN WORLD — Bevy Update Schedule (game systems gated on AppState::Running)
 RENDER WORLD — parallel with next frame's main world
 │
 ├─ PrepareResources
-│     prepare_npc_buffers        (buffer creation + sentinel init, build misc instance buffer)
+│     prepare_npc_buffers        (buffer creation + sentinel init, create bind group 2)
 │
 ├─ PrepareBindGroups
 │     prepare_npc_bind_groups    (compute shader)

@@ -1312,7 +1312,6 @@ struct CleanupWorld<'w> {
     npc_gpu_state: ResMut<'w, crate::gpu::NpcGpuState>,
     npc_visual_upload: ResMut<'w, crate::gpu::NpcVisualUpload>,
     proj_gpu_data: ResMut<'w, crate::gpu::ProjGpuData>,
-    proj_compute_params: ResMut<'w, crate::gpu::ProjComputeParams>,
     proj_buffer_writes: ResMut<'w, crate::gpu::ProjBufferWrites>,
     game_time: ResMut<'w, GameTime>,
     tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
@@ -1405,7 +1404,6 @@ fn game_cleanup_system(
     *world.npc_gpu_state = Default::default();
     *world.npc_visual_upload = Default::default();
     *world.proj_gpu_data = Default::default();
-    *world.proj_compute_params = Default::default();
     *world.proj_buffer_writes = Default::default();
 
     // Reset debug/tracking resources

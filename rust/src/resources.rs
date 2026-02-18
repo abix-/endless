@@ -1,7 +1,6 @@
 //! ECS Resources - Shared state accessible by all systems
 
 use bevy::prelude::*;
-use bevy::render::extract_resource::ExtractResource;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -532,8 +531,8 @@ pub enum GrowthKind {
     Mine,
 }
 
-/// Unified growth tracking for farms and mines. Extracted to render world for instanced sprites.
-#[derive(Resource, Default, Clone, ExtractResource)]
+/// Unified growth tracking for farms and mines. Read by build_overlay_instances for rendering.
+#[derive(Resource, Default)]
 pub struct GrowthStates {
     pub kinds: Vec<GrowthKind>,
     pub states: Vec<FarmGrowthState>,
@@ -1078,8 +1077,8 @@ impl BuildingSlotMap {
     }
 }
 
-/// Building HP render data extracted to render world. Only contains damaged buildings.
-#[derive(Resource, Default, Clone, ExtractResource)]
+/// Building HP render data. Read by build_overlay_instances for rendering.
+#[derive(Resource, Default)]
 pub struct BuildingHpRender {
     pub positions: Vec<Vec2>,
     pub health_pcts: Vec<f32>,

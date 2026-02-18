@@ -144,6 +144,11 @@ pub struct NpcVisualBuffers {
     pub bind_group: Option<BindGroup>,
 }
 
+/// Main-world overlay instances, rebuilt each frame. Zero-clone extracted to render world.
+/// Any system that needs to render building/farm/mine overlays pushes InstanceData here.
+#[derive(Resource, Default)]
+pub struct OverlayInstances(pub Vec<InstanceData>);
+
 /// Instance buffer for building overlays (farms, building HP bars, mine progress).
 #[derive(Resource)]
 pub struct BuildingOverlayBuffers {
@@ -214,7 +219,7 @@ impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<B
         let (npc_buffers, visual_buffers, gpu_data) = params;
         let npc_buffers = npc_buffers.into_inner();
         let visual_buffers = visual_buffers.into_inner();
-        let npc_count = gpu_data.into_inner().npc_count;
+        let npc_count = gpu_data.into_inner().count;
         if npc_count == 0 { return RenderCommandResult::Skip; }
 
         let Some(ref bind_group) = visual_buffers.bind_group else {
@@ -399,7 +404,9 @@ pub struct NpcRenderPlugin;
 
 impl Plugin for NpcRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_npc_batch, spawn_proj_batch));
+        app.init_resource::<OverlayInstances>()
+            .add_systems(Startup, (spawn_npc_batch, spawn_proj_batch))
+            .add_systems(PostUpdate, build_overlay_instances);
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -414,7 +421,7 @@ impl Plugin for NpcRenderPlugin {
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
             .add_systems(
                 ExtractSchedule,
-                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data),
+                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data, extract_overlay_instances),
             )
             .add_systems(
                 Render,
@@ -489,6 +496,107 @@ fn extract_camera_state(
 // EXTRACT: Direct GPU Upload (zero clone)
 // =============================================================================
 
+// =============================================================================
+// OVERLAY INSTANCES (main world → render world, zero-clone)
+// =============================================================================
+
+/// Build overlay instances from GrowthStates + BuildingHpRender each frame.
+/// Runs in main world PostUpdate. Future visual features push here instead of adding new resources.
+fn build_overlay_instances(
+    mut overlay: ResMut<OverlayInstances>,
+    growth_states: Res<crate::resources::GrowthStates>,
+    building_hp: Res<crate::resources::BuildingHpRender>,
+) {
+    overlay.0.clear();
+
+    let count = growth_states.positions.len()
+        .min(growth_states.progress.len())
+        .min(growth_states.states.len())
+        .min(growth_states.kinds.len());
+    for i in 0..count {
+        let pos = growth_states.positions[i];
+        if pos.x < -9000.0 { continue; }
+
+        let ready = growth_states.states[i] == crate::resources::FarmGrowthState::Ready;
+        match growth_states.kinds[i] {
+            crate::resources::GrowthKind::Farm => {
+                let color = if ready {
+                    [1.0, 0.85, 0.0, 1.0]
+                } else {
+                    [0.4, 0.8, 0.2, 1.0]
+                };
+                overlay.0.push(InstanceData {
+                    position: [pos.x, pos.y],
+                    sprite: [24.0, 9.0],
+                    color,
+                    health: growth_states.progress[i].clamp(0.0, 1.0),
+                    flash: 0.0,
+                    scale: 16.0,
+                    atlas_id: 1.0,
+                    rotation: 0.0,
+                });
+            }
+            crate::resources::GrowthKind::Mine => {
+                overlay.0.push(InstanceData {
+                    position: [pos.x, pos.y + 12.0],
+                    sprite: [0.0, 0.0],
+                    color: [1.0, 0.85, 0.0, 1.0],
+                    health: growth_states.progress[i].clamp(0.0, 1.0),
+                    flash: 0.0,
+                    scale: 12.0,
+                    atlas_id: 6.0,
+                    rotation: 0.0,
+                });
+            }
+        }
+    }
+
+    let bhp_count = building_hp.positions.len().min(building_hp.health_pcts.len());
+    for i in 0..bhp_count {
+        overlay.0.push(InstanceData {
+            position: [building_hp.positions[i].x, building_hp.positions[i].y],
+            sprite: [0.0, 0.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+            health: building_hp.health_pcts[i],
+            flash: 0.0,
+            scale: 32.0,
+            atlas_id: 5.0,
+            rotation: 0.0,
+        });
+    }
+}
+
+/// Zero-clone extract: reads OverlayInstances from main world, writes to BuildingOverlayBuffers.
+fn extract_overlay_instances(
+    mut commands: Commands,
+    overlay: Extract<Res<OverlayInstances>>,
+    existing: Option<ResMut<BuildingOverlayBuffers>>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    if let Some(mut buf) = existing {
+        // Reuse existing RawBufferVec allocation
+        buf.instances.clear();
+        for inst in overlay.0.iter() {
+            buf.instances.push(*inst);
+        }
+        buf.count = buf.instances.len() as u32;
+        buf.instances.write_buffer(&render_device, &render_queue);
+    } else {
+        let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
+        for inst in overlay.0.iter() {
+            instances.push(*inst);
+        }
+        let count = instances.len() as u32;
+        instances.write_buffer(&render_device, &render_queue);
+        commands.insert_resource(BuildingOverlayBuffers { instances, count });
+    }
+}
+
+// =============================================================================
+// EXTRACT: NPC + PROJECTILE DATA
+// =============================================================================
+
 /// Upload NPC compute + visual data directly to GPU buffers during Extract phase.
 // --- Shared dirty-write helpers (used by both NPC and projectile extract) ---
 
@@ -538,7 +646,7 @@ fn extract_npc_data(
     // GPU-authoritative (positions/arrivals): per-index writes (spawn/death only, ~10-50/frame)
     // CPU-authoritative (rest): bulk writes (1 call per buffer instead of thousands)
     if let Some(gpu_bufs) = gpu_buffers {
-        let n = gpu_data.npc_count as usize;
+        let n = gpu_data.count as usize;
         if gpu_state.dirty_positions { write_dirty_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2); }
         if gpu_state.dirty_arrivals  { write_dirty_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1); }
         if gpu_state.dirty_targets   { write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2); }
@@ -677,87 +785,11 @@ fn prepare_npc_buffers(
     gpu_buffers: Option<Res<NpcGpuBuffers>>,
     existing_render: Option<ResMut<NpcRenderBuffers>>,
     existing_visual: Option<ResMut<NpcVisualBuffers>>,
-    existing_misc: Option<ResMut<BuildingOverlayBuffers>>,
-    growth_states: Option<Res<crate::resources::GrowthStates>>,
-    building_hp_render: Option<Res<crate::resources::BuildingHpRender>>,
 ) {
     use std::sync::atomic::Ordering;
     use crate::messages::{RENDER_PROFILING, RENDER_TIMINGS, RT_PREPARE_NPC};
     let profiling = RENDER_PROFILING.load(Ordering::Relaxed);
     let start = if profiling { Some(std::time::Instant::now()) } else { None };
-    // --- Misc instance buffer (farms + building HP bars) ---
-    let mut misc_instances = RawBufferVec::new(BufferUsages::VERTEX);
-
-    if let Some(gs) = growth_states {
-        let count = gs.positions.len().min(gs.progress.len()).min(gs.states.len()).min(gs.kinds.len());
-        for i in 0..count {
-            let pos = gs.positions[i];
-            if pos.x < -9000.0 { continue; }
-
-            let ready = gs.states[i] == crate::resources::FarmGrowthState::Ready;
-            match gs.kinds[i] {
-                crate::resources::GrowthKind::Farm => {
-                    let color = if ready {
-                        [1.0, 0.85, 0.0, 1.0]
-                    } else {
-                        [0.4, 0.8, 0.2, 1.0]
-                    };
-                    misc_instances.push(InstanceData {
-                        position: [pos.x, pos.y],
-                        sprite: [24.0, 9.0],
-                        color,
-                        health: gs.progress[i].clamp(0.0, 1.0),
-                        flash: 0.0,
-                        scale: 16.0,
-                        atlas_id: 1.0,
-                        rotation: 0.0,
-                    });
-                }
-                crate::resources::GrowthKind::Mine => {
-                    // Gold progress bar at mine position
-                    misc_instances.push(InstanceData {
-                        position: [pos.x, pos.y + 12.0],
-                        sprite: [0.0, 0.0],
-                        color: [1.0, 0.85, 0.0, 1.0],
-                        health: gs.progress[i].clamp(0.0, 1.0),
-                        flash: 0.0,
-                        scale: 12.0,
-                        atlas_id: 6.0,
-                        rotation: 0.0,
-                    });
-                }
-            }
-        }
-    }
-
-    if let Some(bhp) = building_hp_render {
-        let count = bhp.positions.len().min(bhp.health_pcts.len());
-        for i in 0..count {
-            misc_instances.push(InstanceData {
-                position: [bhp.positions[i].x, bhp.positions[i].y],
-                sprite: [0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-                health: bhp.health_pcts[i],
-                flash: 0.0,
-                scale: 32.0,
-                atlas_id: 5.0,
-                rotation: 0.0,
-            });
-        }
-    }
-
-    let misc_count = misc_instances.len() as u32;
-    misc_instances.write_buffer(&render_device, &render_queue);
-
-    if let Some(mut misc) = existing_misc {
-        misc.instances = misc_instances;
-        misc.count = misc_count;
-    } else {
-        commands.insert_resource(BuildingOverlayBuffers {
-            instances: misc_instances,
-            count: misc_count,
-        });
-    }
 
     // --- NPC visual storage buffers ---
     // Visual data is uploaded by extract_npc_data in Extract phase (zero clone).
@@ -921,7 +953,7 @@ fn prepare_npc_camera_bind_group(
     let uniform = CameraUniform {
         camera_pos: camera_state.position,
         zoom: camera_state.zoom,
-        npc_count: gpu_data.map(|d| d.npc_count).unwrap_or(0),
+        npc_count: gpu_data.map(|d| d.count).unwrap_or(0),
         viewport: camera_state.viewport,
     };
 
@@ -990,7 +1022,7 @@ fn queue_npcs(
     let Some(_render_buffers) = render_buffers else { return };
 
     let has_npcs = visual_buffers.as_ref().is_some_and(|vb| vb.bind_group.is_some())
-        && gpu_data.as_ref().is_some_and(|d| d.npc_count > 0);
+        && gpu_data.as_ref().is_some_and(|d| d.count > 0);
     let has_building_overlays = overlay_buffers.as_ref().is_some_and(|m| m.count > 0);
 
     if !has_npcs && !has_building_overlays { return; }

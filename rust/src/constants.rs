@@ -1,5 +1,6 @@
 //! Constants - Tuning parameters for the NPC system
 
+use crate::components::{Job, BaseAttackType};
 use crate::world::BuildingKind;
 
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
@@ -23,13 +24,108 @@ pub const ARRIVAL_THRESHOLD: f32 = 20.0;
 /// Transform2D (8) + Color (4) + CustomData (4) = 16
 pub const FLOATS_PER_INSTANCE: usize = 16;
 
-// Sprite frames (column, row) in the character sheet (17px cells with 1px margin)
-pub const SPRITE_FARMER: (f32, f32) = (1.0, 6.0);
-pub const SPRITE_ARCHER: (f32, f32) = (0.0, 0.0);
-pub const SPRITE_RAIDER: (f32, f32) = (0.0, 6.0);
-pub const SPRITE_FIGHTER: (f32, f32) = (1.0, 9.0);
-pub const SPRITE_MINER: (f32, f32) = (1.0, 6.0);  // Same sprite as farmer, differentiated by brown tint
-pub const SPRITE_CROSSBOW: (f32, f32) = (0.0, 0.0);  // Placeholder: same as archer, differentiated by purple tint
+// ============================================================================
+// NPC REGISTRY — single source of truth for all NPC types
+// ============================================================================
+
+/// Per-attack-type stats (range, cooldown, projectile behavior).
+#[derive(Clone, Copy, Debug)]
+pub struct AttackTypeStats {
+    pub range: f32,
+    pub cooldown: f32,
+    pub projectile_speed: f32,
+    pub projectile_lifetime: f32,
+}
+
+/// Complete NPC type definition — one entry per Job variant.
+#[derive(Clone, Copy, Debug)]
+pub struct NpcDef {
+    pub job: Job,
+    pub label: &'static str,
+    pub sprite: (f32, f32),
+    pub color: (f32, f32, f32, f32),
+    // Base combat stats
+    pub base_hp: f32,
+    pub base_damage: f32,
+    pub base_speed: f32,
+    pub default_attack_type: BaseAttackType,
+    /// Per-job attack override (e.g. crossbow has different range/cooldown than generic Ranged).
+    pub attack_override: Option<AttackTypeStats>,
+    // Classification
+    pub is_patrol_unit: bool,
+    pub is_military: bool,
+    // Spawn component flags
+    pub has_energy: bool,
+    pub has_attack_timer: bool,
+    pub weapon: Option<(f32, f32)>,
+    pub helmet: Option<(f32, f32)>,
+    pub stealer: bool,
+    pub leash_range: Option<f32>,
+}
+
+pub const NPC_REGISTRY: &[NpcDef] = &[
+    NpcDef {
+        job: Job::Farmer, label: "Farmer",
+        sprite: (1.0, 6.0), color: (0.0, 1.0, 0.0, 1.0),
+        base_hp: 100.0, base_damage: 0.0, base_speed: 100.0,
+        default_attack_type: BaseAttackType::Melee, attack_override: None,
+        is_patrol_unit: false, is_military: false,
+        has_energy: true, has_attack_timer: false,
+        weapon: None, helmet: None, stealer: false, leash_range: None,
+    },
+    NpcDef {
+        job: Job::Archer, label: "Archer",
+        sprite: (0.0, 0.0), color: (0.0, 0.0, 1.0, 1.0),
+        base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
+        default_attack_type: BaseAttackType::Ranged, attack_override: None,
+        is_patrol_unit: true, is_military: true,
+        has_energy: true, has_attack_timer: true,
+        weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
+    },
+    NpcDef {
+        job: Job::Raider, label: "Raider",
+        sprite: (0.0, 6.0), color: (1.0, 0.0, 0.0, 1.0),
+        base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
+        default_attack_type: BaseAttackType::Melee, attack_override: None,
+        is_patrol_unit: false, is_military: true,
+        has_energy: true, has_attack_timer: true,
+        weapon: Some(EQUIP_SWORD), helmet: None, stealer: true, leash_range: Some(400.0),
+    },
+    NpcDef {
+        job: Job::Fighter, label: "Fighter",
+        sprite: (1.0, 9.0), color: (1.0, 1.0, 0.0, 1.0),
+        base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
+        default_attack_type: BaseAttackType::Melee, attack_override: None,
+        is_patrol_unit: false, is_military: true,
+        has_energy: false, has_attack_timer: true,
+        weapon: None, helmet: None, stealer: false, leash_range: None,
+    },
+    NpcDef {
+        job: Job::Miner, label: "Miner",
+        sprite: (1.0, 6.0), color: (0.6, 0.4, 0.2, 1.0),
+        base_hp: 100.0, base_damage: 0.0, base_speed: 100.0,
+        default_attack_type: BaseAttackType::Melee, attack_override: None,
+        is_patrol_unit: false, is_military: false,
+        has_energy: true, has_attack_timer: false,
+        weapon: None, helmet: None, stealer: false, leash_range: None,
+    },
+    NpcDef {
+        job: Job::Crossbow, label: "Crossbow",
+        sprite: (0.0, 0.0), color: (0.4, 0.0, 0.8, 1.0),
+        base_hp: 100.0, base_damage: 25.0, base_speed: 100.0,
+        default_attack_type: BaseAttackType::Ranged,
+        attack_override: Some(AttackTypeStats { range: 150.0, cooldown: 2.0, projectile_speed: 150.0, projectile_lifetime: 1.5 }),
+        is_patrol_unit: true, is_military: true,
+        has_energy: true, has_attack_timer: true,
+        weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
+    },
+];
+
+/// Look up NPC definition by job. Panics if job not in registry.
+pub fn npc_def(job: Job) -> &'static NpcDef {
+    NPC_REGISTRY.iter().find(|d| d.job == job)
+        .unwrap_or_else(|| panic!("no NpcDef for {:?}", job))
+}
 
 /// Size of push constants passed to the compute shader.
 pub const PUSH_CONSTANTS_SIZE: usize = 48;
@@ -320,7 +416,6 @@ pub struct SpawnerDef {
     pub job: i32,           // Job::from_i32 index (0=Farmer, 1=Archer, 2=Raider, 4=Miner, 5=Crossbow)
     pub attack_type: i32,   // 0=melee, 1=ranged bow, 2=ranged xbow
     pub behavior: SpawnBehavior,
-    pub npc_label: &'static str,
 }
 
 /// Complete building definition — one entry per BuildingKind.
@@ -410,7 +505,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 0, attack_type: 0, behavior: SpawnBehavior::FindNearestFarm, npc_label: "Farmer" }),
+        spawner: Some(SpawnerDef { job: 0, attack_type: 0, behavior: SpawnBehavior::FindNearestFarm }),
     },
     // 6: Archer Home
     BuildingDef {
@@ -422,7 +517,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 1, attack_type: 1, behavior: SpawnBehavior::FindNearestWaypoint, npc_label: "Archer" }),
+        spawner: Some(SpawnerDef { job: 1, attack_type: 1, behavior: SpawnBehavior::FindNearestWaypoint }),
     },
     // 7: Tent (raider spawner)
     BuildingDef {
@@ -434,7 +529,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 2, attack_type: 0, behavior: SpawnBehavior::CampRaider, npc_label: "Raider" }),
+        spawner: Some(SpawnerDef { job: 2, attack_type: 0, behavior: SpawnBehavior::CampRaider }),
     },
     // 8: Gold Mine
     BuildingDef {
@@ -457,7 +552,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 4, attack_type: 0, behavior: SpawnBehavior::Miner, npc_label: "Miner" }),
+        spawner: Some(SpawnerDef { job: 4, attack_type: 0, behavior: SpawnBehavior::Miner }),
     },
     // 10: Crossbow Home
     BuildingDef {
@@ -469,7 +564,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 5, attack_type: 2, behavior: SpawnBehavior::FindNearestWaypoint, npc_label: "Crossbow" }),
+        spawner: Some(SpawnerDef { job: 5, attack_type: 2, behavior: SpawnBehavior::FindNearestWaypoint }),
     },
 ];
 
