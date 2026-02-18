@@ -1,12 +1,6 @@
 # Endless
 
-One town. A few farmers. Raiders at the gate.
-
-  Grow food. Train guards. Raise an army. Take the county. Take the world.
-
-  A real-time kingdom builder where every NPC has a job, a home, and a personality. Assign farmers to fields, set patrol routes for archers, organize
-  squads of crossbowmen and fighters, and watch your economy either hum or collapse under its own weight. AI opponents do the same — they build towns,
-  compete for gold mines, upgrade their tech trees, and send waves when they smell weakness.
+Build a town under siege—farm, fortify, raise an army, and conquer outward
 
 <!-- TODO: Add screenshot/GIF here -->
 
