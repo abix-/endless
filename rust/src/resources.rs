@@ -1067,12 +1067,26 @@ pub struct BuildingHpRender {
 /// once per game hour whenever the town has enough food.
 #[derive(Resource)]
 pub struct AutoUpgrade {
-    pub flags: Vec<[bool; crate::systems::stats::UPGRADE_COUNT]>,
+    pub flags: Vec<Vec<bool>>,
+}
+
+impl AutoUpgrade {
+    /// Ensure flags vec has at least `n` town entries, each sized to current upgrade count.
+    pub fn ensure_towns(&mut self, n: usize) {
+        let count = crate::systems::stats::upgrade_count();
+        while self.flags.len() < n {
+            self.flags.push(vec![false; count]);
+        }
+        for v in &mut self.flags {
+            v.resize(count, false);
+        }
+    }
 }
 
 impl Default for AutoUpgrade {
     fn default() -> Self {
-        Self { flags: vec![[false; crate::systems::stats::UPGRADE_COUNT]; 16] }
+        let count = crate::systems::stats::upgrade_count();
+        Self { flags: vec![vec![false; count]; 16] }
     }
 }
 

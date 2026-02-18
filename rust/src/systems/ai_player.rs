@@ -17,7 +17,8 @@ use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::components::{Dead, NpcIndex, SquadUnit, TownId};
 use crate::world::{self, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
-use crate::systems::stats::{UpgradeQueue, TownUpgrades, UpgradeType, upgrade_node, upgrade_available, UPGRADE_COUNT};
+use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, UPGRADES};
+use crate::constants::UpgradeStatKind;
 
 // Rust orientation notes for readers coming from PowerShell:
 // - `Option<T>` is Rust's explicit nullable type (`Some(value)` or `None`).
@@ -199,7 +200,7 @@ enum AiAction {
     BuildTent,
     BuildMinerHome,
     ExpandMiningRadius,
-    Upgrade(usize), // upgrade index into UPGRADE_PCT
+    Upgrade(usize), // upgrade index into UPGRADES registry
 }
 
 impl AiPersonality {
@@ -247,6 +248,16 @@ impl AiPersonality {
                 mining_radius: DEFAULT_MINING_RADIUS,
                 ..PolicySet::default()
             },
+        }
+    }
+
+    /// Food desire thresholds for toggling eat_food policy.
+    /// Returns (disable_above, reenable_below) — higher food_desire = more food stress.
+    fn eat_food_desire_thresholds(self) -> (f32, f32) {
+        match self {
+            Self::Aggressive => (0.4, 0.2),
+            Self::Balanced   => (0.6, 0.3),
+            Self::Economic   => (0.8, 0.5),
         }
     }
 
@@ -306,23 +317,85 @@ impl AiPersonality {
         }
     }
 
-    /// Upgrade weights indexed by UpgradeType discriminant (20 entries).
+    /// Upgrade weights by (category, stat_kind). Returns a Vec indexed by upgrade registry index.
     /// Only entries with weight > 0 are scored.
-    fn upgrade_weights(self, kind: AiKind) -> [f32; UPGRADE_COUNT] {
-        // Weight table indexed by upgrade enum discriminant.
-        // Larger values increase chance in weighted random selection.
+    fn upgrade_weights(self, kind: AiKind) -> Vec<f32> {
+        let reg = &*UPGRADES;
+        let count = reg.count();
+        let mut weights = vec![0.0f32; count];
+
+        // Helper to set weight by category + stat
+        let mut set = |cat: &str, stat: UpgradeStatKind, w: f32| {
+            if let Some(idx) = reg.index(cat, stat) {
+                weights[idx] = w;
+            }
+        };
+
         match kind {
-            //                             MHP MAt MRn AS  MMS Alt Ddg FYd FHP FMS mHP mMS GYd Hel FRg FAS FPL Exp PSp PLf XHP XAt XRn XAS XMS
-            AiKind::Raider => match self {
-                Self::Economic =>         [4., 4., 0., 4., 6., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 0., 0., 0., 0., 0., 0., 0.],
-                _ =>                      [4., 6., 2., 6., 4., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 0., 0., 0., 0., 0., 0., 0.],
-            },
-            AiKind::Builder => match self {
-                Self::Aggressive =>       [6., 8., 4., 6., 4., 0., 0., 2., 1., 0., 1., 0., 1., 1., 5., 6., 5., 8., 3., 3., 5., 7., 3., 5., 3.],
-                Self::Balanced =>         [5., 5., 2., 4., 3., 0., 0., 5., 3., 1., 3., 1., 2., 3., 5., 4., 4., 10., 2., 2., 4., 4., 2., 3., 2.],
-                Self::Economic =>         [3., 2., 1., 2., 2., 0., 0., 8., 5., 2., 5., 2., 4., 5., 4., 3., 3., 12., 1., 1., 2., 2., 1., 1., 1.],
-            },
+            AiKind::Raider => {
+                // Raiders upgrade Archer + Fighter stats
+                let (hp, atk, rng, aspd, mspd, exp) = match self {
+                    Self::Economic =>  (4., 4., 0., 4., 6., 2.),
+                    _ =>               (4., 6., 2., 6., 4., 2.),
+                };
+                for cat in ["Archer", "Fighter"] {
+                    set(cat, UpgradeStatKind::Hp, hp);
+                    set(cat, UpgradeStatKind::Attack, atk);
+                    set(cat, UpgradeStatKind::Range, rng);
+                    set(cat, UpgradeStatKind::AttackSpeed, aspd);
+                    set(cat, UpgradeStatKind::MoveSpeed, mspd);
+                }
+                set("Town", UpgradeStatKind::Expansion, exp);
+            }
+            AiKind::Builder => {
+                // Builder AI upgrades everything
+                let (aggr, bal, econ) = (
+                    // Archer/Fighter
+                    (6., 8., 4., 6., 4., 3., 3.),
+                    (5., 5., 2., 4., 3., 2., 2.),
+                    (3., 2., 1., 2., 2., 1., 1.),
+                );
+                let m = match self { Self::Aggressive => aggr, Self::Balanced => bal, Self::Economic => econ };
+                for cat in ["Archer", "Fighter"] {
+                    set(cat, UpgradeStatKind::Hp, m.0);
+                    set(cat, UpgradeStatKind::Attack, m.1);
+                    set(cat, UpgradeStatKind::Range, m.2);
+                    set(cat, UpgradeStatKind::AttackSpeed, m.3);
+                    set(cat, UpgradeStatKind::MoveSpeed, m.4);
+                    set(cat, UpgradeStatKind::ProjectileSpeed, m.5);
+                    set(cat, UpgradeStatKind::ProjectileLifetime, m.6);
+                }
+
+                // Crossbow
+                let x = match self { Self::Aggressive => (5., 7., 3., 5., 3.), Self::Balanced => (4., 4., 2., 3., 2.), Self::Economic => (2., 2., 1., 1., 1.) };
+                set("Crossbow", UpgradeStatKind::Hp, x.0);
+                set("Crossbow", UpgradeStatKind::Attack, x.1);
+                set("Crossbow", UpgradeStatKind::Range, x.2);
+                set("Crossbow", UpgradeStatKind::AttackSpeed, x.3);
+                set("Crossbow", UpgradeStatKind::MoveSpeed, x.4);
+
+                // Farmer
+                let f = match self { Self::Aggressive => (2., 1., 0.), Self::Balanced => (5., 3., 1.), Self::Economic => (8., 5., 2.) };
+                set("Farmer", UpgradeStatKind::Yield, f.0);
+                set("Farmer", UpgradeStatKind::Hp, f.1);
+                set("Farmer", UpgradeStatKind::MoveSpeed, f.2);
+
+                // Miner
+                let mn = match self { Self::Aggressive => (1., 0., 1.), Self::Balanced => (3., 1., 2.), Self::Economic => (5., 2., 4.) };
+                set("Miner", UpgradeStatKind::Hp, mn.0);
+                set("Miner", UpgradeStatKind::MoveSpeed, mn.1);
+                set("Miner", UpgradeStatKind::Yield, mn.2);
+
+                // Town
+                let t = match self { Self::Aggressive => (1., 5., 6., 5., 8.), Self::Balanced => (3., 5., 4., 4., 10.), Self::Economic => (5., 4., 3., 3., 12.) };
+                set("Town", UpgradeStatKind::Healing, t.0);
+                set("Town", UpgradeStatKind::FountainRange, t.1);
+                set("Town", UpgradeStatKind::FountainAttackSpeed, t.2);
+                set("Town", UpgradeStatKind::FountainProjectileLife, t.3);
+                set("Town", UpgradeStatKind::Expansion, t.4);
+            }
         }
+        weights
     }
 }
 
@@ -383,23 +456,8 @@ fn desire_state(
 }
 
 fn is_military_upgrade(idx: usize) -> bool {
-    matches!(
-        idx,
-        x if x == UpgradeType::MilitaryHp as usize
-            || x == UpgradeType::MilitaryAttack as usize
-            || x == UpgradeType::MilitaryRange as usize
-            || x == UpgradeType::AttackSpeed as usize
-            || x == UpgradeType::MilitaryMoveSpeed as usize
-            || x == UpgradeType::AlertRadius as usize
-            || x == UpgradeType::Dodge as usize
-            || x == UpgradeType::ProjectileSpeed as usize
-            || x == UpgradeType::ProjectileLifetime as usize
-            || x == UpgradeType::CrossbowHp as usize
-            || x == UpgradeType::CrossbowAttack as usize
-            || x == UpgradeType::CrossbowRange as usize
-            || x == UpgradeType::CrossbowAttackSpeed as usize
-            || x == UpgradeType::CrossbowMoveSpeed as usize
-    )
+    let cat = UPGRADES.nodes[idx].category;
+    cat == "Archer" || cat == "Fighter" || cat == "Crossbow"
 }
 
 /// Per-squad AI command state — independent cooldown and target memory.
@@ -1046,6 +1104,23 @@ pub fn ai_decision_system(
         let mine_shafts = bc(BuildingKind::MinerHome);
         let total_military_homes = barracks + xbow_homes;
         let desires = desire_state(player.personality, food, reserve, houses, total_military_homes, waypoints);
+        let faction = res.world.world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
+
+        // --- Policy: eat_food toggle based on food desire ---
+        if let Some(policy) = res.policies.policies.get_mut(tdi) {
+            let (off_threshold, on_threshold) = player.personality.eat_food_desire_thresholds();
+            let should_eat = if policy.eat_food {
+                desires.food_desire < off_threshold
+            } else {
+                desires.food_desire < on_threshold
+            };
+            if should_eat != policy.eat_food {
+                policy.eat_food = should_eat;
+                let state = if should_eat { "on" } else { "off" };
+                log_ai(&mut combat_log, &game_time, faction, &town_name, pname,
+                    &format!("eat_food → {state} (food_desire={:.2})", desires.food_desire));
+            }
+        }
 
         // Score all eligible actions
         let mut scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
@@ -1136,7 +1211,7 @@ pub fn ai_decision_system(
             if is_military_upgrade(idx) {
                 w *= 1.0 + desires.military_desire * 2.0;
             }
-            if idx == UpgradeType::TownArea as usize {
+            if UPGRADES.nodes[idx].triggers_expansion {
                 // Expansion upgrade is delayed while town still has cheap,
                 // high-value building actions available.
                 if matches!(player.kind, AiKind::Builder) {
@@ -1175,7 +1250,6 @@ pub fn ai_decision_system(
             snapshots.towns.remove(&tdi);
         }
         if let Some(what) = label {
-            let faction = res.world.world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
             log_ai(&mut combat_log, &game_time, faction, &town_name, pname, &what);
             let actions = &mut ai_state.players[pi].last_actions;
             if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }

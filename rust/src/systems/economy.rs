@@ -12,7 +12,8 @@ use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORA
     CAMP_SPAWN_CHECK_HOURS, MAX_DYNAMIC_CAMPS, CAMP_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_CAMP};
 use crate::world::{self, WorldData, WorldGrid, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
-use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
+use crate::systems::stats::{TownUpgrades, UPGRADES};
+use crate::constants::UpgradeStatKind;
 use crate::systems::ai_player::{AiPlayer, AiPlayerState, AiKind, AiPersonality};
 
 // ============================================================================
@@ -113,8 +114,8 @@ pub fn growth_system(
             GrowthKind::Farm => {
                 let base_rate = if is_tended { FARM_TENDED_GROWTH_RATE } else { FARM_BASE_GROWTH_RATE };
                 let town = growth_states.town_indices[i].unwrap_or(0) as usize;
-                let yield_level = upgrades.levels.get(town).map(|l| l[UpgradeType::FarmYield as usize]).unwrap_or(0);
-                base_rate * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::FarmYield as usize])
+                let town_levels = upgrades.town_levels(town);
+                base_rate * UPGRADES.stat_mult(&town_levels, "Farmer", UpgradeStatKind::Yield)
             }
             GrowthKind::Mine => {
                 let worker_count = farm_occupancy.count(growth_states.positions[i]);

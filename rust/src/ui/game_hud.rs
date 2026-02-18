@@ -13,7 +13,8 @@ use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::ui::tipped;
 use crate::world::{WorldData, WorldGrid, BuildingKind, BuildingOccupancy, is_alive};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, resolve_town_tower_stats};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES, resolve_town_tower_stats};
+use crate::constants::UpgradeStatKind;
 
 // ============================================================================
 // TOP RESOURCE BAR
@@ -1028,8 +1029,8 @@ fn building_inspector_content(
         BuildingKind::Fountain => {
             // Healing + tower info
             let base_radius = bld.combat_config.heal_radius;
-            let levels = bld.town_upgrades.levels.get(town_idx).copied().unwrap_or([0; crate::systems::stats::UPGRADE_COUNT]);
-            let upgrade_bonus = levels[UpgradeType::FountainRange as usize] as f32 * 24.0;
+            let levels = bld.town_upgrades.town_levels(town_idx);
+            let upgrade_bonus = UPGRADES.stat_level(&levels, "Town", UpgradeStatKind::FountainRange) as f32 * 24.0;
             let tower = resolve_town_tower_stats(&levels);
             ui.label(format!("Heal radius: {:.0}px", base_radius + upgrade_bonus));
             ui.label(format!("Heal rate: {:.0}/s", bld.combat_config.heal_rate));
@@ -1214,8 +1215,8 @@ fn building_inspector_content(
                 }
                 BuildingKind::Fountain => {
                     let base_radius = bld.combat_config.heal_radius;
-                    let levels = bld.town_upgrades.levels.get(town_idx).copied().unwrap_or([0; crate::systems::stats::UPGRADE_COUNT]);
-                    let upgrade_bonus = levels[UpgradeType::FountainRange as usize] as f32 * 24.0;
+                    let levels = bld.town_upgrades.town_levels(town_idx);
+                    let upgrade_bonus = UPGRADES.stat_level(&levels, "Town", UpgradeStatKind::FountainRange) as f32 * 24.0;
                     let tower = resolve_town_tower_stats(&levels);
                     info.push_str(&format!("Heal radius: {:.0}px\n", base_radius + upgrade_bonus));
                     info.push_str(&format!("Heal rate: {:.0}/s\n", bld.combat_config.heal_rate));

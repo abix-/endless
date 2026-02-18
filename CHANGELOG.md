@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18u
+
+- **registry-driven upgrade system** — replaced hardcoded `UpgradeType` enum (25 variants) and fixed `[u8; 25]` arrays with dynamic `UpgradeRegistry` built from `NPC_REGISTRY` at init via `LazyLock`; each `NpcDef` declares `upgrade_category: Option<&'static str>` and `upgrade_stats: &'static [UpgradeStatDef]`; NPCs sharing the same `upgrade_stats` array but with different category names get fully independent upgrade branches (e.g. Archer and Fighter both reference `MILITARY_UPGRADES` but track levels separately); `UpgradeStatKind` enum replaces positional indices with semantic stat lookups; `UPGRADES.stat_mult(levels, category, stat)` replaces all hardcoded `match job` arms in `resolve_combat_stats`; `TownUpgrades.levels` and `AutoUpgrade.flags` switched from fixed arrays to `Vec<Vec<u8>>`/`Vec<Vec<bool>>`; upgrade UI grouped into Economy/Military sections with collapsible per-NPC branches; AI upgrade weights use dynamic category/stat_kind lookups; adding a new NPC type now automatically generates its upgrade branch by setting `upgrade_category` and `upgrade_stats` on the `NpcDef`
+
 ## 2026-02-18t
 
 - **grid building simplification** — replaced `Building` enum in `WorldCell.building` with `GridBuilding` type alias `(BuildingKind, u32)` tuple; `Building` enum removed entirely; `ai_player` build functions take `BuildingKind` directly instead of `Building` variants; `register_spawner` takes `BuildingKind`; `recalc_waypoint_patrol_order_clockwise` no longer needs `WorldGrid` param (patrol_order only lives in `WorldData` now); `LegacyBuilding` enum in save.rs handles backward-compatible deserialization of old save format

@@ -3,9 +3,10 @@
 //! Stage 9: UpgradeQueue + process_upgrades_system + xp_grant_system.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction};
-use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats};
+use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
 use crate::systemparams::{EconomyState, WorldState};
@@ -56,203 +57,281 @@ impl Default for CombatConfig {
 }
 
 // ============================================================================
-// TOWN UPGRADES
+// DYNAMIC UPGRADE REGISTRY (built from NPC_REGISTRY + TOWN_UPGRADES)
 // ============================================================================
 
-pub const UPGRADE_COUNT: usize = 25;
-
-#[derive(Clone, Copy, Debug)]
-#[repr(usize)]
-pub enum UpgradeType {
-    // Military (applies to Archer + Raider)
-    MilitaryHp = 0, MilitaryAttack = 1, MilitaryRange = 2, AttackSpeed = 3,
-    MilitaryMoveSpeed = 4, AlertRadius = 5, Dodge = 6,
-    // Farmer
-    FarmYield = 7, FarmerHp = 8, FarmerMoveSpeed = 9,
-    // Miner
-    MinerHp = 10, MinerMoveSpeed = 11, GoldYield = 12,
-    // Town
-    HealingRate = 13, FountainRange = 14, FountainAttackSpeed = 15, FountainProjectileLife = 16, TownArea = 17,
-    // Arrow (applies to Archer + Raider + Fighter ranged)
-    ProjectileSpeed = 18, ProjectileLifetime = 19,
-    // Crossbow (separate branch from Military)
-    CrossbowHp = 20, CrossbowAttack = 21, CrossbowRange = 22, CrossbowAttackSpeed = 23, CrossbowMoveSpeed = 24,
-}
-
-pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
-    0.10, 0.10, 0.05,  // military: hp, attack, range
-    0.08, 0.05, 0.10,  // attack speed (cooldown), military move speed, alert radius
-    0.0,               // dodge (unlock)
-    0.15, 0.20, 0.05,  // farm yield, farmer hp, farmer move speed
-    0.20, 0.05, 0.15,  // miner hp, miner move speed, gold yield
-    0.20, 0.0, 0.08, 0.08, 0.0, // healing rate, fountain range (flat), fountain atk speed, fountain projectile life, town area (discrete)
-    0.08, 0.08,         // arrow projectile speed, arrow projectile lifetime
-    0.10, 0.10, 0.05, 0.08, 0.05, // crossbow: hp, attack, range, attack speed (cooldown), move speed
-];
-
-// ============================================================================
-// UPGRADE REGISTRY (single source of truth for all upgrade metadata)
-// ============================================================================
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ResourceKind { Food, Gold }
-
-#[derive(Clone, Copy, Debug)]
-pub struct UpgradePrereq {
-    pub upgrade: usize,
-    pub min_level: u8,
-}
-
+/// A single upgrade entry in the registry (built at init).
 pub struct UpgradeNode {
     pub label: &'static str,
     pub short: &'static str,
     pub tooltip: &'static str,
     pub category: &'static str,
+    pub stat_kind: UpgradeStatKind,
+    pub pct: f32,
     pub cost: &'static [(ResourceKind, i32)],
-    pub prereqs: &'static [UpgradePrereq],
+    pub display: EffectDisplay,
+    pub prereqs: Vec<(usize, u8)>, // (prereq_index, min_level)
+    pub is_combat_stat: bool,
+    pub invalidates_healing: bool,
+    pub triggers_expansion: bool,
+    pub custom_cost: bool,
 }
 
-use ResourceKind::{Food as F, Gold as G};
-const fn prereq(upgrade: usize, min_level: u8) -> UpgradePrereq {
-    UpgradePrereq { upgrade, min_level }
+/// A branch in the upgrade tree UI.
+pub struct UpgradeBranch {
+    pub label: &'static str,
+    pub section: &'static str, // "Economy" or "Military"
+    pub entries: Vec<(usize, u8)>, // (node_index, depth)
 }
 
-pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
-    // Military (0-6): applies to Archer + Raider
-    // 0: HP — root
-    UpgradeNode { label: "HP",           short: "HP",     tooltip: "+10% HP per level",              category: "Military", cost: &[(F, 1)], prereqs: &[] },
-    // 1: Attack — root
-    UpgradeNode { label: "Attack",       short: "Atk",    tooltip: "+10% damage per level",          category: "Military", cost: &[(F, 1)], prereqs: &[] },
-    // 2: Range — requires Attack Lv1
-    UpgradeNode { label: "Range",        short: "Rng",    tooltip: "+5% attack range per level",     category: "Military", cost: &[(G, 1)], prereqs: &[prereq(1, 1)] },
-    // 3: Attack Speed — requires Attack Lv1
-    UpgradeNode { label: "Attack Speed", short: "AtkSpd", tooltip: "-8% attack cooldown per level",  category: "Military", cost: &[(F, 1)], prereqs: &[prereq(1, 1)] },
-    // 4: Move Speed — root
-    UpgradeNode { label: "Move Speed",   short: "MvSpd",  tooltip: "+5% movement speed per level",   category: "Military", cost: &[(F, 1)], prereqs: &[] },
-    // 5: Alert — requires Move Speed Lv1
-    UpgradeNode { label: "Alert",        short: "Alert",  tooltip: "+10% alert radius per level",    category: "Military", cost: &[(G, 1)], prereqs: &[prereq(4, 1)] },
-    // 6: Dodge — requires Move Speed Lv5
-    UpgradeNode { label: "Dodge",        short: "Dodge",  tooltip: "Unlocks projectile dodging",     category: "Military", cost: &[(G, 20)], prereqs: &[prereq(4, 5)] },
-
-    // Farmer (7-9)
-    // 7: Yield — root
-    UpgradeNode { label: "Yield",        short: "Yield",  tooltip: "+15% food production per level", category: "Farmer",   cost: &[(F, 1)], prereqs: &[] },
-    // 8: HP — root
-    UpgradeNode { label: "HP",           short: "HP",     tooltip: "+20% farmer HP per level",       category: "Farmer",   cost: &[(F, 1)], prereqs: &[] },
-    // 9: Move Speed — root
-    UpgradeNode { label: "Move Speed",   short: "MvSpd",  tooltip: "+5% farmer speed per level",     category: "Farmer",   cost: &[(F, 1)], prereqs: &[] },
-
-    // Miner (10-12)
-    // 10: HP — root
-    UpgradeNode { label: "HP",           short: "HP",     tooltip: "+20% miner HP per level",        category: "Miner",    cost: &[(F, 1)], prereqs: &[] },
-    // 11: Move Speed — root
-    UpgradeNode { label: "Move Speed",   short: "MvSpd",  tooltip: "+5% miner speed per level",      category: "Miner",    cost: &[(F, 1)], prereqs: &[] },
-    // 12: Yield — root
-    UpgradeNode { label: "Yield",        short: "Yield",  tooltip: "+15% gold yield per level",      category: "Miner",    cost: &[(G, 1)], prereqs: &[] },
-
-    // Town (13-17)
-    // 13: Healing — root
-    UpgradeNode { label: "Healing",      short: "Heal",   tooltip: "+20% HP regen at fountain",      category: "Town",     cost: &[(F, 1)], prereqs: &[] },
-    // 14: Fountain Range — requires Healing Lv1
-    UpgradeNode { label: "Fountain Range", short: "FRng", tooltip: "+24px fountain range per level", category: "Town", cost: &[(G, 1)], prereqs: &[prereq(13, 1)] },
-    // 15: Fountain Attack Speed — requires Fountain Range Lv1
-    UpgradeNode { label: "Fountain Atk Speed", short: "FAS", tooltip: "-8% fountain cooldown per level", category: "Town", cost: &[(G, 1)], prereqs: &[prereq(14, 1)] },
-    // 16: Fountain Projectile Life — requires Fountain Range Lv1
-    UpgradeNode { label: "Fountain Proj Life", short: "FPL", tooltip: "+8% fountain projectile life per level", category: "Town", cost: &[(G, 1)], prereqs: &[prereq(14, 1)] },
-    // 17: Expansion — root, custom slot-based cost
-    UpgradeNode { label: "Expansion",    short: "Area",   tooltip: "+1 buildable radius per level",  category: "Town",     cost: &[(F, 1), (G, 1)], prereqs: &[] },
-
-    // Arrow (18-19): applies to military ranged attacks
-    // 18: Arrow Speed — requires Range Lv1
-    UpgradeNode { label: "Arrow Speed",  short: "ASpd",   tooltip: "+8% arrow speed per level",      category: "Military", cost: &[(G, 1)], prereqs: &[prereq(2, 1)] },
-    // 19: Arrow Range — requires Range Lv1
-    UpgradeNode { label: "Arrow Range",  short: "ARng",   tooltip: "+8% arrow flight distance per level", category: "Military", cost: &[(G, 1)], prereqs: &[prereq(2, 1)] },
-
-    // Crossbow (20-24): separate upgrade branch
-    // 20: HP — root
-    UpgradeNode { label: "HP",           short: "HP",     tooltip: "+10% crossbow HP per level",        category: "Crossbow", cost: &[(F, 2)], prereqs: &[] },
-    // 21: Attack — root
-    UpgradeNode { label: "Attack",       short: "Atk",    tooltip: "+10% crossbow damage per level",    category: "Crossbow", cost: &[(F, 2)], prereqs: &[] },
-    // 22: Range — requires Attack Lv1
-    UpgradeNode { label: "Range",        short: "Rng",    tooltip: "+5% crossbow range per level",      category: "Crossbow", cost: &[(G, 2)], prereqs: &[prereq(21, 1)] },
-    // 23: Attack Speed — requires Attack Lv1
-    UpgradeNode { label: "Attack Speed", short: "AtkSpd", tooltip: "-8% crossbow cooldown per level",   category: "Crossbow", cost: &[(F, 2)], prereqs: &[prereq(21, 1)] },
-    // 24: Move Speed — root
-    UpgradeNode { label: "Move Speed",   short: "MvSpd",  tooltip: "+5% crossbow speed per level",      category: "Crossbow", cost: &[(F, 2)], prereqs: &[] },
-];
-
-/// True if this town has unlocked projectile dodge.
-pub fn dodge_unlocked(levels: &[u8; UPGRADE_COUNT]) -> bool {
-    levels[UpgradeType::Dodge as usize] > 0
+/// The complete upgrade registry, built once at startup.
+pub struct UpgradeRegistry {
+    pub nodes: Vec<UpgradeNode>,
+    pub branches: Vec<UpgradeBranch>,
+    /// (category, stat_kind) → index into nodes
+    pub index_map: HashMap<(&'static str, UpgradeStatKind), usize>,
 }
 
-/// Look up upgrade metadata by index.
-pub fn upgrade_node(idx: usize) -> &'static UpgradeNode {
-    &UPGRADE_REGISTRY[idx]
+impl UpgradeRegistry {
+    /// Number of upgrade slots.
+    pub fn count(&self) -> usize { self.nodes.len() }
+
+    /// Look up index for a (category, stat_kind) pair. Returns None if not found.
+    pub fn index(&self, category: &str, kind: UpgradeStatKind) -> Option<usize> {
+        self.index_map.get(&(category, kind)).copied()
+            .or_else(|| {
+                // Fallback: linear scan for categories with non-static lifetime
+                self.nodes.iter().position(|n| n.category == category && n.stat_kind == kind)
+            })
+    }
+
+    /// Get the multiplier for a (category, stat) at a town's upgrade levels.
+    /// Returns 1.0 if the upgrade doesn't exist or level is 0.
+    pub fn stat_mult(&self, levels: &[u8], category: &str, kind: UpgradeStatKind) -> f32 {
+        if let Some(idx) = self.index(category, kind) {
+            let lv = levels.get(idx).copied().unwrap_or(0) as f32;
+            let pct = self.nodes[idx].pct;
+            match self.nodes[idx].display {
+                EffectDisplay::CooldownReduction => 1.0 / (1.0 + lv * pct),
+                _ => 1.0 + lv * pct,
+            }
+        } else {
+            1.0
+        }
+    }
+
+    /// Get raw level for a (category, stat) pair.
+    pub fn stat_level(&self, levels: &[u8], category: &str, kind: UpgradeStatKind) -> u8 {
+        if let Some(idx) = self.index(category, kind) {
+            levels.get(idx).copied().unwrap_or(0)
+        } else {
+            0
+        }
+    }
 }
 
-/// Render order for the upgrade tree UI. Each entry: (branch_label, &[(upgrade_index, depth)]).
-/// Depth controls indentation. Nodes within a branch are listed in tree traversal order.
-pub const UPGRADE_RENDER_ORDER: &[(&str, &[(usize, u8)])] = &[
-    ("Military", &[
-        (1, 0),   // Attack (root)
-        (2, 1),   // Range (req Attack)
-        (18, 2),  // Arrow Speed (req Range)
-        (19, 2),  // Arrow Range (req Range)
-        (3, 1),   // Attack Speed (req Attack)
-        (4, 0),   // Move Speed (root)
-        (5, 1),   // Alert (req Move Speed)
-        (6, 1),   // Dodge (req Move Speed Lv5)
-        (0, 0),   // HP (standalone root)
-    ]),
-    ("Farmer", &[
-        (7, 0),   // Yield (root)
-        (8, 0),   // HP (root)
-        (9, 0),   // Move Speed (root)
-    ]),
-    ("Miner", &[
-        (10, 0),  // HP (root)
-        (11, 0),  // Move Speed (root)
-        (12, 0),  // Yield (root)
-    ]),
-    ("Town", &[
-        (13, 0),  // Healing (root)
-        (14, 1),  // Fountain Range (req Healing)
-        (15, 2),  // Fountain Attack Speed (req Fountain Range)
-        (16, 2),  // Fountain Projectile Life (req Fountain Range)
-        (17, 0),  // Expansion (root)
-    ]),
-    ("Crossbow", &[
-        (21, 0),  // Attack (root)
-        (22, 1),  // Range (req Attack)
-        (23, 1),  // Attack Speed (req Attack)
-        (24, 0),  // Move Speed (root)
-        (20, 0),  // HP (standalone root)
-    ]),
-];
+/// Build the upgrade registry from NPC_REGISTRY + TOWN_UPGRADES.
+fn build_upgrade_registry() -> UpgradeRegistry {
+    let mut nodes: Vec<UpgradeNode> = Vec::new();
+    let mut branches: Vec<UpgradeBranch> = Vec::new();
+    let mut index_map: HashMap<(&'static str, UpgradeStatKind), usize> = HashMap::new();
+
+    // Collect unique NPC categories in order of first appearance
+    let mut seen_categories: Vec<&'static str> = Vec::new();
+    for npc in NPC_REGISTRY {
+        if let Some(cat) = npc.upgrade_category {
+            if !seen_categories.contains(&cat) {
+                seen_categories.push(cat);
+            }
+        }
+    }
+
+    // For each category, collect union of upgrade stats across all NPCs in that category
+    for &category in &seen_categories {
+        let mut stat_defs: Vec<&'static UpgradeStatDef> = Vec::new();
+        for npc in NPC_REGISTRY {
+            if npc.upgrade_category == Some(category) {
+                for def in npc.upgrade_stats {
+                    if !stat_defs.iter().any(|d| d.kind == def.kind) {
+                        stat_defs.push(def);
+                    }
+                }
+            }
+        }
+
+        let branch_start = nodes.len();
+        // First pass: create nodes (without prereqs)
+        for def in &stat_defs {
+            let idx = nodes.len();
+            index_map.insert((category, def.kind), idx);
+            nodes.push(UpgradeNode {
+                label: def.label, short: def.short, tooltip: def.tooltip,
+                category, stat_kind: def.kind, pct: def.pct, cost: def.cost,
+                display: def.display, prereqs: Vec::new(),
+                is_combat_stat: def.is_combat_stat,
+                invalidates_healing: def.invalidates_healing,
+                triggers_expansion: def.triggers_expansion,
+                custom_cost: def.custom_cost,
+            });
+        }
+
+        // Second pass: resolve prereqs (stat kind → index within this category)
+        for (i, def) in stat_defs.iter().enumerate() {
+            if let Some(prereq_kind) = def.prereq_stat {
+                if let Some(&prereq_idx) = index_map.get(&(category, prereq_kind)) {
+                    nodes[branch_start + i].prereqs.push((prereq_idx, def.prereq_level));
+                }
+            }
+        }
+
+        // Build tree depth for UI rendering
+        let mut entries: Vec<(usize, u8)> = Vec::new();
+        // Compute depth: root (no prereqs) = 0, child of root = 1, grandchild = 2
+        fn compute_depth(nodes: &[UpgradeNode], idx: usize, visited: &mut Vec<usize>) -> u8 {
+            if visited.contains(&idx) { return 0; }
+            visited.push(idx);
+            if nodes[idx].prereqs.is_empty() { return 0; }
+            let max_parent = nodes[idx].prereqs.iter()
+                .map(|&(pi, _)| compute_depth(nodes, pi, visited))
+                .max().unwrap_or(0);
+            max_parent + 1
+        }
+
+        // Group: roots first, then depth 1, then depth 2...
+        // Within each depth, preserve stat_defs order (which matches NPC declaration order)
+        let mut by_depth: Vec<(usize, u8)> = Vec::new();
+        for i in 0..stat_defs.len() {
+            let idx = branch_start + i;
+            let depth = compute_depth(&nodes, idx, &mut Vec::new());
+            by_depth.push((idx, depth));
+        }
+
+        // Build tree-ordered list: for each root node, emit it then its children (DFS)
+        fn emit_tree(idx: usize, depth: u8, nodes: &[UpgradeNode], all: &[(usize, u8)], entries: &mut Vec<(usize, u8)>, emitted: &mut Vec<usize>) {
+            if emitted.contains(&idx) { return; }
+            emitted.push(idx);
+            entries.push((idx, depth));
+            // Find children of this node (nodes that have this idx as a prereq)
+            for &(child_idx, child_depth) in all {
+                if nodes[child_idx].prereqs.iter().any(|&(pi, _)| pi == idx) {
+                    emit_tree(child_idx, child_depth, nodes, all, entries, emitted);
+                }
+            }
+        }
+
+        let mut emitted: Vec<usize> = Vec::new();
+        // Start from roots (depth 0)
+        for &(idx, depth) in &by_depth {
+            if depth == 0 {
+                emit_tree(idx, depth, &nodes, &by_depth, &mut entries, &mut emitted);
+            }
+        }
+
+        // Derive section from the first NPC in this category
+        let section = NPC_REGISTRY.iter()
+            .find(|n| n.upgrade_category == Some(category))
+            .map(|n| if n.is_military { "Military" } else { "Economy" })
+            .unwrap_or("Economy");
+        branches.push(UpgradeBranch { label: category, section, entries });
+    }
+
+    // Town upgrades (appended as final branch)
+    {
+        let branch_start = nodes.len();
+        for def in TOWN_UPGRADES {
+            let idx = nodes.len();
+            index_map.insert(("Town", def.kind), idx);
+            nodes.push(UpgradeNode {
+                label: def.label, short: def.short, tooltip: def.tooltip,
+                category: "Town", stat_kind: def.kind, pct: def.pct, cost: def.cost,
+                display: def.display, prereqs: Vec::new(),
+                is_combat_stat: def.is_combat_stat,
+                invalidates_healing: def.invalidates_healing,
+                triggers_expansion: def.triggers_expansion,
+                custom_cost: def.custom_cost,
+            });
+        }
+        // Resolve Town prereqs
+        for (i, def) in TOWN_UPGRADES.iter().enumerate() {
+            if let Some(prereq_kind) = def.prereq_stat {
+                if let Some(&prereq_idx) = index_map.get(&("Town", prereq_kind)) {
+                    nodes[branch_start + i].prereqs.push((prereq_idx, def.prereq_level));
+                }
+            }
+        }
+        // Build Town tree entries
+        let mut entries: Vec<(usize, u8)> = Vec::new();
+        let mut by_depth: Vec<(usize, u8)> = Vec::new();
+        for i in 0..TOWN_UPGRADES.len() {
+            let idx = branch_start + i;
+            let depth = if nodes[idx].prereqs.is_empty() { 0 } else {
+                let max_p = nodes[idx].prereqs.iter()
+                    .map(|&(pi, _)| if nodes[pi].prereqs.is_empty() { 0u8 } else { 1 })
+                    .max().unwrap_or(0);
+                max_p + 1
+            };
+            by_depth.push((idx, depth));
+        }
+        fn emit_town_tree(idx: usize, depth: u8, nodes: &[UpgradeNode], all: &[(usize, u8)], entries: &mut Vec<(usize, u8)>, emitted: &mut Vec<usize>) {
+            if emitted.contains(&idx) { return; }
+            emitted.push(idx);
+            entries.push((idx, depth));
+            for &(child_idx, child_depth) in all {
+                if nodes[child_idx].prereqs.iter().any(|&(pi, _)| pi == idx) {
+                    emit_town_tree(child_idx, child_depth, nodes, all, entries, emitted);
+                }
+            }
+        }
+        let mut emitted: Vec<usize> = Vec::new();
+        for &(idx, depth) in &by_depth {
+            if depth == 0 {
+                emit_town_tree(idx, depth, &nodes, &by_depth, &mut entries, &mut emitted);
+            }
+        }
+        branches.push(UpgradeBranch { label: "Town", section: "Economy", entries });
+    }
+
+    UpgradeRegistry { nodes, branches, index_map }
+}
+
+/// Global upgrade registry, built once from NPC_REGISTRY + TOWN_UPGRADES.
+pub static UPGRADES: LazyLock<UpgradeRegistry> = LazyLock::new(build_upgrade_registry);
+
+/// Number of upgrade slots in the current registry.
+pub fn upgrade_count() -> usize { UPGRADES.count() }
+
+/// Look up upgrade node by index.
+pub fn upgrade_node(idx: usize) -> &'static UpgradeNode { &UPGRADES.nodes[idx] }
+
+/// True if this town has unlocked projectile dodge (any NPC category that has Dodge).
+pub fn dodge_unlocked(levels: &[u8]) -> bool {
+    // Check all categories that have a Dodge upgrade
+    UPGRADES.nodes.iter().enumerate()
+        .any(|(i, n)| n.stat_kind == UpgradeStatKind::Dodge && levels.get(i).copied().unwrap_or(0) > 0)
+}
 
 /// Sum of upgrade levels for all nodes in a given category.
-pub fn branch_total(levels: &[u8; UPGRADE_COUNT], category: &str) -> u32 {
-    UPGRADE_REGISTRY.iter().enumerate()
+pub fn branch_total(levels: &[u8], category: &str) -> u32 {
+    UPGRADES.nodes.iter().enumerate()
         .filter(|(_, n)| n.category == category)
-        .map(|(i, _)| levels[i] as u32)
+        .map(|(i, _)| levels.get(i).copied().unwrap_or(0) as u32)
         .sum()
 }
 
 /// Effect summary for a given upgrade at its current level.
 /// Returns (now_text, next_text) for display in the upgrade UI.
 pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
-    let pct = UPGRADE_PCT[idx];
+    let node = &UPGRADES.nodes[idx];
+    let pct = node.pct;
     let lv = level as f32;
-    match idx {
-        // Multiplicative: +X% per level
-        0 | 1 | 2 | 4 | 5 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 16 | 18 | 19 | 20 | 21 | 22 | 24 => {
+
+    match node.display {
+        EffectDisplay::Percentage => {
             let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{:.0}%", lv * pct * 100.0) };
             let next = format!("+{:.0}%", (lv + 1.0) * pct * 100.0);
             (now, next)
         }
-        // Reciprocal: cooldown reduction (idx 3 military, idx 15 fountain, idx 23 crossbow)
-        3 | 15 | 23 => {
+        EffectDisplay::CooldownReduction => {
             let now = if level == 0 { "\u{2014}".to_string() } else {
                 let reduction = (1.0 - 1.0 / (1.0 + lv * pct)) * 100.0;
                 format!("-{:.0}%", reduction)
@@ -261,43 +340,59 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
             let next = format!("-{:.0}%", next_reduction);
             (now, next)
         }
-        // Unlock: Dodge (idx 6)
-        6 => {
+        EffectDisplay::Unlock => {
             let now = if level == 0 { "Locked".to_string() } else { "Unlocked".to_string() };
-            let next = if level == 0 { "Unlocks dodge".to_string() } else { "Unlocked".to_string() };
+            let next = if level == 0 { "Unlocks".to_string() } else { "Unlocked".to_string() };
             (now, next)
         }
-        // Flat: Fountain Range +24px per level (idx 14)
-        14 => {
-            let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}px", level as i32 * 24) };
-            let next = format!("+{}px", (level as i32 + 1) * 24);
+        EffectDisplay::FlatPixels(px_per_level) => {
+            let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}px", level as i32 * px_per_level) };
+            let next = format!("+{}px", (level as i32 + 1) * px_per_level);
             (now, next)
         }
-        // Discrete: Expansion +1 radius per level (idx 17)
-        17 => {
+        EffectDisplay::Discrete => {
             let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}", level) };
             let next = format!("+{}", level + 1);
             (now, next)
         }
-        _ => ("\u{2014}".to_string(), "\u{2014}".to_string()),
     }
 }
 
-/// Per-town upgrade levels.
+/// Per-town upgrade levels (dynamic size, matches UPGRADES.count()).
 #[derive(Resource)]
 pub struct TownUpgrades {
-    pub levels: Vec<[u8; UPGRADE_COUNT]>,
+    pub levels: Vec<Vec<u8>>,
 }
 
 impl TownUpgrades {
-    pub fn town_levels(&self, town_idx: usize) -> [u8; UPGRADE_COUNT] {
-        self.levels.get(town_idx).copied().unwrap_or([0; UPGRADE_COUNT])
+    pub fn town_levels(&self, town_idx: usize) -> Vec<u8> {
+        let count = upgrade_count();
+        self.levels.get(town_idx)
+            .map(|v| {
+                let mut r = v.clone();
+                r.resize(count, 0);
+                r
+            })
+            .unwrap_or_else(|| vec![0; count])
+    }
+
+    /// Ensure the levels vec has at least `n` entries.
+    pub fn ensure_towns(&mut self, n: usize) {
+        let count = upgrade_count();
+        while self.levels.len() < n {
+            self.levels.push(vec![0; count]);
+        }
+        // Pad existing entries if upgrade count grew
+        for v in &mut self.levels {
+            v.resize(count, 0);
+        }
     }
 }
 
 impl Default for TownUpgrades {
     fn default() -> Self {
-        Self { levels: vec![[0; UPGRADE_COUNT]; 16] }
+        let count = upgrade_count();
+        Self { levels: vec![vec![0; count]; 16] }
     }
 }
 
@@ -310,39 +405,25 @@ pub struct UpgradeQueue(pub Vec<(usize, usize)>); // (town_idx, upgrade_index)
 // ============================================================================
 
 /// Decode persisted upgrade levels into the current upgrade layout.
-/// Supports migration from legacy 18-slot layout to current 20-slot layout.
-pub fn decode_upgrade_levels(raw: &[u8]) -> [u8; UPGRADE_COUNT] {
-    let mut arr = [0u8; UPGRADE_COUNT];
-    if raw.len() == 18 {
-        // Legacy mapping:
-        // 0..14 unchanged, 15 TownArea -> 17, 16 ArrowSpeed -> 18, 17 ArrowLife -> 19.
-        for i in 0..=14 { arr[i] = raw[i]; }
-        arr[UpgradeType::TownArea as usize] = raw[15];
-        arr[UpgradeType::ProjectileSpeed as usize] = raw[16];
-        arr[UpgradeType::ProjectileLifetime as usize] = raw[17];
-        return arr;
+/// Pads to current upgrade_count() if the saved data is shorter (new upgrades added).
+pub fn decode_upgrade_levels(raw: &[u8]) -> Vec<u8> {
+    let count = upgrade_count();
+    let mut result = vec![0u8; count];
+    for (i, &val) in raw.iter().enumerate().take(count) {
+        result[i] = val;
     }
-    for (i, &val) in raw.iter().enumerate().take(UPGRADE_COUNT) {
-        arr[i] = val;
-    }
-    arr
+    result
 }
 
 /// Decode persisted auto-upgrade flags into the current upgrade layout.
-/// Supports migration from legacy 18-slot layout to current 20-slot layout.
-pub fn decode_auto_upgrade_flags(raw: &[bool]) -> [bool; UPGRADE_COUNT] {
-    let mut arr = [false; UPGRADE_COUNT];
-    if raw.len() == 18 {
-        for i in 0..=14 { arr[i] = raw[i]; }
-        arr[UpgradeType::TownArea as usize] = raw[15];
-        arr[UpgradeType::ProjectileSpeed as usize] = raw[16];
-        arr[UpgradeType::ProjectileLifetime as usize] = raw[17];
-        return arr;
+/// Pads to current upgrade_count() if the saved data is shorter.
+pub fn decode_auto_upgrade_flags(raw: &[bool]) -> Vec<bool> {
+    let count = upgrade_count();
+    let mut result = vec![false; count];
+    for (i, &val) in raw.iter().enumerate().take(count) {
+        result[i] = val;
     }
-    for (i, &val) in raw.iter().enumerate().take(UPGRADE_COUNT) {
-        arr[i] = val;
-    }
-    arr
+    result
 }
 
 /// Derive level from XP: level = floor(sqrt(xp / 100))
@@ -365,24 +446,26 @@ pub fn expansion_cost(level: u8) -> (i32, i32) {
 }
 
 /// Check if all prerequisites for an upgrade are met.
-pub fn upgrade_unlocked(levels: &[u8; UPGRADE_COUNT], idx: usize) -> bool {
-    UPGRADE_REGISTRY[idx].prereqs.iter().all(|p| levels[p.upgrade] >= p.min_level)
+pub fn upgrade_unlocked(levels: &[u8], idx: usize) -> bool {
+    UPGRADES.nodes[idx].prereqs.iter().all(|&(pi, min_lv)| levels.get(pi).copied().unwrap_or(0) >= min_lv)
 }
 
 /// Full purchasability check: prereqs met AND can afford all costs.
 /// Single gate used by process_upgrades, auto_upgrade, AI, and UI.
-pub fn upgrade_available(levels: &[u8; UPGRADE_COUNT], idx: usize, food: i32, gold: i32) -> bool {
-    upgrade_unlocked(levels, idx) && can_afford_upgrade(idx, levels[idx], food, gold)
+pub fn upgrade_available(levels: &[u8], idx: usize, food: i32, gold: i32) -> bool {
+    let lv = levels.get(idx).copied().unwrap_or(0);
+    upgrade_unlocked(levels, idx) && can_afford_upgrade(idx, lv, food, gold)
 }
 
 /// Check if a town can afford an upgrade at the given level.
 fn can_afford_upgrade(idx: usize, level: u8, food: i32, gold: i32) -> bool {
-    if idx == UpgradeType::TownArea as usize {
+    let node = &UPGRADES.nodes[idx];
+    if node.custom_cost {
         let (fc, gc) = expansion_cost(level);
         return food >= fc && gold >= gc;
     }
     let scale = upgrade_cost(level);
-    UPGRADE_REGISTRY[idx].cost.iter().all(|&(kind, base)| {
+    node.cost.iter().all(|&(kind, base)| {
         let total = base * scale;
         match kind {
             ResourceKind::Food => food >= total,
@@ -393,14 +476,15 @@ fn can_afford_upgrade(idx: usize, level: u8, food: i32, gold: i32) -> bool {
 
 /// Deduct upgrade cost from storages. Caller must verify upgrade_available first.
 pub fn deduct_upgrade_cost(idx: usize, level: u8, food: &mut i32, gold: &mut i32) {
-    if idx == UpgradeType::TownArea as usize {
+    let node = &UPGRADES.nodes[idx];
+    if node.custom_cost {
         let (fc, gc) = expansion_cost(level);
         *food -= fc;
         *gold -= gc;
         return;
     }
     let scale = upgrade_cost(level);
-    for &(kind, base) in UPGRADE_REGISTRY[idx].cost {
+    for &(kind, base) in node.cost {
         let total = base * scale;
         match kind {
             ResourceKind::Food => *food -= total,
@@ -410,22 +494,23 @@ pub fn deduct_upgrade_cost(idx: usize, level: u8, food: &mut i32, gold: &mut i32
 }
 
 /// Format missing prereqs as human-readable string.
-pub fn missing_prereqs(levels: &[u8; UPGRADE_COUNT], idx: usize) -> Option<String> {
-    let missing: Vec<_> = UPGRADE_REGISTRY[idx].prereqs.iter()
-        .filter(|p| levels[p.upgrade] < p.min_level)
-        .map(|p| format!("{} Lv{}", UPGRADE_REGISTRY[p.upgrade].label, p.min_level))
+pub fn missing_prereqs(levels: &[u8], idx: usize) -> Option<String> {
+    let missing: Vec<_> = UPGRADES.nodes[idx].prereqs.iter()
+        .filter(|&&(pi, min_lv)| levels.get(pi).copied().unwrap_or(0) < min_lv)
+        .map(|&(pi, min_lv)| format!("{} Lv{}", UPGRADES.nodes[pi].label, min_lv))
         .collect();
     if missing.is_empty() { None } else { Some(format!("Requires: {}", missing.join(", "))) }
 }
 
 /// Format cost for UI display (e.g. "10+10g").
 pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
-    if idx == UpgradeType::TownArea as usize {
+    let node = &UPGRADES.nodes[idx];
+    if node.custom_cost {
         let (fc, gc) = expansion_cost(level);
         return format!("{fc}+{gc}g");
     }
     let scale = upgrade_cost(level);
-    UPGRADE_REGISTRY[idx].cost.iter()
+    node.cost.iter()
         .map(|&(kind, base)| {
             let total = base * scale;
             match kind {
@@ -438,10 +523,12 @@ pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
 }
 
 /// Resolve town tower stats from base constants + town upgrades.
-pub fn resolve_town_tower_stats(levels: &[u8; UPGRADE_COUNT]) -> TowerStats {
-    let cooldown_mult = 1.0 / (1.0 + levels[UpgradeType::FountainAttackSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::FountainAttackSpeed as usize]);
-    let proj_life_mult = 1.0 + levels[UpgradeType::FountainProjectileLife as usize] as f32 * UPGRADE_PCT[UpgradeType::FountainProjectileLife as usize];
-    let radius_bonus = levels[UpgradeType::FountainRange as usize] as f32 * 24.0;
+pub fn resolve_town_tower_stats(levels: &[u8]) -> TowerStats {
+    let reg = &*UPGRADES;
+    let cooldown_mult = reg.stat_mult(levels, "Town", UpgradeStatKind::FountainAttackSpeed);
+    let proj_life_mult = reg.stat_mult(levels, "Town", UpgradeStatKind::FountainProjectileLife);
+    let fountain_range_lv = reg.stat_level(levels, "Town", UpgradeStatKind::FountainRange) as f32;
+    let radius_bonus = fountain_range_lv * 24.0;
 
     TowerStats {
         range: FOUNTAIN_TOWER.range + radius_bonus,
@@ -454,13 +541,7 @@ pub fn resolve_town_tower_stats(levels: &[u8; UPGRADE_COUNT]) -> TowerStats {
 
 /// Which upgrades require NPC stat re-resolution (combat-affecting).
 fn is_combat_upgrade(idx: usize) -> bool {
-    matches!(idx,
-        0 | 1 | 2 | 3 | 4 | // Military: HP, Attack, Range, AttackSpeed, MoveSpeed
-        8 | 9 |              // Farmer: HP, MoveSpeed
-        10 | 11 |            // Miner: HP, MoveSpeed
-        18 | 19 |            // Arrow: ProjectileSpeed, ProjectileLifetime
-        20 | 21 | 22 | 23 | 24 // Crossbow: HP, Attack, Range, AttackSpeed, MoveSpeed
-    )
+    UPGRADES.nodes[idx].is_combat_stat
 }
 
 // ============================================================================
@@ -486,42 +567,18 @@ pub fn resolve_combat_stats(
     let level_mult = 1.0 + level as f32 * 0.01;
 
     let town_idx_usize = if town_idx >= 0 { town_idx as usize } else { usize::MAX };
-    let town = upgrades.levels.get(town_idx_usize).copied().unwrap_or([0; UPGRADE_COUNT]);
+    let town = upgrades.town_levels(town_idx_usize);
+    let reg = &*UPGRADES;
 
-    let upgrade_hp = match job {
-        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryHp as usize] as f32 * UPGRADE_PCT[0],
-        Job::Crossbow => 1.0 + town[UpgradeType::CrossbowHp as usize] as f32 * UPGRADE_PCT[20],
-        Job::Farmer => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
-        Job::Miner  => 1.0 + town[UpgradeType::MinerHp as usize] as f32 * UPGRADE_PCT[10],
-    };
-    let upgrade_dmg = match job {
-        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryAttack as usize] as f32 * UPGRADE_PCT[1],
-        Job::Crossbow => 1.0 + town[UpgradeType::CrossbowAttack as usize] as f32 * UPGRADE_PCT[21],
-        _ => 1.0,
-    };
-    let upgrade_range = match job {
-        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryRange as usize] as f32 * UPGRADE_PCT[2],
-        Job::Crossbow => 1.0 + town[UpgradeType::CrossbowRange as usize] as f32 * UPGRADE_PCT[22],
-        _ => 1.0,
-    };
-    let upgrade_speed = match job {
-        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryMoveSpeed as usize] as f32 * UPGRADE_PCT[4],
-        Job::Crossbow => 1.0 + town[UpgradeType::CrossbowMoveSpeed as usize] as f32 * UPGRADE_PCT[24],
-        Job::Farmer => 1.0 + town[UpgradeType::FarmerMoveSpeed as usize] as f32 * UPGRADE_PCT[9],
-        Job::Miner  => 1.0 + town[UpgradeType::MinerMoveSpeed as usize] as f32 * UPGRADE_PCT[11],
-    };
-    let cooldown_mult = match job {
-        Job::Crossbow => 1.0 / (1.0 + town[UpgradeType::CrossbowAttackSpeed as usize] as f32 * UPGRADE_PCT[23]),
-        _ => 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[3]),
-    };
-    let upgrade_proj_speed = match job {
-        Job::Archer | Job::Raider | Job::Fighter | Job::Crossbow => 1.0 + town[UpgradeType::ProjectileSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::ProjectileSpeed as usize],
-        _ => 1.0,
-    };
-    let upgrade_proj_life = match job {
-        Job::Archer | Job::Raider | Job::Fighter | Job::Crossbow => 1.0 + town[UpgradeType::ProjectileLifetime as usize] as f32 * UPGRADE_PCT[UpgradeType::ProjectileLifetime as usize],
-        _ => 1.0,
-    };
+    // Use NpcDef.upgrade_category to look up all upgrades dynamically
+    let cat = def.upgrade_category.unwrap_or("");
+    let upgrade_hp = reg.stat_mult(&town, cat, UpgradeStatKind::Hp);
+    let upgrade_dmg = reg.stat_mult(&town, cat, UpgradeStatKind::Attack);
+    let upgrade_range = reg.stat_mult(&town, cat, UpgradeStatKind::Range);
+    let upgrade_speed = reg.stat_mult(&town, cat, UpgradeStatKind::MoveSpeed);
+    let cooldown_mult = reg.stat_mult(&town, cat, UpgradeStatKind::AttackSpeed);
+    let upgrade_proj_speed = reg.stat_mult(&town, cat, UpgradeStatKind::ProjectileSpeed);
+    let upgrade_proj_life = reg.stat_mult(&town, cat, UpgradeStatKind::ProjectileLifetime);
 
     CachedStats {
         damage: job_base.damage * upgrade_dmg * trait_damage * level_mult,
@@ -553,9 +610,12 @@ pub fn process_upgrades_system(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_upgrades");
+    let count = upgrade_count();
     for (town_idx, upgrade_idx) in queue.0.drain(..) {
-        if upgrade_idx >= UPGRADE_COUNT { continue; }
+        if upgrade_idx >= count { continue; }
         if town_idx >= upgrades.levels.len() { continue; }
+        // Ensure upgrade vec is long enough
+        upgrades.levels[town_idx].resize(count, 0);
 
         // Prereq + affordability gate
         let levels = upgrades.town_levels(town_idx);
@@ -570,12 +630,14 @@ pub fn process_upgrades_system(
         if let Some(g) = economy.gold_storage.gold.get_mut(town_idx) { *g = gold; }
         upgrades.levels[town_idx][upgrade_idx] = level.saturating_add(1);
 
+        let node = &UPGRADES.nodes[upgrade_idx];
+
         // Invalidate healing zone cache on radius/rate upgrades
-        if upgrade_idx == UpgradeType::HealingRate as usize || upgrade_idx == UpgradeType::FountainRange as usize {
+        if node.invalidates_healing {
             world_state.dirty.healing_zones = true;
         }
 
-        if upgrade_idx == UpgradeType::TownArea as usize {
+        if node.triggers_expansion {
             if let Some(grid_idx) = world_state.town_grids.grids.iter().position(|g| g.town_data_idx == town_idx) {
                 let _ = crate::world::expand_town_build_area(
                     &mut world_state.grid,
@@ -628,12 +690,13 @@ pub fn auto_upgrade_system(
     let _t = timings.scope("auto_upgrade");
     if !game_time.hour_ticked { return; }
 
+    let count = upgrade_count();
     for (town_idx, flags) in auto.flags.iter().enumerate() {
         let levels = upgrades.town_levels(town_idx);
         let food = food_storage.food.get(town_idx).copied().unwrap_or(0);
         let gold = gold_storage.gold.get(town_idx).copied().unwrap_or(0);
-        for (i, &enabled) in flags.iter().enumerate() {
-            if !enabled { continue; }
+        for i in 0..count.min(flags.len()) {
+            if !flags[i] { continue; }
             if upgrade_available(&levels, i, food, gold) {
                 queue.0.push((town_idx, i));
             }

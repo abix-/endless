@@ -9,7 +9,8 @@ use crate::constants::{BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, npc_d
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UpgradeType, UPGRADE_COUNT, UPGRADE_PCT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UPGRADES, upgrade_count, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
+use crate::constants::UpgradeStatKind;
 use crate::systems::{AiPlayerState, AiKind};
 use crate::systems::ai_player::AiPersonality;
 use crate::world::{WorldData, BuildingKind, is_alive};
@@ -148,7 +149,7 @@ struct AiSnapshot {
     alive: i32,
     dead: i32,
     kills: i32,
-    upgrades: [u8; UPGRADE_COUNT],
+    upgrades: Vec<u8>,
     last_actions: Vec<String>,
     mining_radius: f32,
     mines_in_radius: usize,
@@ -530,73 +531,82 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
     }
 
     // Branch totals + overall total
+    let reg = &*UPGRADES;
     let total: u32 = levels.iter().map(|&l| l as u32).sum();
     ui.horizontal(|ui| {
-        for (branch, _) in UPGRADE_RENDER_ORDER {
-            let bt = branch_total(&levels, branch);
-            ui.label(egui::RichText::new(format!("{}: {}", branch, bt)).small());
+        for branch in &reg.branches {
+            let bt = branch_total(&levels, branch.label);
+            ui.label(egui::RichText::new(format!("{}: {}", branch.label, bt)).small());
         }
         ui.label(egui::RichText::new(format!("Total: {}", total)).small().strong());
     });
     ui.separator();
 
-    // Tree-ordered upgrade list
-    for (branch, nodes) in UPGRADE_RENDER_ORDER {
-        let bt = branch_total(&levels, branch);
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new(format!("{} ({})", branch, bt)).strong());
+    // Tree-ordered upgrade list grouped by section (driven by dynamic registry)
+    for section_name in ["Economy", "Military"] {
+        ui.add_space(6.0);
+        ui.label(egui::RichText::new(section_name).strong().size(16.0));
+        ui.separator();
 
-        for &(i, depth) in *nodes {
-            let upg = &UPGRADE_REGISTRY[i];
-            let unlocked = upgrade_unlocked(&levels, i);
-            let available = upgrade_available(&levels, i, food, gold);
-            let indent = depth as f32 * 16.0;
+        for branch in reg.branches.iter().filter(|b| b.section == section_name) {
+            let bt = branch_total(&levels, branch.label);
+            egui::CollapsingHeader::new(egui::RichText::new(format!("{} ({})", branch.label, bt)).strong())
+                .default_open(true)
+                .show(ui, |ui| {
+                    for &(i, depth) in &branch.entries {
+                        let upg = &reg.nodes[i];
+                        let unlocked = upgrade_unlocked(&levels, i);
+                        let lv_i = levels.get(i).copied().unwrap_or(0);
+                        let available = upgrade_available(&levels, i, food, gold);
+                        let indent = depth as f32 * 16.0;
 
-            ui.horizontal(|ui| {
-                ui.add_space(indent);
+                        ui.horizontal(|ui| {
+                            ui.add_space(indent);
 
-                // Auto-upgrade checkbox
-                if upgrade.auto.flags.len() <= town_idx {
-                    upgrade.auto.flags.resize(town_idx + 1, [false; UPGRADE_COUNT]);
-                }
-                let auto_flag = &mut upgrade.auto.flags[town_idx][i];
-                let prev_auto = *auto_flag;
-                ui.add_enabled(unlocked, egui::Checkbox::new(auto_flag, ""))
-                    .on_hover_text("Auto-buy each game hour");
-                if *auto_flag != prev_auto {
-                    let mut saved = settings::load_settings();
-                    saved.auto_upgrades = upgrade.auto.flags[town_idx].to_vec();
-                    settings::save_settings(&saved);
-                }
+                            // Auto-upgrade checkbox
+                            upgrade.auto.ensure_towns(town_idx + 1);
+                            let count = upgrade_count();
+                            upgrade.auto.flags[town_idx].resize(count, false);
+                            let auto_flag = &mut upgrade.auto.flags[town_idx][i];
+                            let prev_auto = *auto_flag;
+                            ui.add_enabled(unlocked, egui::Checkbox::new(auto_flag, ""))
+                                .on_hover_text("Auto-buy each game hour");
+                            if *auto_flag != prev_auto {
+                                let mut saved = settings::load_settings();
+                                saved.auto_upgrades = upgrade.auto.flags[town_idx].clone();
+                                settings::save_settings(&saved);
+                            }
 
-                // Label (dimmed when locked)
-                let label_text = egui::RichText::new(upg.label);
-                ui.label(if unlocked { label_text } else { label_text.weak() });
+                            // Label (dimmed when locked)
+                            let label_text = egui::RichText::new(upg.label);
+                            ui.label(if unlocked { label_text } else { label_text.weak() });
 
-                // Effect summary (now/next)
-                let (now, next) = upgrade_effect_summary(i, levels[i]);
-                ui.label(egui::RichText::new(format!("{} \u{2192} {}", now, next)).small().weak());
+                            // Effect summary (now/next)
+                            let (now, next) = upgrade_effect_summary(i, lv_i);
+                            ui.label(egui::RichText::new(format!("{} \u{2192} {}", now, next)).small().weak());
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let cost_text = format_upgrade_cost(i, levels[i]);
-                    let response = ui.add_enabled(available, egui::Button::new(&cost_text));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let cost_text = format_upgrade_cost(i, lv_i);
+                                let response = ui.add_enabled(available, egui::Button::new(&cost_text));
 
-                    let response = if !unlocked {
-                        if let Some(msg) = missing_prereqs(&levels, i) {
-                            response.on_hover_text(msg)
-                        } else {
-                            response
-                        }
-                    } else {
-                        response.on_hover_text(upg.tooltip)
-                    };
-                    if response.clicked() {
-                        upgrade.queue.0.push((town_idx, i));
+                                let response = if !unlocked {
+                                    if let Some(msg) = missing_prereqs(&levels, i) {
+                                        response.on_hover_text(msg)
+                                    } else {
+                                        response
+                                    }
+                                } else {
+                                    response.on_hover_text(upg.tooltip)
+                                };
+                                if response.clicked() {
+                                    upgrade.queue.0.push((town_idx, i));
+                                }
+
+                                ui.label(format!("Lv{}", lv_i));
+                            });
+                        });
                     }
-
-                    ui.label(format!("Lv{}", levels[i]));
                 });
-            });
         }
     }
 }
@@ -1052,7 +1062,7 @@ fn rebuild_factions_cache(
         let (alive, dead, kills) = factions.faction_stats.stats.get(faction as usize)
             .map(|s| (s.alive, s.dead, s.kills))
             .unwrap_or((0, 0, 0));
-        let upgrades = factions.upgrades.levels.get(tdi).copied().unwrap_or([0; UPGRADE_COUNT]);
+        let upgrades = factions.upgrades.town_levels(tdi);
 
         let policy = policies.policies.get(tdi);
         let mining_radius = policy.map(|p| p.mining_radius).unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
@@ -1304,6 +1314,7 @@ fn factions_content(
 
     let lv = &snap.upgrades;
     let archer_base = factions.combat_config.jobs.get(&Job::Archer);
+    let fighter_base = factions.combat_config.jobs.get(&Job::Fighter);
     let crossbow_base = factions.combat_config.jobs.get(&Job::Crossbow);
     let crossbow_atk = npc_def(Job::Crossbow).attack_override.as_ref();
     let farmer_base = factions.combat_config.jobs.get(&Job::Farmer);
@@ -1311,30 +1322,36 @@ fn factions_content(
     let ranged_base = factions.combat_config.attacks.get(&BaseAttackType::Ranged);
     let melee_base = factions.combat_config.attacks.get(&BaseAttackType::Melee);
 
-    let military_hp_mult = 1.0 + lv[UpgradeType::MilitaryHp as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryHp as usize];
-    let military_dmg_mult = 1.0 + lv[UpgradeType::MilitaryAttack as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryAttack as usize];
-    let military_range_mult = 1.0 + lv[UpgradeType::MilitaryRange as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryRange as usize];
-    let military_speed_mult = 1.0 + lv[UpgradeType::MilitaryMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::MilitaryMoveSpeed as usize];
-    let cooldown_mult = 1.0 / (1.0 + lv[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::AttackSpeed as usize]);
-    let cooldown_reduction = (1.0 - cooldown_mult) * 100.0;
-    let alert_mult = 1.0 + lv[UpgradeType::AlertRadius as usize] as f32 * UPGRADE_PCT[UpgradeType::AlertRadius as usize];
+    let archer_hp_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::Hp);
+    let archer_dmg_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::Attack);
+    let archer_range_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::Range);
+    let archer_speed_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::MoveSpeed);
+    let archer_cd_mult = 1.0 / UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::AttackSpeed);
+    let archer_cd_reduction = (1.0 - archer_cd_mult) * 100.0;
+    let archer_alert_mult = UPGRADES.stat_mult(lv, "Archer", UpgradeStatKind::Alert);
 
-    let xbow_hp_mult = 1.0 + lv[UpgradeType::CrossbowHp as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowHp as usize];
-    let xbow_dmg_mult = 1.0 + lv[UpgradeType::CrossbowAttack as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowAttack as usize];
-    let xbow_range_mult = 1.0 + lv[UpgradeType::CrossbowRange as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowRange as usize];
-    let xbow_speed_mult = 1.0 + lv[UpgradeType::CrossbowMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowMoveSpeed as usize];
-    let xbow_cd_mult = 1.0 / (1.0 + lv[UpgradeType::CrossbowAttackSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowAttackSpeed as usize]);
+    let fighter_hp_mult = UPGRADES.stat_mult(lv, "Fighter", UpgradeStatKind::Hp);
+    let fighter_dmg_mult = UPGRADES.stat_mult(lv, "Fighter", UpgradeStatKind::Attack);
+    let fighter_speed_mult = UPGRADES.stat_mult(lv, "Fighter", UpgradeStatKind::MoveSpeed);
+    let fighter_cd_mult = 1.0 / UPGRADES.stat_mult(lv, "Fighter", UpgradeStatKind::AttackSpeed);
+    let fighter_cd_reduction = (1.0 - fighter_cd_mult) * 100.0;
 
-    let farmer_hp_mult = 1.0 + lv[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmerHp as usize];
-    let farmer_speed_mult = 1.0 + lv[UpgradeType::FarmerMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmerMoveSpeed as usize];
-    let farm_yield_mult = 1.0 + lv[UpgradeType::FarmYield as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmYield as usize];
+    let xbow_hp_mult = UPGRADES.stat_mult(lv, "Crossbow", UpgradeStatKind::Hp);
+    let xbow_dmg_mult = UPGRADES.stat_mult(lv, "Crossbow", UpgradeStatKind::Attack);
+    let xbow_range_mult = UPGRADES.stat_mult(lv, "Crossbow", UpgradeStatKind::Range);
+    let xbow_speed_mult = UPGRADES.stat_mult(lv, "Crossbow", UpgradeStatKind::MoveSpeed);
+    let xbow_cd_mult = 1.0 / UPGRADES.stat_mult(lv, "Crossbow", UpgradeStatKind::AttackSpeed);
 
-    let miner_hp_mult = 1.0 + lv[UpgradeType::MinerHp as usize] as f32 * UPGRADE_PCT[UpgradeType::MinerHp as usize];
-    let miner_speed_mult = 1.0 + lv[UpgradeType::MinerMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::MinerMoveSpeed as usize];
-    let gold_yield_mult = 1.0 + lv[UpgradeType::GoldYield as usize] as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize];
+    let farmer_hp_mult = UPGRADES.stat_mult(lv, "Farmer", UpgradeStatKind::Hp);
+    let farmer_speed_mult = UPGRADES.stat_mult(lv, "Farmer", UpgradeStatKind::MoveSpeed);
+    let farm_yield_mult = UPGRADES.stat_mult(lv, "Farmer", UpgradeStatKind::Yield);
 
-    let healing_mult = 1.0 + lv[UpgradeType::HealingRate as usize] as f32 * UPGRADE_PCT[UpgradeType::HealingRate as usize];
-    let fountain_bonus = lv[UpgradeType::FountainRange as usize] as f32 * 24.0;
+    let miner_hp_mult = UPGRADES.stat_mult(lv, "Miner", UpgradeStatKind::Hp);
+    let miner_speed_mult = UPGRADES.stat_mult(lv, "Miner", UpgradeStatKind::MoveSpeed);
+    let gold_yield_mult = UPGRADES.stat_mult(lv, "Miner", UpgradeStatKind::Yield);
+
+    let healing_mult = UPGRADES.stat_mult(lv, "Town", UpgradeStatKind::Healing);
+    let fountain_bonus = UPGRADES.stat_level(lv, "Town", UpgradeStatKind::FountainRange) as f32 * 24.0;
     let tower = resolve_town_tower_stats(lv);
 
     let npc = |k: BuildingKind| snap.npcs.get(&k).copied().unwrap_or(0);
@@ -1423,7 +1440,7 @@ fn factions_content(
                 ui.end_row();
 
                 ui.label("Build Area Expansion");
-                ui.label(format!("+{}", lv[UpgradeType::TownArea as usize]));
+                ui.label(format!("+{}", UPGRADES.stat_level(lv, "Town", UpgradeStatKind::Expansion)));
                 ui.end_row();
             });
 
@@ -1454,34 +1471,68 @@ fn factions_content(
             .striped(true)
             .show(right, |ui| {
                 if let Some(base) = archer_base {
-                    ui.label("HP (Archer/Raider)");
-                    ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * military_hp_mult));
+                    ui.label("HP (Archer)");
+                    ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * archer_hp_mult));
                     ui.end_row();
 
-                    ui.label("Damage (Archer/Raider)");
-                    ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * military_dmg_mult));
+                    ui.label("Damage (Archer)");
+                    ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * archer_dmg_mult));
                     ui.end_row();
 
-                    ui.label("Move Speed (Archer/Raider)");
-                    ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * military_speed_mult));
+                    ui.label("Move Speed (Archer)");
+                    ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * archer_speed_mult));
                     ui.end_row();
                 }
 
                 if let Some(base) = ranged_base {
-                    ui.label("Range (Ranged)");
-                    ui.label(format!("{:.0} -> {:.0}", base.range, base.range * military_range_mult));
+                    ui.label("Range (Archer)");
+                    ui.label(format!("{:.0} -> {:.0}", base.range, base.range * archer_range_mult));
                     ui.end_row();
 
-                    ui.label("Attack Cooldown (Ranged)");
-                    ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
+                    ui.label("Attack Cooldown (Archer)");
+                    ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * archer_cd_mult, archer_cd_reduction));
+                    ui.end_row();
+                }
+
+                ui.label("Alert (Archer)");
+                ui.label(format!("{:.0}% of base", archer_alert_mult * 100.0));
+                ui.end_row();
+
+                ui.label("Dodge (Archer)");
+                ui.label(if UPGRADES.stat_level(lv, "Archer", UpgradeStatKind::Dodge) > 0 { "Unlocked" } else { "Locked" });
+                ui.end_row();
+
+                ui.separator();
+                ui.separator();
+                ui.end_row();
+
+                if let Some(base) = fighter_base {
+                    ui.label("HP (Fighter)");
+                    ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * fighter_hp_mult));
+                    ui.end_row();
+
+                    ui.label("Damage (Fighter)");
+                    ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * fighter_dmg_mult));
+                    ui.end_row();
+
+                    ui.label("Move Speed (Fighter)");
+                    ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * fighter_speed_mult));
                     ui.end_row();
                 }
 
                 if let Some(base) = melee_base {
-                    ui.label("Attack Cooldown (Melee)");
-                    ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
+                    ui.label("Attack Cooldown (Fighter)");
+                    ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * fighter_cd_mult, fighter_cd_reduction));
                     ui.end_row();
                 }
+
+                ui.label("Dodge (Fighter)");
+                ui.label(if UPGRADES.stat_level(lv, "Fighter", UpgradeStatKind::Dodge) > 0 { "Unlocked" } else { "Locked" });
+                ui.end_row();
+
+                ui.separator();
+                ui.separator();
+                ui.end_row();
 
                 if let Some(base) = crossbow_base {
                     ui.label("HP (Crossbow)");
@@ -1507,14 +1558,6 @@ fn factions_content(
                     ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * xbow_cd_mult, xbow_cd_red));
                     ui.end_row();
                 }
-
-                ui.label("Alert Radius");
-                ui.label(format!("{:.0}% of base", alert_mult * 100.0));
-                ui.end_row();
-
-                ui.label("Dodge");
-                ui.label(if lv[UpgradeType::Dodge as usize] > 0 { "Unlocked" } else { "Locked" });
-                ui.end_row();
             });
 
         right.separator();

@@ -58,14 +58,14 @@ All personalities share the same fallback target set if preferred kinds yield no
 
 ### Upgrades
 
-Per-personality weight table (25 entries matching upgrade tree, indexed by `UpgradeType` discriminant). Scored alongside buildings in the same weighted random pool. Includes 5 crossbow-specific upgrade weights (HP, attack, range, attack speed, move speed).
+Dynamic weight vector built from `UPGRADES` registry (category + stat_kind lookups via `set()` helper). Scored alongside buildings in the same weighted random pool. Each NPC category (Archer, Fighter, Crossbow, Farmer, Miner) has independent upgrade branches with separate levels.
 
 **Builder upgrade emphasis:**
-- Aggressive: military attack/HP, crossbow upgrades, expansion, arrow upgrades
-- Balanced: mixed military + economy + crossbow, strong expansion
+- Aggressive: Archer/Fighter attack/HP, crossbow upgrades, expansion, arrow upgrades
+- Balanced: mixed Archer/Fighter + economy + crossbow, strong expansion
 - Economic: farm yield, farmer/miner HP, gold yield, strongest expansion, light crossbow
 
-**Raider upgrade emphasis:** Military HP, attack, attack speed, move speed. No economy or crossbow upgrades.
+**Raider upgrade emphasis:** Archer + Fighter HP, attack, attack speed, move speed. No economy or crossbow upgrades.
 
 ## Decision Loop
 

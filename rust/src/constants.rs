@@ -9,6 +9,158 @@ use serde_json::Value as JsonValue;
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
 pub const MAX_NPC_COUNT: usize = 100000;
 
+// ============================================================================
+// UPGRADE STAT DEFINITIONS (used by NpcDef to declare upgradeable stats)
+// ============================================================================
+
+/// Resource types used in upgrade costs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ResourceKind { Food, Gold }
+
+/// Which stat an upgrade improves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum UpgradeStatKind {
+    // Core NPC stats
+    Hp, Attack, Range, AttackSpeed, MoveSpeed,
+    // Special NPC stats
+    Yield, Alert, Dodge, ProjectileSpeed, ProjectileLifetime,
+    // Town-only stats (not NPC-driven)
+    Healing, FountainRange, FountainAttackSpeed, FountainProjectileLife, Expansion,
+}
+
+/// How an upgrade's effect is displayed in the UI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EffectDisplay {
+    /// +X% per level (standard multiplicative)
+    Percentage,
+    /// -X% cooldown reduction (reciprocal: 1/(1+n*pct))
+    CooldownReduction,
+    /// Binary unlock (level 0 = locked, level 1+ = unlocked)
+    Unlock,
+    /// +Npx per level (flat additive, displayed as pixels)
+    FlatPixels(i32),
+    /// +N per level (discrete integer)
+    Discrete,
+}
+
+/// One upgradeable stat declaration on an NPC category.
+#[derive(Clone, Copy, Debug)]
+pub struct UpgradeStatDef {
+    pub kind: UpgradeStatKind,
+    pub pct: f32,
+    pub cost: &'static [(ResourceKind, i32)],
+    pub label: &'static str,
+    pub short: &'static str,
+    pub tooltip: &'static str,
+    pub display: EffectDisplay,
+    /// Prerequisite: another stat in the same category that must be at min_level.
+    pub prereq_stat: Option<UpgradeStatKind>,
+    pub prereq_level: u8,
+    /// Whether this upgrade triggers NPC stat re-resolution.
+    pub is_combat_stat: bool,
+    /// Whether purchasing this triggers healing zone invalidation.
+    pub invalidates_healing: bool,
+    /// Whether purchasing this triggers town grid expansion.
+    pub triggers_expansion: bool,
+    /// Custom cost function instead of standard exponential scaling.
+    pub custom_cost: bool,
+}
+
+use ResourceKind::{Food as F, Gold as G};
+use UpgradeStatKind as USK;
+
+// Helper for concise UpgradeStatDef construction
+const fn usd(kind: UpgradeStatKind, pct: f32, cost: &'static [(ResourceKind, i32)], label: &'static str, short: &'static str, tooltip: &'static str, display: EffectDisplay) -> UpgradeStatDef {
+    UpgradeStatDef {
+        kind, pct, cost, label, short, tooltip, display,
+        prereq_stat: None, prereq_level: 1, is_combat_stat: true,
+        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+    }
+}
+
+const fn usd_noncombat(kind: UpgradeStatKind, pct: f32, cost: &'static [(ResourceKind, i32)], label: &'static str, short: &'static str, tooltip: &'static str, display: EffectDisplay) -> UpgradeStatDef {
+    UpgradeStatDef {
+        kind, pct, cost, label, short, tooltip, display,
+        prereq_stat: None, prereq_level: 1, is_combat_stat: false,
+        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+    }
+}
+
+const fn usd_req(kind: UpgradeStatKind, pct: f32, cost: &'static [(ResourceKind, i32)], label: &'static str, short: &'static str, tooltip: &'static str, display: EffectDisplay, prereq: UpgradeStatKind, prereq_lv: u8) -> UpgradeStatDef {
+    UpgradeStatDef {
+        kind, pct, cost, label, short, tooltip, display,
+        prereq_stat: Some(prereq), prereq_level: prereq_lv, is_combat_stat: true,
+        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+    }
+}
+
+// Military upgrade stat defs
+const MILITARY_UPGRADES: &[UpgradeStatDef] = &[
+    usd(USK::Hp, 0.10, &[(F, 1)], "HP", "HP", "+10% HP per level", EffectDisplay::Percentage),
+    usd(USK::Attack, 0.10, &[(F, 1)], "Attack", "Atk", "+10% damage per level", EffectDisplay::Percentage),
+    usd_req(USK::Range, 0.05, &[(G, 1)], "Range", "Rng", "+5% attack range per level", EffectDisplay::Percentage, USK::Attack, 1),
+    usd_req(USK::AttackSpeed, 0.08, &[(F, 1)], "Attack Speed", "AtkSpd", "-8% attack cooldown per level", EffectDisplay::CooldownReduction, USK::Attack, 1),
+    usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% movement speed per level", EffectDisplay::Percentage),
+    usd_req(USK::Alert, 0.10, &[(G, 1)], "Alert", "Alert", "+10% alert radius per level", EffectDisplay::Percentage, USK::MoveSpeed, 1),
+    usd_req(USK::Dodge, 0.0, &[(G, 20)], "Dodge", "Dodge", "Unlocks projectile dodging", EffectDisplay::Unlock, USK::MoveSpeed, 5),
+    usd_req(USK::ProjectileSpeed, 0.08, &[(G, 1)], "Arrow Speed", "ASpd", "+8% arrow speed per level", EffectDisplay::Percentage, USK::Range, 1),
+    usd_req(USK::ProjectileLifetime, 0.08, &[(G, 1)], "Arrow Range", "ARng", "+8% arrow flight distance per level", EffectDisplay::Percentage, USK::Range, 1),
+];
+
+const FARMER_UPGRADES: &[UpgradeStatDef] = &[
+    usd(USK::Yield, 0.15, &[(F, 1)], "Yield", "Yield", "+15% food production per level", EffectDisplay::Percentage),
+    usd(USK::Hp, 0.20, &[(F, 1)], "HP", "HP", "+20% farmer HP per level", EffectDisplay::Percentage),
+    usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% farmer speed per level", EffectDisplay::Percentage),
+];
+
+const MINER_UPGRADES: &[UpgradeStatDef] = &[
+    usd(USK::Hp, 0.20, &[(F, 1)], "HP", "HP", "+20% miner HP per level", EffectDisplay::Percentage),
+    usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% miner speed per level", EffectDisplay::Percentage),
+    usd_noncombat(USK::Yield, 0.15, &[(G, 1)], "Yield", "Yield", "+15% gold yield per level", EffectDisplay::Percentage),
+];
+
+const CROSSBOW_UPGRADES: &[UpgradeStatDef] = &[
+    usd(USK::Hp, 0.10, &[(F, 2)], "HP", "HP", "+10% crossbow HP per level", EffectDisplay::Percentage),
+    usd(USK::Attack, 0.10, &[(F, 2)], "Attack", "Atk", "+10% crossbow damage per level", EffectDisplay::Percentage),
+    usd_req(USK::Range, 0.05, &[(G, 2)], "Range", "Rng", "+5% crossbow range per level", EffectDisplay::Percentage, USK::Attack, 1),
+    usd_req(USK::AttackSpeed, 0.08, &[(F, 2)], "Attack Speed", "AtkSpd", "-8% crossbow cooldown per level", EffectDisplay::CooldownReduction, USK::Attack, 1),
+    usd(USK::MoveSpeed, 0.05, &[(F, 2)], "Move Speed", "MvSpd", "+5% crossbow speed per level", EffectDisplay::Percentage),
+];
+
+// Town upgrades (not NPC-driven, appended to registry as "Town" branch)
+pub const TOWN_UPGRADES: &[UpgradeStatDef] = &[
+    UpgradeStatDef {
+        kind: USK::Healing, pct: 0.20, cost: &[(F, 1)], label: "Healing", short: "Heal",
+        tooltip: "+20% HP regen at fountain", display: EffectDisplay::Percentage,
+        prereq_stat: None, prereq_level: 1, is_combat_stat: false,
+        invalidates_healing: true, triggers_expansion: false, custom_cost: false,
+    },
+    UpgradeStatDef {
+        kind: USK::FountainRange, pct: 0.0, cost: &[(G, 1)], label: "Fountain Range", short: "FRng",
+        tooltip: "+24px fountain range per level", display: EffectDisplay::FlatPixels(24),
+        prereq_stat: Some(USK::Healing), prereq_level: 1, is_combat_stat: false,
+        invalidates_healing: true, triggers_expansion: false, custom_cost: false,
+    },
+    UpgradeStatDef {
+        kind: USK::FountainAttackSpeed, pct: 0.08, cost: &[(G, 1)], label: "Fountain Atk Speed", short: "FAS",
+        tooltip: "-8% fountain cooldown per level", display: EffectDisplay::CooldownReduction,
+        prereq_stat: Some(USK::FountainRange), prereq_level: 1, is_combat_stat: false,
+        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+    },
+    UpgradeStatDef {
+        kind: USK::FountainProjectileLife, pct: 0.08, cost: &[(G, 1)], label: "Fountain Proj Life", short: "FPL",
+        tooltip: "+8% fountain projectile life per level", display: EffectDisplay::Percentage,
+        prereq_stat: Some(USK::FountainRange), prereq_level: 1, is_combat_stat: false,
+        invalidates_healing: false, triggers_expansion: false, custom_cost: false,
+    },
+    UpgradeStatDef {
+        kind: USK::Expansion, pct: 0.0, cost: &[(F, 1), (G, 1)], label: "Expansion", short: "Area",
+        tooltip: "+1 buildable radius per level", display: EffectDisplay::Discrete,
+        prereq_stat: None, prereq_level: 1, is_combat_stat: false,
+        invalidates_healing: false, triggers_expansion: true, custom_cost: true,
+    },
+];
+
 /// Neutral faction — friendly to everyone. Used for world-owned buildings (gold mines).
 pub const FACTION_NEUTRAL: i32 = -1;
 
@@ -73,6 +225,10 @@ pub struct NpcDef {
     pub is_camp_unit: bool,
     /// Default count per town/camp in world gen.
     pub default_count: usize,
+    /// Upgrade branch name. NPCs with the same category share upgrades. None = no upgrades (e.g. Raider).
+    pub upgrade_category: Option<&'static str>,
+    /// Which stats this NPC type can upgrade. Defines the upgrade branch content.
+    pub upgrade_stats: &'static [UpgradeStatDef],
 }
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
@@ -86,6 +242,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: None, helmet: None, stealer: false, leash_range: None,
         ui_color: (80, 200, 80),
         home_building: BuildingKind::FarmerHome, is_camp_unit: false, default_count: 2,
+        upgrade_category: Some("Farmer"), upgrade_stats: FARMER_UPGRADES,
     },
     NpcDef {
         job: Job::Archer, label: "Archer", label_plural: "Archers",
@@ -97,6 +254,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
         ui_color: (80, 100, 220),
         home_building: BuildingKind::ArcherHome, is_camp_unit: false, default_count: 4,
+        upgrade_category: Some("Archer"), upgrade_stats: MILITARY_UPGRADES,
     },
     NpcDef {
         job: Job::Raider, label: "Raider", label_plural: "Raiders",
@@ -108,6 +266,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: Some(EQUIP_SWORD), helmet: None, stealer: true, leash_range: Some(400.0),
         ui_color: (220, 80, 80),
         home_building: BuildingKind::Tent, is_camp_unit: true, default_count: 1,
+        upgrade_category: None, upgrade_stats: &[],
     },
     NpcDef {
         job: Job::Fighter, label: "Fighter", label_plural: "Fighters",
@@ -120,17 +279,19 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: None, helmet: None, stealer: false, leash_range: None,
         ui_color: (220, 220, 80),
         home_building: BuildingKind::FighterHome, is_camp_unit: false, default_count: 0,
+        upgrade_category: Some("Fighter"), upgrade_stats: MILITARY_UPGRADES,
     },
     NpcDef {
         job: Job::Miner, label: "Miner", label_plural: "Miners",
         sprite: (1.0, 6.0), color: (0.6, 0.4, 0.2, 1.0),
-        base_hp: 100.0, base_damage: 0.0, base_speed: 100.0,
+        base_hp: 100.0, base_damage: 0.0, base_speed: 110.0,
         default_attack_type: BaseAttackType::Melee, attack_override: None,
         is_patrol_unit: false, is_military: false,
         has_energy: true, has_attack_timer: false,
         weapon: None, helmet: None, stealer: false, leash_range: None,
         ui_color: (160, 110, 60),
         home_building: BuildingKind::MinerHome, is_camp_unit: false, default_count: 0,
+        upgrade_category: Some("Miner"), upgrade_stats: MINER_UPGRADES,
     },
     NpcDef {
         job: Job::Crossbow, label: "Crossbow", label_plural: "Crossbows",
@@ -143,6 +304,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
         ui_color: (140, 60, 220),
         home_building: BuildingKind::CrossbowHome, is_camp_unit: false, default_count: 0,
+        upgrade_category: Some("Crossbow"), upgrade_stats: CROSSBOW_UPGRADES,
     },
 ];
 

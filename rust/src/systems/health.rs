@@ -6,7 +6,8 @@ use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingHpState, BuildingSlotMap};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, UPGRADE_PCT};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES};
+use crate::constants::UpgradeStatKind;
 use crate::systems::economy::*;
 use crate::world::{WorldData, BuildingOccupancy};
 
@@ -187,10 +188,11 @@ pub fn update_healing_zone_cache(
 
     for (town_idx, town) in world_data.towns.iter().enumerate() {
         if town.faction < 0 { continue; }
-        let heal_lvl = upgrades.levels.get(town_idx).map(|l| l[UpgradeType::HealingRate as usize]).unwrap_or(0);
-        let radius_lvl = upgrades.levels.get(town_idx).map(|l| l[UpgradeType::FountainRange as usize]).unwrap_or(0);
+        let town_levels = upgrades.town_levels(town_idx);
+        let heal_mult = UPGRADES.stat_mult(&town_levels, "Town", UpgradeStatKind::Healing);
+        let radius_lvl = UPGRADES.stat_level(&town_levels, "Town", UpgradeStatKind::FountainRange);
         let radius = combat_config.heal_radius + radius_lvl as f32 * 24.0;
-        let heal_rate = combat_config.heal_rate * (1.0 + heal_lvl as f32 * UPGRADE_PCT[UpgradeType::HealingRate as usize]);
+        let heal_rate = combat_config.heal_rate * heal_mult;
 
         cache.by_faction[town.faction as usize].push(crate::resources::HealingZone {
             center: town.center,

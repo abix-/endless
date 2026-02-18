@@ -8,7 +8,7 @@ use crate::components::*;
 use crate::constants::MAX_SQUADS;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::*;
-use crate::systems::stats::{TownUpgrades, CombatConfig, UPGRADE_COUNT, resolve_combat_stats, decode_upgrade_levels, decode_auto_upgrade_flags};
+use crate::systems::stats::{TownUpgrades, CombatConfig, resolve_combat_stats, decode_upgrade_levels, decode_auto_upgrade_flags};
 use crate::systems::{pop_inc_alive, AiPlayerState};
 use crate::systems::spawn::build_patrol_route;
 use crate::world::{self, WorldData, WorldGrid, WorldCell, TownGrids};
@@ -509,15 +509,11 @@ pub fn collect_save_data(
     // Building HP — direct clone (BuildingHpState has serde derives)
     let building_hp_save = building_hp.clone();
 
-    // Upgrades (convert [u8; UPGRADE_COUNT] to Vec<u8>)
-    let upgrades_save: Vec<Vec<u8>> = upgrades.levels.iter()
-        .map(|l| l.to_vec())
-        .collect();
+    // Upgrades (already Vec<Vec<u8>>)
+    let upgrades_save: Vec<Vec<u8>> = upgrades.levels.clone();
 
-    // Auto-upgrades (convert [bool; UPGRADE_COUNT] to Vec<bool>)
-    let auto_upgrades_save: Vec<Vec<bool>> = auto_upgrade.flags.iter()
-        .map(|f| f.to_vec())
-        .collect();
+    // Auto-upgrades (already Vec<Vec<bool>>)
+    let auto_upgrades_save: Vec<Vec<bool>> = auto_upgrade.flags.clone();
 
     // Squads
     let squads: Vec<SquadSave> = squad_state.squads.iter().map(|s| SquadSave {
@@ -793,7 +789,7 @@ pub fn apply_save(
     auto_upgrade.flags = save.auto_upgrades.iter().map(|v| {
         decode_auto_upgrade_flags(v)
     }).collect();
-    auto_upgrade.flags.resize(num_towns.max(16), [false; UPGRADE_COUNT]);
+    auto_upgrade.ensure_towns(num_towns.max(16));
 
     // Squads — load all saved squads (player + AI).
     // First MAX_SQUADS are player-reserved; extras are AI squads.

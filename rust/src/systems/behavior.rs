@@ -22,7 +22,8 @@ use crate::constants::*;
 use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, GrowthStates, FarmGrowthState, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags};
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
-use crate::systems::stats::{UpgradeType, UPGRADE_PCT};
+use crate::systems::stats::UPGRADES;
+use crate::constants::UpgradeStatKind;
 use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
 
 // ============================================================================
@@ -410,10 +411,9 @@ pub fn decision_system(
                     if let Some(gi) = farms.states.positions.iter().position(|p| (*p - mine_pos).length() < 30.0) {
                         if farms.states.states.get(gi) == Some(&FarmGrowthState::Ready) {
                             // Mine ready — harvest immediately
-                            let yield_level = extras.town_upgrades.levels.get(town_id.0 as usize)
-                                .map(|l| l[UpgradeType::GoldYield as usize]).unwrap_or(0);
-                            let gold_amount = ((crate::constants::MINE_EXTRACT_PER_CYCLE as f32)
-                                * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize])).round() as i32;
+                            let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
+                            let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
+                            let gold_amount = ((crate::constants::MINE_EXTRACT_PER_CYCLE as f32) * yield_mult).round() as i32;
                             farms.states.harvest(gi, None,
                                 &mut economy.food_storage, &mut economy.gold_storage,
                                 &mut economy.food_events, combat_log, &game_time, faction.0);
@@ -737,10 +737,9 @@ pub fn decision_system(
                 if let Some(gi) = farms.states.positions.iter().position(|p| (*p - mine_pos).length() < 30.0) {
                     if farms.states.states.get(gi) == Some(&FarmGrowthState::Ready) {
                         // Mine ready — harvest gold and return home
-                        let yield_level = extras.town_upgrades.levels.get(town_id.0 as usize)
-                            .map(|l| l[UpgradeType::GoldYield as usize]).unwrap_or(0);
-                        let gold_amount = ((crate::constants::MINE_EXTRACT_PER_CYCLE as f32)
-                            * (1.0 + yield_level as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize])).round() as i32;
+                        let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
+                        let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
+                        let gold_amount = ((crate::constants::MINE_EXTRACT_PER_CYCLE as f32) * yield_mult).round() as i32;
                         farms.states.harvest(gi, None,
                             &mut economy.food_storage, &mut economy.gold_storage,
                             &mut economy.food_events, combat_log, &game_time, faction.0);
