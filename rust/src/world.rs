@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
@@ -1408,11 +1409,12 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
 }
 
 /// Building occupying a grid cell.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Building {
     Fountain { town_idx: u32 },
     Farm { town_idx: u32 },
     Bed { town_idx: u32 },
+    #[serde(alias = "GuardPost")]
     Waypoint { town_idx: u32, patrol_order: u32 },
     Camp { town_idx: u32 },
     FarmerHome { town_idx: u32 },

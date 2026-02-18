@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18i
+
+- **delete BuildingSave** — `Building` enum gains `Serialize`/`Deserialize` derives directly; `BuildingSave` shadow enum and its 12-arm `from_building`/`to_building` conversions deleted from save.rs; save format uses `Building` directly (backwards-compatible via `#[serde(alias = "GuardPost")]` on Waypoint)
+
 ## 2026-02-18h
 
 - **fighter damage 1.5x** — fighter `base_damage` 15→22.5 (1.5x multiplier vs standard melee)

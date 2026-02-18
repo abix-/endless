@@ -38,7 +38,7 @@ pub struct SaveData {
     pub grid_height: usize,
     pub grid_cell_size: f32,
     pub terrain: Vec<u8>,                     // Biome as u8
-    pub buildings: Vec<Option<BuildingSave>>,  // parallel to terrain
+    pub buildings: Vec<Option<world::Building>>,  // parallel to terrain
 
     // World data
     pub towns: Vec<TownSave>,
@@ -234,58 +234,6 @@ fn default_true() -> bool { true }
 fn default_wave_retreat_below_pct() -> usize { 50 }
 
 // Building save (mirrors world::Building)
-#[derive(Serialize, Deserialize, Clone)]
-pub enum BuildingSave {
-    Fountain { town_idx: u32 },
-    Farm { town_idx: u32 },
-    Bed { town_idx: u32 },
-    #[serde(alias = "GuardPost")]
-    Waypoint { town_idx: u32, patrol_order: u32 },
-    Camp { town_idx: u32 },
-    FarmerHome { town_idx: u32 },
-    ArcherHome { town_idx: u32 },
-    CrossbowHome { town_idx: u32 },
-    FighterHome { town_idx: u32 },
-    Tent { town_idx: u32 },
-    GoldMine,
-    MinerHome { town_idx: u32 },
-}
-
-impl BuildingSave {
-    fn from_building(b: &world::Building) -> Self {
-        match *b {
-            world::Building::Fountain { town_idx } => Self::Fountain { town_idx },
-            world::Building::Farm { town_idx } => Self::Farm { town_idx },
-            world::Building::Bed { town_idx } => Self::Bed { town_idx },
-            world::Building::Waypoint { town_idx, patrol_order } => Self::Waypoint { town_idx, patrol_order },
-            world::Building::Camp { town_idx } => Self::Camp { town_idx },
-            world::Building::FarmerHome { town_idx } => Self::FarmerHome { town_idx },
-            world::Building::ArcherHome { town_idx } => Self::ArcherHome { town_idx },
-            world::Building::CrossbowHome { town_idx } => Self::CrossbowHome { town_idx },
-            world::Building::FighterHome { town_idx } => Self::FighterHome { town_idx },
-            world::Building::Tent { town_idx } => Self::Tent { town_idx },
-            world::Building::GoldMine => Self::GoldMine,
-            world::Building::MinerHome { town_idx } => Self::MinerHome { town_idx },
-        }
-    }
-
-    fn to_building(&self) -> world::Building {
-        match *self {
-            Self::Fountain { town_idx } => world::Building::Fountain { town_idx },
-            Self::Farm { town_idx } => world::Building::Farm { town_idx },
-            Self::Bed { town_idx } => world::Building::Bed { town_idx },
-            Self::Waypoint { town_idx, patrol_order } => world::Building::Waypoint { town_idx, patrol_order },
-            Self::Camp { town_idx } => world::Building::Camp { town_idx },
-            Self::FarmerHome { town_idx } => world::Building::FarmerHome { town_idx },
-            Self::ArcherHome { town_idx } => world::Building::ArcherHome { town_idx },
-            Self::CrossbowHome { town_idx } => world::Building::CrossbowHome { town_idx },
-            Self::FighterHome { town_idx } => world::Building::FighterHome { town_idx },
-            Self::Tent { town_idx } => world::Building::Tent { town_idx },
-            Self::GoldMine => world::Building::GoldMine,
-            Self::MinerHome { town_idx } => world::Building::MinerHome { town_idx },
-        }
-    }
-}
 
 // ============================================================================
 // NPC SAVE DATA
@@ -514,8 +462,8 @@ pub fn collect_save_data(
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
-    let buildings: Vec<Option<BuildingSave>> = grid.cells.iter()
-        .map(|c| c.building.as_ref().map(BuildingSave::from_building))
+    let buildings: Vec<Option<world::Building>> = grid.cells.iter()
+        .map(|c| c.building)
         .collect();
 
     // Towns
@@ -801,7 +749,7 @@ pub fn apply_save(
     grid.cells = save.terrain.iter().zip(save.buildings.iter())
         .map(|(&t, b)| WorldCell {
             terrain: u8_to_biome(t),
-            building: b.as_ref().map(|bs| bs.to_building()),
+            building: *b,
         }).collect();
 
     // World data
