@@ -58,7 +58,7 @@ pub fn setup(
 
         let (gc, gr) = world_grid.world_to_grid(pos);
         if let Some(cell) = world_grid.cell_mut(gc, gr) {
-            cell.building = Some(world::Building::Farm { town_idx: 0 });
+            cell.building = Some((world::BuildingKind::Farm, 0));
         }
     }
 

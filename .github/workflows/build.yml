@@ -6,7 +6,7 @@ on:
       target:
         type: choice
         required: true
-        default: all
+        default: windows
         options:
           - windows
           - macos

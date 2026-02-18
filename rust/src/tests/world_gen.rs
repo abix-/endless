@@ -100,18 +100,15 @@ pub fn tick(
             let mut posts = vec![0u32; num_vill];
 
             for cell in &world_grid.cells {
-                if let Some(ref b) = cell.building {
-                    match b {
-                        world::Building::Fountain { town_idx } => {
-                            if (*town_idx as usize) < num_vill { fountains[*town_idx as usize] += 1; }
+                if let Some((kind, town_idx)) = cell.building {
+                    let ti = town_idx as usize;
+                    if ti < num_vill {
+                        match kind {
+                            world::BuildingKind::Fountain => { fountains[ti] += 1; }
+                            world::BuildingKind::Farm => { farms[ti] += 1; }
+                            world::BuildingKind::Waypoint => { posts[ti] += 1; }
+                            _ => {}
                         }
-                        world::Building::Farm { town_idx } => {
-                            if (*town_idx as usize) < num_vill { farms[*town_idx as usize] += 1; }
-                        }
-                        world::Building::Waypoint { town_idx, .. } => {
-                            if (*town_idx as usize) < num_vill { posts[*town_idx as usize] += 1; }
-                        }
-                        _ => {}
                     }
                 }
             }
@@ -166,7 +163,7 @@ pub fn tick(
 
             let expected = config.num_towns;
             let has_camps = world_grid.cells.iter()
-                .filter(|c| matches!(c.building, Some(world::Building::Camp { .. })))
+                .filter(|c| matches!(c.building, Some((world::BuildingKind::Camp, _))))
                 .count();
 
             test.phase_name = format!("raider_towns={} camps_on_grid={}", raider_towns.len(), has_camps);

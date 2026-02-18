@@ -21,6 +21,71 @@ fn v2(v: Vec2) -> [f32; 2] { [v.x, v.y] }
 fn to_vec2(a: [f32; 2]) -> Vec2 { Vec2::new(a[0], a[1]) }
 
 // ============================================================================
+// GRID BUILDING SAVE COMPAT
+// ============================================================================
+
+/// Legacy Building enum format from old saves. Deserializes old `{"Farm": {"town_idx": 0}}` format
+/// and converts to `(BuildingKind, u32)` tuples.
+#[derive(Deserialize)]
+#[allow(dead_code)]
+enum LegacyBuilding {
+    Fountain { town_idx: u32 },
+    Farm { town_idx: u32 },
+    Bed { town_idx: u32 },
+    #[serde(alias = "GuardPost")]
+    Waypoint { town_idx: u32, #[serde(default)] patrol_order: u32 },
+    Camp { town_idx: u32 },
+    GoldMine,
+    MinerHome { town_idx: u32 },
+    FarmerHome { town_idx: u32 },
+    ArcherHome { town_idx: u32 },
+    CrossbowHome { town_idx: u32 },
+    FighterHome { town_idx: u32 },
+    Tent { town_idx: u32 },
+    Home { kind: world::BuildingKind, town_idx: u32 },
+}
+
+impl LegacyBuilding {
+    fn to_grid_building(self) -> world::GridBuilding {
+        use world::BuildingKind::*;
+        match self {
+            Self::Fountain { town_idx } => (Fountain, town_idx),
+            Self::Farm { town_idx } => (Farm, town_idx),
+            Self::Bed { town_idx } => (Bed, town_idx),
+            Self::Waypoint { town_idx, .. } => (Waypoint, town_idx),
+            Self::Camp { town_idx } => (Camp, town_idx),
+            Self::GoldMine => (GoldMine, 0),
+            Self::MinerHome { town_idx } => (MinerHome, town_idx),
+            Self::FarmerHome { town_idx } => (FarmerHome, town_idx),
+            Self::ArcherHome { town_idx } => (ArcherHome, town_idx),
+            Self::CrossbowHome { town_idx } => (CrossbowHome, town_idx),
+            Self::FighterHome { town_idx } => (FighterHome, town_idx),
+            Self::Tent { town_idx } => (Tent, town_idx),
+            Self::Home { kind, town_idx } => (kind, town_idx),
+        }
+    }
+}
+
+/// Deserialize grid buildings: accepts both new tuple format and legacy enum format.
+fn deserialize_grid_buildings<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<Option<world::GridBuilding>>, D::Error> {
+    // Try new format first (Vec<Option<(BuildingKind, u32)>>), fall back to legacy
+    let raw: Vec<Option<serde_json::Value>> = Deserialize::deserialize(deserializer)?;
+    Ok(raw.into_iter().map(|opt| {
+        opt.and_then(|v| {
+            // Try new tuple format: [kind, town_idx]
+            if let Ok(tuple) = serde_json::from_value::<world::GridBuilding>(v.clone()) {
+                return Some(tuple);
+            }
+            // Fall back to legacy enum format: {"Farm": {"town_idx": 0}}
+            serde_json::from_value::<LegacyBuilding>(v).ok()
+                .map(|lb| lb.to_grid_building())
+        })
+    }).collect())
+}
+
+// ============================================================================
 // SAVE FORMAT STRUCTS
 // ============================================================================
 
@@ -38,7 +103,8 @@ pub struct SaveData {
     pub grid_height: usize,
     pub grid_cell_size: f32,
     pub terrain: Vec<u8>,                     // Biome as u8
-    pub buildings: Vec<Option<world::Building>>,  // parallel to terrain
+    #[serde(deserialize_with = "deserialize_grid_buildings")]
+    pub buildings: Vec<Option<world::GridBuilding>>,  // parallel to terrain
 
     // Town grids (area_level + town_data_idx)
     pub town_grids: Vec<TownGridSave>,
@@ -404,7 +470,7 @@ pub fn collect_save_data(
 ) -> SaveData {
     // Terrain + buildings
     let terrain: Vec<u8> = grid.cells.iter().map(|c| biome_to_u8(c.terrain)).collect();
-    let buildings: Vec<Option<world::Building>> = grid.cells.iter()
+    let buildings: Vec<Option<world::GridBuilding>> = grid.cells.iter()
         .map(|c| c.building)
         .collect();
 

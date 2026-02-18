@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-18t
+
+- **grid building simplification** — replaced `Building` enum in `WorldCell.building` with `GridBuilding` type alias `(BuildingKind, u32)` tuple; `Building` enum removed entirely; `ai_player` build functions take `BuildingKind` directly instead of `Building` variants; `register_spawner` takes `BuildingKind`; `recalc_waypoint_patrol_order_clockwise` no longer needs `WorldGrid` param (patrol_order only lives in `WorldData` now); `LegacyBuilding` enum in save.rs handles backward-compatible deserialization of old save format
+- **fix: pause menu blocking settings clicks** — dim overlay changed from `Sense::click()` to `Sense::hover()` with `Order::Background`, preventing it from consuming click events meant for settings widgets underneath
+- **expanded copy debug info** — NPC debug copy now includes XP, traits, combat stats, equipment, attack type, squad, gold, town name, miner details (mine assignment, productivity, mode); building debug copy now includes faction, per-type details (farm growth/status, waypoint patrol order, fountain tower stats, camp food, mine status/occupancy)
+- **github action default target** — changed from `all` to `windows`
+
 ## 2026-02-18s
 
 - **NPC registry drives start menu** — main menu sliders for NPC home counts are now generated dynamically from `NPC_REGISTRY` instead of hardcoded Farmer/Archer/Raider; `NpcDef` gains `home_building`, `is_camp_unit`, `default_count` fields; `WorldGenConfig` replaces `farmers_per_town`/`archers_per_town`/`raiders_per_camp` with `npc_counts: BTreeMap<Job, usize>`; `GameConfig` similarly uses `npc_counts: BTreeMap<Job, i32>`; `UserSettings` adds `npc_counts: BTreeMap<String, usize>` with automatic migration from legacy fields; `Difficulty::presets()` returns `DifficultyPreset` struct with npc_counts map; `build_town`/`place_camp_buildings` iterate NPC_REGISTRY to place homes; adding a new NPC type now automatically gets a start menu slider, world gen support, and settings persistence

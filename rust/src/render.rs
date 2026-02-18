@@ -494,8 +494,8 @@ fn click_to_select_system(
         let dy = world_pos.y - bpos.y;
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < best_building_dist {
-            if let Some(bidx) = crate::world::find_building_data_index(&click.world_data, *b, bpos) {
-                best_building = Some((b.kind(), bidx, bpos, None));
+            if let Some(bidx) = crate::world::find_building_data_index(&click.world_data, b.0, bpos) {
+                best_building = Some((b.0, bidx, bpos, None));
             }
         }
     }
@@ -515,7 +515,7 @@ fn click_to_select_system(
 
         // Double-click fountain -> open Factions tab for that faction.
         if is_double {
-            if let Some(crate::world::Building::Fountain { town_idx }) = building {
+            if let Some((crate::world::BuildingKind::Fountain, town_idx)) = building {
                 if let Some(town) = click.world_data.towns.get(*town_idx as usize) {
                     click.ui_state.left_panel_open = true;
                     click.ui_state.left_panel_tab = LeftPanelTab::Factions;

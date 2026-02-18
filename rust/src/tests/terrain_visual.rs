@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::render::{MainCamera, TilemapSpawned};
-use crate::world::{self, Biome, Building, BuildingKind, WorldCell, WorldGrid};
+use crate::world::{self, Biome, BuildingKind, WorldCell, WorldGrid};
 
 use super::TestState;
 
@@ -55,19 +55,19 @@ pub fn setup(
     }
 
     // Row 1: buildings on Dirt background
-    let buildings: [Building; 8] = [
-        Building::Fountain { town_idx: 0 },
-        Building::Bed { town_idx: 0 },
-        Building::Waypoint { town_idx: 0, patrol_order: 0 },
-        Building::Farm { town_idx: 0 },
-        Building::Camp { town_idx: 0 },
-        Building::Home { kind: BuildingKind::FarmerHome, town_idx: 0 },
-        Building::Home { kind: BuildingKind::ArcherHome, town_idx: 0 },
-        Building::Home { kind: BuildingKind::Tent, town_idx: 0 },
+    let buildings: [(BuildingKind, u32); 8] = [
+        (BuildingKind::Fountain, 0),
+        (BuildingKind::Bed, 0),
+        (BuildingKind::Waypoint, 0),
+        (BuildingKind::Farm, 0),
+        (BuildingKind::Camp, 0),
+        (BuildingKind::FarmerHome, 0),
+        (BuildingKind::ArcherHome, 0),
+        (BuildingKind::Tent, 0),
     ];
-    for (col, building) in buildings.iter().enumerate() {
+    for (col, &building) in buildings.iter().enumerate() {
         let idx = BUILDING_ROW * GRID_COLS + col;
-        grid.cells[idx].building = Some(*building);
+        grid.cells[idx].building = Some(building);
     }
 
     test.phase_name = "Waiting for tilemap...".into();
@@ -211,7 +211,7 @@ pub fn tick(
     for col in 0..BUILDING_LABELS.len() {
         let idx = BUILDING_ROW * GRID_COLS + col;
         if let Some(ref building) = grid.cells[idx].building {
-            let tile_idx = building.tileset_index();
+            let tile_idx = crate::constants::tileset_index(building.0);
             let btiles = world::building_tiles();
             let label = match btiles[tile_idx as usize] {
                 crate::constants::TileSpec::Single(c, r) => format!("({},{})", c, r),

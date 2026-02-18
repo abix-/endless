@@ -16,7 +16,7 @@ use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::components::{Dead, NpcIndex, SquadUnit, TownId};
-use crate::world::{self, Building, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
+use crate::world::{self, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
 use crate::systems::stats::{UpgradeQueue, TownUpgrades, UpgradeType, upgrade_node, upgrade_available, UPGRADE_COUNT};
 
 // Rust orientation notes for readers coming from PowerShell:
@@ -84,7 +84,6 @@ fn waypoint_spacing_ok(
 }
 
 fn recalc_waypoint_patrol_order_clockwise(
-    grid: &mut WorldGrid,
     world_data: &mut WorldData,
     town_idx: u32,
 ) {
@@ -117,16 +116,7 @@ fn recalc_waypoint_patrol_order_clockwise(
     });
 
     for (order, &idx) in ids.iter().enumerate() {
-        let pos = world_data.waypoints_mut()[idx].position;
         world_data.waypoints_mut()[idx].patrol_order = order as u32;
-        let (gc, gr) = grid.world_to_grid(pos);
-        if let Some(cell) = grid.cell_mut(gc, gr) {
-            if let Some(Building::Waypoint { town_idx: ti, patrol_order }) = cell.building.as_mut() {
-                if *ti == town_idx {
-                    *patrol_order = order as u32;
-                }
-            }
-        }
     }
 }
 
@@ -831,7 +821,7 @@ fn sync_town_perimeter_waypoints(
         }
     }
     if removed > 0 {
-        recalc_waypoint_patrol_order_clockwise(grid, world_data, ti);
+        recalc_waypoint_patrol_order_clockwise(world_data, ti);
     }
     removed
 }
@@ -1195,7 +1185,7 @@ pub fn ai_decision_system(
 }
 
 fn try_build_at_slot(
-    building: Building,
+    kind: BuildingKind,
     cost: i32,
     label: &str,
     tdi: usize,
@@ -1215,7 +1205,7 @@ fn try_build_at_slot(
         &mut res.world.slot_alloc,
         &mut res.world.building_slots,
         &mut res.world.dirty,
-        building,
+        kind,
         tdi,
         row,
         col,
@@ -1243,17 +1233,17 @@ fn pick_slot_from_snapshot_or_inner(
 }
 
 fn try_build_inner(
-    building: Building, cost: i32, label: &str,
+    kind: BuildingKind, cost: i32, label: &str,
     tdi: usize, center: Vec2, res: &mut AiBuildRes, grid_idx: usize,
 ) -> Option<String> {
     // Build using deterministic center-nearest slot.
     let tg = res.world.town_grids.grids.get(grid_idx)?;
     let (row, col) = find_inner_slot(tg, center, &res.world.grid)?;
-    try_build_at_slot(building, cost, label, tdi, center, res, row, col)
+    try_build_at_slot(kind, cost, label, tdi, center, res, row, col)
 }
 
 fn try_build_scored(
-    building: Building, kind: BuildingKind, label: &str,
+    kind: BuildingKind, label: &str,
     tdi: usize, center: Vec2, res: &mut AiBuildRes, grid_idx: usize,
     snapshot: Option<&AiTownSnapshot>,
     score_fn: fn(&AiTownSnapshot, (i32, i32)) -> i32,
@@ -1261,7 +1251,7 @@ fn try_build_scored(
     // Build using snapshot-aware scoring with inner-slot fallback.
     let tg = res.world.town_grids.grids.get(grid_idx)?;
     let (row, col) = pick_slot_from_snapshot_or_inner(snapshot, tg, center, &res.world.grid, score_fn)?;
-    try_build_at_slot(building, building_cost(kind), label, tdi, center, res, row, col)
+    try_build_at_slot(kind, building_cost(kind), label, tdi, center, res, row, col)
 }
 
 fn try_build_miner_home(
@@ -1278,7 +1268,7 @@ fn try_build_miner_home(
         find_inner_slot(tg, ctx.center, &res.world.grid)
     }?;
     try_build_at_slot(
-        Building::MinerHome { town_idx: ctx.ti },
+        BuildingKind::MinerHome,
         building_cost(BuildingKind::MinerHome), "miner home",
         ctx.tdi, ctx.center, res, slot.0, slot.1,
     )
@@ -1297,23 +1287,23 @@ fn execute_action(
     // This gives explicit, compile-checked control flow per action type.
     match action {
         AiAction::BuildTent => try_build_inner(
-            Building::Home { kind: BuildingKind::Tent, town_idx: ctx.ti }, building_cost(BuildingKind::Tent), "tent",
+            BuildingKind::Tent, building_cost(BuildingKind::Tent), "tent",
             ctx.tdi, ctx.center, res, ctx.grid_idx),
         AiAction::BuildFarm => {
             let score = if personality == AiPersonality::Balanced { balanced_farm_ray_score } else { farm_slot_score };
-            try_build_scored(Building::Farm { town_idx: ctx.ti }, BuildingKind::Farm, "farm",
+            try_build_scored(BuildingKind::Farm, "farm",
                 ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, score)
         }
         AiAction::BuildFarmerHome => {
             let score = if personality == AiPersonality::Balanced { balanced_house_side_score } else { farmer_home_border_score };
-            try_build_scored(Building::Home { kind: BuildingKind::FarmerHome, town_idx: ctx.ti }, BuildingKind::FarmerHome, "farmer home",
+            try_build_scored(BuildingKind::FarmerHome, "farmer home",
                 ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, score)
         }
         AiAction::BuildArcherHome => try_build_scored(
-            Building::Home { kind: BuildingKind::ArcherHome, town_idx: ctx.ti }, BuildingKind::ArcherHome, "archer home",
+            BuildingKind::ArcherHome, "archer home",
             ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, archer_fill_score),
         AiAction::BuildCrossbowHome => try_build_scored(
-            Building::Home { kind: BuildingKind::CrossbowHome, town_idx: ctx.ti }, BuildingKind::CrossbowHome, "crossbow home",
+            BuildingKind::CrossbowHome, "crossbow home",
             ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, archer_fill_score),
         AiAction::BuildMinerHome => {
             let Some(mines) = &ctx.mines else { return None; };
@@ -1352,7 +1342,7 @@ fn execute_action(
                 &mut res.world.slot_alloc, &mut res.world.building_slots,
                 ctx.tdi, pos, cost,
             ).is_ok() {
-                recalc_waypoint_patrol_order_clockwise(&mut res.world.grid, &mut res.world.world_data, ctx.ti);
+                recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, ctx.ti);
                 res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);
                 Some("built waypoint".into())
             } else {

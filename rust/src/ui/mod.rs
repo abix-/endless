@@ -32,7 +32,6 @@ pub fn help_tip(ui: &mut egui::Ui, catalog: &HelpCatalog, key: &str) {
         .on_hover_text(*text);
     }
 }
-
 /// Render a label that shows a tooltip on hover (frameless button trick).
 pub fn tipped(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>, tip: &str) -> egui::Response {
     ui.add(egui::Button::new(text).frame(false)).on_hover_text(tip)
@@ -560,9 +559,10 @@ fn pause_menu_system(
     // Dim background
     let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("pause_dim"))
+        .order(egui::Order::Background)
         .fixed_pos(screen.min)
         .show(ctx, |ui| {
-            let (response, painter) = ui.allocate_painter(screen.size(), egui::Sense::click());
+            let (response, painter) = ui.allocate_painter(screen.size(), egui::Sense::hover());
             painter.rect_filled(response.rect, 0.0, egui::Color32::from_black_alpha(120));
         });
 
@@ -1406,3 +1406,4 @@ fn game_cleanup_system(
 
     info!("Game cleanup complete");
 }
+

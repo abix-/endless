@@ -77,9 +77,7 @@ Helper functions: `building_pos_town(kind, index)` → `Option<(Vec2, u32)>` del
 | WorldGrid | `Vec<WorldCell>` (width × height), cell_size | World-wide terrain + building grid |
 | WorldGenConfig | world dimensions, num_towns, spacing, npc_counts: BTreeMap\<Job, usize\> | Procedural generation parameters |
 
-**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<Building>`.
-
-**Building** variants: `Fountain { town_idx }`, `Farm { town_idx }`, `Bed { town_idx }`, `Waypoint { town_idx, patrol_order }`, `Camp { town_idx }`, `GoldMine`, `MinerHome { town_idx }`, `Home { kind: BuildingKind, town_idx }` (generic variant for all unit-home buildings — FarmerHome, ArcherHome, CrossbowHome, FighterHome, Tent). Save-compatible via `BuildingSerde` proxy enum that preserves legacy variant names.
+**WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<GridBuilding>` where `GridBuilding = (BuildingKind, u32)` (kind + town_idx). Save-compatible via `LegacyBuilding` deserialization in save.rs that converts old enum format to tuples.
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
@@ -248,7 +246,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | DestroyRequest | `Option<(usize, usize)>` (grid_col, grid_row) | bottom_panel_system (inspector destroy button) | process_destroy_system |
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | TurretState | `waypoint: TurretKindState`, `town: TurretKindState` — each has `timers: Vec<f32>`, `attack_enabled: Vec<bool>` | building_turret_system (auto-sync + refresh) | building_turret_system |
-| SpawnerState | `Vec<SpawnerEntry>` — building (Building enum), town_idx, position, npc_slot, respawn_timer. `is_population_spawner()` checks registry for spawner def. | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts), ai_player (reserve calc) |
+| SpawnerState | `Vec<SpawnerEntry>` — kind (BuildingKind), town_idx, position, npc_slot, respawn_timer. `is_population_spawner()` checks registry for spawner def. | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts), ai_player (reserve calc) |
 | UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads, Factions, Help. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. `pending_faction_select`: set by double-clicking a fountain in `click_to_select_system`, consumed by `factions_content` to pre-select the matching faction. Reset on game cleanup.
