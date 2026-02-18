@@ -853,8 +853,8 @@ pub fn decision_system(
         let can_work = work_allowed && match job {
             Job::Farmer => work_query.get(entity).is_ok(),
             Job::Miner => true,  // miners always have work (find nearest mine dynamically)
-            Job::Archer | Job::Crossbow => patrol_query.get(entity).is_ok(),
-            Job::Raider | Job::Fighter => false, // squad-driven, not idle-scored
+            Job::Archer | Job::Crossbow | Job::Fighter => patrol_query.get(entity).is_ok(),
+            Job::Raider => false, // squad-driven, not idle-scored
         };
         if can_work {
             let hp_pct = health.0 / 100.0;
@@ -964,7 +964,7 @@ pub fn decision_system(
                         }
                         // No mines available — stay idle
                     }
-                    Job::Archer | Job::Crossbow => {
+                    Job::Archer | Job::Crossbow | Job::Fighter => {
                         // Squad override: go to squad target instead of patrolling
                         if let Some(sid) = squad_id {
                             if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
@@ -1005,7 +1005,6 @@ pub fn decision_system(
                             }));
                         }
                     }
-                    Job::Fighter => {}
                 }
             }
             Action::Wander => {

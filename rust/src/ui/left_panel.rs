@@ -103,8 +103,8 @@ pub struct UpgradeParams<'w> {
 pub struct SquadParams<'w, 's> {
     squad_state: ResMut<'w, SquadState>,
     gpu_state: Res<'w, GpuReadState>,
-    // Query: military units with SquadId (for dismiss)
-    squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId), (With<SquadUnit>, Without<Dead>)>,
+    // Query: military units with SquadId (for dismiss/recruit)
+    squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId, &'static Job), (With<SquadUnit>, Without<Dead>)>,
 }
 
 // ============================================================================
@@ -875,7 +875,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     let member_count = squad.squad_state.squads[si].members.len();
 
     let header_name = if si == 0 { "Default Squad" } else { "Squad" };
-    ui.strong(format!("{} {} — {} archers", header_name, si + 1, member_count));
+    ui.strong(format!("{} {} — {} members", header_name, si + 1, member_count));
 
     // Target controls
     ui.horizontal(|ui| {
@@ -908,49 +908,57 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
 
     ui.add_space(4.0);
 
-    // Recruit controls: move archers from Default Squad (1) into selected squad.
-    let default_count = squad.squad_state.squads.first().map(|s| s.members.len()).unwrap_or(0);
-    if si == 0 {
-        ui.small(format!("Default squad pool: {} archers", default_count));
-    } else {
-        ui.small(format!("Default squad pool: {} archers", default_count));
-        ui.horizontal_wrapped(|ui| {
-            for amount in [1usize, 2, 4, 8, 16, 32] {
-                let enabled = default_count >= amount;
-                if ui.add_enabled(enabled, egui::Button::new(format!("+{}", amount))).clicked() {
-                    // Pick first N members from default squad and transfer to selected squad.
-                    let recruits: Vec<usize> = squad.squad_state.squads[0].members.iter().copied().take(amount).collect();
+    // Per-job recruit controls — one row per military NPC type from registry
+    for def in crate::constants::NPC_REGISTRY.iter() {
+        if !def.is_military { continue; }
+        let job_id = def.job as i32;
+        // Available units of this job in default squad (squad 0)
+        let available: Vec<usize> = squad.squad_state.squads[0].members.iter().copied()
+            .filter(|&slot| slot < meta_cache.0.len() && meta_cache.0[slot].job == job_id)
+            .collect();
+        let avail_count = available.len();
+        if avail_count == 0 && si == 0 { continue; }
 
-                    for slot in &recruits {
-                        for (entity, npc_idx, sid) in squad.squad_guards.iter() {
-                            if sid.0 == 0 && npc_idx.0 == *slot {
-                                commands.entity(entity).insert(SquadId(si as i32));
-                                break;
+        let (r, g, b) = def.ui_color;
+        let label_color = egui::Color32::from_rgb(r, g, b);
+
+        if si == 0 {
+            ui.colored_label(label_color, format!("{}: {}", def.label_plural, avail_count));
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(label_color, format!("{}: {}", def.label_plural, avail_count));
+                for amount in [1usize, 2, 4, 8, 16, 32] {
+                    if amount > avail_count { break; }
+                    if ui.small_button(format!("+{}", amount)).clicked() {
+                        let recruits: Vec<usize> = available.iter().copied().take(amount).collect();
+                        for &slot in &recruits {
+                            for (entity, npc_idx, sid, _) in squad.squad_guards.iter() {
+                                if sid.0 == 0 && npc_idx.0 == slot {
+                                    commands.entity(entity).insert(SquadId(si as i32));
+                                    break;
+                                }
                             }
                         }
-                    }
-
-                    squad.squad_state.squads[0].members.retain(|slot| !recruits.contains(slot));
-                    for slot in recruits {
-                        if !squad.squad_state.squads[si].members.contains(&slot) {
-                            squad.squad_state.squads[si].members.push(slot);
+                        squad.squad_state.squads[0].members.retain(|s| !recruits.contains(s));
+                        for slot in recruits {
+                            if !squad.squad_state.squads[si].members.contains(&slot) {
+                                squad.squad_state.squads[si].members.push(slot);
+                            }
                         }
+                        let selected_len = squad.squad_state.squads[si].members.len();
+                        let selected_target = squad.squad_state.squads[si].target_size;
+                        squad.squad_state.squads[si].target_size = selected_target.max(selected_len);
+                        dirty.squads = true;
                     }
-
-                    // Keep auto-recruit logic from immediately dismissing newly added members.
-                    let selected_len = squad.squad_state.squads[si].members.len();
-                    let selected_target = squad.squad_state.squads[si].target_size;
-                    squad.squad_state.squads[si].target_size = selected_target.max(selected_len);
-                    dirty.squads = true;
                 }
-            }
-        });
+            });
+        }
     }
 
     // Dismiss all
     if member_count > 0 {
         if ui.button("Dismiss All").clicked() {
-            for (entity, _, sid) in squad.squad_guards.iter() {
+            for (entity, _, sid, _) in squad.squad_guards.iter() {
                 if sid.0 == selected {
                     commands.entity(entity).remove::<SquadId>();
                 }
@@ -979,8 +987,10 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
             };
 
             ui.horizontal(|ui| {
-                let job_color = egui::Color32::from_rgb(80, 100, 220);
+                let (r, g, b) = npc_def(Job::from_i32(meta.job)).ui_color;
+                let job_color = egui::Color32::from_rgb(r, g, b);
                 ui.colored_label(job_color, &meta.name);
+                ui.label(Job::from_i32(meta.job).label());
                 ui.label(format!("Lv.{}", meta.level));
                 if !hp_str.is_empty() {
                     ui.label(hp_str);

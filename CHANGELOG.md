@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-18n
+
+- **per-job squad recruitment** — squad UI recruit controls now show one row per military NPC type from `NPC_REGISTRY` with colored label and `+N` buttons; players can compose squads with specific unit types (archers, crossbows, fighters); member list shows job-colored names with job labels; `SquadParams.squad_guards` query gains `Job` component; adding a new military NPC type to the registry automatically adds it to squad UI
+- **fighter patrol support** — fighters now patrol waypoints and respond to squad targets like archers/crossbows (`decision_system` `can_work` and work action branches updated); raiders remain squad-only
+
 ## 2026-02-18m
 
 - **NpcDef ui_color** — `NpcDef` gains `ui_color: (u8, u8, u8)` field with hand-tuned UI text colors per job (distinct from GPU sprite `color`); roster row colors use `ui_color` directly instead of brighten-from-GPU-color math
