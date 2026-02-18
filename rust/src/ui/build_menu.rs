@@ -21,6 +21,7 @@ const PLAYER_BUILD_OPTIONS: &[BuildOption] = &[
     BuildOption { kind: BuildKind::FarmerHome, label: "Farmer Home", help: "Spawns 1 farmer" },
     BuildOption { kind: BuildKind::MinerHome, label: "Miner Home", help: "Spawns 1 miner" },
     BuildOption { kind: BuildKind::ArcherHome, label: "Archer Home", help: "Spawns 1 archer" },
+    BuildOption { kind: BuildKind::CrossbowHome, label: "Crossbow Home", help: "Spawns 1 crossbow" },
     BuildOption { kind: BuildKind::Waypoint, label: "Waypoint", help: "Patrol waypoint" },
 ];
 
@@ -104,10 +105,11 @@ fn init_sprite_cache(
     let tent_handle = images.add(tent_img);
 
     // Register all 6 with egui
-    let registrations: [(BuildKind, &Handle<Image>); 6] = [
+    let registrations: [(BuildKind, &Handle<Image>); 7] = [
         (BuildKind::Farm, &farm_handle),
         (BuildKind::FarmerHome, &sprites.house_texture),
         (BuildKind::ArcherHome, &sprites.barracks_texture),
+        (BuildKind::CrossbowHome, &sprites.barracks_texture),
         (BuildKind::Waypoint, &sprites.waypoint_texture),
         (BuildKind::Tent, &tent_handle),
         (BuildKind::MinerHome, &sprites.miner_house_texture),
@@ -122,6 +124,7 @@ fn init_sprite_cache(
     build_ctx.ghost_sprites.insert(BuildKind::Farm, farm_handle.clone());
     build_ctx.ghost_sprites.insert(BuildKind::FarmerHome, sprites.house_texture.clone());
     build_ctx.ghost_sprites.insert(BuildKind::ArcherHome, sprites.barracks_texture.clone());
+    build_ctx.ghost_sprites.insert(BuildKind::CrossbowHome, sprites.barracks_texture.clone());
     build_ctx.ghost_sprites.insert(BuildKind::Waypoint, sprites.waypoint_texture.clone());
     build_ctx.ghost_sprites.insert(BuildKind::Tent, tent_handle.clone());
     build_ctx.ghost_sprites.insert(BuildKind::MinerHome, sprites.miner_house_texture.clone());
@@ -245,8 +248,10 @@ pub(crate) fn build_menu_system(
                     if can_afford && resp.response.interact(egui::Sense::click()).clicked() {
                         if selected {
                             build_ctx.selected_build = None;
+                            build_ctx.clear_drag();
                         } else {
                             build_ctx.selected_build = Some(option.kind);
+                            build_ctx.clear_drag();
                         }
                     }
 
@@ -280,8 +285,10 @@ pub(crate) fn build_menu_system(
                 if ui.interact(destroy_resp.response.rect, egui::Id::new("destroy_btn"), egui::Sense::click()).clicked() {
                     if destroy_selected {
                         build_ctx.selected_build = None;
+                        build_ctx.clear_drag();
                     } else {
                         build_ctx.selected_build = Some(BuildKind::Destroy);
+                        build_ctx.clear_drag();
                     }
                 }
             });
@@ -290,6 +297,7 @@ pub(crate) fn build_menu_system(
     if !open {
         ui_state.build_menu_open = false;
         build_ctx.selected_build = None;
+        build_ctx.clear_drag();
     }
 
     // Cursor ghost sprite when placing / red X when destroying
@@ -316,4 +324,3 @@ pub(crate) fn build_menu_system(
 
     Ok(())
 }
-

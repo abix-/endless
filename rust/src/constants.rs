@@ -27,6 +27,7 @@ pub const SPRITE_ARCHER: (f32, f32) = (0.0, 0.0);
 pub const SPRITE_RAIDER: (f32, f32) = (0.0, 6.0);
 pub const SPRITE_FIGHTER: (f32, f32) = (1.0, 9.0);
 pub const SPRITE_MINER: (f32, f32) = (1.0, 6.0);  // Same sprite as farmer, differentiated by brown tint
+pub const SPRITE_CROSSBOW: (f32, f32) = (0.0, 0.0);  // Placeholder: same as archer, differentiated by purple tint
 
 /// Size of push constants passed to the compute shader.
 pub const PUSH_CONSTANTS_SIZE: usize = 48;
@@ -196,13 +197,14 @@ pub const STARVING_SPEED_MULT: f32 = 0.5;
 pub fn building_cost(kind: crate::resources::BuildKind) -> i32 {
     use crate::resources::BuildKind;
     match kind {
-        BuildKind::Farm       => 2,
-        BuildKind::FarmerHome => 2,
-        BuildKind::MinerHome  => 4,
-        BuildKind::ArcherHome => 4,
-        BuildKind::Waypoint  => 1,
-        BuildKind::Tent       => 3,
-        BuildKind::Destroy    => 0,
+        BuildKind::Farm         => 2,
+        BuildKind::FarmerHome   => 2,
+        BuildKind::MinerHome    => 4,
+        BuildKind::ArcherHome   => 4,
+        BuildKind::CrossbowHome => 8,
+        BuildKind::Waypoint     => 1,
+        BuildKind::Tent         => 3,
+        BuildKind::Destroy      => 0,
     }
 }
 
@@ -224,6 +226,7 @@ pub const MAX_GRID_EXTENT: i32 = 49;
 // ============================================================================
 
 /// Combat stats for a tower building (any building kind that auto-shoots).
+#[derive(Clone, Copy, Debug)]
 pub struct TowerStats {
     pub range: f32,
     pub damage: f32,
@@ -284,6 +287,7 @@ pub const WAYPOINT_HP: f32 = 200.0;
 /// Distance within which a waypoint "covers" a gold mine (AI territory logic).
 pub const WAYPOINT_COVER_RADIUS: f32 = 200.0;
 pub const ARCHER_HOME_HP: f32 = 150.0;
+pub const CROSSBOW_HOME_HP: f32 = 150.0;
 pub const FARMER_HOME_HP: f32 = 100.0;
 pub const MINER_HOME_HP: f32 = 100.0;
 pub const TENT_HP: f32 = 100.0;

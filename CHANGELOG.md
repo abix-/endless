@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-02-18a
+
+- **crossbow homes** — new building type (`CrossbowHome`, cost 8 food) spawning `Job::Crossbow` units; crossbowmen are premium ranged military with higher damage (25 vs archer 15), longer range (150 vs 100), faster projectiles (150 vs 100), slower cooldown (2.0s vs 1.5s)
+- **crossbow upgrade branch** — 5 new `UpgradeType` variants (CrossbowHp, CrossbowAttack, CrossbowRange, CrossbowAttackSpeed, CrossbowMoveSpeed) with dedicated "Crossbow" branch in upgrade tree UI; `UPGRADE_COUNT` 20→25
+- **crossbow AI** — `AiAction::BuildCrossbowHome` scored after 2+ archer homes established; crossbow homes included in territory, neighbor counts, squad targets, and fallback attack lists; 25-element upgrade weight arrays for all personalities
+- **crossbow save/load** — full persistence: `CrossbowHome` buildings, `Job::Crossbow` NPCs (components, sprite, combat flags), `BuildingHpState.crossbow_homes`, 25-element upgrade/auto-upgrade arrays (backward compatible via `#[serde(default)]`)
+- **DRY patrol helpers** — `Job::is_patrol_unit()` (Archer|Crossbow) and `Job::is_military()` (Archer|Crossbow|Raider|Fighter) replace scattered match arms across behavior.rs, spawn.rs, save.rs
+- **CombatConfig.crossbow_attack** — crossbow-specific attack base stats stored separately from `BaseAttackType` enum; `resolve_combat_stats()` overrides `atk_base` for `Job::Crossbow` while keeping `BaseAttackType::Ranged`
+
 ## 2026-02-17m
 
 - **fountain tower** — fountains auto-attack nearby enemies (range=400, damage=15, cooldown=1.5s, proj_speed=350); strong spawn defense that prevents early wipes

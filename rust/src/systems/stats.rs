@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use bevy::prelude::*;
 use crate::components::{Job, BaseAttackType, CachedStats, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction};
+use crate::constants::{FOUNTAIN_TOWER, TowerStats};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
 use crate::systemparams::{EconomyState, WorldState};
@@ -35,6 +36,8 @@ pub struct AttackTypeStats {
 pub struct CombatConfig {
     pub jobs: HashMap<Job, JobStats>,
     pub attacks: HashMap<BaseAttackType, AttackTypeStats>,
+    /// Crossbow-specific attack stats (overrides Ranged base for Job::Crossbow).
+    pub crossbow_attack: AttackTypeStats,
     pub heal_rate: f32,
     pub heal_radius: f32,
 }
@@ -48,6 +51,7 @@ impl Default for CombatConfig {
         jobs.insert(Job::Farmer, JobStats { max_health: 100.0, damage: 0.0, speed: 100.0 });
         jobs.insert(Job::Miner, JobStats { max_health: 100.0, damage: 0.0, speed: 100.0 });
         jobs.insert(Job::Fighter, JobStats { max_health: 100.0, damage: 15.0, speed: 100.0 });
+        jobs.insert(Job::Crossbow, JobStats { max_health: 100.0, damage: 25.0, speed: 100.0 });
 
         let mut attacks = HashMap::new();
         attacks.insert(BaseAttackType::Melee, AttackTypeStats {
@@ -57,7 +61,11 @@ impl Default for CombatConfig {
             range: 100.0, cooldown: 1.5, projectile_speed: 100.0, projectile_lifetime: 1.5,
         });
 
-        Self { jobs, attacks, heal_rate: 5.0, heal_radius: 150.0 }
+        let crossbow_attack = AttackTypeStats {
+            range: 150.0, cooldown: 2.0, projectile_speed: 150.0, projectile_lifetime: 1.5,
+        };
+
+        Self { jobs, attacks, crossbow_attack, heal_rate: 5.0, heal_radius: 150.0 }
     }
 }
 
@@ -65,7 +73,7 @@ impl Default for CombatConfig {
 // TOWN UPGRADES
 // ============================================================================
 
-pub const UPGRADE_COUNT: usize = 18;
+pub const UPGRADE_COUNT: usize = 25;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(usize)]
@@ -78,9 +86,11 @@ pub enum UpgradeType {
     // Miner
     MinerHp = 10, MinerMoveSpeed = 11, GoldYield = 12,
     // Town
-    HealingRate = 13, FountainRadius = 14, TownArea = 15,
+    HealingRate = 13, FountainRange = 14, FountainAttackSpeed = 15, FountainProjectileLife = 16, TownArea = 17,
     // Arrow (applies to Archer + Raider + Fighter ranged)
-    ProjectileSpeed = 16, ProjectileLifetime = 17,
+    ProjectileSpeed = 18, ProjectileLifetime = 19,
+    // Crossbow (separate branch from Military)
+    CrossbowHp = 20, CrossbowAttack = 21, CrossbowRange = 22, CrossbowAttackSpeed = 23, CrossbowMoveSpeed = 24,
 }
 
 pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
@@ -89,8 +99,9 @@ pub const UPGRADE_PCT: [f32; UPGRADE_COUNT] = [
     0.0,               // dodge (unlock)
     0.15, 0.20, 0.05,  // farm yield, farmer hp, farmer move speed
     0.20, 0.05, 0.15,  // miner hp, miner move speed, gold yield
-    0.20, 0.0, 0.0,    // healing rate, fountain radius (flat), town area (discrete)
-    0.08, 0.08,         // projectile speed, projectile lifetime
+    0.20, 0.0, 0.08, 0.08, 0.0, // healing rate, fountain range (flat), fountain atk speed, fountain projectile life, town area (discrete)
+    0.08, 0.08,         // arrow projectile speed, arrow projectile lifetime
+    0.10, 0.10, 0.05, 0.08, 0.05, // crossbow: hp, attack, range, attack speed (cooldown), move speed
 ];
 
 // ============================================================================
@@ -153,19 +164,35 @@ pub const UPGRADE_REGISTRY: [UpgradeNode; UPGRADE_COUNT] = [
     // 12: Yield — root
     UpgradeNode { label: "Yield",        short: "Yield",  tooltip: "+15% gold yield per level",      category: "Miner",    cost: &[(G, 1)], prereqs: &[] },
 
-    // Town (13-15)
+    // Town (13-17)
     // 13: Healing — root
     UpgradeNode { label: "Healing",      short: "Heal",   tooltip: "+20% HP regen at fountain",      category: "Town",     cost: &[(F, 1)], prereqs: &[] },
-    // 14: Fountain — requires Healing Lv1
-    UpgradeNode { label: "Fountain",     short: "Fount",  tooltip: "+24px fountain range per level",  category: "Town",    cost: &[(G, 1)], prereqs: &[prereq(13, 1)] },
-    // 15: Expansion — root, custom slot-based cost
+    // 14: Fountain Range — requires Healing Lv1
+    UpgradeNode { label: "Fountain Range", short: "FRng", tooltip: "+24px fountain range per level", category: "Town", cost: &[(G, 1)], prereqs: &[prereq(13, 1)] },
+    // 15: Fountain Attack Speed — requires Fountain Range Lv1
+    UpgradeNode { label: "Fountain Atk Speed", short: "FAS", tooltip: "-8% fountain cooldown per level", category: "Town", cost: &[(G, 1)], prereqs: &[prereq(14, 1)] },
+    // 16: Fountain Projectile Life — requires Fountain Range Lv1
+    UpgradeNode { label: "Fountain Proj Life", short: "FPL", tooltip: "+8% fountain projectile life per level", category: "Town", cost: &[(G, 1)], prereqs: &[prereq(14, 1)] },
+    // 17: Expansion — root, custom slot-based cost
     UpgradeNode { label: "Expansion",    short: "Area",   tooltip: "+1 buildable radius per level",  category: "Town",     cost: &[(F, 1), (G, 1)], prereqs: &[] },
 
-    // Arrow (16-17): applies to military ranged attacks
-    // 16: Arrow Speed — requires Range Lv1
+    // Arrow (18-19): applies to military ranged attacks
+    // 18: Arrow Speed — requires Range Lv1
     UpgradeNode { label: "Arrow Speed",  short: "ASpd",   tooltip: "+8% arrow speed per level",      category: "Military", cost: &[(G, 1)], prereqs: &[prereq(2, 1)] },
-    // 17: Arrow Range — requires Range Lv1
+    // 19: Arrow Range — requires Range Lv1
     UpgradeNode { label: "Arrow Range",  short: "ARng",   tooltip: "+8% arrow flight distance per level", category: "Military", cost: &[(G, 1)], prereqs: &[prereq(2, 1)] },
+
+    // Crossbow (20-24): separate upgrade branch
+    // 20: HP — root
+    UpgradeNode { label: "HP",           short: "HP",     tooltip: "+10% crossbow HP per level",        category: "Crossbow", cost: &[(F, 2)], prereqs: &[] },
+    // 21: Attack — root
+    UpgradeNode { label: "Attack",       short: "Atk",    tooltip: "+10% crossbow damage per level",    category: "Crossbow", cost: &[(F, 2)], prereqs: &[] },
+    // 22: Range — requires Attack Lv1
+    UpgradeNode { label: "Range",        short: "Rng",    tooltip: "+5% crossbow range per level",      category: "Crossbow", cost: &[(G, 2)], prereqs: &[prereq(21, 1)] },
+    // 23: Attack Speed — requires Attack Lv1
+    UpgradeNode { label: "Attack Speed", short: "AtkSpd", tooltip: "-8% crossbow cooldown per level",   category: "Crossbow", cost: &[(F, 2)], prereqs: &[prereq(21, 1)] },
+    // 24: Move Speed — root
+    UpgradeNode { label: "Move Speed",   short: "MvSpd",  tooltip: "+5% crossbow speed per level",      category: "Crossbow", cost: &[(F, 2)], prereqs: &[] },
 ];
 
 /// True if this town has unlocked projectile dodge.
@@ -184,8 +211,8 @@ pub const UPGRADE_RENDER_ORDER: &[(&str, &[(usize, u8)])] = &[
     ("Military", &[
         (1, 0),   // Attack (root)
         (2, 1),   // Range (req Attack)
-        (16, 2),  // Arrow Speed (req Range)
-        (17, 2),  // Arrow Range (req Range)
+        (18, 2),  // Arrow Speed (req Range)
+        (19, 2),  // Arrow Range (req Range)
         (3, 1),   // Attack Speed (req Attack)
         (4, 0),   // Move Speed (root)
         (5, 1),   // Alert (req Move Speed)
@@ -204,8 +231,17 @@ pub const UPGRADE_RENDER_ORDER: &[(&str, &[(usize, u8)])] = &[
     ]),
     ("Town", &[
         (13, 0),  // Healing (root)
-        (14, 1),  // Fountain (req Healing)
-        (15, 0),  // Expansion (root)
+        (14, 1),  // Fountain Range (req Healing)
+        (15, 2),  // Fountain Attack Speed (req Fountain Range)
+        (16, 2),  // Fountain Projectile Life (req Fountain Range)
+        (17, 0),  // Expansion (root)
+    ]),
+    ("Crossbow", &[
+        (21, 0),  // Attack (root)
+        (22, 1),  // Range (req Attack)
+        (23, 1),  // Attack Speed (req Attack)
+        (24, 0),  // Move Speed (root)
+        (20, 0),  // HP (standalone root)
     ]),
 ];
 
@@ -224,13 +260,13 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
     let lv = level as f32;
     match idx {
         // Multiplicative: +X% per level
-        0 | 1 | 2 | 4 | 5 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 16 | 17 => {
+        0 | 1 | 2 | 4 | 5 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 16 | 18 | 19 | 20 | 21 | 22 | 24 => {
             let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{:.0}%", lv * pct * 100.0) };
             let next = format!("+{:.0}%", (lv + 1.0) * pct * 100.0);
             (now, next)
         }
-        // Reciprocal: attack cooldown reduction (idx 3)
-        3 => {
+        // Reciprocal: cooldown reduction (idx 3 military, idx 15 fountain, idx 23 crossbow)
+        3 | 15 | 23 => {
             let now = if level == 0 { "\u{2014}".to_string() } else {
                 let reduction = (1.0 - 1.0 / (1.0 + lv * pct)) * 100.0;
                 format!("-{:.0}%", reduction)
@@ -245,14 +281,14 @@ pub fn upgrade_effect_summary(idx: usize, level: u8) -> (String, String) {
             let next = if level == 0 { "Unlocks dodge".to_string() } else { "Unlocked".to_string() };
             (now, next)
         }
-        // Flat: Fountain +24px per level (idx 14)
+        // Flat: Fountain Range +24px per level (idx 14)
         14 => {
             let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}px", level as i32 * 24) };
             let next = format!("+{}px", (level as i32 + 1) * 24);
             (now, next)
         }
-        // Discrete: Expansion +1 radius per level (idx 15)
-        15 => {
+        // Discrete: Expansion +1 radius per level (idx 17)
+        17 => {
             let now = if level == 0 { "\u{2014}".to_string() } else { format!("+{}", level) };
             let next = format!("+{}", level + 1);
             (now, next)
@@ -286,6 +322,42 @@ pub struct UpgradeQueue(pub Vec<(usize, usize)>); // (town_idx, upgrade_index)
 // ============================================================================
 // HELPERS
 // ============================================================================
+
+/// Decode persisted upgrade levels into the current upgrade layout.
+/// Supports migration from legacy 18-slot layout to current 20-slot layout.
+pub fn decode_upgrade_levels(raw: &[u8]) -> [u8; UPGRADE_COUNT] {
+    let mut arr = [0u8; UPGRADE_COUNT];
+    if raw.len() == 18 {
+        // Legacy mapping:
+        // 0..14 unchanged, 15 TownArea -> 17, 16 ArrowSpeed -> 18, 17 ArrowLife -> 19.
+        for i in 0..=14 { arr[i] = raw[i]; }
+        arr[UpgradeType::TownArea as usize] = raw[15];
+        arr[UpgradeType::ProjectileSpeed as usize] = raw[16];
+        arr[UpgradeType::ProjectileLifetime as usize] = raw[17];
+        return arr;
+    }
+    for (i, &val) in raw.iter().enumerate().take(UPGRADE_COUNT) {
+        arr[i] = val;
+    }
+    arr
+}
+
+/// Decode persisted auto-upgrade flags into the current upgrade layout.
+/// Supports migration from legacy 18-slot layout to current 20-slot layout.
+pub fn decode_auto_upgrade_flags(raw: &[bool]) -> [bool; UPGRADE_COUNT] {
+    let mut arr = [false; UPGRADE_COUNT];
+    if raw.len() == 18 {
+        for i in 0..=14 { arr[i] = raw[i]; }
+        arr[UpgradeType::TownArea as usize] = raw[15];
+        arr[UpgradeType::ProjectileSpeed as usize] = raw[16];
+        arr[UpgradeType::ProjectileLifetime as usize] = raw[17];
+        return arr;
+    }
+    for (i, &val) in raw.iter().enumerate().take(UPGRADE_COUNT) {
+        arr[i] = val;
+    }
+    arr
+}
 
 /// Derive level from XP: level = floor(sqrt(xp / 100))
 pub fn level_from_xp(xp: i32) -> i32 {
@@ -379,13 +451,29 @@ pub fn format_upgrade_cost(idx: usize, level: u8) -> String {
         .join("+")
 }
 
+/// Resolve town tower stats from base constants + town upgrades.
+pub fn resolve_town_tower_stats(levels: &[u8; UPGRADE_COUNT]) -> TowerStats {
+    let cooldown_mult = 1.0 / (1.0 + levels[UpgradeType::FountainAttackSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::FountainAttackSpeed as usize]);
+    let proj_life_mult = 1.0 + levels[UpgradeType::FountainProjectileLife as usize] as f32 * UPGRADE_PCT[UpgradeType::FountainProjectileLife as usize];
+    let radius_bonus = levels[UpgradeType::FountainRange as usize] as f32 * 24.0;
+
+    TowerStats {
+        range: FOUNTAIN_TOWER.range + radius_bonus,
+        damage: FOUNTAIN_TOWER.damage,
+        cooldown: FOUNTAIN_TOWER.cooldown * cooldown_mult,
+        proj_speed: FOUNTAIN_TOWER.proj_speed,
+        proj_lifetime: FOUNTAIN_TOWER.proj_lifetime * proj_life_mult,
+    }
+}
+
 /// Which upgrades require NPC stat re-resolution (combat-affecting).
 fn is_combat_upgrade(idx: usize) -> bool {
     matches!(idx,
         0 | 1 | 2 | 3 | 4 | // Military: HP, Attack, Range, AttackSpeed, MoveSpeed
         8 | 9 |              // Farmer: HP, MoveSpeed
         10 | 11 |            // Miner: HP, MoveSpeed
-        16 | 17              // Arrow: ProjectileSpeed, ProjectileLifetime
+        18 | 19 |            // Arrow: ProjectileSpeed, ProjectileLifetime
+        20 | 21 | 22 | 23 | 24 // Crossbow: HP, Attack, Range, AttackSpeed, MoveSpeed
     )
 }
 
@@ -405,7 +493,11 @@ pub fn resolve_combat_stats(
     upgrades: &TownUpgrades,
 ) -> CachedStats {
     let job_base = config.jobs.get(&job).expect("missing job stats");
-    let atk_base = config.attacks.get(&attack_type).expect("missing attack type stats");
+    let atk_base = if job == Job::Crossbow {
+        &config.crossbow_attack
+    } else {
+        config.attacks.get(&attack_type).expect("missing attack type stats")
+    };
     let (trait_damage, trait_hp, trait_speed, _trait_yield) = personality.get_stat_multipliers();
     let level_mult = 1.0 + level as f32 * 0.01;
 
@@ -414,29 +506,36 @@ pub fn resolve_combat_stats(
 
     let upgrade_hp = match job {
         Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryHp as usize] as f32 * UPGRADE_PCT[0],
+        Job::Crossbow => 1.0 + town[UpgradeType::CrossbowHp as usize] as f32 * UPGRADE_PCT[20],
         Job::Farmer => 1.0 + town[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[8],
         Job::Miner  => 1.0 + town[UpgradeType::MinerHp as usize] as f32 * UPGRADE_PCT[10],
     };
     let upgrade_dmg = match job {
         Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryAttack as usize] as f32 * UPGRADE_PCT[1],
+        Job::Crossbow => 1.0 + town[UpgradeType::CrossbowAttack as usize] as f32 * UPGRADE_PCT[21],
         _ => 1.0,
     };
     let upgrade_range = match job {
         Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryRange as usize] as f32 * UPGRADE_PCT[2],
+        Job::Crossbow => 1.0 + town[UpgradeType::CrossbowRange as usize] as f32 * UPGRADE_PCT[22],
         _ => 1.0,
     };
     let upgrade_speed = match job {
         Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::MilitaryMoveSpeed as usize] as f32 * UPGRADE_PCT[4],
+        Job::Crossbow => 1.0 + town[UpgradeType::CrossbowMoveSpeed as usize] as f32 * UPGRADE_PCT[24],
         Job::Farmer => 1.0 + town[UpgradeType::FarmerMoveSpeed as usize] as f32 * UPGRADE_PCT[9],
         Job::Miner  => 1.0 + town[UpgradeType::MinerMoveSpeed as usize] as f32 * UPGRADE_PCT[11],
     };
-    let cooldown_mult = 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[3]);
+    let cooldown_mult = match job {
+        Job::Crossbow => 1.0 / (1.0 + town[UpgradeType::CrossbowAttackSpeed as usize] as f32 * UPGRADE_PCT[23]),
+        _ => 1.0 / (1.0 + town[UpgradeType::AttackSpeed as usize] as f32 * UPGRADE_PCT[3]),
+    };
     let upgrade_proj_speed = match job {
-        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::ProjectileSpeed as usize] as f32 * UPGRADE_PCT[16],
+        Job::Archer | Job::Raider | Job::Fighter | Job::Crossbow => 1.0 + town[UpgradeType::ProjectileSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::ProjectileSpeed as usize],
         _ => 1.0,
     };
     let upgrade_proj_life = match job {
-        Job::Archer | Job::Raider | Job::Fighter => 1.0 + town[UpgradeType::ProjectileLifetime as usize] as f32 * UPGRADE_PCT[17],
+        Job::Archer | Job::Raider | Job::Fighter | Job::Crossbow => 1.0 + town[UpgradeType::ProjectileLifetime as usize] as f32 * UPGRADE_PCT[UpgradeType::ProjectileLifetime as usize],
         _ => 1.0,
     };
 
@@ -488,7 +587,7 @@ pub fn process_upgrades_system(
         upgrades.levels[town_idx][upgrade_idx] = level.saturating_add(1);
 
         // Invalidate healing zone cache on radius/rate upgrades
-        if upgrade_idx == UpgradeType::HealingRate as usize || upgrade_idx == UpgradeType::FountainRadius as usize {
+        if upgrade_idx == UpgradeType::HealingRate as usize || upgrade_idx == UpgradeType::FountainRange as usize {
             world_state.dirty.healing_zones = true;
         }
 

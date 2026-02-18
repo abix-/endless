@@ -47,7 +47,7 @@ GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next
 |-------|------|-------|
 | slot_idx | usize | Pre-allocated via SlotAllocator |
 | x, y | f32 | Spawn position |
-| job | i32 | 0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner |
+| job | i32 | 0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow |
 | faction | i32 | 0=Player, 1+=AI settlements |
 | town_idx | i32 | Town association (-1 = none) |
 | home_x, home_y | f32 | Home/camp position |
@@ -66,14 +66,15 @@ Job-specific templates:
 | Job | Additional Components |
 |-----|----------------------|
 | Archer | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Archer`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
+| Crossbow | `Energy`, `BaseAttackType::Ranged`, `AttackTimer(0)`, `Crossbow`, `PatrolRoute`, `Activity::OnDuty { ticks_waiting: 0 }`, `EquippedWeapon`, `EquippedHelmet` |
 | Farmer | `Energy`, `Farmer`, `WorkPosition`, `Activity::GoingToWork` |
 | Miner | `Energy`, `Miner` |
 | Raider | `Energy`, `BaseAttackType::Melee`, `AttackTimer(0)`, `Stealer`, `LeashRange(400)`, `EquippedWeapon` |
 | Fighter | `BaseAttackType` (Melee or Ranged via attack_type), `AttackTimer(0)` |
 
-GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for archers/raiders/fighters, 0 for farmers/miners — controls GPU combat scan tier). Colors and equipment sprites are derived from ECS components by `sync_visual_sprites` (not sent as messages).
+GPU writes (all jobs): `SetPosition`, `SetTarget` (spawn position, or work position for farmers with valid work_x), `SetSpeed(100)`, `SetFaction`, `SetHealth(100)`, `SetSpriteFrame` (job-based sprite from constants.rs), `SetFlags` (bit 0 = 1 for military jobs via `job.is_military()`, 0 for farmers/miners — controls GPU combat scan tier). Colors and equipment sprites are derived from ECS components by `sync_visual_sprites` (not sent as messages).
 
-Sprite assignments: Farmer=(1,6), Archer=(0,11), Raider=(0,6), Fighter=(7,0), Miner=(1,6) (brown tint differentiates)
+Sprite assignments: Farmer=(1,6), Archer=(0,11), Crossbow=(0,0) (placeholder, purple tint), Raider=(0,6), Fighter=(7,0), Miner=(1,6) (brown tint differentiates)
 
 ### Personality Generation
 
@@ -91,13 +92,13 @@ Checks `ResetFlag`. If set, clears `NpcEntityMap`, `PopulationStats`, and resets
 
 ## Building Spawners
 
-All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from `WorldData.farmer_homes` + `WorldData.archer_homes` + `WorldData.miner_homes` + `WorldData.tents` and spawns 1 NPC per entry via `SlotAllocator` + `SpawnNpcMsg`. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
+All NPC population is building-driven: each **FarmerHome** supports 1 farmer, each **ArcherHome** supports 1 archer, each **CrossbowHome** supports 1 crossbowman, each **MinerHome** supports 1 miner, and each **Tent** supports 1 raider. At game startup, `game_startup_system` builds `SpawnerState` from `WorldData.farmer_homes` + `WorldData.archer_homes` + `WorldData.crossbow_homes` + `WorldData.miner_homes` + `WorldData.tents` and spawns 1 NPC per entry via `SlotAllocator` + `SpawnNpcMsg`. Menu sliders control how many FarmerHomes/ArcherHomes/MinerHomes/Tents world gen places.
 
-When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Camp grids only allow Tent placement; villager grids allow Farm/Waypoint/FarmerHome/ArcherHome/MinerHome.
+When an NPC dies, `spawner_respawn_system` (hourly, Step::Behavior) detects the death via `NpcEntityMap` lookup, starts a 12-hour respawn timer, and spawns a replacement when it expires. Building spawners at runtime via the build menu pushes new `SpawnerEntry` with `respawn_timer: 0.0` — the system spawns the NPC on the next hourly tick. Camp grids only allow Tent placement; villager grids allow Farm/Waypoint/FarmerHome/ArcherHome/CrossbowHome/MinerHome.
 
 Destroying a spawner building tombstones the `SpawnerEntry` (position.x = -99999). The linked NPC survives but won't respawn if killed.
 
-All spawners set home to building position (FarmerHome/ArcherHome/MinerHome/Tent). All spawner types set faction from `world_data.towns[town_idx].faction` (player towns = 0, AI settlements = unique 1+).
+All spawners set home to building position (FarmerHome/ArcherHome/CrossbowHome/MinerHome/Tent). All spawner types set faction from `world_data.towns[town_idx].faction` (player towns = 0, AI settlements = unique 1+).
 
 ## Known Issues
 

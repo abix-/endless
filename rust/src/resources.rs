@@ -792,6 +792,7 @@ pub enum BuildKind {
     Waypoint,
     FarmerHome,
     ArcherHome,
+    CrossbowHome,
     Tent,
     MinerHome,
     Destroy,
@@ -806,6 +807,10 @@ pub struct BuildMenuContext {
     pub selected_build: Option<BuildKind>,
     /// Last hovered snapped world position (for indicators/tooltips).
     pub hover_world_pos: Vec2,
+    /// Drag-line start slot in town-grid coordinates (row, col).
+    pub drag_start_slot: Option<(i32, i32)>,
+    /// Drag-line current/end slot in town-grid coordinates (row, col).
+    pub drag_current_slot: Option<(i32, i32)>,
     /// Show the mouse-follow build hint sprite (hidden when snapped over a valid build slot).
     pub show_cursor_hint: bool,
     /// Bevy image handles for ghost preview sprites (populated by build_menu init).
@@ -818,9 +823,19 @@ impl Default for BuildMenuContext {
             town_data_idx: None,
             selected_build: None,
             hover_world_pos: Vec2::ZERO,
+            drag_start_slot: None,
+            drag_current_slot: None,
             show_cursor_hint: true,
             ghost_sprites: std::collections::HashMap::new(),
         }
+    }
+}
+
+impl BuildMenuContext {
+    #[inline]
+    pub fn clear_drag(&mut self) {
+        self.drag_start_slot = None;
+        self.drag_current_slot = None;
     }
 }
 
@@ -898,7 +913,7 @@ pub struct TowerState {
 /// Tracks one building spawner (FarmerHome, ArcherHome, Tent, or MinerHome) and its linked NPC.
 #[derive(Clone, Default)]
 pub struct SpawnerEntry {
-    pub building_kind: i32,   // derived from Building::spawner_kind(): 0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome
+    pub building_kind: i32,   // derived from Building::spawner_kind(): 0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome, 4=CrossbowHome
     pub town_idx: i32,        // town data index (villager or raider camp)
     pub position: Vec2,       // building world position
     pub npc_slot: i32,        // linked NPC slot (-1 = no NPC alive)
@@ -911,7 +926,8 @@ impl SpawnerEntry {
     pub fn is_population_spawner(&self) -> bool {
         matches!(self.building_kind,
             crate::world::SPAWNER_FARMER | crate::world::SPAWNER_ARCHER |
-            crate::world::SPAWNER_TENT | crate::world::SPAWNER_MINER)
+            crate::world::SPAWNER_TENT | crate::world::SPAWNER_MINER |
+            crate::world::SPAWNER_CROSSBOW)
     }
 }
 
@@ -925,6 +941,7 @@ pub struct BuildingHpState {
     pub waypoints: Vec<f32>,
     pub farmer_homes: Vec<f32>,
     pub archer_homes: Vec<f32>,
+    pub crossbow_homes: Vec<f32>,
     pub tents: Vec<f32>,
     pub miner_homes: Vec<f32>,
     pub farms: Vec<f32>,
@@ -941,6 +958,7 @@ impl BuildingHpState {
             crate::world::Building::Waypoint { .. } => self.waypoints.push(WAYPOINT_HP),
             crate::world::Building::FarmerHome { .. } => self.farmer_homes.push(FARMER_HOME_HP),
             crate::world::Building::ArcherHome { .. } => self.archer_homes.push(ARCHER_HOME_HP),
+            crate::world::Building::CrossbowHome { .. } => self.crossbow_homes.push(CROSSBOW_HOME_HP),
             crate::world::Building::Tent { .. } => self.tents.push(TENT_HP),
             crate::world::Building::MinerHome { .. } => self.miner_homes.push(MINER_HOME_HP),
             crate::world::Building::Farm { .. } => self.farms.push(FARM_HP),
@@ -958,6 +976,7 @@ impl BuildingHpState {
             BuildingKind::Waypoint => self.waypoints.get_mut(index),
             BuildingKind::FarmerHome => self.farmer_homes.get_mut(index),
             BuildingKind::ArcherHome => self.archer_homes.get_mut(index),
+            BuildingKind::CrossbowHome => self.crossbow_homes.get_mut(index),
             BuildingKind::Tent => self.tents.get_mut(index),
             BuildingKind::MinerHome => self.miner_homes.get_mut(index),
             BuildingKind::Farm => self.farms.get_mut(index),
@@ -974,6 +993,7 @@ impl BuildingHpState {
             BuildingKind::Waypoint => self.waypoints.get(index).copied(),
             BuildingKind::FarmerHome => self.farmer_homes.get(index).copied(),
             BuildingKind::ArcherHome => self.archer_homes.get(index).copied(),
+            BuildingKind::CrossbowHome => self.crossbow_homes.get(index).copied(),
             BuildingKind::Tent => self.tents.get(index).copied(),
             BuildingKind::MinerHome => self.miner_homes.get(index).copied(),
             BuildingKind::Farm => self.farms.get(index).copied(),
@@ -991,6 +1011,7 @@ impl BuildingHpState {
             BuildingKind::Waypoint => WAYPOINT_HP,
             BuildingKind::FarmerHome => FARMER_HOME_HP,
             BuildingKind::ArcherHome => ARCHER_HOME_HP,
+            BuildingKind::CrossbowHome => CROSSBOW_HOME_HP,
             BuildingKind::Tent => TENT_HP,
             BuildingKind::MinerHome => MINER_HOME_HP,
             BuildingKind::Farm => FARM_HP,
@@ -1016,6 +1037,7 @@ impl BuildingHpState {
             .chain(chain_buildings!(world_data.waypoints, self.waypoints, WAYPOINT_HP))
             .chain(chain_buildings!(world_data.farmer_homes, self.farmer_homes, FARMER_HOME_HP))
             .chain(chain_buildings!(world_data.archer_homes, self.archer_homes, ARCHER_HOME_HP))
+            .chain(chain_buildings!(world_data.crossbow_homes, self.crossbow_homes, CROSSBOW_HOME_HP))
             .chain(chain_buildings!(world_data.tents, self.tents, TENT_HP))
             .chain(chain_buildings!(world_data.miner_homes, self.miner_homes, MINER_HOME_HP))
             .chain(chain_buildings!(world_data.beds, self.beds, BED_HP))

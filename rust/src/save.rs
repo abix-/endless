@@ -8,7 +8,7 @@ use crate::components::*;
 use crate::constants::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::*;
-use crate::systems::stats::{TownUpgrades, CombatConfig, UPGRADE_COUNT, resolve_combat_stats};
+use crate::systems::stats::{TownUpgrades, CombatConfig, UPGRADE_COUNT, resolve_combat_stats, decode_upgrade_levels, decode_auto_upgrade_flags};
 use crate::systems::{pop_inc_alive, AiPlayerState};
 use crate::systems::spawn::build_patrol_route;
 use crate::world::{self, WorldData, WorldGrid, WorldCell, TownGrids};
@@ -48,6 +48,8 @@ pub struct SaveData {
     pub waypoints: Vec<WaypointSave>,
     pub farmer_homes: Vec<PosTownSave>,
     pub archer_homes: Vec<PosTownSave>,
+    #[serde(default)]
+    pub crossbow_homes: Vec<PosTownSave>,
     pub tents: Vec<PosTownSave>,
     pub miner_homes: Vec<MinerHomeSave>,
     pub gold_mines: Vec<[f32; 2]>,
@@ -170,6 +172,8 @@ pub struct BuildingHpSave {
     pub waypoints: Vec<f32>,
     pub farmer_homes: Vec<f32>,
     pub archer_homes: Vec<f32>,
+    #[serde(default)]
+    pub crossbow_homes: Vec<f32>,
     pub tents: Vec<f32>,
     pub miner_homes: Vec<f32>,
     pub farms: Vec<f32>,
@@ -227,6 +231,7 @@ pub enum BuildingSave {
     Camp { town_idx: u32 },
     FarmerHome { town_idx: u32 },
     ArcherHome { town_idx: u32 },
+    CrossbowHome { town_idx: u32 },
     Tent { town_idx: u32 },
     GoldMine,
     MinerHome { town_idx: u32 },
@@ -242,6 +247,7 @@ impl BuildingSave {
             world::Building::Camp { town_idx } => Self::Camp { town_idx },
             world::Building::FarmerHome { town_idx } => Self::FarmerHome { town_idx },
             world::Building::ArcherHome { town_idx } => Self::ArcherHome { town_idx },
+            world::Building::CrossbowHome { town_idx } => Self::CrossbowHome { town_idx },
             world::Building::Tent { town_idx } => Self::Tent { town_idx },
             world::Building::GoldMine => Self::GoldMine,
             world::Building::MinerHome { town_idx } => Self::MinerHome { town_idx },
@@ -257,6 +263,7 @@ impl BuildingSave {
             Self::Camp { town_idx } => world::Building::Camp { town_idx },
             Self::FarmerHome { town_idx } => world::Building::FarmerHome { town_idx },
             Self::ArcherHome { town_idx } => world::Building::ArcherHome { town_idx },
+            Self::CrossbowHome { town_idx } => world::Building::CrossbowHome { town_idx },
             Self::Tent { town_idx } => world::Building::Tent { town_idx },
             Self::GoldMine => world::Building::GoldMine,
             Self::MinerHome { town_idx } => world::Building::MinerHome { town_idx },
@@ -519,6 +526,9 @@ pub fn collect_save_data(
     let archer_homes: Vec<PosTownSave> = world_data.archer_homes.iter().map(|h| PosTownSave {
         position: v2(h.position), town_idx: h.town_idx,
     }).collect();
+    let crossbow_homes: Vec<PosTownSave> = world_data.crossbow_homes.iter().map(|h| PosTownSave {
+        position: v2(h.position), town_idx: h.town_idx,
+    }).collect();
     let tents_save: Vec<PosTownSave> = world_data.tents.iter().map(|t| PosTownSave {
         position: v2(t.position), town_idx: t.town_idx,
     }).collect();
@@ -557,6 +567,7 @@ pub fn collect_save_data(
         waypoints: building_hp.waypoints.clone(),
         farmer_homes: building_hp.farmer_homes.clone(),
         archer_homes: building_hp.archer_homes.clone(),
+        crossbow_homes: building_hp.crossbow_homes.clone(),
         tents: building_hp.tents.clone(),
         miner_homes: building_hp.miner_homes.clone(),
         farms: building_hp.farms.clone(),
@@ -619,6 +630,7 @@ pub fn collect_save_data(
         waypoints,
         farmer_homes,
         archer_homes,
+        crossbow_homes,
         tents: tents_save,
         miner_homes,
         gold_mines: gold_mines_save,
@@ -786,6 +798,9 @@ pub fn apply_save(
     world_data.archer_homes = save.archer_homes.iter().map(|h| world::ArcherHome {
         position: to_vec2(h.position), town_idx: h.town_idx,
     }).collect();
+    world_data.crossbow_homes = save.crossbow_homes.iter().map(|h| world::CrossbowHome {
+        position: to_vec2(h.position), town_idx: h.town_idx,
+    }).collect();
     world_data.tents = save.tents.iter().map(|t| world::Tent {
         position: to_vec2(t.position), town_idx: t.town_idx,
     }).collect();
@@ -861,6 +876,7 @@ pub fn apply_save(
         waypoints: save.building_hp.waypoints.clone(),
         farmer_homes: save.building_hp.farmer_homes.clone(),
         archer_homes: save.building_hp.archer_homes.clone(),
+        crossbow_homes: save.building_hp.crossbow_homes.clone(),
         tents: save.building_hp.tents.clone(),
         miner_homes: save.building_hp.miner_homes.clone(),
         farms: save.building_hp.farms.clone(),
@@ -871,11 +887,7 @@ pub fn apply_save(
 
     // Upgrades
     upgrades.levels = save.upgrades.iter().map(|v| {
-        let mut arr = [0u8; UPGRADE_COUNT];
-        for (i, &val) in v.iter().enumerate().take(UPGRADE_COUNT) {
-            arr[i] = val;
-        }
-        arr
+        decode_upgrade_levels(v)
     }).collect();
 
     // Policies
@@ -885,11 +897,7 @@ pub fn apply_save(
 
     // Auto-upgrades
     auto_upgrade.flags = save.auto_upgrades.iter().map(|v| {
-        let mut arr = [false; UPGRADE_COUNT];
-        for (i, &val) in v.iter().enumerate().take(UPGRADE_COUNT) {
-            arr[i] = val;
-        }
-        arr
+        decode_auto_upgrade_flags(v)
     }).collect();
     auto_upgrade.flags.resize(num_towns.max(16), [false; UPGRADE_COUNT]);
 
@@ -1066,7 +1074,7 @@ pub fn collect_npc_data(
             position: [pos.x, pos.y],
             job: match *job {
                 Job::Farmer => 0, Job::Archer => 1, Job::Raider => 2,
-                Job::Fighter => 3, Job::Miner => 4,
+                Job::Fighter => 3, Job::Miner => 4, Job::Crossbow => 5,
             },
             faction: faction.to_i32(),
             town_id: town_id.0,
@@ -1267,6 +1275,7 @@ pub fn spawn_npcs_from_save(
         let (sprite_col, sprite_row) = match job {
             Job::Farmer => SPRITE_FARMER,
             Job::Archer => SPRITE_ARCHER,
+            Job::Crossbow => SPRITE_CROSSBOW,
             Job::Raider => SPRITE_RAIDER,
             Job::Fighter => SPRITE_FIGHTER,
             Job::Miner => SPRITE_MINER,
@@ -1278,7 +1287,7 @@ pub fn spawn_npcs_from_save(
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx, faction: npc.faction }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: npc.health }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row, atlas: 0.0 }));
-        let combat_flags = if matches!(job, Job::Archer | Job::Raider | Job::Fighter) { 1u32 } else { 0u32 };
+        let combat_flags = if job.is_military() { 1u32 } else { 0u32 };
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx, flags: combat_flags }));
 
         let activity = npc.activity.to_activity();
@@ -1305,6 +1314,21 @@ pub fn spawn_npcs_from_save(
                 ec.insert(Energy(npc.energy));
                 ec.insert(AttackTimer(0.0));
                 ec.insert(Archer);
+                let w = npc.weapon.unwrap_or([EQUIP_SWORD.0, EQUIP_SWORD.1]);
+                let h = npc.helmet.unwrap_or([EQUIP_HELMET.0, EQUIP_HELMET.1]);
+                ec.insert((EquippedWeapon(w[0], w[1]), EquippedHelmet(h[0], h[1])));
+                if let Some(a) = npc.armor {
+                    ec.insert(EquippedArmor(a[0], a[1]));
+                }
+                let patrol_posts = build_patrol_route(world_data, npc.town_id as u32);
+                if !patrol_posts.is_empty() {
+                    ec.insert(PatrolRoute { posts: patrol_posts, current: 0 });
+                }
+            }
+            Job::Crossbow => {
+                ec.insert(Energy(npc.energy));
+                ec.insert(AttackTimer(0.0));
+                ec.insert(Crossbow);
                 let w = npc.weapon.unwrap_or([EQUIP_SWORD.0, EQUIP_SWORD.1]);
                 let h = npc.helmet.unwrap_or([EQUIP_HELMET.0, EQUIP_HELMET.1]);
                 ec.insert((EquippedWeapon(w[0], w[1]), EquippedHelmet(h[0], h[1])));

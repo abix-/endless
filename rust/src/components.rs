@@ -36,16 +36,18 @@ pub enum Job {
     Raider,
     Fighter,
     Miner,
+    Crossbow,
 }
 
 impl Job {
-    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner)
+    /// Convert from integer (0=Farmer, 1=Archer, 2=Raider, 3=Fighter, 4=Miner, 5=Crossbow)
     pub fn from_i32(v: i32) -> Self {
         match v {
             1 => Job::Archer,
             2 => Job::Raider,
             3 => Job::Fighter,
             4 => Job::Miner,
+            5 => Job::Crossbow,
             _ => Job::Farmer,
         }
     }
@@ -53,12 +55,23 @@ impl Job {
     /// RGBA color for this job type. Alpha=1.0 means "has target" on GPU.
     pub fn color(&self) -> (f32, f32, f32, f32) {
         match self {
-            Job::Farmer => (0.0, 1.0, 0.0, 1.0),    // Green
-            Job::Archer => (0.0, 0.0, 1.0, 1.0),     // Blue
-            Job::Raider => (1.0, 0.0, 0.0, 1.0),    // Red
-            Job::Fighter => (1.0, 1.0, 0.0, 1.0),   // Yellow
-            Job::Miner => (0.6, 0.4, 0.2, 1.0),     // Brown
+            Job::Farmer => (0.0, 1.0, 0.0, 1.0),      // Green
+            Job::Archer => (0.0, 0.0, 1.0, 1.0),       // Blue
+            Job::Raider => (1.0, 0.0, 0.0, 1.0),       // Red
+            Job::Fighter => (1.0, 1.0, 0.0, 1.0),      // Yellow
+            Job::Miner => (0.6, 0.4, 0.2, 1.0),        // Brown
+            Job::Crossbow => (0.4, 0.0, 0.8, 1.0),     // Purple
         }
+    }
+
+    /// Returns true for jobs that patrol waypoints and use squads (Archer, Crossbow).
+    pub fn is_patrol_unit(&self) -> bool {
+        matches!(self, Job::Archer | Job::Crossbow)
+    }
+
+    /// Returns true for combat-capable jobs (Archer, Crossbow, Raider, Fighter).
+    pub fn is_military(&self) -> bool {
+        matches!(self, Job::Archer | Job::Crossbow | Job::Raider | Job::Fighter)
     }
 }
 
@@ -87,6 +100,10 @@ pub struct Farmer;
 /// Miner marker - identifies NPC as a miner.
 #[derive(Component)]
 pub struct Miner;
+
+/// Crossbow marker - identifies NPC as a crossbowman.
+#[derive(Component)]
+pub struct Crossbow;
 
 /// TownId identifies which town an NPC belongs to.
 /// Universal component on every NPC. All settlements are "towns" (villager or raider).

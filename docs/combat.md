@@ -68,7 +68,7 @@ attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or ap
 | Dead | marker | Inserted when health <= 0 |
 | LastHitBy | `i32` | NPC slot index of last attacker (-1 = no attacker). Inserted by damage_system, read by xp_grant_system. |
 | Faction | `struct(i32)` | Faction ID (-1=Neutral, 0=Player, 1+=AI settlements). NPCs attack different factions. Neutral (-1) is treated as same-faction by GPU combat targeting and projectile collision. |
-| BaseAttackType | enum | `Melee` or `Ranged` — keys into `CombatConfig.attacks` HashMap |
+| BaseAttackType | enum | `Melee` or `Ranged` — keys into `CombatConfig.attacks` HashMap. Crossbow units use `Ranged` but stats resolve from `CombatConfig.crossbow_attack` (overridden by Job in `resolve_combat_stats`). |
 | CachedStats | struct | `damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed` — resolved from `CombatConfig` via `resolve_combat_stats()` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
 | CombatState | enum | `None`, `Fighting { origin: Vec2 }`, `Fleeing` — orthogonal to Activity enum (see [behavior.md](behavior.md)) |
@@ -92,11 +92,11 @@ Execution order is **chained** — each system completes before the next starts.
   - **In range + cooldown ready**: resets `AttackTimer`, fires projectile or applies point-blank damage
   - **Out of range**: pushes `GpuUpdate::SetTarget` to chase
 - If no NPC target: sets `CombatState::None`, then checks for opportunistic building attack:
-  - Only **archers** and **raiders** attempt building attacks (farmers/miners/fighters skip)
+  - Only **archers**, **crossbows**, and **raiders** attempt building attacks (farmers/miners/fighters skip)
   - Queries `BuildingSpatialGrid` via `find_nearest_enemy_building()` for enemy buildings within `CachedStats.range`
   - Non-targetable buildings skipped: Town, GoldMine, Bed
-  - **Raiders**: only target ArcherHome, Waypoint (leave FarmerHome/MinerHome alone for farm raiding)
-  - **Archers**: target any enemy building type (except non-targetable)
+  - **Raiders**: only target ArcherHome, CrossbowHome, Waypoint (leave FarmerHome/MinerHome alone for farm raiding)
+  - **Archers/Crossbows**: target any enemy building type (except non-targetable)
   - "Enemy" = building faction != NPC faction (uses `BuildingRef.faction` field)
   - If found and cooldown ready: stand ground (SetTarget to own pos), fire projectile toward building position, reset cooldown
   - Building damage is projectile-based: `process_proj_hits` checks active projectiles against `BuildingSpatialGrid` and sends `BuildingDamageMsg` on collision (see [projectiles.md](projectiles.md))

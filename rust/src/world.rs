@@ -20,6 +20,7 @@ pub const SPAWNER_FARMER: i32 = 0;
 pub const SPAWNER_ARCHER: i32 = 1;
 pub const SPAWNER_TENT: i32 = 2;
 pub const SPAWNER_MINER: i32 = 3;
+pub const SPAWNER_CROSSBOW: i32 = 4;
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -88,6 +89,13 @@ pub struct Tent {
     pub town_idx: u32,
 }
 
+/// A crossbow home that supports 1 crossbowman (building spawner).
+#[derive(Clone, Debug)]
+pub struct CrossbowHome {
+    pub position: Vec2,
+    pub town_idx: u32,
+}
+
 /// A miner home that supports 1 miner (building spawner).
 #[derive(Clone, Debug)]
 pub struct MinerHome {
@@ -116,6 +124,7 @@ pub struct WorldData {
     pub waypoints: Vec<Waypoint>,
     pub farmer_homes: Vec<FarmerHome>,
     pub archer_homes: Vec<ArcherHome>,
+    pub crossbow_homes: Vec<CrossbowHome>,
     pub tents: Vec<Tent>,
     pub miner_homes: Vec<MinerHome>,
     pub gold_mines: Vec<GoldMine>,
@@ -285,6 +294,9 @@ pub fn place_building(
         Building::ArcherHome { town_idx } => {
             world_data.archer_homes.push(ArcherHome { position: snapped_pos, town_idx });
         }
+        Building::CrossbowHome { town_idx } => {
+            world_data.crossbow_homes.push(CrossbowHome { position: snapped_pos, town_idx });
+        }
         Building::Tent { town_idx } => {
             world_data.tents.push(Tent { position: snapped_pos, town_idx });
         }
@@ -341,6 +353,13 @@ pub fn resolve_spawner_npc(
                 ).unwrap_or(entry.position)
             });
             (4, town_faction, mine.x, mine.y, -1, 0, "Miner", "Miner Home")
+        }
+        4 => {
+            // CrossbowHome -> Crossbow: find nearest waypoint (same as archer)
+            let post_idx = find_location_within_radius(
+                entry.position, bgrid, LocationKind::Waypoint, f32::MAX,
+            ).map(|(idx, _)| idx as i32).unwrap_or(-1);
+            (5, town_faction, -1.0, -1.0, post_idx, 1, "Crossbow", "Crossbow Home")
         }
         _ => {
             // Unknown building kind — fallback to Raider
@@ -492,6 +511,11 @@ pub fn allocate_all_building_slots(
         if a.position.x < -9000.0 { continue; }
         allocate_building_slot(slot_alloc, building_slots, BuildingKind::ArcherHome, i,
             a.position, town_faction(a.town_idx as u32), ARCHER_HOME_HP, TILESET_ARCHER_HOME, false);
+    }
+    for (i, c) in world_data.crossbow_homes.iter().enumerate() {
+        if c.position.x < -9000.0 { continue; }
+        allocate_building_slot(slot_alloc, building_slots, BuildingKind::CrossbowHome, i,
+            c.position, town_faction(c.town_idx as u32), CROSSBOW_HOME_HP, TILESET_CROSSBOW_HOME, false);
     }
     for (i, t) in world_data.tents.iter().enumerate() {
         if t.position.x < -9000.0 { continue; }
@@ -687,6 +711,13 @@ pub fn remove_building(
                 a.position = tombstone;
             }
         }
+        Building::CrossbowHome { .. } => {
+            if let Some(c) = world_data.crossbow_homes.iter_mut().find(|c| {
+                (c.position - snapped_pos).length() < 1.0
+            }) {
+                c.position = tombstone;
+            }
+        }
         Building::Tent { .. } => {
             if let Some(t) = world_data.tents.iter_mut().find(|t| {
                 (t.position - snapped_pos).length() < 1.0
@@ -725,6 +756,7 @@ impl WorldData {
             farms: self.farms.iter().filter(|f| alive(f.position, f.town_idx)).count(),
             farmer_homes: self.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
             archer_homes: self.archer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
+            crossbow_homes: self.crossbow_homes.iter().filter(|c| alive(c.position, c.town_idx)).count(),
             waypoints: self.waypoints.iter().filter(|w| alive(w.position, w.town_idx)).count(),
             miner_homes: self.miner_homes.iter().filter(|m| alive(m.position, m.town_idx)).count(),
             tents: self.tents.iter().filter(|t| alive(t.position, t.town_idx)).count(),
@@ -736,6 +768,7 @@ pub struct TownBuildingCounts {
     pub farms: usize,
     pub farmer_homes: usize,
     pub archer_homes: usize,
+    pub crossbow_homes: usize,
     pub waypoints: usize,
     pub miner_homes: usize,
     pub tents: usize,
@@ -749,6 +782,7 @@ pub fn find_building_data_index(world_data: &WorldData, building: Building, pos:
         Building::Waypoint { .. } => world_data.waypoints.iter().position(|g| near(g.position)),
         Building::FarmerHome { .. } => world_data.farmer_homes.iter().position(|h| near(h.position)),
         Building::ArcherHome { .. } => world_data.archer_homes.iter().position(|a| near(a.position)),
+        Building::CrossbowHome { .. } => world_data.crossbow_homes.iter().position(|c| near(c.position)),
         Building::Tent { .. } => world_data.tents.iter().position(|t| near(t.position)),
         Building::MinerHome { .. } => world_data.miner_home_at(pos),
         Building::Bed { .. } => world_data.beds.iter().position(|b| near(b.position)),
@@ -808,8 +842,8 @@ pub fn destroy_building(
         Building::Fountain { town_idx } | Building::Farm { town_idx }
         | Building::Bed { town_idx } | Building::Waypoint { town_idx, .. }
         | Building::Camp { town_idx } | Building::FarmerHome { town_idx }
-        | Building::ArcherHome { town_idx } | Building::Tent { town_idx }
-        | Building::MinerHome { town_idx } => town_idx as usize,
+        | Building::ArcherHome { town_idx } | Building::CrossbowHome { town_idx }
+        | Building::Tent { town_idx } | Building::MinerHome { town_idx } => town_idx as usize,
         Building::GoldMine => 0,
     };
     let faction = world_data.towns.get(bld_town).map(|t| t.faction).unwrap_or(0);
@@ -884,7 +918,7 @@ pub fn find_nearest_enemy_building(
             _ => {}
         }
         // Raiders only target military buildings
-        if is_raider && !matches!(bref.kind, BuildingKind::ArcherHome | BuildingKind::Waypoint) {
+        if is_raider && !matches!(bref.kind, BuildingKind::ArcherHome | BuildingKind::CrossbowHome | BuildingKind::Waypoint) {
             return;
         }
         let dx = bref.position.x - from.x;
@@ -1027,7 +1061,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum BuildingKind { Farm, Waypoint, Town, GoldMine, ArcherHome, FarmerHome, Tent, MinerHome, Bed }
+pub enum BuildingKind { Farm, Waypoint, Town, GoldMine, ArcherHome, CrossbowHome, FarmerHome, Tent, MinerHome, Bed }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {
@@ -1095,6 +1129,13 @@ impl BuildingSpatialGrid {
             self.insert(BuildingRef {
                 kind: BuildingKind::ArcherHome, index: i,
                 town_idx: h.town_idx, faction: faction_of(h.town_idx), position: h.position,
+            });
+        }
+        for (i, c) in world.crossbow_homes.iter().enumerate() {
+            if c.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::CrossbowHome, index: i,
+                town_idx: c.town_idx, faction: faction_of(c.town_idx), position: c.position,
             });
         }
         for (i, h) in world.farmer_homes.iter().enumerate() {
@@ -1221,7 +1262,7 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
 ];
 
 /// Atlas (col, row) positions for the 8 building tiles used in the building TilemapChunk layer.
-pub const BUILDING_TILES: [TileSpec; 10] = [
+pub const BUILDING_TILES: [TileSpec; 11] = [
     TileSpec::Single(50, 9),  // 0: Fountain
     TileSpec::Single(15, 2),  // 1: Bed
     TileSpec::External(2),    // 2: Waypoint (waypoint.png)
@@ -1232,6 +1273,7 @@ pub const BUILDING_TILES: [TileSpec; 10] = [
     TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]), // 7: Tent (raider spawner)
     TileSpec::Single(43, 11), // 8: Gold Mine
     TileSpec::External(3),    // 9: MinerHome (miner_house.png)
+    TileSpec::External(1),    // 10: CrossbowHome (reuse barracks.png for now)
 ];
 
 // Tileset indices -- must match BUILDING_TILES order above
@@ -1245,10 +1287,11 @@ pub const TILESET_ARCHER_HOME: u16 = 6;
 pub const TILESET_TENT: u16 = 7;
 pub const TILESET_GOLD_MINE: u16 = 8;
 pub const TILESET_MINER_HOME: u16 = 9;
+pub const TILESET_CROSSBOW_HOME: u16 = 10;
 
 // Compile-time guard: BUILDING_TILES length and index mapping
 const _: () = {
-    assert!(BUILDING_TILES.len() == 10);
+    assert!(BUILDING_TILES.len() == 11);
     assert!(TILESET_FOUNTAIN as usize == 0);
     assert!(TILESET_BED as usize == 1);
     assert!(TILESET_WAYPOINT as usize == 2);
@@ -1259,6 +1302,7 @@ const _: () = {
     assert!(TILESET_TENT as usize == 7);
     assert!(TILESET_GOLD_MINE as usize == 8);
     assert!(TILESET_MINER_HOME as usize == 9);
+    assert!(TILESET_CROSSBOW_HOME as usize == 10);
 };
 
 /// Composite tiles into a vertical strip buffer (32 x 32*layers).
@@ -1394,19 +1438,21 @@ pub enum Building {
     Camp { town_idx: u32 },
     FarmerHome { town_idx: u32 },
     ArcherHome { town_idx: u32 },
+    CrossbowHome { town_idx: u32 },
     Tent { town_idx: u32 },
     GoldMine,
     MinerHome { town_idx: u32 },
 }
 
 impl Building {
-    /// Returns the spawner building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome),
+    /// Returns the spawner building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome, 4=CrossbowHome),
     /// or None for non-spawner buildings (Farm, Waypoint, etc.).
     /// Single source of truth for the building→spawner mapping.
     pub fn spawner_kind(&self) -> Option<i32> {
         match self {
             Building::FarmerHome { .. } => Some(SPAWNER_FARMER),
             Building::ArcherHome { .. } => Some(SPAWNER_ARCHER),
+            Building::CrossbowHome { .. } => Some(SPAWNER_CROSSBOW),
             Building::Tent { .. } => Some(SPAWNER_TENT),
             Building::MinerHome { .. } => Some(SPAWNER_MINER),
             _ => None,
@@ -1422,6 +1468,7 @@ impl Building {
             Building::GoldMine => BuildingKind::GoldMine,
             Building::FarmerHome { .. } => BuildingKind::FarmerHome,
             Building::ArcherHome { .. } => BuildingKind::ArcherHome,
+            Building::CrossbowHome { .. } => BuildingKind::CrossbowHome,
             Building::Tent { .. } => BuildingKind::Tent,
             Building::MinerHome { .. } => BuildingKind::MinerHome,
             Building::Bed { .. } => BuildingKind::Bed,
@@ -1443,6 +1490,7 @@ impl Building {
             Building::Camp { .. } => TILESET_CAMP,
             Building::FarmerHome { .. } => TILESET_FARMER_HOME,
             Building::ArcherHome { .. } => TILESET_ARCHER_HOME,
+            Building::CrossbowHome { .. } => TILESET_CROSSBOW_HOME,
             Building::Tent { .. } => TILESET_TENT,
             Building::GoldMine => TILESET_GOLD_MINE,
             Building::MinerHome { .. } => TILESET_MINER_HOME,

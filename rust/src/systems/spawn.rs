@@ -19,6 +19,7 @@ const FARMER_NOUNS: &[&str] = &["Tiller", "Sower", "Reaper", "Plower", "Grower"]
 const ARCHER_NOUNS: &[&str] = &["Shield", "Sword", "Watcher", "Sentinel", "Defender"];
 const RAIDER_NOUNS: &[&str] = &["Blade", "Fang", "Shadow", "Claw", "Storm"];
 const MINER_NOUNS: &[&str] = &["Digger", "Pickaxe", "Prospector", "Delver", "Stonecutter"];
+const CROSSBOW_NOUNS: &[&str] = &["Bolt", "Marksman", "Sniper", "Hunter", "Striker"];
 
 
 fn generate_name(job: Job, slot: usize) -> String {
@@ -29,6 +30,7 @@ fn generate_name(job: Job, slot: usize) -> String {
         Job::Raider => RAIDER_NOUNS[(slot / ADJECTIVES.len()) % RAIDER_NOUNS.len()],
         Job::Fighter => "Fighter",
         Job::Miner => MINER_NOUNS[(slot / ADJECTIVES.len()) % MINER_NOUNS.len()],
+        Job::Crossbow => CROSSBOW_NOUNS[(slot / ADJECTIVES.len()) % CROSSBOW_NOUNS.len()],
     };
     format!("{} {}", adj, noun)
 }
@@ -89,7 +91,10 @@ pub fn spawn_npc_system(
         let job = Job::from_i32(msg.job);
 
         // Determine attack type (farmers default to Melee — stats exist but unused)
-        let attack_type = if msg.attack_type == 1 { BaseAttackType::Ranged } else { BaseAttackType::Melee };
+        let attack_type = match msg.attack_type {
+            1 => BaseAttackType::Ranged,
+            _ => BaseAttackType::Melee,
+        };
 
         // Generate personality for this NPC
         let personality = generate_personality(idx);
@@ -111,6 +116,7 @@ pub fn spawn_npc_system(
             Job::Raider => SPRITE_RAIDER,
             Job::Fighter => SPRITE_FIGHTER,
             Job::Miner => SPRITE_MINER,
+            Job::Crossbow => SPRITE_CROSSBOW,
         };
 
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x: msg.x, y: msg.y }));
@@ -120,7 +126,7 @@ pub fn spawn_npc_system(
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: cached.max_health }));
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row, atlas: 0.0 }));
         // Combat scan flag: fighters need full 81-cell scan, others get reduced threat-only scan
-        let combat_flags = if matches!(job, Job::Archer | Job::Raider | Job::Fighter) { 1u32 } else { 0u32 };
+        let combat_flags = if job.is_military() { 1u32 } else { 0u32 };
         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx, flags: combat_flags }));
 
         // Base entity (all NPCs get these)
@@ -176,6 +182,21 @@ pub fn spawn_npc_system(
                 dirty.mining = true;
                 ec.insert(Energy::default());
                 ec.insert(Miner);
+            }
+            Job::Crossbow => {
+                dirty.squads = true;
+                ec.insert(Energy::default());
+                ec.insert(AttackTimer(0.0));
+                ec.insert(Crossbow);
+                ec.insert((EquippedWeapon(EQUIP_SWORD.0, EQUIP_SWORD.1), EquippedHelmet(EQUIP_HELMET.0, EQUIP_HELMET.1)));
+                if msg.starting_post >= 0 {
+                    let patrol_posts = build_patrol_route(&world_data, msg.town_idx as u32);
+                    ec.insert(PatrolRoute {
+                        posts: patrol_posts,
+                        current: msg.starting_post as usize,
+                    });
+                    ec.insert(Activity::OnDuty { ticks_waiting: 0 });
+                }
             }
             Job::Fighter => {
                 ec.insert(AttackTimer(0.0));

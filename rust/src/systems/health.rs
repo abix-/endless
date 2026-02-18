@@ -193,7 +193,7 @@ pub fn update_healing_zone_cache(
     for (town_idx, town) in world_data.towns.iter().enumerate() {
         if town.faction < 0 { continue; }
         let heal_lvl = upgrades.levels.get(town_idx).map(|l| l[UpgradeType::HealingRate as usize]).unwrap_or(0);
-        let radius_lvl = upgrades.levels.get(town_idx).map(|l| l[UpgradeType::FountainRadius as usize]).unwrap_or(0);
+        let radius_lvl = upgrades.levels.get(town_idx).map(|l| l[UpgradeType::FountainRange as usize]).unwrap_or(0);
         let radius = combat_config.heal_radius + radius_lvl as f32 * 24.0;
         let heal_rate = combat_config.heal_rate * (1.0 + heal_lvl as f32 * UPGRADE_PCT[UpgradeType::HealingRate as usize]);
 
@@ -352,6 +352,13 @@ pub fn healing_system(
         .map(|(i, b)| (i, b.position, b.town_idx))
         .collect();
     heal_buildings(BuildingKind::ArcherHome, &mut building_hp.archer_homes, &archer_home_entries);
+
+    let crossbow_home_entries: Vec<(usize, Vec2, u32)> = world_data.crossbow_homes.iter()
+        .enumerate()
+        .filter(|(_, b)| crate::world::is_alive(b.position))
+        .map(|(i, b)| (i, b.position, b.town_idx))
+        .collect();
+    heal_buildings(BuildingKind::CrossbowHome, &mut building_hp.crossbow_homes, &crossbow_home_entries);
 
     let tent_entries: Vec<(usize, Vec2, u32)> = world_data.tents.iter()
         .enumerate()

@@ -158,6 +158,7 @@ fn ui_toggle_system(
     if let Some(si) = squad_hotkey {
         if si < squad_state.squads.len() {
             build_ctx.selected_build = None;
+            build_ctx.clear_drag();
             ui_state.left_panel_open = true;
             ui_state.left_panel_tab = LeftPanelTab::Squads;
             squad_state.selected = si as i32;
@@ -317,9 +318,7 @@ fn game_startup_system(
     }
     if !saved.auto_upgrades.is_empty() && town_idx < extra.auto_upgrade.flags.len() {
         let flags = &mut extra.auto_upgrade.flags[town_idx];
-        for (i, &val) in saved.auto_upgrades.iter().enumerate().take(flags.len()) {
-            flags[i] = val;
-        }
+        *flags = crate::systems::stats::decode_auto_upgrade_flags(&saved.auto_upgrades);
     }
 
     // Init NPC tracking per town
@@ -522,6 +521,7 @@ fn game_escape_system(
         }
         if build_ctx.selected_build.is_some() {
             build_ctx.selected_build = None;
+            build_ctx.clear_drag();
             return;
         }
         if ui_state.build_menu_open {
@@ -707,6 +707,33 @@ fn screen_to_world(
     position + mouse_offset / zoom
 }
 
+/// Bresenham-style integer line over town-grid slots, inclusive of start/end.
+fn slots_on_line(start: (i32, i32), end: (i32, i32)) -> Vec<(i32, i32)> {
+    let (mut r0, mut c0) = start;
+    let (r1, c1) = end;
+    let dr = (r1 - r0).abs();
+    let dc = (c1 - c0).abs();
+    let sr = if r0 < r1 { 1 } else if r0 > r1 { -1 } else { 0 };
+    let sc = if c0 < c1 { 1 } else if c0 > c1 { -1 } else { 0 };
+    let mut err = dr - dc;
+
+    let mut out = Vec::new();
+    loop {
+        out.push((r0, c0));
+        if r0 == r1 && c0 == c1 { break; }
+        let e2 = 2 * err;
+        if e2 > -dc {
+            err -= dc;
+            r0 += sr;
+        }
+        if e2 < dr {
+            err += dr;
+            c0 += sc;
+        }
+    }
+    out
+}
+
 /// Right-click cancels active build placement.
 fn slot_right_click_system(
     mouse: Res<ButtonInput<MouseButton>>,
@@ -714,6 +741,7 @@ fn slot_right_click_system(
 ) {
     if !mouse.just_pressed(MouseButton::Right) { return; }
     build_ctx.selected_build = None;
+    build_ctx.clear_drag();
 }
 
 /// Left-click places the currently selected building into any valid slot in buildable area.
@@ -730,10 +758,14 @@ fn build_place_click_system(
     _difficulty: Res<Difficulty>,
 ) {
     let Some(kind) = build_ctx.selected_build else { return };
-    if !mouse.just_pressed(MouseButton::Left) { return; }
+    let just_pressed = mouse.just_pressed(MouseButton::Left);
+    let pressed = mouse.pressed(MouseButton::Left);
+    let just_released = mouse.just_released(MouseButton::Left);
+    if !just_pressed && !pressed && !just_released { return; }
 
     if let Ok(ctx) = egui_contexts.ctx_mut() {
         if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            if just_released { build_ctx.clear_drag(); }
             return;
         }
     }
@@ -756,6 +788,8 @@ fn build_place_click_system(
 
     // Destroy mode: remove building at clicked cell
     if kind == BuildKind::Destroy {
+        if !just_pressed { return; }
+        build_ctx.clear_drag();
         let cell_building = world_state.grid.cell(gc, gr).and_then(|c| c.building);
         let is_destructible = cell_building
             .as_ref()
@@ -780,6 +814,8 @@ fn build_place_click_system(
 
     // Waypoint: wilderness placement (snap to world grid, not town grid)
     if kind == BuildKind::Waypoint {
+        if !just_pressed { return; }
+        build_ctx.clear_drag();
         let cost = crate::constants::building_cost(BuildKind::Waypoint);
         if world::place_waypoint_at_world_pos(
             &mut world_state.grid, &mut world_state.world_data,
@@ -797,38 +833,83 @@ fn build_place_click_system(
         return;
     }
 
-    // Build mode: place building on empty slot (town grid)
-    let Some(town_grid) = world_state.town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return };
-    if !world::is_slot_buildable(town_grid, row, col) { return; }
-    if row == 0 && col == 0 { return; }
-    if world_state.grid.cell(gc, gr).map(|c| c.building.is_some()) != Some(false) { return; }
-
-    let cost = crate::constants::building_cost(kind);
-    let (building, label) = match kind {
-        BuildKind::Farm => (world::Building::Farm { town_idx }, "farm"),
-        BuildKind::FarmerHome => (world::Building::FarmerHome { town_idx }, "house"),
-        BuildKind::ArcherHome => (world::Building::ArcherHome { town_idx }, "barracks"),
-        BuildKind::Tent => (world::Building::Tent { town_idx }, "tent"),
-        BuildKind::MinerHome => (world::Building::MinerHome { town_idx }, "mine shaft"),
+    // Town-grid build mode: supports single-click and click-drag line placement.
+    let label = match kind {
+        BuildKind::Farm => "farm",
+        BuildKind::FarmerHome => "house",
+        BuildKind::ArcherHome => "barracks",
+        BuildKind::CrossbowHome => "crossbow home",
+        BuildKind::Tent => "tent",
+        BuildKind::MinerHome => "mine shaft",
         BuildKind::Waypoint | BuildKind::Destroy => unreachable!(),
     };
 
-    let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
-    if food < cost { return; }
+    let mut try_place_at_slot = |slot_row: i32, slot_col: i32| -> bool {
+        let Some(town_grid) = world_state.town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return false };
+        if !world::is_slot_buildable(town_grid, slot_row, slot_col) { return false; }
+        if slot_row == 0 && slot_col == 0 { return false; }
+        let snapped = world::town_grid_to_world(center, slot_row, slot_col);
+        let (sgc, sgr) = world_state.grid.world_to_grid(snapped);
+        if world_state.grid.cell(sgc, sgr).map(|c| c.building.is_some()) != Some(false) { return false; }
 
-    if !world::build_and_pay(
-        &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-        &mut food_storage, &mut world_state.spawner_state, &mut world_state.building_hp,
-        &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
-        building, town_data_idx,
-        row, col, center, cost,
-    ) { return; }
+        let cost = crate::constants::building_cost(kind);
+        let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
+        if food < cost { return false; }
 
-    combat_log.push(
-        CombatEventKind::Harvest, 0,
-        game_time.day(), game_time.hour(), game_time.minute(),
-        format!("Built {} at ({},{}) in {}", label, row, col, town_name),
-    );
+        let building = match kind {
+            BuildKind::Farm => world::Building::Farm { town_idx },
+            BuildKind::FarmerHome => world::Building::FarmerHome { town_idx },
+            BuildKind::ArcherHome => world::Building::ArcherHome { town_idx },
+            BuildKind::CrossbowHome => world::Building::CrossbowHome { town_idx },
+            BuildKind::Tent => world::Building::Tent { town_idx },
+            BuildKind::MinerHome => world::Building::MinerHome { town_idx },
+            BuildKind::Waypoint | BuildKind::Destroy => unreachable!(),
+        };
+
+        world::build_and_pay(
+            &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
+            &mut food_storage, &mut world_state.spawner_state, &mut world_state.building_hp,
+            &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
+            building, town_data_idx,
+            slot_row, slot_col, center, cost,
+        )
+    };
+
+    if just_pressed {
+        build_ctx.drag_start_slot = Some((row, col));
+        build_ctx.drag_current_slot = Some((row, col));
+    } else if pressed && build_ctx.drag_start_slot.is_some() {
+        build_ctx.drag_current_slot = Some((row, col));
+    }
+
+    if !just_released { return; }
+
+    let start = build_ctx.drag_start_slot.take().unwrap_or((row, col));
+    let end = build_ctx.drag_current_slot.take().unwrap_or((row, col));
+    let mut placed = 0usize;
+    let mut first_placed: Option<(i32, i32)> = None;
+    for (sr, sc) in slots_on_line(start, end) {
+        if try_place_at_slot(sr, sc) {
+            if first_placed.is_none() { first_placed = Some((sr, sc)); }
+            placed += 1;
+        }
+    }
+    if placed == 0 { return; }
+
+    if placed == 1 {
+        let (pr, pc) = first_placed.unwrap_or((row, col));
+        combat_log.push(
+            CombatEventKind::Harvest, 0,
+            game_time.day(), game_time.hour(), game_time.minute(),
+            format!("Built {} at ({},{}) in {}", label, pr, pc, town_name),
+        );
+    } else {
+        combat_log.push(
+            CombatEventKind::Harvest, 0,
+            game_time.day(), game_time.hour(), game_time.minute(),
+            format!("Built {} {}s in {} (drag line)", placed, label, town_name),
+        );
+    }
 }
 
 /// Marker component for slot indicator sprite entities.

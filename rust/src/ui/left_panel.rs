@@ -5,10 +5,11 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
+use crate::constants::FOUNTAIN_TOWER;
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UpgradeType, UPGRADE_COUNT, UPGRADE_PCT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UpgradeType, UPGRADE_COUNT, UPGRADE_PCT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
 use crate::systems::{AiPlayerState, AiKind};
 use crate::systems::ai_player::AiPersonality;
 use crate::world::{WorldData, is_alive, SPAWNER_MINER};
@@ -144,10 +145,12 @@ struct AiSnapshot {
     gold: i32,
     farmers: usize,
     archers: usize,
+    crossbows: usize,
     raiders: usize,
     miners: usize,
     farmer_homes: usize,
     archer_homes: usize,
+    crossbow_homes: usize,
     tents: usize,
     miner_homes: usize,
     farms: usize,
@@ -1041,6 +1044,7 @@ fn rebuild_factions_cache(
         let farms = counts.farms;
         let farmer_homes = counts.farmer_homes;
         let archer_homes = counts.archer_homes;
+        let crossbow_homes = counts.crossbow_homes;
         let waypoints = counts.waypoints;
         let tents = counts.tents;
         let miner_homes = counts.miner_homes;
@@ -1052,6 +1056,7 @@ fn rebuild_factions_cache(
         let archers = alive_spawner(1);
         let raiders = alive_spawner(2);
         let miners = alive_spawner(3);
+        let crossbows = alive_spawner(4);
 
         let food = factions.food_storage.food.get(tdi).copied().unwrap_or(0);
         let gold = factions.gold_storage.gold.get(tdi).copied().unwrap_or(0);
@@ -1120,10 +1125,12 @@ fn rebuild_factions_cache(
             gold,
             farmers,
             archers,
+            crossbows,
             raiders,
             miners,
             farmer_homes,
             archer_homes,
+            crossbow_homes,
             tents,
             miner_homes,
             farms,
@@ -1245,6 +1252,8 @@ fn factions_content(
 
     let lv = &snap.upgrades;
     let archer_base = factions.combat_config.jobs.get(&Job::Archer);
+    let crossbow_base = factions.combat_config.jobs.get(&Job::Crossbow);
+    let crossbow_atk = Some(&factions.combat_config.crossbow_attack);
     let farmer_base = factions.combat_config.jobs.get(&Job::Farmer);
     let miner_base = factions.combat_config.jobs.get(&Job::Miner);
     let ranged_base = factions.combat_config.attacks.get(&BaseAttackType::Ranged);
@@ -1258,6 +1267,12 @@ fn factions_content(
     let cooldown_reduction = (1.0 - cooldown_mult) * 100.0;
     let alert_mult = 1.0 + lv[UpgradeType::AlertRadius as usize] as f32 * UPGRADE_PCT[UpgradeType::AlertRadius as usize];
 
+    let xbow_hp_mult = 1.0 + lv[UpgradeType::CrossbowHp as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowHp as usize];
+    let xbow_dmg_mult = 1.0 + lv[UpgradeType::CrossbowAttack as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowAttack as usize];
+    let xbow_range_mult = 1.0 + lv[UpgradeType::CrossbowRange as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowRange as usize];
+    let xbow_speed_mult = 1.0 + lv[UpgradeType::CrossbowMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowMoveSpeed as usize];
+    let xbow_cd_mult = 1.0 / (1.0 + lv[UpgradeType::CrossbowAttackSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::CrossbowAttackSpeed as usize]);
+
     let farmer_hp_mult = 1.0 + lv[UpgradeType::FarmerHp as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmerHp as usize];
     let farmer_speed_mult = 1.0 + lv[UpgradeType::FarmerMoveSpeed as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmerMoveSpeed as usize];
     let farm_yield_mult = 1.0 + lv[UpgradeType::FarmYield as usize] as f32 * UPGRADE_PCT[UpgradeType::FarmYield as usize];
@@ -1267,7 +1282,8 @@ fn factions_content(
     let gold_yield_mult = 1.0 + lv[UpgradeType::GoldYield as usize] as f32 * UPGRADE_PCT[UpgradeType::GoldYield as usize];
 
     let healing_mult = 1.0 + lv[UpgradeType::HealingRate as usize] as f32 * UPGRADE_PCT[UpgradeType::HealingRate as usize];
-    let fountain_bonus = lv[UpgradeType::FountainRadius as usize] as f32 * 24.0;
+    let fountain_bonus = lv[UpgradeType::FountainRange as usize] as f32 * 24.0;
+    let tower = resolve_town_tower_stats(lv);
 
     ui.columns(2, |columns| {
         let (left_slice, right_slice) = columns.split_at_mut(1);
@@ -1330,8 +1346,16 @@ fn factions_content(
                 ui.label(format!("{:.1}/s -> {:.1}/s", factions.combat_config.heal_rate, factions.combat_config.heal_rate * healing_mult));
                 ui.end_row();
 
-                ui.label("Fountain Radius");
+                ui.label("Tower/Heal Radius");
                 ui.label(format!("{:.0}px -> {:.0}px", factions.combat_config.heal_radius, factions.combat_config.heal_radius + fountain_bonus));
+                ui.end_row();
+
+                ui.label("Fountain Cooldown");
+                ui.label(format!("{:.2}s -> {:.2}s", FOUNTAIN_TOWER.cooldown, tower.cooldown));
+                ui.end_row();
+
+                ui.label("Fountain Projectile Life");
+                ui.label(format!("{:.2}s -> {:.2}s", FOUNTAIN_TOWER.proj_lifetime, tower.proj_lifetime));
                 ui.end_row();
 
                 ui.label("Build Area Expansion");
@@ -1340,13 +1364,15 @@ fn factions_content(
             });
 
         right.label("Military");
-        right.label(format!("Force: {} (Archers {} + Raiders {})", snap.archers + snap.raiders, snap.archers, snap.raiders));
+        right.label(format!("Force: {} (Archers {} + Crossbows {} + Raiders {})", snap.archers + snap.crossbows + snap.raiders, snap.archers, snap.crossbows, snap.raiders));
         right.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
+        right.label(format!("Crossbows: {}/{}", snap.crossbows, snap.crossbow_homes));
         right.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
         right.separator();
 
         right.label("Military Buildings");
         right.label(format!("Archer Homes: {}", snap.archer_homes));
+        right.label(format!("Crossbow Homes: {}", snap.crossbow_homes));
         right.label(format!("Waypoints: {}", snap.waypoints));
         right.label(format!("Tents: {}", snap.tents));
         right.separator();
@@ -1383,6 +1409,31 @@ fn factions_content(
                 if let Some(base) = melee_base {
                     ui.label("Attack Cooldown (Melee)");
                     ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * cooldown_mult, cooldown_reduction));
+                    ui.end_row();
+                }
+
+                if let Some(base) = crossbow_base {
+                    ui.label("HP (Crossbow)");
+                    ui.label(format!("{:.0} -> {:.0}", base.max_health, base.max_health * xbow_hp_mult));
+                    ui.end_row();
+
+                    ui.label("Damage (Crossbow)");
+                    ui.label(format!("{:.1} -> {:.1}", base.damage, base.damage * xbow_dmg_mult));
+                    ui.end_row();
+
+                    ui.label("Move Speed (Crossbow)");
+                    ui.label(format!("{:.0} -> {:.0}", base.speed, base.speed * xbow_speed_mult));
+                    ui.end_row();
+                }
+
+                if let Some(base) = crossbow_atk {
+                    ui.label("Range (Crossbow)");
+                    ui.label(format!("{:.0} -> {:.0}", base.range, base.range * xbow_range_mult));
+                    ui.end_row();
+
+                    ui.label("Attack Cooldown (Crossbow)");
+                    let xbow_cd_red = (1.0 - xbow_cd_mult) * 100.0;
+                    ui.label(format!("{:.2}s -> {:.2}s ({:.0}% faster)", base.cooldown, base.cooldown * xbow_cd_mult, xbow_cd_red));
                     ui.end_row();
                 }
 

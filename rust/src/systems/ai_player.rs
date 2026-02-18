@@ -17,7 +17,7 @@ use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::components::{Archer, Dead, NpcIndex, TownId};
 use crate::world::{self, Building, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
-use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, UPGRADE_COUNT};
+use crate::systems::stats::{UpgradeQueue, TownUpgrades, UpgradeType, upgrade_node, upgrade_available, UPGRADE_COUNT};
 
 // Rust orientation notes for readers coming from PowerShell:
 // - `Option<T>` is Rust's explicit nullable type (`Some(value)` or `None`).
@@ -137,6 +137,7 @@ struct AiTownSnapshot {
     farms: HashSet<(i32, i32)>,
     farmer_homes: HashSet<(i32, i32)>,
     archer_homes: HashSet<(i32, i32)>,
+    crossbow_homes: HashSet<(i32, i32)>,
     miner_homes: HashSet<(i32, i32)>,
 }
 
@@ -148,6 +149,7 @@ macro_rules! territory_building_sets {
         $snap.farms.iter()
             .chain(&$snap.farmer_homes)
             .chain(&$snap.archer_homes)
+            .chain(&$snap.crossbow_homes)
             .chain(&$snap.miner_homes)
             .copied()
     };
@@ -156,6 +158,7 @@ macro_rules! territory_building_sets {
         town_building_slots!($wd.farms, $ti, $center)
             .chain(town_building_slots!($wd.farmer_homes, $ti, $center))
             .chain(town_building_slots!($wd.archer_homes, $ti, $center))
+            .chain(town_building_slots!($wd.crossbow_homes, $ti, $center))
             .chain(town_building_slots!($wd.miner_homes, $ti, $center))
     };
 }
@@ -201,6 +204,7 @@ enum AiAction {
     BuildFarm,
     BuildFarmerHome,
     BuildArcherHome,
+    BuildCrossbowHome,
     BuildWaypoint,
     BuildTent,
     BuildMinerHome,
@@ -312,21 +316,21 @@ impl AiPersonality {
         }
     }
 
-    /// Upgrade weights indexed by UpgradeType discriminant (18 entries).
+    /// Upgrade weights indexed by UpgradeType discriminant (20 entries).
     /// Only entries with weight > 0 are scored.
     fn upgrade_weights(self, kind: AiKind) -> [f32; UPGRADE_COUNT] {
         // Weight table indexed by upgrade enum discriminant.
         // Larger values increase chance in weighted random selection.
         match kind {
-            //                             MHP MAt MRn AS  MMS Alt Ddg FYd FHP FMS mHP mMS GYd Hel Fnt Exp PSp PLf
+            //                             MHP MAt MRn AS  MMS Alt Ddg FYd FHP FMS mHP mMS GYd Hel FRg FAS FPL Exp PSp PLf XHP XAt XRn XAS XMS
             AiKind::Raider => match self {
-                Self::Economic =>         [4., 4., 0., 4., 6., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 0., 0.],
-                _ =>                      [4., 6., 2., 6., 4., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 0., 0.],
+                Self::Economic =>         [4., 4., 0., 4., 6., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 0., 0., 0., 0., 0., 0., 0.],
+                _ =>                      [4., 6., 2., 6., 4., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 0., 0., 0., 0., 0., 0., 0.],
             },
             AiKind::Builder => match self {
-                Self::Aggressive =>       [6., 8., 4., 6., 4., 0., 0., 2., 1., 0., 1., 0., 1., 1., 0., 8., 3., 3.],
-                Self::Balanced =>         [5., 5., 2., 4., 3., 0., 0., 5., 3., 1., 3., 1., 2., 3., 0., 10., 2., 2.],
-                Self::Economic =>         [3., 2., 1., 2., 2., 0., 0., 8., 5., 2., 5., 2., 4., 5., 0., 12., 1., 1.],
+                Self::Aggressive =>       [6., 8., 4., 6., 4., 0., 0., 2., 1., 0., 1., 0., 1., 1., 5., 6., 5., 8., 3., 3., 5., 7., 3., 5., 3.],
+                Self::Balanced =>         [5., 5., 2., 4., 3., 0., 0., 5., 3., 1., 3., 1., 2., 3., 5., 4., 4., 10., 2., 2., 4., 4., 2., 3., 2.],
+                Self::Economic =>         [3., 2., 1., 2., 2., 0., 0., 8., 5., 2., 5., 2., 4., 5., 4., 3., 3., 12., 1., 1., 2., 2., 1., 1., 1.],
             },
         }
     }
@@ -347,6 +351,65 @@ fn weighted_pick(scores: &[(AiAction, f32)]) -> Option<AiAction> {
         if roll < acc { return Some(action); }
     }
     scores.last().map(|(a, _)| *a)
+}
+
+/// Desire signals used by action + upgrade scoring.
+#[derive(Clone, Copy, Default)]
+struct DesireState {
+    food_desire: f32,     // 0.0 = comfortable, 1.0 = urgent
+    military_desire: f32, // 0.0 = comfortable, 1.0 = urgent
+}
+
+/// Compute food and military desire once per decision tick.
+fn desire_state(
+    personality: AiPersonality,
+    food: i32,
+    reserve: i32,
+    houses: usize,
+    barracks: usize,
+    waypoints: usize,
+) -> DesireState {
+    let food_desire = if reserve > 0 {
+        (1.0 - (food - reserve) as f32 / reserve as f32).clamp(0.0, 1.0)
+    } else if food < 5 {
+        0.8
+    } else if food < 10 {
+        0.4
+    } else {
+        0.0
+    };
+
+    let barracks_target = personality.archer_home_target(houses).max(1);
+    let barracks_gap = barracks_target.saturating_sub(barracks) as f32 / barracks_target as f32;
+    let waypoint_gap = if barracks > 0 {
+        barracks.saturating_sub(waypoints) as f32 / barracks as f32
+    } else {
+        0.0
+    };
+    // Barracks deficit is primary military pressure; waypoint coverage is secondary.
+    let military_desire = (barracks_gap * 0.75 + waypoint_gap * 0.25).clamp(0.0, 1.0);
+
+    DesireState { food_desire, military_desire }
+}
+
+fn is_military_upgrade(idx: usize) -> bool {
+    matches!(
+        idx,
+        x if x == UpgradeType::MilitaryHp as usize
+            || x == UpgradeType::MilitaryAttack as usize
+            || x == UpgradeType::MilitaryRange as usize
+            || x == UpgradeType::AttackSpeed as usize
+            || x == UpgradeType::MilitaryMoveSpeed as usize
+            || x == UpgradeType::AlertRadius as usize
+            || x == UpgradeType::Dodge as usize
+            || x == UpgradeType::ProjectileSpeed as usize
+            || x == UpgradeType::ProjectileLifetime as usize
+            || x == UpgradeType::CrossbowHp as usize
+            || x == UpgradeType::CrossbowAttack as usize
+            || x == UpgradeType::CrossbowRange as usize
+            || x == UpgradeType::CrossbowAttackSpeed as usize
+            || x == UpgradeType::CrossbowMoveSpeed as usize
+    )
 }
 
 /// Per-squad AI command state — independent cooldown and target memory.
@@ -420,6 +483,7 @@ fn build_town_snapshot(
     let farms = town_building_slots!(world_data.farms, ti, center).collect();
     let farmer_homes = town_building_slots!(world_data.farmer_homes, ti, center).collect();
     let archer_homes = town_building_slots!(world_data.archer_homes, ti, center).collect();
+    let crossbow_homes = town_building_slots!(world_data.crossbow_homes, ti, center).collect();
     let miner_homes = town_building_slots!(world_data.miner_homes, ti, center).collect();
     let empty_slots = world::empty_slots(tg, center, grid);
 
@@ -429,6 +493,7 @@ fn build_town_snapshot(
         farms,
         farmer_homes,
         archer_homes,
+        crossbow_homes,
         miner_homes,
     })
 }
@@ -455,13 +520,14 @@ struct NeighborCounts {
     diag_farms: i32,
     farmer_homes: i32,
     archer_homes: i32,
+    crossbow_homes: i32,
 }
 
 fn count_neighbors(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> NeighborCounts {
     // 3x3 neighborhood scan around the candidate slot.
     // This is a common scoring primitive reused by multiple building scorers.
     let (r, c) = slot;
-    let mut nc = NeighborCounts { edge_farms: 0, diag_farms: 0, farmer_homes: 0, archer_homes: 0 };
+    let mut nc = NeighborCounts { edge_farms: 0, diag_farms: 0, farmer_homes: 0, archer_homes: 0, crossbow_homes: 0 };
     for dr in -1..=1 {
         for dc in -1..=1 {
             if dr == 0 && dc == 0 { continue; }
@@ -471,6 +537,7 @@ fn count_neighbors(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> NeighborCount
             }
             if snapshot.farmer_homes.contains(&n) { nc.farmer_homes += 1; }
             if snapshot.archer_homes.contains(&n) { nc.archer_homes += 1; }
+            if snapshot.crossbow_homes.contains(&n) { nc.crossbow_homes += 1; }
         }
     }
     nc
@@ -558,7 +625,7 @@ fn farmer_home_border_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 
     }
     // Weighted linear score:
     // edge farm contact matters most, then diagonal farm contact, then home adjacency.
-    nc.edge_farms * 90 + nc.diag_farms * 35 + nc.farmer_homes * 10 + nc.archer_homes * 5
+    nc.edge_farms * 90 + nc.diag_farms * 35 + nc.farmer_homes * 10 + nc.archer_homes * 5 + nc.crossbow_homes * 5
 }
 
 fn balanced_house_side_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
@@ -619,7 +686,7 @@ fn archer_fill_score(snapshot: &AiTownSnapshot, slot: (i32, i32)) -> i32 {
     let nc = count_neighbors(snapshot, slot);
     let near_farms = nc.edge_farms + nc.diag_farms;
     // Archers should protect economic core, but not stack on top of each other.
-    let mut score = near_farms * 40 + nc.farmer_homes * 35 - nc.archer_homes * 20;
+    let mut score = near_farms * 40 + nc.farmer_homes * 35 - nc.archer_homes * 20 - nc.crossbow_homes * 20;
     // Extra bonus for dense "value zone" (many farms/homes nearby).
     if near_farms + nc.farmer_homes >= 4 { score += 60; }
     score
@@ -967,15 +1034,7 @@ pub fn ai_decision_system(
         let reserve = player.personality.food_reserve_per_spawner() * spawner_count;
         // Food reserve rule: if town is at/below reserve, skip spending this tick.
         if food <= reserve { continue; }
-        // Hunger signal: 0.0 = comfortable (food >= 2×reserve), 1.0 = at floor.
-        // Drives farm + farmer home urgency when food margin is thin.
-        let hunger = if reserve > 0 {
-            (1.0 - (food - reserve) as f32 / reserve as f32).clamp(0.0, 1.0)
-        } else {
-            // Aggressive (reserve=0): absolute threshold proxy.
-            if food < 5 { 0.8 } else if food < 10 { 0.4 } else { 0.0 }
-        };
-
+        // Desire signals are computed once below and reused by action + upgrade scoring.
         let mining_radius = res.policies.policies.get(tdi)
             .map(|p| p.mining_radius)
             .unwrap_or(DEFAULT_MINING_RADIUS);
@@ -991,8 +1050,11 @@ pub fn ai_decision_system(
         let farms = counts.farms;
         let houses = counts.farmer_homes;
         let barracks = counts.archer_homes;
+        let xbow_homes = counts.crossbow_homes;
         let waypoints = counts.waypoints;
         let mine_shafts = counts.miner_homes;
+        let total_military_homes = barracks + xbow_homes;
+        let desires = desire_state(player.personality, food, reserve, houses, total_military_homes, waypoints);
 
         // Score all eligible actions
         let mut scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
@@ -1021,19 +1083,32 @@ pub fn ai_decision_system(
                 if ctx.has_slots {
                     // Deficit-driven need model:
                     // when below target ratios, multiply base weight to catch up.
-                    let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0) + hunger * 4.0;
+                    let farm_need = 1.0 + (houses as f32 - farms as f32).max(0.0) + desires.food_desire * 4.0;
                     let house_need = if house_deficit > 0 {
-                        1.0 + house_deficit as f32 + hunger * 3.0
-                    } else if hunger > 0.3 {
-                        1.0 + hunger * 2.0
+                        1.0 + house_deficit as f32 + desires.food_desire * 3.0
+                    } else if desires.food_desire > 0.3 {
+                        1.0 + desires.food_desire * 2.0
                     } else {
                         0.5
                     };
-                    let barracks_need = if barracks_deficit > 0 { 1.0 + barracks_deficit as f32 } else { 0.5 };
+                    let barracks_need = if barracks_deficit > 0 {
+                        1.0 + barracks_deficit as f32 + desires.military_desire * 3.0
+                    } else {
+                        0.5 + desires.military_desire
+                    };
 
                     if ctx.food >= building_cost(BuildKind::Farm) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
                     if ctx.food >= building_cost(BuildKind::FarmerHome) { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
                     if ctx.food >= building_cost(BuildKind::ArcherHome) { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
+                    // Crossbow homes: AI builds them once it has some archer homes established
+                    if barracks >= 2 && ctx.food >= building_cost(BuildKind::CrossbowHome) {
+                        let xbow_need = if xbow_homes < barracks / 2 {
+                            1.0 + desires.military_desire * 2.0
+                        } else {
+                            0.3 + desires.military_desire
+                        };
+                        scores.push((AiAction::BuildCrossbowHome, bw * 0.6 * xbow_need));
+                    }
                     if miner_deficit > 0 && ctx.food >= building_cost(BuildKind::MinerHome) {
                         let ms_need = 1.0 + miner_deficit as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
@@ -1047,10 +1122,10 @@ pub fn ai_decision_system(
                     // Prefer uncovered mine support; otherwise maintain patrol coverage parity.
                     let uncovered = mines.uncovered.len();
                     if uncovered > 0 {
-                        let mine_need = 1.0 + uncovered as f32;
+                        let mine_need = 1.0 + uncovered as f32 + desires.military_desire;
                         scores.push((AiAction::BuildWaypoint, gw * mine_need));
-                    } else if waypoints < barracks {
-                        let gp_need = 1.0 + (barracks - waypoints) as f32;
+                    } else if waypoints < total_military_homes {
+                        let gp_need = 1.0 + (total_military_homes - waypoints) as f32 + desires.military_desire * 2.0;
                         if ctx.has_slots {
                             scores.push((AiAction::BuildWaypoint, gw * gp_need));
                         }
@@ -1067,7 +1142,10 @@ pub fn ai_decision_system(
             if weight <= 0.0 { continue; }
             if !upgrade_available(&levels, idx, ctx.food, gold) { continue; }
             let mut w = weight;
-            if idx == 15 {
+            if is_military_upgrade(idx) {
+                w *= 1.0 + desires.military_desire * 2.0;
+            }
+            if idx == UpgradeType::TownArea as usize {
                 // Expansion upgrade is delayed while town still has cheap,
                 // high-value building actions available.
                 if matches!(player.kind, AiKind::Builder) {
@@ -1075,7 +1153,7 @@ pub fn ai_decision_system(
                     let bt = player.personality.archer_home_target(houses);
                     let wants_more_homes = ctx.has_slots && (
                         (houses < ht && ctx.food >= building_cost(BuildKind::FarmerHome))
-                            || (barracks < bt && ctx.food >= building_cost(BuildKind::ArcherHome))
+                            || (total_military_homes < bt && ctx.food >= building_cost(BuildKind::ArcherHome))
                             || (mine_shafts < miner_target_for_expansion && ctx.food >= building_cost(BuildKind::MinerHome))
                     );
                     if wants_more_homes {
@@ -1233,6 +1311,9 @@ fn execute_action(
         AiAction::BuildArcherHome => try_build_scored(
             Building::ArcherHome { town_idx: ctx.ti }, BuildKind::ArcherHome, "archer home",
             ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, archer_fill_score),
+        AiAction::BuildCrossbowHome => try_build_scored(
+            Building::CrossbowHome { town_idx: ctx.ti }, BuildKind::CrossbowHome, "crossbow home",
+            ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, archer_fill_score),
         AiAction::BuildMinerHome => {
             let Some(mines) = &ctx.mines else { return None; };
             try_build_miner_home(ctx, mines, res, snapshot)
@@ -1303,6 +1384,7 @@ fn resolve_building_pos(world_data: &WorldData, kind: BuildingKind, index: usize
         BuildingKind::Farm => world_data.farms.get(index).map(|b| b.position),
         BuildingKind::FarmerHome => world_data.farmer_homes.get(index).map(|b| b.position),
         BuildingKind::ArcherHome => world_data.archer_homes.get(index).map(|b| b.position),
+        BuildingKind::CrossbowHome => world_data.crossbow_homes.get(index).map(|b| b.position),
         BuildingKind::Waypoint => world_data.waypoints.get(index).map(|b| b.position),
         BuildingKind::Tent => world_data.tents.get(index).map(|b| b.position),
         BuildingKind::MinerHome => world_data.miner_homes.get(index).map(|b| b.position),
@@ -1359,10 +1441,10 @@ impl AiPersonality {
             SquadRole::Attack => match self {
                 Self::Aggressive => &[
                     BuildingKind::Farm, BuildingKind::FarmerHome,
-                    BuildingKind::ArcherHome, BuildingKind::Waypoint,
+                    BuildingKind::ArcherHome, BuildingKind::CrossbowHome, BuildingKind::Waypoint,
                     BuildingKind::Tent, BuildingKind::MinerHome,
                 ],
-                Self::Balanced => &[BuildingKind::ArcherHome, BuildingKind::Waypoint],
+                Self::Balanced => &[BuildingKind::ArcherHome, BuildingKind::CrossbowHome, BuildingKind::Waypoint],
                 Self::Economic => &[BuildingKind::Farm],
             },
         }
@@ -1372,7 +1454,7 @@ impl AiPersonality {
     fn fallback_attack_kinds() -> &'static [BuildingKind] {
         &[
             BuildingKind::Farm, BuildingKind::FarmerHome,
-            BuildingKind::ArcherHome, BuildingKind::Waypoint,
+            BuildingKind::ArcherHome, BuildingKind::CrossbowHome, BuildingKind::Waypoint,
             BuildingKind::Tent, BuildingKind::MinerHome,
         ]
     }
@@ -1604,3 +1686,4 @@ pub fn ai_squad_commander_system(
         }
     }
 }
+

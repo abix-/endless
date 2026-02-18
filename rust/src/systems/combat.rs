@@ -2,9 +2,10 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::{TowerStats, FOUNTAIN_TOWER};
+use crate::constants::TowerStats;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
 use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, TowerKindState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap};
+use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingSlotMap;
@@ -93,7 +94,7 @@ pub fn attack_system(
             }
             // Only ranged NPCs (archers/raiders) attack buildings
             let job_id = match job {
-                Job::Archer => 1,
+                Job::Archer | Job::Crossbow => 1,
                 Job::Raider => 2,
                 _ => { continue; }
             };
@@ -332,12 +333,9 @@ fn fire_towers(
     proj_alloc: &mut ProjSlotAllocator,
     state: &mut TowerKindState,
     kind: BuildingKind,
-    stats: &TowerStats,
-    buildings: &[(Vec2, i32)],
+    buildings: &[(Vec2, i32, TowerStats)],
 ) {
-    let range_sq = stats.range * stats.range;
-
-    for (i, &(pos, faction)) in buildings.iter().enumerate() {
+    for (i, &(pos, faction, stats)) in buildings.iter().enumerate() {
         if i >= state.attack_enabled.len() || !state.attack_enabled[i] { continue; }
         let Some(slot) = building_slots.get_slot(kind, i) else { continue };
 
@@ -359,7 +357,7 @@ fn fire_towers(
         let dx = tx - pos.x;
         let dy = ty - pos.y;
         let dist_sq = dx * dx + dy * dy;
-        if dist_sq > range_sq { continue; }
+        if dist_sq > stats.range * stats.range { continue; }
 
         let dist = dist_sq.sqrt();
         if dist > 1.0 {
@@ -391,6 +389,7 @@ pub fn building_tower_system(
     time: Res<Time>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
+    upgrades: Res<TownUpgrades>,
     building_slots: Res<BuildingSlotMap>,
     mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
@@ -409,13 +408,16 @@ pub fn building_tower_system(
             tower.town.attack_enabled[i] = town.sprite_type == 0;
         }
     }
-    let town_buildings: Vec<_> = world_data.towns.iter()
-        .map(|t| (t.center, t.faction))
+    let town_buildings: Vec<_> = world_data.towns.iter().enumerate()
+        .map(|(i, t)| {
+            let levels = upgrades.town_levels(i);
+            (t.center, t.faction, resolve_town_tower_stats(&levels))
+        })
         .collect();
 
     fire_towers(dt, &gpu_state.positions, &gpu_state.combat_targets,
         &building_slots, &mut proj_alloc,
-        &mut tower.town, BuildingKind::Town, &FOUNTAIN_TOWER, &town_buildings);
+        &mut tower.town, BuildingKind::Town, &town_buildings);
 }
 
 /// Process building damage messages: decrement HP, destroy when HP reaches 0.
@@ -444,6 +446,8 @@ pub fn building_damage_system(
             BuildingKind::FarmerHome => world.world_data.farmer_homes.get(msg.index)
                 .map(|h| (h.position, h.town_idx as usize)),
             BuildingKind::ArcherHome => world.world_data.archer_homes.get(msg.index)
+                .map(|a| (a.position, a.town_idx as usize)),
+            BuildingKind::CrossbowHome => world.world_data.crossbow_homes.get(msg.index)
                 .map(|a| (a.position, a.town_idx as usize)),
             BuildingKind::Tent => world.world_data.tents.get(msg.index)
                 .map(|t| (t.position, t.town_idx as usize)),

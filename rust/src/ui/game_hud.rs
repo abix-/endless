@@ -11,8 +11,8 @@ use crate::gpu::NpcGpuState;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::ui::tipped;
-use crate::world::{WorldData, WorldGrid, Building, BuildingKind, BuildingOccupancy, is_alive, SPAWNER_FARMER, SPAWNER_ARCHER};
-use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType};
+use crate::world::{WorldData, WorldGrid, Building, BuildingKind, BuildingOccupancy, is_alive, SPAWNER_FARMER, SPAWNER_ARCHER, SPAWNER_CROSSBOW};
+use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, resolve_town_tower_stats};
 
 // ============================================================================
 // TOP RESOURCE BAR
@@ -111,9 +111,12 @@ pub fn top_bar_system(
 
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
+                    let crossbows = pop_stats.0.get(&(5, 0)).map(|s| s.alive).unwrap_or(0);
                     let houses = spawner_state.0.iter().filter(|s| s.building_kind == SPAWNER_FARMER && s.town_idx == 0 && is_alive(s.position)).count();
                     let barracks = spawner_state.0.iter().filter(|s| s.building_kind == SPAWNER_ARCHER && s.town_idx == 0 && is_alive(s.position)).count();
+                    let xbow_homes = spawner_state.0.iter().filter(|s| s.building_kind == SPAWNER_CROSSBOW && s.town_idx == 0 && is_alive(s.position)).count();
                     tipped(ui, format!("Archers: {}/{}", guards, barracks), catalog.0.get("archers").unwrap_or(&""));
+                    tipped(ui, format!("Crossbow: {}/{}", crossbows, xbow_homes), catalog.0.get("crossbow").unwrap_or(&""));
                     tipped(ui, format!("Farmers: {}/{}", farmers, houses), catalog.0.get("farmers").unwrap_or(&""));
                     let total_alive: i32 = pop_stats.0.values().map(|s| s.alive).sum();
                     let total_spawners = spawner_state.0.iter().filter(|s| is_alive(s.position)).count();
@@ -790,6 +793,7 @@ fn building_name(building: &Building) -> &'static str {
         Building::Camp { .. } => "Camp",
         Building::FarmerHome { .. } => "Farmer Home",
         Building::ArcherHome { .. } => "Archer Home",
+        Building::CrossbowHome { .. } => "Crossbow Home",
         Building::Tent { .. } => "Tent",
         Building::GoldMine => "Gold Mine",
         Building::MinerHome { .. } => "Miner Home",
@@ -805,6 +809,7 @@ pub fn building_town_idx(building: &Building) -> u32 {
         | Building::Camp { town_idx }
         | Building::FarmerHome { town_idx }
         | Building::ArcherHome { town_idx }
+        | Building::CrossbowHome { town_idx }
         | Building::Tent { town_idx }
         | Building::MinerHome { town_idx } => *town_idx,
         Building::GoldMine => 0, // mines are unowned
@@ -820,6 +825,8 @@ fn building_from_kind_index(world_data: &WorldData, kind: BuildingKind, index: u
             .map(|b| (Building::FarmerHome { town_idx: b.town_idx }, b.position)),
         BuildingKind::ArcherHome => world_data.archer_homes.get(index)
             .map(|b| (Building::ArcherHome { town_idx: b.town_idx }, b.position)),
+        BuildingKind::CrossbowHome => world_data.crossbow_homes.get(index)
+            .map(|b| (Building::CrossbowHome { town_idx: b.town_idx }, b.position)),
         BuildingKind::Tent => world_data.tents.get(index).map(|b| (Building::Tent { town_idx: b.town_idx }, b.position)),
         BuildingKind::MinerHome => world_data.miner_homes.get(index)
             .map(|b| (Building::MinerHome { town_idx: b.town_idx }, b.position)),
@@ -967,10 +974,11 @@ fn building_inspector_content(
             }
         }
 
-        Building::FarmerHome { .. } | Building::ArcherHome { .. } | Building::Tent { .. } | Building::MinerHome { .. } => {
+        Building::FarmerHome { .. } | Building::ArcherHome { .. } | Building::CrossbowHome { .. } | Building::Tent { .. } | Building::MinerHome { .. } => {
             let (kind, spawns_label) = match building {
                 Building::FarmerHome { .. } => (0, "Farmer"),
                 Building::ArcherHome { .. } => (1, "Archer"),
+                Building::CrossbowHome { .. } => (4, "Crossbow"),
                 Building::MinerHome { .. } => (3, "Miner"),
                 _ => (2, "Raider"),
             };
@@ -1014,15 +1022,18 @@ fn building_inspector_content(
         }
 
         Building::Fountain { .. } => {
-            // Healing info
+            // Healing + tower info
             let base_radius = bld.combat_config.heal_radius;
-            let upgrade_bonus = if let Some(town) = bld.town_upgrades.levels.get(town_idx) {
-                town[UpgradeType::FountainRadius as usize] as f32 * 24.0
-            } else {
-                0.0
-            };
+            let levels = bld.town_upgrades.levels.get(town_idx).copied().unwrap_or([0; crate::systems::stats::UPGRADE_COUNT]);
+            let upgrade_bonus = levels[UpgradeType::FountainRange as usize] as f32 * 24.0;
+            let tower = resolve_town_tower_stats(&levels);
             ui.label(format!("Heal radius: {:.0}px", base_radius + upgrade_bonus));
             ui.label(format!("Heal rate: {:.0}/s", bld.combat_config.heal_rate));
+            ui.separator();
+            ui.label(format!("Tower range: {:.0}px", tower.range));
+            ui.label(format!("Tower damage: {:.1}", tower.damage));
+            ui.label(format!("Tower cooldown: {:.2}s", tower.cooldown));
+            ui.label(format!("Tower projectile life: {:.2}s", tower.proj_lifetime));
 
             // Town food — town_idx is direct index into food_storage
             if let Some(&food) = bld.food_storage.food.get(town_idx) {

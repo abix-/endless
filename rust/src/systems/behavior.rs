@@ -282,7 +282,7 @@ pub fn decision_system(
             match &*activity {
                 Activity::Patrolling => {
                     // Squad rest: tired archers go home instead of entering OnDuty
-                    if *job == Job::Archer {
+                    if job.is_patrol_unit() {
                         if let Some(sid) = squad_id {
                             if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
                                 if squad.rest_when_tired && energy.0 < ENERGY_TIRED_THRESHOLD && home.is_valid() {
@@ -458,7 +458,7 @@ pub fn decision_system(
         // Squad policy hard gate: if tired, go rest before any combat/transit
         // early-returns so squad rest policy is always respected.
         // ====================================================================
-        if *job == Job::Archer {
+        if job.is_patrol_unit() {
             if let Some(sid) = squad_id {
                 if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
                     let squad_needs_rest = energy.0 < ENERGY_TIRED_THRESHOLD
@@ -493,7 +493,7 @@ pub fn decision_system(
             let town_idx_usize = town_id.0 as usize;
             let flee_pct = match job {
                 Job::Raider => 0.50, // raiders always flee at 50%
-                Job::Archer => {
+                Job::Archer | Job::Crossbow => {
                     let p = policies.policies.get(town_idx_usize);
                     if p.is_some_and(|p| p.archer_aggressive) {
                         0.0 // aggressive guards never flee
@@ -541,7 +541,7 @@ pub fn decision_system(
 
             // Priority 2: Should leash? (per-entity LeashRange or policy archer_leash)
             let should_leash = match job {
-                Job::Archer => policies.policies.get(town_idx_usize).is_none_or(|p| p.archer_leash),
+                Job::Archer | Job::Crossbow => policies.policies.get(town_idx_usize).is_none_or(|p| p.archer_leash),
                 _ => leash_query.get(entity).is_ok(),
             };
             if should_leash {
@@ -578,7 +578,7 @@ pub fn decision_system(
         // Squad sync: apply squad target/patrol policy changes immediately
         // (before transit skip) so archers react by next decision tick.
         // ====================================================================
-        if *job == Job::Archer {
+        if job.is_patrol_unit() {
             if let Some(sid) = squad_id {
                 if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
                     if let Some(target) = squad.target {
@@ -776,7 +776,7 @@ pub fn decision_system(
         // ====================================================================
         if let Activity::OnDuty { ticks_waiting } = &*activity {
             let ticks = *ticks_waiting;
-            let squad_forces_stay = *job == Job::Archer && squad_id
+            let squad_forces_stay = job.is_patrol_unit() && squad_id
                 .and_then(|sid| squad_state.squads.get(sid.0 as usize))
                 .is_some_and(|s| !s.rest_when_tired);
             if energy.0 < ENERGY_TIRED_THRESHOLD && !squad_forces_stay {
@@ -847,7 +847,7 @@ pub fn decision_system(
         // Work schedule gate: per-job schedule
         let schedule = match job {
             Job::Farmer | Job::Miner => policy.map(|p| p.farmer_schedule).unwrap_or(WorkSchedule::Both),
-            Job::Archer => policy.map(|p| p.archer_schedule).unwrap_or(WorkSchedule::Both),
+            Job::Archer | Job::Crossbow => policy.map(|p| p.archer_schedule).unwrap_or(WorkSchedule::Both),
             _ => WorkSchedule::Both,
         };
         let work_allowed = match schedule {
@@ -859,7 +859,7 @@ pub fn decision_system(
         let can_work = work_allowed && match job {
             Job::Farmer => work_query.get(entity).is_ok(),
             Job::Miner => true,  // miners always have work (find nearest mine dynamically)
-            Job::Archer => patrol_query.get(entity).is_ok(),
+            Job::Archer | Job::Crossbow => patrol_query.get(entity).is_ok(),
             Job::Raider => true,
             Job::Fighter => false,
         };
@@ -874,7 +874,7 @@ pub fn decision_system(
         if !work_allowed {
             let off_duty = match job {
                 Job::Farmer | Job::Miner => policy.map(|p| p.farmer_off_duty).unwrap_or(OffDutyBehavior::GoToBed),
-                Job::Archer => policy.map(|p| p.archer_off_duty).unwrap_or(OffDutyBehavior::GoToBed),
+                Job::Archer | Job::Crossbow => policy.map(|p| p.archer_off_duty).unwrap_or(OffDutyBehavior::GoToBed),
                 _ => OffDutyBehavior::GoToBed,
             };
             match off_duty {
@@ -971,7 +971,7 @@ pub fn decision_system(
                         }
                         // No mines available — stay idle
                     }
-                    Job::Archer => {
+                    Job::Archer | Job::Crossbow => {
                         // Squad override: go to squad target instead of patrolling
                         if let Some(sid) = squad_id {
                             if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
@@ -1121,7 +1121,7 @@ pub fn rebuild_patrol_routes_system(
     // Build routes once per town instead of per-archer
     let mut town_routes: std::collections::HashMap<u32, Vec<Vec2>> = std::collections::HashMap::new();
     for (_, town_id, job) in guards.iter() {
-        if *job != Job::Archer { continue; }
+        if !job.is_patrol_unit() { continue; }
         let tid = town_id.0 as u32;
         town_routes.entry(tid).or_insert_with(|| {
             crate::systems::spawn::build_patrol_route(&world_data, tid)
@@ -1129,7 +1129,7 @@ pub fn rebuild_patrol_routes_system(
     }
 
     for (mut route, town_id, job) in guards.iter_mut() {
-        if *job != Job::Archer { continue; }
+        if !job.is_patrol_unit() { continue; }
         let Some(new_posts) = town_routes.get(&(town_id.0 as u32)) else { continue };
         if new_posts.is_empty() { continue; }
         route.current = if route.current < new_posts.len() { route.current } else { 0 };

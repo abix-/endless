@@ -170,7 +170,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
 | LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin (raiders only) |
-| SquadId | `i32` (0-9) | Squad assignment — archers with this follow squad target instead of patrolling |
+| SquadId | `i32` (0-9) | Squad assignment — patrol units (archers/crossbows) with this follow squad target instead of patrolling |
 
 ## Systems
 
@@ -279,7 +279,7 @@ Rest is scored when energy < `ENERGY_HUNGRY` (50), Eat only when energy < `ENERG
 
 ## Patrol Cycle
 
-Archers have a `PatrolRoute` with ordered posts (built from WorldData at spawn). The cycle:
+Patrol units (archers and crossbows, identified by `Job::is_patrol_unit()`) have a `PatrolRoute` with ordered posts (built from WorldData at spawn). The cycle:
 
 1. Spawn → walk to post 0 (`Patrolling`)
 2. Arrive → stand at post (`OnDuty`, ticks counting)
@@ -291,7 +291,7 @@ Each town has 4 waypoints at corners. Archers cycle clockwise. Patrol routes are
 
 ## Squads
 
-Player-directed archer groups. 10 squads available, each with a target position on the map. Archers are reassigned (not spawned) — existing patrol archers get a `SquadId` component and follow squad orders instead of patrolling.
+Player-directed patrol unit groups. 10 squads available, each with a target position on the map. Patrol units (archers/crossbows) are reassigned (not spawned) — existing patrol units get a `SquadId` component and follow squad orders instead of patrolling.
 
 **Behavior override**: In `decision_system`'s squad sync block, archers with `SquadId` check `SquadState.squads[id].target`. If a target exists, the archer walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as waypoint). If no target is set, falls through to normal patrol.
 
