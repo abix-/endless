@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18q
+
+- **unified unit-home buildings** — replaced 5 identical structs (`FarmerHome`, `ArcherHome`, `CrossbowHome`, `FighterHome`, `Tent`) with single `UnitHome` struct; WorldData uses `BTreeMap<BuildingKind, Vec<UnitHome>>` dynamic storage; BuildingHpState uses `BTreeMap<BuildingKind, Vec<f32>>` with custom serde for save-format compatibility; Building enum collapses 5 variants into `Home { kind, town_idx }` with `BuildingSerde` proxy for backward-compatible saves; `BuildingDef` gains `is_unit_home`/`place`/`tombstone`/`find_index` fn pointers; `place_building`/`remove_building`/`find_building_data_index`/`alloc_building_slots`/`BuildingSpatialGrid::rebuild` all collapsed from per-kind match arms to single registry-driven loops; adding a new unit-home building now requires only a `BuildingKind` variant + registry entry
+
 ## 2026-02-18p
 
 - **fix: fighter energy** — fighter `has_energy` changed from `false` to `true`; without `Energy` component, fighters were excluded from `decision_system` query entirely (requires `&mut Energy`), causing them to sit at spawn in `OnDuty` forever

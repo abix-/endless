@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use serde::{Serialize, Deserialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Serialize Vec2 as [f32; 2] for save file backwards compat.
 pub mod vec2_as_array {
@@ -92,41 +92,10 @@ pub struct Waypoint {
     pub patrol_order: u32,
 }
 
-/// A farmer home that supports 1 farmer (building spawner).
+/// A simple building spawner home (position + town ownership).
+/// Used by all unit-home building kinds (FarmerHome, ArcherHome, CrossbowHome, FighterHome, Tent, etc.)
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FarmerHome {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
-    pub town_idx: u32,
-}
-
-/// An archer home that supports 1 archer (building spawner).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ArcherHome {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
-    pub town_idx: u32,
-}
-
-/// A tent that supports 1 raider (building spawner).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Tent {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
-    pub town_idx: u32,
-}
-
-/// A crossbow home that supports 1 crossbowman (building spawner).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CrossbowHome {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
-    pub town_idx: u32,
-}
-
-/// A fighter home that supports 1 fighter (building spawner).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FighterHome {
+pub struct UnitHome {
     #[serde(with = "vec2_as_array")]
     pub position: Vec2,
     pub town_idx: u32,
@@ -162,13 +131,17 @@ pub struct WorldData {
     pub farms: Vec<Farm>,
     pub beds: Vec<Bed>,
     pub waypoints: Vec<Waypoint>,
-    pub farmer_homes: Vec<FarmerHome>,
-    pub archer_homes: Vec<ArcherHome>,
-    pub crossbow_homes: Vec<CrossbowHome>,
-    pub fighter_homes: Vec<FighterHome>,
-    pub tents: Vec<Tent>,
+    /// Dynamic storage for unit-home buildings, keyed by BuildingKind.
+    pub unit_homes: BTreeMap<BuildingKind, Vec<UnitHome>>,
     pub miner_homes: Vec<MinerHome>,
     pub gold_mines: Vec<GoldMine>,
+}
+
+impl WorldData {
+    /// Access unit homes by kind, returning an empty slice if none exist.
+    pub fn homes(&self, kind: BuildingKind) -> &[UnitHome] {
+        self.unit_homes.get(&kind).map(|v| v.as_slice()).unwrap_or(&[])
+    }
 }
 
 // ============================================================================
@@ -314,40 +287,11 @@ pub fn place_building(
     }
 
     // Register in WorldData
-    match building {
-        Building::Farm { town_idx } => {
-            world_data.farms.push(Farm { position: snapped_pos, town_idx });
-            farm_states.push_farm(snapped_pos, town_idx as u32);
-        }
-        Building::Bed { town_idx } => {
-            world_data.beds.push(Bed { position: snapped_pos, town_idx });
-        }
-        Building::Waypoint { town_idx, patrol_order } => {
-            world_data.waypoints.push(Waypoint {
-                position: snapped_pos,
-                town_idx,
-                patrol_order,
-            });
-        }
-        Building::FarmerHome { town_idx } => {
-            world_data.farmer_homes.push(FarmerHome { position: snapped_pos, town_idx });
-        }
-        Building::ArcherHome { town_idx } => {
-            world_data.archer_homes.push(ArcherHome { position: snapped_pos, town_idx });
-        }
-        Building::CrossbowHome { town_idx } => {
-            world_data.crossbow_homes.push(CrossbowHome { position: snapped_pos, town_idx });
-        }
-        Building::FighterHome { town_idx } => {
-            world_data.fighter_homes.push(FighterHome { position: snapped_pos, town_idx });
-        }
-        Building::Tent { town_idx } => {
-            world_data.tents.push(Tent { position: snapped_pos, town_idx });
-        }
-        Building::MinerHome { town_idx } => {
-            world_data.miner_homes.push(MinerHome { position: snapped_pos, town_idx, assigned_mine: None, manual_mine: false });
-        }
-        _ => {} // Fountain, Camp, GoldMine not player-placeable
+    let def = crate::constants::building_def(building.kind());
+    (def.place)(world_data, snapped_pos, (def.town_idx)(&building));
+    // Farm also needs growth state
+    if let Building::Farm { town_idx } = building {
+        farm_states.push_farm(snapped_pos, town_idx as u32);
     }
 
     Ok(())
@@ -528,7 +472,7 @@ pub fn allocate_all_building_slots(
     slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingSlotMap,
 ) {
-    use crate::constants::{building_def, tileset_index, FACTION_NEUTRAL};
+    use crate::constants::{building_def, tileset_index, FACTION_NEUTRAL, BUILDING_REGISTRY};
 
     let town_faction = |town_idx: u32| -> i32 {
         world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0)
@@ -541,49 +485,23 @@ pub fn allocate_all_building_slots(
             pos, faction, def.hp, tileset_index(kind), def.is_tower);
     };
 
-    for (i, wp) in world_data.waypoints.iter().enumerate() {
-        if !is_alive(wp.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::Waypoint, i, wp.position, town_faction(wp.town_idx));
-    }
-    for (i, f) in world_data.farms.iter().enumerate() {
-        if !is_alive(f.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::Farm, i, f.position, town_faction(f.town_idx as u32));
-    }
-    for (i, h) in world_data.farmer_homes.iter().enumerate() {
-        if !is_alive(h.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::FarmerHome, i, h.position, town_faction(h.town_idx as u32));
-    }
-    for (i, a) in world_data.archer_homes.iter().enumerate() {
-        if !is_alive(a.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::ArcherHome, i, a.position, town_faction(a.town_idx as u32));
-    }
-    for (i, c) in world_data.crossbow_homes.iter().enumerate() {
-        if !is_alive(c.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::CrossbowHome, i, c.position, town_faction(c.town_idx as u32));
-    }
-    for (i, f) in world_data.fighter_homes.iter().enumerate() {
-        if !is_alive(f.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::FighterHome, i, f.position, town_faction(f.town_idx as u32));
-    }
-    for (i, t) in world_data.tents.iter().enumerate() {
-        if !is_alive(t.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::Tent, i, t.position, town_faction(t.town_idx as u32));
-    }
-    for (i, m) in world_data.miner_homes.iter().enumerate() {
-        if !is_alive(m.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::MinerHome, i, m.position, town_faction(m.town_idx as u32));
-    }
-    for (i, b) in world_data.beds.iter().enumerate() {
-        if !is_alive(b.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::Bed, i, b.position, town_faction(b.town_idx as u32));
-    }
-    for (i, t) in world_data.towns.iter().enumerate() {
-        let kind = if t.sprite_type == 1 { BuildingKind::Camp } else { BuildingKind::Fountain };
-        alloc(slot_alloc, building_slots, kind, i, t.center, t.faction);
-    }
-    for (i, m) in world_data.gold_mines.iter().enumerate() {
-        if !is_alive(m.position) { continue; }
-        alloc(slot_alloc, building_slots, BuildingKind::GoldMine, i, m.position, FACTION_NEUTRAL);
+    // Generic loop over all building kinds using registry fn pointers
+    for def in BUILDING_REGISTRY {
+        // Fountain/Camp share towns vec — handle via special Fountain pos_town that returns both
+        if def.kind == BuildingKind::Camp { continue; }
+        for i in 0..(def.len)(world_data) {
+            if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
+                let faction = if def.kind == BuildingKind::GoldMine { FACTION_NEUTRAL }
+                    else { town_faction(ti) };
+                // Fountain pos_town returns town index; check sprite_type to distinguish Camp
+                let actual_kind = if def.kind == BuildingKind::Fountain {
+                    if world_data.towns.get(i).map(|t| t.sprite_type == 1).unwrap_or(false) {
+                        BuildingKind::Camp
+                    } else { BuildingKind::Fountain }
+                } else { def.kind };
+                alloc(slot_alloc, building_slots, actual_kind, i, pos, faction);
+            }
+        }
     }
 
     info!("Allocated {} building GPU slots", building_slots.len());
@@ -716,74 +634,14 @@ pub fn remove_building(
     }
 
     // Tombstone in WorldData (set position to far offscreen so spatial queries skip it)
-    let tombstone = Vec2::new(-99999.0, -99999.0);
-    match building {
-        Building::Farm { .. } => {
-            if let Some(farm_idx) = world_data.farms.iter().position(|f| {
-                (f.position - snapped_pos).length() < 1.0
-            }) {
-                world_data.farms[farm_idx].position = tombstone;
-                farm_states.tombstone(farm_idx);
-            }
+    let def = crate::constants::building_def(building.kind());
+    // Farm also needs growth state tombstoned (find index before tombstone moves position)
+    if let Building::Farm { .. } = building {
+        if let Some(farm_idx) = (def.find_index)(world_data, snapped_pos) {
+            farm_states.tombstone(farm_idx);
         }
-        Building::Bed { .. } => {
-            if let Some(bed) = world_data.beds.iter_mut().find(|b| {
-                (b.position - snapped_pos).length() < 1.0
-            }) {
-                bed.position = tombstone;
-            }
-        }
-        Building::Waypoint { .. } => {
-            if let Some(post) = world_data.waypoints.iter_mut().find(|g| {
-                (g.position - snapped_pos).length() < 1.0
-            }) {
-                post.position = tombstone;
-            }
-        }
-        Building::FarmerHome { .. } => {
-            if let Some(h) = world_data.farmer_homes.iter_mut().find(|h| {
-                (h.position - snapped_pos).length() < 1.0
-            }) {
-                h.position = tombstone;
-            }
-        }
-        Building::ArcherHome { .. } => {
-            if let Some(a) = world_data.archer_homes.iter_mut().find(|a| {
-                (a.position - snapped_pos).length() < 1.0
-            }) {
-                a.position = tombstone;
-            }
-        }
-        Building::CrossbowHome { .. } => {
-            if let Some(c) = world_data.crossbow_homes.iter_mut().find(|c| {
-                (c.position - snapped_pos).length() < 1.0
-            }) {
-                c.position = tombstone;
-            }
-        }
-        Building::FighterHome { .. } => {
-            if let Some(f) = world_data.fighter_homes.iter_mut().find(|f| {
-                (f.position - snapped_pos).length() < 1.0
-            }) {
-                f.position = tombstone;
-            }
-        }
-        Building::Tent { .. } => {
-            if let Some(t) = world_data.tents.iter_mut().find(|t| {
-                (t.position - snapped_pos).length() < 1.0
-            }) {
-                t.position = tombstone;
-            }
-        }
-        Building::MinerHome { .. } => {
-            if let Some(m) = world_data.miner_homes.iter_mut().find(|m| {
-                (m.position - snapped_pos).length() < 1.0
-            }) {
-                m.position = tombstone;
-            }
-        }
-        _ => {}
     }
+    (def.tombstone)(world_data, snapped_pos);
 
     Ok(())
 }
@@ -819,20 +677,7 @@ impl WorldData {
 
 /// Find the index of a building in its WorldData vec by position match.
 pub fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec2) -> Option<usize> {
-    let near = |p: Vec2| (p - pos).length() < 1.0;
-    match building {
-        Building::Farm { .. } => world_data.farms.iter().position(|f| near(f.position)),
-        Building::Waypoint { .. } => world_data.waypoints.iter().position(|g| near(g.position)),
-        Building::FarmerHome { .. } => world_data.farmer_homes.iter().position(|h| near(h.position)),
-        Building::ArcherHome { .. } => world_data.archer_homes.iter().position(|a| near(a.position)),
-        Building::CrossbowHome { .. } => world_data.crossbow_homes.iter().position(|c| near(c.position)),
-        Building::FighterHome { .. } => world_data.fighter_homes.iter().position(|f| near(f.position)),
-        Building::Tent { .. } => world_data.tents.iter().position(|t| near(t.position)),
-        Building::MinerHome { .. } => world_data.miner_home_at(pos),
-        Building::Bed { .. } => world_data.beds.iter().position(|b| near(b.position)),
-        Building::Fountain { town_idx } | Building::Camp { town_idx } => Some(town_idx as usize),
-        Building::GoldMine => world_data.gold_mine_at(pos),
-    }
+    (crate::constants::building_def(building.kind()).find_index)(world_data, pos)
 }
 
 /// Consolidated building destruction: grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log.
@@ -882,15 +727,7 @@ pub fn destroy_building(
     }
 
     // Combat log — derive faction from building's town_idx
-    let bld_town = match building {
-        Building::Fountain { town_idx } | Building::Farm { town_idx }
-        | Building::Bed { town_idx } | Building::Waypoint { town_idx, .. }
-        | Building::Camp { town_idx } | Building::FarmerHome { town_idx }
-        | Building::ArcherHome { town_idx } | Building::CrossbowHome { town_idx }
-        | Building::Tent { town_idx } | Building::MinerHome { town_idx }
-        | Building::FighterHome { town_idx } => town_idx as usize,
-        Building::GoldMine => 0,
-    };
+    let bld_town = (crate::constants::building_def(building.kind()).town_idx)(&building) as usize;
     let faction = world_data.towns.get(bld_town).map(|t| t.faction).unwrap_or(0);
     combat_log.push(
         CombatEventKind::Harvest, faction,
@@ -1112,7 +949,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // BUILDING SPATIAL GRID
 // ============================================================================
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, Camp, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome }
 
 #[derive(Clone, Copy)]
@@ -1149,82 +986,25 @@ impl BuildingSpatialGrid {
             world.towns.get(tidx as usize).map(|t| t.faction).unwrap_or(0)
         };
 
-        for (i, farm) in world.farms.iter().enumerate() {
-            if farm.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::Farm, index: i,
-                town_idx: farm.town_idx, faction: faction_of(farm.town_idx), position: farm.position,
-            });
-        }
-        for (i, gp) in world.waypoints.iter().enumerate() {
-            if gp.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::Waypoint, index: i,
-                town_idx: gp.town_idx, faction: faction_of(gp.town_idx), position: gp.position,
-            });
-        }
-        for (i, town) in world.towns.iter().enumerate() {
-            let kind = if town.faction > 0 { BuildingKind::Camp } else { BuildingKind::Fountain };
-            self.insert(BuildingRef {
-                kind, index: i,
-                town_idx: i as u32, faction: town.faction, position: town.center,
-            });
-        }
-        for (i, mine) in world.gold_mines.iter().enumerate() {
-            if mine.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::GoldMine, index: i,
-                town_idx: u32::MAX, faction: -1, position: mine.position,
-            });
-        }
-        for (i, h) in world.archer_homes.iter().enumerate() {
-            if h.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::ArcherHome, index: i,
-                town_idx: h.town_idx, faction: faction_of(h.town_idx), position: h.position,
-            });
-        }
-        for (i, c) in world.crossbow_homes.iter().enumerate() {
-            if c.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::CrossbowHome, index: i,
-                town_idx: c.town_idx, faction: faction_of(c.town_idx), position: c.position,
-            });
-        }
-        for (i, f) in world.fighter_homes.iter().enumerate() {
-            if f.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::FighterHome, index: i,
-                town_idx: f.town_idx, faction: faction_of(f.town_idx), position: f.position,
-            });
-        }
-        for (i, h) in world.farmer_homes.iter().enumerate() {
-            if h.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::FarmerHome, index: i,
-                town_idx: h.town_idx, faction: faction_of(h.town_idx), position: h.position,
-            });
-        }
-        for (i, t) in world.tents.iter().enumerate() {
-            if t.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::Tent, index: i,
-                town_idx: t.town_idx, faction: faction_of(t.town_idx), position: t.position,
-            });
-        }
-        for (i, h) in world.miner_homes.iter().enumerate() {
-            if h.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::MinerHome, index: i,
-                town_idx: h.town_idx, faction: faction_of(h.town_idx), position: h.position,
-            });
-        }
-        for (i, b) in world.beds.iter().enumerate() {
-            if b.position.x < -9000.0 { continue; }
-            self.insert(BuildingRef {
-                kind: BuildingKind::Bed, index: i,
-                town_idx: b.town_idx, faction: faction_of(b.town_idx), position: b.position,
-            });
+        // Generic loop: registry-driven building ref insertion
+        for def in crate::constants::BUILDING_REGISTRY {
+            // Fountain handles both Fountain and Camp via sprite_type check
+            if def.kind == BuildingKind::Camp { continue; }
+            for i in 0..(def.len)(world) {
+                if let Some((pos, ti)) = (def.pos_town)(world, i) {
+                    // Fountain: check sprite_type to distinguish Camp
+                    let actual_kind = if def.kind == BuildingKind::Fountain {
+                        if world.towns.get(i).map(|t| t.faction > 0).unwrap_or(false) {
+                            BuildingKind::Camp
+                        } else { BuildingKind::Fountain }
+                    } else { def.kind };
+                    let faction = if def.kind == BuildingKind::GoldMine { -1 } else { faction_of(ti) };
+                    let town_idx = if def.kind == BuildingKind::GoldMine { u32::MAX } else { ti };
+                    self.insert(BuildingRef {
+                        kind: actual_kind, index: i, town_idx, faction, position: pos,
+                    });
+                }
+            }
         }
     }
 
@@ -1447,21 +1227,85 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
 }
 
 /// Building occupying a grid cell.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(into = "BuildingSerde", from = "BuildingSerde")]
 pub enum Building {
+    Fountain { town_idx: u32 },
+    Farm { town_idx: u32 },
+    Bed { town_idx: u32 },
+    Waypoint { town_idx: u32, patrol_order: u32 },
+    Camp { town_idx: u32 },
+    GoldMine,
+    MinerHome { town_idx: u32 },
+    /// Generic unit-home variant — kind determines which building type.
+    Home { kind: BuildingKind, town_idx: u32 },
+}
+
+/// Serde proxy for backward-compatible Building serialization.
+/// Legacy variant names (FarmerHome, ArcherHome, etc.) are preserved in saves.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+enum BuildingSerde {
     Fountain { town_idx: u32 },
     Farm { town_idx: u32 },
     Bed { town_idx: u32 },
     #[serde(alias = "GuardPost")]
     Waypoint { town_idx: u32, patrol_order: u32 },
     Camp { town_idx: u32 },
+    GoldMine,
+    MinerHome { town_idx: u32 },
+    // Legacy names kept for save compat:
     FarmerHome { town_idx: u32 },
     ArcherHome { town_idx: u32 },
     CrossbowHome { town_idx: u32 },
     FighterHome { town_idx: u32 },
     Tent { town_idx: u32 },
-    GoldMine,
-    MinerHome { town_idx: u32 },
+    // New generic format for future building kinds:
+    Home { kind: BuildingKind, town_idx: u32 },
+}
+
+impl From<Building> for BuildingSerde {
+    fn from(b: Building) -> Self {
+        match b {
+            Building::Fountain { town_idx } => BuildingSerde::Fountain { town_idx },
+            Building::Farm { town_idx } => BuildingSerde::Farm { town_idx },
+            Building::Bed { town_idx } => BuildingSerde::Bed { town_idx },
+            Building::Waypoint { town_idx, patrol_order } => BuildingSerde::Waypoint { town_idx, patrol_order },
+            Building::Camp { town_idx } => BuildingSerde::Camp { town_idx },
+            Building::GoldMine => BuildingSerde::GoldMine,
+            Building::MinerHome { town_idx } => BuildingSerde::MinerHome { town_idx },
+            Building::Home { kind, town_idx } => match kind {
+                // Write legacy names for known kinds
+                BuildingKind::FarmerHome => BuildingSerde::FarmerHome { town_idx },
+                BuildingKind::ArcherHome => BuildingSerde::ArcherHome { town_idx },
+                BuildingKind::CrossbowHome => BuildingSerde::CrossbowHome { town_idx },
+                BuildingKind::FighterHome => BuildingSerde::FighterHome { town_idx },
+                BuildingKind::Tent => BuildingSerde::Tent { town_idx },
+                // New kinds use generic format
+                _ => BuildingSerde::Home { kind, town_idx },
+            },
+        }
+    }
+}
+
+impl From<BuildingSerde> for Building {
+    fn from(b: BuildingSerde) -> Self {
+        match b {
+            BuildingSerde::Fountain { town_idx } => Building::Fountain { town_idx },
+            BuildingSerde::Farm { town_idx } => Building::Farm { town_idx },
+            BuildingSerde::Bed { town_idx } => Building::Bed { town_idx },
+            BuildingSerde::Waypoint { town_idx, patrol_order } => Building::Waypoint { town_idx, patrol_order },
+            BuildingSerde::Camp { town_idx } => Building::Camp { town_idx },
+            BuildingSerde::GoldMine => Building::GoldMine,
+            BuildingSerde::MinerHome { town_idx } => Building::MinerHome { town_idx },
+            BuildingSerde::FarmerHome { town_idx } => Building::Home { kind: BuildingKind::FarmerHome, town_idx },
+            BuildingSerde::ArcherHome { town_idx } => Building::Home { kind: BuildingKind::ArcherHome, town_idx },
+            BuildingSerde::CrossbowHome { town_idx } => Building::Home { kind: BuildingKind::CrossbowHome, town_idx },
+            BuildingSerde::FighterHome { town_idx } => Building::Home { kind: BuildingKind::FighterHome, town_idx },
+            BuildingSerde::Tent { town_idx } => Building::Home { kind: BuildingKind::Tent, town_idx },
+            BuildingSerde::Home { kind, town_idx } => Building::Home { kind, town_idx },
+        }
+    }
 }
 
 impl Building {
@@ -1484,13 +1328,9 @@ impl Building {
             Building::Fountain { .. } => BuildingKind::Fountain,
             Building::Camp { .. } => BuildingKind::Camp,
             Building::GoldMine => BuildingKind::GoldMine,
-            Building::FarmerHome { .. } => BuildingKind::FarmerHome,
-            Building::ArcherHome { .. } => BuildingKind::ArcherHome,
-            Building::CrossbowHome { .. } => BuildingKind::CrossbowHome,
-            Building::FighterHome { .. } => BuildingKind::FighterHome,
-            Building::Tent { .. } => BuildingKind::Tent,
             Building::MinerHome { .. } => BuildingKind::MinerHome,
             Building::Bed { .. } => BuildingKind::Bed,
+            Building::Home { kind, .. } => *kind,
         }
     }
 
@@ -1868,14 +1708,14 @@ fn place_town_buildings(
 
     for _ in 0..config.farmers_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::FarmerHome { town_idx }, &mut occupied, town_grid);
-        world_data.farmer_homes.push(FarmerHome { position: pos, town_idx });
+        let pos = place(row, col, Building::Home { kind: BuildingKind::FarmerHome, town_idx }, &mut occupied, town_grid);
+        world_data.unit_homes.entry(BuildingKind::FarmerHome).or_default().push(UnitHome { position: pos, town_idx });
     }
 
     for _ in 0..config.archers_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::ArcherHome { town_idx }, &mut occupied, town_grid);
-        world_data.archer_homes.push(ArcherHome { position: pos, town_idx });
+        let pos = place(row, col, Building::Home { kind: BuildingKind::ArcherHome, town_idx }, &mut occupied, town_grid);
+        world_data.unit_homes.entry(BuildingKind::ArcherHome).or_default().push(UnitHome { position: pos, town_idx });
     }
 
     // 4 waypoints: at the outer corners of all placed buildings (clockwise patrol: TL → TR → BR → BL)
@@ -1935,11 +1775,11 @@ pub fn place_camp_buildings(
         let snapped = grid.grid_to_world(gc, gr);
         if let Some(cell) = grid.cell_mut(gc, gr) {
             if cell.building.is_none() {
-                cell.building = Some(Building::Tent { town_idx });
+                cell.building = Some(Building::Home { kind: BuildingKind::Tent, town_idx });
             }
         }
         occupied.insert((row, col));
-        world_data.tents.push(Tent { position: snapped, town_idx });
+        world_data.unit_homes.entry(BuildingKind::Tent).or_default().push(UnitHome { position: snapped, town_idx });
     }
 
     // Ensure generated tents are always inside the buildable area.

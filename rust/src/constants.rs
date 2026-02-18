@@ -2,7 +2,7 @@
 
 use bevy::prelude::Vec2;
 use crate::components::{Job, BaseAttackType};
-use crate::world::{BuildingKind, Building, WorldData, is_alive};
+use crate::world::{BuildingKind, Building, WorldData, UnitHome, is_alive};
 use crate::resources::BuildingHpState;
 use serde_json::Value as JsonValue;
 
@@ -475,6 +475,14 @@ pub struct BuildingDef {
     pub load_vec: fn(&mut WorldData, JsonValue),
     /// Reconstruct a Building variant + position from WorldData at index.
     pub get_building: fn(&WorldData, usize) -> Option<(Building, Vec2)>,
+    /// Whether this kind uses unit_homes BTreeMap storage.
+    pub is_unit_home: bool,
+    /// Push a new building into WorldData at position with town_idx.
+    pub place: fn(&mut WorldData, Vec2, u32),
+    /// Tombstone (soft-delete) a building near the given position.
+    pub tombstone: fn(&mut WorldData, Vec2),
+    /// Find index of building near position.
+    pub find_index: fn(&WorldData, Vec2) -> Option<usize>,
 }
 
 /// Single source of truth for all building types.
@@ -503,6 +511,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             else { Building::Camp { town_idx: i as u32 } };
             (b, t.center)
         }),
+        is_unit_home: false,
+        place: |_, _, _| {},
+        tombstone: |_, _| {},
+        find_index: |_, _| None,
     },
     // 1: Bed
     BuildingDef {
@@ -526,6 +538,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         load_vec: |wd, v| { wd.beds = serde_json::from_value(v).unwrap_or_default(); },
         get_building: |wd, i| wd.beds.get(i).filter(|b| is_alive(b.position))
             .map(|b| (Building::Bed { town_idx: b.town_idx }, b.position)),
+        is_unit_home: false,
+        place: |wd, pos, ti| wd.beds.push(crate::world::Bed { position: pos, town_idx: ti }),
+        tombstone: |wd, pos| { if let Some(b) = wd.beds.iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.beds.iter().position(|b| (b.position - pos).length() < 1.0),
     },
     // 2: Waypoint
     BuildingDef {
@@ -549,6 +565,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         load_vec: |wd, v| { wd.waypoints = serde_json::from_value(v).unwrap_or_default(); },
         get_building: |wd, i| wd.waypoints.get(i).filter(|b| is_alive(b.position))
             .map(|b| (Building::Waypoint { town_idx: b.town_idx, patrol_order: b.patrol_order }, b.position)),
+        is_unit_home: false,
+        place: |wd, pos, ti| wd.waypoints.push(crate::world::Waypoint { position: pos, town_idx: ti, patrol_order: 0 }),
+        tombstone: |wd, pos| { if let Some(b) = wd.waypoints.iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.waypoints.iter().position(|b| (b.position - pos).length() < 1.0),
     },
     // 3: Farm
     BuildingDef {
@@ -572,6 +592,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         load_vec: |wd, v| { wd.farms = serde_json::from_value(v).unwrap_or_default(); },
         get_building: |wd, i| wd.farms.get(i).filter(|b| is_alive(b.position))
             .map(|b| (Building::Farm { town_idx: b.town_idx }, b.position)),
+        is_unit_home: false,
+        place: |wd, pos, ti| wd.farms.push(crate::world::Farm { position: pos, town_idx: ti }),
+        tombstone: |wd, pos| { if let Some(b) = wd.farms.iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.farms.iter().position(|b| (b.position - pos).length() < 1.0),
     },
     // 4: Camp (raider town center)
     BuildingDef {
@@ -596,6 +620,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
             else { Building::Camp { town_idx: i as u32 } };
             (b, t.center)
         }),
+        is_unit_home: false,
+        place: |_, _, _| {},
+        tombstone: |_, _| {},
+        find_index: |_, _| None,
     },
     // 5: Farmer Home
     BuildingDef {
@@ -608,18 +636,25 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 0, attack_type: 0, behavior: SpawnBehavior::FindNearestFarm }),
-        build: |ti| Building::FarmerHome { town_idx: ti },
-        len: |wd| wd.farmer_homes.len(),
-        pos_town: |wd, i| wd.farmer_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-        count_for_town: |wd, ti| wd.farmer_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| &hp.farmer_homes,
-        hps_mut: |hp| &mut hp.farmer_homes,
-        town_idx: |b| if let Building::FarmerHome { town_idx } = b { *town_idx } else { 0 },
+        build: |ti| Building::Home { kind: BuildingKind::FarmerHome, town_idx: ti },
+        len: |wd| wd.unit_homes.get(&BuildingKind::FarmerHome).map_or(0, |v| v.len()),
+        pos_town: |wd, i| wd.unit_homes.get(&BuildingKind::FarmerHome)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.unit_homes.get(&BuildingKind::FarmerHome).map_or(0, |v|
+            v.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count()),
+        hps: |hp| hp.unit_home_hps.get(&BuildingKind::FarmerHome).map(|v| v.as_slice()).unwrap_or(&[]),
+        hps_mut: |hp| hp.unit_home_hps.entry(BuildingKind::FarmerHome).or_default(),
+        town_idx: |b| if let Building::Home { town_idx, .. } = b { *town_idx } else { 0 },
         save_key: Some("farmer_homes"),
-        save_vec: |wd| serde_json::to_value(&wd.farmer_homes).unwrap(),
-        load_vec: |wd, v| { wd.farmer_homes = serde_json::from_value(v).unwrap_or_default(); },
-        get_building: |wd, i| wd.farmer_homes.get(i).filter(|b| is_alive(b.position))
-            .map(|b| (Building::FarmerHome { town_idx: b.town_idx }, b.position)),
+        save_vec: |wd| serde_json::to_value(wd.unit_homes.get(&BuildingKind::FarmerHome).map(|v| v.as_slice()).unwrap_or(&[])).unwrap(),
+        load_vec: |wd, v| { let homes: Vec<UnitHome> = serde_json::from_value(v).unwrap_or_default(); wd.unit_homes.insert(BuildingKind::FarmerHome, homes); },
+        get_building: |wd, i| wd.unit_homes.get(&BuildingKind::FarmerHome)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Home { kind: BuildingKind::FarmerHome, town_idx: b.town_idx }, b.position)),
+        is_unit_home: true,
+        place: |wd, pos, ti| wd.unit_homes.entry(BuildingKind::FarmerHome).or_default().push(UnitHome { position: pos, town_idx: ti }),
+        tombstone: |wd, pos| { if let Some(b) = wd.unit_homes.get_mut(&BuildingKind::FarmerHome).and_then(|v| v.iter_mut().find(|b| (b.position - pos).length() < 1.0)) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.unit_homes.get(&BuildingKind::FarmerHome).and_then(|v| v.iter().position(|b| (b.position - pos).length() < 1.0)),
     },
     // 6: Archer Home
     BuildingDef {
@@ -632,18 +667,25 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 1, attack_type: 1, behavior: SpawnBehavior::FindNearestWaypoint }),
-        build: |ti| Building::ArcherHome { town_idx: ti },
-        len: |wd| wd.archer_homes.len(),
-        pos_town: |wd, i| wd.archer_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-        count_for_town: |wd, ti| wd.archer_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| &hp.archer_homes,
-        hps_mut: |hp| &mut hp.archer_homes,
-        town_idx: |b| if let Building::ArcherHome { town_idx } = b { *town_idx } else { 0 },
+        build: |ti| Building::Home { kind: BuildingKind::ArcherHome, town_idx: ti },
+        len: |wd| wd.unit_homes.get(&BuildingKind::ArcherHome).map_or(0, |v| v.len()),
+        pos_town: |wd, i| wd.unit_homes.get(&BuildingKind::ArcherHome)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.unit_homes.get(&BuildingKind::ArcherHome).map_or(0, |v|
+            v.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count()),
+        hps: |hp| hp.unit_home_hps.get(&BuildingKind::ArcherHome).map(|v| v.as_slice()).unwrap_or(&[]),
+        hps_mut: |hp| hp.unit_home_hps.entry(BuildingKind::ArcherHome).or_default(),
+        town_idx: |b| if let Building::Home { town_idx, .. } = b { *town_idx } else { 0 },
         save_key: Some("archer_homes"),
-        save_vec: |wd| serde_json::to_value(&wd.archer_homes).unwrap(),
-        load_vec: |wd, v| { wd.archer_homes = serde_json::from_value(v).unwrap_or_default(); },
-        get_building: |wd, i| wd.archer_homes.get(i).filter(|b| is_alive(b.position))
-            .map(|b| (Building::ArcherHome { town_idx: b.town_idx }, b.position)),
+        save_vec: |wd| serde_json::to_value(wd.unit_homes.get(&BuildingKind::ArcherHome).map(|v| v.as_slice()).unwrap_or(&[])).unwrap(),
+        load_vec: |wd, v| { let homes: Vec<UnitHome> = serde_json::from_value(v).unwrap_or_default(); wd.unit_homes.insert(BuildingKind::ArcherHome, homes); },
+        get_building: |wd, i| wd.unit_homes.get(&BuildingKind::ArcherHome)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Home { kind: BuildingKind::ArcherHome, town_idx: b.town_idx }, b.position)),
+        is_unit_home: true,
+        place: |wd, pos, ti| wd.unit_homes.entry(BuildingKind::ArcherHome).or_default().push(UnitHome { position: pos, town_idx: ti }),
+        tombstone: |wd, pos| { if let Some(b) = wd.unit_homes.get_mut(&BuildingKind::ArcherHome).and_then(|v| v.iter_mut().find(|b| (b.position - pos).length() < 1.0)) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.unit_homes.get(&BuildingKind::ArcherHome).and_then(|v| v.iter().position(|b| (b.position - pos).length() < 1.0)),
     },
     // 7: Tent (raider spawner)
     BuildingDef {
@@ -656,18 +698,25 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 2, attack_type: 0, behavior: SpawnBehavior::CampRaider }),
-        build: |ti| Building::Tent { town_idx: ti },
-        len: |wd| wd.tents.len(),
-        pos_town: |wd, i| wd.tents.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-        count_for_town: |wd, ti| wd.tents.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| &hp.tents,
-        hps_mut: |hp| &mut hp.tents,
-        town_idx: |b| if let Building::Tent { town_idx } = b { *town_idx } else { 0 },
+        build: |ti| Building::Home { kind: BuildingKind::Tent, town_idx: ti },
+        len: |wd| wd.unit_homes.get(&BuildingKind::Tent).map_or(0, |v| v.len()),
+        pos_town: |wd, i| wd.unit_homes.get(&BuildingKind::Tent)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.unit_homes.get(&BuildingKind::Tent).map_or(0, |v|
+            v.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count()),
+        hps: |hp| hp.unit_home_hps.get(&BuildingKind::Tent).map(|v| v.as_slice()).unwrap_or(&[]),
+        hps_mut: |hp| hp.unit_home_hps.entry(BuildingKind::Tent).or_default(),
+        town_idx: |b| if let Building::Home { town_idx, .. } = b { *town_idx } else { 0 },
         save_key: Some("tents"),
-        save_vec: |wd| serde_json::to_value(&wd.tents).unwrap(),
-        load_vec: |wd, v| { wd.tents = serde_json::from_value(v).unwrap_or_default(); },
-        get_building: |wd, i| wd.tents.get(i).filter(|b| is_alive(b.position))
-            .map(|b| (Building::Tent { town_idx: b.town_idx }, b.position)),
+        save_vec: |wd| serde_json::to_value(wd.unit_homes.get(&BuildingKind::Tent).map(|v| v.as_slice()).unwrap_or(&[])).unwrap(),
+        load_vec: |wd, v| { let homes: Vec<UnitHome> = serde_json::from_value(v).unwrap_or_default(); wd.unit_homes.insert(BuildingKind::Tent, homes); },
+        get_building: |wd, i| wd.unit_homes.get(&BuildingKind::Tent)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Home { kind: BuildingKind::Tent, town_idx: b.town_idx }, b.position)),
+        is_unit_home: true,
+        place: |wd, pos, ti| wd.unit_homes.entry(BuildingKind::Tent).or_default().push(UnitHome { position: pos, town_idx: ti }),
+        tombstone: |wd, pos| { if let Some(b) = wd.unit_homes.get_mut(&BuildingKind::Tent).and_then(|v| v.iter_mut().find(|b| (b.position - pos).length() < 1.0)) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.unit_homes.get(&BuildingKind::Tent).and_then(|v| v.iter().position(|b| (b.position - pos).length() < 1.0)),
     },
     // 8: Gold Mine
     BuildingDef {
@@ -689,7 +738,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("gold_mines"),
         save_vec: |wd| serde_json::to_value(&wd.gold_mines).unwrap(),
         load_vec: |wd, v| {
-            // New format: [{"position":[x,y]}, ...]. Old format: [[x,y], ...]
             wd.gold_mines = serde_json::from_value::<Vec<crate::world::GoldMine>>(v.clone())
                 .unwrap_or_else(|_| {
                     serde_json::from_value::<Vec<[f32; 2]>>(v)
@@ -701,6 +749,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         },
         get_building: |wd, i| wd.gold_mines.get(i).filter(|b| is_alive(b.position))
             .map(|b| (Building::GoldMine, b.position)),
+        is_unit_home: false,
+        place: |wd, pos, _| wd.gold_mines.push(crate::world::GoldMine { position: pos }),
+        tombstone: |wd, pos| { if let Some(b) = wd.gold_mines.iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.gold_mines.iter().position(|b| (b.position - pos).length() < 1.0),
     },
     // 9: Miner Home
     BuildingDef {
@@ -725,6 +777,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         load_vec: |wd, v| { wd.miner_homes = serde_json::from_value(v).unwrap_or_default(); },
         get_building: |wd, i| wd.miner_homes.get(i).filter(|b| is_alive(b.position))
             .map(|b| (Building::MinerHome { town_idx: b.town_idx }, b.position)),
+        is_unit_home: false,
+        place: |wd, pos, ti| wd.miner_homes.push(crate::world::MinerHome { position: pos, town_idx: ti, assigned_mine: None, manual_mine: false }),
+        tombstone: |wd, pos| { if let Some(b) = wd.miner_homes.iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.miner_homes.iter().position(|b| (b.position - pos).length() < 1.0),
     },
     // 10: Crossbow Home
     BuildingDef {
@@ -737,23 +793,29 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 5, attack_type: 2, behavior: SpawnBehavior::FindNearestWaypoint }),
-        build: |ti| Building::CrossbowHome { town_idx: ti },
-        len: |wd| wd.crossbow_homes.len(),
-        pos_town: |wd, i| wd.crossbow_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-        count_for_town: |wd, ti| wd.crossbow_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| &hp.crossbow_homes,
-        hps_mut: |hp| &mut hp.crossbow_homes,
-        town_idx: |b| if let Building::CrossbowHome { town_idx } = b { *town_idx } else { 0 },
+        build: |ti| Building::Home { kind: BuildingKind::CrossbowHome, town_idx: ti },
+        len: |wd| wd.unit_homes.get(&BuildingKind::CrossbowHome).map_or(0, |v| v.len()),
+        pos_town: |wd, i| wd.unit_homes.get(&BuildingKind::CrossbowHome)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.unit_homes.get(&BuildingKind::CrossbowHome).map_or(0, |v|
+            v.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count()),
+        hps: |hp| hp.unit_home_hps.get(&BuildingKind::CrossbowHome).map(|v| v.as_slice()).unwrap_or(&[]),
+        hps_mut: |hp| hp.unit_home_hps.entry(BuildingKind::CrossbowHome).or_default(),
+        town_idx: |b| if let Building::Home { town_idx, .. } = b { *town_idx } else { 0 },
         save_key: Some("crossbow_homes"),
-        save_vec: |wd| serde_json::to_value(&wd.crossbow_homes).unwrap(),
-        load_vec: |wd, v| { wd.crossbow_homes = serde_json::from_value(v).unwrap_or_default(); },
-        get_building: |wd, i| wd.crossbow_homes.get(i).filter(|b| is_alive(b.position))
-            .map(|b| (Building::CrossbowHome { town_idx: b.town_idx }, b.position)),
+        save_vec: |wd| serde_json::to_value(wd.unit_homes.get(&BuildingKind::CrossbowHome).map(|v| v.as_slice()).unwrap_or(&[])).unwrap(),
+        load_vec: |wd, v| { let homes: Vec<UnitHome> = serde_json::from_value(v).unwrap_or_default(); wd.unit_homes.insert(BuildingKind::CrossbowHome, homes); },
+        get_building: |wd, i| wd.unit_homes.get(&BuildingKind::CrossbowHome)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Home { kind: BuildingKind::CrossbowHome, town_idx: b.town_idx }, b.position)),
+        is_unit_home: true,
+        place: |wd, pos, ti| wd.unit_homes.entry(BuildingKind::CrossbowHome).or_default().push(UnitHome { position: pos, town_idx: ti }),
+        tombstone: |wd, pos| { if let Some(b) = wd.unit_homes.get_mut(&BuildingKind::CrossbowHome).and_then(|v| v.iter_mut().find(|b| (b.position - pos).length() < 1.0)) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.unit_homes.get(&BuildingKind::CrossbowHome).and_then(|v| v.iter().position(|b| (b.position - pos).length() < 1.0)),
     },
     // 11: Fighter Home
     BuildingDef {
-        kind: BuildingKind::FighterHome,
-        display: DisplayCategory::Military,
+        kind: BuildingKind::FighterHome, display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/fighter_home.png"),
         hp: 150.0, cost: 5,
         label: "Fighter Home", help: "Spawns 1 fighter",
@@ -762,18 +824,25 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 3, attack_type: 0, behavior: SpawnBehavior::FindNearestWaypoint }),
-        build: |ti| Building::FighterHome { town_idx: ti },
-        len: |wd| wd.fighter_homes.len(),
-        pos_town: |wd, i| wd.fighter_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-        count_for_town: |wd, ti| wd.fighter_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| &hp.fighter_homes,
-        hps_mut: |hp| &mut hp.fighter_homes,
-        town_idx: |b| if let Building::FighterHome { town_idx } = b { *town_idx } else { 0 },
+        build: |ti| Building::Home { kind: BuildingKind::FighterHome, town_idx: ti },
+        len: |wd| wd.unit_homes.get(&BuildingKind::FighterHome).map_or(0, |v| v.len()),
+        pos_town: |wd, i| wd.unit_homes.get(&BuildingKind::FighterHome)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.unit_homes.get(&BuildingKind::FighterHome).map_or(0, |v|
+            v.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count()),
+        hps: |hp| hp.unit_home_hps.get(&BuildingKind::FighterHome).map(|v| v.as_slice()).unwrap_or(&[]),
+        hps_mut: |hp| hp.unit_home_hps.entry(BuildingKind::FighterHome).or_default(),
+        town_idx: |b| if let Building::Home { town_idx, .. } = b { *town_idx } else { 0 },
         save_key: Some("fighter_homes"),
-        save_vec: |wd| serde_json::to_value(&wd.fighter_homes).unwrap(),
-        load_vec: |wd, v| { wd.fighter_homes = serde_json::from_value(v).unwrap_or_default(); },
-        get_building: |wd, i| wd.fighter_homes.get(i).filter(|b| is_alive(b.position))
-            .map(|b| (Building::FighterHome { town_idx: b.town_idx }, b.position)),
+        save_vec: |wd| serde_json::to_value(wd.unit_homes.get(&BuildingKind::FighterHome).map(|v| v.as_slice()).unwrap_or(&[])).unwrap(),
+        load_vec: |wd, v| { let homes: Vec<UnitHome> = serde_json::from_value(v).unwrap_or_default(); wd.unit_homes.insert(BuildingKind::FighterHome, homes); },
+        get_building: |wd, i| wd.unit_homes.get(&BuildingKind::FighterHome)
+            .and_then(|v| v.get(i)).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Home { kind: BuildingKind::FighterHome, town_idx: b.town_idx }, b.position)),
+        is_unit_home: true,
+        place: |wd, pos, ti| wd.unit_homes.entry(BuildingKind::FighterHome).or_default().push(UnitHome { position: pos, town_idx: ti }),
+        tombstone: |wd, pos| { if let Some(b) = wd.unit_homes.get_mut(&BuildingKind::FighterHome).and_then(|v| v.iter_mut().find(|b| (b.position - pos).length() < 1.0)) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.unit_homes.get(&BuildingKind::FighterHome).and_then(|v| v.iter().position(|b| (b.position - pos).length() < 1.0)),
     },
 ];
 

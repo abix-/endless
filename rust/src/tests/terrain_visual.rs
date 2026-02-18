@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::render::{MainCamera, TilemapSpawned};
-use crate::world::{self, Biome, Building, WorldCell, WorldGrid};
+use crate::world::{self, Biome, Building, BuildingKind, WorldCell, WorldGrid};
 
 use super::TestState;
 
@@ -61,9 +61,9 @@ pub fn setup(
         Building::Waypoint { town_idx: 0, patrol_order: 0 },
         Building::Farm { town_idx: 0 },
         Building::Camp { town_idx: 0 },
-        Building::FarmerHome { town_idx: 0 },
-        Building::ArcherHome { town_idx: 0 },
-        Building::Tent { town_idx: 0 },
+        Building::Home { kind: BuildingKind::FarmerHome, town_idx: 0 },
+        Building::Home { kind: BuildingKind::ArcherHome, town_idx: 0 },
+        Building::Home { kind: BuildingKind::Tent, town_idx: 0 },
     ];
     for (col, building) in buildings.iter().enumerate() {
         let idx = BUILDING_ROW * GRID_COLS + col;

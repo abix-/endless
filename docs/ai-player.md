@@ -218,7 +218,7 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 ## Perimeter Maintenance
 
 `sync_patrol_perimeter_system` (dirty-flag-gated on `patrol_perimeter`):
-1. Compute owned territory (farms + farmer homes + archer homes + crossbow homes + miner homes)
+1. Compute owned territory (farms + all unit homes + miner homes, via `territory_building_sets!` macro using `WorldData.homes(kind)` BTreeMap access)
 2. Compute one-cell perimeter ring around territory (orthogonal directions only)
 3. Prune in-town waypoints no longer on perimeter (uses full `destroy_building` teardown)
 4. Preserve wilderness waypoints (outside town build area)

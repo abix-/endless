@@ -6,7 +6,7 @@ use bevy_egui::{EguiContexts, egui};
 use crate::render::MainCamera;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
-use crate::world::WorldData;
+use crate::world::{BuildingKind, WorldData};
 
 const STEP_COUNT: u8 = 20;
 
@@ -53,7 +53,7 @@ fn step_complete(
             farms > tutorial.initial_farms
         }
         4 => {
-            let homes = world_data.farmer_homes.iter().filter(|h| h.town_idx as usize == pt).count();
+            let homes = world_data.homes(BuildingKind::FarmerHome).iter().filter(|h| h.town_idx as usize == pt).count();
             homes > tutorial.initial_farmer_homes
         }
         5 => false, // info-only — user clicks Next
@@ -68,7 +68,7 @@ fn step_complete(
             posts > tutorial.initial_waypoints
         }
         11 => {
-            let homes = world_data.archer_homes.iter().filter(|a| a.town_idx as usize == pt).count();
+            let homes = world_data.homes(BuildingKind::ArcherHome).iter().filter(|a| a.town_idx as usize == pt).count();
             homes > tutorial.initial_archer_homes
         }
         12 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Upgrades,

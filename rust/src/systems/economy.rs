@@ -10,7 +10,7 @@ use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
     CAMP_SPAWN_CHECK_HOURS, MAX_DYNAMIC_CAMPS, CAMP_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_CAMP};
-use crate::world::{self, WorldData, WorldGrid, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids};
+use crate::world::{self, WorldData, WorldGrid, Building, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
 use crate::systems::ai_player::{AiPlayer, AiPlayerState, AiKind, AiPersonality};
@@ -751,11 +751,14 @@ pub fn migration_settle_system(
     }
 
     // Register tent spawners
-    for tent in world_state.world_data.tents.iter() {
-        if tent.town_idx == town_data_idx as u32 {
-            world::register_spawner(&mut world_state.spawner_state, world::Building::Tent { town_idx: 0 },
-                town_data_idx as i32, tent.position, -1.0);
-            world_state.building_hp.tents.push(crate::constants::building_def(BuildingKind::Tent).hp);
+    let tent_def = crate::constants::building_def(BuildingKind::Tent);
+    for i in 0..(tent_def.len)(&world_state.world_data) {
+        if let Some((pos, ti)) = (tent_def.pos_town)(&world_state.world_data, i) {
+            if ti == town_data_idx as u32 {
+                world::register_spawner(&mut world_state.spawner_state, Building::Home { kind: BuildingKind::Tent, town_idx: 0 },
+                    town_data_idx as i32, pos, -1.0);
+                (tent_def.hps_mut)(&mut world_state.building_hp).push(tent_def.hp);
+            }
         }
     }
 

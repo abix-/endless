@@ -339,40 +339,31 @@ fn game_startup_system(
     // Reset game time
     *game_time = GameTime::default();
 
-    // Build SpawnerState from world gen Houses + Barracks + Tents
+    // Build SpawnerState from world gen buildings — registry-driven
     world_state.spawner_state.0.clear();
-    for house in world_state.world_data.farmer_homes.iter() {
-        world::register_spawner(&mut world_state.spawner_state, world::Building::FarmerHome { town_idx: 0 },
-            house.town_idx as i32, house.position, -1.0);
-    }
-    for barracks in world_state.world_data.archer_homes.iter() {
-        world::register_spawner(&mut world_state.spawner_state, world::Building::ArcherHome { town_idx: 0 },
-            barracks.town_idx as i32, barracks.position, -1.0);
-    }
-    for tent in world_state.world_data.tents.iter() {
-        world::register_spawner(&mut world_state.spawner_state, world::Building::Tent { town_idx: 0 },
-            tent.town_idx as i32, tent.position, -1.0);
-    }
-    for ms in world_state.world_data.miner_homes.iter() {
-        world::register_spawner(&mut world_state.spawner_state, world::Building::MinerHome { town_idx: 0 },
-            ms.town_idx as i32, ms.position, -1.0);
+    for def in crate::constants::BUILDING_REGISTRY {
+        if def.spawner.is_some() {
+            for i in 0..(def.len)(&world_state.world_data) {
+                if let Some((pos, ti)) = (def.pos_town)(&world_state.world_data, i) {
+                    let building = (def.build)(ti);
+                    world::register_spawner(&mut world_state.spawner_state, building,
+                        ti as i32, pos, -1.0);
+                }
+            }
+        }
     }
 
-    // Initialize building HP for all world-gen buildings
+    // Initialize building HP for all world-gen buildings — registry-driven
     {
-        use crate::constants::building_def;
-        use crate::world::BuildingKind;
         let hp = &mut world_state.building_hp;
         **hp = BuildingHpState::default();
-        for _ in &world_state.world_data.waypoints { hp.waypoints.push(building_def(BuildingKind::Waypoint).hp); }
-        for _ in &world_state.world_data.farmer_homes { hp.farmer_homes.push(building_def(BuildingKind::FarmerHome).hp); }
-        for _ in &world_state.world_data.archer_homes { hp.archer_homes.push(building_def(BuildingKind::ArcherHome).hp); }
-        for _ in &world_state.world_data.tents { hp.tents.push(building_def(BuildingKind::Tent).hp); }
-        for _ in &world_state.world_data.miner_homes { hp.miner_homes.push(building_def(BuildingKind::MinerHome).hp); }
-        for _ in &world_state.world_data.farms { hp.farms.push(building_def(BuildingKind::Farm).hp); }
-        for _ in &world_state.world_data.towns { hp.towns.push(building_def(BuildingKind::Fountain).hp); }
-        for _ in &world_state.world_data.beds { hp.beds.push(building_def(BuildingKind::Bed).hp); }
-        for _ in &world_state.world_data.gold_mines { hp.gold_mines.push(building_def(BuildingKind::GoldMine).hp); }
+        for def in crate::constants::BUILDING_REGISTRY {
+            // Skip Camp (shares towns vec with Fountain)
+            if def.kind == world::BuildingKind::Camp { continue; }
+            let count = (def.len)(&world_state.world_data);
+            let hps = (def.hps_mut)(hp);
+            for _ in 0..count { hps.push(def.hp); }
+        }
     }
 
     // Allocate GPU NPC slots for all buildings (invisible, speed=0, for collision)
@@ -481,9 +472,9 @@ fn tutorial_init_system(
 
     // Snapshot initial building counts for completion checks
     tutorial.initial_farms = world_data.farms.iter().filter(|f| f.town_idx as usize == player_town).count();
-    tutorial.initial_farmer_homes = world_data.farmer_homes.iter().filter(|h| h.town_idx as usize == player_town).count();
+    tutorial.initial_farmer_homes = world_data.homes(BuildingKind::FarmerHome).iter().filter(|h| h.town_idx as usize == player_town).count();
     tutorial.initial_waypoints = world_data.waypoints.iter().filter(|g| g.town_idx as usize == player_town).count();
-    tutorial.initial_archer_homes = world_data.archer_homes.iter().filter(|a| a.town_idx as usize == player_town).count();
+    tutorial.initial_archer_homes = world_data.homes(BuildingKind::ArcherHome).iter().filter(|a| a.town_idx as usize == player_town).count();
     tutorial.initial_miner_homes = world_data.miner_homes.iter().filter(|m| m.town_idx as usize == player_town).count();
 
     // Snapshot camera start position

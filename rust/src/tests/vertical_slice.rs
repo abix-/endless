@@ -69,17 +69,20 @@ pub fn setup(
     // Spawner buildings: FarmerHomes, ArcherHomes, Tents (for respawn system)
     for i in 0..5 {
         let pos = Vec2::new(300.0 + (i as f32 * 50.0), 450.0);
-        params.world_data.farmer_homes.push(world::FarmerHome { position: pos, town_idx: 0 });
-        building_hp.farmer_homes.push(crate::constants::building_def(world::BuildingKind::FarmerHome).hp);
+        let def = crate::constants::building_def(world::BuildingKind::FarmerHome);
+        (def.place)(&mut params.world_data, pos, 0);
+        (def.hps_mut)(&mut building_hp).push(def.hp);
     }
     for _ in 0..2 {
-        params.world_data.archer_homes.push(world::ArcherHome { position: Vec2::new(400.0, 400.0), town_idx: 0 });
-        building_hp.archer_homes.push(crate::constants::building_def(world::BuildingKind::ArcherHome).hp);
+        let def = crate::constants::building_def(world::BuildingKind::ArcherHome);
+        (def.place)(&mut params.world_data, Vec2::new(400.0, 400.0), 0);
+        (def.hps_mut)(&mut building_hp).push(def.hp);
     }
     for i in 0..5 {
         let pos = Vec2::new(380.0 + (i as f32 * 10.0), 100.0);
-        params.world_data.tents.push(world::Tent { position: pos, town_idx: 1 });
-        building_hp.tents.push(crate::constants::building_def(world::BuildingKind::Tent).hp);
+        let def = crate::constants::building_def(world::BuildingKind::Tent);
+        (def.place)(&mut params.world_data, pos, 1);
+        (def.hps_mut)(&mut building_hp).push(def.hp);
     }
 
     // Town HP entries (Fountain for town 0, Camp for town 1)

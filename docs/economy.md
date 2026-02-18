@@ -69,7 +69,7 @@ game_time_system (every frame)
 
 ### spawner_respawn_system
 - Runs when `game_time.hour_ticked` is true
-- Each `SpawnerEntry` in `SpawnerState` links a FarmerHome (farmer), ArcherHome (archer), FighterHome (fighter), Tent (raider), or MinerHome (miner) to an NPC slot
+- Each `SpawnerEntry` in `SpawnerState` links a unit-home building (FarmerHome→farmer, ArcherHome→archer, FighterHome→fighter, Tent→raider) or MinerHome (miner) to an NPC slot
 - If `npc_slot >= 0` and NPC is dead (not in `NpcEntityMap`): starts 12h respawn timer
 - Timer decrements 1.0 per game hour; on expiry: allocates slot via `SlotAllocator`, emits `SpawnNpcMsg`, logs to `CombatLog`
 - Newly-built spawners start with `respawn_timer: 0.0` — the `>= 0.0` check catches these, spawning an NPC on the next hourly tick

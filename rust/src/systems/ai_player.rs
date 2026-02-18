@@ -156,9 +156,9 @@ macro_rules! territory_building_sets {
     (world $wd:expr, $ti:expr, $center:expr) => {
         // World path: derive slots from live world arrays using the same conversion pipeline.
         town_building_slots!($wd.farms, $ti, $center)
-            .chain(town_building_slots!($wd.farmer_homes, $ti, $center))
-            .chain(town_building_slots!($wd.archer_homes, $ti, $center))
-            .chain(town_building_slots!($wd.crossbow_homes, $ti, $center))
+            .chain(town_building_slots!($wd.homes(BuildingKind::FarmerHome), $ti, $center))
+            .chain(town_building_slots!($wd.homes(BuildingKind::ArcherHome), $ti, $center))
+            .chain(town_building_slots!($wd.homes(BuildingKind::CrossbowHome), $ti, $center))
             .chain(town_building_slots!($wd.miner_homes, $ti, $center))
     };
 }
@@ -481,9 +481,9 @@ fn build_town_snapshot(
     let ti = town_data_idx as u32;
 
     let farms = town_building_slots!(world_data.farms, ti, center).collect();
-    let farmer_homes = town_building_slots!(world_data.farmer_homes, ti, center).collect();
-    let archer_homes = town_building_slots!(world_data.archer_homes, ti, center).collect();
-    let crossbow_homes = town_building_slots!(world_data.crossbow_homes, ti, center).collect();
+    let farmer_homes = town_building_slots!(world_data.homes(BuildingKind::FarmerHome), ti, center).collect();
+    let archer_homes = town_building_slots!(world_data.homes(BuildingKind::ArcherHome), ti, center).collect();
+    let crossbow_homes = town_building_slots!(world_data.homes(BuildingKind::CrossbowHome), ti, center).collect();
     let miner_homes = town_building_slots!(world_data.miner_homes, ti, center).collect();
     let empty_slots = world::empty_slots(tg, center, grid);
 
@@ -1297,7 +1297,7 @@ fn execute_action(
     // This gives explicit, compile-checked control flow per action type.
     match action {
         AiAction::BuildTent => try_build_inner(
-            Building::Tent { town_idx: ctx.ti }, building_cost(BuildingKind::Tent), "tent",
+            Building::Home { kind: BuildingKind::Tent, town_idx: ctx.ti }, building_cost(BuildingKind::Tent), "tent",
             ctx.tdi, ctx.center, res, ctx.grid_idx),
         AiAction::BuildFarm => {
             let score = if personality == AiPersonality::Balanced { balanced_farm_ray_score } else { farm_slot_score };
@@ -1306,14 +1306,14 @@ fn execute_action(
         }
         AiAction::BuildFarmerHome => {
             let score = if personality == AiPersonality::Balanced { balanced_house_side_score } else { farmer_home_border_score };
-            try_build_scored(Building::FarmerHome { town_idx: ctx.ti }, BuildingKind::FarmerHome, "farmer home",
+            try_build_scored(Building::Home { kind: BuildingKind::FarmerHome, town_idx: ctx.ti }, BuildingKind::FarmerHome, "farmer home",
                 ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, score)
         }
         AiAction::BuildArcherHome => try_build_scored(
-            Building::ArcherHome { town_idx: ctx.ti }, BuildingKind::ArcherHome, "archer home",
+            Building::Home { kind: BuildingKind::ArcherHome, town_idx: ctx.ti }, BuildingKind::ArcherHome, "archer home",
             ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, archer_fill_score),
         AiAction::BuildCrossbowHome => try_build_scored(
-            Building::CrossbowHome { town_idx: ctx.ti }, BuildingKind::CrossbowHome, "crossbow home",
+            Building::Home { kind: BuildingKind::CrossbowHome, town_idx: ctx.ti }, BuildingKind::CrossbowHome, "crossbow home",
             ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, archer_fill_score),
         AiAction::BuildMinerHome => {
             let Some(mines) = &ctx.mines else { return None; };
