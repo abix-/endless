@@ -95,16 +95,25 @@ const fn usd_req(kind: UpgradeStatKind, pct: f32, cost: &'static [(ResourceKind,
 }
 
 // Military upgrade stat defs
-const MILITARY_UPGRADES: &[UpgradeStatDef] = &[
+const MILITARY_RANGED_UPGRADES: &[UpgradeStatDef] = &[
     usd(USK::Hp, 0.10, &[(F, 1)], "HP", "HP", "+10% HP per level", EffectDisplay::Percentage),
     usd(USK::Attack, 0.10, &[(F, 1)], "Attack", "Atk", "+10% damage per level", EffectDisplay::Percentage),
-    usd_req(USK::Range, 0.05, &[(G, 1)], "Range", "Rng", "+5% attack range per level", EffectDisplay::Percentage, USK::Attack, 1),
-    usd_req(USK::AttackSpeed, 0.08, &[(F, 1)], "Attack Speed", "AtkSpd", "-8% attack cooldown per level", EffectDisplay::CooldownReduction, USK::Attack, 1),
+    usd(USK::Range, 0.05, &[(G, 1)], "Detection Range", "Det", "+5% detection range per level", EffectDisplay::Percentage),
+    usd(USK::AttackSpeed, 0.08, &[(F, 1)], "Attack Speed", "AtkSpd", "-8% attack cooldown per level", EffectDisplay::CooldownReduction),
     usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% movement speed per level", EffectDisplay::Percentage),
     usd_req(USK::Alert, 0.10, &[(G, 1)], "Alert", "Alert", "+10% alert radius per level", EffectDisplay::Percentage, USK::MoveSpeed, 1),
     usd_req(USK::Dodge, 0.0, &[(G, 20)], "Dodge", "Dodge", "Unlocks projectile dodging", EffectDisplay::Unlock, USK::MoveSpeed, 5),
-    usd_req(USK::ProjectileSpeed, 0.08, &[(G, 1)], "Arrow Speed", "ASpd", "+8% arrow speed per level", EffectDisplay::Percentage, USK::Range, 1),
-    usd_req(USK::ProjectileLifetime, 0.08, &[(G, 1)], "Arrow Range", "ARng", "+8% arrow flight distance per level", EffectDisplay::Percentage, USK::Range, 1),
+    usd(USK::ProjectileSpeed, 0.08, &[(G, 1)], "Arrow Speed", "ASpd", "+8% arrow speed per level", EffectDisplay::Percentage),
+    usd(USK::ProjectileLifetime, 0.08, &[(G, 1)], "Arrow Range", "ARng", "+8% arrow flight distance per level", EffectDisplay::Percentage),
+];
+
+const MILITARY_MELEE_UPGRADES: &[UpgradeStatDef] = &[
+    usd(USK::Hp, 0.10, &[(F, 1)], "HP", "HP", "+10% HP per level", EffectDisplay::Percentage),
+    usd(USK::Attack, 0.10, &[(F, 1)], "Attack", "Atk", "+10% damage per level", EffectDisplay::Percentage),
+    usd(USK::AttackSpeed, 0.08, &[(F, 1)], "Attack Speed", "AtkSpd", "-8% attack cooldown per level", EffectDisplay::CooldownReduction),
+    usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% movement speed per level", EffectDisplay::Percentage),
+    usd_req(USK::Alert, 0.10, &[(G, 1)], "Alert", "Alert", "+10% alert radius per level", EffectDisplay::Percentage, USK::MoveSpeed, 1),
+    usd_req(USK::Dodge, 0.0, &[(G, 20)], "Dodge", "Dodge", "Unlocks projectile dodging", EffectDisplay::Unlock, USK::MoveSpeed, 5),
 ];
 
 const FARMER_UPGRADES: &[UpgradeStatDef] = &[
@@ -117,14 +126,6 @@ const MINER_UPGRADES: &[UpgradeStatDef] = &[
     usd(USK::Hp, 0.20, &[(F, 1)], "HP", "HP", "+20% miner HP per level", EffectDisplay::Percentage),
     usd(USK::MoveSpeed, 0.05, &[(F, 1)], "Move Speed", "MvSpd", "+5% miner speed per level", EffectDisplay::Percentage),
     usd_noncombat(USK::Yield, 0.15, &[(G, 1)], "Yield", "Yield", "+15% gold yield per level", EffectDisplay::Percentage),
-];
-
-const CROSSBOW_UPGRADES: &[UpgradeStatDef] = &[
-    usd(USK::Hp, 0.10, &[(F, 2)], "HP", "HP", "+10% crossbow HP per level", EffectDisplay::Percentage),
-    usd(USK::Attack, 0.10, &[(F, 2)], "Attack", "Atk", "+10% crossbow damage per level", EffectDisplay::Percentage),
-    usd_req(USK::Range, 0.05, &[(G, 2)], "Range", "Rng", "+5% crossbow range per level", EffectDisplay::Percentage, USK::Attack, 1),
-    usd_req(USK::AttackSpeed, 0.08, &[(F, 2)], "Attack Speed", "AtkSpd", "-8% crossbow cooldown per level", EffectDisplay::CooldownReduction, USK::Attack, 1),
-    usd(USK::MoveSpeed, 0.05, &[(F, 2)], "Move Speed", "MvSpd", "+5% crossbow speed per level", EffectDisplay::Percentage),
 ];
 
 // Town upgrades (not NPC-driven, appended to registry as "Town" branch)
@@ -254,7 +255,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
         ui_color: (80, 100, 220),
         home_building: BuildingKind::ArcherHome, is_camp_unit: false, default_count: 4,
-        upgrade_category: Some("Archer"), upgrade_stats: MILITARY_UPGRADES,
+        upgrade_category: Some("Archer"), upgrade_stats: MILITARY_RANGED_UPGRADES,
     },
     NpcDef {
         job: Job::Raider, label: "Raider", label_plural: "Raiders",
@@ -279,7 +280,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: None, helmet: None, stealer: false, leash_range: None,
         ui_color: (220, 220, 80),
         home_building: BuildingKind::FighterHome, is_camp_unit: false, default_count: 0,
-        upgrade_category: Some("Fighter"), upgrade_stats: MILITARY_UPGRADES,
+        upgrade_category: Some("Fighter"), upgrade_stats: MILITARY_MELEE_UPGRADES,
     },
     NpcDef {
         job: Job::Miner, label: "Miner", label_plural: "Miners",
@@ -304,7 +305,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
         ui_color: (140, 60, 220),
         home_building: BuildingKind::CrossbowHome, is_camp_unit: false, default_count: 0,
-        upgrade_category: Some("Crossbow"), upgrade_stats: CROSSBOW_UPGRADES,
+        upgrade_category: Some("Crossbow"), upgrade_stats: MILITARY_RANGED_UPGRADES,
     },
 ];
 

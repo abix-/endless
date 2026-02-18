@@ -101,6 +101,9 @@ pub struct UserSettings {
     // Per-upgrade auto-buy flags (player town only)
     #[serde(default)]
     pub auto_upgrades: Vec<bool>,
+    // Upgrade branches the user has expanded (by label); empty = all collapsed
+    #[serde(default)]
+    pub upgrade_expanded: Vec<String>,
     // Difficulty
     #[serde(default)]
     pub difficulty: crate::resources::Difficulty,
@@ -185,6 +188,7 @@ impl Default for UserSettings {
             sfx_volume: 0.5,
             music_speed: 1.0,
             tutorial_completed: false,
+            upgrade_expanded: Vec::new(),
         }
     }
 }

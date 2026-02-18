@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-18v
+
+- **ranged/melee upgrade split** — split `MILITARY_UPGRADES` into `MILITARY_RANGED_UPGRADES` (9 stats: HP, Attack, Detection Range, Attack Speed, Move Speed, Alert, Dodge, Arrow Speed, Arrow Range) and `MILITARY_MELEE_UPGRADES` (6 stats: no projectile/range stats); Archer and Crossbow share `MILITARY_RANGED_UPGRADES`, Fighter uses `MILITARY_MELEE_UPGRADES`; removed `CROSSBOW_UPGRADES` (Crossbow now shares ranged tree); renamed Range label to "Detection Range"; made Detection Range, Attack Speed, Arrow Speed, Arrow Range all root upgrades (no prerequisites)
+- **collapsible upgrade persistence** — upgrade branches start collapsed by default; expand/collapse state persisted to `UserSettings.upgrade_expanded` via `CollapsingState` API; saved to settings.json on toggle
+- **combat log priority split** — `CombatLog` now has separate `priority_entries` ring buffer (max 200) for Raid/Ai events, preventing high-frequency combat events from evicting strategic entries; `iter_all()` chains both buffers for display
+
 ## 2026-02-18u
 
 - **registry-driven upgrade system** — replaced hardcoded `UpgradeType` enum (25 variants) and fixed `[u8; 25]` arrays with dynamic `UpgradeRegistry` built from `NPC_REGISTRY` at init via `LazyLock`; each `NpcDef` declares `upgrade_category: Option<&'static str>` and `upgrade_stats: &'static [UpgradeStatDef]`; NPCs sharing the same `upgrade_stats` array but with different category names get fully independent upgrade branches (e.g. Archer and Fighter both reference `MILITARY_UPGRADES` but track levels separately); `UpgradeStatKind` enum replaces positional indices with semantic stat lookups; `UPGRADES.stat_mult(levels, category, stat)` replaces all hardcoded `match job` arms in `resolve_combat_stats`; `TownUpgrades.levels` and `AutoUpgrade.flags` switched from fixed arrays to `Vec<Vec<u8>>`/`Vec<Vec<bool>>`; upgrade UI grouped into Economy/Military sections with collapsible per-NPC branches; AI upgrade weights use dynamic category/stat_kind lookups; adding a new NPC type now automatically generates its upgrade branch by setting `upgrade_category` and `upgrade_stats` on the `NpcDef`

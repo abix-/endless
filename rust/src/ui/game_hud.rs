@@ -418,7 +418,7 @@ pub fn combat_log_system(
             if needs_rebuild {
                 filter_state.cached_entries.clear();
 
-                for entry in &data.combat_log.entries {
+                for entry in data.combat_log.iter_all() {
                     let show = match entry.kind {
                         CombatEventKind::Kill => filter_state.show_kills,
                         CombatEventKind::Spawn => filter_state.show_spawns,
@@ -1310,7 +1310,7 @@ fn building_inspector_content(
             ));
             // Append building damage log entries (same pattern as NPC log in copy)
             let prefix = format!("{:?} in {}", kind, town_name);
-            for entry in &combat_log.entries {
+            for entry in combat_log.iter_all() {
                 if entry.kind == CombatEventKind::BuildingDamage && entry.message.starts_with(&prefix) {
                     info.push_str(&format!("D{}:{:02}:{:02} {}\n",
                         entry.day, entry.hour, entry.minute, entry.message));

@@ -247,7 +247,7 @@ pub fn left_panel_system(
 
             match ui_state.left_panel_tab {
                 LeftPanelTab::Roster => roster_content(ui, &mut roster, &mut roster_state, debug_all),
-                LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data),
+                LeftPanelTab::Upgrades => upgrade_content(ui, &mut upgrade, &world_data, &mut settings),
                 LeftPanelTab::Policies => policies_content(ui, &mut policies, &world_data, &profiler.spawner_state, &mut profiler.mining_policy, &mut dirty, &mut jump_target),
                 LeftPanelTab::Patrols => { patrol_swap = patrols_content(ui, &world_data, &mut jump_target); },
                 LeftPanelTab::Squads => squads_content(ui, &mut squad, &roster.meta_cache, &world_data, &mut commands, &mut dirty),
@@ -510,7 +510,7 @@ fn roster_content(
 // UPGRADE CONTENT
 // ============================================================================
 
-fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &WorldData) {
+fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &WorldData, settings: &mut UserSettings) {
     let town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
     let food = upgrade.food_storage.food.get(town_idx).copied().unwrap_or(0);
     let gold = upgrade.gold_storage.gold.get(town_idx).copied().unwrap_or(0);
@@ -550,9 +550,13 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
 
         for branch in reg.branches.iter().filter(|b| b.section == section_name) {
             let bt = branch_total(&levels, branch.label);
-            egui::CollapsingHeader::new(egui::RichText::new(format!("{} ({})", branch.label, bt)).strong())
-                .default_open(true)
-                .show(ui, |ui| {
+            let is_expanded = settings.upgrade_expanded.iter().any(|s| s == branch.label);
+            let id = ui.make_persistent_id(format!("upg_{}", branch.label));
+            let state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, is_expanded);
+            let header_res = state.show_header(ui, |ui| {
+                ui.label(egui::RichText::new(format!("{} ({})", branch.label, bt)).strong());
+            });
+            header_res.body(|ui| {
                     for &(i, depth) in &branch.entries {
                         let upg = &reg.nodes[i];
                         let unlocked = upgrade_unlocked(&levels, i);
@@ -607,6 +611,16 @@ fn upgrade_content(ui: &mut egui::Ui, upgrade: &mut UpgradeParams, world_data: &
                         });
                     }
                 });
+            // Persist expand/collapse changes after body renders (borrow on ui released)
+            let now_open = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false).is_open();
+            if now_open != is_expanded {
+                if now_open {
+                    settings.upgrade_expanded.push(branch.label.to_string());
+                } else {
+                    settings.upgrade_expanded.retain(|s| s != branch.label);
+                }
+                settings::save_settings(settings);
+            }
         }
     }
 }
@@ -1485,7 +1499,7 @@ fn factions_content(
                 }
 
                 if let Some(base) = ranged_base {
-                    ui.label("Range (Archer)");
+                    ui.label("Detection Range (Archer)");
                     ui.label(format!("{:.0} -> {:.0}", base.range, base.range * archer_range_mult));
                     ui.end_row();
 
@@ -1549,7 +1563,7 @@ fn factions_content(
                 }
 
                 if let Some(base) = crossbow_atk {
-                    ui.label("Range (Crossbow)");
+                    ui.label("Detection Range (Crossbow)");
                     ui.label(format!("{:.0} -> {:.0}", base.range, base.range * xbow_range_mult));
                     ui.end_row();
 

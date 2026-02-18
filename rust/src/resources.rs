@@ -847,11 +847,13 @@ pub struct CombatLogEntry {
 }
 
 const COMBAT_LOG_MAX: usize = 200;
+const COMBAT_LOG_PRIORITY_MAX: usize = 200;
 
 /// Global combat event log. Ring buffer, newest at back.
 #[derive(Resource, Default)]
 pub struct CombatLog {
     pub entries: VecDeque<CombatLogEntry>,
+    pub priority_entries: VecDeque<CombatLogEntry>,
 }
 
 impl CombatLog {
@@ -860,10 +862,19 @@ impl CombatLog {
     }
 
     pub fn push_at(&mut self, kind: CombatEventKind, faction: i32, day: i32, hour: i32, minute: i32, message: String, location: Option<bevy::math::Vec2>) {
-        if self.entries.len() >= COMBAT_LOG_MAX {
-            self.entries.pop_front();
+        let (target, cap) = if matches!(kind, CombatEventKind::Raid | CombatEventKind::Ai) {
+            (&mut self.priority_entries, COMBAT_LOG_PRIORITY_MAX)
+        } else {
+            (&mut self.entries, COMBAT_LOG_MAX)
+        };
+        if target.len() >= cap {
+            target.pop_front();
         }
-        self.entries.push_back(CombatLogEntry { day, hour, minute, kind, faction, message, location });
+        target.push_back(CombatLogEntry { day, hour, minute, kind, faction, message, location });
+    }
+
+    pub fn iter_all(&self) -> impl Iterator<Item = &CombatLogEntry> {
+        self.entries.iter().chain(self.priority_entries.iter())
     }
 }
 
@@ -1199,15 +1210,21 @@ impl Difficulty {
         }
     }
 
-    /// World gen presets.
+    /// World gen presets. Overrides listed explicitly; unlisted jobs reset to NPC_REGISTRY defaults.
     pub fn presets(self) -> DifficultyPreset {
         use crate::components::Job;
-        let (farms, ai_towns, raider_camps, gold_mines, npc_counts) = match self {
+        let (farms, ai_towns, raider_camps, gold_mines, overrides) = match self {
             Difficulty::Easy   => (4, 2, 2, 3, vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)]),
             Difficulty::Normal => (2, 5, 5, 2, vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)]),
             Difficulty::Hard   => (1, 10, 10, 1, vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)]),
         };
-        DifficultyPreset { farms, ai_towns, raider_camps, gold_mines, npc_counts: npc_counts.into_iter().collect() }
+        // Start from registry defaults, then apply preset overrides
+        let mut npc_counts: std::collections::BTreeMap<Job, usize> = crate::constants::NPC_REGISTRY
+            .iter().map(|d| (d.job, d.default_count as usize)).collect();
+        for (job, count) in overrides {
+            npc_counts.insert(job, count);
+        }
+        DifficultyPreset { farms, ai_towns, raider_camps, gold_mines, npc_counts }
     }
 
     /// Migration group scaling: extra raiders per N player villagers.
