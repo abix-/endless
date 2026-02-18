@@ -77,7 +77,7 @@ pub fn arrival_system(
 ) {
     let _t = timings.scope("arrival");
     let positions = &gpu_state.positions;
-    const DELIVERY_RADIUS: f32 = 150.0;     // Same as healing radius - deliver when near camp
+    const DELIVERY_RADIUS: f32 = 50.0;      // Deliver when close to home building
     const MAX_DRIFT: f32 = 20.0;            // Keep farmers visually on the farm
 
     // ========================================================================

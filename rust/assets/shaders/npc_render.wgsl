@@ -307,6 +307,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
     }
 
+    // Carried item sprite (atlas_id 1): original colors, no grayscale tint
+    if in.atlas_id >= 0.5 && in.health >= 0.99 {
+        let tex_color = textureSample(world_texture, world_sampler, in.uv);
+        if tex_color.a < 0.1 { discard; }
+        return vec4<f32>(tex_color.rgb, tex_color.a);
+    }
+
     // Health bar in bottom 15% of sprite (quad_uv.y > 0.85 = bottom rows)
     // Show when damaged (health < 99%) — applies to NPCs and farm growth bars
     let show_hp_bar = in.health < 0.99;

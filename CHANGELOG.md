@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-18w
+
+- **fix: carried gold tint** — gold sprite on returning miners was grayscale-tinted instead of natural colors; added early-return branch in `npc_render.wgsl` fragment shader for carried items (`atlas_id >= 0.5` on equipment layers) that bypasses the grayscale-then-tint pipeline
+- **delivery radius 150→50px** — NPCs must walk closer to home building before delivering food/gold; `DELIVERY_RADIUS` in `behavior.rs` reduced from 150px to 50px
+
 ## 2026-02-18v
 
 - **ranged/melee upgrade split** — split `MILITARY_UPGRADES` into `MILITARY_RANGED_UPGRADES` (9 stats: HP, Attack, Detection Range, Attack Speed, Move Speed, Alert, Dodge, Arrow Speed, Arrow Range) and `MILITARY_MELEE_UPGRADES` (6 stats: no projectile/range stats); Archer and Crossbow share `MILITARY_RANGED_UPGRADES`, Fighter uses `MILITARY_MELEE_UPGRADES`; removed `CROSSBOW_UPGRADES` (Crossbow now shares ranged tree); renamed Range label to "Detection Range"; made Detection Range, Attack Speed, Arrow Speed, Arrow Range all root upgrades (no prerequisites)

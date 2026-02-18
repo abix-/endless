@@ -288,12 +288,14 @@ if in.atlas_id < 0.5 {
     tex_color = textureSample(world_texture, world_sampler, in.uv);
 }
 if tex_color.a < 0.1 { discard; }
+// Carried items (atlas_id >= 0.5, equipment layer): original colors, no grayscale tint
+if in.atlas_id >= 0.5 && in.health >= 0.99 { return vec4<f32>(tex_color.rgb, tex_color.a); }
 // Equipment layers: discard bottom pixels to preserve health bar visibility
 if in.health >= 0.99 && in.quad_uv.y > 0.85 && in.atlas_id < 0.5 { discard; }
 var final_color = vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
 ```
 
-Texture color is multiplied by the instance's tint color. This is how faction colors work — player faction (0) NPCs get job-based colors (pure green/blue/red/yellow), while all other factions get per-faction RGB tints from a 10-color saturated palette. Equipment layers (health >= 0.99) discard pixels in the health bar region so the body's health bar remains visible underneath.
+Texture color is multiplied by the instance's tint color via grayscale conversion (`dot(rgb, luma_weights) * color`). This is how faction colors work — player faction (0) NPCs get job-based colors (pure green/blue/red/yellow), while all other factions get per-faction RGB tints from a 10-color saturated palette. Carried items (world atlas on equipment layers) bypass the grayscale tint and render with original texture colors, so food and gold sprites appear naturally colored. Equipment layers (health >= 0.99) discard pixels in the health bar region so the body's health bar remains visible underneath.
 
 **Damage flash** (white overlay, applied after color tinting):
 ```wgsl
@@ -424,6 +426,7 @@ Current equipment assignments:
 - **Guards**: Weapon (45, 6) + Helmet (28, 0) — character atlas
 - **Raiders**: Weapon (45, 6) — character atlas
 - **Carried food**: Item layer (24, 9) — world atlas, set when raider steals food, cleared on delivery
+- **Carried gold**: Item layer (41, 11) — world atlas, set when miner returns with gold, cleared on delivery
 
 ## World Tilemap (Terrain Only)
 
