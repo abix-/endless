@@ -6,7 +6,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
-use crate::constants::building_def;
+use crate::constants::{building_def, npc_def, tileset_index};
 use crate::components::*;
 use crate::gpu::NpcGpuState;
 use crate::resources::*;
@@ -937,51 +937,6 @@ fn building_inspector_content(
             }
         }
 
-        Building::FarmerHome { .. } | Building::ArcherHome { .. } | Building::CrossbowHome { .. } | Building::Tent { .. } | Building::MinerHome { .. } | Building::FighterHome { .. } => {
-            let ti = |k: BuildingKind| crate::constants::tileset_index(k) as i32;
-            let (kind, spawns_label) = match building {
-                Building::FarmerHome { .. } => (ti(BuildingKind::FarmerHome), "Farmer"),
-                Building::ArcherHome { .. } => (ti(BuildingKind::ArcherHome), "Archer"),
-                Building::CrossbowHome { .. } => (ti(BuildingKind::CrossbowHome), "Crossbow"),
-                Building::MinerHome { .. } => (ti(BuildingKind::MinerHome), "Miner"),
-                Building::FighterHome { .. } => (ti(BuildingKind::FighterHome), "Fighter"),
-                _ => (ti(BuildingKind::Tent), "Raider"),
-            };
-            // Find matching spawner entry
-            if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
-                e.building_kind == kind
-                    && (e.position - world_pos).length() < 1.0
-                    && is_alive(e.position)
-            }) {
-                ui.label(format!("Spawns: {}", spawns_label));
-
-                if entry.npc_slot >= 0 {
-                    let slot = entry.npc_slot as usize;
-                    if slot < meta_cache.0.len() {
-                        let meta = &meta_cache.0[slot];
-                        ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
-                    }
-                    ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
-                } else if entry.respawn_timer > 0.0 {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(200, 200, 40),
-                        format!("Respawning in {:.0}h", entry.respawn_timer),
-                    );
-                } else {
-                    ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Spawning...");
-                }
-            }
-
-            // Mine assignment UI (MinerHome only)
-            if matches!(building, Building::MinerHome { .. }) {
-                ui.separator();
-                let mh_idx = world_data.miner_home_at(world_pos);
-                if let Some(mh_idx) = mh_idx {
-                    mine_assignment_ui(ui, world_data, mh_idx, world_pos, dirty, ui_state);
-                }
-            }
-        }
-
         Building::Waypoint { patrol_order, town_idx: _ } => {
             ui.label(format!("Patrol order: {}", patrol_order));
         }
@@ -1050,6 +1005,40 @@ fn building_inspector_content(
                 if occupants > 0 {
                     let mult = crate::constants::mine_productivity_mult(occupants);
                     ui.label(format!("Miners: {} ({:.0}% speed)", occupants, mult * 100.0));
+                }
+            }
+        }
+
+        _ => {
+            if let Some(spawner) = def.spawner {
+                let spawner_kind = tileset_index(def.kind) as i32;
+                let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
+                if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
+                    e.building_kind == spawner_kind
+                        && (e.position - world_pos).length() < 1.0
+                        && is_alive(e.position)
+                }) {
+                    ui.label(format!("Spawns: {}", spawns_label));
+                    if entry.npc_slot >= 0 {
+                        let slot = entry.npc_slot as usize;
+                        if slot < meta_cache.0.len() {
+                            let meta = &meta_cache.0[slot];
+                            ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
+                        }
+                        ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
+                    } else if entry.respawn_timer > 0.0 {
+                        ui.colored_label(egui::Color32::from_rgb(200, 200, 40),
+                            format!("Respawning in {:.0}h", entry.respawn_timer));
+                    } else {
+                        ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Spawning...");
+                    }
+                }
+                if def.kind == BuildingKind::MinerHome {
+                    ui.separator();
+                    let mh_idx = world_data.miner_home_at(world_pos);
+                    if let Some(mh_idx) = mh_idx {
+                        mine_assignment_ui(ui, world_data, mh_idx, world_pos, dirty, ui_state);
+                    }
                 }
             }
         }

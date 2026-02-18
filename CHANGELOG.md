@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-18m
+
+- **NpcDef ui_color** — `NpcDef` gains `ui_color: (u8, u8, u8)` field with hand-tuned UI text colors per job (distinct from GPU sprite `color`); roster row colors use `ui_color` directly instead of brighten-from-GPU-color math
+- **registry-driven spawner inspector** — building inspector spawner section uses `def.spawner` + `npc_def(job).label` + `tileset_index(def.kind)` from registries instead of 6-variant hardcoded match; adding a new spawner building type only requires setting `spawner: Some(SpawnerDef { .. })` in `BUILDING_REGISTRY`
+
 ## 2026-02-18l
 
 - **registry-driven roster** — roster tab job filter buttons and row colors now driven by `NPC_REGISTRY` loop instead of hardcoded per-job matches; military jobs listed first then civilian; colors derived from `NpcDef.color` with 30% brighten for UI readability

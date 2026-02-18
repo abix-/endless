@@ -65,6 +65,8 @@ pub struct NpcDef {
     pub helmet: Option<(f32, f32)>,
     pub stealer: bool,
     pub leash_range: Option<f32>,
+    /// UI text color for roster/panels (softer than GPU sprite `color`).
+    pub ui_color: (u8, u8, u8),
 }
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
@@ -76,6 +78,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_patrol_unit: false, is_military: false,
         has_energy: true, has_attack_timer: false,
         weapon: None, helmet: None, stealer: false, leash_range: None,
+        ui_color: (80, 200, 80),
     },
     NpcDef {
         job: Job::Archer, label: "Archer", label_plural: "Archers",
@@ -85,6 +88,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_patrol_unit: true, is_military: true,
         has_energy: true, has_attack_timer: true,
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
+        ui_color: (80, 100, 220),
     },
     NpcDef {
         job: Job::Raider, label: "Raider", label_plural: "Raiders",
@@ -94,6 +98,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_patrol_unit: false, is_military: true,
         has_energy: true, has_attack_timer: true,
         weapon: Some(EQUIP_SWORD), helmet: None, stealer: true, leash_range: Some(400.0),
+        ui_color: (220, 80, 80),
     },
     NpcDef {
         job: Job::Fighter, label: "Fighter", label_plural: "Fighters",
@@ -104,6 +109,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_patrol_unit: true, is_military: true,
         has_energy: false, has_attack_timer: true,
         weapon: None, helmet: None, stealer: false, leash_range: None,
+        ui_color: (220, 220, 80),
     },
     NpcDef {
         job: Job::Miner, label: "Miner", label_plural: "Miners",
@@ -113,6 +119,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_patrol_unit: false, is_military: false,
         has_energy: true, has_attack_timer: false,
         weapon: None, helmet: None, stealer: false, leash_range: None,
+        ui_color: (160, 110, 60),
     },
     NpcDef {
         job: Job::Crossbow, label: "Crossbow", label_plural: "Crossbows",
@@ -123,6 +130,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         is_patrol_unit: true, is_military: true,
         has_energy: true, has_attack_timer: true,
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
+        ui_color: (140, 60, 220),
     },
 ];
 

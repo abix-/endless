@@ -443,9 +443,8 @@ fn roster_content(
 
         for row in &state.cached_rows {
             let is_selected = selected_idx == row.slot as i32;
-            let (r, g, b, _) = crate::constants::npc_def(Job::from_i32(row.job)).color;
-            let brighten = |c: f32| ((c * 0.7 + 0.3) * 255.0) as u8;
-            let job_color = egui::Color32::from_rgb(brighten(r), brighten(g), brighten(b));
+            let (r, g, b) = npc_def(Job::from_i32(row.job)).ui_color;
+            let job_color = egui::Color32::from_rgb(r, g, b);
 
             let response = ui.horizontal(|ui| {
                 if is_selected {
