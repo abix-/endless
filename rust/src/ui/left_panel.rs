@@ -5,7 +5,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-use crate::constants::{FOUNTAIN_TOWER, npc_def};
+use crate::constants::{BUILDING_REGISTRY, DisplayCategory, FOUNTAIN_TOWER, npc_def};
 use crate::components::*;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
@@ -1269,15 +1269,24 @@ fn factions_content(
         let right = &mut right_slice[0];
 
         left.label("Economy");
-        left.label(format!("Workforce: {} (Farmers {} + Miners {})", npc(BuildingKind::FarmerHome) + npc(BuildingKind::MinerHome), npc(BuildingKind::FarmerHome), npc(BuildingKind::MinerHome)));
-        left.label(format!("Farmers: {}/{}", npc(BuildingKind::FarmerHome), bld(BuildingKind::FarmerHome)));
-        left.label(format!("Miners: {}/{}", npc(BuildingKind::MinerHome), bld(BuildingKind::MinerHome)));
+        let econ_spawners: Vec<_> = BUILDING_REGISTRY.iter()
+            .filter(|d| d.display == DisplayCategory::Economy && d.spawner.is_some())
+            .collect();
+        let workforce: usize = econ_spawners.iter().map(|d| npc(d.kind)).sum();
+        let parts: Vec<String> = econ_spawners.iter()
+            .map(|d| format!("{} {}", npc(d.kind), npc_def(Job::from_i32(d.spawner.unwrap().job)).label_plural))
+            .collect();
+        left.label(format!("Workforce: {} ({})", workforce, parts.join(" + ")));
+        for def in &econ_spawners {
+            let label = npc_def(Job::from_i32(def.spawner.unwrap().job)).label_plural;
+            left.label(format!("{}: {}/{}", label, npc(def.kind), bld(def.kind)));
+        }
         left.separator();
 
         left.label("Economy Buildings");
-        left.label(format!("Farms: {}", bld(BuildingKind::Farm)));
-        left.label(format!("Farmer Homes: {}", bld(BuildingKind::FarmerHome)));
-        left.label(format!("Miner Homes: {}", bld(BuildingKind::MinerHome)));
+        for def in BUILDING_REGISTRY.iter().filter(|d| d.display == DisplayCategory::Economy) {
+            left.label(format!("{}: {}", def.label, bld(def.kind)));
+        }
         left.separator();
 
         left.label("Mining Policy");
@@ -1342,20 +1351,24 @@ fn factions_content(
             });
 
         right.label("Military");
-        let total_mil = npc(BuildingKind::ArcherHome) + npc(BuildingKind::CrossbowHome) + npc(BuildingKind::FighterHome) + npc(BuildingKind::Tent);
-        right.label(format!("Force: {} (Archers {} + Crossbows {} + Fighters {} + Raiders {})", total_mil, npc(BuildingKind::ArcherHome), npc(BuildingKind::CrossbowHome), npc(BuildingKind::FighterHome), npc(BuildingKind::Tent)));
-        right.label(format!("Archers: {}/{}", npc(BuildingKind::ArcherHome), bld(BuildingKind::ArcherHome)));
-        right.label(format!("Crossbows: {}/{}", npc(BuildingKind::CrossbowHome), bld(BuildingKind::CrossbowHome)));
-        right.label(format!("Fighters: {}/{}", npc(BuildingKind::FighterHome), bld(BuildingKind::FighterHome)));
-        right.label(format!("Raiders: {}/{}", npc(BuildingKind::Tent), bld(BuildingKind::Tent)));
+        let mil_spawners: Vec<_> = BUILDING_REGISTRY.iter()
+            .filter(|d| d.display == DisplayCategory::Military && d.spawner.is_some())
+            .collect();
+        let total_mil: usize = mil_spawners.iter().map(|d| npc(d.kind)).sum();
+        let parts: Vec<String> = mil_spawners.iter()
+            .map(|d| format!("{} {}", npc(d.kind), npc_def(Job::from_i32(d.spawner.unwrap().job)).label_plural))
+            .collect();
+        right.label(format!("Force: {} ({})", total_mil, parts.join(" + ")));
+        for def in &mil_spawners {
+            let label = npc_def(Job::from_i32(def.spawner.unwrap().job)).label_plural;
+            right.label(format!("{}: {}/{}", label, npc(def.kind), bld(def.kind)));
+        }
         right.separator();
 
         right.label("Military Buildings");
-        right.label(format!("Archer Homes: {}", bld(BuildingKind::ArcherHome)));
-        right.label(format!("Crossbow Homes: {}", bld(BuildingKind::CrossbowHome)));
-        right.label(format!("Fighter Homes: {}", bld(BuildingKind::FighterHome)));
-        right.label(format!("Waypoints: {}", bld(BuildingKind::Waypoint)));
-        right.label(format!("Tents: {}", bld(BuildingKind::Tent)));
+        for def in BUILDING_REGISTRY.iter().filter(|d| d.display == DisplayCategory::Military) {
+            right.label(format!("{}: {}", def.label, bld(def.kind)));
+        }
         right.separator();
 
         right.label("Military Stats");

@@ -45,7 +45,7 @@ impl Default for CombatConfig {
 
         let mut attacks = HashMap::new();
         attacks.insert(BaseAttackType::Melee, AttackTypeStats {
-            range: 150.0, cooldown: 1.0, projectile_speed: 500.0, projectile_lifetime: 0.5,
+            range: 50.0, cooldown: 1.0, projectile_speed: 200.0, projectile_lifetime: 0.5,
         });
         attacks.insert(BaseAttackType::Ranged, AttackTypeStats {
             range: 100.0, cooldown: 1.5, projectile_speed: 100.0, projectile_lifetime: 1.5,

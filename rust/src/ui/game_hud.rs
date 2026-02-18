@@ -6,6 +6,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
+use crate::constants::building_def;
 use crate::components::*;
 use crate::gpu::NpcGpuState;
 use crate::resources::*;
@@ -196,7 +197,7 @@ pub struct LogFilterState {
     // Cached merged log entries — skip rebuild when sources unchanged
     cached_selected_npc: i32,
     cached_filters: (bool, bool, bool, bool, bool, bool, bool, bool, i32),
-    cached_entries: Vec<(i64, egui::Color32, String, String)>,
+    cached_entries: Vec<(i64, egui::Color32, String, String, Option<bevy::math::Vec2>)>,
 }
 
 #[derive(Default)]
@@ -276,7 +277,7 @@ pub fn bottom_panel_system(
                         "NPC".to_string()
                     };
                     let bld_label = selected_building_info(&bld_data.selected_building, &bld_data.grid, &world_data)
-                        .map(|(b, _, _, _)| format!("Building: {}", building_name(&b)))
+                        .map(|(b, _, _, _)| format!("Building: {}", building_def(b.kind()).label))
                         .unwrap_or_else(|| "Building".to_string());
 
                     ui.horizontal(|ui| {
@@ -340,6 +341,7 @@ pub fn combat_log_system(
     mut settings: ResMut<UserSettings>,
     mut filter_state: Local<LogFilterState>,
     ui_state: Res<UiState>,
+    mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
 ) -> Result {
     if !ui_state.combat_log_visible { return Ok(()); }
     let ctx = contexts.ctx_mut()?;
@@ -441,7 +443,7 @@ pub fn combat_log_system(
 
                     let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
                     let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
-                    filter_state.cached_entries.push((key, color, ts, entry.message.clone()));
+                    filter_state.cached_entries.push((key, color, ts, entry.message.clone(), entry.location));
                 }
 
                 if filter_state.show_npc_activity && data.selected.0 >= 0 {
@@ -451,7 +453,7 @@ pub fn combat_log_system(
                         for entry in data.npc_logs.0[idx].iter() {
                             let key = (entry.day as i64) * 10000 + (entry.hour as i64) * 100 + entry.minute as i64;
                             let ts = format!("[D{} {:02}:{:02}]", entry.day, entry.hour, entry.minute);
-                            filter_state.cached_entries.push((key, npc_color, ts, entry.message.to_string()));
+                            filter_state.cached_entries.push((key, npc_color, ts, entry.message.to_string(), None));
                         }
                     }
                 }
@@ -462,17 +464,29 @@ pub fn combat_log_system(
             }
 
             // Render from cache
+            let mut pan_to: Option<bevy::math::Vec2> = None;
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
-                    for (_, color, ts, msg) in &filter_state.cached_entries {
+                    for (_, color, ts, msg, loc) in &filter_state.cached_entries {
                         ui.horizontal(|ui| {
                             ui.small(ts);
+                            if let Some(pos) = loc {
+                                if ui.small_button(">>").on_hover_text("Pan camera to target").clicked() {
+                                    pan_to = Some(*pos);
+                                }
+                            }
                             ui.colored_label(*color, msg);
                         });
                     }
                 });
+            if let Some(pos) = pan_to {
+                if let Ok(mut transform) = camera_query.single_mut() {
+                    transform.translation.x = pos.x;
+                    transform.translation.y = pos.y;
+                }
+            }
         });
 
     // Persist filter changes
@@ -787,40 +801,6 @@ fn inspector_content(
 // BUILDING INSPECTOR
 // ============================================================================
 
-fn building_name(building: &Building) -> &'static str {
-    match building {
-        Building::Fountain { .. } => "Fountain",
-        Building::Farm { .. } => "Farm",
-        Building::Bed { .. } => "Bed",
-        Building::Waypoint { .. } => "Waypoint",
-        Building::Camp { .. } => "Camp",
-        Building::FarmerHome { .. } => "Farmer Home",
-        Building::ArcherHome { .. } => "Archer Home",
-        Building::CrossbowHome { .. } => "Crossbow Home",
-        Building::Tent { .. } => "Tent",
-        Building::GoldMine => "Gold Mine",
-        Building::MinerHome { .. } => "Miner Home",
-        Building::FighterHome { .. } => "Fighter Home",
-    }
-}
-
-pub fn building_town_idx(building: &Building) -> u32 {
-    match building {
-        Building::Fountain { town_idx }
-        | Building::Farm { town_idx }
-        | Building::Bed { town_idx }
-        | Building::Waypoint { town_idx, .. }
-        | Building::Camp { town_idx }
-        | Building::FarmerHome { town_idx }
-        | Building::ArcherHome { town_idx }
-        | Building::CrossbowHome { town_idx }
-        | Building::Tent { town_idx }
-        | Building::MinerHome { town_idx }
-        | Building::FighterHome { town_idx } => *town_idx,
-        Building::GoldMine => 0, // mines are unowned
-    }
-}
-
 fn building_from_kind_index(world_data: &WorldData, kind: BuildingKind, index: usize) -> Option<(Building, Vec2)> {
     match kind {
         BuildingKind::Farm => world_data.farms.get(index).map(|b| (Building::Farm { town_idx: b.town_idx }, b.position)),
@@ -929,10 +909,11 @@ fn building_inspector_content(
         selected_building_info(&bld.selected_building, &bld.grid, world_data)
     else { return };
 
-    let town_idx = building_town_idx(&building) as usize;
+    let def = building_def(building.kind());
+    let town_idx = (def.town_idx)(&building) as usize;
 
     // Header
-    ui.strong(building_name(&building));
+    ui.strong(def.label);
 
     // Town + faction
     if let Some(town) = world_data.towns.get(town_idx) {
@@ -1113,7 +1094,7 @@ fn building_inspector_content(
         ui.label(format!("HP: {:.0}/{:.0}  Kind: {:?}", hp, max_hp, kind));
 
         if ui.button("Copy Debug Info").clicked() {
-            let name = building_name(&building);
+            let name = building_def(building.kind()).label;
             let town_name = world_data.towns.get(town_idx)
                 .map(|t| t.name.as_str()).unwrap_or("?");
             let mut info = format!(

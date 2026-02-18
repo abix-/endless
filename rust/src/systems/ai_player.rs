@@ -1772,8 +1772,9 @@ pub fn ai_squad_commander_system(
                         AiKind::Raider => "raiders",
                         AiKind::Builder => "units",
                     };
-                    combat_log.push(CombatEventKind::Raid, faction, game_time.day(), game_time.hour(), game_time.minute(),
-                        format!("{} [{}] wave started: {} {} → {}", town_name, pname, member_count, unit_label, crate::constants::building_def(bk).label));
+                    combat_log.push_at(CombatEventKind::Raid, faction, game_time.day(), game_time.hour(), game_time.minute(),
+                        format!("{} [{}] wave started: {} {} → {}", town_name, pname, member_count, unit_label, crate::constants::building_def(bk).label),
+                        Some(pos));
                 }
             }
         }

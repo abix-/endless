@@ -839,6 +839,8 @@ pub struct CombatLogEntry {
     pub kind: CombatEventKind,
     pub faction: i32,
     pub message: String,
+    /// Optional world position — rendered as a clickable camera-pan button in the log.
+    pub location: Option<bevy::math::Vec2>,
 }
 
 const COMBAT_LOG_MAX: usize = 200;
@@ -851,10 +853,14 @@ pub struct CombatLog {
 
 impl CombatLog {
     pub fn push(&mut self, kind: CombatEventKind, faction: i32, day: i32, hour: i32, minute: i32, message: String) {
+        self.push_at(kind, faction, day, hour, minute, message, None);
+    }
+
+    pub fn push_at(&mut self, kind: CombatEventKind, faction: i32, day: i32, hour: i32, minute: i32, message: String, location: Option<bevy::math::Vec2>) {
         if self.entries.len() >= COMBAT_LOG_MAX {
             self.entries.pop_front();
         }
-        self.entries.push_back(CombatLogEntry { day, hour, minute, kind, faction, message });
+        self.entries.push_back(CombatLogEntry { day, hour, minute, kind, faction, message, location });
     }
 }
 

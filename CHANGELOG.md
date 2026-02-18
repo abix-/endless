@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-02-18h
+
+- **fighter damage 1.5x** — fighter `base_damage` 15→22.5 (1.5x multiplier vs standard melee)
+- **melee range 50px** — `CombatConfig` default melee range 150→50px, projectile speed 500→200; all melee units (fighters, raiders) now engage at close range
+- **combat log location button** — `CombatLogEntry` gains `location: Option<Vec2>`; `CombatLog::push_at()` accepts explicit position; wave-started entries include target position; combat log UI renders clickable ">>" button that pans camera to the target
+- **wave logs as Raid** — squad wave start/end events use `CombatEventKind::Raid` (orange) instead of `Ai` (purple); wave-started messages use `building_def(bk).label` instead of `{:?}` debug format
+- **NpcDef label_plural** — `NPC_REGISTRY` entries gain `label_plural` field ("Farmers", "Archers", etc.) for data-driven UI display
+- **DisplayCategory** — `BuildingDef` gains `display: DisplayCategory` enum (Hidden/Economy/Military) for factions tab column assignment
+- **BuildingDef town_idx fn** — registry gains `town_idx: fn(&Building) -> u32` fn pointer; building inspector uses `(def.town_idx)(&building)` instead of `building_town_idx()` helper
+- **registry-driven intel panel** — factions tab Economy/Military columns use `BUILDING_REGISTRY` loop with `DisplayCategory` filter and `label_plural` from `NPC_REGISTRY` instead of hardcoded building lists
+- **registry-driven inspector** — building inspector uses `building_def(kind).label` and `(def.town_idx)(&building)` instead of `building_name()`/`building_town_idx()` helpers
+
 ## 2026-02-18g
 
 - **BUILDING_REGISTRY fn pointers** — `BuildingDef` gains 6 fn pointer fields (`build`, `len`, `pos_town`, `count_for_town`, `hps`, `hps_mut`); all 12 registry entries carry closures that dispatch to the correct WorldData/BuildingHpState vec; `WorldData::building_pos_town()`, `building_len()`, `building_counts()` delegate to registry (no per-kind match); `BuildingHpState::hps()`/`hps_mut()`/`push_for()` delegate to registry; `TownBuildingCounts` struct removed, replaced by `HashMap<BuildingKind, usize>` via registry loop

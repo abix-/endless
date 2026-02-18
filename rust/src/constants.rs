@@ -44,6 +44,7 @@ pub struct AttackTypeStats {
 pub struct NpcDef {
     pub job: Job,
     pub label: &'static str,
+    pub label_plural: &'static str,
     pub sprite: (f32, f32),
     pub color: (f32, f32, f32, f32),
     // Base combat stats
@@ -67,7 +68,7 @@ pub struct NpcDef {
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
     NpcDef {
-        job: Job::Farmer, label: "Farmer",
+        job: Job::Farmer, label: "Farmer", label_plural: "Farmers",
         sprite: (1.0, 6.0), color: (0.0, 1.0, 0.0, 1.0),
         base_hp: 100.0, base_damage: 0.0, base_speed: 100.0,
         default_attack_type: BaseAttackType::Melee, attack_override: None,
@@ -76,7 +77,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: None, helmet: None, stealer: false, leash_range: None,
     },
     NpcDef {
-        job: Job::Archer, label: "Archer",
+        job: Job::Archer, label: "Archer", label_plural: "Archers",
         sprite: (0.0, 0.0), color: (0.0, 0.0, 1.0, 1.0),
         base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
         default_attack_type: BaseAttackType::Ranged, attack_override: None,
@@ -85,7 +86,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
     },
     NpcDef {
-        job: Job::Raider, label: "Raider",
+        job: Job::Raider, label: "Raider", label_plural: "Raiders",
         sprite: (0.0, 6.0), color: (1.0, 0.0, 0.0, 1.0),
         base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
         default_attack_type: BaseAttackType::Melee, attack_override: None,
@@ -94,16 +95,17 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: Some(EQUIP_SWORD), helmet: None, stealer: true, leash_range: Some(400.0),
     },
     NpcDef {
-        job: Job::Fighter, label: "Fighter",
+        job: Job::Fighter, label: "Fighter", label_plural: "Fighters",
         sprite: (1.0, 9.0), color: (1.0, 1.0, 0.0, 1.0),
-        base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
-        default_attack_type: BaseAttackType::Melee, attack_override: None,
+        base_hp: 100.0, base_damage: 22.5, base_speed: 100.0,
+        default_attack_type: BaseAttackType::Melee,
+        attack_override: None,
         is_patrol_unit: true, is_military: true,
         has_energy: false, has_attack_timer: true,
         weapon: None, helmet: None, stealer: false, leash_range: None,
     },
     NpcDef {
-        job: Job::Miner, label: "Miner",
+        job: Job::Miner, label: "Miner", label_plural: "Miners",
         sprite: (1.0, 6.0), color: (0.6, 0.4, 0.2, 1.0),
         base_hp: 100.0, base_damage: 0.0, base_speed: 100.0,
         default_attack_type: BaseAttackType::Melee, attack_override: None,
@@ -112,7 +114,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         weapon: None, helmet: None, stealer: false, leash_range: None,
     },
     NpcDef {
-        job: Job::Crossbow, label: "Crossbow",
+        job: Job::Crossbow, label: "Crossbow", label_plural: "Crossbows",
         sprite: (0.0, 0.0), color: (0.4, 0.0, 0.8, 1.0),
         base_hp: 100.0, base_damage: 25.0, base_speed: 100.0,
         default_attack_type: BaseAttackType::Ranged,
@@ -420,11 +422,16 @@ pub struct SpawnerDef {
     pub behavior: SpawnBehavior,
 }
 
+/// Factions tab column assignment for building display.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum DisplayCategory { Hidden, Economy, Military }
+
 /// Complete building definition — one entry per BuildingKind.
 /// Index in BUILDING_REGISTRY = tileset index for GPU rendering.
 #[derive(Clone, Copy, Debug)]
 pub struct BuildingDef {
     pub kind: BuildingKind,
+    pub display: DisplayCategory,
     pub tile: TileSpec,
     pub hp: f32,
     pub cost: i32,
@@ -449,6 +456,8 @@ pub struct BuildingDef {
     pub hps: fn(&BuildingHpState) -> &[f32],
     /// Mutable access to this kind's HP vec.
     pub hps_mut: fn(&mut BuildingHpState) -> &mut Vec<f32>,
+    /// Extract town_idx from a Building instance of this kind.
+    pub town_idx: fn(&Building) -> u32,
 }
 
 /// Single source of truth for all building types.
@@ -456,7 +465,7 @@ pub struct BuildingDef {
 pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 0: Fountain (town center, auto-shoots)
     BuildingDef {
-        kind: BuildingKind::Fountain,
+        kind: BuildingKind::Fountain, display: DisplayCategory::Hidden,
         tile: TileSpec::Single(50, 9),
         hp: 500.0, cost: 0,
         label: "Fountain", help: "Town center",
@@ -470,10 +479,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| if wd.towns.get(ti as usize).map(|t| t.sprite_type == 0).unwrap_or(false) { 1 } else { 0 },
         hps: |hp| &hp.towns,
         hps_mut: |hp| &mut hp.towns,
+        town_idx: |b| if let Building::Fountain { town_idx } = b { *town_idx } else { 0 },
     },
     // 1: Bed
     BuildingDef {
-        kind: BuildingKind::Bed,
+        kind: BuildingKind::Bed, display: DisplayCategory::Hidden,
         tile: TileSpec::Single(15, 2),
         hp: 50.0, cost: 0,
         label: "Bed", help: "NPC rest spot",
@@ -487,10 +497,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.beds.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.beds,
         hps_mut: |hp| &mut hp.beds,
+        town_idx: |b| if let Building::Bed { town_idx } = b { *town_idx } else { 0 },
     },
     // 2: Waypoint
     BuildingDef {
-        kind: BuildingKind::Waypoint,
+        kind: BuildingKind::Waypoint, display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/waypoint.png"),
         hp: 200.0, cost: 1,
         label: "Waypoint", help: "Patrol waypoint",
@@ -504,10 +515,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.waypoints.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.waypoints,
         hps_mut: |hp| &mut hp.waypoints,
+        town_idx: |b| if let Building::Waypoint { town_idx, .. } = b { *town_idx } else { 0 },
     },
     // 3: Farm
     BuildingDef {
-        kind: BuildingKind::Farm,
+        kind: BuildingKind::Farm, display: DisplayCategory::Economy,
         tile: TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]),
         hp: 80.0, cost: 2,
         label: "Farm", help: "Grows food over time",
@@ -521,10 +533,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.farms.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.farms,
         hps_mut: |hp| &mut hp.farms,
+        town_idx: |b| if let Building::Farm { town_idx } = b { *town_idx } else { 0 },
     },
     // 4: Camp (raider town center)
     BuildingDef {
-        kind: BuildingKind::Camp,
+        kind: BuildingKind::Camp, display: DisplayCategory::Hidden,
         tile: TileSpec::Quad([(46, 10), (47, 10), (46, 11), (47, 11)]),
         hp: 500.0, cost: 0,
         label: "Camp", help: "Raider camp center",
@@ -538,10 +551,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| if wd.towns.get(ti as usize).map(|t| t.sprite_type == 1).unwrap_or(false) { 1 } else { 0 },
         hps: |hp| &hp.towns,
         hps_mut: |hp| &mut hp.towns,
+        town_idx: |b| if let Building::Camp { town_idx } = b { *town_idx } else { 0 },
     },
     // 5: Farmer Home
     BuildingDef {
-        kind: BuildingKind::FarmerHome,
+        kind: BuildingKind::FarmerHome, display: DisplayCategory::Economy,
         tile: TileSpec::External("sprites/house.png"),
         hp: 100.0, cost: 2,
         label: "Farmer Home", help: "Spawns 1 farmer",
@@ -556,10 +570,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.farmer_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.farmer_homes,
         hps_mut: |hp| &mut hp.farmer_homes,
+        town_idx: |b| if let Building::FarmerHome { town_idx } = b { *town_idx } else { 0 },
     },
     // 6: Archer Home
     BuildingDef {
-        kind: BuildingKind::ArcherHome,
+        kind: BuildingKind::ArcherHome, display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/barracks.png"),
         hp: 150.0, cost: 4,
         label: "Archer Home", help: "Spawns 1 archer",
@@ -574,10 +589,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.archer_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.archer_homes,
         hps_mut: |hp| &mut hp.archer_homes,
+        town_idx: |b| if let Building::ArcherHome { town_idx } = b { *town_idx } else { 0 },
     },
     // 7: Tent (raider spawner)
     BuildingDef {
-        kind: BuildingKind::Tent,
+        kind: BuildingKind::Tent, display: DisplayCategory::Military,
         tile: TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]),
         hp: 100.0, cost: 3,
         label: "Tent", help: "Spawns 1 raider",
@@ -592,10 +608,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.tents.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.tents,
         hps_mut: |hp| &mut hp.tents,
+        town_idx: |b| if let Building::Tent { town_idx } = b { *town_idx } else { 0 },
     },
     // 8: Gold Mine
     BuildingDef {
-        kind: BuildingKind::GoldMine,
+        kind: BuildingKind::GoldMine, display: DisplayCategory::Hidden,
         tile: TileSpec::Single(43, 11),
         hp: 200.0, cost: 0,
         label: "Gold Mine", help: "Source of gold",
@@ -609,10 +626,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, _| wd.gold_mines.iter().filter(|b| is_alive(b.position)).count(),
         hps: |hp| &hp.gold_mines,
         hps_mut: |hp| &mut hp.gold_mines,
+        town_idx: |_| 0,
     },
     // 9: Miner Home
     BuildingDef {
-        kind: BuildingKind::MinerHome,
+        kind: BuildingKind::MinerHome, display: DisplayCategory::Economy,
         tile: TileSpec::External("sprites/miner_house.png"),
         hp: 100.0, cost: 4,
         label: "Miner Home", help: "Spawns 1 miner",
@@ -627,10 +645,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.miner_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.miner_homes,
         hps_mut: |hp| &mut hp.miner_homes,
+        town_idx: |b| if let Building::MinerHome { town_idx } = b { *town_idx } else { 0 },
     },
     // 10: Crossbow Home
     BuildingDef {
-        kind: BuildingKind::CrossbowHome,
+        kind: BuildingKind::CrossbowHome, display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/barracks.png"),
         hp: 150.0, cost: 8,
         label: "Crossbow Home", help: "Spawns 1 crossbow",
@@ -645,10 +664,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.crossbow_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.crossbow_homes,
         hps_mut: |hp| &mut hp.crossbow_homes,
+        town_idx: |b| if let Building::CrossbowHome { town_idx } = b { *town_idx } else { 0 },
     },
     // 11: Fighter Home
     BuildingDef {
         kind: BuildingKind::FighterHome,
+        display: DisplayCategory::Military,
         tile: TileSpec::External("sprites/fighter_home.png"),
         hp: 150.0, cost: 5,
         label: "Fighter Home", help: "Spawns 1 fighter",
@@ -663,6 +684,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         count_for_town: |wd, ti| wd.fighter_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
         hps: |hp| &hp.fighter_homes,
         hps_mut: |hp| &mut hp.fighter_homes,
+        town_idx: |b| if let Building::FighterHome { town_idx } = b { *town_idx } else { 0 },
     },
 ];
 
