@@ -6,7 +6,7 @@ Every NPC has a job, a home, and a personality. Set town policies, plan your tec
 
 <!-- TODO: Add screenshot/GIF here -->
 
-[Roadmap](docs/roadmap.md)*
+[Roadmap](docs/roadmap.md)
 
 ## Download
 
