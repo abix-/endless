@@ -103,8 +103,8 @@ pub struct UpgradeParams<'w> {
 pub struct SquadParams<'w, 's> {
     squad_state: ResMut<'w, SquadState>,
     gpu_state: Res<'w, GpuReadState>,
-    // Query: archers with SquadId (for dismiss)
-    squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId), (With<Archer>, Without<Dead>)>,
+    // Query: military units with SquadId (for dismiss)
+    squad_guards: Query<'w, 's, (Entity, &'static NpcIndex, &'static SquadId), (With<SquadUnit>, Without<Dead>)>,
 }
 
 // ============================================================================
@@ -143,20 +143,8 @@ struct AiSnapshot {
     personality_name: &'static str,
     food: i32,
     gold: i32,
-    farmers: usize,
-    archers: usize,
-    crossbows: usize,
-    fighters: usize,
-    raiders: usize,
-    miners: usize,
-    farmer_homes: usize,
-    archer_homes: usize,
-    crossbow_homes: usize,
-    fighter_homes: usize,
-    tents: usize,
-    miner_homes: usize,
-    farms: usize,
-    waypoints: usize,
+    npcs: std::collections::HashMap<crate::world::BuildingKind, usize>,
+    buildings: std::collections::HashMap<crate::world::BuildingKind, usize>,
     alive: i32,
     dead: i32,
     kills: i32,
@@ -1042,28 +1030,18 @@ fn rebuild_factions_cache(
             .map(|t| t.center).unwrap_or_default();
         let faction = world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
 
-        let counts = world_data.building_counts(ti);
-        let farms = counts.farms;
-        let farmer_homes = counts.farmer_homes;
-        let archer_homes = counts.archer_homes;
-        let crossbow_homes = counts.crossbow_homes;
-        let fighter_homes = counts.fighter_homes;
-        let waypoints = counts.waypoints;
-        let tents = counts.tents;
-        let miner_homes = counts.miner_homes;
+        let buildings = world_data.building_counts(ti);
 
         let ti_i32 = tdi as i32;
-        let alive_spawner = |kind: BuildingKind| {
-            let ti = crate::constants::tileset_index(kind) as i32;
-            factions.spawner_state.0.iter()
-                .filter(|s| s.building_kind == ti && s.town_idx == ti_i32 && s.npc_slot >= 0 && is_alive(s.position)).count()
-        };
-        let farmers = alive_spawner(BuildingKind::FarmerHome);
-        let archers = alive_spawner(BuildingKind::ArcherHome);
-        let crossbows = alive_spawner(BuildingKind::CrossbowHome);
-        let fighters = alive_spawner(BuildingKind::FighterHome);
-        let raiders = alive_spawner(BuildingKind::Tent);
-        let miners = alive_spawner(BuildingKind::MinerHome);
+        let npcs: std::collections::HashMap<BuildingKind, usize> = crate::constants::BUILDING_REGISTRY.iter()
+            .filter(|def| def.spawner.is_some())
+            .map(|def| {
+                let ti = crate::constants::tileset_index(def.kind) as i32;
+                let count = factions.spawner_state.0.iter()
+                    .filter(|s| s.building_kind == ti && s.town_idx == ti_i32 && s.npc_slot >= 0 && is_alive(s.position)).count();
+                (def.kind, count)
+            })
+            .collect();
 
         let food = factions.food_storage.food.get(tdi).copied().unwrap_or(0);
         let gold = factions.gold_storage.gold.get(tdi).copied().unwrap_or(0);
@@ -1130,20 +1108,8 @@ fn rebuild_factions_cache(
             personality_name,
             food,
             gold,
-            farmers,
-            archers,
-            crossbows,
-            fighters,
-            raiders,
-            miners,
-            farmer_homes,
-            archer_homes,
-            crossbow_homes,
-            fighter_homes,
-            tents,
-            miner_homes,
-            farms,
-            waypoints,
+            npcs,
+            buildings,
             alive,
             dead,
             kills,
@@ -1294,21 +1260,24 @@ fn factions_content(
     let fountain_bonus = lv[UpgradeType::FountainRange as usize] as f32 * 24.0;
     let tower = resolve_town_tower_stats(lv);
 
+    let npc = |k: BuildingKind| snap.npcs.get(&k).copied().unwrap_or(0);
+    let bld = |k: BuildingKind| snap.buildings.get(&k).copied().unwrap_or(0);
+
     ui.columns(2, |columns| {
         let (left_slice, right_slice) = columns.split_at_mut(1);
         let left = &mut left_slice[0];
         let right = &mut right_slice[0];
 
         left.label("Economy");
-        left.label(format!("Workforce: {} (Farmers {} + Miners {})", snap.farmers + snap.miners, snap.farmers, snap.miners));
-        left.label(format!("Farmers: {}/{}", snap.farmers, snap.farmer_homes));
-        left.label(format!("Miners: {}/{}", snap.miners, snap.miner_homes));
+        left.label(format!("Workforce: {} (Farmers {} + Miners {})", npc(BuildingKind::FarmerHome) + npc(BuildingKind::MinerHome), npc(BuildingKind::FarmerHome), npc(BuildingKind::MinerHome)));
+        left.label(format!("Farmers: {}/{}", npc(BuildingKind::FarmerHome), bld(BuildingKind::FarmerHome)));
+        left.label(format!("Miners: {}/{}", npc(BuildingKind::MinerHome), bld(BuildingKind::MinerHome)));
         left.separator();
 
         left.label("Economy Buildings");
-        left.label(format!("Farms: {}", snap.farms));
-        left.label(format!("Farmer Homes: {}", snap.farmer_homes));
-        left.label(format!("Miner Homes: {}", snap.miner_homes));
+        left.label(format!("Farms: {}", bld(BuildingKind::Farm)));
+        left.label(format!("Farmer Homes: {}", bld(BuildingKind::FarmerHome)));
+        left.label(format!("Miner Homes: {}", bld(BuildingKind::MinerHome)));
         left.separator();
 
         left.label("Mining Policy");
@@ -1373,20 +1342,20 @@ fn factions_content(
             });
 
         right.label("Military");
-        let total_mil = snap.archers + snap.crossbows + snap.fighters + snap.raiders;
-        right.label(format!("Force: {} (Archers {} + Crossbows {} + Fighters {} + Raiders {})", total_mil, snap.archers, snap.crossbows, snap.fighters, snap.raiders));
-        right.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
-        right.label(format!("Crossbows: {}/{}", snap.crossbows, snap.crossbow_homes));
-        right.label(format!("Fighters: {}/{}", snap.fighters, snap.fighter_homes));
-        right.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
+        let total_mil = npc(BuildingKind::ArcherHome) + npc(BuildingKind::CrossbowHome) + npc(BuildingKind::FighterHome) + npc(BuildingKind::Tent);
+        right.label(format!("Force: {} (Archers {} + Crossbows {} + Fighters {} + Raiders {})", total_mil, npc(BuildingKind::ArcherHome), npc(BuildingKind::CrossbowHome), npc(BuildingKind::FighterHome), npc(BuildingKind::Tent)));
+        right.label(format!("Archers: {}/{}", npc(BuildingKind::ArcherHome), bld(BuildingKind::ArcherHome)));
+        right.label(format!("Crossbows: {}/{}", npc(BuildingKind::CrossbowHome), bld(BuildingKind::CrossbowHome)));
+        right.label(format!("Fighters: {}/{}", npc(BuildingKind::FighterHome), bld(BuildingKind::FighterHome)));
+        right.label(format!("Raiders: {}/{}", npc(BuildingKind::Tent), bld(BuildingKind::Tent)));
         right.separator();
 
         right.label("Military Buildings");
-        right.label(format!("Archer Homes: {}", snap.archer_homes));
-        right.label(format!("Crossbow Homes: {}", snap.crossbow_homes));
-        right.label(format!("Fighter Homes: {}", snap.fighter_homes));
-        right.label(format!("Waypoints: {}", snap.waypoints));
-        right.label(format!("Tents: {}", snap.tents));
+        right.label(format!("Archer Homes: {}", bld(BuildingKind::ArcherHome)));
+        right.label(format!("Crossbow Homes: {}", bld(BuildingKind::CrossbowHome)));
+        right.label(format!("Fighter Homes: {}", bld(BuildingKind::FighterHome)));
+        right.label(format!("Waypoints: {}", bld(BuildingKind::Waypoint)));
+        right.label(format!("Tents: {}", bld(BuildingKind::Tent)));
         right.separator();
 
         right.label("Military Stats");

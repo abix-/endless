@@ -1358,6 +1358,7 @@ pub fn spawn_npcs_from_save(
             Job::Crossbow => { ec.insert(Crossbow); }
             _ => {}
         }
+        if def.is_military { ec.insert(SquadUnit); }
 
         // Save-specific optional data
         if let Some(a) = npc.armor { ec.insert(EquippedArmor(a[0], a[1])); }

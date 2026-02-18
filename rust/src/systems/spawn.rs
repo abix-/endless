@@ -146,7 +146,6 @@ pub fn spawn_npc_system(
         if let Some(h) = def.helmet { ec.insert(EquippedHelmet(h.0, h.1)); }
         if def.stealer { ec.insert(Stealer); }
         if let Some(d) = def.leash_range { ec.insert(LeashRange { distance: d }); }
-        if def.is_patrol_unit { dirty.squads = true; }
         if job == Job::Miner { dirty.mining = true; }
 
         // Marker components (distinct types for ECS query filtering)
@@ -157,6 +156,7 @@ pub fn spawn_npc_system(
             Job::Crossbow => { ec.insert(Crossbow); }
             _ => {}
         }
+        if def.is_military { ec.insert(SquadUnit); dirty.squads = true; }
 
         // Conditional setup from message data
         if def.is_patrol_unit && msg.starting_post >= 0 {

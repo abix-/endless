@@ -839,16 +839,7 @@ fn build_place_click_system(
     }
 
     // Town-grid build mode: supports single-click and click-drag line placement.
-    let label = match kind {
-        BuildingKind::Farm => "farm",
-        BuildingKind::FarmerHome => "house",
-        BuildingKind::ArcherHome => "barracks",
-        BuildingKind::CrossbowHome => "crossbow home",
-        BuildingKind::FighterHome => "fighter home",
-        BuildingKind::Tent => "tent",
-        BuildingKind::MinerHome => "mine shaft",
-        _ => unreachable!(),
-    };
+    let label = crate::constants::building_def(kind).label;
 
     let mut try_place_at_slot = |slot_row: i32, slot_col: i32| -> bool {
         let Some(town_grid) = world_state.town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return false };
@@ -862,16 +853,7 @@ fn build_place_click_system(
         let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
         if food < cost { return false; }
 
-        let building = match kind {
-            BuildingKind::Farm => world::Building::Farm { town_idx },
-            BuildingKind::FarmerHome => world::Building::FarmerHome { town_idx },
-            BuildingKind::ArcherHome => world::Building::ArcherHome { town_idx },
-            BuildingKind::CrossbowHome => world::Building::CrossbowHome { town_idx },
-            BuildingKind::FighterHome => world::Building::FighterHome { town_idx },
-            BuildingKind::Tent => world::Building::Tent { town_idx },
-            BuildingKind::MinerHome => world::Building::MinerHome { town_idx },
-            _ => unreachable!(),
-        };
+        let building = (crate::constants::building_def(kind).build)(town_idx);
 
         world::build_and_pay(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
@@ -1327,7 +1309,6 @@ struct CleanupDebug<'w> {
     health_debug: ResMut<'w, HealthDebug>,
     kill_stats: ResMut<'w, KillStats>,
     camp_state: ResMut<'w, CampState>,
-    raid_queue: ResMut<'w, RaidQueue>,
     npc_entity_map: ResMut<'w, NpcEntityMap>,
     pop_stats: ResMut<'w, PopulationStats>,
 }
@@ -1413,7 +1394,6 @@ fn game_cleanup_system(
     *debug.kill_stats = Default::default();
     *world.world_state.building_occupancy = Default::default();
     *debug.camp_state = Default::default();
-    *debug.raid_queue = Default::default();
     *debug.npc_entity_map = Default::default();
     *debug.pop_stats = Default::default();
 

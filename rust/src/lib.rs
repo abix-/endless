@@ -33,7 +33,7 @@ use resources::{
     GrowthStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
-    FoodStorage, GoldStorage, FactionStats, CampState, RaidQueue, SystemTimings,
+    FoodStorage, GoldStorage, FactionStats, CampState, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     TowerState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
     AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
@@ -226,7 +226,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<CampState>()
        .init_resource::<DirtyFlags>()
        .init_resource::<HealingZoneCache>()
-       .init_resource::<RaidQueue>()
        .init_resource::<SystemTimings>()
        .init_resource::<world::WorldGrid>()
        .init_resource::<world::BuildingSpatialGrid>()

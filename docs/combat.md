@@ -43,7 +43,7 @@ DamageMsg (from process_proj_hits)             GPU movement
   death_cleanup_system
   ├─ despawn entity
   ├─ HideNpc → GPU (-9999)
-  ├─ Release AssignedFarm, clear RaidQueue
+  ├─ Release AssignedFarm
   ├─ Update FactionStats, KillStats, PopulationStats
   └─ SlotAllocator.free(idx)
         │
@@ -135,11 +135,10 @@ Execution order is **chained** — each system completes before the next starts.
      - Health → 0 — ensures click detection skips slot
   4. Release `AssignedFarm` via `BuildingOccupancy.release()` if farmer had one
   5. Release `WorkPosition` via `BuildingOccupancy.release()` if miner was at a mine
-  6. Remove from `RaidQueue` if Raider
-  7. Update stats: `PopulationStats` (dec_alive, inc_dead, dec_working if `Working` or `MiningAtMine`), `FactionStats` (dec_alive, inc_dead), `KillStats`
-  8. Remove from `NpcsByTownCache`
-  9. Deselect if `SelectedNpc` matches dying NPC (clears inspector panel)
-  10. `SlotAllocator.free(idx)` — recycle slot for future spawns
+  6. Update stats: `PopulationStats` (dec_alive, inc_dead, dec_working if `Working` or `MiningAtMine`), `FactionStats` (dec_alive, inc_dead), `KillStats`
+  7. Remove from `NpcsByTownCache`
+  8. Deselect if `SelectedNpc` matches dying NPC (clears inspector panel)
+  9. `SlotAllocator.free(idx)` — recycle slot for future spawns
 
 ### 7. sync_waypoint_slots (combat.rs)
 

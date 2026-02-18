@@ -14,7 +14,7 @@ Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding`
 The system uses **SystemParam bundles** for farm and economy parameters:
 - `FarmParams`: farm states, `BuildingOccupancy` tracking, world data
 - `EconomyParams`: food storage, food events, population stats
-- `DecisionExtras`: npc logs, raid queue, combat log, policies, squad state, timings, town upgrades
+- `DecisionExtras`: npc logs, combat log, policies, squad state, timings, town upgrades
 - `Res<BuildingSpatialGrid>`: CPU-side spatial grid for O(1) building lookups (farms, waypoints, towns, gold mines)
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
@@ -170,7 +170,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
 | LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin (raiders only) |
-| SquadId | `i32` (0-9) | Squad assignment — patrol units (archers/crossbows) with this follow squad target instead of patrolling |
+| SquadId | `i32` (0-9) | Squad assignment — military units (archers/crossbows/fighters/raiders) with this follow squad target instead of patrolling |
 
 ## Systems
 
@@ -182,12 +182,12 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Matches on Activity and CombatState enums in priority order:
 
 **Squad policy hard gate** (before combat, after arrivals):
-- Archers with `SquadId` and squad `rest_when_tired` enabled: if energy < `ENERGY_TIRED_THRESHOLD` (30) OR (energy < `ENERGY_WAKE_THRESHOLD` (90) AND already `GoingToRest`/`Resting`), set `GoingToRest` targeting home. Hysteresis prevents oscillation — once resting, stays resting until 90% energy.
+- Any NPC with `SquadId` and squad `rest_when_tired` enabled: if energy < `ENERGY_TIRED_THRESHOLD` (30) OR (energy < `ENERGY_WAKE_THRESHOLD` (90) AND already `GoingToRest`/`Resting`), set `GoingToRest` targeting home. Hysteresis prevents oscillation — once resting, stays resting until 90% energy.
 - Clears `CombatState::Fighting` if active.
 
 **Priority 0: Arrival transitions**
 - If `AtDestination`: match on Activity variant
-  - `Patrolling` → check squad rest first (tired squad archers → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
+  - `Patrolling` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
   - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
@@ -220,7 +220,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `Activity::OnDuty { ticks_waiting }` + ticks >= `GUARD_PATROL_WAIT` (60): advance `PatrolRoute`, set `Activity::Patrolling`
 
 **Priority 7: Idle scoring (Utility AI)**
-- **Squad override** (archers only): Archers with a `SquadId` component check `SquadState.squads[id].target` before normal patrol logic. If squad has a target, archer walks to squad target instead of patrol posts. Falls through to normal patrol if no target is set.
+- **Squad override**: NPCs with a `SquadId` component check `SquadState.squads[id].target` before normal patrol logic. If squad has a target, unit walks to squad target instead of patrol posts. Falls through to normal behavior if no target is set.
+- **Raiders/Fighters**: Squad-driven, not idle-scored — raiders without a squad wander near camp, fighters do nothing when idle.
 - **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → `GoingToHeal` targeting fountain. Applies to all jobs (including raiders — they heal at their camp center). Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
 - **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers and miners use `farmer_schedule`, archers use `archer_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
 - **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
@@ -291,17 +292,19 @@ Each town has 4 waypoints at corners. Archers cycle clockwise. Patrol routes are
 
 ## Squads
 
-Player-directed patrol unit groups. 10 squads available, each with a target position on the map. Patrol units (archers/crossbows) are reassigned (not spawned) — existing patrol units get a `SquadId` component and follow squad orders instead of patrolling.
+Military unit groups for both player and AI. 10 player-reserved squads + AI squads appended after. All military NPCs (`SquadUnit` component: archers, crossbows, fighters, raiders) can be squad members.
 
-**Behavior override**: In `decision_system`'s squad sync block, archers with `SquadId` check `SquadState.squads[id].target`. If a target exists, the archer walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as waypoint). If no target is set, falls through to normal patrol.
+**Behavior override**: In `decision_system`'s squad sync block, any NPC with `SquadId` checks `SquadState.squads[id].target`. If a target exists, the unit walks there (`Activity::Patrolling` with squad target). On arrival, `Activity::OnDuty` (same as waypoint). If no target is set and patrol disabled, unit stops (`Activity::Idle`). Squad sync also handles `Activity::Raiding` (raiders redirect to squad target).
 
-**Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` archers are redirected only when the squad target moves >100px from the archer's position. `Patrolling`, `GoingToRest`, and `Resting` archers are left alone (already heading to target or resting). Other activities (`Idle`, `Wandering`) get redirected immediately.
+**Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` units are redirected only when the squad target moves >100px from the unit's position. `Patrolling`, `Raiding`, `GoingToRest`, and `Resting` units are left alone (already heading to target or resting). Other activities (`Idle`, `Wandering`, `Returning`) get redirected immediately.
 
-**Rest-when-tired**: Squad archers respect `rest_when_tired` flag via four gates: (1) arrival handler catches tired archers before `OnDuty`, (2) hard gate before combat priorities forces `GoingToRest`, (3) squad sync block skips resting archers, (4) Priority 6 OnDuty+tired check skips leave-post when `rest_when_tired == false`. Gates 1-3 use hysteresis (enter at energy < 30, stay until energy ≥ 90). Gate 4 is the inverse — it prevents archers from leaving post when the flag is off. `attack_system` skips `GoingToRest` NPCs to prevent GPU target override.
+**Rest-when-tired**: Squad members respect `rest_when_tired` flag via four gates: (1) arrival handler catches tired members before `OnDuty`, (2) hard gate before combat priorities forces `GoingToRest`, (3) squad sync block skips resting members, (4) Priority 6 OnDuty+tired check skips leave-post when `rest_when_tired == false`. Gates 1-3 use hysteresis (enter at energy < 30, stay until energy ≥ 90). Gate 4 is the inverse — it prevents units from leaving post when the flag is off. `attack_system` skips `GoingToRest` NPCs to prevent GPU target override.
 
-**All survival behavior preserved**: Squad archers still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities.
+**All survival behavior preserved**: Squad members still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities.
 
-**Recruitment**: UI queries alive archers without `SquadId` in the player's town. +N buttons insert `SquadId(squad_idx)` on up to N archers. "Dismiss All" removes `SquadId` from all squad members — archers resume patrol.
+**Raider behavior**: Raiders are squad-driven — if assigned to a squad with a target, the squad sync block redirects them. Raiders without a squad wander near their camp. The old `RaidQueue` (group formation + dispatch to farms) has been replaced by AI squad commander wave-based attacks.
+
+**Recruitment**: `squad_cleanup_system` queries alive `SquadUnit` NPCs without `SquadId`. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" removes `SquadId` from all squad members — units resume normal behavior.
 
 **Death cleanup**: `squad_cleanup_system` (Step::Behavior) removes dead NPC slots from `Squad.members` by checking `NpcEntityMap`.
 

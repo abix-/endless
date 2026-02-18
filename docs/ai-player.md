@@ -78,7 +78,7 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 4. GATE: if food ≤ reserve → skip this tick entirely
 5. Compute hunger signal
 6. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
-7. Count buildings via building_counts(), compute targets and deficits
+7. Count buildings via building_counts() → HashMap<BuildingKind, usize>, compute targets and deficits
 8. Score all eligible actions (buildings + upgrades)
 9. Weighted random pick → execute one action
 10. Invalidate snapshot on successful build, log to combat log
@@ -182,23 +182,36 @@ The TownArea upgrade has special rules beyond normal upgrade scoring:
 
 ## Squad Commander
 
-`ai_squad_commander_system` runs every frame (not every 5s). Builder AIs only. Squad counts and splits are personality-driven (see Personalities section).
+`ai_squad_commander_system` runs every frame (not every 5s). Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (`SquadUnit` component: archers, crossbows, fighters, raiders) participate.
 
-### Squad Roles
+### Squad Roles (Builder AIs)
 
-- **Reserve** (squad index 0): patrol enabled, no attack target, gets defense share % of archers
-- **Attack** (squad indices 1+): patrol disabled, cooldown-gated retargeting, gets remainder of archers
+- **Reserve** (squad index 0): patrol enabled, no attack target, gets defense share % of military units
+- **Attack** (squad indices 1+): patrol disabled, wave-based targeting, gets remainder of units
 - **Idle** (excess squads beyond desired count): target_size = 0
 
-All squads have `rest_when_tired = true`.
+### Raider Squads
 
-### Targeting
+Raider camps get 1 squad containing all raiders. No reserve/attack split — the single squad always attacks. Targets nearest enemy farm via `pick_raider_farm_target()`. Replaces the old `RaidQueue` group-formation system.
 
-Per-squad, cooldown-gated:
-1. Validate current target is still alive
-2. Deduplicate: if another squad already claimed this target, force retarget
-3. On cooldown expiry, pick nearest unclaimed enemy building matching personality preferences (see Personalities section)
-4. Fallback to broad target set if preferred kinds yield nothing
+All squads have `rest_when_tired = true` (except raider squads: `rest_when_tired = false`).
+
+### Wave-Based Attack Cycle
+
+Attack squads use a gather→dispatch→retreat model instead of continuous retargeting:
+
+1. **Gathering**: Squad accumulates members via `squad_cleanup_system` recruitment. No target set — units idle or patrol near base.
+2. **Threshold**: When `members.len() >= wave_min_start` AND cooldown expired, pick a target.
+3. **Dispatch**: Set squad target, `wave_active = true`, record `wave_start_count = members.len()`. All squad members redirect to target via squad sync in `decision_system`.
+4. **End conditions**: Wave ends when target is destroyed OR alive members drop below `wave_retreat_below_pct` % of `wave_start_count` (heavy losses).
+5. **Reset**: Clear target, `wave_active = false`, apply retarget cooldown with jitter. Squad returns to gathering.
+
+### Wave Thresholds by Personality
+
+| | Aggressive | Balanced | Economic | Raider |
+|-|-----------|----------|----------|--------|
+| **wave_min_start** | 3 | 5 | 8 | RAID_GROUP_SIZE (3) |
+| **wave_retreat_pct** | 25% | 40% | 60% | 30% |
 
 Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial cooldowns are desynchronized (0.3–1.0× base) to prevent synchronized AI waves.
 

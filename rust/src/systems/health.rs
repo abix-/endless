@@ -5,7 +5,7 @@ use bevy::ecs::system::SystemParam;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingHpState, BuildingSlotMap};
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingHpState, BuildingSlotMap};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, UPGRADE_PCT};
 use crate::systems::economy::*;
 use crate::world::{WorldData, BuildingOccupancy};
@@ -21,7 +21,6 @@ pub struct CleanupResources<'w> {
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub slots: ResMut<'w, SlotAllocator>,
     pub farm_occupancy: ResMut<'w, BuildingOccupancy>,
-    pub raid_queue: ResMut<'w, RaidQueue>,
     pub dirty: ResMut<'w, DirtyFlags>,
 }
 
@@ -123,10 +122,6 @@ pub fn death_cleanup_system(
             res.farm_occupancy.release(wp.0);
         }
 
-        // Remove from raid queue if raider was waiting
-        if *job == Job::Raider {
-            res.raid_queue.remove(faction.0, entity);
-        }
         if *job == Job::Miner {
             res.dirty.mining = true;
         }

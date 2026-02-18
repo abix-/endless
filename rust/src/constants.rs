@@ -1,7 +1,9 @@
 //! Constants - Tuning parameters for the NPC system
 
+use bevy::prelude::Vec2;
 use crate::components::{Job, BaseAttackType};
-use crate::world::BuildingKind;
+use crate::world::{BuildingKind, Building, WorldData, is_alive};
+use crate::resources::BuildingHpState;
 
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
 pub const MAX_NPC_COUNT: usize = 100000;
@@ -435,6 +437,18 @@ pub struct BuildingDef {
     pub tower_stats: Option<TowerStats>,
     pub on_place: OnPlace,
     pub spawner: Option<SpawnerDef>,
+    /// Construct the Building enum variant for this kind, given a town_idx.
+    pub build: fn(u32) -> Building,
+    /// Total slot count for this kind in WorldData (including tombstoned).
+    pub len: fn(&WorldData) -> usize,
+    /// Get (position, town_idx) for building at index. None if tombstoned or out of range.
+    pub pos_town: fn(&WorldData, usize) -> Option<(Vec2, u32)>,
+    /// Count alive buildings of this kind for a given town_idx.
+    pub count_for_town: fn(&WorldData, u32) -> usize,
+    /// Immutable access to this kind's HP vec.
+    pub hps: fn(&BuildingHpState) -> &[f32],
+    /// Mutable access to this kind's HP vec.
+    pub hps_mut: fn(&mut BuildingHpState) -> &mut Vec<f32>,
 }
 
 /// Single source of truth for all building types.
@@ -450,6 +464,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::Wilderness,
         is_tower: true, tower_stats: Some(FOUNTAIN_TOWER),
         on_place: OnPlace::None, spawner: None,
+        build: |ti| Building::Fountain { town_idx: ti },
+        len: |wd| wd.towns.len(),
+        pos_town: |wd, i| wd.towns.get(i).map(|t| (t.center, i as u32)),
+        count_for_town: |wd, ti| if wd.towns.get(ti as usize).map(|t| t.sprite_type == 0).unwrap_or(false) { 1 } else { 0 },
+        hps: |hp| &hp.towns,
+        hps_mut: |hp| &mut hp.towns,
     },
     // 1: Bed
     BuildingDef {
@@ -461,6 +481,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,
+        build: |ti| Building::Bed { town_idx: ti },
+        len: |wd| wd.beds.len(),
+        pos_town: |wd, i| wd.beds.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.beds.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.beds,
+        hps_mut: |hp| &mut hp.beds,
     },
     // 2: Waypoint
     BuildingDef {
@@ -472,6 +498,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::Wilderness,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,
+        build: |ti| Building::Waypoint { town_idx: ti, patrol_order: 0 },
+        len: |wd| wd.waypoints.len(),
+        pos_town: |wd, i| wd.waypoints.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.waypoints.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.waypoints,
+        hps_mut: |hp| &mut hp.waypoints,
     },
     // 3: Farm
     BuildingDef {
@@ -483,6 +515,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::InitFarmGrowth, spawner: None,
+        build: |ti| Building::Farm { town_idx: ti },
+        len: |wd| wd.farms.len(),
+        pos_town: |wd, i| wd.farms.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.farms.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.farms,
+        hps_mut: |hp| &mut hp.farms,
     },
     // 4: Camp (raider town center)
     BuildingDef {
@@ -494,6 +532,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::Wilderness,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,
+        build: |ti| Building::Camp { town_idx: ti },
+        len: |wd| wd.towns.len(),
+        pos_town: |wd, i| wd.towns.get(i).map(|t| (t.center, i as u32)),
+        count_for_town: |wd, ti| if wd.towns.get(ti as usize).map(|t| t.sprite_type == 1).unwrap_or(false) { 1 } else { 0 },
+        hps: |hp| &hp.towns,
+        hps_mut: |hp| &mut hp.towns,
     },
     // 5: Farmer Home
     BuildingDef {
@@ -506,6 +550,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 0, attack_type: 0, behavior: SpawnBehavior::FindNearestFarm }),
+        build: |ti| Building::FarmerHome { town_idx: ti },
+        len: |wd| wd.farmer_homes.len(),
+        pos_town: |wd, i| wd.farmer_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.farmer_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.farmer_homes,
+        hps_mut: |hp| &mut hp.farmer_homes,
     },
     // 6: Archer Home
     BuildingDef {
@@ -518,6 +568,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 1, attack_type: 1, behavior: SpawnBehavior::FindNearestWaypoint }),
+        build: |ti| Building::ArcherHome { town_idx: ti },
+        len: |wd| wd.archer_homes.len(),
+        pos_town: |wd, i| wd.archer_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.archer_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.archer_homes,
+        hps_mut: |hp| &mut hp.archer_homes,
     },
     // 7: Tent (raider spawner)
     BuildingDef {
@@ -530,6 +586,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 2, attack_type: 0, behavior: SpawnBehavior::CampRaider }),
+        build: |ti| Building::Tent { town_idx: ti },
+        len: |wd| wd.tents.len(),
+        pos_town: |wd, i| wd.tents.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.tents.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.tents,
+        hps_mut: |hp| &mut hp.tents,
     },
     // 8: Gold Mine
     BuildingDef {
@@ -541,6 +603,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         placement: PlacementMode::Wilderness,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,
+        build: |_| Building::GoldMine,
+        len: |wd| wd.gold_mines.len(),
+        pos_town: |wd, i| wd.gold_mines.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, 0)),
+        count_for_town: |wd, _| wd.gold_mines.iter().filter(|b| is_alive(b.position)).count(),
+        hps: |hp| &hp.gold_mines,
+        hps_mut: |hp| &mut hp.gold_mines,
     },
     // 9: Miner Home
     BuildingDef {
@@ -553,6 +621,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 4, attack_type: 0, behavior: SpawnBehavior::Miner }),
+        build: |ti| Building::MinerHome { town_idx: ti },
+        len: |wd| wd.miner_homes.len(),
+        pos_town: |wd, i| wd.miner_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.miner_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.miner_homes,
+        hps_mut: |hp| &mut hp.miner_homes,
     },
     // 10: Crossbow Home
     BuildingDef {
@@ -565,6 +639,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 5, attack_type: 2, behavior: SpawnBehavior::FindNearestWaypoint }),
+        build: |ti| Building::CrossbowHome { town_idx: ti },
+        len: |wd| wd.crossbow_homes.len(),
+        pos_town: |wd, i| wd.crossbow_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.crossbow_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.crossbow_homes,
+        hps_mut: |hp| &mut hp.crossbow_homes,
     },
     // 11: Fighter Home
     BuildingDef {
@@ -577,6 +657,12 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 3, attack_type: 0, behavior: SpawnBehavior::FindNearestWaypoint }),
+        build: |ti| Building::FighterHome { town_idx: ti },
+        len: |wd| wd.fighter_homes.len(),
+        pos_town: |wd, i| wd.fighter_homes.get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.fighter_homes.iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| &hp.fighter_homes,
+        hps_mut: |hp| &mut hp.fighter_homes,
     },
 ];
 

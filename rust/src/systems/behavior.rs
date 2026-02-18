@@ -19,11 +19,11 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, GrowthStates, FarmGrowthState, RaidQueue, CombatLog, CombatEventKind, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags};
+use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, GrowthStates, FarmGrowthState, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags};
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::{UpgradeType, UPGRADE_PCT};
-use crate::world::{WorldData, LocationKind, find_nearest_location, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
+use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -43,7 +43,6 @@ pub struct FarmParams<'w> {
 #[derive(SystemParam)]
 pub struct DecisionExtras<'w> {
     pub npc_logs: ResMut<'w, NpcLogCache>,
-    pub raid_queue: ResMut<'w, RaidQueue>,
     pub combat_log: ResMut<'w, CombatLog>,
     pub policies: Res<'w, TownPolicies>,
     pub squad_state: Res<'w, SquadState>,
@@ -246,7 +245,6 @@ pub fn decision_system(
     let _t = extras.timings.scope("decision");
     let profiling = extras.timings.enabled;
     let npc_logs = &mut extras.npc_logs;
-    let raid_queue = &mut extras.raid_queue;
     let combat_log = &mut extras.combat_log;
     let policies = &extras.policies;
     let squad_state = &extras.squad_state;
@@ -281,19 +279,17 @@ pub fn decision_system(
 
             match &*activity {
                 Activity::Patrolling => {
-                    // Squad rest: tired archers go home instead of entering OnDuty
-                    if job.is_patrol_unit() {
-                        if let Some(sid) = squad_id {
-                            if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
-                                if squad.rest_when_tired && energy.0 < ENERGY_TIRED_THRESHOLD && home.is_valid() {
-                                    *activity = Activity::GoingToRest;
-                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                        idx, x: home.0.x, y: home.0.y
-                                    }));
-                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Rest (squad)");
-                                    if let Some(s) = _ps { t_arrival += s.elapsed(); n_arrival += 1; }
-                                    continue;
-                                }
+                    // Squad rest: tired squad members go home instead of entering OnDuty
+                    if let Some(sid) = squad_id {
+                        if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
+                            if squad.rest_when_tired && energy.0 < ENERGY_TIRED_THRESHOLD && home.is_valid() {
+                                *activity = Activity::GoingToRest;
+                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                    idx, x: home.0.x, y: home.0.y
+                                }));
+                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired → Rest (squad)");
+                                if let Some(s) = _ps { t_arrival += s.elapsed(); n_arrival += 1; }
+                                continue;
                             }
                         }
                     }
@@ -458,24 +454,22 @@ pub fn decision_system(
         // Squad policy hard gate: if tired, go rest before any combat/transit
         // early-returns so squad rest policy is always respected.
         // ====================================================================
-        if job.is_patrol_unit() {
-            if let Some(sid) = squad_id {
-                if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
-                    let squad_needs_rest = energy.0 < ENERGY_TIRED_THRESHOLD
-                        || (energy.0 < ENERGY_WAKE_THRESHOLD
-                            && matches!(*activity, Activity::GoingToRest | Activity::Resting));
-                    if squad.rest_when_tired && squad_needs_rest && home.is_valid() {
-                        if combat_state.is_fighting() {
-                            *combat_state = CombatState::None;
-                        }
-                        if !matches!(*activity, Activity::GoingToRest | Activity::Resting) {
-                            *activity = Activity::GoingToRest;
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                idx, x: home.0.x, y: home.0.y
-                            }));
-                        }
-                        continue;
+        if let Some(sid) = squad_id {
+            if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
+                let squad_needs_rest = energy.0 < ENERGY_TIRED_THRESHOLD
+                    || (energy.0 < ENERGY_WAKE_THRESHOLD
+                        && matches!(*activity, Activity::GoingToRest | Activity::Resting));
+                if squad.rest_when_tired && squad_needs_rest && home.is_valid() {
+                    if combat_state.is_fighting() {
+                        *combat_state = CombatState::None;
                     }
+                    if !matches!(*activity, Activity::GoingToRest | Activity::Resting) {
+                        *activity = Activity::GoingToRest;
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                            idx, x: home.0.x, y: home.0.y
+                        }));
+                    }
+                    continue;
                 }
             }
         }
@@ -576,61 +570,61 @@ pub fn decision_system(
 
         // ====================================================================
         // Squad sync: apply squad target/patrol policy changes immediately
-        // (before transit skip) so archers react by next decision tick.
+        // (before transit skip) so squad members react by next decision tick.
+        // Covers all squad-assigned units: archers, crossbow, raiders, fighters.
         // ====================================================================
-        if job.is_patrol_unit() {
-            if let Some(sid) = squad_id {
-                if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
-                    if let Some(target) = squad.target {
-                        let squad_needs_rest = energy.0 < ENERGY_TIRED_THRESHOLD
-                            || (energy.0 < ENERGY_WAKE_THRESHOLD
-                                && matches!(*activity, Activity::GoingToRest | Activity::Resting));
-                        if squad.rest_when_tired && squad_needs_rest && home.is_valid() {
-                            if !matches!(*activity, Activity::GoingToRest | Activity::Resting) {
-                                *activity = Activity::GoingToRest;
-                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                    idx, x: home.0.x, y: home.0.y
-                                }));
-                            }
-                            continue;
+        if let Some(sid) = squad_id {
+            if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
+                if let Some(target) = squad.target {
+                    let squad_needs_rest = energy.0 < ENERGY_TIRED_THRESHOLD
+                        || (energy.0 < ENERGY_WAKE_THRESHOLD
+                            && matches!(*activity, Activity::GoingToRest | Activity::Resting));
+                    if squad.rest_when_tired && squad_needs_rest && home.is_valid() {
+                        if !matches!(*activity, Activity::GoingToRest | Activity::Resting) {
+                            *activity = Activity::GoingToRest;
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx, x: home.0.x, y: home.0.y
+                            }));
                         }
-                        // Squad target — only redirect when needed (no per-frame GPU writes)
-                        match *activity {
-                            Activity::OnDuty { .. } => {
-                                // At a position — redirect only if squad target moved
-                                if idx * 2 + 1 < positions.len() {
-                                    let dx = positions[idx * 2] - target.x;
-                                    let dy = positions[idx * 2 + 1] - target.y;
-                                    if dx * dx + dy * dy > 100.0 * 100.0 {
-                                        *activity = Activity::Patrolling;
-                                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                            idx, x: target.x, y: target.y
-                                        }));
-                                    }
+                        continue;
+                    }
+                    // Squad target — only redirect when needed (no per-frame GPU writes)
+                    match *activity {
+                        Activity::OnDuty { .. } => {
+                            // At a position — redirect only if squad target moved
+                            if idx * 2 + 1 < positions.len() {
+                                let dx = positions[idx * 2] - target.x;
+                                let dy = positions[idx * 2 + 1] - target.y;
+                                if dx * dx + dy * dy > 100.0 * 100.0 {
+                                    *activity = Activity::Patrolling;
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                        idx, x: target.x, y: target.y
+                                    }));
                                 }
                             }
-                            Activity::Patrolling | Activity::GoingToRest | Activity::Resting => {
-                                // Already heading to target or resting — no GPU write
-                            }
-                            _ => {
-                                // Idle/Wandering/other — redirect to squad target
-                                *activity = Activity::Patrolling;
-                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                    idx, x: target.x, y: target.y
-                                }));
-                            }
                         }
-                    } else if !squad.patrol_enabled {
-                        // Patrol disabled and no squad target: stop moving now.
-                        if matches!(*activity, Activity::Patrolling | Activity::OnDuty { .. }) {
-                            *activity = Activity::Idle;
-                            if idx * 2 + 1 < positions.len() {
-                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                    idx,
-                                    x: positions[idx * 2],
-                                    y: positions[idx * 2 + 1],
-                                }));
-                            }
+                        Activity::Patrolling | Activity::Raiding { .. } |
+                        Activity::GoingToRest | Activity::Resting => {
+                            // Already heading to target or resting — no GPU write
+                        }
+                        _ => {
+                            // Idle/Wandering/Returning/other — redirect to squad target
+                            *activity = Activity::Patrolling;
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx, x: target.x, y: target.y
+                            }));
+                        }
+                    }
+                } else if !squad.patrol_enabled {
+                    // No target + patrol disabled: stop and wait (gathering phase)
+                    if matches!(*activity, Activity::Patrolling | Activity::OnDuty { .. } | Activity::Raiding { .. }) {
+                        *activity = Activity::Idle;
+                        if idx * 2 + 1 < positions.len() {
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                idx,
+                                x: positions[idx * 2],
+                                y: positions[idx * 2 + 1],
+                            }));
                         }
                     }
                 }
@@ -860,8 +854,7 @@ pub fn decision_system(
             Job::Farmer => work_query.get(entity).is_ok(),
             Job::Miner => true,  // miners always have work (find nearest mine dynamically)
             Job::Archer | Job::Crossbow => patrol_query.get(entity).is_ok(),
-            Job::Raider => true,
-            Job::Fighter => false,
+            Job::Raider | Job::Fighter => false, // squad-driven, not idle-scored
         };
         if can_work {
             let hp_pct = health.0 / 100.0;
@@ -998,46 +991,12 @@ pub fn decision_system(
                         }
                     }
                     Job::Raider => {
-                        // Add self to raid queue (only if not already in it)
-                        let queue = raid_queue.waiting.entry(faction.0).or_default();
-                        let already_in_queue = queue.iter().any(|(e, _)| *e == entity);
-                        if !already_in_queue {
-                            queue.push((entity, idx));
-                        }
-
-                        // Check if enough raiders waiting to form a group
-                        if queue.len() >= RAID_GROUP_SIZE as usize {
-                            let pos = if idx * 2 + 1 < positions.len() {
-                                Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
-                            } else {
-                                home.0
-                            };
-
-                            if let Some(farm_pos) = find_nearest_location(pos, &bgrid, LocationKind::Farm) {
-                                let group_size = queue.len();
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
-                                    format!("Raid group of {} dispatched!", group_size));
-                                combat_log.push(CombatEventKind::Raid, faction.0, game_time.day(), game_time.hour(), game_time.minute(),
-                                    format!("{} Raiders dispatched to farm", group_size));
-                                for (raider_entity, raider_idx) in queue.drain(..) {
-                                    // Can't mutate other entities' Activity here — use commands
-                                    commands.entity(raider_entity).insert(Activity::Raiding { target: farm_pos });
-                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                        idx: raider_idx, x: farm_pos.x, y: farm_pos.y
-                                    }));
-                                }
-                            } else {
-                                queue.clear();
-                                let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
-                                let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
-                                *activity = Activity::Wandering;
-                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
-                                    idx, x: home.0.x + offset_x, y: home.0.y + offset_y
-                                }));
-                                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "No farms to raid");
-                            }
-                        } else if !already_in_queue {
-                            // Just joined queue, not enough raiders yet - wander near camp
+                        // Squad-driven: squad target override handled above in squad sync.
+                        // If idle with no squad target, wander near home (gathering phase).
+                        if squad_id.is_some() {
+                            // Squad assigned — target is managed by ai_squad_commander
+                        } else {
+                            // No squad — wander near camp
                             let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
                             let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
                             *activity = Activity::Wandering;
@@ -1045,7 +1004,6 @@ pub fn decision_system(
                                 idx, x: home.0.x + offset_x, y: home.0.y + offset_y
                             }));
                         }
-                        // else: already queued, waiting — stay idle, natural Wander handles movement
                     }
                     Job::Fighter => {}
                 }

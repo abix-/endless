@@ -55,7 +55,6 @@ pub struct CleanupExtra<'w> {
     pub kill_stats: ResMut<'w, crate::resources::KillStats>,
     pub farm_occ: ResMut<'w, crate::world::BuildingOccupancy>,
     pub camp_state: ResMut<'w, crate::resources::CampState>,
-    pub raid_queue: ResMut<'w, crate::resources::RaidQueue>,
     pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
     pub world_grid: ResMut<'w, crate::world::WorldGrid>,
     pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
@@ -864,7 +863,6 @@ fn cleanup_test_world(
     *extra.kill_stats = Default::default();
     *extra.farm_occ = Default::default();
     *extra.camp_state = Default::default();
-    *extra.raid_queue = Default::default();
     *extra.proj_alloc = Default::default();
     *extra.world_grid = Default::default();
     *extra.debug_flags = Default::default();

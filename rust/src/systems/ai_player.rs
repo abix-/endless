@@ -15,7 +15,7 @@ use rand::Rng;
 use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::components::{Archer, Dead, NpcIndex, TownId};
+use crate::components::{Dead, NpcIndex, SquadUnit, TownId};
 use crate::world::{self, Building, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
 use crate::systems::stats::{UpgradeQueue, TownUpgrades, UpgradeType, upgrade_node, upgrade_available, UPGRADE_COUNT};
 
@@ -1047,12 +1047,13 @@ pub fn ai_decision_system(
         let pname = player.personality.name();
 
         let counts = res.world.world_data.building_counts(ctx.ti);
-        let farms = counts.farms;
-        let houses = counts.farmer_homes;
-        let barracks = counts.archer_homes;
-        let xbow_homes = counts.crossbow_homes;
-        let waypoints = counts.waypoints;
-        let mine_shafts = counts.miner_homes;
+        let bc = |k: BuildingKind| counts.get(&k).copied().unwrap_or(0);
+        let farms = bc(BuildingKind::Farm);
+        let houses = bc(BuildingKind::FarmerHome);
+        let barracks = bc(BuildingKind::ArcherHome);
+        let xbow_homes = bc(BuildingKind::CrossbowHome);
+        let waypoints = bc(BuildingKind::Waypoint);
+        let mine_shafts = bc(BuildingKind::MinerHome);
         let total_military_homes = barracks + xbow_homes;
         let desires = desire_state(player.personality, food, reserve, houses, total_military_homes, waypoints);
 
@@ -1459,6 +1460,53 @@ impl AiPersonality {
             BuildingKind::Tent, BuildingKind::MinerHome,
         ]
     }
+
+    /// Minimum members before a wave can start.
+    fn wave_min_start(self, kind: AiKind) -> usize {
+        match kind {
+            AiKind::Raider => RAID_GROUP_SIZE as usize,
+            AiKind::Builder => match self {
+                Self::Aggressive => 3,
+                Self::Balanced => 5,
+                Self::Economic => 8,
+            },
+        }
+    }
+
+    /// Loss threshold percent — end wave when alive drops below this % of wave_start_count.
+    fn wave_retreat_pct(self, kind: AiKind) -> usize {
+        match kind {
+            AiKind::Raider => 30,
+            AiKind::Builder => match self {
+                Self::Aggressive => 25,
+                Self::Balanced => 40,
+                Self::Economic => 60,
+            },
+        }
+    }
+}
+
+/// Pick nearest enemy farm as raider squad target.
+fn pick_raider_farm_target(
+    bgrid: &BuildingSpatialGrid,
+    center: Vec2,
+    faction: i32,
+) -> Option<(BuildingKind, usize, Vec2)> {
+    let mut best_d2 = f32::MAX;
+    let mut result: Option<(BuildingKind, usize, Vec2)> = None;
+    let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
+    bgrid.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |bref| {
+        if bref.faction == faction || bref.faction < 0 { return; }
+        if bref.kind != BuildingKind::Farm { return; }
+        let dx = bref.position.x - center.x;
+        let dy = bref.position.y - center.y;
+        let d2 = dx * dx + dy * dy;
+        if d2 <= r2 && d2 < best_d2 {
+            best_d2 = d2;
+            result = Some((bref.kind, bref.index, bref.position));
+        }
+    });
+    result
 }
 
 fn pick_ai_target_unclaimed(
@@ -1505,15 +1553,16 @@ pub fn rebuild_squad_indices(player: &mut AiPlayer, squads: &[Squad]) {
     }
 }
 
-/// AI squad commander — runs every frame, per-squad cooldown gated.
-/// Only sets shared squad knobs: target, target_size, patrol_enabled, rest_when_tired.
+/// AI squad commander — wave-based attack cycle for both Builder and Raider AIs.
+/// Sets shared squad knobs: target, target_size, patrol_enabled, rest_when_tired.
+/// Wave model: gather → threshold → dispatch → detect end → reset.
 pub fn ai_squad_commander_system(
     time: Res<Time>,
     mut ai_state: ResMut<AiPlayerState>,
     mut squad_state: ResMut<SquadState>,
     world_data: Res<WorldData>,
     bgrid: Res<BuildingSpatialGrid>,
-    archers: Query<(&TownId, &NpcIndex), (With<Archer>, Without<Dead>)>,
+    military: Query<(&TownId, &NpcIndex), (With<SquadUnit>, Without<Dead>)>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut dirty: ResMut<DirtyFlags>,
@@ -1522,35 +1571,39 @@ pub fn ai_squad_commander_system(
     let _t = timings.scope("ai_squad_commander");
     let dt = time.delta_secs();
 
-    // Count alive archers per town (shared across all AI players).
-    let mut archers_by_town: HashMap<i32, usize> = HashMap::new();
-    for (town_id, _) in archers.iter() {
-        *archers_by_town.entry(town_id.0).or_default() += 1;
+    // Count alive military units per town.
+    let mut units_by_town: HashMap<i32, usize> = HashMap::new();
+    for (town_id, _) in military.iter() {
+        *units_by_town.entry(town_id.0).or_default() += 1;
     }
 
     for pi in 0..ai_state.players.len() {
         let player = &ai_state.players[pi];
         if !player.active { continue; }
-        // Only Builder AIs use squads (Raiders have tents, not archer homes).
-        if player.kind != AiKind::Builder { continue; }
 
         let tdi = player.town_data_idx;
         let personality = player.personality;
+        let kind = player.kind;
         let Some(town) = world_data.towns.get(tdi) else { continue };
         let center = town.center;
         let faction = town.faction;
 
         // --- Self-healing squad allocation ---
-        let desired = personality.desired_squad_count();
+        let desired = match kind {
+            AiKind::Builder => personality.desired_squad_count(),
+            AiKind::Raider => 1, // single attack squad for raider camps
+        };
         let owned: usize = squad_state.squads.iter()
             .filter(|s| s.owner == SquadOwner::Town(tdi))
             .count();
         if owned < desired {
             for _ in owned..desired {
                 let idx = squad_state.alloc_squad(SquadOwner::Town(tdi));
-                // Desynchronized init cooldown to prevent synchronized AI waves.
                 let base_cd = personality.retarget_cooldown();
                 let jitter = rand::rng().random_range(0.3..1.0);
+                let sq = squad_state.squads.get_mut(idx).unwrap();
+                sq.wave_min_start = personality.wave_min_start(kind);
+                sq.wave_retreat_below_pct = personality.wave_retreat_pct(kind);
                 ai_state.players[pi].squad_cmd.insert(idx, AiSquadCmdState {
                     target_kind: None,
                     target_index: 0,
@@ -1559,130 +1612,169 @@ pub fn ai_squad_commander_system(
             }
         }
 
-        // Rebuild squad_indices from ownership scan (authoritative source).
+        // Rebuild squad_indices from ownership scan.
         rebuild_squad_indices(&mut ai_state.players[pi], &squad_state.squads);
         let squad_indices = ai_state.players[pi].squad_indices.clone();
         if squad_indices.is_empty() { continue; }
 
         // --- Set target_size per squad ---
-        let archer_count = archers_by_town.get(&(tdi as i32)).copied().unwrap_or(0);
-        let attack_squads = personality.attack_squad_count();
-        let defense_size = archer_count * personality.defense_share_pct() / 100;
-        let attack_total = archer_count.saturating_sub(defense_size);
-        let total_attack_weight: usize = (0..attack_squads)
-            .map(|i| personality.attack_split_weight(i))
-            .sum::<usize>()
-            .max(1);
-        let mut claimed_targets: HashSet<(BuildingKind, usize)> = HashSet::new();
-        for (role_idx, &si) in squad_indices.iter().enumerate() {
-            let role = if role_idx == 0 {
-                SquadRole::Reserve
-            } else if role_idx - 1 < attack_squads {
-                SquadRole::Attack
-            } else {
-                SquadRole::Idle
-            };
+        let unit_count = units_by_town.get(&(tdi as i32)).copied().unwrap_or(0);
 
-            let new_target_size = match role {
-                SquadRole::Reserve => defense_size,
-                SquadRole::Attack => {
-                    let attack_idx = role_idx - 1;
-                    if attack_idx + 1 == attack_squads {
-                        // Last attack squad gets remainder so total stays exact.
-                        let allocated_before: usize = (0..attack_idx)
-                            .map(|i| attack_total * personality.attack_split_weight(i) / total_attack_weight)
-                            .sum();
-                        attack_total.saturating_sub(allocated_before)
+        match kind {
+            AiKind::Raider => {
+                // Raider camps: single squad gets all raiders
+                if let Some(&si) = squad_indices.first() {
+                    if let Some(squad) = squad_state.squads.get_mut(si) {
+                        let new_size = unit_count;
+                        if squad.target_size != new_size {
+                            squad.target_size = new_size;
+                            dirty.squads = true;
+                        }
+                        squad.patrol_enabled = false;
+                        squad.rest_when_tired = false;
+                    }
+                }
+            }
+            AiKind::Builder => {
+                // Builder AIs: defense + attack split
+                let attack_squads = personality.attack_squad_count();
+                let defense_size = unit_count * personality.defense_share_pct() / 100;
+                let attack_total = unit_count.saturating_sub(defense_size);
+                let total_attack_weight: usize = (0..attack_squads)
+                    .map(|i| personality.attack_split_weight(i))
+                    .sum::<usize>()
+                    .max(1);
+
+                for (role_idx, &si) in squad_indices.iter().enumerate() {
+                    let role = if role_idx == 0 {
+                        SquadRole::Reserve
+                    } else if role_idx - 1 < attack_squads {
+                        SquadRole::Attack
                     } else {
-                        attack_total * personality.attack_split_weight(attack_idx) / total_attack_weight
+                        SquadRole::Idle
+                    };
+
+                    let new_target_size = match role {
+                        SquadRole::Reserve => defense_size,
+                        SquadRole::Attack => {
+                            let attack_idx = role_idx - 1;
+                            if attack_idx + 1 == attack_squads {
+                                let allocated_before: usize = (0..attack_idx)
+                                    .map(|i| attack_total * personality.attack_split_weight(i) / total_attack_weight)
+                                    .sum();
+                                attack_total.saturating_sub(allocated_before)
+                            } else {
+                                attack_total * personality.attack_split_weight(attack_idx) / total_attack_weight
+                            }
+                        }
+                        SquadRole::Idle => 0,
+                    };
+
+                    if let Some(squad) = squad_state.squads.get_mut(si) {
+                        if squad.target_size != new_target_size {
+                            squad.target_size = new_target_size;
+                            dirty.squads = true;
+                        }
+                        let should_patrol = role == SquadRole::Reserve;
+                        if squad.patrol_enabled != should_patrol {
+                            squad.patrol_enabled = should_patrol;
+                        }
+                        if role != SquadRole::Attack && squad.target.is_some() {
+                            squad.target = None;
+                            squad.wave_active = false;
+                        }
+                        if !squad.rest_when_tired {
+                            squad.rest_when_tired = true;
+                        }
                     }
                 }
-                SquadRole::Idle => 0,
-            };
-
-            if let Some(squad) = squad_state.squads.get_mut(si) {
-                if squad.target_size != new_target_size {
-                    squad.target_size = new_target_size;
-                    dirty.squads = true;
-                }
-                // Set squad policies based on role.
-                let should_patrol = role == SquadRole::Reserve;
-                if squad.patrol_enabled != should_patrol {
-                    squad.patrol_enabled = should_patrol;
-                }
-                if role != SquadRole::Attack && squad.target.is_some() {
-                    squad.target = None;
-                }
-                if !squad.rest_when_tired {
-                    squad.rest_when_tired = true;
-                }
             }
+        }
 
-            // --- Per-squad retarget ---
+        // --- Wave-based retarget for all attack squads ---
+        let mut claimed_targets: HashSet<(BuildingKind, usize)> = HashSet::new();
+        for &si in &squad_indices {
             let cmd = ai_state.players[pi].squad_cmd.entry(si).or_default();
+            if cmd.cooldown > 0.0 { cmd.cooldown -= dt; }
 
-            // Decrement cooldown.
-            if cmd.cooldown > 0.0 {
-                cmd.cooldown -= dt;
-            }
-            if role != SquadRole::Attack {
-                cmd.target_kind = None;
-                if let Some(squad) = squad_state.squads.get_mut(si) {
-                    if squad.target.is_some() {
-                        squad.target = None;
-                    }
+            let Some(squad) = squad_state.squads.get(si) else { continue };
+
+            // Determine if this squad is an attack squad
+            let is_attack = match kind {
+                AiKind::Raider => true, // raider camp squads always attack
+                AiKind::Builder => {
+                    let role_idx = squad_indices.iter().position(|&i| i == si).unwrap_or(0);
+                    let attack_squads = personality.attack_squad_count();
+                    role_idx >= 1 && role_idx - 1 < attack_squads
                 }
+            };
+            if !is_attack {
+                cmd.target_kind = None;
                 continue;
             }
 
-            // Validate current target is still alive.
-            let mut target_alive = cmd.target_kind
-                .and_then(|kind| resolve_building_pos(&world_data, kind, cmd.target_index))
-                .is_some();
-            let target_conflicts = if let Some(kind) = cmd.target_kind {
-                if target_alive {
-                    !claimed_targets.insert((kind, cmd.target_index))
-                } else {
-                    false
+            let member_count = squad.members.len();
+
+            if squad.wave_active {
+                // --- Wave end conditions ---
+                let target_alive = cmd.target_kind
+                    .and_then(|k| resolve_building_pos(&world_data, k, cmd.target_index))
+                    .is_some();
+
+                let loss_threshold = squad.wave_start_count
+                    * squad.wave_retreat_below_pct / 100;
+                let heavy_losses = member_count < loss_threshold.max(1);
+
+                if !target_alive || heavy_losses {
+                    // End wave — clear target, reset to gathering
+                    let reason = if !target_alive { "target cleared" } else { "heavy losses" };
+                    let squad = squad_state.squads.get_mut(si).unwrap();
+                    squad.wave_active = false;
+                    squad.target = None;
+                    squad.wave_start_count = 0;
+                    cmd.target_kind = None;
+                    cmd.cooldown = personality.retarget_cooldown()
+                        + rand::rng().random_range(-RETARGET_JITTER..RETARGET_JITTER);
+
+                    let town_name = &town.name;
+                    let pname = personality.name();
+                    combat_log.push(CombatEventKind::Raid, faction, game_time.day(), game_time.hour(), game_time.minute(),
+                        format!("{} [{}] wave ended ({}), {} remaining", town_name, pname, reason, member_count));
                 }
             } else {
-                false
-            };
-
-            if !target_alive || target_conflicts {
-                // Target died — clear and allow immediate retarget.
-                cmd.target_kind = None;
-                cmd.cooldown = 0.0;
-                target_alive = false;
-                if target_conflicts {
-                    if let Some(squad) = squad_state.squads.get_mut(si) {
-                        squad.target = None;
-                    }
+                // --- Gathering phase: wait for wave_min_start ---
+                let min_start = squad.wave_min_start.max(1);
+                if member_count < min_start || cmd.cooldown > 0.0 {
+                    continue; // not enough members or cooldown active
                 }
-            }
 
-            // Skip retarget if cooldown hasn't expired or target is alive.
-            if cmd.cooldown > 0.0 || target_alive { continue; }
+                // Pick target based on AI kind
+                let target = match kind {
+                    AiKind::Raider => pick_raider_farm_target(&bgrid, center, faction),
+                    AiKind::Builder => pick_ai_target_unclaimed(
+                        &bgrid, center, faction, personality, SquadRole::Attack, &claimed_targets,
+                    ),
+                };
 
-            // Pick new target.
-            if let Some((kind, index, pos)) = pick_ai_target_unclaimed(
-                &bgrid, center, faction, personality, role, &claimed_targets,
-            ) {
-                cmd.target_kind = Some(kind);
-                cmd.target_index = index;
-                claimed_targets.insert((kind, index));
-                cmd.cooldown = personality.retarget_cooldown()
-                    + rand::rng().random_range(-RETARGET_JITTER..RETARGET_JITTER);
+                if let Some((bk, bi, pos)) = target {
+                    cmd.target_kind = Some(bk);
+                    cmd.target_index = bi;
+                    claimed_targets.insert((bk, bi));
 
-                if let Some(squad) = squad_state.squads.get_mut(si) {
+                    let squad = squad_state.squads.get_mut(si).unwrap();
                     squad.target = Some(pos);
-                }
+                    squad.wave_active = true;
+                    squad.wave_start_count = member_count;
 
-                let town_name = &town.name;
-                let pname = personality.name();
-                let member_count = squad_state.squads.get(si).map(|s| s.members.len()).unwrap_or(0);
-                log_ai(&mut combat_log, &game_time, faction, town_name, pname,
-                    &format!("dispatched {} archers to {:?}", member_count, kind));
+                    let town_name = &town.name;
+                    let pname = personality.name();
+                    let unit_label = match kind {
+                        AiKind::Raider => "raiders",
+                        AiKind::Builder => "units",
+                    };
+                    combat_log.push(CombatEventKind::Raid, faction, game_time.day(), game_time.hour(), game_time.minute(),
+                        format!("{} [{}] wave started: {} {} → {}", town_name, pname, member_count, unit_label, crate::constants::building_def(bk).label));
+                }
             }
         }
     }

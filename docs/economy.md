@@ -153,47 +153,14 @@ Starvation applies to **both villagers and raiders**. If raiders can't steal foo
 
 The HP cap is enforced by `healing_system` — starving NPCs can't heal above 50% MaxHealth even inside a healing aura.
 
-## Group Raid System
+## Raider Attack System
 
-Raiders coordinate into groups before raiding (like Factorio biters):
+Raiders use the AI squad commander's wave-based attack cycle (see [ai-player.md](ai-player.md#wave-based-attack-cycle)). Each raider camp gets one squad containing all raiders. The `ai_squad_commander_system` picks the nearest enemy farm as target, gathers raiders until `wave_min_start` (RAID_GROUP_SIZE) are ready, then dispatches the wave. Wave ends when the target is destroyed or losses exceed `wave_retreat_below_pct` (30%).
 
-```
-decision_system: Raider picks Work
-        │
-        ▼
-Add (entity, idx) to RaidQueue.waiting[faction]
-(only if not already in queue)
-        │
-        ▼
-queue.len() >= 5?
-        │
-   NO ──┼──▶ Wander near camp (stays in queue)
-        │
-   YES ──▶ Dispatch ALL waiting raiders:
-           - Remove Wandering marker
-           - Insert Raiding marker
-           - Set target to nearest farm
-           - Clear queue
-```
-
-**RaidQueue resource:**
-```rust
-pub struct RaidQueue {
-    pub waiting: HashMap<i32, Vec<(Entity, usize)>>,
-}
-```
-
-**Key behaviors:**
-- Raiders join queue when picking Work action in decision_system
-- Queue checked inline (no separate system)
-- All 5+ raiders dispatched to same farm target
-- Dead raiders removed from queue in death_cleanup_system
-- Transit skip includes Raiding and Returning (no mid-journey decisions)
+Raiders without a squad assignment wander near their camp. The old `RaidQueue` group-formation system has been replaced by squad-driven waves.
 
 **Constants:**
-- `RAID_GROUP_SIZE`: 5 (minimum raiders to form a group)
-
-Solo raiders **wait at camp** instead of raiding alone. They wander near home until a group forms.
+- `RAID_GROUP_SIZE`: 3 (minimum raiders to start a wave)
 
 ## Resources
 
@@ -209,7 +176,6 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 | BuildingOccupancy | private map, methods: claim/release/is_occupied/count/clear | decision_system, death_cleanup, game_startup, spawner_respawn |
 | MiningPolicy | discovered_mines per town, mine_enabled per mine | mining_policy_system (dirty-flag gated) |
 | CampState | max_pop, respawn_timers, forage_timers | camp_forage_system |
-| RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | decision_system, death_cleanup |
 | SpawnerState | `Vec<SpawnerEntry>` — building→NPC links + respawn timers | spawner_respawn_system, game_startup |
 | PopulationStats | alive/working/dead per (job, town) | spawn, death, state transitions |
 

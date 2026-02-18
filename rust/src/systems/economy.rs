@@ -425,9 +425,9 @@ pub fn squad_cleanup_system(
     mut commands: Commands,
     mut squad_state: ResMut<SquadState>,
     npc_map: Res<NpcEntityMap>,
-    available_guards: Query<(Entity, &NpcIndex, &TownId), (With<Archer>, Without<Dead>, Without<SquadId>)>,
+    available_units: Query<(Entity, &NpcIndex, &TownId), (With<SquadUnit>, Without<Dead>, Without<SquadId>)>,
     world_data: Res<WorldData>,
-    squad_guards: Query<(Entity, &NpcIndex, &SquadId), (With<Archer>, Without<Dead>)>,
+    squad_units: Query<(Entity, &NpcIndex, &SquadId), (With<SquadUnit>, Without<Dead>)>,
     timings: Res<SystemTimings>,
     mut dirty: ResMut<DirtyFlags>,
 ) {
@@ -441,11 +441,11 @@ pub fn squad_cleanup_system(
         squad.members.retain(|&slot| npc_map.0.contains_key(&slot));
     }
 
-    // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player archers.
+    // Phase 2: keep Default Squad (index 0) as the live pool of unsquadded player military units.
     // Player-only — AI squads handle recruitment via target_size in Phase 4.
     if let Some(default_squad) = squad_state.squads.get_mut(0) {
         if default_squad.is_player() {
-            for (entity, npc_idx, town) in available_guards.iter() {
+            for (entity, npc_idx, town) in available_units.iter() {
                 if town.0 != player_town { continue; }
                 commands.entity(entity).insert(SquadId(0));
                 if !default_squad.members.contains(&npc_idx.0) {
@@ -460,7 +460,7 @@ pub fn squad_cleanup_system(
         if squad.target_size > 0 && squad.members.len() > squad.target_size {
             let to_dismiss: Vec<usize> = squad.members.drain(squad.target_size..).collect();
             for slot in &to_dismiss {
-                for (entity, npc_idx, sid) in squad_guards.iter() {
+                for (entity, npc_idx, sid) in squad_units.iter() {
                     if npc_idx.0 == *slot && sid.0 == si as i32 {
                         commands.entity(entity).remove::<SquadId>();
                         break;
@@ -475,10 +475,10 @@ pub fn squad_cleanup_system(
         .flat_map(|s| s.members.iter().copied())
         .collect();
 
-    // Build per-owner pools: group available (unsquadded) archers by town.
+    // Build per-owner pools: group available (unsquadded) military units by town.
     // Each squad draws from its owner's pool only.
     let mut pool_by_town: HashMap<i32, Vec<(Entity, usize)>> = HashMap::new();
-    for (entity, npc_idx, town) in available_guards.iter() {
+    for (entity, npc_idx, town) in available_units.iter() {
         if assigned_slots.contains(&npc_idx.0) { continue; }
         pool_by_town.entry(town.0).or_default().push((entity, npc_idx.0));
     }

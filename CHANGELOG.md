@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-02-18g
+
+- **BUILDING_REGISTRY fn pointers** — `BuildingDef` gains 6 fn pointer fields (`build`, `len`, `pos_town`, `count_for_town`, `hps`, `hps_mut`); all 12 registry entries carry closures that dispatch to the correct WorldData/BuildingHpState vec; `WorldData::building_pos_town()`, `building_len()`, `building_counts()` delegate to registry (no per-kind match); `BuildingHpState::hps()`/`hps_mut()`/`push_for()` delegate to registry; `TownBuildingCounts` struct removed, replaced by `HashMap<BuildingKind, usize>` via registry loop
+- **registry-driven build menu** — `build_place_click_system` uses `building_def(kind).label` and `(building_def(kind).build)(town_idx)` instead of per-kind matches
+- **registry-driven factions tab** — `AiSnapshot` replaces 14 per-kind fields with `npcs`/`buildings` HashMaps; snapshot builder uses `BUILDING_REGISTRY` loop for NPC counts
+- **wave-based squad attacks** — `ai_squad_commander_system` uses gather→threshold→dispatch→retreat cycle instead of continuous retargeting; `Squad` gains `wave_active`, `wave_start_count`, `wave_min_start`, `wave_retreat_below_pct` fields; personality-driven thresholds (Aggressive 3/25%, Balanced 5/40%, Economic 8/60%)
+- **raider squads** — raider camps use squad system instead of `RaidQueue`; single squad per camp targets nearest enemy farm; `RaidQueue` resource removed entirely
+- **SquadUnit component** — unified `SquadUnit` marker replaces per-job `Archer` queries in `squad_cleanup_system` and `ai_squad_commander_system`; applied to all military NPCs (archers, crossbows, fighters, raiders) at spawn and load
+- **squad sync all military** — `decision_system` squad sync block applies to any NPC with `SquadId` (not just `is_patrol_unit()`); covers raiders and fighters in squads
+
 ## 2026-02-18f
 
 - **registry-driven building healing** — `healing_system` replaces 10 per-kind blocks with single `BUILDING_REGISTRY` loop; `BuildingHpState::hps_mut(kind)`/`hps(kind)` dispatch to the right HP vec by BuildingKind; `DirtyFlags.buildings_need_healing` skips iteration when no buildings are damaged (set by `building_damage_system`, cleared when all healed)

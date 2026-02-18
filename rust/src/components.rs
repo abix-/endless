@@ -108,6 +108,11 @@ pub struct Miner;
 #[derive(Component)]
 pub struct Crossbow;
 
+/// Squad-eligible military unit. Applied to Archer, Crossbow, Raider, Fighter at spawn.
+/// Used by squad_cleanup_system and ai_squad_commander_system for recruitment queries.
+#[derive(Component)]
+pub struct SquadUnit;
+
 /// TownId identifies which town an NPC belongs to.
 /// Universal component on every NPC. All settlements are "towns" (villager or raider).
 #[derive(Component, Clone, Copy)]

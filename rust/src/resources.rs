@@ -665,24 +665,6 @@ impl CampState {
     }
 }
 
-/// Queue of raiders waiting to form a raid group.
-/// When enough raiders join the queue, they all dispatch together.
-#[derive(Resource, Default)]
-pub struct RaidQueue {
-    /// (Entity, NpcIndex) waiting to raid, grouped by faction.
-    /// Key = faction ID (1+ for raiders).
-    pub waiting: HashMap<i32, Vec<(Entity, usize)>>,
-}
-
-impl RaidQueue {
-    /// Remove a specific raider from the queue (e.g., when they die or enter combat).
-    pub fn remove(&mut self, faction: i32, entity: Entity) {
-        if let Some(queue) = self.waiting.get_mut(&faction) {
-            queue.retain(|(e, _)| *e != entity);
-        }
-    }
-}
-
 impl FactionStats {
     pub fn init(&mut self, count: usize) {
         self.stats = vec![FactionStat::default(); count];
@@ -944,21 +926,8 @@ impl BuildingHpState {
     /// Push a new HP entry for a newly placed building.
     pub fn push_for(&mut self, building: &crate::world::Building) {
         let kind = building.kind();
-        let hp = crate::constants::building_def(kind).hp;
-        match building {
-            crate::world::Building::Waypoint { .. } => self.waypoints.push(hp),
-            crate::world::Building::FarmerHome { .. } => self.farmer_homes.push(hp),
-            crate::world::Building::ArcherHome { .. } => self.archer_homes.push(hp),
-            crate::world::Building::CrossbowHome { .. } => self.crossbow_homes.push(hp),
-            crate::world::Building::FighterHome { .. } => self.fighter_homes.push(hp),
-            crate::world::Building::Tent { .. } => self.tents.push(hp),
-            crate::world::Building::MinerHome { .. } => self.miner_homes.push(hp),
-            crate::world::Building::Farm { .. } => self.farms.push(hp),
-            crate::world::Building::Fountain { .. } |
-            crate::world::Building::Camp { .. } => self.towns.push(hp),
-            crate::world::Building::Bed { .. } => self.beds.push(hp),
-            crate::world::Building::GoldMine => self.gold_mines.push(hp),
-        }
+        let def = crate::constants::building_def(kind);
+        (def.hps_mut)(self).push(def.hp);
     }
 
     /// Get mutable HP for a building by kind and index.
@@ -968,38 +937,12 @@ impl BuildingHpState {
 
     /// Get the HP vec for a building kind (mutable).
     pub fn hps_mut(&mut self, kind: crate::world::BuildingKind) -> &mut Vec<f32> {
-        use crate::world::BuildingKind;
-        match kind {
-            BuildingKind::Waypoint => &mut self.waypoints,
-            BuildingKind::FarmerHome => &mut self.farmer_homes,
-            BuildingKind::ArcherHome => &mut self.archer_homes,
-            BuildingKind::CrossbowHome => &mut self.crossbow_homes,
-            BuildingKind::FighterHome => &mut self.fighter_homes,
-            BuildingKind::Tent => &mut self.tents,
-            BuildingKind::MinerHome => &mut self.miner_homes,
-            BuildingKind::Farm => &mut self.farms,
-            BuildingKind::Fountain | BuildingKind::Camp => &mut self.towns,
-            BuildingKind::Bed => &mut self.beds,
-            BuildingKind::GoldMine => &mut self.gold_mines,
-        }
+        (crate::constants::building_def(kind).hps_mut)(self)
     }
 
     /// Get the HP vec for a building kind (immutable).
-    pub fn hps(&self, kind: crate::world::BuildingKind) -> &Vec<f32> {
-        use crate::world::BuildingKind;
-        match kind {
-            BuildingKind::Waypoint => &self.waypoints,
-            BuildingKind::FarmerHome => &self.farmer_homes,
-            BuildingKind::ArcherHome => &self.archer_homes,
-            BuildingKind::CrossbowHome => &self.crossbow_homes,
-            BuildingKind::FighterHome => &self.fighter_homes,
-            BuildingKind::Tent => &self.tents,
-            BuildingKind::MinerHome => &self.miner_homes,
-            BuildingKind::Farm => &self.farms,
-            BuildingKind::Fountain | BuildingKind::Camp => &self.towns,
-            BuildingKind::Bed => &self.beds,
-            BuildingKind::GoldMine => &self.gold_mines,
-        }
+    pub fn hps(&self, kind: crate::world::BuildingKind) -> &[f32] {
+        (crate::constants::building_def(kind).hps)(self)
     }
 
     /// Get current HP for a building by kind and index.

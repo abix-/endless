@@ -763,46 +763,19 @@ impl WorldData {
     /// Look up position and town index for a building by kind and index.
     /// Returns None if the building is tombstoned or index out of range.
     pub fn building_pos_town(&self, kind: BuildingKind, index: usize) -> Option<(Vec2, u32)> {
-        match kind {
-            BuildingKind::Farm => self.farms.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::Bed => self.beds.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::Waypoint => self.waypoints.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::FarmerHome => self.farmer_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::ArcherHome => self.archer_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::CrossbowHome => self.crossbow_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::FighterHome => self.fighter_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::Tent => self.tents.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::MinerHome => self.miner_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
-            BuildingKind::GoldMine => self.gold_mines.get(index).filter(|b| is_alive(b.position)).map(|_| (self.gold_mines[index].position, 0)),
-            BuildingKind::Fountain | BuildingKind::Camp => self.towns.get(index).map(|t| (t.center, index as u32)),
-        }
+        (crate::constants::building_def(kind).pos_town)(self, index)
     }
 
-    /// Count alive buildings per type for a town.
-    pub fn building_counts(&self, town_idx: u32) -> TownBuildingCounts {
-        let alive = |pos: Vec2, ti: u32| ti == town_idx && is_alive(pos);
-        TownBuildingCounts {
-            farms: self.farms.iter().filter(|f| alive(f.position, f.town_idx)).count(),
-            farmer_homes: self.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
-            archer_homes: self.archer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
-            crossbow_homes: self.crossbow_homes.iter().filter(|c| alive(c.position, c.town_idx)).count(),
-            fighter_homes: self.fighter_homes.iter().filter(|f| alive(f.position, f.town_idx)).count(),
-            waypoints: self.waypoints.iter().filter(|w| alive(w.position, w.town_idx)).count(),
-            miner_homes: self.miner_homes.iter().filter(|m| alive(m.position, m.town_idx)).count(),
-            tents: self.tents.iter().filter(|t| alive(t.position, t.town_idx)).count(),
-        }
+    pub fn building_len(&self, kind: BuildingKind) -> usize {
+        (crate::constants::building_def(kind).len)(self)
     }
-}
 
-pub struct TownBuildingCounts {
-    pub farms: usize,
-    pub farmer_homes: usize,
-    pub archer_homes: usize,
-    pub crossbow_homes: usize,
-    pub fighter_homes: usize,
-    pub waypoints: usize,
-    pub miner_homes: usize,
-    pub tents: usize,
+    /// Count alive buildings per type for a town. Returns HashMap keyed by BuildingKind.
+    pub fn building_counts(&self, town_idx: u32) -> std::collections::HashMap<BuildingKind, usize> {
+        crate::constants::BUILDING_REGISTRY.iter()
+            .map(|def| (def.kind, (def.count_for_town)(self, town_idx)))
+            .collect()
+    }
 }
 
 /// Find the index of a building in its WorldData vec by position match.

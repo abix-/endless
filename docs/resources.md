@@ -52,7 +52,7 @@ Static world data, immutable after initialization.
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, waypoints, towns, gold mines, archer homes, crossbow homes, fighter homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
 | BuildingSlotMap | bidirectional `HashMap<(BuildingKind, usize), usize>` | Maps buildings ↔ NPC GPU slots; buildings occupy invisible NPC slots (speed=0, sprite hidden) for GPU projectile collision; allocated at startup/load, freed on building destroy |
-| BuildingHpState | Parallel Vecs of `f32` HP per building type (waypoints, farmer_homes, archer_homes, crossbow_homes, fighter_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; `hps(kind)`/`hps_mut(kind)` dispatch to the right Vec by BuildingKind; `iter_damaged()` loops over `BUILDING_REGISTRY` to find all damaged buildings; initialized on game startup, pushed on build, zeroed on destroy |
+| BuildingHpState | Parallel Vecs of `f32` HP per building type (waypoints, farmer_homes, archer_homes, crossbow_homes, fighter_homes, tents, miner_homes, farms, towns, beds, gold_mines) | Tracks current HP for all buildings; `hps(kind)`/`hps_mut(kind)` delegate to `BUILDING_REGISTRY` fn pointers (no per-kind match); `push_for()` delegates to registry; `iter_damaged()` loops over `BUILDING_REGISTRY` to find all damaged buildings; initialized on game startup, pushed on build, zeroed on destroy |
 | DirtyFlags | `building_grid`, `patrols`, `patrol_perimeter`, `healing_zones`, `waypoint_slots`, `squads`, `mining`, `buildings_need_healing` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds (except `buildings_need_healing` = false); `buildings_need_healing` set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain; `waypoint_slots` triggers NPC slot alloc/free in `sync_waypoint_slots`; `squads` gates `squad_cleanup_system` (set by death/spawn/UI); `mining` gates `mining_policy_system`; `patrol_perimeter` gates `sync_patrol_perimeter_system`; `patrol_swap` queues patrol order swap from UI; `mark_building_changed(kind)` helper sets the right combo of flags for build/destroy events |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 | GameAudio | `music_volume: f32`, `sfx_volume: f32`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings |
@@ -72,7 +72,7 @@ Static world data, immutable after initialization.
 | FighterHome | position (Vec2), town_idx |
 | GoldMine | position (Vec2) |
 
-Helper functions: `building_pos_town(kind, index)` → `Option<(Vec2, u32)>` single dispatch for any building's position and town index (filters tombstoned), `find_nearest_location()`, `find_location_within_radius()`, `find_nearest_free()`, `find_within_radius()`, `find_by_pos()`. The first four use `BuildingSpatialGrid` for O(1) cell lookups instead of linear scans. `find_by_pos` still uses the `Worksite` trait directly on slices.
+Helper functions: `building_pos_town(kind, index)` → `Option<(Vec2, u32)>` delegates to `BUILDING_REGISTRY` fn pointer (no per-kind match), `building_len(kind)` delegates to registry, `building_counts(town_idx)` → `HashMap<BuildingKind, usize>` via registry loop (replaced `TownBuildingCounts` struct), `find_nearest_location()`, `find_location_within_radius()`, `find_nearest_free()`, `find_within_radius()`, `find_by_pos()`. The first four use `BuildingSpatialGrid` for O(1) cell lookups instead of linear scans. `find_by_pos` still uses the `Worksite` trait directly on slices.
 
 ### World Grid
 
@@ -126,7 +126,6 @@ Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficul
 | Resource | Data | Purpose |
 |----------|------|---------|
 | CampState | max_pop, respawn_timers, forage_timers per camp | Camp respawn/forage scheduling |
-| RaidQueue | `HashMap<faction, Vec<(Entity, slot)>>` | Raiders waiting to form raid group |
 
 `CampState::faction_to_camp(faction)` maps faction ID to camp index (faction 1 = camp 0).
 
@@ -270,15 +269,17 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 |----------|------|---------|---------|
 | SquadState | `squads: Vec<Squad>` (first 10 player-reserved, AI appended after), `selected: i32`, `placing_target: bool` | left_panel, click_to_select, game_escape, squad_cleanup_system, ai_squad_commander_system | decision_system, squad_overlay_system, squad_cleanup_system, ai_squad_commander_system |
 
-`SquadOwner` enum: `Player` (default) or `Town(usize)` (town_data_idx). Determines which town's archers get recruited into the squad.
+`SquadOwner` enum: `Player` (default) or `Town(usize)` (town_data_idx). Determines which town's military units get recruited into the squad.
 
-`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`.
+`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`.
 
-`SquadId(i32)` component added to archers when recruited into a squad. Removed on dismiss. Archers with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
+`SquadId(i32)` component added to military units (archers, crossbows, fighters, raiders) when recruited into a squad. Removed on dismiss. Units with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
+
+`SquadUnit` marker component applied to all military NPCs (archers, crossbows, fighters, raiders) at spawn. Used by `squad_cleanup_system` and `ai_squad_commander_system` for recruitment queries instead of per-job component filters.
 
 `placing_target`: when true, next left-click on the map sets the selected squad's target. Cancelled by ESC or right-click.
 
-`npc_matches_owner(owner, npc_town_id, player_town)`: helper for owner-safe recruitment in `squad_cleanup_system`. Player squads recruit from player-town archers; `Town(tdi)` squads recruit from archers with matching `TownId`.
+`npc_matches_owner(owner, npc_town_id, player_town)`: helper for owner-safe recruitment in `squad_cleanup_system`. Player squads recruit from player-town `SquadUnit` NPCs; `Town(tdi)` squads recruit from units with matching `TownId`.
 
 UI filtering: left panel and squad overlay only show `is_player()` squads. Hotkeys 1-0 map to indices 0-9 (always player-reserved).
 
