@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-18d
+
+- **fighter home building** — new `FighterHome` building type (cost 5 food, 150 HP) spawning `Job::Fighter` units that patrol waypoints via `FindNearestWaypoint` behavior; `is_patrol_unit: true` so fighters join the waypoint patrol loop like archers and crossbows
+- **NPC registry** — single source of truth `NPC_REGISTRY` in constants.rs: 6 `NpcDef` entries define job, label, sprite, color, base stats, attack_override, classification flags, and spawn component flags; `npc_def(job)` lookup replaces scattered `SPRITE_*` constants and hardcoded stat fields; `Job` methods (`color()`, `label()`, `sprite()`, `is_patrol_unit()`, `is_military()`) delegate to registry
+- **data-driven build menu** — `build_menu.rs` iterates `BUILDING_REGISTRY` with `player_buildable`/`camp_buildable` filters instead of hardcoded `PLAYER_BUILD_OPTIONS`/`CAMP_BUILD_OPTIONS` arrays; `init_sprite_cache` extracts textures from `TileSpec` automatically
+- **fix inspector spawner kind** — building inspector used hardcoded ints (0-4) for spawner `building_kind` lookups; replaced with `tileset_index(BuildingKind::X)` for registry-order-independence
+- **full save/load** — FighterHome buildings, HP state, and spawner entries persisted with `#[serde(default)]` backward compatibility
+
 ## 2026-02-18c
 
 - **consolidate GPU extractions** — 8→4 ExtractResourcePlugins: absorbed NpcComputeParams into NpcGpuData (derives ShaderType, serves as both extraction and compute uniform), absorbed ProjComputeParams into ProjGpuData (same pattern), replaced GrowthStates + BuildingHpRender per-feature extractions with generic OverlayInstances resource (zero-clone Extract<Res<T>> → BuildingOverlayBuffers with RawBufferVec reuse)

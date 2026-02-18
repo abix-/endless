@@ -212,9 +212,9 @@ Six textures are bound simultaneously at group 0 (bindings 0-11). Per-instance/p
 | Heal halo | 4-5 | 2 | `heal.png` | 16×16 | Healing overlay |
 | Sleep icon | 6-7 | 3 | `sleep.png` | 16×16 | Sleep indicator |
 | Arrow | 8-9 | 4 | `arrow.png` | 16×16 | Projectile sprite |
-| Building | 10-11 | 7 | (generated at runtime) | 32×320 | Building sprites |
+| Building | 10-11 | 7 | (generated at runtime) | 32×384 | Building sprites |
 
-Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The building atlas is a vertical strip of 11 tiles (32×32 each), generated at runtime by `build_building_atlas()` from individual building sprites. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
+Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The building atlas is a vertical strip of 12 tiles (32×32 each), generated at runtime by `build_building_atlas()` from individual building sprites. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
 
 ```wgsl
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
@@ -400,8 +400,10 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 | Farmer Home | `house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Archer Home | `barracks.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Waypoint | `waypoint.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
+| Miner Home | `miner_house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
+| Fighter Home | `fighter_home.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 
-`SpriteAssets` holds handles for all loaded textures including the three external building sprites (`house_texture`, `barracks_texture`, `waypoint_texture`). NPC instanced rendering textures are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon, `arrow_handle` for arrow, `building_handle` for building atlas), extracted to render world for bind group creation. The building atlas handle is set later by `spawn_world_tilemap` (not at startup like the others); `prepare_npc_texture_bind_group` falls back to `char_image` until it's available.
+`SpriteAssets` holds handles for all loaded textures including the five external building sprites (`house_texture`, `barracks_texture`, `waypoint_texture`, `miner_house_texture`, `fighter_home_texture`). NPC instanced rendering textures are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon, `arrow_handle` for arrow, `building_handle` for building atlas), extracted to render world for bind group creation. The building atlas handle is set later by `spawn_world_tilemap` (not at startup like the others); `prepare_npc_texture_bind_group` falls back to `char_image` until it's available.
 
 ## Equipment Layers
 
@@ -439,11 +441,11 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array` for terrain. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images. Called once with `TERRAIN_TILES` (11 tiles, no extras).
 
-**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×352 vertical strip `texture_2d` for the building atlas (11 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `NpcSpriteTexture.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
+**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×384 vertical strip `texture_2d` for the building atlas (12 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `NpcSpriteTexture.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
-**`Building::tileset_index()`**: Maps building variant to building strip index (0-10). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7, GoldMine=8, MinerHome=9, CrossbowHome=10 (11 tiles total via `building_tiles()`).
+**`Building::tileset_index()`**: Maps building variant to building strip index (0-11). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7, GoldMine=8, MinerHome=9, CrossbowHome=10, FighterHome=11 (12 tiles total via `building_tiles()`).
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 

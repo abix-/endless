@@ -146,11 +146,13 @@ struct AiSnapshot {
     farmers: usize,
     archers: usize,
     crossbows: usize,
+    fighters: usize,
     raiders: usize,
     miners: usize,
     farmer_homes: usize,
     archer_homes: usize,
     crossbow_homes: usize,
+    fighter_homes: usize,
     tents: usize,
     miner_homes: usize,
     farms: usize,
@@ -1045,18 +1047,23 @@ fn rebuild_factions_cache(
         let farmer_homes = counts.farmer_homes;
         let archer_homes = counts.archer_homes;
         let crossbow_homes = counts.crossbow_homes;
+        let fighter_homes = counts.fighter_homes;
         let waypoints = counts.waypoints;
         let tents = counts.tents;
         let miner_homes = counts.miner_homes;
 
         let ti_i32 = tdi as i32;
-        let alive_spawner = |kind: i32| factions.spawner_state.0.iter()
-            .filter(|s| s.building_kind == kind && s.town_idx == ti_i32 && s.npc_slot >= 0 && is_alive(s.position)).count();
-        let farmers = alive_spawner(0);
-        let archers = alive_spawner(1);
-        let raiders = alive_spawner(2);
-        let miners = alive_spawner(3);
-        let crossbows = alive_spawner(4);
+        let alive_spawner = |kind: BuildingKind| {
+            let ti = crate::constants::tileset_index(kind) as i32;
+            factions.spawner_state.0.iter()
+                .filter(|s| s.building_kind == ti && s.town_idx == ti_i32 && s.npc_slot >= 0 && is_alive(s.position)).count()
+        };
+        let farmers = alive_spawner(BuildingKind::FarmerHome);
+        let archers = alive_spawner(BuildingKind::ArcherHome);
+        let crossbows = alive_spawner(BuildingKind::CrossbowHome);
+        let fighters = alive_spawner(BuildingKind::FighterHome);
+        let raiders = alive_spawner(BuildingKind::Tent);
+        let miners = alive_spawner(BuildingKind::MinerHome);
 
         let food = factions.food_storage.food.get(tdi).copied().unwrap_or(0);
         let gold = factions.gold_storage.gold.get(tdi).copied().unwrap_or(0);
@@ -1126,11 +1133,13 @@ fn rebuild_factions_cache(
             farmers,
             archers,
             crossbows,
+            fighters,
             raiders,
             miners,
             farmer_homes,
             archer_homes,
             crossbow_homes,
+            fighter_homes,
             tents,
             miner_homes,
             farms,
@@ -1364,15 +1373,18 @@ fn factions_content(
             });
 
         right.label("Military");
-        right.label(format!("Force: {} (Archers {} + Crossbows {} + Raiders {})", snap.archers + snap.crossbows + snap.raiders, snap.archers, snap.crossbows, snap.raiders));
+        let total_mil = snap.archers + snap.crossbows + snap.fighters + snap.raiders;
+        right.label(format!("Force: {} (Archers {} + Crossbows {} + Fighters {} + Raiders {})", total_mil, snap.archers, snap.crossbows, snap.fighters, snap.raiders));
         right.label(format!("Archers: {}/{}", snap.archers, snap.archer_homes));
         right.label(format!("Crossbows: {}/{}", snap.crossbows, snap.crossbow_homes));
+        right.label(format!("Fighters: {}/{}", snap.fighters, snap.fighter_homes));
         right.label(format!("Raiders: {}/{}", snap.raiders, snap.tents));
         right.separator();
 
         right.label("Military Buildings");
         right.label(format!("Archer Homes: {}", snap.archer_homes));
         right.label(format!("Crossbow Homes: {}", snap.crossbow_homes));
+        right.label(format!("Fighter Homes: {}", snap.fighter_homes));
         right.label(format!("Waypoints: {}", snap.waypoints));
         right.label(format!("Tents: {}", snap.tents));
         right.separator();

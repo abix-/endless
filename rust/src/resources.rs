@@ -931,6 +931,7 @@ pub struct BuildingHpState {
     pub farmer_homes: Vec<f32>,
     pub archer_homes: Vec<f32>,
     pub crossbow_homes: Vec<f32>,
+    pub fighter_homes: Vec<f32>,
     pub tents: Vec<f32>,
     pub miner_homes: Vec<f32>,
     pub farms: Vec<f32>,
@@ -949,6 +950,7 @@ impl BuildingHpState {
             crate::world::Building::FarmerHome { .. } => self.farmer_homes.push(hp),
             crate::world::Building::ArcherHome { .. } => self.archer_homes.push(hp),
             crate::world::Building::CrossbowHome { .. } => self.crossbow_homes.push(hp),
+            crate::world::Building::FighterHome { .. } => self.fighter_homes.push(hp),
             crate::world::Building::Tent { .. } => self.tents.push(hp),
             crate::world::Building::MinerHome { .. } => self.miner_homes.push(hp),
             crate::world::Building::Farm { .. } => self.farms.push(hp),
@@ -967,6 +969,7 @@ impl BuildingHpState {
             BuildingKind::FarmerHome => self.farmer_homes.get_mut(index),
             BuildingKind::ArcherHome => self.archer_homes.get_mut(index),
             BuildingKind::CrossbowHome => self.crossbow_homes.get_mut(index),
+            BuildingKind::FighterHome => self.fighter_homes.get_mut(index),
             BuildingKind::Tent => self.tents.get_mut(index),
             BuildingKind::MinerHome => self.miner_homes.get_mut(index),
             BuildingKind::Farm => self.farms.get_mut(index),
@@ -984,6 +987,7 @@ impl BuildingHpState {
             BuildingKind::FarmerHome => self.farmer_homes.get(index).copied(),
             BuildingKind::ArcherHome => self.archer_homes.get(index).copied(),
             BuildingKind::CrossbowHome => self.crossbow_homes.get(index).copied(),
+            BuildingKind::FighterHome => self.fighter_homes.get(index).copied(),
             BuildingKind::Tent => self.tents.get(index).copied(),
             BuildingKind::MinerHome => self.miner_homes.get(index).copied(),
             BuildingKind::Farm => self.farms.get(index).copied(),
@@ -1018,6 +1022,7 @@ impl BuildingHpState {
             .chain(chain_buildings!(world_data.farmer_homes, self.farmer_homes, BuildingKind::FarmerHome))
             .chain(chain_buildings!(world_data.archer_homes, self.archer_homes, BuildingKind::ArcherHome))
             .chain(chain_buildings!(world_data.crossbow_homes, self.crossbow_homes, BuildingKind::CrossbowHome))
+            .chain(chain_buildings!(world_data.fighter_homes, self.fighter_homes, BuildingKind::FighterHome))
             .chain(chain_buildings!(world_data.tents, self.tents, BuildingKind::Tent))
             .chain(chain_buildings!(world_data.miner_homes, self.miner_homes, BuildingKind::MinerHome))
             .chain(chain_buildings!(world_data.beds, self.beds, BuildingKind::Bed))

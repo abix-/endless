@@ -360,6 +360,13 @@ pub fn healing_system(
         .collect();
     heal_buildings(BuildingKind::CrossbowHome, &mut building_hp.crossbow_homes, &crossbow_home_entries);
 
+    let fighter_home_entries: Vec<(usize, Vec2, u32)> = world_data.fighter_homes.iter()
+        .enumerate()
+        .filter(|(_, b)| crate::world::is_alive(b.position))
+        .map(|(i, b)| (i, b.position, b.town_idx))
+        .collect();
+    heal_buildings(BuildingKind::FighterHome, &mut building_hp.fighter_homes, &fighter_home_entries);
+
     let tent_entries: Vec<(usize, Vec2, u32)> = world_data.tents.iter()
         .enumerate()
         .filter(|(_, b)| crate::world::is_alive(b.position))

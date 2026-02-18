@@ -94,7 +94,7 @@ Execution order is **chained** — each system completes before the next starts.
 - If no NPC target: sets `CombatState::None`, then checks for opportunistic building attack:
   - Only **archers**, **crossbows**, and **raiders** attempt building attacks (farmers/miners/fighters skip)
   - Queries `BuildingSpatialGrid` via `find_nearest_enemy_building()` for enemy buildings within `CachedStats.range`
-  - Non-targetable buildings skipped: Town, GoldMine, Bed
+  - Non-targetable buildings skipped: Fountain, Camp, GoldMine, Bed
   - **Raiders**: only target ArcherHome, CrossbowHome, Waypoint (leave FarmerHome/MinerHome alone for farm raiding)
   - **Archers/Crossbows**: target any enemy building type (except non-targetable)
   - "Enemy" = building faction != NPC faction (uses `BuildingRef.faction` field)

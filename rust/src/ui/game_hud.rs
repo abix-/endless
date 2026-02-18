@@ -800,6 +800,7 @@ fn building_name(building: &Building) -> &'static str {
         Building::Tent { .. } => "Tent",
         Building::GoldMine => "Gold Mine",
         Building::MinerHome { .. } => "Miner Home",
+        Building::FighterHome { .. } => "Fighter Home",
     }
 }
 
@@ -814,7 +815,8 @@ pub fn building_town_idx(building: &Building) -> u32 {
         | Building::ArcherHome { town_idx }
         | Building::CrossbowHome { town_idx }
         | Building::Tent { town_idx }
-        | Building::MinerHome { town_idx } => *town_idx,
+        | Building::MinerHome { town_idx }
+        | Building::FighterHome { town_idx } => *town_idx,
         Building::GoldMine => 0, // mines are unowned
     }
 }
@@ -830,6 +832,8 @@ fn building_from_kind_index(world_data: &WorldData, kind: BuildingKind, index: u
             .map(|b| (Building::ArcherHome { town_idx: b.town_idx }, b.position)),
         BuildingKind::CrossbowHome => world_data.crossbow_homes.get(index)
             .map(|b| (Building::CrossbowHome { town_idx: b.town_idx }, b.position)),
+        BuildingKind::FighterHome => world_data.fighter_homes.get(index)
+            .map(|b| (Building::FighterHome { town_idx: b.town_idx }, b.position)),
         BuildingKind::Tent => world_data.tents.get(index).map(|b| (Building::Tent { town_idx: b.town_idx }, b.position)),
         BuildingKind::MinerHome => world_data.miner_homes.get(index)
             .map(|b| (Building::MinerHome { town_idx: b.town_idx }, b.position)),
@@ -977,13 +981,15 @@ fn building_inspector_content(
             }
         }
 
-        Building::FarmerHome { .. } | Building::ArcherHome { .. } | Building::CrossbowHome { .. } | Building::Tent { .. } | Building::MinerHome { .. } => {
+        Building::FarmerHome { .. } | Building::ArcherHome { .. } | Building::CrossbowHome { .. } | Building::Tent { .. } | Building::MinerHome { .. } | Building::FighterHome { .. } => {
+            let ti = |k: BuildingKind| crate::constants::tileset_index(k) as i32;
             let (kind, spawns_label) = match building {
-                Building::FarmerHome { .. } => (0, "Farmer"),
-                Building::ArcherHome { .. } => (1, "Archer"),
-                Building::CrossbowHome { .. } => (4, "Crossbow"),
-                Building::MinerHome { .. } => (3, "Miner"),
-                _ => (2, "Raider"),
+                Building::FarmerHome { .. } => (ti(BuildingKind::FarmerHome), "Farmer"),
+                Building::ArcherHome { .. } => (ti(BuildingKind::ArcherHome), "Archer"),
+                Building::CrossbowHome { .. } => (ti(BuildingKind::CrossbowHome), "Crossbow"),
+                Building::MinerHome { .. } => (ti(BuildingKind::MinerHome), "Miner"),
+                Building::FighterHome { .. } => (ti(BuildingKind::FighterHome), "Fighter"),
+                _ => (ti(BuildingKind::Tent), "Raider"),
             };
             // Find matching spawner entry
             if let Some(entry) = bld.spawner_state.0.iter().find(|e| {

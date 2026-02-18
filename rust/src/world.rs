@@ -90,6 +90,13 @@ pub struct CrossbowHome {
     pub town_idx: u32,
 }
 
+/// A fighter home that supports 1 fighter (building spawner).
+#[derive(Clone, Debug)]
+pub struct FighterHome {
+    pub position: Vec2,
+    pub town_idx: u32,
+}
+
 /// A miner home that supports 1 miner (building spawner).
 #[derive(Clone, Debug)]
 pub struct MinerHome {
@@ -119,6 +126,7 @@ pub struct WorldData {
     pub farmer_homes: Vec<FarmerHome>,
     pub archer_homes: Vec<ArcherHome>,
     pub crossbow_homes: Vec<CrossbowHome>,
+    pub fighter_homes: Vec<FighterHome>,
     pub tents: Vec<Tent>,
     pub miner_homes: Vec<MinerHome>,
     pub gold_mines: Vec<GoldMine>,
@@ -290,6 +298,9 @@ pub fn place_building(
         }
         Building::CrossbowHome { town_idx } => {
             world_data.crossbow_homes.push(CrossbowHome { position: snapped_pos, town_idx });
+        }
+        Building::FighterHome { town_idx } => {
+            world_data.fighter_homes.push(FighterHome { position: snapped_pos, town_idx });
         }
         Building::Tent { town_idx } => {
             world_data.tents.push(Tent { position: snapped_pos, town_idx });
@@ -511,6 +522,10 @@ pub fn allocate_all_building_slots(
         if !is_alive(c.position) { continue; }
         alloc(slot_alloc, building_slots, BuildingKind::CrossbowHome, i, c.position, town_faction(c.town_idx as u32));
     }
+    for (i, f) in world_data.fighter_homes.iter().enumerate() {
+        if !is_alive(f.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::FighterHome, i, f.position, town_faction(f.town_idx as u32));
+    }
     for (i, t) in world_data.tents.iter().enumerate() {
         if !is_alive(t.position) { continue; }
         alloc(slot_alloc, building_slots, BuildingKind::Tent, i, t.position, town_faction(t.town_idx as u32));
@@ -707,6 +722,13 @@ pub fn remove_building(
                 c.position = tombstone;
             }
         }
+        Building::FighterHome { .. } => {
+            if let Some(f) = world_data.fighter_homes.iter_mut().find(|f| {
+                (f.position - snapped_pos).length() < 1.0
+            }) {
+                f.position = tombstone;
+            }
+        }
         Building::Tent { .. } => {
             if let Some(t) = world_data.tents.iter_mut().find(|t| {
                 (t.position - snapped_pos).length() < 1.0
@@ -746,6 +768,7 @@ impl WorldData {
             farmer_homes: self.farmer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
             archer_homes: self.archer_homes.iter().filter(|h| alive(h.position, h.town_idx)).count(),
             crossbow_homes: self.crossbow_homes.iter().filter(|c| alive(c.position, c.town_idx)).count(),
+            fighter_homes: self.fighter_homes.iter().filter(|f| alive(f.position, f.town_idx)).count(),
             waypoints: self.waypoints.iter().filter(|w| alive(w.position, w.town_idx)).count(),
             miner_homes: self.miner_homes.iter().filter(|m| alive(m.position, m.town_idx)).count(),
             tents: self.tents.iter().filter(|t| alive(t.position, t.town_idx)).count(),
@@ -758,6 +781,7 @@ pub struct TownBuildingCounts {
     pub farmer_homes: usize,
     pub archer_homes: usize,
     pub crossbow_homes: usize,
+    pub fighter_homes: usize,
     pub waypoints: usize,
     pub miner_homes: usize,
     pub tents: usize,
@@ -772,6 +796,7 @@ pub fn find_building_data_index(world_data: &WorldData, building: Building, pos:
         Building::FarmerHome { .. } => world_data.farmer_homes.iter().position(|h| near(h.position)),
         Building::ArcherHome { .. } => world_data.archer_homes.iter().position(|a| near(a.position)),
         Building::CrossbowHome { .. } => world_data.crossbow_homes.iter().position(|c| near(c.position)),
+        Building::FighterHome { .. } => world_data.fighter_homes.iter().position(|f| near(f.position)),
         Building::Tent { .. } => world_data.tents.iter().position(|t| near(t.position)),
         Building::MinerHome { .. } => world_data.miner_home_at(pos),
         Building::Bed { .. } => world_data.beds.iter().position(|b| near(b.position)),
@@ -832,7 +857,8 @@ pub fn destroy_building(
         | Building::Bed { town_idx } | Building::Waypoint { town_idx, .. }
         | Building::Camp { town_idx } | Building::FarmerHome { town_idx }
         | Building::ArcherHome { town_idx } | Building::CrossbowHome { town_idx }
-        | Building::Tent { town_idx } | Building::MinerHome { town_idx } => town_idx as usize,
+        | Building::Tent { town_idx } | Building::MinerHome { town_idx }
+        | Building::FighterHome { town_idx } => town_idx as usize,
         Building::GoldMine => 0,
     };
     let faction = world_data.towns.get(bld_town).map(|t| t.faction).unwrap_or(0);
@@ -1057,7 +1083,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, Camp, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome }
+pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, Camp, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {
@@ -1133,6 +1159,13 @@ impl BuildingSpatialGrid {
             self.insert(BuildingRef {
                 kind: BuildingKind::CrossbowHome, index: i,
                 town_idx: c.town_idx, faction: faction_of(c.town_idx), position: c.position,
+            });
+        }
+        for (i, f) in world.fighter_homes.iter().enumerate() {
+            if f.position.x < -9000.0 { continue; }
+            self.insert(BuildingRef {
+                kind: BuildingKind::FighterHome, index: i,
+                town_idx: f.town_idx, faction: faction_of(f.town_idx), position: f.position,
             });
         }
         for (i, h) in world.farmer_homes.iter().enumerate() {
@@ -1392,6 +1425,7 @@ pub enum Building {
     FarmerHome { town_idx: u32 },
     ArcherHome { town_idx: u32 },
     CrossbowHome { town_idx: u32 },
+    FighterHome { town_idx: u32 },
     Tent { town_idx: u32 },
     GoldMine,
     MinerHome { town_idx: u32 },
@@ -1420,6 +1454,7 @@ impl Building {
             Building::FarmerHome { .. } => BuildingKind::FarmerHome,
             Building::ArcherHome { .. } => BuildingKind::ArcherHome,
             Building::CrossbowHome { .. } => BuildingKind::CrossbowHome,
+            Building::FighterHome { .. } => BuildingKind::FighterHome,
             Building::Tent { .. } => BuildingKind::Tent,
             Building::MinerHome { .. } => BuildingKind::MinerHome,
             Building::Bed { .. } => BuildingKind::Bed,

@@ -449,6 +449,8 @@ pub fn building_damage_system(
                 .map(|a| (a.position, a.town_idx as usize)),
             BuildingKind::CrossbowHome => world.world_data.crossbow_homes.get(msg.index)
                 .map(|a| (a.position, a.town_idx as usize)),
+            BuildingKind::FighterHome => world.world_data.fighter_homes.get(msg.index)
+                .map(|f| (f.position, f.town_idx as usize)),
             BuildingKind::Tent => world.world_data.tents.get(msg.index)
                 .map(|t| (t.position, t.town_idx as usize)),
             BuildingKind::MinerHome => world.world_data.miner_homes.get(msg.index)

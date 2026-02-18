@@ -844,6 +844,7 @@ fn build_place_click_system(
         BuildingKind::FarmerHome => "house",
         BuildingKind::ArcherHome => "barracks",
         BuildingKind::CrossbowHome => "crossbow home",
+        BuildingKind::FighterHome => "fighter home",
         BuildingKind::Tent => "tent",
         BuildingKind::MinerHome => "mine shaft",
         _ => unreachable!(),
@@ -866,6 +867,7 @@ fn build_place_click_system(
             BuildingKind::FarmerHome => world::Building::FarmerHome { town_idx },
             BuildingKind::ArcherHome => world::Building::ArcherHome { town_idx },
             BuildingKind::CrossbowHome => world::Building::CrossbowHome { town_idx },
+            BuildingKind::FighterHome => world::Building::FighterHome { town_idx },
             BuildingKind::Tent => world::Building::Tent { town_idx },
             BuildingKind::MinerHome => world::Building::MinerHome { town_idx },
             _ => unreachable!(),
@@ -1308,10 +1310,9 @@ struct CleanupWorld<'w> {
     food_storage: ResMut<'w, FoodStorage>,
     faction_stats: ResMut<'w, FactionStats>,
     gpu_state: ResMut<'w, GpuReadState>,
-    npc_gpu_data: ResMut<'w, crate::gpu::NpcGpuData>,
+    render_config: ResMut<'w, crate::gpu::RenderFrameConfig>,
     npc_gpu_state: ResMut<'w, crate::gpu::NpcGpuState>,
     npc_visual_upload: ResMut<'w, crate::gpu::NpcVisualUpload>,
-    proj_gpu_data: ResMut<'w, crate::gpu::ProjGpuData>,
     proj_buffer_writes: ResMut<'w, crate::gpu::ProjBufferWrites>,
     game_time: ResMut<'w, GameTime>,
     tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
@@ -1400,10 +1401,10 @@ fn game_cleanup_system(
     *world.gold_storage = Default::default();
     *world.world_state.building_hp = Default::default();
     *building_hp_render = Default::default();
-    *world.npc_gpu_data = Default::default();
+    world.render_config.npc = Default::default();
+    world.render_config.proj = Default::default();
     *world.npc_gpu_state = Default::default();
     *world.npc_visual_upload = Default::default();
-    *world.proj_gpu_data = Default::default();
     *world.proj_buffer_writes = Default::default();
 
     // Reset debug/tracking resources

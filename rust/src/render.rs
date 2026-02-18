@@ -8,7 +8,7 @@ use bevy::ecs::system::SystemParam;
 
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
-use crate::gpu::NpcSpriteTexture;
+use crate::gpu::RenderFrameConfig;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, TERRAIN_TILES, building_tiles};
@@ -49,6 +49,7 @@ pub struct SpriteAssets {
     pub barracks_texture: Handle<Image>,
     pub waypoint_texture: Handle<Image>,
     pub miner_house_texture: Handle<Image>,
+    pub fighter_home_texture: Handle<Image>,
     /// Whether assets are loaded
     pub loaded: bool,
 }
@@ -116,7 +117,7 @@ fn setup_camera(mut commands: Commands) {
 /// Load sprite sheets.
 fn load_sprites(
     mut assets: ResMut<SpriteAssets>,
-    mut npc_sprite_tex: ResMut<NpcSpriteTexture>,
+    mut config: ResMut<RenderFrameConfig>,
     asset_server: Res<AssetServer>,
     mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
 ) {
@@ -124,7 +125,7 @@ fn load_sprites(
     assets.char_texture = asset_server.load("sprites/roguelikeChar_transparent.png");
 
     // Share texture handles with instanced renderer
-    npc_sprite_tex.handle = Some(assets.char_texture.clone());
+    config.textures.handle = Some(assets.char_texture.clone());
 
     // Create atlas layout for characters (16x16 with 1px padding)
     let char_layout = TextureAtlasLayout::from_grid(
@@ -142,16 +143,17 @@ fn load_sprites(
     assets.barracks_texture = asset_server.load("sprites/barracks.png");
     assets.waypoint_texture = asset_server.load("sprites/waypoint.png");
     assets.miner_house_texture = asset_server.load("sprites/miner_house.png");
-    npc_sprite_tex.world_handle = Some(assets.world_texture.clone());
+    assets.fighter_home_texture = asset_server.load("sprites/fighter_home.png");
+    config.textures.world_handle = Some(assets.world_texture.clone());
 
     // Load heal halo sprite (single 16x16 texture)
-    npc_sprite_tex.heal_handle = Some(asset_server.load("sprites/heal.png"));
+    config.textures.heal_handle = Some(asset_server.load("sprites/heal.png"));
 
     // Load sleep icon sprite (single 16x16 texture)
-    npc_sprite_tex.sleep_handle = Some(asset_server.load("sprites/sleep.png"));
+    config.textures.sleep_handle = Some(asset_server.load("sprites/sleep.png"));
 
     // Load arrow projectile sprite (single texture, white, points up)
-    npc_sprite_tex.arrow_handle = Some(asset_server.load("sprites/arrow.png"));
+    config.textures.arrow_handle = Some(asset_server.load("sprites/arrow.png"));
 
     // Create atlas layout for world sprites
     let world_layout = TextureAtlasLayout::from_grid(
@@ -574,7 +576,7 @@ fn spawn_world_tilemap(
     assets: Res<SpriteAssets>,
     mut images: ResMut<Assets<Image>>,
     mut spawned: ResMut<TilemapSpawned>,
-    mut npc_sprite_tex: ResMut<NpcSpriteTexture>,
+    mut config: ResMut<RenderFrameConfig>,
 ) {
     if spawned.0 || grid.width == 0 { return; }
     let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
@@ -582,6 +584,7 @@ fn spawn_world_tilemap(
     let Some(barracks_img) = images.get(&assets.barracks_texture).cloned() else { return; };
     let Some(waypoint_img) = images.get(&assets.waypoint_texture).cloned() else { return; };
     let Some(miner_house_img) = images.get(&assets.miner_house_texture).cloned() else { return; };
+    let Some(fighter_home_img) = images.get(&assets.fighter_home_texture).cloned() else { return; };
 
     // Terrain layer
     let terrain_tileset = build_tileset(&atlas, &TERRAIN_TILES, &[], &mut images);
@@ -607,14 +610,14 @@ fn spawn_world_tilemap(
     let building_atlas = build_building_atlas(
         &atlas,
         &btiles,
-        &[&house_img, &barracks_img, &waypoint_img, &miner_house_img],
+        &[&house_img, &barracks_img, &waypoint_img, &miner_house_img, &fighter_home_img],
         &mut images,
     );
     if let Some(img) = images.get(&building_atlas) {
         assert_eq!(img.height(), 32 * btiles.len() as u32,
             "building atlas height mismatch");
     }
-    npc_sprite_tex.building_handle = Some(building_atlas);
+    config.textures.building_handle = Some(building_atlas);
 
     info!("World tilemap spawned: {}x{} grid", grid.width, grid.height);
     spawned.0 = true;

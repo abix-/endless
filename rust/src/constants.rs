@@ -96,7 +96,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         sprite: (1.0, 9.0), color: (1.0, 1.0, 0.0, 1.0),
         base_hp: 100.0, base_damage: 15.0, base_speed: 100.0,
         default_attack_type: BaseAttackType::Melee, attack_override: None,
-        is_patrol_unit: false, is_military: true,
+        is_patrol_unit: true, is_military: true,
         has_energy: false, has_attack_timer: true,
         weapon: None, helmet: None, stealer: false, leash_range: None,
     },
@@ -565,6 +565,18 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
         spawner: Some(SpawnerDef { job: 5, attack_type: 2, behavior: SpawnBehavior::FindNearestWaypoint }),
+    },
+    // 11: Fighter Home
+    BuildingDef {
+        kind: BuildingKind::FighterHome,
+        tile: TileSpec::External(4),
+        hp: 150.0, cost: 5,
+        label: "Fighter Home", help: "Spawns 1 fighter",
+        player_buildable: true, camp_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef { job: 3, attack_type: 0, behavior: SpawnBehavior::FindNearestWaypoint }),
     },
 ];
 

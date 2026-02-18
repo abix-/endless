@@ -8,7 +8,7 @@ Autonomous opponents that build, upgrade, and fight like the player. Each AI set
 
 | Kind | Spawned By | Buildings | NPCs |
 |------|-----------|-----------|------|
-| **Builder** | World gen (AI towns) | Farms, farmer homes, archer homes, crossbow homes, miner homes, waypoints | Farmers, archers, crossbows, miners |
+| **Builder** | World gen (AI towns) | Farms, farmer homes, archer homes, crossbow homes, fighter homes, miner homes, waypoints | Farmers, archers, crossbows, fighters, miners |
 | **Raider** | Migration system (dynamic camps) | Tents | Raiders |
 
 ## Personalities
@@ -43,7 +43,7 @@ Assigned randomly at creation. Drives every decision the AI makes. All personali
 | **Retarget cooldown** | 15s | 25s | 40s |
 | **Preferred targets** | all buildings (farms, homes, archers, crossbows, waypoints, tents, miners) | military (archer homes + crossbow homes + waypoints) | farms only |
 
-All personalities share the same fallback target set if preferred kinds yield nothing: farms, farmer homes, archer homes, crossbow homes, waypoints, tents, miner homes. Towns, gold mines, and beds are never targeted.
+All personalities share the same fallback target set if preferred kinds yield nothing: farms, farmer homes, archer homes, crossbow homes, fighter homes, waypoints, tents, miner homes. Towns, gold mines, and beds are never targeted.
 
 ### Policies
 
@@ -90,7 +90,7 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 reserve = food_reserve_per_spawner × spawner_count
 ```
 
-Every spawner building (farmer home, archer home, crossbow home, miner home) counts. The AI won't spend food if at or below reserve. This prevents self-starvation but also slows building as the town grows.
+Every spawner building (farmer home, archer home, crossbow home, fighter home, miner home) counts. The AI won't spend food if at or below reserve. This prevents self-starvation but also slows building as the town grows.
 
 ### Hunger Signal
 
@@ -240,5 +240,6 @@ Group size capped at 20 raiders. Random personality assigned at spawn.
 | Miner Home | 4 |
 | Archer Home | 4 |
 | Crossbow Home | 8 |
+| Fighter Home | 5 |
 | Waypoint | 1 |
 | Tent | 3 |

@@ -1385,6 +1385,7 @@ fn resolve_building_pos(world_data: &WorldData, kind: BuildingKind, index: usize
         BuildingKind::FarmerHome => world_data.farmer_homes.get(index).map(|b| b.position),
         BuildingKind::ArcherHome => world_data.archer_homes.get(index).map(|b| b.position),
         BuildingKind::CrossbowHome => world_data.crossbow_homes.get(index).map(|b| b.position),
+        BuildingKind::FighterHome => world_data.fighter_homes.get(index).map(|b| b.position),
         BuildingKind::Waypoint => world_data.waypoints.get(index).map(|b| b.position),
         BuildingKind::Tent => world_data.tents.get(index).map(|b| b.position),
         BuildingKind::MinerHome => world_data.miner_homes.get(index).map(|b| b.position),

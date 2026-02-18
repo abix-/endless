@@ -50,6 +50,8 @@ pub struct SaveData {
     pub archer_homes: Vec<PosTownSave>,
     #[serde(default)]
     pub crossbow_homes: Vec<PosTownSave>,
+    #[serde(default)]
+    pub fighter_homes: Vec<PosTownSave>,
     pub tents: Vec<PosTownSave>,
     pub miner_homes: Vec<MinerHomeSave>,
     pub gold_mines: Vec<[f32; 2]>,
@@ -174,6 +176,8 @@ pub struct BuildingHpSave {
     pub archer_homes: Vec<f32>,
     #[serde(default)]
     pub crossbow_homes: Vec<f32>,
+    #[serde(default)]
+    pub fighter_homes: Vec<f32>,
     pub tents: Vec<f32>,
     pub miner_homes: Vec<f32>,
     pub farms: Vec<f32>,
@@ -232,6 +236,7 @@ pub enum BuildingSave {
     FarmerHome { town_idx: u32 },
     ArcherHome { town_idx: u32 },
     CrossbowHome { town_idx: u32 },
+    FighterHome { town_idx: u32 },
     Tent { town_idx: u32 },
     GoldMine,
     MinerHome { town_idx: u32 },
@@ -248,6 +253,7 @@ impl BuildingSave {
             world::Building::FarmerHome { town_idx } => Self::FarmerHome { town_idx },
             world::Building::ArcherHome { town_idx } => Self::ArcherHome { town_idx },
             world::Building::CrossbowHome { town_idx } => Self::CrossbowHome { town_idx },
+            world::Building::FighterHome { town_idx } => Self::FighterHome { town_idx },
             world::Building::Tent { town_idx } => Self::Tent { town_idx },
             world::Building::GoldMine => Self::GoldMine,
             world::Building::MinerHome { town_idx } => Self::MinerHome { town_idx },
@@ -264,6 +270,7 @@ impl BuildingSave {
             Self::FarmerHome { town_idx } => world::Building::FarmerHome { town_idx },
             Self::ArcherHome { town_idx } => world::Building::ArcherHome { town_idx },
             Self::CrossbowHome { town_idx } => world::Building::CrossbowHome { town_idx },
+            Self::FighterHome { town_idx } => world::Building::FighterHome { town_idx },
             Self::Tent { town_idx } => world::Building::Tent { town_idx },
             Self::GoldMine => world::Building::GoldMine,
             Self::MinerHome { town_idx } => world::Building::MinerHome { town_idx },
@@ -529,6 +536,9 @@ pub fn collect_save_data(
     let crossbow_homes: Vec<PosTownSave> = world_data.crossbow_homes.iter().map(|h| PosTownSave {
         position: v2(h.position), town_idx: h.town_idx,
     }).collect();
+    let fighter_homes: Vec<PosTownSave> = world_data.fighter_homes.iter().map(|h| PosTownSave {
+        position: v2(h.position), town_idx: h.town_idx,
+    }).collect();
     let tents_save: Vec<PosTownSave> = world_data.tents.iter().map(|t| PosTownSave {
         position: v2(t.position), town_idx: t.town_idx,
     }).collect();
@@ -568,6 +578,7 @@ pub fn collect_save_data(
         farmer_homes: building_hp.farmer_homes.clone(),
         archer_homes: building_hp.archer_homes.clone(),
         crossbow_homes: building_hp.crossbow_homes.clone(),
+        fighter_homes: building_hp.fighter_homes.clone(),
         tents: building_hp.tents.clone(),
         miner_homes: building_hp.miner_homes.clone(),
         farms: building_hp.farms.clone(),
@@ -631,6 +642,7 @@ pub fn collect_save_data(
         farmer_homes,
         archer_homes,
         crossbow_homes,
+        fighter_homes,
         tents: tents_save,
         miner_homes,
         gold_mines: gold_mines_save,
@@ -801,6 +813,9 @@ pub fn apply_save(
     world_data.crossbow_homes = save.crossbow_homes.iter().map(|h| world::CrossbowHome {
         position: to_vec2(h.position), town_idx: h.town_idx,
     }).collect();
+    world_data.fighter_homes = save.fighter_homes.iter().map(|h| world::FighterHome {
+        position: to_vec2(h.position), town_idx: h.town_idx,
+    }).collect();
     world_data.tents = save.tents.iter().map(|t| world::Tent {
         position: to_vec2(t.position), town_idx: t.town_idx,
     }).collect();
@@ -877,6 +892,7 @@ pub fn apply_save(
         farmer_homes: save.building_hp.farmer_homes.clone(),
         archer_homes: save.building_hp.archer_homes.clone(),
         crossbow_homes: save.building_hp.crossbow_homes.clone(),
+        fighter_homes: save.building_hp.fighter_homes.clone(),
         tents: save.building_hp.tents.clone(),
         miner_homes: save.building_hp.miner_homes.clone(),
         farms: save.building_hp.farms.clone(),
@@ -915,7 +931,7 @@ pub fn apply_save(
         });
     }
     // Ensure at least MAX_SQUADS player squads exist.
-    while squad_state.squads.len() < crate::constants::MAX_SQUADS {
+    while squad_state.squads.len() < MAX_SQUADS {
         squad_state.squads.push(Squad::default());
     }
     squad_state.selected = 0;

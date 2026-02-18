@@ -5,29 +5,11 @@ use bevy::prelude::*;
 use bevy::image::Image;
 use bevy_egui::{EguiContexts, EguiTextureHandle, egui};
 
+use crate::constants::{BUILDING_REGISTRY, TileSpec};
 use crate::render::SpriteAssets;
 use crate::resources::*;
 use crate::settings::UserSettings;
 use crate::world::{self, BuildingKind, SPRITE_SIZE, CELL};
-
-struct BuildOption {
-    kind: BuildingKind,
-    label: &'static str,
-    help: &'static str,
-}
-
-const PLAYER_BUILD_OPTIONS: &[BuildOption] = &[
-    BuildOption { kind: BuildingKind::Farm, label: "Farm", help: "Grows food over time" },
-    BuildOption { kind: BuildingKind::FarmerHome, label: "Farmer Home", help: "Spawns 1 farmer" },
-    BuildOption { kind: BuildingKind::MinerHome, label: "Miner Home", help: "Spawns 1 miner" },
-    BuildOption { kind: BuildingKind::ArcherHome, label: "Archer Home", help: "Spawns 1 archer" },
-    BuildOption { kind: BuildingKind::CrossbowHome, label: "Crossbow Home", help: "Spawns 1 crossbow" },
-    BuildOption { kind: BuildingKind::Waypoint, label: "Waypoint", help: "Patrol waypoint" },
-];
-
-const CAMP_BUILD_OPTIONS: &[BuildOption] = &[
-    BuildOption { kind: BuildingKind::Tent, label: "Tent", help: "Spawns 1 raider" },
-];
 
 
 /// Extract a single 32x32 image from the world atlas for a Quad tile spec.
@@ -80,7 +62,19 @@ pub(crate) struct BuildSpriteCache {
     _handles: Vec<Handle<Image>>, // prevent GC of extracted images
 }
 
-/// Initialize sprite cache: extract atlas tiles, register all handles with egui.
+/// Map External(n) index → sprite handle from SpriteAssets.
+fn external_handle(idx: usize, sprites: &SpriteAssets) -> Option<&Handle<Image>> {
+    match idx {
+        0 => Some(&sprites.house_texture),
+        1 => Some(&sprites.barracks_texture),
+        2 => Some(&sprites.waypoint_texture),
+        3 => Some(&sprites.miner_house_texture),
+        4 => Some(&sprites.fighter_home_texture),
+        _ => None,
+    }
+}
+
+/// Initialize sprite cache: derive textures from BUILDING_REGISTRY tile specs.
 fn init_sprite_cache(
     cache: &mut BuildSpriteCache,
     contexts: &mut EguiContexts,
@@ -90,47 +84,40 @@ fn init_sprite_cache(
 ) {
     if cache.initialized { return; }
 
-    // Farm: BUILDING_TILES[3] = Quad([(2,15),(4,15),(2,17),(4,17)])
-    // Tent: BUILDING_TILES[7] = Quad([(48,10),(49,10),(48,11),(49,11)])
     let Some(atlas) = images.get(&sprites.world_texture).cloned() else { return };
-    if images.get(&sprites.house_texture).is_none() { return; }
-    if images.get(&sprites.barracks_texture).is_none() { return; }
-    if images.get(&sprites.waypoint_texture).is_none() { return; }
-    if images.get(&sprites.miner_house_texture).is_none() { return; }
-
-    let farm_img = extract_quad_tile(&atlas, [(2, 15), (4, 15), (2, 17), (4, 17)]);
-    let tent_img = extract_quad_tile(&atlas, [(48, 10), (49, 10), (48, 11), (49, 11)]);
-
-    let farm_handle = images.add(farm_img);
-    let tent_handle = images.add(tent_img);
-
-    // Register all 6 with egui
-    let registrations: [(BuildingKind, &Handle<Image>); 7] = [
-        (BuildingKind::Farm, &farm_handle),
-        (BuildingKind::FarmerHome, &sprites.house_texture),
-        (BuildingKind::ArcherHome, &sprites.barracks_texture),
-        (BuildingKind::CrossbowHome, &sprites.barracks_texture),
-        (BuildingKind::Waypoint, &sprites.waypoint_texture),
-        (BuildingKind::Tent, &tent_handle),
-        (BuildingKind::MinerHome, &sprites.miner_house_texture),
-    ];
-
-    for (kind, handle) in registrations {
-        let tex_id = contexts.add_image(EguiTextureHandle::Weak(handle.id()));
-        cache.textures.insert(kind, tex_id);
+    // Ensure all external textures are loaded
+    for def in BUILDING_REGISTRY {
+        if let TileSpec::External(idx) = def.tile {
+            if external_handle(idx, sprites).and_then(|h| images.get(h)).is_none() { return; }
+        }
     }
 
-    // Store Bevy handles for world-space ghost preview
-    build_ctx.ghost_sprites.insert(BuildingKind::Farm, farm_handle.clone());
-    build_ctx.ghost_sprites.insert(BuildingKind::FarmerHome, sprites.house_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildingKind::ArcherHome, sprites.barracks_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildingKind::CrossbowHome, sprites.barracks_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildingKind::Waypoint, sprites.waypoint_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildingKind::Tent, tent_handle.clone());
-    build_ctx.ghost_sprites.insert(BuildingKind::MinerHome, sprites.miner_house_texture.clone());
+    for def in BUILDING_REGISTRY {
+        if !def.player_buildable && !def.camp_buildable { continue; }
 
-    cache._handles.push(farm_handle);
-    cache._handles.push(tent_handle);
+        let handle = match def.tile {
+            TileSpec::External(idx) => {
+                external_handle(idx, sprites).unwrap().clone()
+            }
+            TileSpec::Quad(quad) => {
+                let img = extract_quad_tile(&atlas, quad);
+                let h = images.add(img);
+                cache._handles.push(h.clone());
+                h
+            }
+            TileSpec::Single(col, row) => {
+                let img = extract_quad_tile(&atlas, [(col, row), (col, row), (col, row), (col, row)]);
+                let h = images.add(img);
+                cache._handles.push(h.clone());
+                h
+            }
+        };
+
+        let tex_id = contexts.add_image(EguiTextureHandle::Weak(handle.id()));
+        cache.textures.insert(def.kind, tex_id);
+        build_ctx.ghost_sprites.insert(def.kind, handle);
+    }
+
     cache.initialized = true;
 }
 
@@ -185,7 +172,6 @@ pub(crate) fn build_menu_system(
     };
     let is_camp = town.faction > 0;
     let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
-    let options = if is_camp { CAMP_BUILD_OPTIONS } else { PLAYER_BUILD_OPTIONS };
     let text_scale = user_settings.build_menu_text_scale.clamp(0.7, 2.0);
     let label_size = 13.0 * text_scale;
     let help_size = 11.0 * text_scale;
@@ -206,14 +192,17 @@ pub(crate) fn build_menu_system(
         .frame(frame)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                for option in options {
-                    let cost = crate::constants::building_cost(option.kind);
+                for def in BUILDING_REGISTRY {
+                    let show = if is_camp { def.camp_buildable } else { def.player_buildable };
+                    if !show { continue; }
+
+                    let cost = def.cost;
                     let can_afford = food >= cost;
-                    let selected = build_ctx.selected_build == Some(option.kind);
+                    let selected = build_ctx.selected_build == Some(def.kind);
 
                     let resp = ui.vertical(|ui| {
                         // Sprite image
-                        if let Some(&tex_id) = cache.textures.get(&option.kind) {
+                        if let Some(&tex_id) = cache.textures.get(&def.kind) {
                             let tint = if !can_afford {
                                 egui::Color32::from_rgba_unmultiplied(100, 100, 100, 150)
                             } else if selected {
@@ -233,12 +222,12 @@ pub(crate) fn build_menu_system(
                             egui::Color32::from_rgb(200, 200, 200)
                         };
                         ui.label(
-                            egui::RichText::new(format!("{} ({})", option.label, cost))
+                            egui::RichText::new(format!("{} ({})", def.label, cost))
                                 .color(label_color)
                                 .size(label_size),
                         );
                         ui.label(
-                            egui::RichText::new(option.help)
+                            egui::RichText::new(def.help)
                                 .color(egui::Color32::from_rgb(140, 140, 140))
                                 .size(help_size),
                         );
@@ -250,7 +239,7 @@ pub(crate) fn build_menu_system(
                             build_ctx.selected_build = None;
                             build_ctx.clear_drag();
                         } else {
-                            build_ctx.selected_build = Some(option.kind);
+                            build_ctx.selected_build = Some(def.kind);
                             build_ctx.destroy_mode = false;
                             build_ctx.clear_drag();
                         }
