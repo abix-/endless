@@ -2,9 +2,11 @@
 
 Build a town under siege—farm, fortify, raise an army, and conquer
 
+Every NPC has a job, a home, and a personality. Set town policies, plan your tech tree, organize squads — and watch AI rivals do the same
+
 <!-- TODO: Add screenshot/GIF here -->
 
-> *Active development — GPU compute powering 10K+ NPCs, full economy with tech tree, AI opponents, save/load, 15 automated tests. [Roadmap](docs/roadmap.md)*
+[Roadmap](docs/roadmap.md)*
 
 ## Download
 
