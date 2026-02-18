@@ -963,38 +963,48 @@ impl BuildingHpState {
 
     /// Get mutable HP for a building by kind and index.
     pub fn get_mut(&mut self, kind: crate::world::BuildingKind, index: usize) -> Option<&mut f32> {
+        self.hps_mut(kind).get_mut(index)
+    }
+
+    /// Get the HP vec for a building kind (mutable).
+    pub fn hps_mut(&mut self, kind: crate::world::BuildingKind) -> &mut Vec<f32> {
         use crate::world::BuildingKind;
         match kind {
-            BuildingKind::Waypoint => self.waypoints.get_mut(index),
-            BuildingKind::FarmerHome => self.farmer_homes.get_mut(index),
-            BuildingKind::ArcherHome => self.archer_homes.get_mut(index),
-            BuildingKind::CrossbowHome => self.crossbow_homes.get_mut(index),
-            BuildingKind::FighterHome => self.fighter_homes.get_mut(index),
-            BuildingKind::Tent => self.tents.get_mut(index),
-            BuildingKind::MinerHome => self.miner_homes.get_mut(index),
-            BuildingKind::Farm => self.farms.get_mut(index),
-            BuildingKind::Fountain | BuildingKind::Camp => self.towns.get_mut(index),
-            BuildingKind::Bed => self.beds.get_mut(index),
-            BuildingKind::GoldMine => self.gold_mines.get_mut(index),
+            BuildingKind::Waypoint => &mut self.waypoints,
+            BuildingKind::FarmerHome => &mut self.farmer_homes,
+            BuildingKind::ArcherHome => &mut self.archer_homes,
+            BuildingKind::CrossbowHome => &mut self.crossbow_homes,
+            BuildingKind::FighterHome => &mut self.fighter_homes,
+            BuildingKind::Tent => &mut self.tents,
+            BuildingKind::MinerHome => &mut self.miner_homes,
+            BuildingKind::Farm => &mut self.farms,
+            BuildingKind::Fountain | BuildingKind::Camp => &mut self.towns,
+            BuildingKind::Bed => &mut self.beds,
+            BuildingKind::GoldMine => &mut self.gold_mines,
+        }
+    }
+
+    /// Get the HP vec for a building kind (immutable).
+    pub fn hps(&self, kind: crate::world::BuildingKind) -> &Vec<f32> {
+        use crate::world::BuildingKind;
+        match kind {
+            BuildingKind::Waypoint => &self.waypoints,
+            BuildingKind::FarmerHome => &self.farmer_homes,
+            BuildingKind::ArcherHome => &self.archer_homes,
+            BuildingKind::CrossbowHome => &self.crossbow_homes,
+            BuildingKind::FighterHome => &self.fighter_homes,
+            BuildingKind::Tent => &self.tents,
+            BuildingKind::MinerHome => &self.miner_homes,
+            BuildingKind::Farm => &self.farms,
+            BuildingKind::Fountain | BuildingKind::Camp => &self.towns,
+            BuildingKind::Bed => &self.beds,
+            BuildingKind::GoldMine => &self.gold_mines,
         }
     }
 
     /// Get current HP for a building by kind and index.
     pub fn get(&self, kind: crate::world::BuildingKind, index: usize) -> Option<f32> {
-        use crate::world::BuildingKind;
-        match kind {
-            BuildingKind::Waypoint => self.waypoints.get(index).copied(),
-            BuildingKind::FarmerHome => self.farmer_homes.get(index).copied(),
-            BuildingKind::ArcherHome => self.archer_homes.get(index).copied(),
-            BuildingKind::CrossbowHome => self.crossbow_homes.get(index).copied(),
-            BuildingKind::FighterHome => self.fighter_homes.get(index).copied(),
-            BuildingKind::Tent => self.tents.get(index).copied(),
-            BuildingKind::MinerHome => self.miner_homes.get(index).copied(),
-            BuildingKind::Farm => self.farms.get(index).copied(),
-            BuildingKind::Fountain | BuildingKind::Camp => self.towns.get(index).copied(),
-            BuildingKind::Bed => self.beds.get(index).copied(),
-            BuildingKind::GoldMine => self.gold_mines.get(index).copied(),
-        }
+        self.hps(kind).get(index).copied()
     }
 
     /// Get max HP for a building by kind.
@@ -1003,37 +1013,19 @@ impl BuildingHpState {
     }
 
     /// Iterate all damaged buildings: yields (position, hp_pct).
-    pub fn iter_damaged<'a>(&'a self, world_data: &'a crate::world::WorldData) -> impl Iterator<Item = (bevy::prelude::Vec2, f32)> + 'a {
-        use crate::constants::building_def;
-        use crate::world::BuildingKind;
-        macro_rules! chain_buildings {
-            ($buildings:expr, $hps:expr, $kind:expr) => {{
-                let max = building_def($kind).hp;
-                $buildings.iter().zip($hps.iter()).filter_map(move |(b, &hp)| {
-                    if crate::world::is_alive(b.position) && hp < max && hp > 0.0 {
-                        Some((b.position, hp / max))
-                    } else { None }
-                })
-            }}
+    pub fn iter_damaged(&self, world_data: &crate::world::WorldData) -> Vec<(bevy::prelude::Vec2, f32)> {
+        use crate::constants::BUILDING_REGISTRY;
+        let mut result = Vec::new();
+        for def in BUILDING_REGISTRY {
+            let hps = self.hps(def.kind);
+            for (idx, &hp) in hps.iter().enumerate() {
+                if hp <= 0.0 || hp >= def.hp { continue; }
+                if let Some((pos, _)) = world_data.building_pos_town(def.kind, idx) {
+                    result.push((pos, hp / def.hp));
+                }
+            }
         }
-        let town_max = building_def(BuildingKind::Fountain).hp;
-        chain_buildings!(world_data.farms, self.farms, BuildingKind::Farm)
-            .chain(chain_buildings!(world_data.waypoints, self.waypoints, BuildingKind::Waypoint))
-            .chain(chain_buildings!(world_data.farmer_homes, self.farmer_homes, BuildingKind::FarmerHome))
-            .chain(chain_buildings!(world_data.archer_homes, self.archer_homes, BuildingKind::ArcherHome))
-            .chain(chain_buildings!(world_data.crossbow_homes, self.crossbow_homes, BuildingKind::CrossbowHome))
-            .chain(chain_buildings!(world_data.fighter_homes, self.fighter_homes, BuildingKind::FighterHome))
-            .chain(chain_buildings!(world_data.tents, self.tents, BuildingKind::Tent))
-            .chain(chain_buildings!(world_data.miner_homes, self.miner_homes, BuildingKind::MinerHome))
-            .chain(chain_buildings!(world_data.beds, self.beds, BuildingKind::Bed))
-            .chain(chain_buildings!(world_data.gold_mines, self.gold_mines, BuildingKind::GoldMine))
-            .chain(
-                world_data.towns.iter().zip(self.towns.iter()).filter_map(move |(t, &hp)| {
-                    if hp < town_max && hp > 0.0 {
-                        Some((t.center, hp / town_max))
-                    } else { None }
-                })
-            )
+        result
     }
 }
 
@@ -1462,6 +1454,8 @@ pub struct DirtyFlags {
     pub healing_zones: bool,
     pub squads: bool,
     pub mining: bool,
+    /// Set when buildings take damage; cleared when no damaged buildings remain.
+    pub buildings_need_healing: bool,
     /// Pending patrol order swap from UI (waypoint indices).
     /// Set by left_panel, consumed by rebuild_patrol_routes_system.
     pub patrol_swap: Option<(usize, usize)>,
@@ -1488,7 +1482,7 @@ impl DirtyFlags {
     }
 }
 impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, squads: true, mining: true, patrol_swap: None } }
+    fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, squads: true, mining: true, buildings_need_healing: false, patrol_swap: None } }
 }
 
 // ============================================================================

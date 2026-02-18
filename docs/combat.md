@@ -165,6 +165,8 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 ### 9. building_damage_system (combat.rs, Step::Behavior)
 - Reads `BuildingDamageMsg` events via `MessageReader`
 - Decrements `BuildingHpState` by `msg.amount` for the target building kind + index
+- Looks up position/town via `WorldData::building_pos_town()` (single dispatch method for all building kinds)
+- Sets `DirtyFlags.buildings_need_healing` when a building survives damage (hp > 0)
 - Syncs HP to GPU: looks up NPC slot via `BuildingSlotMap.get_slot()`, writes `GpuUpdate::SetHealth` with new HP
 - Skips already-dead buildings (HP <= 0)
 - When HP reaches 0:

@@ -439,33 +439,12 @@ pub fn building_damage_system(
         let new_hp = (*hp).max(0.0);
         let max_hp = BuildingHpState::max_hp(msg.kind);
 
-        // Look up position and town for logging (needed for both damage + destruction)
-        let (pos, town_idx) = match msg.kind {
-            BuildingKind::Waypoint => world.world_data.waypoints.get(msg.index)
-                .map(|g| (g.position, g.town_idx as usize)),
-            BuildingKind::FarmerHome => world.world_data.farmer_homes.get(msg.index)
-                .map(|h| (h.position, h.town_idx as usize)),
-            BuildingKind::ArcherHome => world.world_data.archer_homes.get(msg.index)
-                .map(|a| (a.position, a.town_idx as usize)),
-            BuildingKind::CrossbowHome => world.world_data.crossbow_homes.get(msg.index)
-                .map(|a| (a.position, a.town_idx as usize)),
-            BuildingKind::FighterHome => world.world_data.fighter_homes.get(msg.index)
-                .map(|f| (f.position, f.town_idx as usize)),
-            BuildingKind::Tent => world.world_data.tents.get(msg.index)
-                .map(|t| (t.position, t.town_idx as usize)),
-            BuildingKind::MinerHome => world.world_data.miner_homes.get(msg.index)
-                .map(|m| (m.position, m.town_idx as usize)),
-            BuildingKind::Farm => world.world_data.farms.get(msg.index)
-                .map(|f| (f.position, f.town_idx as usize)),
-            BuildingKind::Fountain | BuildingKind::Camp => world.world_data.towns.get(msg.index)
-                .map(|t| (t.center, msg.index)),
-            BuildingKind::Bed => world.world_data.beds.get(msg.index)
-                .map(|b| (b.position, b.town_idx as usize)),
-            BuildingKind::GoldMine => world.world_data.gold_mines.get(msg.index)
-                .map(|m| (m.position, 0)),
-        }.unwrap_or((Vec2::ZERO, 0));
+        // Look up position and town for logging
+        let Some((pos, town_idx_u32)) = world.world_data.building_pos_town(msg.kind, msg.index) else { continue };
+        let town_idx = town_idx_u32 as usize;
 
-        if pos.x < -9000.0 { continue; } // already tombstoned
+        // Mark dirty so healing_system knows to run
+        if new_hp > 0.0 { world.dirty.buildings_need_healing = true; }
 
         let town_name = world.world_data.towns.get(town_idx)
             .map(|t| t.name.clone()).unwrap_or_default();

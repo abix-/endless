@@ -760,6 +760,24 @@ impl WorldData {
         self.gold_mines.iter().position(|m| (m.position - pos).length() < 1.0)
     }
 
+    /// Look up position and town index for a building by kind and index.
+    /// Returns None if the building is tombstoned or index out of range.
+    pub fn building_pos_town(&self, kind: BuildingKind, index: usize) -> Option<(Vec2, u32)> {
+        match kind {
+            BuildingKind::Farm => self.farms.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::Bed => self.beds.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::Waypoint => self.waypoints.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::FarmerHome => self.farmer_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::ArcherHome => self.archer_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::CrossbowHome => self.crossbow_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::FighterHome => self.fighter_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::Tent => self.tents.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::MinerHome => self.miner_homes.get(index).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+            BuildingKind::GoldMine => self.gold_mines.get(index).filter(|b| is_alive(b.position)).map(|_| (self.gold_mines[index].position, 0)),
+            BuildingKind::Fountain | BuildingKind::Camp => self.towns.get(index).map(|t| (t.center, index as u32)),
+        }
+    }
+
     /// Count alive buildings per type for a town.
     pub fn building_counts(&self, town_idx: u32) -> TownBuildingCounts {
         let alive = |pos: Vec2, ti: u32| ti == town_idx && is_alive(pos);

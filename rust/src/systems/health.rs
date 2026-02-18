@@ -8,7 +8,7 @@ use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
 use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, RaidQueue, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingHpState, BuildingSlotMap};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, UPGRADE_PCT};
 use crate::systems::economy::*;
-use crate::world::{WorldData, BuildingOccupancy, BuildingKind};
+use crate::world::{WorldData, BuildingOccupancy};
 
 /// Bundled resources for death_cleanup_system to stay under 16 params.
 #[derive(SystemParam)]
@@ -223,6 +223,7 @@ pub fn healing_system(
     building_slots: Res<BuildingSlotMap>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<HealthDebug>,
+    mut dirty: ResMut<DirtyFlags>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("healing");
@@ -298,101 +299,36 @@ pub fn healing_system(
         }
     }
 
-    // Heal damaged buildings in same-faction fountain range.
-    let mut heal_buildings = |kind: BuildingKind, hps: &mut Vec<f32>, entries: &[(usize, Vec2, u32)]| {
-        let max_hp = BuildingHpState::max_hp(kind);
-        for &(idx, pos, town_idx) in entries {
-            let Some(hp) = hps.get_mut(idx) else { continue };
-            if *hp <= 0.0 || *hp >= max_hp { continue; }
-            let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-            if faction < 0 { continue; }
-            let zones = cache.by_faction.get(faction as usize).map(|v| v.as_slice()).unwrap_or(&[]);
-            let mut zone_heal_rate = 0.0f32;
-            for zone in zones {
-                let dx = pos.x - zone.center.x;
-                let dy = pos.y - zone.center.y;
-                if dx * dx + dy * dy <= zone.radius_sq {
-                    zone_heal_rate = zone.heal_rate;
-                    break;
+    // Heal damaged buildings in same-faction fountain range (registry-driven).
+    if dirty.buildings_need_healing {
+        let mut any_damaged = false;
+        for def in crate::constants::BUILDING_REGISTRY {
+            let hps = building_hp.hps_mut(def.kind);
+            for (idx, hp) in hps.iter_mut().enumerate() {
+                if *hp <= 0.0 || *hp >= def.hp { continue; }
+                any_damaged = true;
+                let Some((pos, town_idx)) = world_data.building_pos_town(def.kind, idx) else { continue };
+                let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
+                if faction < 0 { continue; }
+                let zones = cache.by_faction.get(faction as usize).map(|v| v.as_slice()).unwrap_or(&[]);
+                let mut zone_heal_rate = 0.0f32;
+                for zone in zones {
+                    let dx = pos.x - zone.center.x;
+                    let dy = pos.y - zone.center.y;
+                    if dx * dx + dy * dy <= zone.radius_sq {
+                        zone_heal_rate = zone.heal_rate;
+                        break;
+                    }
+                }
+                if zone_heal_rate <= 0.0 { continue; }
+                *hp = (*hp + zone_heal_rate * dt).min(def.hp);
+                if let Some(slot) = building_slots.get_slot(def.kind, idx) {
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: *hp }));
                 }
             }
-            if zone_heal_rate <= 0.0 { continue; }
-
-            *hp = (*hp + zone_heal_rate * dt).min(max_hp);
-            if let Some(slot) = building_slots.get_slot(kind, idx) {
-                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: *hp }));
-            }
         }
-    };
-
-    let farm_entries: Vec<(usize, Vec2, u32)> = world_data.farms.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::Farm, &mut building_hp.farms, &farm_entries);
-
-    let waypoint_entries: Vec<(usize, Vec2, u32)> = world_data.waypoints.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::Waypoint, &mut building_hp.waypoints, &waypoint_entries);
-
-    let farmer_home_entries: Vec<(usize, Vec2, u32)> = world_data.farmer_homes.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::FarmerHome, &mut building_hp.farmer_homes, &farmer_home_entries);
-
-    let archer_home_entries: Vec<(usize, Vec2, u32)> = world_data.archer_homes.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::ArcherHome, &mut building_hp.archer_homes, &archer_home_entries);
-
-    let crossbow_home_entries: Vec<(usize, Vec2, u32)> = world_data.crossbow_homes.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::CrossbowHome, &mut building_hp.crossbow_homes, &crossbow_home_entries);
-
-    let fighter_home_entries: Vec<(usize, Vec2, u32)> = world_data.fighter_homes.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::FighterHome, &mut building_hp.fighter_homes, &fighter_home_entries);
-
-    let tent_entries: Vec<(usize, Vec2, u32)> = world_data.tents.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::Tent, &mut building_hp.tents, &tent_entries);
-
-    let miner_home_entries: Vec<(usize, Vec2, u32)> = world_data.miner_homes.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::MinerHome, &mut building_hp.miner_homes, &miner_home_entries);
-
-    let bed_entries: Vec<(usize, Vec2, u32)> = world_data.beds.iter()
-        .enumerate()
-        .filter(|(_, b)| crate::world::is_alive(b.position))
-        .map(|(i, b)| (i, b.position, b.town_idx))
-        .collect();
-    heal_buildings(BuildingKind::Bed, &mut building_hp.beds, &bed_entries);
-
-    let town_entries: Vec<(usize, Vec2, u32)> = world_data.towns.iter()
-        .enumerate()
-        .map(|(i, b)| (i, b.center, i as u32))
-        .collect();
-    heal_buildings(BuildingKind::Fountain, &mut building_hp.towns, &town_entries);
+        if !any_damaged { dirty.buildings_need_healing = false; }
+    }
 
     // Update debug stats
     debug.healing_npcs_checked = npcs_checked;

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-18f
+
+- **registry-driven building healing** — `healing_system` replaces 10 per-kind blocks with single `BUILDING_REGISTRY` loop; `BuildingHpState::hps_mut(kind)`/`hps(kind)` dispatch to the right HP vec by BuildingKind; `DirtyFlags.buildings_need_healing` skips iteration when no buildings are damaged (set by `building_damage_system`, cleared when all healed)
+- **building_pos_town dispatch** — `WorldData::building_pos_town(kind, index)` single method replacing 12-arm match in `building_damage_system` and per-kind blocks in healing; returns `Option<(Vec2, u32)>` with tombstone filtering
+- **registry-driven iter_damaged** — `BuildingHpState::iter_damaged()` replaces 11-chain `chain_buildings!` macro with `BUILDING_REGISTRY` loop; returns `Vec` instead of chained iterator
+
 ## 2026-02-18e
 
 - **RenderFrameConfig** — consolidate 4→1 ExtractResourcePlugin: `NpcGpuData`, `ProjGpuData`, `NpcSpriteTexture`, `ReadbackHandles` absorbed into single `RenderFrameConfig` resource; all render-world systems read via `config.npc`, `config.proj`, `config.textures`, `config.readback`
