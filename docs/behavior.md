@@ -166,7 +166,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 | Home | `{ x, y }` | NPC's spawner building position (FarmerHome/ArcherHome/Tent) — rest destination |
 | WorkPosition | `{ x, y }` | Farmer's field / miner's mine position |
 | MiningProgress | `f32` | Mining work progress 0.0–1.0, inserted when miner starts at mine, removed on extraction or interruption |
-| PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Archer's ordered patrol posts |
+| PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Patrol unit's ordered patrol posts (archers, crossbows, fighters) |
 | AtDestination | marker | NPC arrived at destination (transient frame flag from gpu_position_readback) |
 | Stealer | marker | NPC steals from farms (enables steal systems) |
 | LeashRange | `{ distance: f32 }` | Disengage combat if chased this far from combat origin (raiders only) |
@@ -281,7 +281,7 @@ Rest is scored when energy < `ENERGY_HUNGRY` (50), Eat only when energy < `ENERG
 
 ## Patrol Cycle
 
-Patrol units (archers and crossbows, identified by `Job::is_patrol_unit()`) have a `PatrolRoute` with ordered posts (built from WorldData at spawn). The cycle:
+Patrol units (archers, crossbows, and fighters, identified by `Job::is_patrol_unit()`) have a `PatrolRoute` with ordered posts (built from WorldData at spawn). The cycle:
 
 1. Spawn → walk to post 0 (`Patrolling`)
 2. Arrive → stand at post (`OnDuty`, ticks counting)
@@ -289,7 +289,7 @@ Patrol units (archers and crossbows, identified by `Job::is_patrol_unit()`) have
 4. Arrive → `OnDuty` again
 5. After last post, wrap to post 0
 
-Each town has 4 waypoints at corners. Archers cycle clockwise. Patrol routes are rebuilt by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) only when `DirtyFlags.patrols` is set — i.e. when waypoints are built, destroyed, or reordered via the Patrols tab. The system applies any pending `DirtyFlags.patrol_swap` from the UI, then builds routes once per town (cached) and assigns to all archers in that town. Current patrol index is clamped to the new route length.
+Each town has 4 waypoints at corners. Patrol units cycle clockwise. Patrol routes are rebuilt by `rebuild_patrol_routes_system` (runs in `Step::Behavior`) only when `DirtyFlags.patrols` is set — i.e. when waypoints are built, destroyed, or reordered via the Patrols tab. The system applies any pending `DirtyFlags.patrol_swap` from the UI, then builds routes once per town (cached) and assigns to all patrol units in that town. Current patrol index is clamped to the new route length. The system also inserts `PatrolRoute` for patrol units that spawned before waypoints existed (queries `Without<PatrolRoute>` and inserts when town has waypoints).
 
 ## Squads
 

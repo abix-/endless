@@ -911,6 +911,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     // Per-job recruit controls — one row per military NPC type from registry
     for def in crate::constants::NPC_REGISTRY.iter() {
         if !def.is_military { continue; }
+        if def.job == Job::Raider { continue; }
         let job_id = def.job as i32;
         // Available units of this job in default squad (squad 0)
         let available: Vec<usize> = squad.squad_state.squads[0].members.iter().copied()

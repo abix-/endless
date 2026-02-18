@@ -147,6 +147,8 @@ pub struct NpcStateQuery<'w, 's> {
         &'static TownId,
         &'static Activity,
         &'static CombatState,
+        Option<&'static SquadId>,
+        Option<&'static PatrolRoute>,
     ), Without<Dead>>,
 }
 
@@ -540,7 +542,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
             return;
         }
         ui.label("Click an NPC or building to inspect");
@@ -552,7 +554,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
             return;
         }
         ui.label("Click an NPC or building to inspect");
@@ -564,7 +566,7 @@ fn inspector_content(
         rename_state.slot = -1;
         rename_state.text.clear();
         if bld_data.selected_building.active {
-            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log);
+            building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
         } else {
             ui.label("Click an NPC or building to inspect");
         }
@@ -683,7 +685,7 @@ fn inspector_content(
     let mut home_pos: Option<Vec2> = None;
     let mut is_mining_at_mine = false;
 
-    if let Some((_, _, home, faction, town_id, activity, combat))
+    if let Some((_, _, home, faction, town_id, activity, combat, ..))
         = npc_states.states.iter().find(|(ni, ..)| ni.0 == idx)
     {
         home_pos = Some(home.0);
@@ -879,6 +881,8 @@ fn building_inspector_content(
     game_time: &GameTime,
     settings: &UserSettings,
     combat_log: &CombatLog,
+    npc_states: &NpcStateQuery,
+    gpu_state: &GpuReadState,
 ) {
     let Some((building, world_pos, col, row)) =
         selected_building_info(&bld.selected_building, &bld.grid, world_data)
@@ -1026,6 +1030,29 @@ fn building_inspector_content(
                             ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
                         }
                         ui.colored_label(egui::Color32::from_rgb(80, 200, 80), "Alive");
+                        // Show NPC state from ECS
+                        if let Some((_, _, home, _, _, activity, combat, squad_id, patrol_route))
+                            = npc_states.states.iter().find(|(ni, ..)| ni.0 == slot)
+                        {
+                            let mut parts: Vec<&str> = Vec::new();
+                            let combat_name = combat.name();
+                            if !combat_name.is_empty() { parts.push(combat_name); }
+                            parts.push(activity.name());
+                            ui.label(format!("State: {}", parts.join(", ")));
+                            if let Some(sq) = squad_id {
+                                ui.label(format!("Squad: {}", sq.0 + 1));
+                            }
+                            let has_patrol = patrol_route.is_some_and(|r| !r.posts.is_empty());
+                            ui.label(format!("Patrol route: {}", if has_patrol { "yes" } else { "none" }));
+                            if slot * 2 + 1 < gpu_state.positions.len() {
+                                let px = gpu_state.positions[slot * 2];
+                                let py = gpu_state.positions[slot * 2 + 1];
+                                if px > -9000.0 {
+                                    ui.label(format!("GPU pos: ({:.0}, {:.0})", px, py));
+                                }
+                            }
+                            ui.label(format!("Home: ({:.0}, {:.0})", home.0.x, home.0.y));
+                        }
                     } else if entry.respawn_timer > 0.0 {
                         ui.colored_label(egui::Color32::from_rgb(200, 200, 40),
                             format!("Respawning in {:.0}h", entry.respawn_timer));
@@ -1081,6 +1108,48 @@ fn building_inspector_content(
                 hour = game_time.hour(),
                 min = game_time.minute(),
             );
+            // Append spawner NPC state
+            if let Some(spawner) = def.spawner {
+                let spawner_kind = tileset_index(def.kind) as i32;
+                if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
+                    e.building_kind == spawner_kind
+                        && (e.position - world_pos).length() < 1.0
+                        && is_alive(e.position)
+                }) {
+                    let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
+                    info.push_str(&format!("Spawns: {}\n", spawns_label));
+                    if entry.npc_slot >= 0 {
+                        let slot = entry.npc_slot as usize;
+                        if slot < meta_cache.0.len() {
+                            let meta = &meta_cache.0[slot];
+                            info.push_str(&format!("NPC: {} (Lv.{}) slot={}\n", meta.name, meta.level, slot));
+                        }
+                        if let Some((_, _, home, _, _, activity, combat, squad_id, patrol_route))
+                            = npc_states.states.iter().find(|(ni, ..)| ni.0 == slot)
+                        {
+                            let combat_name = combat.name();
+                            info.push_str(&format!("State: {}{}\n",
+                                if combat_name.is_empty() { "" } else { combat_name },
+                                if combat_name.is_empty() { activity.name().to_string() } else { format!(", {}", activity.name()) }));
+                            if let Some(sq) = squad_id {
+                                info.push_str(&format!("Squad: {}\n", sq.0 + 1));
+                            }
+                            let has_patrol = patrol_route.is_some_and(|r| !r.posts.is_empty());
+                            info.push_str(&format!("Patrol route: {}\n", if has_patrol { "yes" } else { "none" }));
+                            if slot * 2 + 1 < gpu_state.positions.len() {
+                                let px = gpu_state.positions[slot * 2];
+                                let py = gpu_state.positions[slot * 2 + 1];
+                                if px > -9000.0 {
+                                    info.push_str(&format!("GPU pos: ({:.0}, {:.0})\n", px, py));
+                                }
+                            }
+                            info.push_str(&format!("Home: ({:.0}, {:.0})\n", home.0.x, home.0.y));
+                        }
+                    } else if entry.respawn_timer > 0.0 {
+                        info.push_str(&format!("Respawning in {:.0}h\n", entry.respawn_timer));
+                    }
+                }
+            }
             // Append building damage log entries (same pattern as NPC log in copy)
             let prefix = format!("{:?} in {}", kind, town_name);
             for entry in &combat_log.entries {

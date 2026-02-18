@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-18o
+
+- **spawner inspector NPC state** — building inspector spawner section now shows linked NPC's activity, combat state, squad, patrol route (yes/none), GPU position, and home; Copy Debug Info button includes all spawner NPC data for troubleshooting; `NpcStateQuery` extended with `Option<SquadId>` and `Option<PatrolRoute>`
+- **fix: patrol route insertion** — `rebuild_patrol_routes_system` now inserts `PatrolRoute` for patrol units that spawned before waypoints existed; previously only updated existing routes, leaving fighters/archers without patrol capability if they spawned first
+- **squad UI hides raiders** — squad recruit loop skips `Job::Raider` since players can't recruit enemy units
+
 ## 2026-02-18n
 
 - **per-job squad recruitment** — squad UI recruit controls now show one row per military NPC type from `NPC_REGISTRY` with colored label and `+N` buttons; players can compose squads with specific unit types (archers, crossbows, fighters); member list shows job-colored names with job labels; `SquadParams.squad_guards` query gains `Job` component; adding a new military NPC type to the registry automatically adds it to squad UI

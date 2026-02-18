@@ -1056,9 +1056,11 @@ pub fn on_duty_tick_system(
 
 /// Rebuild all guards' patrol routes when WorldData changes (waypoint added/removed/reordered).
 pub fn rebuild_patrol_routes_system(
+    mut commands: Commands,
     mut world_data: ResMut<WorldData>,
     mut dirty: ResMut<DirtyFlags>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
+    missing_route: Query<(Entity, &TownId, &Job), (Without<Dead>, Without<PatrolRoute>)>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("rebuild_patrol_routes");
@@ -1091,5 +1093,17 @@ pub fn rebuild_patrol_routes_system(
         if new_posts.is_empty() { continue; }
         route.current = if route.current < new_posts.len() { route.current } else { 0 };
         route.posts = new_posts.clone();
+    }
+
+    // Insert PatrolRoute for patrol units that spawned before waypoints existed
+    for (entity, town_id, job) in missing_route.iter() {
+        if !job.is_patrol_unit() { continue; }
+        let tid = town_id.0 as u32;
+        let posts = town_routes.entry(tid).or_insert_with(|| {
+            crate::systems::spawn::build_patrol_route(&world_data, tid)
+        });
+        if !posts.is_empty() {
+            commands.entity(entity).insert(PatrolRoute { posts: posts.clone(), current: 0 });
+        }
     }
 }
