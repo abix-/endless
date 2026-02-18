@@ -1,6 +1,6 @@
 # Endless
 
-Build a town under siege—farm, fortify, raise an army, and conquer outward
+Build a town under siege—farm, fortify, raise an army, and conquer
 
 <!-- TODO: Add screenshot/GIF here -->
 
