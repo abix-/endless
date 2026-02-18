@@ -12,7 +12,7 @@ use crate::settings::{self, UserSettings};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UpgradeType, UPGRADE_COUNT, UPGRADE_PCT, UPGRADE_REGISTRY, UPGRADE_RENDER_ORDER, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
 use crate::systems::{AiPlayerState, AiKind};
 use crate::systems::ai_player::AiPersonality;
-use crate::world::{WorldData, is_alive, SPAWNER_MINER};
+use crate::world::{WorldData, BuildingKind, is_alive};
 
 // ============================================================================
 // PROFILER PARAMS
@@ -760,7 +760,7 @@ fn policies_content(
 
     let mut assigned_per_mine: Vec<usize> = vec![0; world_data.gold_mines.len()];
     spawner_state.0.iter()
-        .filter(|e| e.building_kind == SPAWNER_MINER && e.town_idx == town_idx as i32 && e.npc_slot >= 0 && is_alive(e.position))
+        .filter(|e| e.building_kind == crate::constants::tileset_index(BuildingKind::MinerHome) as i32 && e.town_idx == town_idx as i32 && e.npc_slot >= 0 && is_alive(e.position))
         .filter_map(|e| world_data.miner_home_at(e.position))
         .filter(|&mh_idx| {
             world_data.miner_homes.get(mh_idx)

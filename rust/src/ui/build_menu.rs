@@ -8,25 +8,25 @@ use bevy_egui::{EguiContexts, EguiTextureHandle, egui};
 use crate::render::SpriteAssets;
 use crate::resources::*;
 use crate::settings::UserSettings;
-use crate::world::{self, SPRITE_SIZE, CELL};
+use crate::world::{self, BuildingKind, SPRITE_SIZE, CELL};
 
 struct BuildOption {
-    kind: BuildKind,
+    kind: BuildingKind,
     label: &'static str,
     help: &'static str,
 }
 
 const PLAYER_BUILD_OPTIONS: &[BuildOption] = &[
-    BuildOption { kind: BuildKind::Farm, label: "Farm", help: "Grows food over time" },
-    BuildOption { kind: BuildKind::FarmerHome, label: "Farmer Home", help: "Spawns 1 farmer" },
-    BuildOption { kind: BuildKind::MinerHome, label: "Miner Home", help: "Spawns 1 miner" },
-    BuildOption { kind: BuildKind::ArcherHome, label: "Archer Home", help: "Spawns 1 archer" },
-    BuildOption { kind: BuildKind::CrossbowHome, label: "Crossbow Home", help: "Spawns 1 crossbow" },
-    BuildOption { kind: BuildKind::Waypoint, label: "Waypoint", help: "Patrol waypoint" },
+    BuildOption { kind: BuildingKind::Farm, label: "Farm", help: "Grows food over time" },
+    BuildOption { kind: BuildingKind::FarmerHome, label: "Farmer Home", help: "Spawns 1 farmer" },
+    BuildOption { kind: BuildingKind::MinerHome, label: "Miner Home", help: "Spawns 1 miner" },
+    BuildOption { kind: BuildingKind::ArcherHome, label: "Archer Home", help: "Spawns 1 archer" },
+    BuildOption { kind: BuildingKind::CrossbowHome, label: "Crossbow Home", help: "Spawns 1 crossbow" },
+    BuildOption { kind: BuildingKind::Waypoint, label: "Waypoint", help: "Patrol waypoint" },
 ];
 
 const CAMP_BUILD_OPTIONS: &[BuildOption] = &[
-    BuildOption { kind: BuildKind::Tent, label: "Tent", help: "Spawns 1 raider" },
+    BuildOption { kind: BuildingKind::Tent, label: "Tent", help: "Spawns 1 raider" },
 ];
 
 
@@ -76,7 +76,7 @@ fn extract_quad_tile(atlas: &Image, quad: [(u32, u32); 4]) -> Image {
 #[derive(Default)]
 pub(crate) struct BuildSpriteCache {
     initialized: bool,
-    textures: HashMap<BuildKind, egui::TextureId>,
+    textures: HashMap<BuildingKind, egui::TextureId>,
     _handles: Vec<Handle<Image>>, // prevent GC of extracted images
 }
 
@@ -105,14 +105,14 @@ fn init_sprite_cache(
     let tent_handle = images.add(tent_img);
 
     // Register all 6 with egui
-    let registrations: [(BuildKind, &Handle<Image>); 7] = [
-        (BuildKind::Farm, &farm_handle),
-        (BuildKind::FarmerHome, &sprites.house_texture),
-        (BuildKind::ArcherHome, &sprites.barracks_texture),
-        (BuildKind::CrossbowHome, &sprites.barracks_texture),
-        (BuildKind::Waypoint, &sprites.waypoint_texture),
-        (BuildKind::Tent, &tent_handle),
-        (BuildKind::MinerHome, &sprites.miner_house_texture),
+    let registrations: [(BuildingKind, &Handle<Image>); 7] = [
+        (BuildingKind::Farm, &farm_handle),
+        (BuildingKind::FarmerHome, &sprites.house_texture),
+        (BuildingKind::ArcherHome, &sprites.barracks_texture),
+        (BuildingKind::CrossbowHome, &sprites.barracks_texture),
+        (BuildingKind::Waypoint, &sprites.waypoint_texture),
+        (BuildingKind::Tent, &tent_handle),
+        (BuildingKind::MinerHome, &sprites.miner_house_texture),
     ];
 
     for (kind, handle) in registrations {
@@ -121,13 +121,13 @@ fn init_sprite_cache(
     }
 
     // Store Bevy handles for world-space ghost preview
-    build_ctx.ghost_sprites.insert(BuildKind::Farm, farm_handle.clone());
-    build_ctx.ghost_sprites.insert(BuildKind::FarmerHome, sprites.house_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildKind::ArcherHome, sprites.barracks_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildKind::CrossbowHome, sprites.barracks_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildKind::Waypoint, sprites.waypoint_texture.clone());
-    build_ctx.ghost_sprites.insert(BuildKind::Tent, tent_handle.clone());
-    build_ctx.ghost_sprites.insert(BuildKind::MinerHome, sprites.miner_house_texture.clone());
+    build_ctx.ghost_sprites.insert(BuildingKind::Farm, farm_handle.clone());
+    build_ctx.ghost_sprites.insert(BuildingKind::FarmerHome, sprites.house_texture.clone());
+    build_ctx.ghost_sprites.insert(BuildingKind::ArcherHome, sprites.barracks_texture.clone());
+    build_ctx.ghost_sprites.insert(BuildingKind::CrossbowHome, sprites.barracks_texture.clone());
+    build_ctx.ghost_sprites.insert(BuildingKind::Waypoint, sprites.waypoint_texture.clone());
+    build_ctx.ghost_sprites.insert(BuildingKind::Tent, tent_handle.clone());
+    build_ctx.ghost_sprites.insert(BuildingKind::MinerHome, sprites.miner_house_texture.clone());
 
     cache._handles.push(farm_handle);
     cache._handles.push(tent_handle);
@@ -251,6 +251,7 @@ pub(crate) fn build_menu_system(
                             build_ctx.clear_drag();
                         } else {
                             build_ctx.selected_build = Some(option.kind);
+                            build_ctx.destroy_mode = false;
                             build_ctx.clear_drag();
                         }
                     }
@@ -259,7 +260,7 @@ pub(crate) fn build_menu_system(
                 }
 
                 // Destroy button
-                let destroy_selected = build_ctx.selected_build == Some(BuildKind::Destroy);
+                let destroy_selected = build_ctx.destroy_mode;
                 let destroy_resp = ui.allocate_ui_with_layout(
                     egui::vec2(84.0, 78.0),
                     egui::Layout::top_down(egui::Align::Center),
@@ -284,10 +285,11 @@ pub(crate) fn build_menu_system(
                 );
                 if ui.interact(destroy_resp.response.rect, egui::Id::new("destroy_btn"), egui::Sense::click()).clicked() {
                     if destroy_selected {
-                        build_ctx.selected_build = None;
+                        build_ctx.destroy_mode = false;
                         build_ctx.clear_drag();
                     } else {
-                        build_ctx.selected_build = Some(BuildKind::Destroy);
+                        build_ctx.destroy_mode = true;
+                        build_ctx.selected_build = None;
                         build_ctx.clear_drag();
                     }
                 }
@@ -297,25 +299,28 @@ pub(crate) fn build_menu_system(
     if !open {
         ui_state.build_menu_open = false;
         build_ctx.selected_build = None;
+        build_ctx.destroy_mode = false;
         build_ctx.clear_drag();
     }
 
     // Cursor ghost sprite when placing / red X when destroying
-    if let Some(selected) = build_ctx.selected_build {
+    if build_ctx.destroy_mode || build_ctx.selected_build.is_some() {
         if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
-            let show_hint = selected == BuildKind::Destroy || build_ctx.show_cursor_hint;
+            let show_hint = build_ctx.destroy_mode || build_ctx.show_cursor_hint;
             if show_hint {
                 egui::Area::new(egui::Id::new("build_cursor_hint"))
                     .fixed_pos(pos + egui::vec2(12.0, 12.0))
                     .interactable(false)
                     .show(ctx, |ui| {
-                        if selected == BuildKind::Destroy {
+                        if build_ctx.destroy_mode {
                             ui.label(egui::RichText::new("X").size(32.0)
                                 .color(egui::Color32::from_rgb(220, 50, 50)));
-                        } else if let Some(&tex_id) = cache.textures.get(&selected) {
-                            let img = egui::Image::new(egui::load::SizedTexture::new(tex_id, [48.0, 48.0]))
-                                .tint(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180));
-                            ui.add(img);
+                        } else if let Some(selected) = build_ctx.selected_build {
+                            if let Some(&tex_id) = cache.textures.get(&selected) {
+                                let img = egui::Image::new(egui::load::SizedTexture::new(tex_id, [48.0, 48.0]))
+                                    .tint(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 180));
+                                ui.add(img);
+                            }
                         }
                     });
             }

@@ -212,10 +212,11 @@ pub fn tick(
         let idx = BUILDING_ROW * GRID_COLS + col;
         if let Some(ref building) = grid.cells[idx].building {
             let tile_idx = building.tileset_index();
-            let label = match world::BUILDING_TILES[tile_idx as usize] {
-                world::TileSpec::Single(c, r) => format!("({},{})", c, r),
-                world::TileSpec::Quad(q) => format!("2x2@({},{})", q[0].0, q[0].1),
-                world::TileSpec::External(i) => format!("ext[{}]", i),
+            let btiles = world::building_tiles();
+            let label = match btiles[tile_idx as usize] {
+                crate::constants::TileSpec::Single(c, r) => format!("({},{})", c, r),
+                crate::constants::TileSpec::Quad(q) => format!("2x2@({},{})", q[0].0, q[0].1),
+                crate::constants::TileSpec::External(i) => format!("ext[{}]", i),
             };
             let pos = cell_center(col, BUILDING_ROW) + Vec2::new(0.0, grid.cell_size * 0.6);
             let screen = world_to_screen(pos);

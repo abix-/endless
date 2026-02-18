@@ -1063,7 +1063,7 @@ pub fn ai_decision_system(
         match player.kind {
             AiKind::Raider => {
                 // Raider AI has a smaller economy action set.
-                if ctx.has_slots && ctx.food >= building_cost(BuildKind::Tent) {
+                if ctx.has_slots && ctx.food >= building_cost(BuildingKind::Tent) {
                     scores.push((AiAction::BuildTent, 30.0));
                 }
             }
@@ -1097,11 +1097,11 @@ pub fn ai_decision_system(
                         0.5 + desires.military_desire
                     };
 
-                    if ctx.food >= building_cost(BuildKind::Farm) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
-                    if ctx.food >= building_cost(BuildKind::FarmerHome) { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
-                    if ctx.food >= building_cost(BuildKind::ArcherHome) { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
+                    if ctx.food >= building_cost(BuildingKind::Farm) { scores.push((AiAction::BuildFarm, fw * farm_need)); }
+                    if ctx.food >= building_cost(BuildingKind::FarmerHome) { scores.push((AiAction::BuildFarmerHome, hw * house_need)); }
+                    if ctx.food >= building_cost(BuildingKind::ArcherHome) { scores.push((AiAction::BuildArcherHome, bw * barracks_need)); }
                     // Crossbow homes: AI builds them once it has some archer homes established
-                    if barracks >= 2 && ctx.food >= building_cost(BuildKind::CrossbowHome) {
+                    if barracks >= 2 && ctx.food >= building_cost(BuildingKind::CrossbowHome) {
                         let xbow_need = if xbow_homes < barracks / 2 {
                             1.0 + desires.military_desire * 2.0
                         } else {
@@ -1109,7 +1109,7 @@ pub fn ai_decision_system(
                         };
                         scores.push((AiAction::BuildCrossbowHome, bw * 0.6 * xbow_need));
                     }
-                    if miner_deficit > 0 && ctx.food >= building_cost(BuildKind::MinerHome) {
+                    if miner_deficit > 0 && ctx.food >= building_cost(BuildingKind::MinerHome) {
                         let ms_need = 1.0 + miner_deficit as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
                     } else if miner_deficit == 0 && mines.outside_radius > 0 {
@@ -1118,7 +1118,7 @@ pub fn ai_decision_system(
                     }
                 }
 
-                if ctx.food >= building_cost(BuildKind::Waypoint) {
+                if ctx.food >= building_cost(BuildingKind::Waypoint) {
                     // Prefer uncovered mine support; otherwise maintain patrol coverage parity.
                     let uncovered = mines.uncovered.len();
                     if uncovered > 0 {
@@ -1152,9 +1152,9 @@ pub fn ai_decision_system(
                     let ht = player.personality.farmer_home_target(farms);
                     let bt = player.personality.archer_home_target(houses);
                     let wants_more_homes = ctx.has_slots && (
-                        (houses < ht && ctx.food >= building_cost(BuildKind::FarmerHome))
-                            || (total_military_homes < bt && ctx.food >= building_cost(BuildKind::ArcherHome))
-                            || (mine_shafts < miner_target_for_expansion && ctx.food >= building_cost(BuildKind::MinerHome))
+                        (houses < ht && ctx.food >= building_cost(BuildingKind::FarmerHome))
+                            || (total_military_homes < bt && ctx.food >= building_cost(BuildingKind::ArcherHome))
+                            || (mine_shafts < miner_target_for_expansion && ctx.food >= building_cost(BuildingKind::MinerHome))
                     );
                     if wants_more_homes {
                         continue;
@@ -1252,7 +1252,7 @@ fn try_build_inner(
 }
 
 fn try_build_scored(
-    building: Building, kind: BuildKind, label: &str,
+    building: Building, kind: BuildingKind, label: &str,
     tdi: usize, center: Vec2, res: &mut AiBuildRes, grid_idx: usize,
     snapshot: Option<&AiTownSnapshot>,
     score_fn: fn(&AiTownSnapshot, (i32, i32)) -> i32,
@@ -1278,7 +1278,7 @@ fn try_build_miner_home(
     }?;
     try_build_at_slot(
         Building::MinerHome { town_idx: ctx.ti },
-        building_cost(BuildKind::MinerHome), "miner home",
+        building_cost(BuildingKind::MinerHome), "miner home",
         ctx.tdi, ctx.center, res, slot.0, slot.1,
     )
 }
@@ -1296,23 +1296,23 @@ fn execute_action(
     // This gives explicit, compile-checked control flow per action type.
     match action {
         AiAction::BuildTent => try_build_inner(
-            Building::Tent { town_idx: ctx.ti }, building_cost(BuildKind::Tent), "tent",
+            Building::Tent { town_idx: ctx.ti }, building_cost(BuildingKind::Tent), "tent",
             ctx.tdi, ctx.center, res, ctx.grid_idx),
         AiAction::BuildFarm => {
             let score = if personality == AiPersonality::Balanced { balanced_farm_ray_score } else { farm_slot_score };
-            try_build_scored(Building::Farm { town_idx: ctx.ti }, BuildKind::Farm, "farm",
+            try_build_scored(Building::Farm { town_idx: ctx.ti }, BuildingKind::Farm, "farm",
                 ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, score)
         }
         AiAction::BuildFarmerHome => {
             let score = if personality == AiPersonality::Balanced { balanced_house_side_score } else { farmer_home_border_score };
-            try_build_scored(Building::FarmerHome { town_idx: ctx.ti }, BuildKind::FarmerHome, "farmer home",
+            try_build_scored(Building::FarmerHome { town_idx: ctx.ti }, BuildingKind::FarmerHome, "farmer home",
                 ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, score)
         }
         AiAction::BuildArcherHome => try_build_scored(
-            Building::ArcherHome { town_idx: ctx.ti }, BuildKind::ArcherHome, "archer home",
+            Building::ArcherHome { town_idx: ctx.ti }, BuildingKind::ArcherHome, "archer home",
             ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, archer_fill_score),
         AiAction::BuildCrossbowHome => try_build_scored(
-            Building::CrossbowHome { town_idx: ctx.ti }, BuildKind::CrossbowHome, "crossbow home",
+            Building::CrossbowHome { town_idx: ctx.ti }, BuildingKind::CrossbowHome, "crossbow home",
             ctx.tdi, ctx.center, res, ctx.grid_idx, snapshot, archer_fill_score),
         AiAction::BuildMinerHome => {
             let Some(mines) = &ctx.mines else { return None; };
@@ -1334,7 +1334,7 @@ fn execute_action(
         AiAction::BuildWaypoint => {
             // Builder-only guard: if mines are unavailable, skip action safely.
             let Some(mines) = &ctx.mines else { return None; };
-            let cost = building_cost(BuildKind::Waypoint);
+            let cost = building_cost(BuildingKind::Waypoint);
             let wp_pos = mines.nearest_uncovered
                 .filter(|&pos| waypoint_spacing_ok(&res.world.grid, &res.world.world_data, ctx.ti, pos))
                 .or_else(|| {
@@ -1388,7 +1388,7 @@ fn resolve_building_pos(world_data: &WorldData, kind: BuildingKind, index: usize
         BuildingKind::Waypoint => world_data.waypoints.get(index).map(|b| b.position),
         BuildingKind::Tent => world_data.tents.get(index).map(|b| b.position),
         BuildingKind::MinerHome => world_data.miner_homes.get(index).map(|b| b.position),
-        BuildingKind::Town => world_data.towns.get(index).map(|b| b.center),
+        BuildingKind::Fountain | BuildingKind::Camp => world_data.towns.get(index).map(|b| b.center),
         BuildingKind::GoldMine => world_data.gold_mines.get(index).map(|b| b.position),
         BuildingKind::Bed => world_data.beds.get(index).map(|b| b.position),
     }?;

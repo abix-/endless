@@ -4,7 +4,8 @@
 use bevy::prelude::*;
 
 use crate::components::*;
-use crate::constants::FARM_HP;
+use crate::constants::building_def;
+use crate::world::BuildingKind;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, SpawnNpcMsg};
 use crate::render::MainCamera;
 use crate::resources::*;
@@ -56,7 +57,7 @@ pub fn setup(
             position: pos,
             town_idx: 0,
         });
-        building_hp.farms.push(FARM_HP);
+        building_hp.farms.push(building_def(BuildingKind::Farm).hp);
 
         let (gc, gr) = world_grid.world_to_grid(pos);
         if let Some(cell) = world_grid.cell_mut(gc, gr) {
@@ -133,12 +134,12 @@ pub fn tick(
     }));
 
     let alive = npc_query.iter().count();
-    let damaged_farms = building_hp.farms.iter().filter(|&&hp| hp < FARM_HP).count();
+    let damaged_farms = building_hp.farms.iter().filter(|&&hp| hp < building_def(BuildingKind::Farm).hp).count();
     let min_farm_hp = building_hp
         .farms
         .iter()
         .copied()
-        .fold(FARM_HP, f32::min);
+        .fold(building_def(BuildingKind::Farm).hp, f32::min);
 
     match test.phase {
         // Phase 1: target acquired.
@@ -195,7 +196,7 @@ pub fn tick(
         4 => {
             test.phase_name = format!(
                 "damaged_farms={} min_farm_hp={:.1}/{:.1}",
-                damaged_farms, min_farm_hp, FARM_HP
+                damaged_farms, min_farm_hp, building_def(BuildingKind::Farm).hp
             );
             if damaged_farms > 0 {
                 test.fail_phase(

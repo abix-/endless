@@ -785,26 +785,15 @@ impl UiState {
 // BUILD MENU STATE
 // ============================================================================
 
-/// Player-selected building type for placement mode.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum BuildKind {
-    Farm,
-    Waypoint,
-    FarmerHome,
-    ArcherHome,
-    CrossbowHome,
-    Tent,
-    MinerHome,
-    Destroy,
-}
-
 /// Context for build palette + placement mode.
 #[derive(Resource)]
 pub struct BuildMenuContext {
     /// Which town in WorldData.towns this placement targets.
     pub town_data_idx: Option<usize>,
     /// Active building selection for click-to-place mode.
-    pub selected_build: Option<BuildKind>,
+    pub selected_build: Option<crate::world::BuildingKind>,
+    /// Destroy mode — click to remove buildings.
+    pub destroy_mode: bool,
     /// Last hovered snapped world position (for indicators/tooltips).
     pub hover_world_pos: Vec2,
     /// Drag-line start slot in town-grid coordinates (row, col).
@@ -814,7 +803,7 @@ pub struct BuildMenuContext {
     /// Show the mouse-follow build hint sprite (hidden when snapped over a valid build slot).
     pub show_cursor_hint: bool,
     /// Bevy image handles for ghost preview sprites (populated by build_menu init).
-    pub ghost_sprites: std::collections::HashMap<BuildKind, Handle<Image>>,
+    pub ghost_sprites: std::collections::HashMap<crate::world::BuildingKind, Handle<Image>>,
 }
 
 impl Default for BuildMenuContext {
@@ -822,6 +811,7 @@ impl Default for BuildMenuContext {
         Self {
             town_data_idx: None,
             selected_build: None,
+            destroy_mode: false,
             hover_world_pos: Vec2::ZERO,
             drag_start_slot: None,
             drag_current_slot: None,
@@ -921,13 +911,13 @@ pub struct SpawnerEntry {
 }
 
 impl SpawnerEntry {
-    /// True if this entry is a population-spawning building (not a non-spawner sentinel).
+    /// True if this entry is a population-spawning building (has a spawner def in registry).
     #[inline]
     pub fn is_population_spawner(&self) -> bool {
-        matches!(self.building_kind,
-            crate::world::SPAWNER_FARMER | crate::world::SPAWNER_ARCHER |
-            crate::world::SPAWNER_TENT | crate::world::SPAWNER_MINER |
-            crate::world::SPAWNER_CROSSBOW)
+        crate::constants::BUILDING_REGISTRY
+            .get(self.building_kind as usize)
+            .and_then(|d| d.spawner.as_ref())
+            .is_some()
     }
 }
 
@@ -953,19 +943,20 @@ pub struct BuildingHpState {
 impl BuildingHpState {
     /// Push a new HP entry for a newly placed building.
     pub fn push_for(&mut self, building: &crate::world::Building) {
-        use crate::constants::*;
+        let kind = building.kind();
+        let hp = crate::constants::building_def(kind).hp;
         match building {
-            crate::world::Building::Waypoint { .. } => self.waypoints.push(WAYPOINT_HP),
-            crate::world::Building::FarmerHome { .. } => self.farmer_homes.push(FARMER_HOME_HP),
-            crate::world::Building::ArcherHome { .. } => self.archer_homes.push(ARCHER_HOME_HP),
-            crate::world::Building::CrossbowHome { .. } => self.crossbow_homes.push(CROSSBOW_HOME_HP),
-            crate::world::Building::Tent { .. } => self.tents.push(TENT_HP),
-            crate::world::Building::MinerHome { .. } => self.miner_homes.push(MINER_HOME_HP),
-            crate::world::Building::Farm { .. } => self.farms.push(FARM_HP),
+            crate::world::Building::Waypoint { .. } => self.waypoints.push(hp),
+            crate::world::Building::FarmerHome { .. } => self.farmer_homes.push(hp),
+            crate::world::Building::ArcherHome { .. } => self.archer_homes.push(hp),
+            crate::world::Building::CrossbowHome { .. } => self.crossbow_homes.push(hp),
+            crate::world::Building::Tent { .. } => self.tents.push(hp),
+            crate::world::Building::MinerHome { .. } => self.miner_homes.push(hp),
+            crate::world::Building::Farm { .. } => self.farms.push(hp),
             crate::world::Building::Fountain { .. } |
-            crate::world::Building::Camp { .. } => self.towns.push(TOWN_HP),
-            crate::world::Building::Bed { .. } => self.beds.push(BED_HP),
-            crate::world::Building::GoldMine => self.gold_mines.push(GOLD_MINE_HP),
+            crate::world::Building::Camp { .. } => self.towns.push(hp),
+            crate::world::Building::Bed { .. } => self.beds.push(hp),
+            crate::world::Building::GoldMine => self.gold_mines.push(hp),
         }
     }
 
@@ -980,7 +971,7 @@ impl BuildingHpState {
             BuildingKind::Tent => self.tents.get_mut(index),
             BuildingKind::MinerHome => self.miner_homes.get_mut(index),
             BuildingKind::Farm => self.farms.get_mut(index),
-            BuildingKind::Town => self.towns.get_mut(index),
+            BuildingKind::Fountain | BuildingKind::Camp => self.towns.get_mut(index),
             BuildingKind::Bed => self.beds.get_mut(index),
             BuildingKind::GoldMine => self.gold_mines.get_mut(index),
         }
@@ -997,7 +988,7 @@ impl BuildingHpState {
             BuildingKind::Tent => self.tents.get(index).copied(),
             BuildingKind::MinerHome => self.miner_homes.get(index).copied(),
             BuildingKind::Farm => self.farms.get(index).copied(),
-            BuildingKind::Town => self.towns.get(index).copied(),
+            BuildingKind::Fountain | BuildingKind::Camp => self.towns.get(index).copied(),
             BuildingKind::Bed => self.beds.get(index).copied(),
             BuildingKind::GoldMine => self.gold_mines.get(index).copied(),
         }
@@ -1005,48 +996,37 @@ impl BuildingHpState {
 
     /// Get max HP for a building by kind.
     pub fn max_hp(kind: crate::world::BuildingKind) -> f32 {
-        use crate::constants::*;
-        use crate::world::BuildingKind;
-        match kind {
-            BuildingKind::Waypoint => WAYPOINT_HP,
-            BuildingKind::FarmerHome => FARMER_HOME_HP,
-            BuildingKind::ArcherHome => ARCHER_HOME_HP,
-            BuildingKind::CrossbowHome => CROSSBOW_HOME_HP,
-            BuildingKind::Tent => TENT_HP,
-            BuildingKind::MinerHome => MINER_HOME_HP,
-            BuildingKind::Farm => FARM_HP,
-            BuildingKind::Town => TOWN_HP,
-            BuildingKind::Bed => BED_HP,
-            BuildingKind::GoldMine => GOLD_MINE_HP,
-        }
+        crate::constants::building_def(kind).hp
     }
 
     /// Iterate all damaged buildings: yields (position, hp_pct).
     pub fn iter_damaged<'a>(&'a self, world_data: &'a crate::world::WorldData) -> impl Iterator<Item = (bevy::prelude::Vec2, f32)> + 'a {
-        use crate::constants::*;
+        use crate::constants::building_def;
+        use crate::world::BuildingKind;
         macro_rules! chain_buildings {
-            ($buildings:expr, $hps:expr, $max:expr) => {
+            ($buildings:expr, $hps:expr, $kind:expr) => {{
+                let max = building_def($kind).hp;
                 $buildings.iter().zip($hps.iter()).filter_map(move |(b, &hp)| {
-                    if crate::world::is_alive(b.position) && hp < $max && hp > 0.0 {
-                        Some((b.position, hp / $max))
+                    if crate::world::is_alive(b.position) && hp < max && hp > 0.0 {
+                        Some((b.position, hp / max))
                     } else { None }
                 })
-            }
+            }}
         }
-        chain_buildings!(world_data.farms, self.farms, FARM_HP)
-            .chain(chain_buildings!(world_data.waypoints, self.waypoints, WAYPOINT_HP))
-            .chain(chain_buildings!(world_data.farmer_homes, self.farmer_homes, FARMER_HOME_HP))
-            .chain(chain_buildings!(world_data.archer_homes, self.archer_homes, ARCHER_HOME_HP))
-            .chain(chain_buildings!(world_data.crossbow_homes, self.crossbow_homes, CROSSBOW_HOME_HP))
-            .chain(chain_buildings!(world_data.tents, self.tents, TENT_HP))
-            .chain(chain_buildings!(world_data.miner_homes, self.miner_homes, MINER_HOME_HP))
-            .chain(chain_buildings!(world_data.beds, self.beds, BED_HP))
-            .chain(chain_buildings!(world_data.gold_mines, self.gold_mines, GOLD_MINE_HP))
+        let town_max = building_def(BuildingKind::Fountain).hp;
+        chain_buildings!(world_data.farms, self.farms, BuildingKind::Farm)
+            .chain(chain_buildings!(world_data.waypoints, self.waypoints, BuildingKind::Waypoint))
+            .chain(chain_buildings!(world_data.farmer_homes, self.farmer_homes, BuildingKind::FarmerHome))
+            .chain(chain_buildings!(world_data.archer_homes, self.archer_homes, BuildingKind::ArcherHome))
+            .chain(chain_buildings!(world_data.crossbow_homes, self.crossbow_homes, BuildingKind::CrossbowHome))
+            .chain(chain_buildings!(world_data.tents, self.tents, BuildingKind::Tent))
+            .chain(chain_buildings!(world_data.miner_homes, self.miner_homes, BuildingKind::MinerHome))
+            .chain(chain_buildings!(world_data.beds, self.beds, BuildingKind::Bed))
+            .chain(chain_buildings!(world_data.gold_mines, self.gold_mines, BuildingKind::GoldMine))
             .chain(
-                // Towns use .center instead of .position
                 world_data.towns.iter().zip(self.towns.iter()).filter_map(move |(t, &hp)| {
-                    if hp < TOWN_HP && hp > 0.0 {
-                        Some((t.center, hp / TOWN_HP))
+                    if hp < town_max && hp > 0.0 {
+                        Some((t.center, hp / town_max))
                     } else { None }
                 })
             )

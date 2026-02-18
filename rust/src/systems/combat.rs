@@ -332,10 +332,9 @@ fn fire_towers(
     building_slots: &BuildingSlotMap,
     proj_alloc: &mut ProjSlotAllocator,
     state: &mut TowerKindState,
-    kind: BuildingKind,
-    buildings: &[(Vec2, i32, TowerStats)],
+    buildings: &[(Vec2, i32, TowerStats, BuildingKind)],
 ) {
-    for (i, &(pos, faction, stats)) in buildings.iter().enumerate() {
+    for (i, &(pos, faction, stats, kind)) in buildings.iter().enumerate() {
         if i >= state.attack_enabled.len() || !state.attack_enabled[i] { continue; }
         let Some(slot) = building_slots.get_slot(kind, i) else { continue };
 
@@ -411,13 +410,14 @@ pub fn building_tower_system(
     let town_buildings: Vec<_> = world_data.towns.iter().enumerate()
         .map(|(i, t)| {
             let levels = upgrades.town_levels(i);
-            (t.center, t.faction, resolve_town_tower_stats(&levels))
+            let kind = if t.faction == 0 { BuildingKind::Fountain } else { BuildingKind::Camp };
+            (t.center, t.faction, resolve_town_tower_stats(&levels), kind)
         })
         .collect();
 
     fire_towers(dt, &gpu_state.positions, &gpu_state.combat_targets,
         &building_slots, &mut proj_alloc,
-        &mut tower.town, BuildingKind::Town, &town_buildings);
+        &mut tower.town, &town_buildings);
 }
 
 /// Process building damage messages: decrement HP, destroy when HP reaches 0.
@@ -455,7 +455,7 @@ pub fn building_damage_system(
                 .map(|m| (m.position, m.town_idx as usize)),
             BuildingKind::Farm => world.world_data.farms.get(msg.index)
                 .map(|f| (f.position, f.town_idx as usize)),
-            BuildingKind::Town => world.world_data.towns.get(msg.index)
+            BuildingKind::Fountain | BuildingKind::Camp => world.world_data.towns.get(msg.index)
                 .map(|t| (t.center, msg.index)),
             BuildingKind::Bed => world.world_data.beds.get(msg.index)
                 .map(|b| (b.position, b.town_idx as usize)),

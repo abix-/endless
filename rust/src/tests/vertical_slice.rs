@@ -47,13 +47,13 @@ pub fn setup(
         farm_states.progress.push(1.0);
         farm_states.positions.push(Vec2::new(fx, fy));
         farm_states.town_indices.push(Some(0));
-        building_hp.farms.push(crate::constants::FARM_HP);
+        building_hp.farms.push(crate::constants::building_def(world::BuildingKind::Farm).hp);
     }
 
     // 5 beds near town 0
     for i in 0..5 {
         params.add_bed(300.0 + (i as f32 * 50.0), 450.0);
-        building_hp.beds.push(crate::constants::BED_HP);
+        building_hp.beds.push(crate::constants::building_def(world::BuildingKind::Bed).hp);
     }
 
     // 4 waypoints (square patrol around town)
@@ -63,28 +63,28 @@ pub fn setup(
             town_idx: 0,
             patrol_order: order as u32,
         });
-        building_hp.waypoints.push(crate::constants::WAYPOINT_HP);
+        building_hp.waypoints.push(crate::constants::building_def(world::BuildingKind::Waypoint).hp);
     }
 
     // Spawner buildings: FarmerHomes, ArcherHomes, Tents (for respawn system)
     for i in 0..5 {
         let pos = Vec2::new(300.0 + (i as f32 * 50.0), 450.0);
         params.world_data.farmer_homes.push(world::FarmerHome { position: pos, town_idx: 0 });
-        building_hp.farmer_homes.push(crate::constants::FARMER_HOME_HP);
+        building_hp.farmer_homes.push(crate::constants::building_def(world::BuildingKind::FarmerHome).hp);
     }
     for _ in 0..2 {
         params.world_data.archer_homes.push(world::ArcherHome { position: Vec2::new(400.0, 400.0), town_idx: 0 });
-        building_hp.archer_homes.push(crate::constants::ARCHER_HOME_HP);
+        building_hp.archer_homes.push(crate::constants::building_def(world::BuildingKind::ArcherHome).hp);
     }
     for i in 0..5 {
         let pos = Vec2::new(380.0 + (i as f32 * 10.0), 100.0);
         params.world_data.tents.push(world::Tent { position: pos, town_idx: 1 });
-        building_hp.tents.push(crate::constants::TENT_HP);
+        building_hp.tents.push(crate::constants::building_def(world::BuildingKind::Tent).hp);
     }
 
     // Town HP entries (Fountain for town 0, Camp for town 1)
-    building_hp.towns.push(crate::constants::TOWN_HP);
-    building_hp.towns.push(crate::constants::TOWN_HP);
+    building_hp.towns.push(crate::constants::building_def(world::BuildingKind::Fountain).hp);
+    building_hp.towns.push(crate::constants::building_def(world::BuildingKind::Camp).hp);
 
     // Resources
     params.init_economy(2);

@@ -10,7 +10,7 @@ use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
     CAMP_SPAWN_CHECK_HOURS, MAX_DYNAMIC_CAMPS, CAMP_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_CAMP};
-use crate::world::{self, WorldData, WorldGrid, BuildingOccupancy, BuildingSpatialGrid, TownGrids, SPAWNER_MINER};
+use crate::world::{self, WorldData, WorldGrid, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UpgradeType, UPGRADE_PCT};
 use crate::systems::ai_player::{AiPlayer, AiPlayerState, AiKind, AiPersonality};
@@ -267,7 +267,7 @@ pub fn spawner_respawn_system(
             if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
                 entry.npc_slot = -1;
                 entry.respawn_timer = SPAWNER_RESPAWN_HOURS;
-                if entry.building_kind == SPAWNER_MINER {
+                if entry.building_kind == crate::constants::tileset_index(BuildingKind::MinerHome) as i32 {
                     dirty.mining = true;
                 }
             }
@@ -303,7 +303,7 @@ pub fn spawner_respawn_system(
                 });
                 entry.npc_slot = slot as i32;
                 entry.respawn_timer = -1.0;
-                if entry.building_kind == SPAWNER_MINER {
+                if entry.building_kind == crate::constants::tileset_index(BuildingKind::MinerHome) as i32 {
                     dirty.mining = true;
                 }
 
@@ -755,12 +755,12 @@ pub fn migration_settle_system(
         if tent.town_idx == town_data_idx as u32 {
             world::register_spawner(&mut world_state.spawner_state, world::Building::Tent { town_idx: 0 },
                 town_data_idx as i32, tent.position, -1.0);
-            world_state.building_hp.tents.push(crate::constants::TENT_HP);
+            world_state.building_hp.tents.push(crate::constants::building_def(BuildingKind::Tent).hp);
         }
     }
 
     // Add town center HP
-    world_state.building_hp.towns.push(crate::constants::TOWN_HP);
+    world_state.building_hp.towns.push(crate::constants::building_def(BuildingKind::Camp).hp);
 
     // Stamp dirt around the new camp
     world::stamp_dirt(&mut world_state.grid, &[avg_pos]);

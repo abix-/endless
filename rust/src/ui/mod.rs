@@ -21,7 +21,7 @@ use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality, TownUpgrades, UpgradeQueue};
-use crate::world::{self, WorldGenConfig, allocate_all_building_slots};
+use crate::world::{self, BuildingKind, WorldGenConfig, allocate_all_building_slots};
 
 /// Render a small "?" button (frameless) that shows help text on hover.
 pub fn help_tip(ui: &mut egui::Ui, catalog: &HelpCatalog, key: &str) {
@@ -358,18 +358,19 @@ fn game_startup_system(
 
     // Initialize building HP for all world-gen buildings
     {
-        use crate::constants::*;
+        use crate::constants::building_def;
+        use crate::world::BuildingKind;
         let hp = &mut world_state.building_hp;
         **hp = BuildingHpState::default();
-        for _ in &world_state.world_data.waypoints { hp.waypoints.push(WAYPOINT_HP); }
-        for _ in &world_state.world_data.farmer_homes { hp.farmer_homes.push(FARMER_HOME_HP); }
-        for _ in &world_state.world_data.archer_homes { hp.archer_homes.push(ARCHER_HOME_HP); }
-        for _ in &world_state.world_data.tents { hp.tents.push(TENT_HP); }
-        for _ in &world_state.world_data.miner_homes { hp.miner_homes.push(MINER_HOME_HP); }
-        for _ in &world_state.world_data.farms { hp.farms.push(FARM_HP); }
-        for _ in &world_state.world_data.towns { hp.towns.push(TOWN_HP); }
-        for _ in &world_state.world_data.beds { hp.beds.push(BED_HP); }
-        for _ in &world_state.world_data.gold_mines { hp.gold_mines.push(GOLD_MINE_HP); }
+        for _ in &world_state.world_data.waypoints { hp.waypoints.push(building_def(BuildingKind::Waypoint).hp); }
+        for _ in &world_state.world_data.farmer_homes { hp.farmer_homes.push(building_def(BuildingKind::FarmerHome).hp); }
+        for _ in &world_state.world_data.archer_homes { hp.archer_homes.push(building_def(BuildingKind::ArcherHome).hp); }
+        for _ in &world_state.world_data.tents { hp.tents.push(building_def(BuildingKind::Tent).hp); }
+        for _ in &world_state.world_data.miner_homes { hp.miner_homes.push(building_def(BuildingKind::MinerHome).hp); }
+        for _ in &world_state.world_data.farms { hp.farms.push(building_def(BuildingKind::Farm).hp); }
+        for _ in &world_state.world_data.towns { hp.towns.push(building_def(BuildingKind::Fountain).hp); }
+        for _ in &world_state.world_data.beds { hp.beds.push(building_def(BuildingKind::Bed).hp); }
+        for _ in &world_state.world_data.gold_mines { hp.gold_mines.push(building_def(BuildingKind::GoldMine).hp); }
     }
 
     // Allocate GPU NPC slots for all buildings (invisible, speed=0, for collision)
@@ -519,8 +520,9 @@ fn game_escape_system(
             ui_state.left_panel_open = false;
             return;
         }
-        if build_ctx.selected_build.is_some() {
+        if build_ctx.selected_build.is_some() || build_ctx.destroy_mode {
             build_ctx.selected_build = None;
+            build_ctx.destroy_mode = false;
             build_ctx.clear_drag();
             return;
         }
@@ -741,6 +743,7 @@ fn slot_right_click_system(
 ) {
     if !mouse.just_pressed(MouseButton::Right) { return; }
     build_ctx.selected_build = None;
+    build_ctx.destroy_mode = false;
     build_ctx.clear_drag();
 }
 
@@ -757,7 +760,7 @@ fn build_place_click_system(
     game_time: Res<GameTime>,
     _difficulty: Res<Difficulty>,
 ) {
-    let Some(kind) = build_ctx.selected_build else { return };
+    if build_ctx.selected_build.is_none() && !build_ctx.destroy_mode { return; }
     let just_pressed = mouse.just_pressed(MouseButton::Left);
     let pressed = mouse.pressed(MouseButton::Left);
     let just_released = mouse.just_released(MouseButton::Left);
@@ -787,7 +790,7 @@ fn build_place_click_system(
     let (gc, gr) = world_state.grid.world_to_grid(slot_pos);
 
     // Destroy mode: remove building at clicked cell
-    if kind == BuildKind::Destroy {
+    if build_ctx.destroy_mode {
         if !just_pressed { return; }
         build_ctx.clear_drag();
         let cell_building = world_state.grid.cell(gc, gr).and_then(|c| c.building);
@@ -812,11 +815,13 @@ fn build_place_click_system(
         return;
     }
 
+    let kind = build_ctx.selected_build.unwrap();
+
     // Waypoint: wilderness placement (snap to world grid, not town grid)
-    if kind == BuildKind::Waypoint {
+    if kind == BuildingKind::Waypoint {
         if !just_pressed { return; }
         build_ctx.clear_drag();
-        let cost = crate::constants::building_cost(BuildKind::Waypoint);
+        let cost = crate::constants::building_cost(BuildingKind::Waypoint);
         if world::place_waypoint_at_world_pos(
             &mut world_state.grid, &mut world_state.world_data,
             &mut world_state.building_hp, &mut food_storage,
@@ -835,13 +840,13 @@ fn build_place_click_system(
 
     // Town-grid build mode: supports single-click and click-drag line placement.
     let label = match kind {
-        BuildKind::Farm => "farm",
-        BuildKind::FarmerHome => "house",
-        BuildKind::ArcherHome => "barracks",
-        BuildKind::CrossbowHome => "crossbow home",
-        BuildKind::Tent => "tent",
-        BuildKind::MinerHome => "mine shaft",
-        BuildKind::Waypoint | BuildKind::Destroy => unreachable!(),
+        BuildingKind::Farm => "farm",
+        BuildingKind::FarmerHome => "house",
+        BuildingKind::ArcherHome => "barracks",
+        BuildingKind::CrossbowHome => "crossbow home",
+        BuildingKind::Tent => "tent",
+        BuildingKind::MinerHome => "mine shaft",
+        _ => unreachable!(),
     };
 
     let mut try_place_at_slot = |slot_row: i32, slot_col: i32| -> bool {
@@ -857,13 +862,13 @@ fn build_place_click_system(
         if food < cost { return false; }
 
         let building = match kind {
-            BuildKind::Farm => world::Building::Farm { town_idx },
-            BuildKind::FarmerHome => world::Building::FarmerHome { town_idx },
-            BuildKind::ArcherHome => world::Building::ArcherHome { town_idx },
-            BuildKind::CrossbowHome => world::Building::CrossbowHome { town_idx },
-            BuildKind::Tent => world::Building::Tent { town_idx },
-            BuildKind::MinerHome => world::Building::MinerHome { town_idx },
-            BuildKind::Waypoint | BuildKind::Destroy => unreachable!(),
+            BuildingKind::Farm => world::Building::Farm { town_idx },
+            BuildingKind::FarmerHome => world::Building::FarmerHome { town_idx },
+            BuildingKind::ArcherHome => world::Building::ArcherHome { town_idx },
+            BuildingKind::CrossbowHome => world::Building::CrossbowHome { town_idx },
+            BuildingKind::Tent => world::Building::Tent { town_idx },
+            BuildingKind::MinerHome => world::Building::MinerHome { town_idx },
+            _ => unreachable!(),
         };
 
         world::build_and_pay(
@@ -920,6 +925,10 @@ struct SlotIndicator;
 #[derive(Component)]
 struct BuildGhost;
 
+/// Marker for additional ghost sprites used to preview drag placement lines.
+#[derive(Component)]
+struct BuildGhostTrail;
+
 /// Update or spawn/despawn the ghost sprite to preview building placement.
 fn build_ghost_system(
     mut commands: Commands,
@@ -930,9 +939,11 @@ fn build_ghost_system(
     grid: Res<world::WorldGrid>,
     world_data: Res<world::WorldData>,
     town_grids: Res<world::TownGrids>,
-    mut ghost_query: Query<(Entity, &mut Transform, &mut Sprite), (With<BuildGhost>, Without<crate::render::MainCamera>)>,
+    food_storage: Res<FoodStorage>,
+    mut ghost_query: Query<(Entity, &mut Transform, &mut Sprite), (With<BuildGhost>, Without<BuildGhostTrail>, Without<crate::render::MainCamera>)>,
+    trail_query: Query<Entity, With<BuildGhostTrail>>,
 ) {
-    let has_selection = build_ctx.selected_build.is_some();
+    let has_selection = build_ctx.selected_build.is_some() || build_ctx.destroy_mode;
 
     // Despawn ghost if no selection
     if !has_selection {
@@ -940,10 +951,11 @@ fn build_ghost_system(
         for (entity, _, _) in ghost_query.iter() {
             commands.entity(entity).despawn();
         }
+        for entity in trail_query.iter() {
+            commands.entity(entity).despawn();
+        }
         return;
     }
-
-    let kind = build_ctx.selected_build.unwrap();
 
     // Get cursor world position
     let Ok(window) = windows.single() else { return };
@@ -956,6 +968,9 @@ fn build_ghost_system(
             for (_, _, mut sprite) in ghost_query.iter_mut() {
                 sprite.color = Color::NONE;
             }
+            for entity in trail_query.iter() {
+                commands.entity(entity).despawn();
+            }
             return;
         }
     }
@@ -963,8 +978,50 @@ fn build_ghost_system(
     let Ok((cam_transform, projection)) = camera_query.single() else { return };
     let world_pos = screen_to_world(cursor_pos, cam_transform, projection, window);
 
+    // Destroy mode: snap to town grid, show red ghost over destructible buildings
+    if build_ctx.destroy_mode {
+        for entity in trail_query.iter() {
+            commands.entity(entity).despawn();
+        }
+        let Some(town_data_idx) = build_ctx.town_data_idx else { return };
+        let Some(town) = world_data.towns.get(town_data_idx) else { return };
+        let center = town.center;
+        let (row, col) = world::world_to_town_grid(center, world_pos);
+        let slot_pos = world::town_grid_to_world(center, row, col);
+        build_ctx.hover_world_pos = slot_pos;
+        let (gc, gr) = grid.world_to_grid(slot_pos);
+        let cell = grid.cell(gc, gr);
+        let has_building = cell.map(|c| c.building.is_some()).unwrap_or(false);
+        let is_fountain = cell
+            .and_then(|c| c.building.as_ref())
+            .map(|b| matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
+            .unwrap_or(false);
+        let valid = has_building && !is_fountain;
+        build_ctx.show_cursor_hint = true;
+        let color = if valid { Color::srgba(0.8, 0.2, 0.2, 0.6) } else { Color::NONE };
+        let snapped = grid.grid_to_world(gc, gr);
+        let ghost_z = 0.5;
+        if let Some((_, mut transform, mut sprite)) = ghost_query.iter_mut().next() {
+            transform.translation = Vec3::new(snapped.x, snapped.y, ghost_z);
+            sprite.color = color;
+            sprite.image = Handle::default();
+        } else {
+            commands.spawn((
+                Sprite { color, image: Handle::default(), custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)), ..default() },
+                Transform::from_xyz(snapped.x, snapped.y, ghost_z),
+                BuildGhost,
+            ));
+        }
+        return;
+    }
+
+    let kind = build_ctx.selected_build.unwrap();
+
     // Waypoint: snap to world grid (wilderness placement)
-    if kind == BuildKind::Waypoint {
+    if kind == BuildingKind::Waypoint {
+        for entity in trail_query.iter() {
+            commands.entity(entity).despawn();
+        }
         let (gc, gr) = grid.world_to_grid(world_pos);
         let snapped = grid.grid_to_world(gc, gr);
         build_ctx.hover_world_pos = snapped;
@@ -1013,33 +1070,60 @@ fn build_ghost_system(
     let (gc, gr) = grid.world_to_grid(slot_pos);
     let cell = grid.cell(gc, gr);
     let has_building = cell.map(|c| c.building.is_some()).unwrap_or(false);
-    let is_fountain = cell
-        .and_then(|c| c.building.as_ref())
-        .map(|b| matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
-        .unwrap_or(false);
-
     let town_grid = town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx);
     let in_bounds = town_grid
         .map(|tg| world::is_slot_buildable(tg, row, col))
         .unwrap_or(false);
     let is_center = row == 0 && col == 0;
 
-    let (valid, visible) = if kind == BuildKind::Destroy {
-        // Destroy: valid over destructible buildings, invisible over empty/fountain
-        (has_building && !is_fountain, has_building && !is_fountain)
-    } else {
-        // Build: valid on empty buildable non-center slots
-        let v = in_bounds && !is_center && !has_building;
-        (v, in_bounds && !is_center)
+    let mut drag_preview: Vec<(i32, i32, bool, bool)> = Vec::new();
+    {
+        let path = match (build_ctx.drag_start_slot, build_ctx.drag_current_slot) {
+            (Some(start), Some(end)) => slots_on_line(start, end),
+            _ => vec![(row, col)],
+        };
+        let cost = crate::constants::building_cost(kind);
+        let mut budget = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
+
+        for (slot_row, slot_col) in path {
+            let visible_slot = town_grid
+                .map(|tg| world::is_slot_buildable(tg, slot_row, slot_col))
+                .unwrap_or(false)
+                && !(slot_row == 0 && slot_col == 0);
+            if !visible_slot {
+                drag_preview.push((slot_row, slot_col, false, false));
+                continue;
+            }
+
+            let slot_world = world::town_grid_to_world(center, slot_row, slot_col);
+            let (sgc, sgr) = grid.world_to_grid(slot_world);
+            let slot_empty = grid.cell(sgc, sgr).map(|c| c.building.is_none()).unwrap_or(false);
+            let can_pay = budget >= cost;
+            let slot_valid = slot_empty && can_pay;
+            if slot_valid {
+                budget -= cost;
+            }
+            drag_preview.push((slot_row, slot_col, slot_valid, true));
+        }
+    }
+
+    // Build: valid on empty buildable non-center slots, including drag budget preview.
+    let (valid, visible) = {
+        let current = drag_preview
+            .iter()
+            .find(|(sr, sc, _, _)| *sr == row && *sc == col)
+            .copied();
+        if let Some((_, _, v, vis)) = current {
+            (v, vis)
+        } else {
+            (in_bounds && !is_center && !has_building, in_bounds && !is_center)
+        }
     };
     // Hide mouse-follow sprite when we're snapped to a valid build slot.
-    build_ctx.show_cursor_hint = kind == BuildKind::Destroy || !valid;
+    build_ctx.show_cursor_hint = !valid;
 
-    let is_destroy = kind == BuildKind::Destroy;
     let color = if !visible {
         Color::NONE
-    } else if is_destroy {
-        if valid { Color::srgba(0.8, 0.2, 0.2, 0.6) } else { Color::NONE }
     } else if valid {
         Color::srgba(1.0, 1.0, 1.0, 0.7)
     } else {
@@ -1048,11 +1132,38 @@ fn build_ghost_system(
 
     let snapped = grid.grid_to_world(gc, gr);
     let ghost_z = 0.5;
-    let ghost_image = if is_destroy {
-        Handle::default()
-    } else {
-        build_ctx.ghost_sprites.get(&kind).cloned().unwrap_or_default()
-    };
+    let ghost_image = build_ctx.ghost_sprites.get(&kind).cloned().unwrap_or_default();
+
+    // Rebuild drag trail each frame (all slots except the cursor slot).
+    for entity in trail_query.iter() {
+        commands.entity(entity).despawn();
+    }
+    if drag_preview.len() > 1 {
+        for (slot_row, slot_col, slot_valid, slot_visible) in drag_preview.iter().copied() {
+            if (slot_row == row && slot_col == col) || !slot_visible {
+                continue;
+            }
+            let slot_world = world::town_grid_to_world(center, slot_row, slot_col);
+            let (sgc, sgr) = grid.world_to_grid(slot_world);
+            let snapped_slot = grid.grid_to_world(sgc, sgr);
+            let slot_color = if slot_valid {
+                Color::srgba(1.0, 1.0, 1.0, 0.45)
+            } else {
+                Color::srgba(0.8, 0.2, 0.2, 0.35)
+            };
+            commands.spawn((
+                Sprite {
+                    color: slot_color,
+                    image: ghost_image.clone(),
+                    custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)),
+                    ..default()
+                },
+                Transform::from_xyz(snapped_slot.x, snapped_slot.y, ghost_z),
+                BuildGhost,
+                BuildGhostTrail,
+            ));
+        }
+    }
 
     if let Some((_, mut transform, mut sprite)) = ghost_query.iter_mut().next() {
         transform.translation = Vec3::new(snapped.x, snapped.y, ghost_z);
@@ -1091,11 +1202,8 @@ fn draw_slot_indicators(
         commands.entity(entity).despawn();
     }
 
-    // Only show indicators when a build type is selected (not Destroy)
-    let show = build_ctx.selected_build
-        .map(|k| k != BuildKind::Destroy)
-        .unwrap_or(false);
-    if !show { return; }
+    // Only show indicators when a build type is selected (not destroy mode)
+    if build_ctx.selected_build.is_none() || build_ctx.destroy_mode { return; }
 
     // Only show indicators for the player's villager town (first grid)
     let Some(town_grid) = town_grids.grids.first() else { return };

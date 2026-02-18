@@ -11,7 +11,7 @@ use crate::gpu::NpcGpuState;
 use crate::resources::*;
 use crate::settings::{self, UserSettings};
 use crate::ui::tipped;
-use crate::world::{WorldData, WorldGrid, Building, BuildingKind, BuildingOccupancy, is_alive, SPAWNER_FARMER, SPAWNER_ARCHER, SPAWNER_CROSSBOW};
+use crate::world::{WorldData, WorldGrid, Building, BuildingKind, BuildingOccupancy, is_alive};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeType, resolve_town_tower_stats};
 
 // ============================================================================
@@ -112,9 +112,12 @@ pub fn top_bar_system(
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
                     let crossbows = pop_stats.0.get(&(5, 0)).map(|s| s.alive).unwrap_or(0);
-                    let houses = spawner_state.0.iter().filter(|s| s.building_kind == SPAWNER_FARMER && s.town_idx == 0 && is_alive(s.position)).count();
-                    let barracks = spawner_state.0.iter().filter(|s| s.building_kind == SPAWNER_ARCHER && s.town_idx == 0 && is_alive(s.position)).count();
-                    let xbow_homes = spawner_state.0.iter().filter(|s| s.building_kind == SPAWNER_CROSSBOW && s.town_idx == 0 && is_alive(s.position)).count();
+                    let sk_farmer = crate::constants::tileset_index(BuildingKind::FarmerHome) as i32;
+                    let sk_archer = crate::constants::tileset_index(BuildingKind::ArcherHome) as i32;
+                    let sk_xbow = crate::constants::tileset_index(BuildingKind::CrossbowHome) as i32;
+                    let houses = spawner_state.0.iter().filter(|s| s.building_kind == sk_farmer && s.town_idx == 0 && is_alive(s.position)).count();
+                    let barracks = spawner_state.0.iter().filter(|s| s.building_kind == sk_archer && s.town_idx == 0 && is_alive(s.position)).count();
+                    let xbow_homes = spawner_state.0.iter().filter(|s| s.building_kind == sk_xbow && s.town_idx == 0 && is_alive(s.position)).count();
                     tipped(ui, format!("Archers: {}/{}", guards, barracks), catalog.0.get("archers").unwrap_or(&""));
                     tipped(ui, format!("Crossbow: {}/{}", crossbows, xbow_homes), catalog.0.get("crossbow").unwrap_or(&""));
                     tipped(ui, format!("Farmers: {}/{}", farmers, houses), catalog.0.get("farmers").unwrap_or(&""));
@@ -831,8 +834,8 @@ fn building_from_kind_index(world_data: &WorldData, kind: BuildingKind, index: u
         BuildingKind::MinerHome => world_data.miner_homes.get(index)
             .map(|b| (Building::MinerHome { town_idx: b.town_idx }, b.position)),
         BuildingKind::Bed => world_data.beds.get(index).map(|b| (Building::Bed { town_idx: b.town_idx }, b.position)),
-        BuildingKind::Town => world_data.towns.get(index).map(|t| {
-            let b = if t.sprite_type == 0 {
+        BuildingKind::Fountain | BuildingKind::Camp => world_data.towns.get(index).map(|t| {
+            let b = if t.faction == 0 {
                 Building::Fountain { town_idx: index as u32 }
             } else {
                 Building::Camp { town_idx: index as u32 }

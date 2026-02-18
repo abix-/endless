@@ -15,12 +15,6 @@ use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
 #[inline]
 pub fn is_alive(pos: Vec2) -> bool { pos.x > -9000.0 }
 
-/// Spawner building_kind constants (match `Building::spawner_kind()` return values).
-pub const SPAWNER_FARMER: i32 = 0;
-pub const SPAWNER_ARCHER: i32 = 1;
-pub const SPAWNER_TENT: i32 = 2;
-pub const SPAWNER_MINER: i32 = 3;
-pub const SPAWNER_CROSSBOW: i32 = 4;
 
 // ============================================================================
 // SPRITE DEFINITIONS (from roguelikeSheet_transparent.png)
@@ -310,7 +304,7 @@ pub fn place_building(
 }
 
 /// Resolve SpawnNpcMsg fields from a spawner entry's building_kind.
-/// Single source of truth for the building_kind → NPC mapping used by startup and respawn.
+/// Uses BUILDING_REGISTRY SpawnBehavior so new buildings with existing behaviors need no changes.
 pub fn resolve_spawner_npc(
     entry: &SpawnerEntry,
     towns: &[Town],
@@ -318,32 +312,40 @@ pub fn resolve_spawner_npc(
     occupancy: &BuildingOccupancy,
     miner_homes: &[MinerHome],
 ) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
+    use crate::constants::{SpawnBehavior, BUILDING_REGISTRY};
+
     let town_faction = towns.get(entry.town_idx as usize)
         .map(|t| t.faction).unwrap_or(0);
 
-    match entry.building_kind {
-        0 => {
-            // FarmerHome -> Farmer: find nearest free farm in own town
+    // Look up the registry entry by tileset index (building_kind = tileset index)
+    let Some(def) = BUILDING_REGISTRY.get(entry.building_kind as usize) else {
+        let camp_faction = towns.get(entry.town_idx as usize).map(|t| t.faction).unwrap_or(1);
+        return (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown");
+    };
+    let Some(ref spawner) = def.spawner else {
+        let camp_faction = towns.get(entry.town_idx as usize).map(|t| t.faction).unwrap_or(1);
+        return (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown");
+    };
+
+    match spawner.behavior {
+        SpawnBehavior::FindNearestFarm => {
             let farm = find_nearest_free(
                 entry.position, bgrid, BuildingKind::Farm, occupancy, Some(entry.town_idx as u32),
             ).unwrap_or(entry.position);
-            (0, town_faction, farm.x, farm.y, -1, 0, "Farmer", "Farmer Home")
+            (spawner.job, town_faction, farm.x, farm.y, -1, spawner.attack_type, spawner.npc_label, def.label)
         }
-        1 => {
-            // ArcherHome -> Archer: find nearest waypoint
+        SpawnBehavior::FindNearestWaypoint => {
             let post_idx = find_location_within_radius(
                 entry.position, bgrid, LocationKind::Waypoint, f32::MAX,
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-            (1, town_faction, -1.0, -1.0, post_idx, 1, "Archer", "Archer Home")
+            (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, spawner.npc_label, def.label)
         }
-        2 => {
-            // Tent -> Raider
+        SpawnBehavior::CampRaider => {
             let camp_faction = towns.get(entry.town_idx as usize)
                 .map(|t| t.faction).unwrap_or(1);
-            (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Tent")
+            (spawner.job, camp_faction, -1.0, -1.0, -1, spawner.attack_type, spawner.npc_label, def.label)
         }
-        3 => {
-            // MinerHome -> Miner: use assigned mine or find nearest
+        SpawnBehavior::Miner => {
             let assigned = miner_homes.iter()
                 .find(|mh| (mh.position - entry.position).length() < 1.0)
                 .and_then(|mh| mh.assigned_mine);
@@ -352,20 +354,7 @@ pub fn resolve_spawner_npc(
                     entry.position, bgrid, BuildingKind::GoldMine, occupancy, None,
                 ).unwrap_or(entry.position)
             });
-            (4, town_faction, mine.x, mine.y, -1, 0, "Miner", "Miner Home")
-        }
-        4 => {
-            // CrossbowHome -> Crossbow: find nearest waypoint (same as archer)
-            let post_idx = find_location_within_radius(
-                entry.position, bgrid, LocationKind::Waypoint, f32::MAX,
-            ).map(|(idx, _)| idx as i32).unwrap_or(-1);
-            (5, town_faction, -1.0, -1.0, post_idx, 1, "Crossbow", "Crossbow Home")
-        }
-        _ => {
-            // Unknown building kind — fallback to Raider
-            let camp_faction = towns.get(entry.town_idx as usize)
-                .map(|t| t.faction).unwrap_or(1);
-            (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown")
+            (spawner.job, town_faction, mine.x, mine.y, -1, spawner.attack_type, spawner.npc_label, def.label)
         }
     }
 }
@@ -421,10 +410,10 @@ pub fn build_and_pay(
 
     // Allocate GPU NPC slot for building collision
     let kind = building.kind();
+    let def = crate::constants::building_def(kind);
     let data_idx = find_building_data_index(world_data, building, snapped).unwrap_or(0);
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-    let max_hp = BuildingHpState::max_hp(kind);
-    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, max_hp, building.tileset_index(), building.is_tower());
+    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(kind), def.is_tower);
 
     dirty.mark_building_changed(kind);
     true
@@ -486,62 +475,58 @@ pub fn allocate_all_building_slots(
     slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingSlotMap,
 ) {
-    use crate::constants::*;
+    use crate::constants::{building_def, tileset_index, FACTION_NEUTRAL};
 
     let town_faction = |town_idx: u32| -> i32 {
         world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0)
     };
 
+    let alloc = |slot_alloc: &mut SlotAllocator, building_slots: &mut BuildingSlotMap,
+                 kind: BuildingKind, idx: usize, pos: Vec2, faction: i32| {
+        let def = building_def(kind);
+        allocate_building_slot(slot_alloc, building_slots, kind, idx,
+            pos, faction, def.hp, tileset_index(kind), def.is_tower);
+    };
+
     for (i, wp) in world_data.waypoints.iter().enumerate() {
-        if wp.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, i,
-            wp.position, town_faction(wp.town_idx), WAYPOINT_HP, TILESET_WAYPOINT, false);
+        if !is_alive(wp.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::Waypoint, i, wp.position, town_faction(wp.town_idx));
     }
     for (i, f) in world_data.farms.iter().enumerate() {
-        if f.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Farm, i,
-            f.position, town_faction(f.town_idx as u32), FARM_HP, TILESET_FARM, false);
+        if !is_alive(f.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::Farm, i, f.position, town_faction(f.town_idx as u32));
     }
     for (i, h) in world_data.farmer_homes.iter().enumerate() {
-        if h.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::FarmerHome, i,
-            h.position, town_faction(h.town_idx as u32), FARMER_HOME_HP, TILESET_FARMER_HOME, false);
+        if !is_alive(h.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::FarmerHome, i, h.position, town_faction(h.town_idx as u32));
     }
     for (i, a) in world_data.archer_homes.iter().enumerate() {
-        if a.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::ArcherHome, i,
-            a.position, town_faction(a.town_idx as u32), ARCHER_HOME_HP, TILESET_ARCHER_HOME, false);
+        if !is_alive(a.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::ArcherHome, i, a.position, town_faction(a.town_idx as u32));
     }
     for (i, c) in world_data.crossbow_homes.iter().enumerate() {
-        if c.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::CrossbowHome, i,
-            c.position, town_faction(c.town_idx as u32), CROSSBOW_HOME_HP, TILESET_CROSSBOW_HOME, false);
+        if !is_alive(c.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::CrossbowHome, i, c.position, town_faction(c.town_idx as u32));
     }
     for (i, t) in world_data.tents.iter().enumerate() {
-        if t.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Tent, i,
-            t.position, town_faction(t.town_idx as u32), TENT_HP, TILESET_TENT, false);
+        if !is_alive(t.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::Tent, i, t.position, town_faction(t.town_idx as u32));
     }
     for (i, m) in world_data.miner_homes.iter().enumerate() {
-        if m.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::MinerHome, i,
-            m.position, town_faction(m.town_idx as u32), MINER_HOME_HP, TILESET_MINER_HOME, false);
+        if !is_alive(m.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::MinerHome, i, m.position, town_faction(m.town_idx as u32));
     }
     for (i, b) in world_data.beds.iter().enumerate() {
-        if b.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Bed, i,
-            b.position, town_faction(b.town_idx as u32), BED_HP, TILESET_BED, false);
+        if !is_alive(b.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::Bed, i, b.position, town_faction(b.town_idx as u32));
     }
     for (i, t) in world_data.towns.iter().enumerate() {
-        let tileset_idx = if t.sprite_type == 1 { TILESET_CAMP } else { TILESET_FOUNTAIN };
-        let is_fountain = t.sprite_type == 0;
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::Town, i,
-            t.center, t.faction, TOWN_HP, tileset_idx, is_fountain);
+        let kind = if t.sprite_type == 1 { BuildingKind::Camp } else { BuildingKind::Fountain };
+        alloc(slot_alloc, building_slots, kind, i, t.center, t.faction);
     }
     for (i, m) in world_data.gold_mines.iter().enumerate() {
-        if m.position.x < -9000.0 { continue; }
-        allocate_building_slot(slot_alloc, building_slots, BuildingKind::GoldMine, i,
-            m.position, FACTION_NEUTRAL, GOLD_MINE_HP, TILESET_GOLD_MINE, false);
+        if !is_alive(m.position) { continue; }
+        alloc(slot_alloc, building_slots, BuildingKind::GoldMine, i, m.position, FACTION_NEUTRAL);
     }
 
     info!("Allocated {} building GPU slots", building_slots.len());
@@ -598,7 +583,8 @@ pub fn place_waypoint_at_world_pos(
 
     // Allocate GPU NPC slot for collision
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-    allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, data_idx, snapped, faction, BuildingHpState::max_hp(BuildingKind::Waypoint), TILESET_WAYPOINT, false);
+    let def = crate::constants::building_def(BuildingKind::Waypoint);
+    allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(BuildingKind::Waypoint), def.is_tower);
 
     Ok(())
 }
@@ -858,6 +844,7 @@ pub fn destroy_building(
 
 /// Location types for find_nearest_location.
 #[derive(Clone, Copy, Debug)]
+#[derive(PartialEq, Eq)]
 pub enum LocationKind {
     Farm,
     Waypoint,
@@ -877,17 +864,23 @@ pub fn find_location_within_radius(
     kind: LocationKind,
     radius: f32,
 ) -> Option<(usize, Vec2)> {
+    let is_town = kind == LocationKind::Town;
     let bkind = match kind {
         LocationKind::Farm => BuildingKind::Farm,
         LocationKind::Waypoint => BuildingKind::Waypoint,
-        LocationKind::Town => BuildingKind::Town,
+        LocationKind::Town => BuildingKind::Fountain, // also matches Camp below
         LocationKind::GoldMine => BuildingKind::GoldMine,
     };
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
     bgrid.for_each_nearby(from, radius, |bref| {
-        if bref.kind != bkind { return; }
+        let matches = if is_town {
+            bref.kind == BuildingKind::Fountain || bref.kind == BuildingKind::Camp
+        } else {
+            bref.kind == bkind
+        };
+        if !matches { return; }
         let dx = bref.position.x - from.x;
         let dy = bref.position.y - from.y;
         let d2 = dx * dx + dy * dy;
@@ -914,7 +907,7 @@ pub fn find_nearest_enemy_building(
         if bref.faction < 0 { return; } // no faction (gold mines)
         // Skip non-targetable building types
         match bref.kind {
-            BuildingKind::Town | BuildingKind::GoldMine | BuildingKind::Bed => return,
+            BuildingKind::Fountain | BuildingKind::Camp | BuildingKind::GoldMine | BuildingKind::Bed => return,
             _ => {}
         }
         // Raiders only target military buildings
@@ -1061,7 +1054,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum BuildingKind { Farm, Waypoint, Town, GoldMine, ArcherHome, CrossbowHome, FarmerHome, Tent, MinerHome, Bed }
+pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, Camp, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {
@@ -1112,8 +1105,9 @@ impl BuildingSpatialGrid {
             });
         }
         for (i, town) in world.towns.iter().enumerate() {
+            let kind = if town.faction > 0 { BuildingKind::Camp } else { BuildingKind::Fountain };
             self.insert(BuildingRef {
-                kind: BuildingKind::Town, index: i,
+                kind, index: i,
                 town_idx: i as u32, faction: town.faction, position: town.center,
             });
         }
@@ -1238,13 +1232,8 @@ impl Biome {
     }
 }
 
-/// Tile specification: single 16x16 sprite or 2x2 composite of four 16x16 sprites.
-#[derive(Clone, Copy)]
-pub enum TileSpec {
-    Single(u32, u32),
-    Quad([(u32, u32); 4]),  // [TL, TR, BL, BR]
-    External(usize),        // index into extra images slice
-}
+// TileSpec is now in constants.rs (part of BUILDING_REGISTRY)
+pub use crate::constants::TileSpec;
 
 /// Atlas (col, row) positions for the 11 terrain tiles used in the TilemapChunk tileset.
 pub const TERRAIN_TILES: [TileSpec; 11] = [
@@ -1261,49 +1250,10 @@ pub const TERRAIN_TILES: [TileSpec; 11] = [
     TileSpec::Single(8, 10),  // 10: Dirt
 ];
 
-/// Atlas (col, row) positions for the 8 building tiles used in the building TilemapChunk layer.
-pub const BUILDING_TILES: [TileSpec; 11] = [
-    TileSpec::Single(50, 9),  // 0: Fountain
-    TileSpec::Single(15, 2),  // 1: Bed
-    TileSpec::External(2),    // 2: Waypoint (waypoint.png)
-    TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]), // 3: Farm
-    TileSpec::Quad([(46, 10), (47, 10), (46, 11), (47, 11)]), // 4: Camp (center)
-    TileSpec::External(0),    // 5: FarmerHome (house.png)
-    TileSpec::External(1),    // 6: ArcherHome (barracks.png)
-    TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]), // 7: Tent (raider spawner)
-    TileSpec::Single(43, 11), // 8: Gold Mine
-    TileSpec::External(3),    // 9: MinerHome (miner_house.png)
-    TileSpec::External(1),    // 10: CrossbowHome (reuse barracks.png for now)
-];
-
-// Tileset indices -- must match BUILDING_TILES order above
-pub const TILESET_FOUNTAIN: u16 = 0;
-pub const TILESET_BED: u16 = 1;
-pub const TILESET_WAYPOINT: u16 = 2;
-pub const TILESET_FARM: u16 = 3;
-pub const TILESET_CAMP: u16 = 4;
-pub const TILESET_FARMER_HOME: u16 = 5;
-pub const TILESET_ARCHER_HOME: u16 = 6;
-pub const TILESET_TENT: u16 = 7;
-pub const TILESET_GOLD_MINE: u16 = 8;
-pub const TILESET_MINER_HOME: u16 = 9;
-pub const TILESET_CROSSBOW_HOME: u16 = 10;
-
-// Compile-time guard: BUILDING_TILES length and index mapping
-const _: () = {
-    assert!(BUILDING_TILES.len() == 11);
-    assert!(TILESET_FOUNTAIN as usize == 0);
-    assert!(TILESET_BED as usize == 1);
-    assert!(TILESET_WAYPOINT as usize == 2);
-    assert!(TILESET_FARM as usize == 3);
-    assert!(TILESET_CAMP as usize == 4);
-    assert!(TILESET_FARMER_HOME as usize == 5);
-    assert!(TILESET_ARCHER_HOME as usize == 6);
-    assert!(TILESET_TENT as usize == 7);
-    assert!(TILESET_GOLD_MINE as usize == 8);
-    assert!(TILESET_MINER_HOME as usize == 9);
-    assert!(TILESET_CROSSBOW_HOME as usize == 10);
-};
+/// Build the BUILDING_TILES array from the registry (for atlas construction).
+pub fn building_tiles() -> Vec<crate::constants::TileSpec> {
+    crate::constants::BUILDING_REGISTRY.iter().map(|d| d.tile).collect()
+}
 
 /// Composite tiles into a vertical strip buffer (32 x 32*layers).
 /// Core logic shared by tilemap tileset and building atlas.
@@ -1445,17 +1395,14 @@ pub enum Building {
 }
 
 impl Building {
-    /// Returns the spawner building_kind (0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome, 4=CrossbowHome),
-    /// or None for non-spawner buildings (Farm, Waypoint, etc.).
-    /// Single source of truth for the building→spawner mapping.
+    /// Returns the spawner building_kind index (position in BUILDING_REGISTRY for spawner types),
+    /// or None for non-spawner buildings.
     pub fn spawner_kind(&self) -> Option<i32> {
-        match self {
-            Building::FarmerHome { .. } => Some(SPAWNER_FARMER),
-            Building::ArcherHome { .. } => Some(SPAWNER_ARCHER),
-            Building::CrossbowHome { .. } => Some(SPAWNER_CROSSBOW),
-            Building::Tent { .. } => Some(SPAWNER_TENT),
-            Building::MinerHome { .. } => Some(SPAWNER_MINER),
-            _ => None,
+        let def = crate::constants::building_def(self.kind());
+        if def.spawner.is_some() {
+            Some(crate::constants::tileset_index(self.kind()) as i32)
+        } else {
+            None
         }
     }
 
@@ -1464,7 +1411,8 @@ impl Building {
         match self {
             Building::Farm { .. } => BuildingKind::Farm,
             Building::Waypoint { .. } => BuildingKind::Waypoint,
-            Building::Fountain { .. } | Building::Camp { .. } => BuildingKind::Town,
+            Building::Fountain { .. } => BuildingKind::Fountain,
+            Building::Camp { .. } => BuildingKind::Camp,
             Building::GoldMine => BuildingKind::GoldMine,
             Building::FarmerHome { .. } => BuildingKind::FarmerHome,
             Building::ArcherHome { .. } => BuildingKind::ArcherHome,
@@ -1477,24 +1425,12 @@ impl Building {
 
     /// Whether this building is a tower (auto-shoots at nearby enemies via GPU targeting).
     pub fn is_tower(&self) -> bool {
-        matches!(self, Building::Fountain { .. })
+        crate::constants::building_def(self.kind()).is_tower
     }
 
-    /// Map building variant to tileset array index (matches BUILDING_TILES order).
+    /// Map building variant to tileset array index (position in BUILDING_REGISTRY).
     pub fn tileset_index(&self) -> u16 {
-        match self {
-            Building::Fountain { .. } => TILESET_FOUNTAIN,
-            Building::Bed { .. } => TILESET_BED,
-            Building::Waypoint { .. } => TILESET_WAYPOINT,
-            Building::Farm { .. } => TILESET_FARM,
-            Building::Camp { .. } => TILESET_CAMP,
-            Building::FarmerHome { .. } => TILESET_FARMER_HOME,
-            Building::ArcherHome { .. } => TILESET_ARCHER_HOME,
-            Building::CrossbowHome { .. } => TILESET_CROSSBOW_HOME,
-            Building::Tent { .. } => TILESET_TENT,
-            Building::GoldMine => TILESET_GOLD_MINE,
-            Building::MinerHome { .. } => TILESET_MINER_HOME,
-        }
+        crate::constants::tileset_index(self.kind())
     }
 }
 

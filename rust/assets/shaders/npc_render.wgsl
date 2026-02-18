@@ -97,8 +97,8 @@ const WORLD_TEX_H: f32 = 526.0;
 // Degenerate triangle — moves vertex off-screen to discard
 const HIDDEN: vec4<f32> = vec4<f32>(0.0, 0.0, -2.0, 1.0);
 
-// Building atlas: 10 tiles in a vertical strip (backed by compile-time assert in world.rs)
-const BLDG_LAYERS: f32 = 10.0;
+// Building atlas: 11 tiles in a vertical strip (backed by compile-time assert in world.rs)
+const BLDG_LAYERS: f32 = 11.0;
 
 // Atlas ID 7 = building (source of truth: constants.rs)
 fn is_building_atlas(id: f32) -> bool {

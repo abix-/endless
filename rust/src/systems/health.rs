@@ -385,7 +385,7 @@ pub fn healing_system(
         .enumerate()
         .map(|(i, b)| (i, b.center, i as u32))
         .collect();
-    heal_buildings(BuildingKind::Town, &mut building_hp.towns, &town_entries);
+    heal_buildings(BuildingKind::Fountain, &mut building_hp.towns, &town_entries);
 
     // Update debug stats
     debug.healing_npcs_checked = npcs_checked;

@@ -11,7 +11,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 use crate::gpu::NpcSpriteTexture;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings};
 use crate::settings::UserSettings;
-use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, TERRAIN_TILES, BUILDING_TILES};
+use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, TERRAIN_TILES, building_tiles};
 
 // =============================================================================
 // CONSTANTS
@@ -603,14 +603,15 @@ fn spawn_world_tilemap(
     ));
 
     // Building atlas for NPC instanced renderer (replaces building TilemapChunk)
+    let btiles = building_tiles();
     let building_atlas = build_building_atlas(
         &atlas,
-        &BUILDING_TILES,
+        &btiles,
         &[&house_img, &barracks_img, &waypoint_img, &miner_house_img],
         &mut images,
     );
     if let Some(img) = images.get(&building_atlas) {
-        assert_eq!(img.height(), 32 * BUILDING_TILES.len() as u32,
+        assert_eq!(img.height(), 32 * btiles.len() as u32,
             "building atlas height mismatch");
     }
     npc_sprite_tex.building_handle = Some(building_atlas);

@@ -1,5 +1,7 @@
 //! Constants - Tuning parameters for the NPC system
 
+use crate::world::BuildingKind;
+
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
 pub const MAX_NPC_COUNT: usize = 100000;
 
@@ -193,21 +195,6 @@ pub const STARVING_SPEED_MULT: f32 = 0.5;
 // BUILDING SYSTEM CONSTANTS
 // ============================================================================
 
-/// Food cost to build.
-pub fn building_cost(kind: crate::resources::BuildKind) -> i32 {
-    use crate::resources::BuildKind;
-    match kind {
-        BuildKind::Farm         => 2,
-        BuildKind::FarmerHome   => 2,
-        BuildKind::MinerHome    => 4,
-        BuildKind::ArcherHome   => 4,
-        BuildKind::CrossbowHome => 8,
-        BuildKind::Waypoint     => 1,
-        BuildKind::Tent         => 3,
-        BuildKind::Destroy      => 0,
-    }
-}
-
 /// Game hours before a dead NPC respawns from its building.
 pub const SPAWNER_RESPAWN_HOURS: f32 = 12.0;
 
@@ -279,25 +266,229 @@ pub const MINE_MIN_SPACING: f32 = 400.0;
 /// Default town policy radius (pixels) for auto-mining discovery around fountain.
 pub const DEFAULT_MINING_RADIUS: f32 = 2000.0;
 
-// ============================================================================
-// BUILDING HP
-// ============================================================================
-
-pub const WAYPOINT_HP: f32 = 200.0;
 /// Distance within which a waypoint "covers" a gold mine (AI territory logic).
 pub const WAYPOINT_COVER_RADIUS: f32 = 200.0;
-pub const ARCHER_HOME_HP: f32 = 150.0;
-pub const CROSSBOW_HOME_HP: f32 = 150.0;
-pub const FARMER_HOME_HP: f32 = 100.0;
-pub const MINER_HOME_HP: f32 = 100.0;
-pub const TENT_HP: f32 = 100.0;
-pub const FARM_HP: f32 = 80.0;
-pub const TOWN_HP: f32 = 500.0;
-pub const BED_HP: f32 = 50.0;
-pub const GOLD_MINE_HP: f32 = 200.0;
 
 /// Radius for projectile-vs-building collision detection on CPU.
 pub const BUILDING_HIT_RADIUS: f32 = 20.0;
+
+// ============================================================================
+// BUILDING REGISTRY — single source of truth for all building definitions
+// ============================================================================
+
+/// Tile specification: single 16x16 sprite or 2x2 composite of four 16x16 sprites.
+#[derive(Clone, Copy, Debug)]
+pub enum TileSpec {
+    Single(u32, u32),
+    Quad([(u32, u32); 4]),  // [TL, TR, BL, BR]
+    External(usize),        // index into extra images slice
+}
+
+/// How a building is placed on the map.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PlacementMode {
+    /// Snap to town grid (farms, homes, beds, tents).
+    TownGrid,
+    /// Snap to world grid (waypoints, fountains, camps, gold mines).
+    Wilderness,
+}
+
+/// Special action when a building is placed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OnPlace {
+    None,
+    /// Push to GrowthStates (farms).
+    InitFarmGrowth,
+}
+
+/// How a spawner building finds work/patrol targets for its NPC.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SpawnBehavior {
+    /// Find nearest free farm in own town (farmer).
+    FindNearestFarm,
+    /// Find nearest waypoint for patrol (archer, crossbow).
+    FindNearestWaypoint,
+    /// Use camp faction (tent → raider).
+    CampRaider,
+    /// Use assigned mine or find nearest (miner).
+    Miner,
+}
+
+/// NPC spawner definition — what kind of NPC a building produces.
+#[derive(Clone, Copy, Debug)]
+pub struct SpawnerDef {
+    pub job: i32,           // Job::from_i32 index (0=Farmer, 1=Archer, 2=Raider, 4=Miner, 5=Crossbow)
+    pub attack_type: i32,   // 0=melee, 1=ranged bow, 2=ranged xbow
+    pub behavior: SpawnBehavior,
+    pub npc_label: &'static str,
+}
+
+/// Complete building definition — one entry per BuildingKind.
+/// Index in BUILDING_REGISTRY = tileset index for GPU rendering.
+#[derive(Clone, Copy, Debug)]
+pub struct BuildingDef {
+    pub kind: BuildingKind,
+    pub tile: TileSpec,
+    pub hp: f32,
+    pub cost: i32,
+    pub label: &'static str,
+    pub help: &'static str,
+    pub player_buildable: bool,
+    pub camp_buildable: bool,
+    pub placement: PlacementMode,
+    pub is_tower: bool,
+    pub tower_stats: Option<TowerStats>,
+    pub on_place: OnPlace,
+    pub spawner: Option<SpawnerDef>,
+}
+
+/// Single source of truth for all building types.
+/// Order must match tileset strip (index = tileset_index).
+pub const BUILDING_REGISTRY: &[BuildingDef] = &[
+    // 0: Fountain (town center, auto-shoots)
+    BuildingDef {
+        kind: BuildingKind::Fountain,
+        tile: TileSpec::Single(50, 9),
+        hp: 500.0, cost: 0,
+        label: "Fountain", help: "Town center",
+        player_buildable: false, camp_buildable: false,
+        placement: PlacementMode::Wilderness,
+        is_tower: true, tower_stats: Some(FOUNTAIN_TOWER),
+        on_place: OnPlace::None, spawner: None,
+    },
+    // 1: Bed
+    BuildingDef {
+        kind: BuildingKind::Bed,
+        tile: TileSpec::Single(15, 2),
+        hp: 50.0, cost: 0,
+        label: "Bed", help: "NPC rest spot",
+        player_buildable: false, camp_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None, spawner: None,
+    },
+    // 2: Waypoint
+    BuildingDef {
+        kind: BuildingKind::Waypoint,
+        tile: TileSpec::External(2),
+        hp: 200.0, cost: 1,
+        label: "Waypoint", help: "Patrol waypoint",
+        player_buildable: true, camp_buildable: false,
+        placement: PlacementMode::Wilderness,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None, spawner: None,
+    },
+    // 3: Farm
+    BuildingDef {
+        kind: BuildingKind::Farm,
+        tile: TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]),
+        hp: 80.0, cost: 2,
+        label: "Farm", help: "Grows food over time",
+        player_buildable: true, camp_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::InitFarmGrowth, spawner: None,
+    },
+    // 4: Camp (raider town center)
+    BuildingDef {
+        kind: BuildingKind::Camp,
+        tile: TileSpec::Quad([(46, 10), (47, 10), (46, 11), (47, 11)]),
+        hp: 500.0, cost: 0,
+        label: "Camp", help: "Raider camp center",
+        player_buildable: false, camp_buildable: false,
+        placement: PlacementMode::Wilderness,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None, spawner: None,
+    },
+    // 5: Farmer Home
+    BuildingDef {
+        kind: BuildingKind::FarmerHome,
+        tile: TileSpec::External(0),
+        hp: 100.0, cost: 2,
+        label: "Farmer Home", help: "Spawns 1 farmer",
+        player_buildable: true, camp_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef { job: 0, attack_type: 0, behavior: SpawnBehavior::FindNearestFarm, npc_label: "Farmer" }),
+    },
+    // 6: Archer Home
+    BuildingDef {
+        kind: BuildingKind::ArcherHome,
+        tile: TileSpec::External(1),
+        hp: 150.0, cost: 4,
+        label: "Archer Home", help: "Spawns 1 archer",
+        player_buildable: true, camp_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef { job: 1, attack_type: 1, behavior: SpawnBehavior::FindNearestWaypoint, npc_label: "Archer" }),
+    },
+    // 7: Tent (raider spawner)
+    BuildingDef {
+        kind: BuildingKind::Tent,
+        tile: TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]),
+        hp: 100.0, cost: 3,
+        label: "Tent", help: "Spawns 1 raider",
+        player_buildable: false, camp_buildable: true,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef { job: 2, attack_type: 0, behavior: SpawnBehavior::CampRaider, npc_label: "Raider" }),
+    },
+    // 8: Gold Mine
+    BuildingDef {
+        kind: BuildingKind::GoldMine,
+        tile: TileSpec::Single(43, 11),
+        hp: 200.0, cost: 0,
+        label: "Gold Mine", help: "Source of gold",
+        player_buildable: false, camp_buildable: false,
+        placement: PlacementMode::Wilderness,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None, spawner: None,
+    },
+    // 9: Miner Home
+    BuildingDef {
+        kind: BuildingKind::MinerHome,
+        tile: TileSpec::External(3),
+        hp: 100.0, cost: 4,
+        label: "Miner Home", help: "Spawns 1 miner",
+        player_buildable: true, camp_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef { job: 4, attack_type: 0, behavior: SpawnBehavior::Miner, npc_label: "Miner" }),
+    },
+    // 10: Crossbow Home
+    BuildingDef {
+        kind: BuildingKind::CrossbowHome,
+        tile: TileSpec::External(1),
+        hp: 150.0, cost: 8,
+        label: "Crossbow Home", help: "Spawns 1 crossbow",
+        player_buildable: true, camp_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None,
+        spawner: Some(SpawnerDef { job: 5, attack_type: 2, behavior: SpawnBehavior::FindNearestWaypoint, npc_label: "Crossbow" }),
+    },
+];
+
+/// Look up a building definition by kind. Panics if kind is not in registry.
+pub fn building_def(kind: BuildingKind) -> &'static BuildingDef {
+    BUILDING_REGISTRY.iter().find(|d| d.kind == kind)
+        .unwrap_or_else(|| panic!("no BuildingDef for {:?}", kind))
+}
+
+/// Look up the tileset index for a BuildingKind (its position in BUILDING_REGISTRY).
+pub fn tileset_index(kind: BuildingKind) -> u16 {
+    BUILDING_REGISTRY.iter().position(|d| d.kind == kind)
+        .unwrap_or_else(|| panic!("no tileset index for {:?}", kind)) as u16
+}
+
+/// Food cost to build a building. Returns 0 for non-buildable types.
+pub fn building_cost(kind: BuildingKind) -> i32 {
+    building_def(kind).cost
+}
 
 // ============================================================================
 // ATLAS IDS (shared between gpu.rs, render.rs, and npc_render.wgsl)

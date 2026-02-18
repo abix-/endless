@@ -438,11 +438,11 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array` for terrain. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images. Called once with `TERRAIN_TILES` (11 tiles, no extras).
 
-**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×320 vertical strip `texture_2d` for the building atlas (10 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `NpcSpriteTexture.building_handle`. TILESET_* constants map building variants to strip indices.
+**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×352 vertical strip `texture_2d` for the building atlas (11 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `NpcSpriteTexture.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
-**`Building::tileset_index()`**: Maps building variant to building strip index (0-9). Uses `TILESET_*` constants. Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7, MinerHome=8, GoldMine=9 (10 tiles total via `BUILDING_TILES`).
+**`Building::tileset_index()`**: Maps building variant to building strip index (0-10). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7, GoldMine=8, MinerHome=9, CrossbowHome=10 (11 tiles total via `building_tiles()`).
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-02-18b
+
+- **building registry** — single source of truth `BUILDING_REGISTRY` in constants.rs: 11 `BuildingDef` entries define kind, tile spec, HP, cost, label, spawner, placement mode, tower stats; `building_def(kind)`, `tileset_index(kind)`, `building_cost(kind)` replace scattered constants
+- **Town → Fountain + Camp split** — `BuildingKind::Town` removed; `Fountain` (player town center, auto-shoots) and `Camp` (raider center) are separate registry entries with distinct properties
+- **kill BuildKind** — redundant UI-only `BuildKind` enum eliminated; `BuildMenuContext` uses `Option<BuildingKind>` + `destroy_mode: bool` instead; `.to_building_kind()` bridge removed
+- **registry-driven methods** — `Building::tileset_index()`, `spawner_kind()`, `is_tower()`, `BuildingHpState::max_hp()`, `is_population_spawner()`, `resolve_spawner_npc()` all delegate to `BUILDING_REGISTRY`; removed `TILESET_*`, `SPAWNER_*`, `*_HP` constants
+- **SpawnBehavior enum** — `FindNearestFarm`, `FindNearestWaypoint`, `CampRaider`, `Miner` replace hardcoded spawner index checks in `resolve_spawner_npc()`
+
 ## 2026-02-18a
 
 - **crossbow homes** — new building type (`CrossbowHome`, cost 8 food) spawning `Job::Crossbow` units; crossbowmen are premium ranged military with higher damage (25 vs archer 15), longer range (150 vs 100), faster projectiles (150 vs 100), slower cooldown (2.0s vs 1.5s)

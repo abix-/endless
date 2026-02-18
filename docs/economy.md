@@ -226,14 +226,15 @@ Solo raiders **wait at camp** instead of raiding alone. They wander near home un
 
 ### Building Costs
 
-Flat costs via `building_cost(kind)` in `constants.rs` (no difficulty scaling):
+Flat costs via `building_cost(kind)` in `constants.rs` (no difficulty scaling). All defined in `BUILDING_REGISTRY`:
 
 | Building | Cost |
 |----------|------|
 | Farm | 2 |
-| FarmerHome | 4 |
+| FarmerHome | 2 |
 | MinerHome | 4 |
 | ArcherHome | 4 |
+| CrossbowHome | 8 |
 | Waypoint | 1 |
 | Tent | 3 |
 
