@@ -1,8 +1,8 @@
 # Endless
 
-Build a town under siege—farm, fortify, raise an army, and conquer
+Build a town under siege. Farm, fortify, raise an army, conquer
 
-Every NPC has a job, a home, and a personality. Set town policies, plan your tech tree, organize squads — and watch AI rivals do the same
+Every NPC has a job, a home, and a personality. Set town policies, plan your tech tree, organize squads. Your AI rivals do the same
 
 <!-- TODO: Add screenshot/GIF here -->
 
@@ -35,10 +35,10 @@ Every NPC has a job, a home, and a personality. Set town policies, plan your tec
 
 ## Inspirations
 
-- **Lords of the Realm 2** — assign villagers to roles, manage production, raise armies, conquer rival towns
-- **Factorio** — scale to thousands of entities, the satisfaction of watching systems hum
-- **RimWorld** — colonist needs, emergent chaos, stories that write themselves
-- **Asimov's "The Last Question"** — entropy as the ultimate antagonist
+- **Lords of the Realm 2** assign villagers to roles, manage production, raise armies, conquer rival towns
+- **Factorio** scale to thousands of entities, the satisfaction of watching systems hum
+- **RimWorld** colonist needs, emergent chaos, stories that write themselves
+- **Asimov's "The Last Question"** entropy as the ultimate antagonist
 
 ## Architecture
 
