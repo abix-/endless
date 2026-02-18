@@ -10,9 +10,9 @@ Every NPC has a job, a home, and a personality. Set town policies, plan your tec
 
 ## Download
 
-- **Windows:** [endless-windows-v0.1.1.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-windows-v0.1.1.zip) — extract, run `endless.exe`
-- **macOS:** [endless-macos-v0.1.1.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-macos-v0.1.1.zip) — extract, run `endless`
-- **Linux:** [endless-linux-v0.1.1.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-linux-v0.1.1.zip) — extract, run `endless`
+- **Windows:** [endless-windows-v0.1.3.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-windows-v0.1.3.zip) — extract, run `endless.exe`
+- **macOS:** [endless-macos-v0.1.3.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-macos-v0.1.3.zip) — extract, run `endless`
+- **Linux:** [endless-linux-v0.1.3.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-linux-v0.1.3.zip) — extract, run `endless`
 
 ## Controls
 
@@ -35,10 +35,10 @@ Every NPC has a job, a home, and a personality. Set town policies, plan your tec
 
 ## Inspirations
 
-- **Lords of the Realm 2** assign villagers to roles, manage production, raise armies, conquer rival towns
-- **Factorio** scale to thousands of entities, the satisfaction of watching systems hum
-- **RimWorld** colonist needs, emergent chaos, stories that write themselves
-- **Asimov's "The Last Question"** entropy as the ultimate antagonist
+- **Lords of the Realm 2** - assign villagers to roles, manage production, raise armies, conquer rival towns
+- **Factorio** - scale to thousands of entities, the satisfaction of watching systems hum
+- **RimWorld** - colonist needs, emergent chaos, stories that write themselves
+- **Asimov's "The Last Question"** - entropy as the ultimate antagonist
 
 ## Architecture
 
