@@ -1254,7 +1254,7 @@ fn process_destroy_system(
     // Find which town this building belongs to, derive town center
     let town_idx = cell_building
         .as_ref()
-        .map(|b| crate::ui::game_hud::building_town_idx(b) as usize)
+        .map(|b| (crate::constants::building_def(b.kind()).town_idx)(b) as usize)
         .unwrap_or(0);
     let center = world_state.world_data.towns.get(town_idx)
         .map(|t| t.center)
