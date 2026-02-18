@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18p
+
+- **fix: fighter energy** — fighter `has_energy` changed from `false` to `true`; without `Energy` component, fighters were excluded from `decision_system` query entirely (requires `&mut Energy`), causing them to sit at spawn in `OnDuty` forever
+
 ## 2026-02-18o
 
 - **spawner inspector NPC state** — building inspector spawner section now shows linked NPC's activity, combat state, squad, patrol route (yes/none), GPU position, and home; Copy Debug Info button includes all spawner NPC data for troubleshooting; `NpcStateQuery` extended with `Option<SquadId>` and `Option<PatrolRoute>`

@@ -107,7 +107,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         default_attack_type: BaseAttackType::Melee,
         attack_override: None,
         is_patrol_unit: true, is_military: true,
-        has_energy: false, has_attack_timer: true,
+        has_energy: true, has_attack_timer: true,
         weapon: None, helmet: None, stealer: false, leash_range: None,
         ui_color: (220, 220, 80),
     },
