@@ -2,9 +2,11 @@
 
 One town. A few farmers. Raiders at the gate.
 
-Grow food. Train guards. Build walls. Raise an army. Take the county. Take the world.
+  Grow food. Train guards. Raise an army. Take the county. Take the world.
 
-A real-time kingdom builder inspired by [Lords of the Realm 2](https://en.wikipedia.org/wiki/Lords_of_the_Realm_II) meets [Factorio](https://factorio.com)-scale simulation — tens of thousands of NPCs, each with a job, a home, and a personality.
+  A real-time kingdom builder where every NPC has a job, a home, and a personality. Assign farmers to fields, set patrol routes for archers, organize
+  squads of crossbowmen and fighters, and watch your economy either hum or collapse under its own weight. AI opponents do the same — they build towns,
+  compete for gold mines, upgrade their tech trees, and send waves when they smell weakness.
 
 <!-- TODO: Add screenshot/GIF here -->
 
