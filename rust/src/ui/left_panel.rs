@@ -353,22 +353,16 @@ fn roster_content(
             state.job_filter = -1;
             state.frame_counter = 0;
         }
-        if ui.selectable_label(state.job_filter == 0, "Farmers").clicked() {
-            state.job_filter = 0;
-            state.frame_counter = 0;
-        }
-        if ui.selectable_label(state.job_filter == 1, "Archers").clicked() {
-            state.job_filter = 1;
-            state.frame_counter = 0;
-        }
-        if ui.selectable_label(state.job_filter == 4, "Miners").clicked() {
-            state.job_filter = 4;
-            state.frame_counter = 0;
-        }
-        if debug_all {
-            if ui.selectable_label(state.job_filter == 2, "Raiders").clicked() {
-                state.job_filter = 2;
-                state.frame_counter = 0;
+        // Military first, then civilian
+        for &military_first in &[true, false] {
+            for def in crate::constants::NPC_REGISTRY.iter() {
+                if def.is_military != military_first { continue; }
+                if def.job == Job::Raider && !debug_all { continue; }
+                let job_id = def.job as i32;
+                if ui.selectable_label(state.job_filter == job_id, def.label_plural).clicked() {
+                    state.job_filter = job_id;
+                    state.frame_counter = 0;
+                }
             }
         }
     });
@@ -449,13 +443,9 @@ fn roster_content(
 
         for row in &state.cached_rows {
             let is_selected = selected_idx == row.slot as i32;
-            let job_color = match row.job {
-                0 => egui::Color32::from_rgb(80, 200, 80),   // Farmer green
-                1 => egui::Color32::from_rgb(80, 100, 220),  // Archer blue
-                2 => egui::Color32::from_rgb(220, 80, 80),   // Raider red
-                4 => egui::Color32::from_rgb(160, 110, 60),  // Miner brown
-                _ => egui::Color32::from_rgb(220, 220, 80),
-            };
+            let (r, g, b, _) = crate::constants::npc_def(Job::from_i32(row.job)).color;
+            let brighten = |c: f32| ((c * 0.7 + 0.3) * 255.0) as u8;
+            let job_color = egui::Color32::from_rgb(brighten(r), brighten(g), brighten(b));
 
             let response = ui.horizontal(|ui| {
                 if is_selected {

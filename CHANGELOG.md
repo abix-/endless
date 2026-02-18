@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18l
+
+- **registry-driven roster** — roster tab job filter buttons and row colors now driven by `NPC_REGISTRY` loop instead of hardcoded per-job matches; military jobs listed first then civilian; colors derived from `NpcDef.color` with 30% brighten for UI readability
+
 ## 2026-02-18k
 
 - **BuildingDef get_building fn pointer** — `BuildingDef` gains `get_building: fn(&WorldData, usize) -> Option<(Building, Vec2)>` that reconstructs the full Building variant + position from WorldData at index; `building_from_kind_index` in game_hud.rs and `resolve_building_pos` in ai_player.rs both collapse from 12-arm matches to one-liner registry delegations; `resolve_building_pos` reuses existing `pos_town` fn pointer (no new field needed)
