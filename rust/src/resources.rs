@@ -149,6 +149,11 @@ pub struct GameTime {
 }
 
 impl GameTime {
+    /// Gameplay-scaled delta. Zero when paused, multiplied by time_scale otherwise.
+    pub fn delta(&self, time: &Time) -> f32 {
+        if self.paused { 0.0 } else { time.delta_secs() * self.time_scale }
+    }
+
     pub fn total_hours(&self) -> i32 {
         (self.total_seconds / self.seconds_per_hour) as i32
     }
@@ -917,35 +922,22 @@ pub struct SpawnerState(pub Vec<SpawnerEntry>);
 /// Non-unit-home buildings have named fields; unit homes use dynamic BTreeMap via registry.
 #[derive(Resource, Default, Clone)]
 pub struct BuildingHpState {
-    pub waypoints: Vec<f32>,
-    pub miner_homes: Vec<f32>,
-    pub farms: Vec<f32>,
     pub towns: Vec<f32>,      // indexed by town_data_idx (covers Fountain + Camp)
-    pub beds: Vec<f32>,
-    pub gold_mines: Vec<f32>,
-    /// Dynamic HP storage for unit-home building kinds.
-    pub unit_home_hps: BTreeMap<crate::world::BuildingKind, Vec<f32>>,
+    /// All building HP vecs, keyed by BuildingKind.
+    pub hps: BTreeMap<crate::world::BuildingKind, Vec<f32>>,
 }
 
-// Custom serde: flatten unit_home_hps into top-level keys using registry save_key
+// Custom serde: flatten hps into top-level keys using registry save_key
 // so the JSON format stays identical to the old named-field format.
 impl Serialize for BuildingHpState {
     fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
         let mut map = ser.serialize_map(None)?;
-        map.serialize_entry("waypoints", &self.waypoints)?;
-        map.serialize_entry("miner_homes", &self.miner_homes)?;
-        map.serialize_entry("farms", &self.farms)?;
         map.serialize_entry("towns", &self.towns)?;
-        map.serialize_entry("beds", &self.beds)?;
-        map.serialize_entry("gold_mines", &self.gold_mines)?;
-        // Unit homes: write each under its registry save_key
         for def in crate::constants::BUILDING_REGISTRY {
-            if def.is_unit_home {
-                if let Some(key) = def.save_key {
-                    let hps = self.unit_home_hps.get(&def.kind).map(|v| v.as_slice()).unwrap_or(&[]);
-                    map.serialize_entry(key, hps)?;
-                }
+            if let Some(key) = def.save_key {
+                let hp_vec = self.hps.get(&def.kind).map(|v| v.as_slice()).unwrap_or(&[]);
+                map.serialize_entry(key, hp_vec)?;
             }
         }
         map.end()
@@ -954,24 +946,17 @@ impl Serialize for BuildingHpState {
 
 impl<'de> Deserialize<'de> for BuildingHpState {
     fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
-        // Deserialize as flat map, then route keys to named fields or unit_home_hps
         let raw: HashMap<String, Vec<f32>> = HashMap::deserialize(de)?;
         let mut hp = BuildingHpState::default();
         for (key, val) in &raw {
-            match key.as_str() {
-                "waypoints" => hp.waypoints = val.clone(),
-                "miner_homes" => hp.miner_homes = val.clone(),
-                "farms" => hp.farms = val.clone(),
-                "towns" => hp.towns = val.clone(),
-                "beds" => hp.beds = val.clone(),
-                "gold_mines" => hp.gold_mines = val.clone(),
-                _ => {
-                    // Look up by save_key in registry
-                    for def in crate::constants::BUILDING_REGISTRY {
-                        if def.is_unit_home && def.save_key == Some(key.as_str()) {
-                            hp.unit_home_hps.insert(def.kind, val.clone());
-                            break;
-                        }
+            if key == "towns" {
+                hp.towns = val.clone();
+            } else {
+                // Look up by save_key in registry
+                for def in crate::constants::BUILDING_REGISTRY {
+                    if def.save_key == Some(key.as_str()) {
+                        hp.hps.insert(def.kind, val.clone());
+                        break;
                     }
                 }
             }

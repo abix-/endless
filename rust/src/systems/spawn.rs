@@ -206,7 +206,7 @@ pub fn spawn_npc_system(
 
 /// Build sorted patrol route from WorldData for a given town.
 pub(crate) fn build_patrol_route(world: &WorldData, town_idx: u32) -> Vec<Vec2> {
-    let mut posts: Vec<(u32, Vec2)> = world.waypoints.iter()
+    let mut posts: Vec<(u32, Vec2)> = world.waypoints().iter()
         .filter(|p| p.town_idx == town_idx && crate::world::is_alive(p.position))
         .map(|p| (p.patrol_order, p.position))
         .collect();

@@ -24,7 +24,7 @@ pub fn energy_system(
     }
 
     // Convert delta to game hours
-    let hours_elapsed = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
+    let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
     for (mut energy, activity) in query.iter_mut() {
         if matches!(activity, Activity::Resting | Activity::HealingAtFountain { .. }) {

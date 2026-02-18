@@ -50,10 +50,7 @@ fn grid_pos(row: usize, col: usize) -> Vec2 {
 pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<crate::resources::GrowthStates>) {
     params.add_town("VisualTown");
     params.add_bed(380.0, 420.0);
-    params.world_data.farms.push(crate::world::Farm {
-        position: Vec2::new(450.0, 400.0),
-        town_idx: 0,
-    });
+    params.world_data.farms_mut().push(crate::world::PlacedBuilding::new(Vec2::new(450.0, 400.0), 0));
     farm_states.kinds.push(crate::resources::GrowthKind::Farm);
     farm_states.states.push(crate::resources::FarmGrowthState::Growing);
     farm_states.progress.push(0.0);

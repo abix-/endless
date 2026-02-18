@@ -11,10 +11,9 @@ pub fn setup(mut params: TestSetupParams) {
     params.add_town("ArcherTown");
     // 4 waypoints (square patrol)
     for (order, &(gx, gy)) in [(300.0, 300.0), (500.0, 300.0), (500.0, 500.0), (300.0, 500.0)].iter().enumerate() {
-        params.world_data.waypoints.push(crate::world::Waypoint {
-            position: Vec2::new(gx, gy),
-            town_idx: 0,
+        params.world_data.waypoints_mut().push(crate::world::PlacedBuilding {
             patrol_order: order as u32,
+            ..crate::world::PlacedBuilding::new(Vec2::new(gx, gy), 0)
         });
     }
     // Beds for resting

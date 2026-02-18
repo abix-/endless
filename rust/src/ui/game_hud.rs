@@ -724,7 +724,7 @@ fn inspector_content(
                 mine_assignment_ui(ui, world_data, mh_idx, hp, dirty, ui_state);
                 // Show mine productivity when actively mining
                 if is_mining_at_mine {
-                    if let Some(mine_pos) = world_data.miner_homes.get(mh_idx).and_then(|mh| mh.assigned_mine) {
+                    if let Some(mine_pos) = world_data.miner_homes().get(mh_idx).and_then(|mh| mh.assigned_mine) {
                         let occupants = bld_data.farm_occupancy.count(mine_pos);
                         if occupants > 0 {
                             let mult = crate::constants::mine_productivity_mult(occupants);
@@ -839,8 +839,8 @@ fn mine_assignment_ui(
     dirty: &mut DirtyFlags,
     ui_state: &mut UiState,
 ) {
-    let assigned = world_data.miner_homes[mh_idx].assigned_mine;
-    let manual = world_data.miner_homes[mh_idx].manual_mine;
+    let assigned = world_data.miner_homes_mut()[mh_idx].assigned_mine;
+    let manual = world_data.miner_homes_mut()[mh_idx].manual_mine;
     if let Some(mine_pos) = assigned {
         let dist = mine_pos.distance(ref_pos);
         if let Some(mine_idx) = world_data.gold_mine_at(mine_pos) {
@@ -854,14 +854,14 @@ fn mine_assignment_ui(
     ui.small(if manual { "Mode: Manual" } else { "Mode: Auto-policy" });
     ui.horizontal(|ui| {
         if ui.button("Set Mine").clicked() {
-            world_data.miner_homes[mh_idx].manual_mine = true;
+            world_data.miner_homes_mut()[mh_idx].manual_mine = true;
             dirty.mining = true;
             ui_state.assigning_mine = Some(mh_idx);
         }
         if assigned.is_some() || manual {
             if ui.button("Clear").clicked() {
-                world_data.miner_homes[mh_idx].manual_mine = false;
-                world_data.miner_homes[mh_idx].assigned_mine = None;
+                world_data.miner_homes_mut()[mh_idx].manual_mine = false;
+                world_data.miner_homes_mut()[mh_idx].assigned_mine = None;
                 dirty.mining = true;
             }
         }
@@ -910,7 +910,7 @@ fn building_inspector_content(
     match &building {
         Building::Farm { .. } => {
             // Find farm index by matching grid position
-            if let Some(farm_idx) = world_data.farms.iter().position(|f| {
+            if let Some(farm_idx) = world_data.farms().iter().position(|f| {
                 (f.position - world_pos).length() < 1.0
             }) {
                 if let Some(state) = bld.farm_states.states.get(farm_idx) {

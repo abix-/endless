@@ -92,10 +92,7 @@ impl TestSetupParams<'_> {
 
     /// Add a bed at the given position for town 0.
     pub fn add_bed(&mut self, x: f32, y: f32) {
-        self.world_data.beds.push(world::Bed {
-            position: Vec2::new(x, y),
-            town_idx: 0,
-        });
+        self.world_data.beds_mut().push(world::PlacedBuilding::new(Vec2::new(x, y), 0));
     }
 
     /// Init food_storage + faction_stats for N towns.

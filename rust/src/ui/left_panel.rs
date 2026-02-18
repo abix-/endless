@@ -729,8 +729,8 @@ fn policies_content(
     if mining_policy.discovered_mines.len() <= town_idx {
         mining_policy.discovered_mines.resize(town_idx + 1, Vec::new());
     }
-    if mining_policy.mine_enabled.len() < world_data.gold_mines.len() {
-        mining_policy.mine_enabled.resize(world_data.gold_mines.len(), true);
+    if mining_policy.mine_enabled.len() < world_data.gold_mines().len() {
+        mining_policy.mine_enabled.resize(world_data.gold_mines().len(), true);
     }
 
     let discovered = mining_policy.discovered_mines[town_idx].clone();
@@ -741,17 +741,17 @@ fn policies_content(
         }
     }
 
-    let mut assigned_per_mine: Vec<usize> = vec![0; world_data.gold_mines.len()];
+    let mut assigned_per_mine: Vec<usize> = vec![0; world_data.gold_mines().len()];
     spawner_state.0.iter()
         .filter(|e| e.building_kind == crate::constants::tileset_index(BuildingKind::MinerHome) as i32 && e.town_idx == town_idx as i32 && e.npc_slot >= 0 && is_alive(e.position))
         .filter_map(|e| world_data.miner_home_at(e.position))
         .filter(|&mh_idx| {
-            world_data.miner_homes.get(mh_idx)
+            world_data.miner_homes().get(mh_idx)
                 .map(|m| !m.manual_mine && m.assigned_mine.is_some())
                 .unwrap_or(false)
         })
         .for_each(|mh_idx| {
-            let Some(mine_pos) = world_data.miner_homes.get(mh_idx).and_then(|m| m.assigned_mine) else { return; };
+            let Some(mine_pos) = world_data.miner_homes().get(mh_idx).and_then(|m| m.assigned_mine) else { return; };
             let Some(mine_idx) = world_data.gold_mine_at(mine_pos) else { return; };
             if let Some(c) = assigned_per_mine.get_mut(mine_idx) {
                 *c += 1;
@@ -765,7 +765,7 @@ fn policies_content(
         ui.small("No discovered mines in radius.");
     } else {
         for &mine_idx in &discovered {
-            let Some(mine) = world_data.gold_mines.get(mine_idx) else { continue };
+            let Some(mine) = world_data.gold_mines().get(mine_idx) else { continue };
             let dist = mine.position.distance(world_data.towns[town_idx].center);
             let mut enabled = mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true);
             let mine_name = crate::ui::gold_mine_name(mine_idx);
@@ -800,7 +800,7 @@ fn patrols_content(ui: &mut egui::Ui, world_data: &WorldData, jump_target: &mut 
     }
 
     // Collect non-tombstoned posts for this town, sorted by patrol_order
-    let mut posts: Vec<(usize, u32, Vec2)> = world_data.waypoints.iter().enumerate()
+    let mut posts: Vec<(usize, u32, Vec2)> = world_data.waypoints().iter().enumerate()
         .filter(|(_, p)| p.town_idx == town_pair_idx && is_alive(p.position))
         .map(|(i, p)| (i, p.patrol_order, p.position))
         .collect();
@@ -1056,7 +1056,7 @@ fn rebuild_factions_cache(
 
         let policy = policies.policies.get(tdi);
         let mining_radius = policy.map(|p| p.mining_radius).unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
-        let mines_in_radius = world_data.gold_mines.iter()
+        let mines_in_radius = world_data.gold_mines().iter()
             .filter(|m| is_alive(m.position))
             .filter(|m| (m.position - center).length_squared() <= mining_radius * mining_radius)
             .count();

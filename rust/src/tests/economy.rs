@@ -22,10 +22,7 @@ pub fn setup(
         sprite_type: 1,
     });
     // 1 farm near town — starts Growing
-    params.world_data.farms.push(crate::world::Farm {
-        position: Vec2::new(400.0, 350.0),
-        town_idx: 0,
-    });
+    params.world_data.farms_mut().push(crate::world::PlacedBuilding::new(Vec2::new(400.0, 350.0), 0));
     farm_states.kinds.push(crate::resources::GrowthKind::Farm);
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.95); // near ready so transition happens within 30s

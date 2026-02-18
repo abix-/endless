@@ -66,7 +66,7 @@ fn min_waypoint_spacing(
     // |row_a - row_b| + |col_a - col_b|.
     // That means diagonal movement is counted as two steps.
     let (cc, cr) = grid.world_to_grid(candidate);
-    world_data.waypoints.iter()
+    world_data.waypoints().iter()
         .filter(|w| w.town_idx == town_idx && world::is_alive(w.position))
         .map(|w| {
             let (wc, wr) = grid.world_to_grid(w.position);
@@ -93,15 +93,15 @@ fn recalc_waypoint_patrol_order_clockwise(
     // This guarantees stable clockwise ordering after add/remove operations.
     let Some(center) = world_data.towns.get(town_idx as usize).map(|t| t.center) else { return; };
 
-    let mut ids: Vec<usize> = world_data.waypoints.iter().enumerate()
+    let mut ids: Vec<usize> = world_data.waypoints().iter().enumerate()
         .filter(|(_, w)| w.town_idx == town_idx && world::is_alive(w.position))
         .map(|(i, _)| i)
         .collect();
 
     // Clockwise around town center, starting at north (+Y).
     ids.sort_by(|&a, &b| {
-        let pa = world_data.waypoints[a].position - center;
-        let pb = world_data.waypoints[b].position - center;
+        let pa = world_data.waypoints()[a].position - center;
+        let pb = world_data.waypoints()[b].position - center;
         // Convert vector to angle using atan2 so we can sort by rotation.
         // We use (x,y) ordering intentionally to make 0 point at +Y ("north")
         // for this game's patrol convention.
@@ -117,8 +117,8 @@ fn recalc_waypoint_patrol_order_clockwise(
     });
 
     for (order, &idx) in ids.iter().enumerate() {
-        let pos = world_data.waypoints[idx].position;
-        world_data.waypoints[idx].patrol_order = order as u32;
+        let pos = world_data.waypoints_mut()[idx].position;
+        world_data.waypoints_mut()[idx].patrol_order = order as u32;
         let (gc, gr) = grid.world_to_grid(pos);
         if let Some(cell) = grid.cell_mut(gc, gr) {
             if let Some(Building::Waypoint { town_idx: ti, patrol_order }) = cell.building.as_mut() {
@@ -155,11 +155,11 @@ macro_rules! territory_building_sets {
     };
     (world $wd:expr, $ti:expr, $center:expr) => {
         // World path: derive slots from live world arrays using the same conversion pipeline.
-        town_building_slots!($wd.farms, $ti, $center)
-            .chain(town_building_slots!($wd.homes(BuildingKind::FarmerHome), $ti, $center))
-            .chain(town_building_slots!($wd.homes(BuildingKind::ArcherHome), $ti, $center))
-            .chain(town_building_slots!($wd.homes(BuildingKind::CrossbowHome), $ti, $center))
-            .chain(town_building_slots!($wd.miner_homes, $ti, $center))
+        town_building_slots!($wd.farms(), $ti, $center)
+            .chain(town_building_slots!($wd.get(BuildingKind::FarmerHome), $ti, $center))
+            .chain(town_building_slots!($wd.get(BuildingKind::ArcherHome), $ti, $center))
+            .chain(town_building_slots!($wd.get(BuildingKind::CrossbowHome), $ti, $center))
+            .chain(town_building_slots!($wd.miner_homes(), $ti, $center))
     };
 }
 
@@ -480,11 +480,11 @@ fn build_town_snapshot(
     let center = town.center;
     let ti = town_data_idx as u32;
 
-    let farms = town_building_slots!(world_data.farms, ti, center).collect();
-    let farmer_homes = town_building_slots!(world_data.homes(BuildingKind::FarmerHome), ti, center).collect();
-    let archer_homes = town_building_slots!(world_data.homes(BuildingKind::ArcherHome), ti, center).collect();
-    let crossbow_homes = town_building_slots!(world_data.homes(BuildingKind::CrossbowHome), ti, center).collect();
-    let miner_homes = town_building_slots!(world_data.miner_homes, ti, center).collect();
+    let farms = town_building_slots!(world_data.farms(), ti, center).collect();
+    let farmer_homes = town_building_slots!(world_data.get(BuildingKind::FarmerHome), ti, center).collect();
+    let archer_homes = town_building_slots!(world_data.get(BuildingKind::ArcherHome), ti, center).collect();
+    let crossbow_homes = town_building_slots!(world_data.get(BuildingKind::CrossbowHome), ti, center).collect();
+    let miner_homes = town_building_slots!(world_data.miner_homes(), ti, center).collect();
     let empty_slots = world::empty_slots(tg, center, grid);
 
     Some(AiTownSnapshot {
@@ -810,7 +810,7 @@ fn sync_town_perimeter_waypoints(
     if perimeter.is_empty() { return 0; }
 
     let mut prune_slots: Vec<(i32, i32)> = Vec::new();
-    for wp in &world_data.waypoints {
+    for wp in world_data.waypoints() {
         if wp.town_idx != ti || !world::is_alive(wp.position) { continue; }
         let slot = world::world_to_town_grid(center, wp.position);
         // Preserve wilderness/mine outposts: only prune waypoints inside town build area.
@@ -901,7 +901,7 @@ fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f
     // - all mine positions (for miner-home placement scoring)
     // Compare squared distances to avoid sqrt in hot loops.
     let radius_sq = mining_radius * mining_radius;
-    let friendly: Vec<Vec2> = world_data.waypoints.iter()
+    let friendly: Vec<Vec2> = world_data.waypoints().iter()
         .filter(|w| w.town_idx == ti && world::is_alive(w.position))
         .map(|w| w.position)
         .collect();
@@ -911,7 +911,7 @@ fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f
     let mut uncovered = Vec::new();
     let mut all_positions = Vec::new();
 
-    for m in &world_data.gold_mines {
+    for m in world_data.gold_mines() {
         if !world::is_alive(m.position) { continue; }
         all_positions.push(m.position);
         if (m.position - center).length_squared() <= radius_sq {
@@ -927,7 +927,7 @@ fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f
 
     // Choose the uncovered mine nearest to town center for likely next waypoint target.
     let nearest_uncovered = uncovered.iter()
-        .min_by(|a, b| a.distance(center).partial_cmp(&b.distance(center)).unwrap())
+        .min_by(|a: &&Vec2, b: &&Vec2| a.distance(center).partial_cmp(&b.distance(center)).unwrap())
         .copied();
 
     MineAnalysis { in_radius, outside_radius, uncovered, nearest_uncovered, all_positions }
@@ -1001,7 +1001,7 @@ pub fn ai_decision_system(
     // System timing gate:
     // runs every `decision_interval`, not every frame.
     let _t = timings.scope("ai_decision");
-    *timer += time.delta_secs();
+    *timer += game_time.delta(&time);
     if *timer < config.decision_interval { return; }
     *timer = 0.0;
 
@@ -1556,7 +1556,7 @@ pub fn ai_squad_commander_system(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("ai_squad_commander");
-    let dt = time.delta_secs();
+    let dt = game_time.delta(&time);
 
     // Count alive military units per town.
     let mut units_by_town: HashMap<i32, usize> = HashMap::new();

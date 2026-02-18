@@ -23,10 +23,7 @@ pub fn setup(
     });
     // 3 farms near villager town — all Ready so raiders can steal
     for i in 0..3 {
-        params.world_data.farms.push(crate::world::Farm {
-            position: Vec2::new(350.0 + (i as f32 * 50.0), 350.0),
-            town_idx: 0,
-        });
+        params.world_data.farms_mut().push(crate::world::PlacedBuilding::new(Vec2::new(350.0 + (i as f32 * 50.0), 350.0), 0));
         farm_states.kinds.push(crate::resources::GrowthKind::Farm);
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);

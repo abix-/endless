@@ -66,59 +66,31 @@ pub struct Town {
     pub sprite_type: i32,   // 0=fountain, 1=tent
 }
 
-/// A farm building that farmers work at.
+/// Unified placed-building record. All building kinds (except Town) use this struct.
+/// Kind-specific fields default to zero/None for building types that don't use them.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Farm {
+pub struct PlacedBuilding {
     #[serde(with = "vec2_as_array")]
     pub position: Vec2,
+    #[serde(default)]
     pub town_idx: u32,
-}
-
-/// A bed where NPCs sleep.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Bed {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
-    pub town_idx: u32,
-}
-
-/// A waypoint where guards patrol.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Waypoint {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
-    pub town_idx: u32,
-    /// Patrol order (0-3 for clockwise perimeter)
+    /// Patrol order — used by Waypoint only (default 0).
+    #[serde(default)]
     pub patrol_order: u32,
-}
-
-/// A simple building spawner home (position + town ownership).
-/// Used by all unit-home building kinds (FarmerHome, ArcherHome, CrossbowHome, FighterHome, Tent, etc.)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct UnitHome {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
-    pub town_idx: u32,
-}
-
-/// A miner home that supports 1 miner (building spawner).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MinerHome {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
-    pub town_idx: u32,
+    /// Assigned mine position — used by MinerHome only.
     #[serde(default, with = "opt_vec2_as_array")]
     pub assigned_mine: Option<Vec2>,
+    /// Whether mine was manually assigned — used by MinerHome only.
     #[serde(default)]
     pub manual_mine: bool,
 }
 
-/// A gold mine in the wilderness (unowned, any faction can mine).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct GoldMine {
-    #[serde(with = "vec2_as_array")]
-    pub position: Vec2,
+impl PlacedBuilding {
+    pub fn new(position: Vec2, town_idx: u32) -> Self {
+        Self { position, town_idx, patrol_order: 0, assigned_mine: None, manual_mine: false }
+    }
 }
+
 
 // ============================================================================
 // WORLD RESOURCES
@@ -128,20 +100,32 @@ pub struct GoldMine {
 #[derive(Resource, Default)]
 pub struct WorldData {
     pub towns: Vec<Town>,
-    pub farms: Vec<Farm>,
-    pub beds: Vec<Bed>,
-    pub waypoints: Vec<Waypoint>,
-    /// Dynamic storage for unit-home buildings, keyed by BuildingKind.
-    pub unit_homes: BTreeMap<BuildingKind, Vec<UnitHome>>,
-    pub miner_homes: Vec<MinerHome>,
-    pub gold_mines: Vec<GoldMine>,
+    /// All placed buildings, keyed by BuildingKind.
+    pub buildings: BTreeMap<BuildingKind, Vec<PlacedBuilding>>,
 }
 
 impl WorldData {
-    /// Access unit homes by kind, returning an empty slice if none exist.
-    pub fn homes(&self, kind: BuildingKind) -> &[UnitHome] {
-        self.unit_homes.get(&kind).map(|v| v.as_slice()).unwrap_or(&[])
+    /// Immutable access to buildings of a given kind (empty slice if none).
+    pub fn get(&self, kind: BuildingKind) -> &[PlacedBuilding] {
+        self.buildings.get(&kind).map(|v| v.as_slice()).unwrap_or(&[])
     }
+    /// Mutable access to buildings of a given kind (creates entry if missing).
+    pub fn get_mut(&mut self, kind: BuildingKind) -> &mut Vec<PlacedBuilding> {
+        self.buildings.entry(kind).or_default()
+    }
+
+    // Legacy accessors — thin wrappers for migration convenience.
+    pub fn farms(&self) -> &[PlacedBuilding] { self.get(BuildingKind::Farm) }
+    pub fn beds(&self) -> &[PlacedBuilding] { self.get(BuildingKind::Bed) }
+    pub fn waypoints(&self) -> &[PlacedBuilding] { self.get(BuildingKind::Waypoint) }
+    pub fn miner_homes(&self) -> &[PlacedBuilding] { self.get(BuildingKind::MinerHome) }
+    pub fn gold_mines(&self) -> &[PlacedBuilding] { self.get(BuildingKind::GoldMine) }
+    // Mutable variants
+    pub fn farms_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::Farm) }
+    pub fn beds_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::Bed) }
+    pub fn waypoints_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::Waypoint) }
+    pub fn miner_homes_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::MinerHome) }
+    pub fn gold_mines_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::GoldMine) }
 }
 
 // ============================================================================
@@ -304,7 +288,7 @@ pub fn resolve_spawner_npc(
     towns: &[Town],
     bgrid: &BuildingSpatialGrid,
     occupancy: &BuildingOccupancy,
-    miner_homes: &[MinerHome],
+    miner_homes: &[PlacedBuilding],
 ) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
     use crate::constants::{SpawnBehavior, BUILDING_REGISTRY, npc_def};
     use crate::components::Job;
@@ -536,7 +520,7 @@ pub fn place_waypoint_at_world_pos(
 
     // Auto-assign patrol_order
     let ti = town_data_idx as u32;
-    let existing = world_data.waypoints.iter()
+    let existing = world_data.get(BuildingKind::Waypoint).iter()
         .filter(|w| w.town_idx == ti && is_alive(w.position))
         .count() as u32;
 
@@ -548,11 +532,12 @@ pub fn place_waypoint_at_world_pos(
     }
 
     // Register in WorldData + HP
-    let data_idx = world_data.waypoints.len();
-    world_data.waypoints.push(Waypoint {
+    let data_idx = world_data.get(BuildingKind::Waypoint).len();
+    world_data.get_mut(BuildingKind::Waypoint).push(PlacedBuilding {
         position: snapped,
         town_idx: ti,
         patrol_order: existing,
+        ..PlacedBuilding::new(snapped, ti)
     });
     building_hp.push_for(&building);
 
@@ -649,12 +634,12 @@ pub fn remove_building(
 impl WorldData {
     /// Find miner home index by position (grid-snapped, < 1px tolerance).
     pub fn miner_home_at(&self, pos: Vec2) -> Option<usize> {
-        self.miner_homes.iter().position(|m| (m.position - pos).length() < 1.0)
+        self.miner_homes().iter().position(|m| (m.position - pos).length() < 1.0)
     }
 
     /// Find gold mine index by position (grid-snapped, < 1px tolerance).
     pub fn gold_mine_at(&self, pos: Vec2) -> Option<usize> {
-        self.gold_mines.iter().position(|m| (m.position - pos).length() < 1.0)
+        self.gold_mines().iter().position(|m| (m.position - pos).length() < 1.0)
     }
 
     /// Look up position and town index for a building by kind and index.
@@ -1653,7 +1638,7 @@ pub fn generate_world(
         if let Some(cell) = grid.cell_mut(gc, gr) {
             cell.building = Some(Building::GoldMine);
         }
-        world_data.gold_mines.push(GoldMine { position: snapped });
+        world_data.get_mut(BuildingKind::GoldMine).push(PlacedBuilding::new(snapped, 0));
         farm_states.push_mine(snapped);
         mine_positions.push(snapped);
     }
@@ -1702,20 +1687,20 @@ fn place_town_buildings(
     for _ in 0..config.farms_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, Building::Farm { town_idx }, &mut occupied, town_grid);
-        world_data.farms.push(Farm { position: pos, town_idx });
+        world_data.get_mut(BuildingKind::Farm).push(PlacedBuilding::new(pos, town_idx));
         farm_states.push_farm(pos, town_idx as u32);
     }
 
     for _ in 0..config.farmers_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, Building::Home { kind: BuildingKind::FarmerHome, town_idx }, &mut occupied, town_grid);
-        world_data.unit_homes.entry(BuildingKind::FarmerHome).or_default().push(UnitHome { position: pos, town_idx });
+        world_data.get_mut(BuildingKind::FarmerHome).push(PlacedBuilding::new(pos, town_idx));
     }
 
     for _ in 0..config.archers_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, Building::Home { kind: BuildingKind::ArcherHome, town_idx }, &mut occupied, town_grid);
-        world_data.unit_homes.entry(BuildingKind::ArcherHome).or_default().push(UnitHome { position: pos, town_idx });
+        world_data.get_mut(BuildingKind::ArcherHome).push(PlacedBuilding::new(pos, town_idx));
     }
 
     // 4 waypoints: at the outer corners of all placed buildings (clockwise patrol: TL → TR → BR → BL)
@@ -1732,10 +1717,11 @@ fn place_town_buildings(
     ];
     for (order, (row, col)) in corners.into_iter().enumerate() {
         let post_pos = place(row, col, Building::Waypoint { town_idx, patrol_order: order as u32 }, &mut occupied, town_grid);
-        world_data.waypoints.push(Waypoint {
+        world_data.get_mut(BuildingKind::Waypoint).push(PlacedBuilding {
             position: post_pos,
             town_idx,
             patrol_order: order as u32,
+            ..PlacedBuilding::new(post_pos, town_idx)
         });
     }
 
@@ -1779,7 +1765,7 @@ pub fn place_camp_buildings(
             }
         }
         occupied.insert((row, col));
-        world_data.unit_homes.entry(BuildingKind::Tent).or_default().push(UnitHome { position: snapped, town_idx });
+        world_data.get_mut(BuildingKind::Tent).push(PlacedBuilding::new(snapped, town_idx));
     }
 
     // Ensure generated tents are always inside the buildable area.

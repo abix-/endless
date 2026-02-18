@@ -213,6 +213,7 @@ pub fn healing_system(
     gpu_state: Res<GpuReadState>,
     cache: Res<HealingZoneCache>,
     time: Res<Time>,
+    game_time: Res<GameTime>,
     world_data: Res<WorldData>,
     mut building_hp: ResMut<BuildingHpState>,
     building_slots: Res<BuildingSlotMap>,
@@ -223,7 +224,7 @@ pub fn healing_system(
 ) {
     let _t = timings.scope("healing");
     let positions = &gpu_state.positions;
-    let dt = time.delta_secs();
+    let dt = game_time.delta(&time);
 
     // Debug tracking
     let mut npcs_checked = 0usize;

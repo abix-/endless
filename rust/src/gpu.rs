@@ -737,7 +737,7 @@ fn update_gpu_data(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("update_gpu_data");
-    let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
+    let dt = game_time.delta(&time);
     config.npc.count = slots.count() as u32;
     config.npc.delta = dt;
 
@@ -1274,7 +1274,7 @@ fn update_proj_gpu_data(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("update_proj_gpu");
-    let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
+    let dt = game_time.delta(&time);
     config.proj.proj_count = proj_alloc.next as u32;
     config.proj.npc_count = slots.count() as u32;
     config.proj.delta = dt;

@@ -140,7 +140,7 @@ pub fn arrival_system(
         }
 
         // Harvest check: if farm became Ready while working, harvest it
-        if let Some(farm_idx) = find_by_pos(&world_data.farms, farm_pos) {
+        if let Some(farm_idx) = find_by_pos(world_data.farms(), farm_pos) {
             let fac = world_data.towns.get(town.0 as usize).map(|t| t.faction).unwrap_or(0);
             if farm_states.harvest(farm_idx, Some(town.0 as usize), &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, &mut combat_log, &game_time, fac) {
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)");
@@ -384,7 +384,7 @@ pub fn decision_system(
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food → Returning");
                         } else {
                             // Farm not ready - find a different farm (exclude current one)
-                            let other_farm = farms.world.farms.iter()
+                            let other_farm = farms.world.farms().iter()
                                 .filter(|f| crate::world::is_alive(f.position)) // skip tombstoned
                                 .filter(|f| f.position.distance(pos) > FARM_ARRIVAL_RADIUS)
                                 .min_by(|a, b| {
@@ -924,7 +924,7 @@ pub fn decision_system(
                     }
                     Job::Miner => {
                         // Check for manually assigned mine (via miner home UI)
-                        let assigned = farms.world.miner_homes.iter()
+                        let assigned = farms.world.miner_homes().iter()
                             .find(|mh| (mh.position - home.0).length() < 1.0)
                             .and_then(|mh| mh.assigned_mine)
                             .filter(|p| crate::world::is_alive(*p));
@@ -1069,11 +1069,11 @@ pub fn rebuild_patrol_routes_system(
 
     // Apply pending patrol order swap from UI
     if let Some((a, b)) = dirty.patrol_swap.take() {
-        if a < world_data.waypoints.len() && b < world_data.waypoints.len() {
-            let order_a = world_data.waypoints[a].patrol_order;
-            let order_b = world_data.waypoints[b].patrol_order;
-            world_data.waypoints[a].patrol_order = order_b;
-            world_data.waypoints[b].patrol_order = order_a;
+        if a < world_data.waypoints().len() && b < world_data.waypoints().len() {
+            let order_a = world_data.waypoints()[a].patrol_order;
+            let order_b = world_data.waypoints()[b].patrol_order;
+            world_data.waypoints_mut()[a].patrol_order = order_b;
+            world_data.waypoints_mut()[b].patrol_order = order_a;
         }
     }
 

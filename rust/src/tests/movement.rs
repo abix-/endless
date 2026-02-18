@@ -15,10 +15,7 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<GrowthStates>)
     params.add_town("TestTown");
     for i in 0..3 {
         let fx = 300.0 + (i as f32 * 100.0);
-        params.world_data.farms.push(crate::world::Farm {
-            position: Vec2::new(fx, FARM_Y),
-            town_idx: 0,
-        });
+        params.world_data.farms_mut().push(crate::world::PlacedBuilding::new(Vec2::new(fx, FARM_Y), 0));
         farm_states.kinds.push(crate::resources::GrowthKind::Farm);
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);

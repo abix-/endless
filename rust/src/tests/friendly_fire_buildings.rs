@@ -53,11 +53,8 @@ pub fn setup(
     // Friendly vertical farm wall in projectile lane.
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
-        world_data.farms.push(world::Farm {
-            position: pos,
-            town_idx: 0,
-        });
-        building_hp.farms.push(building_def(BuildingKind::Farm).hp);
+        world_data.farms_mut().push(world::PlacedBuilding::new(pos, 0));
+        building_hp.hps.entry(BuildingKind::Farm).or_default().push(building_def(BuildingKind::Farm).hp);
 
         let (gc, gr) = world_grid.world_to_grid(pos);
         if let Some(cell) = world_grid.cell_mut(gc, gr) {
@@ -134,9 +131,9 @@ pub fn tick(
     }));
 
     let alive = npc_query.iter().count();
-    let damaged_farms = building_hp.farms.iter().filter(|&&hp| hp < building_def(BuildingKind::Farm).hp).count();
-    let min_farm_hp = building_hp
-        .farms
+    let farm_hps = building_hp.hps.get(&BuildingKind::Farm).map(|v| v.as_slice()).unwrap_or(&[]);
+    let damaged_farms = farm_hps.iter().filter(|&&hp| hp < building_def(BuildingKind::Farm).hp).count();
+    let min_farm_hp = farm_hps
         .iter()
         .copied()
         .fold(building_def(BuildingKind::Farm).hp, f32::min);

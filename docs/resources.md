@@ -45,14 +45,14 @@ Static world data, immutable after initialization.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| WorldData | towns, farms, beds, waypoints, unit_homes (BTreeMap\<BuildingKind, Vec\<UnitHome\>\>), miner_homes, gold_mines | All building positions and metadata |
+| WorldData | towns, buildings (BTreeMap\<BuildingKind, Vec\<PlacedBuilding\>\>) | All building positions and metadata |
 | SpawnerState | `Vec<SpawnerEntry>` — one per unit-home spawner or MinerHome | Building→NPC links + respawn timers |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress + `Vec<Vec2>` positions | Per-farm growth tracking; methods: `push_farm()`, `harvest()`, `tombstone()` (resets all 3 vecs, marks position offscreen) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, waypoints, towns, gold mines, archer homes, crossbow homes, fighter homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
 | BuildingSlotMap | bidirectional `HashMap<(BuildingKind, usize), usize>` | Maps buildings ↔ NPC GPU slots; buildings occupy invisible NPC slots (speed=0, sprite hidden) for GPU projectile collision; allocated at startup/load, freed on building destroy |
-| BuildingHpState | Named `Vec<f32>` for waypoints/miner_homes/farms/towns/beds/gold_mines + `unit_home_hps: BTreeMap<BuildingKind, Vec<f32>>` for all unit-home kinds — custom `Serialize + Deserialize` flattens BTreeMap keys using registry `save_key` for save-format compatibility | Tracks current HP for all buildings; `hps(kind)`/`hps_mut(kind)` delegate to `BUILDING_REGISTRY` fn pointers (no per-kind match); `push_for()` delegates to registry; `iter_damaged()` loops over `BUILDING_REGISTRY` to find all damaged buildings; initialized on game startup, pushed on build, zeroed on destroy |
+| BuildingHpState | `towns: Vec<f32>` + `hps: BTreeMap<BuildingKind, Vec<f32>>` — custom `Serialize + Deserialize` flattens BTreeMap keys using registry `save_key` for save-format compatibility | Tracks current HP for all buildings; `hps(kind)`/`hps_mut(kind)` delegate to `BUILDING_REGISTRY` fn pointers (no per-kind match); `push_for()` delegates to registry; `iter_damaged()` loops over `BUILDING_REGISTRY` to find all damaged buildings; initialized on game startup, pushed on build, zeroed on destroy |
 | DirtyFlags | `building_grid`, `patrols`, `patrol_perimeter`, `healing_zones`, `waypoint_slots`, `squads`, `mining`, `buildings_need_healing` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds (except `buildings_need_healing` = false); `buildings_need_healing` set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain; `waypoint_slots` triggers NPC slot alloc/free in `sync_waypoint_slots`; `squads` gates `squad_cleanup_system` (set by death/spawn/UI); `mining` gates `mining_policy_system`; `patrol_perimeter` gates `sync_patrol_perimeter_system`; `patrol_swap` queues patrol order swap from UI; `mark_building_changed(kind)` helper sets the right combo of flags for build/destroy events |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
 | GameAudio | `music_volume: f32`, `sfx_volume: f32`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings |
@@ -62,12 +62,9 @@ Static world data, immutable after initialization.
 | Struct | Fields |
 |--------|--------|
 | Town | name, center (Vec2), faction, sprite_type (0=fountain, 1=tent) |
-| Farm | position (Vec2), town_idx |
-| Bed | position (Vec2), town_idx |
-| Waypoint | position (Vec2), town_idx, patrol_order, npc_slot (Option\<usize\>) |
-| UnitHome | position (Vec2), town_idx — shared struct for FarmerHome, ArcherHome, CrossbowHome, FighterHome, Tent (stored in `unit_homes` BTreeMap keyed by BuildingKind) |
-| MinerHome | position (Vec2), town_idx, assigned_mine (Option\<usize\>), manual_mine (bool) |
-| GoldMine | position (Vec2) |
+| PlacedBuilding | position (Vec2), town_idx (u32), patrol_order (u32, waypoint-only), assigned_mine (Option\<Vec2\>, miner-only), manual_mine (bool, miner-only) — unified struct for all building types; type aliases `Farm`=`Bed`=`Waypoint`=`UnitHome`=`MinerHome`=`GoldMine`=`PlacedBuilding` for backward compat |
+
+All buildings stored in `WorldData.buildings: BTreeMap<BuildingKind, Vec<PlacedBuilding>>`. Legacy accessors `farms()`/`beds()`/`waypoints()`/`miner_homes()`/`gold_mines()` (and `_mut()` variants) wrap `get(Kind)`/`get_mut(Kind)`. `PlacedBuilding::new(pos, town_idx)` constructor defaults optional fields to zero/None. `#[serde(default)]` on optional fields ensures old saves without `patrol_order`/`assigned_mine` load cleanly.
 
 Helper functions: `building_pos_town(kind, index)` → `Option<(Vec2, u32)>` delegates to `BUILDING_REGISTRY` fn pointer (no per-kind match), `building_len(kind)` delegates to registry, `building_counts(town_idx)` → `HashMap<BuildingKind, usize>` via registry loop (replaced `TownBuildingCounts` struct), `find_nearest_location()`, `find_location_within_radius()`, `find_nearest_free()`, `find_within_radius()`, `find_by_pos()`. The first four use `BuildingSpatialGrid` for O(1) cell lookups instead of linear scans. `find_by_pos` still uses the `Worksite` trait directly on slices.
 

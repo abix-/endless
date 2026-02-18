@@ -14,12 +14,13 @@ use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid};
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
     time: Res<Time>,
+    game_time: Res<GameTime>,
     mut query: Query<&mut AttackTimer>,
     mut debug: ResMut<CombatDebug>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("cooldown");
-    let dt = time.delta_secs();
+    let dt = game_time.delta(&time);
 
     let mut first_timer_before = -99.0f32;
     let mut timer_count = 0usize;
@@ -386,6 +387,7 @@ fn fire_towers(
 /// Building tower auto-attack: tower buildings fire at nearby enemies using GPU combat targets.
 pub fn building_tower_system(
     time: Res<Time>,
+    game_time: Res<GameTime>,
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
     upgrades: Res<TownUpgrades>,
@@ -395,7 +397,7 @@ pub fn building_tower_system(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("building_tower");
-    let dt = time.delta_secs();
+    let dt = game_time.delta(&time);
 
     // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
     while tower.town.timers.len() < world_data.towns.len() {

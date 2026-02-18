@@ -72,7 +72,8 @@ pub fn game_time_system(
         return;
     }
 
-    game_time.total_seconds += time.delta_secs() * game_time.time_scale;
+    let dt = game_time.delta(&time);
+    game_time.total_seconds += dt;
 
     // Check if hour changed
     let current_hour = game_time.total_hours();
@@ -100,7 +101,7 @@ pub fn growth_system(
     let _t = timings.scope("growth");
     if game_time.paused { return; }
 
-    let hours_elapsed = (time.delta_secs() * game_time.time_scale) / game_time.seconds_per_hour;
+    let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
     for i in 0..growth_states.states.len() {
         if growth_states.positions[i].x < -9000.0 { continue; } // tombstoned
@@ -211,13 +212,13 @@ pub fn farm_visual_system(
 ) {
     let _t = timings.scope("farm_visual");
     // Only process farm entries (first N entries matching WorldData.farms)
-    let farm_count = world_data.farms.len();
+    let farm_count = world_data.farms().len();
     prev_states.resize(farm_count, FarmGrowthState::Growing);
     for farm_idx in 0..farm_count.min(growth_states.states.len()) {
         let state = &growth_states.states[farm_idx];
         let prev = prev_states[farm_idx];
         if *state == FarmGrowthState::Ready && prev == FarmGrowthState::Growing {
-            if world_data.farms.get(farm_idx).is_some() {
+            if world_data.farms().get(farm_idx).is_some() {
                 commands.spawn(FarmReadyMarker { farm_idx });
             }
         } else if *state == FarmGrowthState::Growing && prev == FarmGrowthState::Ready {
@@ -282,7 +283,7 @@ pub fn spawner_respawn_system(
                 let town_data_idx = entry.town_idx as usize;
 
                 let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
-                    world::resolve_spawner_npc(entry, &world_data.towns, &bgrid, &farm_occupancy, &world_data.miner_homes);
+                    world::resolve_spawner_npc(entry, &world_data.towns, &bgrid, &farm_occupancy, world_data.miner_homes());
 
                 // Home = spawner building position (house/barracks/tent)
                 let (home_x, home_y) = (entry.position.x, entry.position.y);
@@ -332,8 +333,8 @@ pub fn mining_policy_system(
     dirty.mining = false;
 
     mining.discovered_mines.resize(world_data.towns.len(), Vec::new());
-    if mining.mine_enabled.len() < world_data.gold_mines.len() {
-        mining.mine_enabled.resize(world_data.gold_mines.len(), true);
+    if mining.mine_enabled.len() < world_data.gold_mines().len() {
+        mining.mine_enabled.resize(world_data.gold_mines().len(), true);
     }
 
     for town_idx in 0..world_data.towns.len() {
@@ -349,7 +350,7 @@ pub fn mining_policy_system(
         let r2 = radius * radius;
 
         let mut discovered = Vec::new();
-        for (mine_idx, mine) in world_data.gold_mines.iter().enumerate() {
+        for (mine_idx, mine) in world_data.gold_mines().iter().enumerate() {
             let d = mine.position - town.center;
             if d.length_squared() <= r2 {
                 discovered.push(mine_idx);
@@ -368,7 +369,7 @@ pub fn mining_policy_system(
             .collect();
 
         let enabled_positions: Vec<Vec2> = enabled_mines.iter()
-            .filter_map(|&mi| world_data.gold_mines.get(mi).map(|m| m.position))
+            .filter_map(|&mi| world_data.gold_mines().get(mi).map(|m| m.position))
             .collect();
 
         let mut auto_homes: Vec<usize> = Vec::new();
@@ -382,19 +383,19 @@ pub fn mining_policy_system(
             let Some(mh_idx) = world_data.miner_home_at(entry.position) else {
                 continue;
             };
-            if world_data.miner_homes[mh_idx].manual_mine {
+            if world_data.miner_homes()[mh_idx].manual_mine {
                 continue;
             }
             auto_homes.push(mh_idx);
         }
 
         for &mh_idx in &auto_homes {
-            let Some(mh) = world_data.miner_homes.get(mh_idx) else { continue };
+            let Some(mh) = world_data.miner_homes().get(mh_idx) else { continue };
             if let Some(pos) = mh.assigned_mine {
                 let still_enabled = enabled_positions.iter().any(|p| (*p - pos).length() < 1.0);
                 if !still_enabled {
                     // clear stale assignment if disabled or no longer discovered
-                    if let Some(mh_mut) = world_data.miner_homes.get_mut(mh_idx) {
+                    if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
                         mh_mut.assigned_mine = None;
                     }
                 }
@@ -403,7 +404,7 @@ pub fn mining_policy_system(
 
         if enabled_positions.is_empty() {
             for &mh_idx in &auto_homes {
-                if let Some(mh_mut) = world_data.miner_homes.get_mut(mh_idx) {
+                if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
                     mh_mut.assigned_mine = None;
                 }
             }
@@ -412,7 +413,7 @@ pub fn mining_policy_system(
 
         for (i, &mh_idx) in auto_homes.iter().enumerate() {
             let mine_pos = enabled_positions[i % enabled_positions.len()];
-            if let Some(mh_mut) = world_data.miner_homes.get_mut(mh_idx) {
+            if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
                 mh_mut.assigned_mine = Some(mine_pos);
             }
         }

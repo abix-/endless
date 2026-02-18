@@ -423,7 +423,7 @@ pub fn collect_save_data(
     }).collect();
 
     // Farm growth (v2: farms only, mines stored separately in mine_growth)
-    let farm_count = world_data.farms.len();
+    let farm_count = world_data.farms().len();
     let farm_growth: Vec<FarmGrowthSave> = farm_states.states.iter().zip(farm_states.progress.iter())
         .take(farm_count)
         .map(|(s, p)| FarmGrowthSave {
@@ -504,7 +504,7 @@ pub fn collect_save_data(
         gold: gold_storage.gold.clone(),
         farm_growth,
         mine_growth: {
-            let farm_count = world_data.farms.len();
+            let farm_count = world_data.farms().len();
             farm_states.states.iter().enumerate()
                 .filter(|(i, _)| *i >= farm_count)
                 .zip(farm_states.progress.iter().skip(farm_count))
@@ -672,8 +672,8 @@ pub fn apply_save(
     gold_storage.gold = save.gold.clone();
 
     // Growth states: farms first, then mines (world_data already loaded above)
-    let farm_count = world_data.farms.len();
-    let mine_count = world_data.gold_mines.len();
+    let farm_count = world_data.farms().len();
+    let mine_count = world_data.gold_mines().len();
     farm_states.kinds = vec![crate::resources::GrowthKind::Farm; farm_count];
     farm_states.kinds.extend(vec![crate::resources::GrowthKind::Mine; mine_count]);
     // v1: farm_growth contained farms+mines combined; v2+: farms only
@@ -686,10 +686,10 @@ pub fn apply_save(
         if fg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing }
     }).collect();
     farm_states.progress = farm_growth.iter().map(|fg| fg.progress).collect();
-    farm_states.positions = world_data.farms.iter().map(|f| f.position).collect();
-    farm_states.town_indices = world_data.farms.iter().map(|f| Some(f.town_idx as u32)).collect();
+    farm_states.positions = world_data.farms().iter().map(|f| f.position).collect();
+    farm_states.town_indices = world_data.farms().iter().map(|f| Some(f.town_idx as u32)).collect();
     // Append mine entries
-    for (i, gm) in world_data.gold_mines.iter().enumerate() {
+    for (i, gm) in world_data.gold_mines().iter().enumerate() {
         farm_states.positions.push(gm.position);
         farm_states.town_indices.push(None);
         if let Some(mg) = save.mine_growth.get(i) {

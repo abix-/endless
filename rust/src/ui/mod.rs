@@ -384,7 +384,7 @@ fn game_startup_system(
         let town_data_idx = entry.town_idx as usize;
 
         let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
-            world::resolve_spawner_npc(entry, &world_state.world_data.towns, &extra.bgrid, &startup_claimed, &world_state.world_data.miner_homes);
+            world::resolve_spawner_npc(entry, &world_state.world_data.towns, &extra.bgrid, &startup_claimed, &world_state.world_data.miner_homes());
         // Mark farm as claimed so next farmer picks a different one
         if work_x > 0.0 { startup_claimed.claim(Vec2::new(work_x, work_y)); }
 
@@ -471,11 +471,11 @@ fn tutorial_init_system(
     let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
 
     // Snapshot initial building counts for completion checks
-    tutorial.initial_farms = world_data.farms.iter().filter(|f| f.town_idx as usize == player_town).count();
-    tutorial.initial_farmer_homes = world_data.homes(BuildingKind::FarmerHome).iter().filter(|h| h.town_idx as usize == player_town).count();
-    tutorial.initial_waypoints = world_data.waypoints.iter().filter(|g| g.town_idx as usize == player_town).count();
-    tutorial.initial_archer_homes = world_data.homes(BuildingKind::ArcherHome).iter().filter(|a| a.town_idx as usize == player_town).count();
-    tutorial.initial_miner_homes = world_data.miner_homes.iter().filter(|m| m.town_idx as usize == player_town).count();
+    tutorial.initial_farms = world_data.farms().iter().filter(|f| f.town_idx as usize == player_town).count();
+    tutorial.initial_farmer_homes = world_data.get(BuildingKind::FarmerHome).iter().filter(|h| h.town_idx as usize == player_town).count();
+    tutorial.initial_waypoints = world_data.waypoints().iter().filter(|g| g.town_idx as usize == player_town).count();
+    tutorial.initial_archer_homes = world_data.get(BuildingKind::ArcherHome).iter().filter(|a| a.town_idx as usize == player_town).count();
+    tutorial.initial_miner_homes = world_data.miner_homes().iter().filter(|m| m.town_idx as usize == player_town).count();
 
     // Snapshot camera start position
     if let Ok(transform) = camera_query.single() {

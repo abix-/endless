@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18r
+
+- **unified building storage** — replaced all separate building structs (`Farm`, `Bed`, `Waypoint`, `MinerHome`, `GoldMine`, `UnitHome`) with single `PlacedBuilding` struct; `WorldData.buildings: BTreeMap<BuildingKind, Vec<PlacedBuilding>>` replaces 6 separate vecs; `BuildingHpState` simplified to `towns: Vec<f32>` + `hps: BTreeMap<BuildingKind, Vec<f32>>`; legacy accessors (`farms()`, `beds()`, `waypoints()`, `miner_homes()`, `gold_mines()` + `_mut()` variants) preserved for call-site compatibility; type aliases maintain backward compat in type positions; `#[serde(default)]` on optional fields (`patrol_order`, `assigned_mine`, `manual_mine`) ensures old saves load cleanly; adding any new building type now requires only a `BuildingKind` variant + registry entry (no new struct, no new WorldData field, no new HP vec)
+
 ## 2026-02-18q
 
 - **unified unit-home buildings** — replaced 5 identical structs (`FarmerHome`, `ArcherHome`, `CrossbowHome`, `FighterHome`, `Tent`) with single `UnitHome` struct; WorldData uses `BTreeMap<BuildingKind, Vec<UnitHome>>` dynamic storage; BuildingHpState uses `BTreeMap<BuildingKind, Vec<f32>>` with custom serde for save-format compatibility; Building enum collapses 5 variants into `Home { kind, town_idx }` with `BuildingSerde` proxy for backward-compatible saves; `BuildingDef` gains `is_unit_home`/`place`/`tombstone`/`find_index` fn pointers; `place_building`/`remove_building`/`find_building_data_index`/`alloc_building_slots`/`BuildingSpatialGrid::rebuild` all collapsed from per-kind match arms to single registry-driven loops; adding a new unit-home building now requires only a `BuildingKind` variant + registry entry

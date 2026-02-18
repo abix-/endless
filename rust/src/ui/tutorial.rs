@@ -49,11 +49,11 @@ fn step_complete(
         1 => (camera_pos - tutorial.camera_start).length() > 50.0,
         2 => ui_state.build_menu_open,
         3 => {
-            let farms = world_data.farms.iter().filter(|f| f.town_idx as usize == pt).count();
+            let farms = world_data.farms().iter().filter(|f| f.town_idx as usize == pt).count();
             farms > tutorial.initial_farms
         }
         4 => {
-            let homes = world_data.homes(BuildingKind::FarmerHome).iter().filter(|h| h.town_idx as usize == pt).count();
+            let homes = world_data.get(BuildingKind::FarmerHome).iter().filter(|h| h.town_idx as usize == pt).count();
             homes > tutorial.initial_farmer_homes
         }
         5 => false, // info-only — user clicks Next
@@ -64,18 +64,18 @@ fn step_complete(
         }
         9 => false, // info-only — user clicks Next
         10 => {
-            let posts = world_data.waypoints.iter().filter(|g| g.town_idx as usize == pt).count();
+            let posts = world_data.waypoints().iter().filter(|g| g.town_idx as usize == pt).count();
             posts > tutorial.initial_waypoints
         }
         11 => {
-            let homes = world_data.homes(BuildingKind::ArcherHome).iter().filter(|a| a.town_idx as usize == pt).count();
+            let homes = world_data.get(BuildingKind::ArcherHome).iter().filter(|a| a.town_idx as usize == pt).count();
             homes > tutorial.initial_archer_homes
         }
         12 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Upgrades,
         13 => false, // info-only — user clicks Next
         14 => false, // info-only — user clicks Next
         15 => {
-            let homes = world_data.miner_homes.iter().filter(|m| m.town_idx as usize == pt).count();
+            let homes = world_data.miner_homes().iter().filter(|m| m.town_idx as usize == pt).count();
             homes > tutorial.initial_miner_homes
         }
         16 => ui_state.left_panel_open && ui_state.left_panel_tab == LeftPanelTab::Policies,

@@ -420,12 +420,12 @@ fn click_to_select_system(
     // Mine assignment — snap to nearest gold mine within radius
     if let Some(mh_idx) = click.ui_state.assigning_mine {
         let snap_radius = 60.0;
-        let best = click.world_data.gold_mines.iter()
+        let best = click.world_data.gold_mines().iter()
             .map(|m| (m.position.distance(world_pos), m.position))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((dist, mine_pos)) = best {
             if dist < snap_radius {
-                if let Some(mh) = click.world_data.miner_homes.get_mut(mh_idx) {
+                if let Some(mh) = click.world_data.miner_homes_mut().get_mut(mh_idx) {
                     mh.manual_mine = true;
                     mh.assigned_mine = Some(mine_pos);
                 }
