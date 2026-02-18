@@ -27,7 +27,7 @@ Main World                        Render World
 ───────────                       ────────────
 NpcGpuState           ──Extract<Res<T>>──▶ zero-clone immutable read
 NpcVisualUpload       ──Extract<Res<T>>──▶ zero-clone immutable read
-NpcGpuData            ──ExtractResource──▶ NpcGpuData
+RenderFrameConfig     ──ExtractResource──▶ RenderFrameConfig (bundles NpcGpuData + ProjGpuData + textures + readback)
 OverlayInstances      ──Extract<Res<T>>──▶ zero-clone → BuildingOverlayBuffers
 NpcGpuBuffers         ──(render world)──▶ positions + healths (bind group 2)
 Camera2d entity       ──extract_camera_state──▶ CameraState
@@ -72,7 +72,7 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
 
 ProjBufferWrites     ──Extract<Res<T>>──▶ zero-clone immutable read
 ProjPositionState    ──Extract<Res<T>>──▶ zero-clone immutable read
-ProjGpuData          ──ExtractResource──▶ ProjGpuData
+                                        (ProjGpuData via RenderFrameConfig)
 ProjBatch entity     ──extract_proj_batch──▶ ProjBatch entity
                                       │
                                       ▼
@@ -317,8 +317,8 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_overlay_instances` | Zero-clone read of OverlayInstances → BuildingOverlayBuffers (farms/BHP/mining) with RawBufferVec reuse |
 | PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), create bind group 2 |
 | Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build via `Extract<Res<T>>` |
-| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from NpcSpriteTexture (6 textures: char + world + heal + sleep + arrow + building; building falls back to char_image until atlas loads) |
-| PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from NpcGpuData) |
+| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from RenderFrameConfig.textures (6 textures: char + world + heal + sleep + arrow + building; building falls back to char_image until atlas loads) |
+| PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from RenderFrameConfig.npc) |
 | Queue | `queue_npcs` | Add DrawBuildingBodyCommands (0.2), DrawBuildingOverlayCommands (0.3), DrawNpcBodyCommands (0.5), DrawNpcOverlayCommands (0.6) |
 | Queue | `queue_projs` | Add DrawProjCommands (sort_key=1.0, above NPCs) |
 | Render | `DrawBuildingBodyCommands` | Storage path, `#ifdef MODE_BUILDING_BODY` — layer 0, building atlas only |
@@ -367,7 +367,7 @@ Bevy's Camera2d is the single source of truth — input systems write directly t
 - `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), writes `Projection::Orthographic.scale` and `Transform` directly
 - `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE. If no NPC found, checks `WorldGrid` for a building at the clicked cell and sets `SelectedBuilding` (col, row, active). Guarded by `ctx.wants_pointer_input() || ctx.is_pointer_over_area()` to avoid stealing clicks from egui UI panels.
 
-**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `NpcGpuData`), creating a bind group at group 1.
+**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `RenderFrameConfig.npc`), creating a bind group at group 1.
 
 **Shader** (`npc_render.wgsl`): reads camera from uniform buffer:
 ```wgsl
@@ -403,7 +403,7 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 | Miner Home | `miner_house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Fighter Home | `fighter_home.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 
-`SpriteAssets` holds handles for all loaded textures including the five external building sprites (`house_texture`, `barracks_texture`, `waypoint_texture`, `miner_house_texture`, `fighter_home_texture`). NPC instanced rendering textures are shared via `NpcSpriteTexture` resource (`handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon, `arrow_handle` for arrow, `building_handle` for building atlas), extracted to render world for bind group creation. The building atlas handle is set later by `spawn_world_tilemap` (not at startup like the others); `prepare_npc_texture_bind_group` falls back to `char_image` until it's available.
+`SpriteAssets` holds handles for all loaded textures. External building sprites are stored as a `Vec<Handle<Image>>` (`external_textures`), loaded dynamically from `BUILDING_REGISTRY` — each `TileSpec::External("sprites/foo.png")` entry is loaded at startup. NPC instanced rendering textures are shared via `RenderFrameConfig.textures` (NpcSpriteTexture: `handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon, `arrow_handle` for arrow, `building_handle` for building atlas), extracted to render world for bind group creation. The building atlas handle is set later by `spawn_world_tilemap` (not at startup like the others); `prepare_npc_texture_bind_group` falls back to `char_image` until it's available.
 
 ## Equipment Layers
 
@@ -437,11 +437,11 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **Slot Indicators** (`ui/mod.rs`): Building grid indicators use Sprite entities at z=-0.3 with a `SlotIndicator` marker component — not gizmos, because Bevy gizmos render in a separate pass after all Transparent2d items and can't be z-sorted with them. Green "+" crosshairs mark empty unlocked slots, dim bracket corners mark adjacent locked slots. Indicators are rebuilt when `TownGrids` or `WorldGrid` changes, and despawned on game cleanup.
 
-**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(usize)` for a standalone 32×32 PNG (index into extra images slice). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad; FarmerHome, ArcherHome, and Waypoint use External (dedicated PNGs).
+**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(&'static str)` for a standalone 32×32 PNG (asset path, e.g. `"sprites/house.png"`). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad; FarmerHome, ArcherHome, Waypoint, MinerHome, CrossbowHome, and FighterHome use External (dedicated PNGs from `BUILDING_REGISTRY`).
 
 **`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array` for terrain. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images. Called once with `TERRAIN_TILES` (11 tiles, no extras).
 
-**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×384 vertical strip `texture_2d` for the building atlas (12 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `NpcSpriteTexture.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
+**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×384 vertical strip `texture_2d` for the building atlas (12 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `RenderFrameConfig.textures.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
@@ -449,7 +449,7 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 
-**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Spawns terrain chunk with `TerrainChunk` marker. Also creates the building atlas and stores it in `NpcSpriteTexture.building_handle`.
+**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Spawns terrain chunk with `TerrainChunk` marker. Also creates the building atlas from `SpriteAssets.external_textures` (registry-driven) and stores it in `RenderFrameConfig.textures.building_handle`.
 
 **`TerrainChunk`** marker component (`render.rs`): Attached to the terrain TilemapChunk entity so `sync_terrain_tilemap` can query it for runtime terrain updates (e.g. slot unlock → Dirt).
 

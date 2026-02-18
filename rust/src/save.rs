@@ -194,6 +194,14 @@ pub struct SquadSave {
     pub patrol_enabled: bool,
     pub rest_when_tired: bool,
     #[serde(default)]
+    pub wave_active: bool,
+    #[serde(default)]
+    pub wave_start_count: usize,
+    #[serde(default)]
+    pub wave_min_start: usize,
+    #[serde(default = "default_wave_retreat_below_pct")]
+    pub wave_retreat_below_pct: usize,
+    #[serde(default)]
     pub owner: SquadOwner,
 }
 
@@ -223,6 +231,7 @@ pub struct MigrationSave {
 }
 
 fn default_true() -> bool { true }
+fn default_wave_retreat_below_pct() -> usize { 50 }
 
 // Building save (mirrors world::Building)
 #[derive(Serialize, Deserialize, Clone)]
@@ -604,6 +613,10 @@ pub fn collect_save_data(
         target_size: s.target_size,
         patrol_enabled: s.patrol_enabled,
         rest_when_tired: s.rest_when_tired,
+        wave_active: s.wave_active,
+        wave_start_count: s.wave_start_count,
+        wave_min_start: s.wave_min_start,
+        wave_retreat_below_pct: s.wave_retreat_below_pct,
         owner: s.owner,
     }).collect();
 
@@ -927,6 +940,10 @@ pub fn apply_save(
             target_size: ss.target_size,
             patrol_enabled: ss.patrol_enabled,
             rest_when_tired: ss.rest_when_tired,
+            wave_active: ss.wave_active,
+            wave_start_count: ss.wave_start_count,
+            wave_min_start: ss.wave_min_start,
+            wave_retreat_below_pct: ss.wave_retreat_below_pct.clamp(1, 100),
             owner: ss.owner,
         });
     }

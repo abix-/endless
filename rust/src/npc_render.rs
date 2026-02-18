@@ -43,7 +43,7 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 use crate::constants::MAX_NPC_COUNT;
-use crate::gpu::{NpcGpuState, NpcGpuBuffers, NpcGpuData, NpcVisualUpload, NpcSpriteTexture, ProjBufferWrites, ProjGpuBuffers, ProjGpuData};
+use crate::gpu::{NpcGpuState, NpcGpuBuffers, NpcVisualUpload, ProjBufferWrites, ProjGpuBuffers, RenderFrameConfig};
 use crate::render::{CameraState, MainCamera};
 
 // =============================================================================
@@ -205,7 +205,7 @@ pub struct NpcCameraBindGroup {
 pub struct DrawStoragePass<const BODY_ONLY: bool>;
 
 impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<BODY_ONLY> {
-    type Param = (SRes<NpcRenderBuffers>, SRes<NpcVisualBuffers>, SRes<NpcGpuData>);
+    type Param = (SRes<NpcRenderBuffers>, SRes<NpcVisualBuffers>, SRes<RenderFrameConfig>);
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -216,10 +216,10 @@ impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<B
         params: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let (npc_buffers, visual_buffers, gpu_data) = params;
+        let (npc_buffers, visual_buffers, config) = params;
         let npc_buffers = npc_buffers.into_inner();
         let visual_buffers = visual_buffers.into_inner();
-        let npc_count = gpu_data.into_inner().count;
+        let npc_count = config.into_inner().npc.count;
         if npc_count == 0 { return RenderCommandResult::Skip; }
 
         let Some(ref bind_group) = visual_buffers.bind_group else {
@@ -631,7 +631,7 @@ fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[u
 /// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
 fn extract_npc_data(
     gpu_state: Extract<Res<NpcGpuState>>,
-    gpu_data: Extract<Res<NpcGpuData>>,
+    config: Extract<Res<RenderFrameConfig>>,
     visual_upload: Extract<Res<NpcVisualUpload>>,
     gpu_buffers: Option<Res<NpcGpuBuffers>>,
     visual_buffers: Option<Res<NpcVisualBuffers>>,
@@ -646,7 +646,7 @@ fn extract_npc_data(
     // GPU-authoritative (positions/arrivals): per-index writes (spawn/death only, ~10-50/frame)
     // CPU-authoritative (rest): bulk writes (1 call per buffer instead of thousands)
     if let Some(gpu_bufs) = gpu_buffers {
-        let n = gpu_data.count as usize;
+        let n = config.npc.count as usize;
         if gpu_state.dirty_positions { write_dirty_f32(&render_queue, &gpu_bufs.positions, &gpu_state.positions, &gpu_state.position_dirty_indices, 2); }
         if gpu_state.dirty_arrivals  { write_dirty_i32(&render_queue, &gpu_bufs.arrivals, &gpu_state.arrivals, &gpu_state.arrival_dirty_indices, 1); }
         if gpu_state.dirty_targets   { write_bulk(&render_queue, &gpu_bufs.targets, &gpu_state.targets, n * 2); }
@@ -674,7 +674,7 @@ fn extract_npc_data(
 fn extract_proj_data(
     mut commands: Commands,
     writes: Extract<Res<ProjBufferWrites>>,
-    proj_data: Extract<Res<ProjGpuData>>,
+    config: Extract<Res<RenderFrameConfig>>,
     proj_pos_state: Extract<Res<crate::resources::ProjPositionState>>,
     gpu_buffers: Option<Res<ProjGpuBuffers>>,
     existing_buffers: Option<ResMut<ProjRenderBuffers>>,
@@ -708,7 +708,7 @@ fn extract_proj_data(
     }
 
     // --- Build projectile instance buffer for rendering ---
-    let proj_count = proj_data.proj_count as usize;
+    let proj_count = config.proj.proj_count as usize;
     let readback_positions = if proj_pos_state.0.len() >= proj_count * 2 {
         Some(&proj_pos_state.0)
     } else {
@@ -885,17 +885,18 @@ fn prepare_npc_texture_bind_group(
     render_device: Res<RenderDevice>,
     pipeline: Option<Res<NpcPipeline>>,
     pipeline_cache: Res<PipelineCache>,
-    sprite_texture: Option<Res<NpcSpriteTexture>>,
+    config: Option<Res<RenderFrameConfig>>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     mut building_atlas_ready: Local<bool>,
 ) {
     let Some(pipeline) = pipeline else { return };
-    let Some(sprite_texture) = sprite_texture else { return };
-    let Some(char_handle) = &sprite_texture.handle else { return };
-    let Some(world_handle) = &sprite_texture.world_handle else { return };
-    let Some(heal_handle) = &sprite_texture.heal_handle else { return };
-    let Some(sleep_handle) = &sprite_texture.sleep_handle else { return };
-    let Some(arrow_handle) = &sprite_texture.arrow_handle else { return };
+    let Some(config) = config else { return };
+    let textures = &config.textures;
+    let Some(char_handle) = &textures.handle else { return };
+    let Some(world_handle) = &textures.world_handle else { return };
+    let Some(heal_handle) = &textures.heal_handle else { return };
+    let Some(sleep_handle) = &textures.sleep_handle else { return };
+    let Some(arrow_handle) = &textures.arrow_handle else { return };
     let Some(char_image) = gpu_images.get(char_handle) else { return };
     let Some(world_image) = gpu_images.get(world_handle) else { return };
     let Some(heal_image) = gpu_images.get(heal_handle) else { return };
@@ -903,7 +904,7 @@ fn prepare_npc_texture_bind_group(
     let Some(arrow_image) = gpu_images.get(arrow_handle) else { return };
 
     // Building atlas: fallback to char_image until spawn_world_tilemap creates it
-    let building_image = sprite_texture.building_handle.as_ref()
+    let building_image = textures.building_handle.as_ref()
         .and_then(|h| gpu_images.get(h));
     if !*building_atlas_ready {
         if building_image.is_some() {
@@ -945,7 +946,7 @@ fn prepare_npc_camera_bind_group(
     pipeline: Option<Res<NpcPipeline>>,
     pipeline_cache: Res<PipelineCache>,
     camera_state: Option<Res<CameraState>>,
-    gpu_data: Option<Res<NpcGpuData>>,
+    config: Option<Res<RenderFrameConfig>>,
 ) {
     let Some(pipeline) = pipeline else { return };
     let Some(camera_state) = camera_state else { return };
@@ -953,7 +954,7 @@ fn prepare_npc_camera_bind_group(
     let uniform = CameraUniform {
         camera_pos: camera_state.position,
         zoom: camera_state.zoom,
-        npc_count: gpu_data.map(|d| d.count).unwrap_or(0),
+        npc_count: config.map(|c| c.npc.count).unwrap_or(0),
         viewport: camera_state.viewport,
     };
 
@@ -1010,7 +1011,7 @@ fn queue_npcs(
     render_buffers: Option<Res<NpcRenderBuffers>>,
     visual_buffers: Option<Res<NpcVisualBuffers>>,
     overlay_buffers: Option<Res<BuildingOverlayBuffers>>,
-    gpu_data: Option<Res<NpcGpuData>>,
+    config: Option<Res<RenderFrameConfig>>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
     views: Query<(Entity, &ExtractedView, &Msaa)>,
     npc_batch: Query<Entity, With<NpcBatch>>,
@@ -1022,7 +1023,7 @@ fn queue_npcs(
     let Some(_render_buffers) = render_buffers else { return };
 
     let has_npcs = visual_buffers.as_ref().is_some_and(|vb| vb.bind_group.is_some())
-        && gpu_data.as_ref().is_some_and(|d| d.count > 0);
+        && config.as_ref().is_some_and(|c| c.npc.count > 0);
     let has_building_overlays = overlay_buffers.as_ref().is_some_and(|m| m.count > 0);
 
     if !has_npcs && !has_building_overlays { return; }

@@ -58,8 +58,8 @@ const HIT_HALF_WIDTH: f32 = 4.0;
 // RESOURCES (Main World)
 // =============================================================================
 
-/// GPU data extracted to render world each frame. Also serves as the compute uniform buffer.
-#[derive(Resource, Clone, ExtractResource, ShaderType)]
+/// NPC compute uniform buffer fields. Owned by RenderFrameConfig.
+#[derive(Clone, ShaderType)]
 pub struct NpcGpuData {
     pub count: u32,
     pub separation_radius: f32,
@@ -96,6 +96,16 @@ impl Default for NpcGpuData {
             threat_radius: 200.0,
         }
     }
+}
+
+/// Single extracted resource carrying all per-frame render config.
+/// Replaces 4 separate ExtractResourcePlugin registrations with 1.
+#[derive(Resource, Clone, ExtractResource, Default)]
+pub struct RenderFrameConfig {
+    pub npc: NpcGpuData,
+    pub proj: ProjGpuData,
+    pub textures: NpcSpriteTexture,
+    pub readback: ReadbackHandles,
 }
 
 /// All persistent per-NPC GPU data: compute fields + visual state + dirty tracking.
@@ -264,7 +274,7 @@ impl NpcGpuState {
 /// Runs in PostUpdate after populate_gpu_state (chained).
 pub fn build_visual_upload(
     gpu_state: Res<NpcGpuState>,
-    gpu_data: Res<NpcGpuData>,
+    config: Res<RenderFrameConfig>,
     mut upload: ResMut<NpcVisualUpload>,
     all_npcs: Query<(
         &NpcIndex, &Faction, &Job, &Activity,
@@ -274,7 +284,7 @@ pub fn build_visual_upload(
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("build_visual_upload");
-    let npc_count = gpu_data.count as usize;
+    let npc_count = config.npc.count as usize;
     upload.npc_count = npc_count;
 
     // Resize (reuses allocation if already large enough), fill with sentinels
@@ -414,8 +424,8 @@ pub fn populate_gpu_state(mut state: ResMut<NpcGpuState>, time: Res<Time>, slots
 // PROJECTILE RESOURCES (Main World)
 // =============================================================================
 
-/// Projectile GPU data extracted to render world. Also serves as the compute uniform buffer.
-#[derive(Resource, Clone, ExtractResource, ShaderType)]
+/// Projectile compute uniform buffer fields. Owned by RenderFrameConfig.
+#[derive(Clone, ShaderType)]
 pub struct ProjGpuData {
     pub proj_count: u32,
     pub npc_count: u32,
@@ -539,8 +549,8 @@ pub fn populate_proj_buffer_writes(mut writes: ResMut<ProjBufferWrites>, timings
 // =============================================================================
 
 /// Handles to ShaderStorageBuffer assets used as readback targets.
-/// Extracted to render world so compute nodes can copy into them.
-#[derive(Resource, ExtractResource, Clone)]
+/// Owned by RenderFrameConfig, extracted to render world so compute nodes can copy into them.
+#[derive(Clone, Default)]
 pub struct ReadbackHandles {
     pub npc_positions: Handle<ShaderStorageBuffer>,
     pub combat_targets: Handle<ShaderStorageBuffer>,
@@ -555,6 +565,7 @@ pub struct ReadbackHandles {
 fn setup_readback_buffers(
     mut commands: Commands,
     mut buffers: ResMut<Assets<ShaderStorageBuffer>>,
+    mut config: ResMut<RenderFrameConfig>,
 ) {
     // Create readback target buffers (COPY_DST for compute→copy, COPY_SRC for Readback to map)
     let npc_pos_buf = {
@@ -600,7 +611,7 @@ fn setup_readback_buffers(
         buffers.add(buf)
     };
 
-    let handles = ReadbackHandles {
+    config.readback = ReadbackHandles {
         npc_positions: npc_pos_buf.clone(),
         combat_targets: combat_target_buf.clone(),
         npc_factions: npc_faction_buf.clone(),
@@ -609,7 +620,6 @@ fn setup_readback_buffers(
         proj_hits: proj_hit_buf.clone(),
         proj_positions: proj_pos_buf.clone(),
     };
-    commands.insert_resource(handles);
 
     // Spawn Readback entities — Bevy async-reads each frame, triggers ReadbackComplete
     commands.spawn(Readback::buffer(npc_pos_buf))
@@ -667,18 +677,13 @@ struct NpcComputeLabel;
 
 impl Plugin for GpuComputePlugin {
     fn build(&self, app: &mut App) {
-        // Initialize NPC resources in main world
-        app.init_resource::<NpcGpuData>()
+        // Initialize resources in main world
+        app.init_resource::<RenderFrameConfig>()
             .init_resource::<NpcGpuState>()
             .init_resource::<NpcVisualUpload>()
-            .init_resource::<NpcSpriteTexture>()
-            .add_systems(Update, update_gpu_data)
-            .add_systems(PostUpdate, (populate_gpu_state, build_visual_upload).chain());
-
-        // Initialize projectile resources in main world
-        app.init_resource::<ProjGpuData>()
             .init_resource::<ProjBufferWrites>()
-            .add_systems(Update, update_proj_gpu_data)
+            .add_systems(Update, (update_gpu_data, update_proj_gpu_data))
+            .add_systems(PostUpdate, (populate_gpu_state, build_visual_upload).chain())
             .add_systems(PostUpdate, populate_proj_buffer_writes);
 
         // Async readback: create ShaderStorageBuffer assets + Readback entities
@@ -686,12 +691,7 @@ impl Plugin for GpuComputePlugin {
 
         // Extract resources to render world
         // NpcGpuState + NpcVisualUpload + ProjBufferWrites + ProjPositionState use Extract<Res<T>> (zero-clone)
-        app.add_plugins((
-            ExtractResourcePlugin::<NpcGpuData>::default(),
-            ExtractResourcePlugin::<NpcSpriteTexture>::default(),
-            ExtractResourcePlugin::<ProjGpuData>::default(),
-            ExtractResourcePlugin::<ReadbackHandles>::default(),
-        ));
+        app.add_plugins(ExtractResourcePlugin::<RenderFrameConfig>::default());
 
         // Set up render world systems
         let render_app = match app.get_sub_app_mut(RenderApp) {
@@ -728,7 +728,7 @@ struct ProjectileComputeLabel;
 
 /// Update GPU data from ECS each frame.
 fn update_gpu_data(
-    mut gpu_data: ResMut<NpcGpuData>,
+    mut config: ResMut<RenderFrameConfig>,
     slots: Res<SlotAllocator>,
     time: Res<Time>,
     game_time: Res<GameTime>,
@@ -738,12 +738,12 @@ fn update_gpu_data(
 ) {
     let _t = timings.scope("update_gpu_data");
     let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
-    gpu_data.count = slots.count() as u32;
-    gpu_data.delta = dt;
+    config.npc.count = slots.count() as u32;
+    config.npc.delta = dt;
 
     let player_town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
     let levels = upgrades.town_levels(player_town_idx);
-    gpu_data.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };
+    config.npc.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };
 }
 
 // =============================================================================
@@ -783,9 +783,9 @@ struct NpcComputePipeline {
     pipeline_id: CachedComputePipelineId,
 }
 
-/// Handle to the NPC sprite texture (main world).
+/// NPC sprite texture handles. Owned by RenderFrameConfig.
 /// Set by the render module after loading sprite sheets.
-#[derive(Resource, Clone, ExtractResource, Default)]
+#[derive(Clone, Default)]
 pub struct NpcSpriteTexture {
     pub handle: Option<Handle<Image>>,
     pub world_handle: Option<Handle<Image>>,
@@ -985,7 +985,7 @@ fn prepare_npc_bind_groups(
     pipeline: Option<Res<NpcComputePipeline>>,
     buffers: Option<Res<NpcGpuBuffers>>,
     proj_buffers: Option<Res<ProjGpuBuffers>>,
-    gpu_data: Option<Res<NpcGpuData>>,
+    config: Option<Res<RenderFrameConfig>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
@@ -998,7 +998,8 @@ fn prepare_npc_bind_groups(
     let Some(pipeline) = pipeline else { return };
     let Some(buffers) = buffers else { return };
     let Some(proj) = proj_buffers else { return };
-    let Some(params) = gpu_data else { return };
+    let Some(config) = config else { return };
+    let params = &config.npc;
 
     // Create 3 uniform buffers (one per mode) for multi-dispatch
     let layout = &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
@@ -1162,13 +1163,13 @@ impl render_graph::Node for NpcComputeNode {
         let Some(bind_groups) = world.get_resource::<NpcBindGroups>() else {
             return Ok(());
         };
-        let Some(gpu_data) = world.get_resource::<NpcGpuData>() else {
+        let Some(config) = world.get_resource::<RenderFrameConfig>() else {
             return Ok(());
         };
         let pipeline_cache = world.resource::<PipelineCache>();
         let pipeline = world.resource::<NpcComputePipeline>();
 
-        let npc_count = gpu_data.count;
+        let npc_count = config.npc.count;
         if npc_count == 0 {
             return Ok(());
         }
@@ -1215,7 +1216,7 @@ impl render_graph::Node for NpcComputeNode {
         // Copy positions + combat_targets → readback ShaderStorageBuffer assets
         // Bevy's Readback component will async-read these and fire ReadbackComplete
         let buffers = world.resource::<NpcGpuBuffers>();
-        let handles = world.resource::<ReadbackHandles>();
+        let handles = &world.resource::<RenderFrameConfig>().readback;
         let render_assets = world.resource::<RenderAssets<GpuShaderStorageBuffer>>();
 
         let pos_copy_size = (npc_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
@@ -1265,7 +1266,7 @@ impl render_graph::Node for NpcComputeNode {
 
 /// Update projectile GPU data from ECS each frame.
 fn update_proj_gpu_data(
-    mut proj_data: ResMut<ProjGpuData>,
+    mut config: ResMut<RenderFrameConfig>,
     slots: Res<SlotAllocator>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
@@ -1274,9 +1275,9 @@ fn update_proj_gpu_data(
 ) {
     let _t = timings.scope("update_proj_gpu");
     let dt = if game_time.paused { 0.0 } else { time.delta_secs() };
-    proj_data.proj_count = proj_alloc.next as u32;
-    proj_data.npc_count = slots.count() as u32;
-    proj_data.delta = dt;
+    config.proj.proj_count = proj_alloc.next as u32;
+    config.proj.npc_count = slots.count() as u32;
+    config.proj.delta = dt;
 }
 
 fn init_proj_compute_pipeline(
@@ -1407,7 +1408,7 @@ fn prepare_proj_bind_groups(
     pipeline: Option<Res<ProjComputePipeline>>,
     proj_buffers: Option<Res<ProjGpuBuffers>>,
     npc_buffers: Option<Res<NpcGpuBuffers>>,
-    params: Option<Res<ProjGpuData>>,
+    config: Option<Res<RenderFrameConfig>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
@@ -1420,7 +1421,7 @@ fn prepare_proj_bind_groups(
     let Some(pipeline) = pipeline else { return };
     let Some(proj) = proj_buffers else { return };
     let Some(npc) = npc_buffers else { return };
-    let Some(params) = params else { return };
+    let Some(config) = config else { return };
 
     let layout = &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
     let storage_bindings = (
@@ -1439,9 +1440,9 @@ fn prepare_proj_bind_groups(
         npc.grid_data.as_entire_buffer_binding(),
     );
 
-    let mut p0 = params.clone(); p0.mode = 0;
-    let mut p1 = params.clone(); p1.mode = 1;
-    let mut p2 = params.clone(); p2.mode = 2;
+    let mut p0 = config.proj.clone(); p0.mode = 0;
+    let mut p1 = config.proj.clone(); p1.mode = 1;
+    let mut p2 = config.proj.clone(); p2.mode = 2;
 
     let mut ub0 = UniformBuffer::from(p0);
     let mut ub1 = UniformBuffer::from(p1);
@@ -1564,13 +1565,13 @@ impl render_graph::Node for ProjectileComputeNode {
         let Some(bind_groups) = world.get_resource::<ProjBindGroups>() else {
             return Ok(());
         };
-        let Some(proj_data) = world.get_resource::<ProjGpuData>() else {
+        let Some(config) = world.get_resource::<RenderFrameConfig>() else {
             return Ok(());
         };
         let pipeline_cache = world.resource::<PipelineCache>();
         let pipeline = world.resource::<ProjComputePipeline>();
 
-        let proj_count = proj_data.proj_count;
+        let proj_count = config.proj.proj_count;
         if proj_count == 0 {
             return Ok(());
         }
@@ -1616,7 +1617,7 @@ impl render_graph::Node for ProjectileComputeNode {
 
         // Copy hits + positions → readback ShaderStorageBuffer assets
         let proj_buffers = world.resource::<ProjGpuBuffers>();
-        let handles = world.resource::<ReadbackHandles>();
+        let handles = &world.resource::<RenderFrameConfig>().readback;
         let render_assets = world.resource::<RenderAssets<GpuShaderStorageBuffer>>();
 
         let hit_copy_size = (proj_count as u64) * std::mem::size_of::<[i32; 2]>() as u64;

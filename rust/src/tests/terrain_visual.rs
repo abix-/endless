@@ -193,7 +193,7 @@ pub fn tick(
         let label = match world::TERRAIN_TILES[tile_idx as usize] {
             world::TileSpec::Single(c, r) => format!("({},{})", c, r),
             world::TileSpec::Quad(q) => format!("2x2@({},{})", q[0].0, q[0].1),
-            world::TileSpec::External(i) => format!("ext[{}]", i),
+            world::TileSpec::External(p) => format!("ext:{}", p),
         };
         let pos = cell_center(col, TERRAIN_ROW) - Vec2::new(0.0, grid.cell_size * 0.6);
         let screen = world_to_screen(pos);
@@ -216,7 +216,7 @@ pub fn tick(
             let label = match btiles[tile_idx as usize] {
                 crate::constants::TileSpec::Single(c, r) => format!("({},{})", c, r),
                 crate::constants::TileSpec::Quad(q) => format!("2x2@({},{})", q[0].0, q[0].1),
-                crate::constants::TileSpec::External(i) => format!("ext[{}]", i),
+                crate::constants::TileSpec::External(p) => format!("ext:{}", p),
             };
             let pos = cell_center(col, BUILDING_ROW) + Vec2::new(0.0, grid.cell_size * 0.6);
             let screen = world_to_screen(pos);

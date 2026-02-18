@@ -377,7 +377,7 @@ pub const BUILDING_HIT_RADIUS: f32 = 20.0;
 pub enum TileSpec {
     Single(u32, u32),
     Quad([(u32, u32); 4]),  // [TL, TR, BL, BR]
-    External(usize),        // index into extra images slice
+    External(&'static str), // asset path, e.g. "sprites/house.png"
 }
 
 /// How a building is placed on the map.
@@ -465,7 +465,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 2: Waypoint
     BuildingDef {
         kind: BuildingKind::Waypoint,
-        tile: TileSpec::External(2),
+        tile: TileSpec::External("sprites/waypoint.png"),
         hp: 200.0, cost: 1,
         label: "Waypoint", help: "Patrol waypoint",
         player_buildable: true, camp_buildable: false,
@@ -498,7 +498,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 5: Farmer Home
     BuildingDef {
         kind: BuildingKind::FarmerHome,
-        tile: TileSpec::External(0),
+        tile: TileSpec::External("sprites/house.png"),
         hp: 100.0, cost: 2,
         label: "Farmer Home", help: "Spawns 1 farmer",
         player_buildable: true, camp_buildable: false,
@@ -510,7 +510,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 6: Archer Home
     BuildingDef {
         kind: BuildingKind::ArcherHome,
-        tile: TileSpec::External(1),
+        tile: TileSpec::External("sprites/barracks.png"),
         hp: 150.0, cost: 4,
         label: "Archer Home", help: "Spawns 1 archer",
         player_buildable: true, camp_buildable: false,
@@ -545,7 +545,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 9: Miner Home
     BuildingDef {
         kind: BuildingKind::MinerHome,
-        tile: TileSpec::External(3),
+        tile: TileSpec::External("sprites/miner_house.png"),
         hp: 100.0, cost: 4,
         label: "Miner Home", help: "Spawns 1 miner",
         player_buildable: true, camp_buildable: false,
@@ -557,7 +557,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 10: Crossbow Home
     BuildingDef {
         kind: BuildingKind::CrossbowHome,
-        tile: TileSpec::External(1),
+        tile: TileSpec::External("sprites/barracks.png"),
         hp: 150.0, cost: 8,
         label: "Crossbow Home", help: "Spawns 1 crossbow",
         player_buildable: true, camp_buildable: false,
@@ -569,7 +569,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 11: Fighter Home
     BuildingDef {
         kind: BuildingKind::FighterHome,
-        tile: TileSpec::External(4),
+        tile: TileSpec::External("sprites/fighter_home.png"),
         hp: 150.0, cost: 5,
         label: "Fighter Home", help: "Spawns 1 fighter",
         player_buildable: true, camp_buildable: false,

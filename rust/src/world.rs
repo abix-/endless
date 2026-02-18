@@ -1316,6 +1316,7 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
         }
     };
 
+    let mut ext_counter = 0usize;
     for (layer, spec) in tiles.iter().enumerate() {
         let l = layer as u32;
         match *spec {
@@ -1343,8 +1344,9 @@ fn build_tile_strip(atlas: &Image, tiles: &[TileSpec], extra: &[&Image]) -> (Vec
                 blit(&mut data, l, q[2].0, q[2].1, 0, sprite);         // BL
                 blit(&mut data, l, q[3].0, q[3].1, sprite, sprite);    // BR
             }
-            TileSpec::External(idx) => {
-                let Some(ext) = extra.get(idx).copied() else { continue; };
+            TileSpec::External(_path) => {
+                let Some(ext) = extra.get(ext_counter).copied() else { continue; };
+                ext_counter += 1;
                 let ext_data = ext.data.as_ref().expect("external image has no data");
                 let layer_offset = (l * out_size * out_size * 4) as usize;
                 let ext_w = ext.width();

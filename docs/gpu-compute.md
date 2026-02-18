@@ -9,11 +9,8 @@ GPU compute uses Bevy's render graph with wgpu/WGSL. The compute shader `shaders
 ```
 Main World (ECS)                       Render World (GPU)
 │                                      │
-│  ExtractResourcePlugin (4 clones/frame):
-├─ NpcGpuData (ShaderType) ──────────▶ ExtractResource (compute uniform + render camera)
-├─ NpcSpriteTexture ─────────────────▶ ExtractResource (6 texture handles for bind group)
-├─ ProjGpuData (ShaderType) ─────────▶ ExtractResource (projectile compute uniform)
-├─ ReadbackHandles ──────────────────▶ ExtractResource (7 Arcs for compute readback)
+│  ExtractResourcePlugin (1 clone/frame):
+├─ RenderFrameConfig ───────────────▶ ExtractResource (bundles NpcGpuData + ProjGpuData + NpcSpriteTexture + ReadbackHandles)
 │
 │  Extract<Res<T>> (zero-clone immutable reads):
 ├─ NpcGpuState ──────────────────────▶ extract_npc_data (per-buffer dirty flags → GPU writes)
@@ -156,7 +153,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 7 | factions | i32 | 4B | NpcGpuState.factions | -1=Neutral (unspawned/world buildings), 0=Player, 1+=AI. Init: -1. Neutral treated as same-faction in combat targeting + projectile collision. COPY_SRC for readback. |
 | 8 | healths | f32 | 4B | NpcGpuState.healths | Current HP (COPY_SRC for readback) |
 | 9 | combat_targets | i32 | 4B | Not uploaded | Nearest enemy index or -1 (written by shader, init -1) |
-| 10 | params | Params (uniform) | — | NpcGpuData (ShaderType) | Count, delta (0 when paused), grid config, thresholds |
+| 10 | params | Params (uniform) | — | RenderFrameConfig.npc (NpcGpuData, ShaderType) | Count, delta (0 when paused), grid config, thresholds |
 | 11 | proj_grid_counts | i32[] | — | ProjGpuBuffers.grid_counts (read) | Projectile spatial grid cell counts |
 | 12 | proj_grid_data | i32[] | — | ProjGpuBuffers.grid_data (read) | Projectile indices per cell |
 | 13 | proj_positions | vec2\<f32\>[] | — | ProjGpuBuffers.positions (read) | Projectile positions for dodge |
@@ -182,7 +179,7 @@ Uploaded per frame by `extract_npc_data` (ExtractSchedule) to `NpcVisualBuffers`
 **Equipment buffer** (`[f32; 24]` per slot = 6 layers × `[col, row, atlas, _pad]`, 96B/NPC):
 Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelmet, EquippedWeapon, Activity, Healing). `col < 0` = unequipped.
 
-## Uniform Params (NpcGpuData)
+## Uniform Params (RenderFrameConfig.npc / NpcGpuData)
 
 | Field | Default | Purpose |
 |-------|---------|---------|

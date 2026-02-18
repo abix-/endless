@@ -62,16 +62,16 @@ pub(crate) struct BuildSpriteCache {
     _handles: Vec<Handle<Image>>, // prevent GC of extracted images
 }
 
-/// Map External(n) index → sprite handle from SpriteAssets.
-fn external_handle(idx: usize, sprites: &SpriteAssets) -> Option<&Handle<Image>> {
-    match idx {
-        0 => Some(&sprites.house_texture),
-        1 => Some(&sprites.barracks_texture),
-        2 => Some(&sprites.waypoint_texture),
-        3 => Some(&sprites.miner_house_texture),
-        4 => Some(&sprites.fighter_home_texture),
-        _ => None,
+/// Map External path → sprite handle from SpriteAssets.external_textures.
+fn external_handle<'a>(path: &str, sprites: &'a SpriteAssets) -> Option<&'a Handle<Image>> {
+    let mut idx = 0;
+    for def in BUILDING_REGISTRY {
+        if let TileSpec::External(p) = def.tile {
+            if p == path { return sprites.external_textures.get(idx); }
+            idx += 1;
+        }
     }
+    None
 }
 
 /// Initialize sprite cache: derive textures from BUILDING_REGISTRY tile specs.
@@ -87,8 +87,8 @@ fn init_sprite_cache(
     let Some(atlas) = images.get(&sprites.world_texture).cloned() else { return };
     // Ensure all external textures are loaded
     for def in BUILDING_REGISTRY {
-        if let TileSpec::External(idx) = def.tile {
-            if external_handle(idx, sprites).and_then(|h| images.get(h)).is_none() { return; }
+        if let TileSpec::External(path) = def.tile {
+            if external_handle(path, sprites).and_then(|h| images.get(h)).is_none() { return; }
         }
     }
 
@@ -96,8 +96,8 @@ fn init_sprite_cache(
         if !def.player_buildable && !def.camp_buildable { continue; }
 
         let handle = match def.tile {
-            TileSpec::External(idx) => {
-                external_handle(idx, sprites).unwrap().clone()
+            TileSpec::External(path) => {
+                external_handle(path, sprites).unwrap().clone()
             }
             TileSpec::Quad(quad) => {
                 let img = extract_quad_tile(&atlas, quad);

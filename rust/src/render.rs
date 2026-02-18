@@ -44,12 +44,8 @@ pub struct SpriteAssets {
     /// World sprite sheet (terrain, buildings)
     pub world_texture: Handle<Image>,
     pub world_atlas: Handle<TextureAtlasLayout>,
-    /// External building sprites (32x32 PNGs)
-    pub house_texture: Handle<Image>,
-    pub barracks_texture: Handle<Image>,
-    pub waypoint_texture: Handle<Image>,
-    pub miner_house_texture: Handle<Image>,
-    pub fighter_home_texture: Handle<Image>,
+    /// External building sprites loaded from BUILDING_REGISTRY paths.
+    pub external_textures: Vec<Handle<Image>>,
     /// Whether assets are loaded
     pub loaded: bool,
 }
@@ -137,13 +133,11 @@ fn load_sprites(
     );
     assets.char_atlas = texture_atlases.add(char_layout);
 
-    // Load world sprite sheet
+    // Load world sprite sheet + external building sprites from registry
     assets.world_texture = asset_server.load("sprites/roguelikeSheet_transparent.png");
-    assets.house_texture = asset_server.load("sprites/house.png");
-    assets.barracks_texture = asset_server.load("sprites/barracks.png");
-    assets.waypoint_texture = asset_server.load("sprites/waypoint.png");
-    assets.miner_house_texture = asset_server.load("sprites/miner_house.png");
-    assets.fighter_home_texture = asset_server.load("sprites/fighter_home.png");
+    assets.external_textures = crate::constants::BUILDING_REGISTRY.iter().filter_map(|def| {
+        match def.tile { crate::constants::TileSpec::External(path) => Some(asset_server.load(path)), _ => None }
+    }).collect();
     config.textures.world_handle = Some(assets.world_texture.clone());
 
     // Load heal halo sprite (single 16x16 texture)
@@ -580,11 +574,11 @@ fn spawn_world_tilemap(
 ) {
     if spawned.0 || grid.width == 0 { return; }
     let Some(atlas) = images.get(&assets.world_texture).cloned() else { return; };
-    let Some(house_img) = images.get(&assets.house_texture).cloned() else { return; };
-    let Some(barracks_img) = images.get(&assets.barracks_texture).cloned() else { return; };
-    let Some(waypoint_img) = images.get(&assets.waypoint_texture).cloned() else { return; };
-    let Some(miner_house_img) = images.get(&assets.miner_house_texture).cloned() else { return; };
-    let Some(fighter_home_img) = images.get(&assets.fighter_home_texture).cloned() else { return; };
+    // Collect external building images from registry-driven handles
+    let extra_imgs: Option<Vec<Image>> = assets.external_textures.iter()
+        .map(|h| images.get(h).cloned()).collect();
+    let Some(extra_imgs) = extra_imgs else { return; };
+    let extra_refs: Vec<&Image> = extra_imgs.iter().collect();
 
     // Terrain layer
     let terrain_tileset = build_tileset(&atlas, &TERRAIN_TILES, &[], &mut images);
@@ -610,7 +604,7 @@ fn spawn_world_tilemap(
     let building_atlas = build_building_atlas(
         &atlas,
         &btiles,
-        &[&house_img, &barracks_img, &waypoint_img, &miner_house_img, &fighter_home_img],
+        &extra_refs,
         &mut images,
     );
     if let Some(img) = images.get(&building_atlas) {

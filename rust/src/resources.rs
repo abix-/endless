@@ -1252,10 +1252,10 @@ pub fn npc_matches_owner(owner: SquadOwner, npc_town_id: i32, player_town: i32) 
     }
 }
 
-/// A squad of archers (player-controlled or AI-commanded).
+/// A squad of combat units (player-controlled or AI-commanded).
 #[derive(Clone)]
 pub struct Squad {
-    /// NPC slot indices of archers in this squad.
+    /// NPC slot indices assigned to this squad.
     pub members: Vec<usize>,
     /// Squad target position. None = no target, guards patrol normally.
     pub target: Option<Vec2>,
@@ -1265,6 +1265,14 @@ pub struct Squad {
     pub patrol_enabled: bool,
     /// If true, squad members go home to rest when tired.
     pub rest_when_tired: bool,
+    /// Wave state: true while this squad is actively attacking a target.
+    pub wave_active: bool,
+    /// Member count at wave start, used to detect heavy casualties.
+    pub wave_start_count: usize,
+    /// Minimum members required before a new wave can start.
+    pub wave_min_start: usize,
+    /// End wave when alive members drop below this percent of `wave_start_count`.
+    pub wave_retreat_below_pct: usize,
     /// Squad owner: Player (indices 0..MAX_SQUADS) or AI Town (appended after).
     pub owner: SquadOwner,
 }
@@ -1281,6 +1289,10 @@ impl Default for Squad {
             target_size: 0,
             patrol_enabled: true,
             rest_when_tired: true,
+            wave_active: false,
+            wave_start_count: 0,
+            wave_min_start: 0,
+            wave_retreat_below_pct: 50,
             owner: SquadOwner::Player,
         }
     }

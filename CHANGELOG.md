@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-18e
+
+- **RenderFrameConfig** — consolidate 4→1 ExtractResourcePlugin: `NpcGpuData`, `ProjGpuData`, `NpcSpriteTexture`, `ReadbackHandles` absorbed into single `RenderFrameConfig` resource; all render-world systems read via `config.npc`, `config.proj`, `config.textures`, `config.readback`
+- **TileSpec::External carries asset path** — `External(usize)` → `External(&'static str)` so `BUILDING_REGISTRY` is single source of truth for building sprite paths; `SpriteAssets` replaces 5 named texture fields with `external_textures: Vec<Handle<Image>>` loaded by iterating registry; `spawn_world_tilemap` and `build_menu.rs` derive external images from the vec; adding a new External building = one registry entry + drop PNG
+
 ## 2026-02-18d
 
 - **fighter home building** — new `FighterHome` building type (cost 5 food, 150 HP) spawning `Job::Fighter` units that patrol waypoints via `FindNearestWaypoint` behavior; `is_patrol_unit: true` so fighters join the waypoint patrol loop like archers and crossbows
