@@ -75,7 +75,7 @@ Helper functions: `building_pos_town(kind, index)` → `Option<(Vec2, u32)>` del
 | Resource | Data | Purpose |
 |----------|------|---------|
 | WorldGrid | `Vec<WorldCell>` (width × height), cell_size | World-wide terrain + building grid |
-| WorldGenConfig | world dimensions, num_towns, spacing, per-town NPC counts | Procedural generation parameters |
+| WorldGenConfig | world dimensions, num_towns, spacing, npc_counts: BTreeMap\<Job, usize\> | Procedural generation parameters |
 
 **WorldCell** fields: `terrain: Biome` (Grass/Forest/Water/Rock/Dirt), `building: Option<Building>`.
 
@@ -83,9 +83,9 @@ Helper functions: `building_pos_town(kind, index)` → `Option<(Vec2, u32)>` del
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
-**WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px camp distance, 2 farmers / 2 archers / 0 raiders per town (testing defaults), 2 gold mines per town.
+**WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px camp distance, npc_counts populated from NPC_REGISTRY default_count (Farmer:2, Archer:4, Raider:1, rest:0), 2 gold mines per town.
 
-**`generate_world()`**: Takes config and populates WorldGrid, WorldData, TownGrids, and MineStates. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Villager towns get 1 fountain, 2 farms, N FarmerHomes + N ArcherHomes (spiral-placed), then 4 waypoints on the outer ring. Raider camps get a Camp center + N Tents (spiral-placed from slider). Both town types get a TownGrid with expandable building slots. Gold mines placed in wilderness between settlements (min 300px from any town, min 400px between mines, `gold_mines_per_town × total_towns` count). Building positions are generated via `spiral_slots()` — a spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
+**`generate_world()`**: Takes config and populates WorldGrid, WorldData, TownGrids, and MineStates. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Villager towns get 1 fountain, N farms, then homes for each village NPC type from NPC_REGISTRY (spiral-placed via `npc_counts` map), then 4 waypoints on the outer ring. Raider camps get a Camp center + homes for each camp NPC type from NPC_REGISTRY (spiral-placed via `npc_counts` map). Both town types get a TownGrid with expandable building slots. Gold mines placed in wilderness between settlements (min 300px from any town, min 400px between mines, `gold_mines_per_town × total_towns` count). Building positions are generated via `spiral_slots()` — a spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
 
 ### Town Building Grid
 
@@ -138,7 +138,7 @@ Derived methods: `day()`, `hour()`, `minute()`, `is_daytime()` (6am–8pm), `tot
 | Resource | Fields | Default |
 |----------|--------|---------|
 | Difficulty | Easy, Normal, Hard | Normal |
-| GameConfig | farmers_per_town, archers_per_town, raiders_per_camp, spawn_interval_hours, food_per_work_hour | 10, 30, 15, 4, 1 |
+| GameConfig | npc_counts: BTreeMap\<Job, i32\>, spawn_interval_hours, food_per_work_hour | from NPC_REGISTRY defaults, 4, 1 |
 
 Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 

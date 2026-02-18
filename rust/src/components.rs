@@ -29,7 +29,7 @@ impl Position {
 /// - Farmer (green): works at farms, avoids combat
 /// - Archer (blue): patrols and fights raiders
 /// - Raider (red): attacks guards, steals from farms
-#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Job {
     Farmer,
     Archer,

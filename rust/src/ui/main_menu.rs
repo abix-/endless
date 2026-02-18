@@ -1,9 +1,12 @@
 //! Main menu — world config sliders + Play / Debug Tests buttons.
 
+use std::collections::BTreeMap;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::AppState;
+use crate::components::Job;
+use crate::constants::NPC_REGISTRY;
 use crate::settings;
 use crate::world::{WorldGenConfig, WorldGenStyle};
 use crate::systems::AiPlayerConfig;
@@ -14,9 +17,8 @@ pub struct MenuState {
     pub world_size: f32,
     pub towns: f32,
     pub farms: f32,
-    pub farmers: f32,
-    pub archers: f32,
-    pub raiders: f32,
+    /// Per-job NPC home counts, driven by NPC_REGISTRY.
+    pub npc_counts: BTreeMap<Job, f32>,
     pub ai_towns: f32,
     pub raider_camps: f32,
     pub ai_interval: f32,
@@ -64,9 +66,12 @@ pub fn main_menu_system(
         state.world_size = saved.world_size;
         state.towns = saved.towns as f32;
         state.farms = saved.farms as f32;
-        state.farmers = saved.farmers as f32;
-        state.archers = saved.archers as f32;
-        state.raiders = saved.raiders as f32;
+        // Load npc_counts from settings (String keys → Job)
+        for def in NPC_REGISTRY {
+            let key = format!("{:?}", def.job);
+            let count = saved.npc_counts.get(&key).copied().unwrap_or(def.default_count);
+            state.npc_counts.insert(def.job, count as f32);
+        }
         state.ai_towns = saved.ai_towns as f32;
         state.raider_camps = saved.raider_camps as f32;
         state.ai_interval = saved.ai_interval;
@@ -82,14 +87,14 @@ pub fn main_menu_system(
 
     // Apply difficulty presets when difficulty changes
     if state.difficulty != state.prev_difficulty {
-        let (farms, farmers, archers, raiders, ai_towns, raider_camps, gold_mines) = state.difficulty.presets();
-        state.farms = farms as f32;
-        state.farmers = farmers as f32;
-        state.archers = archers as f32;
-        state.raiders = raiders as f32;
-        state.ai_towns = ai_towns as f32;
-        state.raider_camps = raider_camps as f32;
-        state.gold_mines = gold_mines as f32;
+        let preset = state.difficulty.presets();
+        state.farms = preset.farms as f32;
+        state.ai_towns = preset.ai_towns as f32;
+        state.raider_camps = preset.raider_camps as f32;
+        state.gold_mines = preset.gold_mines as f32;
+        for (&job, &count) in &preset.npc_counts {
+            state.npc_counts.insert(job, count as f32);
+        }
         state.prev_difficulty = state.difficulty;
     }
 
@@ -189,26 +194,21 @@ pub fn main_menu_system(
                         }
                     });
                     ui.indent("ai_town_children", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Farmer Homes:");
-                            ui.add(egui::Slider::new(&mut state.farmers, 0.0..=1000.0)
-                                .step_by(1.0)
-                                .show_value(false));
-                            let mut f = state.farmers as i32;
-                            if ui.add(egui::DragValue::new(&mut f).range(0..=1000).suffix(" /town")).changed() {
-                                state.farmers = f as f32;
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Archer Homes:");
-                            ui.add(egui::Slider::new(&mut state.archers, 0.0..=1000.0)
-                                .step_by(1.0)
-                                .show_value(false));
-                            let mut g = state.archers as i32;
-                            if ui.add(egui::DragValue::new(&mut g).range(0..=1000).suffix(" /town")).changed() {
-                                state.archers = g as f32;
-                            }
-                        });
+                        // Village NPC home sliders — driven by NPC_REGISTRY
+                        for def in NPC_REGISTRY.iter().filter(|d| !d.is_camp_unit) {
+                            ui.horizontal(|ui| {
+                                let label = format!("{} Homes:", def.label);
+                                ui.label(label);
+                                let val = state.npc_counts.entry(def.job).or_insert(0.0);
+                                ui.add(egui::Slider::new(val, 0.0..=1000.0)
+                                    .step_by(1.0)
+                                    .show_value(false));
+                                let mut iv = *val as i32;
+                                if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /town")).changed() {
+                                    *val = iv as f32;
+                                }
+                            });
+                        }
                     });
 
                     ui.add_space(4.0);
@@ -225,16 +225,21 @@ pub fn main_menu_system(
                         }
                     });
                     ui.indent("raider_camp_children", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Tents:");
-                            ui.add(egui::Slider::new(&mut state.raiders, 0.0..=1000.0)
-                                .step_by(1.0)
-                                .show_value(false));
-                            let mut r = state.raiders as i32;
-                            if ui.add(egui::DragValue::new(&mut r).range(0..=1000).suffix(" /camp")).changed() {
-                                state.raiders = r as f32;
-                            }
-                        });
+                        // Camp NPC home sliders — driven by NPC_REGISTRY
+                        for def in NPC_REGISTRY.iter().filter(|d| d.is_camp_unit) {
+                            ui.horizontal(|ui| {
+                                let label = format!("{}s:", def.label);
+                                ui.label(label);
+                                let val = state.npc_counts.entry(def.job).or_insert(0.0);
+                                ui.add(egui::Slider::new(val, 0.0..=1000.0)
+                                    .step_by(1.0)
+                                    .show_value(false));
+                                let mut iv = *val as i32;
+                                if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /camp")).changed() {
+                                    *val = iv as f32;
+                                }
+                            });
+                        }
                     });
                 });
 
@@ -259,9 +264,7 @@ pub fn main_menu_system(
                 wg_config.world_height = state.world_size;
                 wg_config.num_towns = 1;
                 wg_config.farms_per_town = state.farms as usize;
-                wg_config.farmers_per_town = state.farmers as usize;
-                wg_config.archers_per_town = state.archers as usize;
-                wg_config.raiders_per_camp = state.raiders as usize;
+                wg_config.npc_counts = state.npc_counts.iter().map(|(&job, &v)| (job, v as usize)).collect();
                 wg_config.ai_towns = state.ai_towns as usize;
                 wg_config.raider_camps = state.raider_camps as usize;
                 wg_config.gold_mines_per_town = state.gold_mines as usize;
@@ -272,9 +275,9 @@ pub fn main_menu_system(
                 saved.world_size = state.world_size;
                 saved.towns = 1;
                 saved.farms = state.farms as usize;
-                saved.farmers = state.farmers as usize;
-                saved.archers = state.archers as usize;
-                saved.raiders = state.raiders as usize;
+                saved.npc_counts = state.npc_counts.iter()
+                    .map(|(&job, &v)| (format!("{:?}", job), v as usize))
+                    .collect();
                 saved.ai_towns = state.ai_towns as usize;
                 saved.raider_camps = state.raider_camps as usize;
                 saved.ai_interval = state.ai_interval;
@@ -350,14 +353,18 @@ pub fn main_menu_system(
 
                     ui.add_space(8.0);
 
-                    // NPC total
-                    let player_towns = state.towns as i32;
-                    let ai_towns = state.ai_towns as i32;
+                    // NPC total — computed from registry grouping
+                    let towns = state.towns as i32 + state.ai_towns as i32;
                     let camps = state.raider_camps as i32;
-                    let per_town = state.farmers as i32 + state.archers as i32;
-                    let villagers = (player_towns + ai_towns) * per_town;
-                    let raiders = camps * state.raiders as i32;
-                    let total = villagers + raiders;
+                    let village_per_town: i32 = NPC_REGISTRY.iter()
+                        .filter(|d| !d.is_camp_unit)
+                        .map(|d| *state.npc_counts.get(&d.job).unwrap_or(&0.0) as i32)
+                        .sum();
+                    let camp_per_camp: i32 = NPC_REGISTRY.iter()
+                        .filter(|d| d.is_camp_unit)
+                        .map(|d| *state.npc_counts.get(&d.job).unwrap_or(&0.0) as i32)
+                        .sum();
+                    let total = towns * village_per_town + camps * camp_per_camp;
                     ui.label(format!("~{} NPCs total", total));
 
                     ui.add_space(12.0);
@@ -372,9 +379,11 @@ pub fn main_menu_system(
                             state.world_size = defaults.world_size;
                             state.towns = defaults.towns as f32;
                             state.farms = defaults.farms as f32;
-                            state.farmers = defaults.farmers as f32;
-                            state.archers = defaults.archers as f32;
-                            state.raiders = defaults.raiders as f32;
+                            for def in NPC_REGISTRY {
+                                let key = format!("{:?}", def.job);
+                                let count = defaults.npc_counts.get(&key).copied().unwrap_or(def.default_count);
+                                state.npc_counts.insert(def.job, count as f32);
+                            }
                             state.ai_towns = defaults.ai_towns as f32;
                             state.raider_camps = defaults.raider_camps as f32;
                             state.ai_interval = defaults.ai_interval;

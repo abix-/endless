@@ -32,7 +32,8 @@ mod opt_vec2_as_array {
     }
 }
 
-use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT};
+use crate::components::Job;
+use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
 use crate::resources::{GrowthStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, BuildingSlotMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
 use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
 
@@ -247,7 +248,8 @@ pub fn place_building(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     farm_states: &mut GrowthStates,
-    building: Building,
+    kind: BuildingKind,
+    town_idx: u32,
     row: i32,
     col: i32,
     town_center: Vec2,
@@ -267,15 +269,15 @@ pub fn place_building(
 
     // Place on grid
     if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = Some(building);
+        cell.building = Some((kind, town_idx));
     }
 
     // Register in WorldData
-    let def = crate::constants::building_def(building.kind());
-    (def.place)(world_data, snapped_pos, (def.town_idx)(&building));
+    let def = crate::constants::building_def(kind);
+    (def.place)(world_data, snapped_pos, town_idx);
     // Farm also needs growth state
-    if let Building::Farm { town_idx } = building {
-        farm_states.push_farm(snapped_pos, town_idx as u32);
+    if kind == BuildingKind::Farm {
+        farm_states.push_farm(snapped_pos, town_idx);
     }
 
     Ok(())
@@ -344,12 +346,12 @@ pub fn resolve_spawner_npc(
 /// Single construction site for all SpawnerEntry structs.
 pub fn register_spawner(
     spawner_state: &mut SpawnerState,
-    building: Building,
+    kind: BuildingKind,
     town_idx: i32,
     position: Vec2,
     respawn_timer: f32,
 ) {
-    if let Some(sk) = building.spawner_kind() {
+    if let Some(sk) = spawner_kind(kind) {
         spawner_state.0.push(SpawnerEntry {
             building_kind: sk,
             town_idx,
@@ -361,8 +363,7 @@ pub fn register_spawner(
 }
 
 /// Place a building, deduct food, and push a spawner entry if applicable.
-/// Shared by player build menu and AI. Spawner kind is derived from
-/// `Building::spawner_kind()` — callers never pass magic numbers.
+/// Shared by player build menu and AI.
 pub fn build_and_pay(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
@@ -373,26 +374,26 @@ pub fn build_and_pay(
     slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingSlotMap,
     dirty: &mut DirtyFlags,
-    building: Building,
+    kind: BuildingKind,
     town_data_idx: usize,
     row: i32, col: i32,
     town_center: Vec2,
     cost: i32,
 ) -> bool {
-    if place_building(grid, world_data, farm_states, building, row, col, town_center).is_err() {
+    let town_idx = town_data_idx as u32;
+    if place_building(grid, world_data, farm_states, kind, town_idx, row, col, town_center).is_err() {
         return false;
     }
     if let Some(f) = food_storage.food.get_mut(town_data_idx) { *f -= cost; }
     let pos = town_grid_to_world(town_center, row, col);
     let (gc, gr) = grid.world_to_grid(pos);
     let snapped = grid.grid_to_world(gc, gr);
-    register_spawner(spawner_state, building, town_data_idx as i32, snapped, 0.0);
-    building_hp.push_for(&building);
+    register_spawner(spawner_state, kind, town_data_idx as i32, snapped, 0.0);
+    building_hp.push_for(kind);
 
     // Allocate GPU NPC slot for building collision
-    let kind = building.kind();
     let def = crate::constants::building_def(kind);
-    let data_idx = find_building_data_index(world_data, building, snapped).unwrap_or(0);
+    let data_idx = find_building_data_index(world_data, kind, snapped).unwrap_or(0);
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
     allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(kind), def.is_tower);
 
@@ -524,11 +525,9 @@ pub fn place_waypoint_at_world_pos(
         .filter(|w| w.town_idx == ti && is_alive(w.position))
         .count() as u32;
 
-    let building = Building::Waypoint { town_idx: ti, patrol_order: existing };
-
     // Place on grid
     if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = Some(building);
+        cell.building = Some((BuildingKind::Waypoint, ti));
     }
 
     // Register in WorldData + HP
@@ -539,7 +538,7 @@ pub fn place_waypoint_at_world_pos(
         patrol_order: existing,
         ..PlacedBuilding::new(snapped, ti)
     });
-    building_hp.push_for(&building);
+    building_hp.push_for(BuildingKind::Waypoint);
 
     // Allocate GPU NPC slot for collision
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
@@ -598,20 +597,17 @@ pub fn remove_building(
     let (gc, gr) = grid.world_to_grid(world_pos);
     let snapped_pos = grid.grid_to_world(gc, gr);
 
-    let building = match grid.cell(gc, gr) {
-        Some(cell) => match &cell.building {
-            Some(b) => *b,
+    let (kind, _town_idx) = match grid.cell(gc, gr) {
+        Some(cell) => match cell.building {
+            Some(b) => b,
             None => return Err("no building to remove"),
         },
         None => return Err("cell out of bounds"),
     };
 
     // Don't allow removing fountains or camps
-    match building {
-        Building::Fountain { .. } => return Err("cannot remove fountain"),
-        Building::Camp { .. } => return Err("cannot remove camp"),
-        _ => {}
-    }
+    if kind == BuildingKind::Fountain { return Err("cannot remove fountain"); }
+    if kind == BuildingKind::Camp { return Err("cannot remove camp"); }
 
     // Clear grid cell
     if let Some(cell) = grid.cell_mut(gc, gr) {
@@ -619,9 +615,9 @@ pub fn remove_building(
     }
 
     // Tombstone in WorldData (set position to far offscreen so spatial queries skip it)
-    let def = crate::constants::building_def(building.kind());
+    let def = crate::constants::building_def(kind);
     // Farm also needs growth state tombstoned (find index before tombstone moves position)
-    if let Building::Farm { .. } = building {
+    if kind == BuildingKind::Farm {
         if let Some(farm_idx) = (def.find_index)(world_data, snapped_pos) {
             farm_states.tombstone(farm_idx);
         }
@@ -661,8 +657,8 @@ impl WorldData {
 }
 
 /// Find the index of a building in its WorldData vec by position match.
-pub fn find_building_data_index(world_data: &WorldData, building: Building, pos: Vec2) -> Option<usize> {
-    (crate::constants::building_def(building.kind()).find_index)(world_data, pos)
+pub fn find_building_data_index(world_data: &WorldData, kind: BuildingKind, pos: Vec2) -> Option<usize> {
+    (crate::constants::building_def(kind).find_index)(world_data, pos)
 }
 
 /// Consolidated building destruction: grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log.
@@ -686,14 +682,14 @@ pub fn destroy_building(
     let snapped = grid.grid_to_world(gc, gr);
 
     // Capture building info BEFORE remove_building clears the grid cell
-    let building = grid.cell(gc, gr)
+    let (kind, bld_town_idx) = grid.cell(gc, gr)
         .and_then(|c| c.building)
         .ok_or("no building")?;
-    let hp_index = find_building_data_index(world_data, building, snapped);
+    let hp_index = find_building_data_index(world_data, kind, snapped);
 
     // Free GPU NPC slot
     if let Some(idx) = hp_index {
-        free_building_slot(slot_alloc, building_slots, building.kind(), idx);
+        free_building_slot(slot_alloc, building_slots, kind, idx);
     }
 
     // Grid clear + WorldData tombstone
@@ -706,13 +702,13 @@ pub fn destroy_building(
 
     // Zero HP entry
     if let Some(idx) = hp_index {
-        if let Some(hp) = building_hp.get_mut(building.kind(), idx) {
+        if let Some(hp) = building_hp.get_mut(kind, idx) {
             *hp = 0.0;
         }
     }
 
     // Combat log — derive faction from building's town_idx
-    let bld_town = (crate::constants::building_def(building.kind()).town_idx)(&building) as usize;
+    let bld_town = bld_town_idx as usize;
     let faction = world_data.towns.get(bld_town).map(|t| t.faction).unwrap_or(0);
     combat_log.push(
         CombatEventKind::Harvest, faction,
@@ -868,7 +864,7 @@ pub trait Worksite {
     fn town_idx(&self) -> u32;
 }
 
-impl Worksite for Farm {
+impl Worksite for PlacedBuilding {
     fn position(&self) -> Vec2 { self.position }
     fn town_idx(&self) -> u32 { self.town_idx }
 }
@@ -1211,122 +1207,16 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
     ))
 }
 
-/// Building occupying a grid cell.
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(into = "BuildingSerde", from = "BuildingSerde")]
-pub enum Building {
-    Fountain { town_idx: u32 },
-    Farm { town_idx: u32 },
-    Bed { town_idx: u32 },
-    Waypoint { town_idx: u32, patrol_order: u32 },
-    Camp { town_idx: u32 },
-    GoldMine,
-    MinerHome { town_idx: u32 },
-    /// Generic unit-home variant — kind determines which building type.
-    Home { kind: BuildingKind, town_idx: u32 },
-}
+/// Grid cell building = (kind, town_idx). Replaces the old Building enum.
+pub type GridBuilding = (BuildingKind, u32);
 
-/// Serde proxy for backward-compatible Building serialization.
-/// Legacy variant names (FarmerHome, ArcherHome, etc.) are preserved in saves.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-enum BuildingSerde {
-    Fountain { town_idx: u32 },
-    Farm { town_idx: u32 },
-    Bed { town_idx: u32 },
-    #[serde(alias = "GuardPost")]
-    Waypoint { town_idx: u32, patrol_order: u32 },
-    Camp { town_idx: u32 },
-    GoldMine,
-    MinerHome { town_idx: u32 },
-    // Legacy names kept for save compat:
-    FarmerHome { town_idx: u32 },
-    ArcherHome { town_idx: u32 },
-    CrossbowHome { town_idx: u32 },
-    FighterHome { town_idx: u32 },
-    Tent { town_idx: u32 },
-    // New generic format for future building kinds:
-    Home { kind: BuildingKind, town_idx: u32 },
-}
-
-impl From<Building> for BuildingSerde {
-    fn from(b: Building) -> Self {
-        match b {
-            Building::Fountain { town_idx } => BuildingSerde::Fountain { town_idx },
-            Building::Farm { town_idx } => BuildingSerde::Farm { town_idx },
-            Building::Bed { town_idx } => BuildingSerde::Bed { town_idx },
-            Building::Waypoint { town_idx, patrol_order } => BuildingSerde::Waypoint { town_idx, patrol_order },
-            Building::Camp { town_idx } => BuildingSerde::Camp { town_idx },
-            Building::GoldMine => BuildingSerde::GoldMine,
-            Building::MinerHome { town_idx } => BuildingSerde::MinerHome { town_idx },
-            Building::Home { kind, town_idx } => match kind {
-                // Write legacy names for known kinds
-                BuildingKind::FarmerHome => BuildingSerde::FarmerHome { town_idx },
-                BuildingKind::ArcherHome => BuildingSerde::ArcherHome { town_idx },
-                BuildingKind::CrossbowHome => BuildingSerde::CrossbowHome { town_idx },
-                BuildingKind::FighterHome => BuildingSerde::FighterHome { town_idx },
-                BuildingKind::Tent => BuildingSerde::Tent { town_idx },
-                // New kinds use generic format
-                _ => BuildingSerde::Home { kind, town_idx },
-            },
-        }
-    }
-}
-
-impl From<BuildingSerde> for Building {
-    fn from(b: BuildingSerde) -> Self {
-        match b {
-            BuildingSerde::Fountain { town_idx } => Building::Fountain { town_idx },
-            BuildingSerde::Farm { town_idx } => Building::Farm { town_idx },
-            BuildingSerde::Bed { town_idx } => Building::Bed { town_idx },
-            BuildingSerde::Waypoint { town_idx, patrol_order } => Building::Waypoint { town_idx, patrol_order },
-            BuildingSerde::Camp { town_idx } => Building::Camp { town_idx },
-            BuildingSerde::GoldMine => Building::GoldMine,
-            BuildingSerde::MinerHome { town_idx } => Building::MinerHome { town_idx },
-            BuildingSerde::FarmerHome { town_idx } => Building::Home { kind: BuildingKind::FarmerHome, town_idx },
-            BuildingSerde::ArcherHome { town_idx } => Building::Home { kind: BuildingKind::ArcherHome, town_idx },
-            BuildingSerde::CrossbowHome { town_idx } => Building::Home { kind: BuildingKind::CrossbowHome, town_idx },
-            BuildingSerde::FighterHome { town_idx } => Building::Home { kind: BuildingKind::FighterHome, town_idx },
-            BuildingSerde::Tent { town_idx } => Building::Home { kind: BuildingKind::Tent, town_idx },
-            BuildingSerde::Home { kind, town_idx } => Building::Home { kind, town_idx },
-        }
-    }
-}
-
-impl Building {
-    /// Returns the spawner building_kind index (position in BUILDING_REGISTRY for spawner types),
-    /// or None for non-spawner buildings.
-    pub fn spawner_kind(&self) -> Option<i32> {
-        let def = crate::constants::building_def(self.kind());
-        if def.spawner.is_some() {
-            Some(crate::constants::tileset_index(self.kind()) as i32)
-        } else {
-            None
-        }
-    }
-
-    /// Map to BuildingKind. All variants covered — every building has HP.
-    pub fn kind(&self) -> BuildingKind {
-        match self {
-            Building::Farm { .. } => BuildingKind::Farm,
-            Building::Waypoint { .. } => BuildingKind::Waypoint,
-            Building::Fountain { .. } => BuildingKind::Fountain,
-            Building::Camp { .. } => BuildingKind::Camp,
-            Building::GoldMine => BuildingKind::GoldMine,
-            Building::MinerHome { .. } => BuildingKind::MinerHome,
-            Building::Bed { .. } => BuildingKind::Bed,
-            Building::Home { kind, .. } => *kind,
-        }
-    }
-
-    /// Whether this building is a tower (auto-shoots at nearby enemies via GPU targeting).
-    pub fn is_tower(&self) -> bool {
-        crate::constants::building_def(self.kind()).is_tower
-    }
-
-    /// Map building variant to tileset array index (position in BUILDING_REGISTRY).
-    pub fn tileset_index(&self) -> u16 {
-        crate::constants::tileset_index(self.kind())
+/// Returns the spawner building_kind index for a BuildingKind, or None for non-spawner buildings.
+pub fn spawner_kind(kind: BuildingKind) -> Option<i32> {
+    let def = crate::constants::building_def(kind);
+    if def.spawner.is_some() {
+        Some(crate::constants::tileset_index(kind) as i32)
+    } else {
+        None
     }
 }
 
@@ -1334,7 +1224,7 @@ impl Building {
 #[derive(Clone, Debug, Default)]
 pub struct WorldCell {
     pub terrain: Biome,
-    pub building: Option<Building>,
+    pub building: Option<GridBuilding>,
 }
 
 /// World-wide grid covering the entire map. Each cell has terrain + optional building.
@@ -1416,9 +1306,8 @@ pub struct WorldGenConfig {
     pub grid_spacing: f32,
     pub camp_distance: f32,
     pub farms_per_town: usize,
-    pub farmers_per_town: usize,
-    pub archers_per_town: usize,
-    pub raiders_per_camp: usize,
+    /// Per-job home count: village NPCs = per town, camp NPCs = per camp.
+    pub npc_counts: BTreeMap<Job, usize>,
     pub ai_towns: usize,
     pub raider_camps: usize,
     pub gold_mines_per_town: usize,
@@ -1437,9 +1326,7 @@ impl Default for WorldGenConfig {
             grid_spacing: 34.0,
             camp_distance: 3500.0,
             farms_per_town: 2,
-            farmers_per_town: 2,
-            archers_per_town: 2,
-            raiders_per_camp: 1,
+            npc_counts: NPC_REGISTRY.iter().map(|d| (d.job, d.default_count)).collect(),
             ai_towns: 1,
             raider_camps: 1,
             gold_mines_per_town: 2,
@@ -1636,7 +1523,7 @@ pub fn generate_world(
         }
         let snapped = grid.grid_to_world(gc, gr);
         if let Some(cell) = grid.cell_mut(gc, gr) {
-            cell.building = Some(Building::GoldMine);
+            cell.building = Some((BuildingKind::GoldMine, 0));
         }
         world_data.get_mut(BuildingKind::GoldMine).push(PlacedBuilding::new(snapped, 0));
         farm_states.push_mine(snapped);
@@ -1663,13 +1550,13 @@ fn place_town_buildings(
     let mut occupied = HashSet::new();
 
     // Helper: place building at town grid (row, col), return snapped world position
-    let mut place = |row: i32, col: i32, building: Building, occ: &mut HashSet<(i32, i32)>, _tg: &mut TownGrid| -> Vec2 {
+    let mut place = |row: i32, col: i32, kind: BuildingKind, ti: u32, occ: &mut HashSet<(i32, i32)>, _tg: &mut TownGrid| -> Vec2 {
         let world_pos = town_grid_to_world(center, row, col);
         let (gc, gr) = grid.world_to_grid(world_pos);
         let snapped_pos = grid.grid_to_world(gc, gr);
         if let Some(cell) = grid.cell_mut(gc, gr) {
             if cell.building.is_none() {
-                cell.building = Some(building);
+                cell.building = Some((kind, ti));
             }
         }
         occ.insert((row, col));
@@ -1677,30 +1564,32 @@ fn place_town_buildings(
     };
 
     // Fountain at (0, 0) = town center
-    place(0, 0, Building::Fountain { town_idx }, &mut occupied, town_grid);
+    place(0, 0, BuildingKind::Fountain, town_idx, &mut occupied, town_grid);
 
-    // All buildings spiral outward from center: farms first (closest), then farmer homes, then archer homes
-    let needed = config.farms_per_town + config.farmers_per_town + config.archers_per_town;
+    // All buildings spiral outward from center: farms first, then NPC homes from registry
+    let village_homes: usize = NPC_REGISTRY.iter()
+        .filter(|d| !d.is_camp_unit)
+        .map(|d| config.npc_counts.get(&d.job).copied().unwrap_or(0))
+        .sum();
+    let needed = config.farms_per_town + village_homes;
     let slots = spiral_slots(&occupied, needed);
     let mut slot_iter = slots.into_iter();
 
     for _ in 0..config.farms_per_town {
         let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::Farm { town_idx }, &mut occupied, town_grid);
+        let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied, town_grid);
         world_data.get_mut(BuildingKind::Farm).push(PlacedBuilding::new(pos, town_idx));
         farm_states.push_farm(pos, town_idx as u32);
     }
 
-    for _ in 0..config.farmers_per_town {
-        let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::Home { kind: BuildingKind::FarmerHome, town_idx }, &mut occupied, town_grid);
-        world_data.get_mut(BuildingKind::FarmerHome).push(PlacedBuilding::new(pos, town_idx));
-    }
-
-    for _ in 0..config.archers_per_town {
-        let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, Building::Home { kind: BuildingKind::ArcherHome, town_idx }, &mut occupied, town_grid);
-        world_data.get_mut(BuildingKind::ArcherHome).push(PlacedBuilding::new(pos, town_idx));
+    // Place homes for each village NPC type from registry
+    for def in NPC_REGISTRY.iter().filter(|d| !d.is_camp_unit) {
+        let count = config.npc_counts.get(&def.job).copied().unwrap_or(0);
+        for _ in 0..count {
+            let Some((row, col)) = slot_iter.next() else { break };
+            let pos = place(row, col, def.home_building, town_idx, &mut occupied, town_grid);
+            world_data.get_mut(def.home_building).push(PlacedBuilding::new(pos, town_idx));
+        }
     }
 
     // 4 waypoints: at the outer corners of all placed buildings (clockwise patrol: TL → TR → BR → BL)
@@ -1716,7 +1605,7 @@ fn place_town_buildings(
         (min_row - 1, min_col - 1), // BL (bottom-left)
     ];
     for (order, (row, col)) in corners.into_iter().enumerate() {
-        let post_pos = place(row, col, Building::Waypoint { town_idx, patrol_order: order as u32 }, &mut occupied, town_grid);
+        let post_pos = place(row, col, BuildingKind::Waypoint, town_idx, &mut occupied, town_grid);
         world_data.get_mut(BuildingKind::Waypoint).push(PlacedBuilding {
             position: post_pos,
             town_idx,
@@ -1749,23 +1638,32 @@ pub fn place_camp_buildings(
     let world_pos = town_grid_to_world(center, 0, 0);
     let (gc, gr) = grid.world_to_grid(world_pos);
     if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = Some(Building::Camp { town_idx });
+        cell.building = Some((BuildingKind::Camp, town_idx));
     }
     occupied.insert((0, 0));
 
-    // Place tents in spiral around camp center
-    let slots = spiral_slots(&occupied, config.raiders_per_camp);
-    for (row, col) in slots {
-        let world_pos = town_grid_to_world(center, row, col);
-        let (gc, gr) = grid.world_to_grid(world_pos);
-        let snapped = grid.grid_to_world(gc, gr);
-        if let Some(cell) = grid.cell_mut(gc, gr) {
-            if cell.building.is_none() {
-                cell.building = Some(Building::Home { kind: BuildingKind::Tent, town_idx });
+    // Place camp unit homes in spiral around camp center (from NPC registry)
+    let camp_homes: usize = NPC_REGISTRY.iter()
+        .filter(|d| d.is_camp_unit)
+        .map(|d| config.npc_counts.get(&d.job).copied().unwrap_or(0))
+        .sum();
+    let slots = spiral_slots(&occupied, camp_homes);
+    let mut slot_iter = slots.into_iter();
+    for def in NPC_REGISTRY.iter().filter(|d| d.is_camp_unit) {
+        let count = config.npc_counts.get(&def.job).copied().unwrap_or(0);
+        for _ in 0..count {
+            let Some((row, col)) = slot_iter.next() else { break };
+            let world_pos = town_grid_to_world(center, row, col);
+            let (gc, gr) = grid.world_to_grid(world_pos);
+            let snapped = grid.grid_to_world(gc, gr);
+            if let Some(cell) = grid.cell_mut(gc, gr) {
+                if cell.building.is_none() {
+                    cell.building = Some((def.home_building, town_idx));
+                }
             }
+            occupied.insert((row, col));
+            world_data.get_mut(def.home_building).push(PlacedBuilding::new(snapped, town_idx));
         }
-        occupied.insert((row, col));
-        world_data.get_mut(BuildingKind::Tent).push(PlacedBuilding::new(snapped, town_idx));
     }
 
     // Ensure generated tents are always inside the buildable area.

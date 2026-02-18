@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::resources::PolicySet;
 
-const SETTINGS_VERSION: u32 = 6;
+const SETTINGS_VERSION: u32 = 7;
 
 /// Persisted user settings. Saved to `Documents\Endless\settings.json`.
 #[derive(Resource, Serialize, Deserialize, Clone)]
@@ -18,10 +18,16 @@ pub struct UserSettings {
     pub towns: usize,
     #[serde(default = "default_farms")]
     pub farms: usize,
+    // Legacy per-type fields — kept for backward compat loading, migrated to npc_counts
+    #[serde(default)]
     pub farmers: usize,
-    #[serde(alias = "guards")]
+    #[serde(default, alias = "guards")]
     pub archers: usize,
+    #[serde(default)]
     pub raiders: usize,
+    /// Per-job NPC counts (key = Job debug name, e.g. "Farmer"). Replaces farmers/archers/raiders.
+    #[serde(default)]
+    pub npc_counts: std::collections::BTreeMap<String, usize>,
     // Camera
     pub scroll_speed: f32,
     // Combat log filters
@@ -135,9 +141,12 @@ impl Default for UserSettings {
             world_size: 8000.0,
             towns: 1,
             farms: 2,
-            farmers: 2,
-            archers: 4,
-            raiders: 1,
+            farmers: 0,
+            archers: 0,
+            raiders: 0,
+            npc_counts: crate::constants::NPC_REGISTRY.iter()
+                .map(|d| (format!("{:?}", d.job), d.default_count))
+                .collect(),
             scroll_speed: 400.0,
             log_kills: true,
             log_spawns: true,
@@ -206,6 +215,23 @@ pub fn load_settings() -> UserSettings {
     match std::fs::read_to_string(&path) {
         Ok(json) => {
             let mut settings: UserSettings = serde_json::from_str(&json).unwrap_or_default();
+            // Migrate legacy per-type fields into npc_counts
+            if settings.npc_counts.is_empty() {
+                if settings.farmers > 0 {
+                    settings.npc_counts.insert("Farmer".into(), settings.farmers);
+                }
+                if settings.archers > 0 {
+                    settings.npc_counts.insert("Archer".into(), settings.archers);
+                }
+                if settings.raiders > 0 {
+                    settings.npc_counts.insert("Raider".into(), settings.raiders);
+                }
+                // Fill missing jobs from registry defaults
+                for def in crate::constants::NPC_REGISTRY {
+                    let key = format!("{:?}", def.job);
+                    settings.npc_counts.entry(key).or_insert(def.default_count);
+                }
+            }
             if settings.version < SETTINGS_VERSION {
                 info!(
                     "Settings version {} → {}, new fields use defaults",

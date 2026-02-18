@@ -116,9 +116,8 @@ pub struct PopulationStats(pub HashMap<(i32, i32), PopStats>);
 /// Game config pushed from GDScript at startup.
 #[derive(Resource)]
 pub struct GameConfig {
-    pub farmers_per_town: i32,
-    pub archers_per_town: i32,
-    pub raiders_per_camp: i32,
+    /// Per-job home count (mirrors WorldGenConfig.npc_counts).
+    pub npc_counts: std::collections::BTreeMap<crate::components::Job, i32>,
     pub spawn_interval_hours: i32,
     pub food_per_work_hour: i32,
 }
@@ -126,9 +125,7 @@ pub struct GameConfig {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
-            farmers_per_town: 2,
-            archers_per_town: 500,
-            raiders_per_camp: 500,
+            npc_counts: crate::constants::NPC_REGISTRY.iter().map(|d| (d.job, d.default_count as i32)).collect(),
             spawn_interval_hours: 4,
             food_per_work_hour: 1,
         }
@@ -967,8 +964,7 @@ impl<'de> Deserialize<'de> for BuildingHpState {
 
 impl BuildingHpState {
     /// Push a new HP entry for a newly placed building.
-    pub fn push_for(&mut self, building: &crate::world::Building) {
-        let kind = building.kind();
+    pub fn push_for(&mut self, kind: crate::world::BuildingKind) {
         let def = crate::constants::building_def(kind);
         (def.hps_mut)(self).push(def.hp);
     }
@@ -1159,6 +1155,16 @@ pub struct MiningPolicy {
 // DIFFICULTY
 // ============================================================================
 
+/// Difficulty preset values for world gen.
+pub struct DifficultyPreset {
+    pub farms: usize,
+    pub ai_towns: usize,
+    pub raider_camps: usize,
+    pub gold_mines: usize,
+    /// Per-job NPC counts (only jobs listed are overridden; unlisted keep current value).
+    pub npc_counts: std::collections::BTreeMap<crate::components::Job, usize>,
+}
+
 /// Game difficulty — scales building costs. Selected on main menu, immutable during play.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Resource, serde::Serialize, serde::Deserialize)]
 pub enum Difficulty {
@@ -1179,13 +1185,15 @@ impl Difficulty {
         }
     }
 
-    /// World gen presets: (farms, farmers, archers, raiders_per_camp, ai_towns, raider_camps, gold_mines)
-    pub fn presets(self) -> (usize, usize, usize, usize, usize, usize, usize) {
-        match self {
-            Difficulty::Easy   => (4, 4, 8, 0, 2, 2, 3),
-            Difficulty::Normal => (2, 2, 4, 1, 5, 5, 2),
-            Difficulty::Hard   => (1, 0, 2, 2, 10, 10, 1),
-        }
+    /// World gen presets.
+    pub fn presets(self) -> DifficultyPreset {
+        use crate::components::Job;
+        let (farms, ai_towns, raider_camps, gold_mines, npc_counts) = match self {
+            Difficulty::Easy   => (4, 2, 2, 3, vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)]),
+            Difficulty::Normal => (2, 5, 5, 2, vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)]),
+            Difficulty::Hard   => (1, 10, 10, 1, vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)]),
+        };
+        DifficultyPreset { farms, ai_towns, raider_camps, gold_mines, npc_counts: npc_counts.into_iter().collect() }
     }
 
     /// Migration group scaling: extra raiders per N player villagers.

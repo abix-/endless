@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18s
+
+- **NPC registry drives start menu** — main menu sliders for NPC home counts are now generated dynamically from `NPC_REGISTRY` instead of hardcoded Farmer/Archer/Raider; `NpcDef` gains `home_building`, `is_camp_unit`, `default_count` fields; `WorldGenConfig` replaces `farmers_per_town`/`archers_per_town`/`raiders_per_camp` with `npc_counts: BTreeMap<Job, usize>`; `GameConfig` similarly uses `npc_counts: BTreeMap<Job, i32>`; `UserSettings` adds `npc_counts: BTreeMap<String, usize>` with automatic migration from legacy fields; `Difficulty::presets()` returns `DifficultyPreset` struct with npc_counts map; `build_town`/`place_camp_buildings` iterate NPC_REGISTRY to place homes; adding a new NPC type now automatically gets a start menu slider, world gen support, and settings persistence
+
 ## 2026-02-18r
 
 - **unified building storage** — replaced all separate building structs (`Farm`, `Bed`, `Waypoint`, `MinerHome`, `GoldMine`, `UnitHome`) with single `PlacedBuilding` struct; `WorldData.buildings: BTreeMap<BuildingKind, Vec<PlacedBuilding>>` replaces 6 separate vecs; `BuildingHpState` simplified to `towns: Vec<f32>` + `hps: BTreeMap<BuildingKind, Vec<f32>>`; legacy accessors (`farms()`, `beds()`, `waypoints()`, `miner_homes()`, `gold_mines()` + `_mut()` variants) preserved for call-site compatibility; type aliases maintain backward compat in type positions; `#[serde(default)]` on optional fields (`patrol_order`, `assigned_mine`, `manual_mine`) ensures old saves load cleanly; adding any new building type now requires only a `BuildingKind` variant + registry entry (no new struct, no new WorldData field, no new HP vec)

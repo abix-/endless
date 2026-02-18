@@ -332,9 +332,7 @@ fn game_startup_system(
     camp_state.init(num_towns, 10);
 
     // Sync GameConfig from WorldGenConfig
-    game_config.farmers_per_town = config.farmers_per_town as i32;
-    game_config.archers_per_town = config.archers_per_town as i32;
-    game_config.raiders_per_camp = config.raiders_per_camp as i32;
+    game_config.npc_counts = config.npc_counts.iter().map(|(&job, &count)| (job, count as i32)).collect();
 
     // Reset game time
     *game_time = GameTime::default();
@@ -345,8 +343,7 @@ fn game_startup_system(
         if def.spawner.is_some() {
             for i in 0..(def.len)(&world_state.world_data) {
                 if let Some((pos, ti)) = (def.pos_town)(&world_state.world_data, i) {
-                    let building = (def.build)(ti);
-                    world::register_spawner(&mut world_state.spawner_state, building,
+                    world::register_spawner(&mut world_state.spawner_state, def.kind,
                         ti as i32, pos, -1.0);
                 }
             }
@@ -770,8 +767,6 @@ fn build_place_click_system(
     let Some(town) = world_state.world_data.towns.get(town_data_idx) else { return };
     let center = town.center;
     let town_name = town.name.clone();
-    let town_idx = town_data_idx as u32;
-
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else { return };
     let Ok((transform, projection)) = camera_query.single() else { return };
@@ -788,11 +783,10 @@ fn build_place_click_system(
         build_ctx.clear_drag();
         let cell_building = world_state.grid.cell(gc, gr).and_then(|c| c.building);
         let is_destructible = cell_building
-            .as_ref()
-            .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
+            .map(|(k, _)| !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::Camp | world::BuildingKind::GoldMine))
             .unwrap_or(false);
         if !is_destructible { return; }
-        let bld_kind = cell_building.as_ref().map(|b| b.kind());
+        let bld_kind = cell_building.map(|(k, _)| k);
 
         let _ = world::destroy_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
@@ -846,13 +840,11 @@ fn build_place_click_system(
         let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
         if food < cost { return false; }
 
-        let building = (crate::constants::building_def(kind).build)(town_idx);
-
         world::build_and_pay(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
             &mut food_storage, &mut world_state.spawner_state, &mut world_state.building_hp,
             &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
-            building, town_data_idx,
+            kind, town_data_idx,
             slot_row, slot_col, center, cost,
         )
     };
@@ -970,8 +962,8 @@ fn build_ghost_system(
         let cell = grid.cell(gc, gr);
         let has_building = cell.map(|c| c.building.is_some()).unwrap_or(false);
         let is_fountain = cell
-            .and_then(|c| c.building.as_ref())
-            .map(|b| matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
+            .and_then(|c| c.building)
+            .map(|(k, _)| matches!(k, world::BuildingKind::Fountain | world::BuildingKind::Camp | world::BuildingKind::GoldMine))
             .unwrap_or(false);
         let valid = has_building && !is_fountain;
         build_ctx.show_cursor_hint = true;
@@ -1238,16 +1230,14 @@ fn process_destroy_system(
     let cell = world_state.grid.cell(col, row);
     let cell_building = cell.and_then(|c| c.building);
     let is_destructible = cell_building
-        .as_ref()
-        .map(|b| !matches!(b, world::Building::Fountain { .. } | world::Building::Camp { .. } | world::Building::GoldMine))
+        .map(|(k, _)| !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::Camp | world::BuildingKind::GoldMine))
         .unwrap_or(false);
     if !is_destructible { return; }
-    let bld_kind = cell_building.as_ref().map(|b| b.kind());
+    let bld_kind = cell_building.map(|(k, _)| k);
 
     // Find which town this building belongs to, derive town center
     let town_idx = cell_building
-        .as_ref()
-        .map(|b| (crate::constants::building_def(b.kind()).town_idx)(b) as usize)
+        .map(|(_, ti)| ti as usize)
         .unwrap_or(0);
     let center = world_state.world_data.towns.get(town_idx)
         .map(|t| t.center)
