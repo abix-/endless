@@ -2,7 +2,9 @@
 
 Build a town under siege. Farm, fortify, raise an army, conquer
 
-Every NPC has a job, a home, and a personality. Set town policies, plan your tech tree, organize squads. Your AI rivals do the same
+Every NPC has a job, a home, and a personality. Set town policies, plan your tech tree, organize squads
+
+Your AI rivals do the same
 
 <!-- TODO: Add screenshot/GIF here -->
 
