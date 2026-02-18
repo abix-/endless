@@ -252,6 +252,11 @@ impl CombatState {
     }
 }
 
+/// Player-forced attack target. Overrides GPU auto-targeting.
+/// Cleared when target dies or player issues a move command.
+#[derive(Component)]
+pub struct ManualTarget(pub usize); // target NPC slot index
+
 /// Farmer's assigned farm position for occupancy tracking.
 /// Added when entering Working at a farm, removed when leaving.
 /// Stores position (not index) so buildings can be deleted without breaking refs.

@@ -15,9 +15,9 @@ use rand::Rng;
 use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::components::{Dead, NpcIndex, SquadUnit, TownId};
+use crate::components::{Dead, Job, NpcIndex, SquadUnit, TownId};
 use crate::world::{self, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
-use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, UPGRADES};
+use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, upgrade_unlocked, upgrade_cost, UPGRADES};
 use crate::constants::UpgradeStatKind;
 
 // Rust orientation notes for readers coming from PowerShell:
@@ -54,6 +54,8 @@ const TERRITORY_PERIMETER_PADDING: i32 = 1;
 const DEFAULT_MINING_RADIUS: f32 = 300.0;
 const MINING_RADIUS_STEP: f32 = 300.0;
 const MAX_MINING_RADIUS: f32 = 5000.0;
+/// Hard ceiling on miners per mine, regardless of personality target.
+const MAX_MINERS_PER_MINE: usize = 5;
 
 /// Minimum grid-step distance from `candidate` to any existing waypoint for this town.
 /// Returns `i32::MAX` if no waypoints exist.
@@ -268,7 +270,7 @@ impl AiPersonality {
         match self {
             Self::Aggressive => (10.0, 10.0, 30.0, 20.0),
             Self::Balanced   => (20.0, 20.0, 15.0, 10.0),
-            Self::Economic   => (30.0, 25.0,  5.0,  5.0),
+            Self::Economic   => (15.0, 12.0,  8.0,  5.0),
         }
     }
 
@@ -291,8 +293,8 @@ impl AiPersonality {
             Self::Aggressive => farms.max(1),
             // Balanced tends toward ~1 farmer home per farm.
             Self::Balanced => (farms + 1).max(1),
-            // Economic tends toward ~2 farmer homes per farm.
-            Self::Economic => (farms * 2).max(1),
+            // Economic: slight surplus, not exponential (was farms*2 → runaway spiral).
+            Self::Economic => (farms + 2).max(1),
         }
     }
 
@@ -303,6 +305,33 @@ impl AiPersonality {
             Self::Aggressive => 1,
             Self::Balanced => 2,
             Self::Economic => 4,
+        }
+    }
+
+    /// Gold desire multiplier: Economic invests heavily in gold upgrades, Aggressive barely cares.
+    pub fn gold_desire_mult(self) -> f32 {
+        match self {
+            Self::Aggressive => 0.5,
+            Self::Balanced => 1.0,
+            Self::Economic => 1.5,
+        }
+    }
+
+    /// Target military share of total population (military / total).
+    fn target_military_ratio(self) -> f32 {
+        match self {
+            Self::Aggressive => 0.50,
+            Self::Balanced   => 0.35,
+            Self::Economic   => 0.20,
+        }
+    }
+
+    /// Baseline mining desire even without gold-costing upgrades.
+    pub fn base_mining_desire(self) -> f32 {
+        match self {
+            Self::Aggressive => 0.0,
+            Self::Balanced   => 0.1,
+            Self::Economic   => 0.3,
         }
     }
 
@@ -319,7 +348,7 @@ impl AiPersonality {
 
     /// Upgrade weights by (category, stat_kind). Returns a Vec indexed by upgrade registry index.
     /// Only entries with weight > 0 are scored.
-    fn upgrade_weights(self, kind: AiKind) -> Vec<f32> {
+    pub fn upgrade_weights(self, kind: AiKind) -> Vec<f32> {
         let reg = &*UPGRADES;
         let count = reg.count();
         let mut weights = vec![0.0f32; count];
@@ -421,9 +450,11 @@ fn weighted_pick(scores: &[(AiAction, f32)]) -> Option<AiAction> {
 struct DesireState {
     food_desire: f32,     // 0.0 = comfortable, 1.0 = urgent
     military_desire: f32, // 0.0 = comfortable, 1.0 = urgent
+    gold_desire: f32,     // 0.0 = gold abundant, 1.0 = urgent need for upgrades
 }
 
 /// Compute food and military desire once per decision tick.
+/// `civilians`/`military` are alive NPC counts for this town.
 fn desire_state(
     personality: AiPersonality,
     food: i32,
@@ -431,8 +462,11 @@ fn desire_state(
     houses: usize,
     barracks: usize,
     waypoints: usize,
+    threat: f32,
+    civilians: usize,
+    military: usize,
 ) -> DesireState {
-    let food_desire = if reserve > 0 {
+    let mut food_desire = if reserve > 0 {
         (1.0 - (food - reserve) as f32 / reserve as f32).clamp(0.0, 1.0)
     } else if food < 5 {
         0.8
@@ -449,15 +483,52 @@ fn desire_state(
     } else {
         0.0
     };
-    // Barracks deficit is primary military pressure; waypoint coverage is secondary.
-    let military_desire = (barracks_gap * 0.75 + waypoint_gap * 0.25).clamp(0.0, 1.0);
+    // Barracks deficit is primary military pressure; waypoint coverage secondary;
+    // threat from GPU spatial grid adds direct enemy presence signal.
+    let mut military_desire = (barracks_gap * 0.75 + waypoint_gap * 0.25 + threat).clamp(0.0, 1.0);
 
-    DesireState { food_desire, military_desire }
+    // Population ratio correction: dampen food_desire when military is underweight.
+    // Only applies once the town has enough NPCs to meaningfully measure ratios.
+    let total_pop = civilians + military;
+    if total_pop >= 10 {
+        let actual_ratio = military as f32 / total_pop as f32;
+        let target = personality.target_military_ratio();
+        if actual_ratio < target {
+            // ratio_health: 0.0 = no military at all, 1.0 = at or above target
+            let ratio_health = (actual_ratio / target).min(1.0);
+            food_desire *= ratio_health;
+            military_desire = (military_desire + (1.0 - ratio_health)).clamp(0.0, 1.0);
+        }
+    }
+
+    DesireState { food_desire, military_desire, gold_desire: 0.0 }
 }
 
 fn is_military_upgrade(idx: usize) -> bool {
     let cat = UPGRADES.nodes[idx].category;
     cat == "Archer" || cat == "Fighter" || cat == "Crossbow"
+}
+
+/// Cheapest gold cost among upgrades the AI wants but can't afford.
+/// Returns 0 if no gold-costing upgrades are wanted or all are affordable.
+pub fn cheapest_gold_upgrade_cost(weights: &[f32], levels: &[u8], gold: i32) -> i32 {
+    let mut cheapest = i32::MAX;
+    for (idx, &w) in weights.iter().enumerate() {
+        if w <= 0.0 { continue; }
+        if !upgrade_unlocked(levels, idx) { continue; }
+        let node = &UPGRADES.nodes[idx];
+        let lv = levels.get(idx).copied().unwrap_or(0);
+        let scale = upgrade_cost(lv);
+        for &(kind, base) in node.cost {
+            if kind == ResourceKind::Gold {
+                let total = base * scale;
+                if total > gold && total < cheapest {
+                    cheapest = total;
+                }
+            }
+        }
+    }
+    if cheapest == i32::MAX { 0 } else { cheapest }
 }
 
 /// Per-squad AI command state — independent cooldown and target memory.
@@ -1042,6 +1113,8 @@ pub fn ai_decision_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     difficulty: Res<Difficulty>,
+    gpu_state: Res<GpuReadState>,
+    pop_stats: Res<PopulationStats>,
     mut timer: Local<f32>,
     mut snapshots: Local<AiTownSnapshotCache>,
     timings: Res<SystemTimings>,
@@ -1103,8 +1176,32 @@ pub fn ai_decision_system(
         let waypoints = bc(BuildingKind::Waypoint);
         let mine_shafts = bc(BuildingKind::MinerHome);
         let total_military_homes = barracks + xbow_homes;
-        let desires = desire_state(player.personality, food, reserve, houses, total_military_homes, waypoints);
         let faction = res.world.world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
+        // Threat signal from GPU spatial grid: fountain's enemy count from readback.
+        let threat = res.world.building_slots.get_slot(BuildingKind::Fountain, tdi)
+            .and_then(|slot| gpu_state.threat_counts.get(slot).copied())
+            .map(|packed| {
+                let enemies = (packed >> 16) as f32;
+                (enemies / 10.0).min(1.0)
+            })
+            .unwrap_or(0.0);
+        // Count alive civilians vs military for this town from PopulationStats.
+        let town_key = tdi as i32;
+        let pop_alive = |job: Job| pop_stats.0.get(&(job as i32, town_key)).map(|p| p.alive).unwrap_or(0).max(0) as usize;
+        let civilians = pop_alive(Job::Farmer) + pop_alive(Job::Miner);
+        let military = pop_alive(Job::Archer) + pop_alive(Job::Fighter) + pop_alive(Job::Crossbow);
+        let mut desires = desire_state(player.personality, food, reserve, houses, total_military_homes, waypoints, threat, civilians, military);
+
+        // Gold desire: driven by cheapest gold-costing upgrade the AI wants but can't afford.
+        let uw = player.personality.upgrade_weights(player.kind);
+        let levels = upgrades.town_levels(tdi);
+        let gold = gold_storage.gold.get(tdi).copied().unwrap_or(0);
+        let cheapest_gold = cheapest_gold_upgrade_cost(&uw, &levels, gold);
+        desires.gold_desire = if cheapest_gold > 0 {
+            ((1.0 - gold as f32 / cheapest_gold as f32) * player.personality.gold_desire_mult()).clamp(0.0, 1.0)
+        } else {
+            player.personality.base_mining_desire()
+        };
 
         // --- Policy: eat_food toggle based on food desire ---
         if let Some(policy) = res.policies.policies.get_mut(tdi) {
@@ -1139,7 +1236,7 @@ pub fn ai_decision_system(
                 let bt = player.personality.archer_home_target(houses);
                 let ht = player.personality.farmer_home_target(farms);
                 let mines = ctx.mines.as_ref().unwrap();
-                let miners_per_mine = player.personality.miners_per_mine_target();
+                let miners_per_mine = player.personality.miners_per_mine_target().min(MAX_MINERS_PER_MINE);
                 let ms_target = mines.in_radius * miners_per_mine;
                 miner_target_for_expansion = ms_target;
                 let house_deficit = ht.saturating_sub(houses);
@@ -1176,10 +1273,10 @@ pub fn ai_decision_system(
                         scores.push((AiAction::BuildCrossbowHome, bw * 0.6 * xbow_need));
                     }
                     if miner_deficit > 0 && ctx.food >= building_cost(BuildingKind::MinerHome) {
-                        let ms_need = 1.0 + miner_deficit as f32;
+                        let ms_need = desires.gold_desire * miner_deficit as f32;
                         scores.push((AiAction::BuildMinerHome, hw * ms_need));
                     } else if miner_deficit == 0 && mines.outside_radius > 0 {
-                        let expand_need = 1.0 + mines.outside_radius as f32;
+                        let expand_need = desires.gold_desire * mines.outside_radius as f32;
                         scores.push((AiAction::ExpandMiningRadius, player.personality.expand_mining_weight() * expand_need));
                     }
                 }
@@ -1200,10 +1297,7 @@ pub fn ai_decision_system(
             }
         }
 
-        // Upgrades
-        let uw = player.personality.upgrade_weights(player.kind);
-        let levels = upgrades.town_levels(tdi);
-        let gold = gold_storage.gold.get(tdi).copied().unwrap_or(0);
+        // Upgrades (uw, levels, gold already computed above for gold_desire)
         for (idx, &weight) in uw.iter().enumerate() {
             if weight <= 0.0 { continue; }
             if !upgrade_available(&levels, idx, ctx.food, gold) { continue; }

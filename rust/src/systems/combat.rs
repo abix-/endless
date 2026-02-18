@@ -44,7 +44,7 @@ pub fn cooldown_system(
 /// Process attacks using GPU targeting results.
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
-    mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job, Option<&ManualTarget>, Option<&SquadId>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
@@ -53,6 +53,8 @@ pub fn attack_system(
     bgrid: Res<BuildingSpatialGrid>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
+    squad_state: Res<crate::resources::SquadState>,
+    mut commands: Commands,
 ) {
     let _t = timings.scope("attack");
     let positions = &gpu_state.positions;
@@ -70,7 +72,7 @@ pub fn attack_system(
     let mut timer_ready_count = 0usize;
     let mut sample_timer = -1.0f32;
 
-    for (_entity, npc_idx, cached, mut timer, faction, mut combat_state, activity, job) in query.iter_mut() {
+    for (entity, npc_idx, cached, mut timer, faction, mut combat_state, activity, job, manual_target, squad_id) in query.iter_mut() {
         attackers += 1;
         let i = npc_idx.0;
 
@@ -82,7 +84,27 @@ pub fn attack_system(
             continue;
         }
 
-        let target_idx = combat_targets.get(i).copied().unwrap_or(-1);
+        // Manual target override: player-assigned focus-fire takes priority over GPU auto-target.
+        // Clear ManualTarget if the target is dead.
+        let target_idx = if let Some(mt) = manual_target {
+            let t = mt.0;
+            let dead = gpu_state.health.get(t).map_or(true, |&h| h <= 0.0);
+            if dead {
+                commands.entity(entity).remove::<ManualTarget>();
+                combat_targets.get(i).copied().unwrap_or(-1)
+            } else {
+                t as i32
+            }
+        } else {
+            // Hold fire: squad members with hold_fire skip auto-targeting
+            let hold = squad_id.and_then(|sid| squad_state.squads.get(sid.0 as usize))
+                .map_or(false, |sq| sq.hold_fire);
+            if hold {
+                -1 // don't auto-engage
+            } else {
+                combat_targets.get(i).copied().unwrap_or(-1)
+            }
+        };
 
         if attackers == 1 {
             sample_target = target_idx;

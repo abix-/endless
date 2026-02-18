@@ -327,6 +327,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         settled = 1;
     }
 
+    // Un-settle if pushed beyond arrival threshold (separation race fix).
+    // Hysteresis at 1.5× threshold prevents flicker at the boundary.
+    if (settled == 1 && dist_to_goal > params.arrival_threshold * 1.5) {
+        settled = 0;
+    }
+
     // --- STEP 4: Apply movement + avoidance ---
     pos += (movement + avoidance + proj_dodge) * params.delta;
 

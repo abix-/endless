@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-18z
+
+- **direct unit micromanagement (RTS-style)** — box-select (click-drag rectangle) to select player military NPCs on the map; right-click ground to move selected squad, right-click enemy NPC to focus-fire (ManualTarget component overrides GPU auto-targeting), right-click enemy building to attack it; per-squad "hold fire" toggle (members only attack when given a manual target); green selection brackets on all selected squad members; green drag-rectangle overlay during box-select; ManualTarget auto-clears when target dies; ESC cancels box-select; integrates with existing squad system (box-select populates active squad's members, right-click sets squad target)
+
 ## 2026-02-18y
 
 - **fix: AI desire-driven building scoring** — building need formulas changed from additive (constant floor + desire bonus) to multiplicative (desire × deficit); food_desire gates farm/house construction, military_desire gates barracks/crossbow/waypoint construction; when desire is 0 the corresponding building category scores 0 instead of maintaining a constant floor; fixes Economic AI building farms forever with 0% food desire and 65k food surplus

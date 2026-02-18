@@ -12,7 +12,7 @@ use crate::settings::{self, UserSettings};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UPGRADES, upgrade_count, upgrade_unlocked, upgrade_available, missing_prereqs, format_upgrade_cost, upgrade_effect_summary, branch_total, resolve_town_tower_stats};
 use crate::constants::UpgradeStatKind;
 use crate::systems::{AiPlayerState, AiKind};
-use crate::systems::ai_player::AiPersonality;
+use crate::systems::ai_player::{AiPersonality, cheapest_gold_upgrade_cost};
 use crate::world::{WorldData, BuildingKind, is_alive};
 
 // ============================================================================
@@ -158,10 +158,20 @@ struct AiSnapshot {
     reserve_food: i32,
     food_desire: Option<f32>,
     military_desire: Option<f32>,
+    gold_desire: Option<f32>,
     food_desire_tip: String,
     military_desire_tip: String,
+    gold_desire_tip: String,
     center: Vec2,
     squads: Vec<SquadSnapshot>,
+    next_upgrade: Option<NextUpgradeSnapshot>,
+}
+
+#[derive(Clone)]
+struct NextUpgradeSnapshot {
+    label: String,
+    cost: String,
+    affordable: bool,
 }
 
 #[derive(Default)]
@@ -929,6 +939,15 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     if ui.checkbox(&mut rest_when_tired, "Go home to rest when tired").changed() {
         squad.squad_state.squads[si].rest_when_tired = rest_when_tired;
     }
+    let mut hold_fire = squad.squad_state.squads[si].hold_fire;
+    if ui.checkbox(&mut hold_fire, "Hold fire (attack on command only)").changed() {
+        squad.squad_state.squads[si].hold_fire = hold_fire;
+    }
+
+    // Show attack target if set
+    if let Some(atk) = squad.squad_state.squads[si].attack_target {
+        ui.small(format!("Attack target: ({:.0}, {:.0})", atk.x, atk.y));
+    }
 
     ui.add_space(4.0);
 
@@ -1077,6 +1096,18 @@ fn rebuild_factions_cache(
             .map(|s| (s.alive, s.dead, s.kills))
             .unwrap_or((0, 0, 0));
         let upgrades = factions.upgrades.town_levels(tdi);
+        let next_upgrade = UPGRADES.nodes.iter().enumerate()
+            .find_map(|(idx, node)| {
+                let level = upgrades.get(idx).copied().unwrap_or(0);
+                if level >= 20 || !upgrade_unlocked(&upgrades, idx) {
+                    return None;
+                }
+                Some(NextUpgradeSnapshot {
+                    label: node.label.to_string(),
+                    cost: format_upgrade_cost(idx, level),
+                    affordable: upgrade_available(&upgrades, idx, food, gold),
+                })
+            });
 
         let policy = policies.policies.get(tdi);
         let mining_radius = policy.map(|p| p.mining_radius).unwrap_or(crate::constants::DEFAULT_MINING_RADIUS);
@@ -1156,6 +1187,26 @@ fn rebuild_factions_cache(
             )
         };
 
+        // Gold desire: mirrors ai_player.rs logic.
+        let (gold_desire, gold_desire_tip) = if let Some(p) = personality {
+            let uw = p.upgrade_weights(crate::systems::ai_player::AiKind::Builder);
+            let levels = factions.upgrades.town_levels(tdi);
+            let cheapest = cheapest_gold_upgrade_cost(&uw, &levels, gold);
+            let base = p.base_mining_desire();
+            let gd = if cheapest > 0 {
+                ((1.0 - gold as f32 / cheapest as f32) * p.gold_desire_mult()).clamp(0.0, 1.0)
+            } else {
+                base
+            };
+            let tip = format!(
+                "Gold desire: cheapest_gold_upgrade={cheapest}, gold={gold}, base_mining={base:.1}\n=> {:.0}%",
+                gd * 100.0
+            );
+            (Some(gd), tip)
+        } else {
+            (None, "Not applicable: desire metrics are only computed for AI factions.".to_string())
+        };
+
         let ai_player = factions.ai_state.players.iter().find(|p| p.town_data_idx == tdi);
         let squads = squad_state.squads.iter().enumerate()
             .filter_map(|(si, squad)| {
@@ -1207,10 +1258,13 @@ fn rebuild_factions_cache(
             reserve_food,
             food_desire,
             military_desire,
+            gold_desire,
             food_desire_tip,
             military_desire_tip,
+            gold_desire_tip,
             center,
             squads,
+            next_upgrade,
         });
     }
 
@@ -1322,6 +1376,29 @@ fn factions_content(
             .unwrap_or_else(|| "-".to_string());
         ui.label(format!("Military Desire: {}", military_desire))
             .on_hover_text(&snap.military_desire_tip);
+        ui.separator();
+        let gold_desire = snap.gold_desire
+            .map(|v| format!("{:.0}%", v * 100.0))
+            .unwrap_or_else(|| "-".to_string());
+        ui.label(format!("Gold Desire: {}", gold_desire))
+            .on_hover_text(&snap.gold_desire_tip);
+        ui.separator();
+        if let Some(next) = &snap.next_upgrade {
+            ui.label(format!("Next Upgrade Cost: {}", next.cost))
+                .on_hover_text(format!("Next Upgrade: {}", next.label));
+            let afford_color = if next.affordable {
+                egui::Color32::from_rgb(80, 190, 120)
+            } else {
+                egui::Color32::from_rgb(210, 95, 95)
+            };
+            ui.colored_label(
+                afford_color,
+                if next.affordable { "Can Afford: Yes" } else { "Can Afford: No" },
+            );
+        } else {
+            ui.label("Next Upgrade Cost: -");
+            ui.label("Can Afford: N/A");
+        }
     });
     ui.label(format!("Alive: {}  Dead: {}  Kills: {}", snap.alive, snap.dead, snap.kills));
     ui.separator();

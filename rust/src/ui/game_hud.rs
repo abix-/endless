@@ -1403,8 +1403,13 @@ pub fn selection_overlay_system(
     world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
+    squad_state: Res<SquadState>,
 ) -> Result {
-    if selected.0 < 0 && !selected_building.active { return Ok(()); }
+    let si = squad_state.selected;
+    let has_squad_sel = si >= 0 && (si as usize) < squad_state.squads.len()
+        && squad_state.squads[si as usize].members.len() > 1
+        && squad_state.squads[si as usize].is_player();
+    if selected.0 < 0 && !selected_building.active && !has_squad_sel { return Ok(()); }
 
     let Ok(window) = windows.single() else { return Ok(()); };
     let Ok((transform, projection)) = camera_query.single() else { return Ok(()); };
@@ -1440,6 +1445,27 @@ pub fn selection_overlay_system(
                     egui::Color32::from_rgba_unmultiplied(100, 200, 255, 220),
                 );
             }
+        }
+    }
+
+    // Multi-select: highlight all members of the selected squad (green brackets)
+    if has_squad_sel {
+        let positions = &gpu_state.positions;
+        let members = &squad_state.squads[si as usize].members;
+        let color = egui::Color32::from_rgba_unmultiplied(80, 220, 80, 180);
+        for &slot in members {
+            if slot * 2 + 1 >= positions.len() { continue; }
+            let x = positions[slot * 2];
+            let y = positions[slot * 2 + 1];
+            if !is_alive(Vec2::new(x, y)) { continue; }
+            // Skip the individually-selected NPC (already drawn in cyan)
+            if selected.0 >= 0 && slot == selected.0 as usize { continue; }
+            let screen = egui::Pos2::new(
+                center.x + (x - cam.x) * zoom,
+                center.y - (y - cam.y) * zoom,
+            );
+            let half = (8.0 * zoom).max(6.0);
+            draw_corner_brackets(&painter, screen, half, half, color);
         }
     }
 
@@ -1641,6 +1667,24 @@ pub fn squad_overlay_system(
             let cursor_egui = egui::Pos2::new(cursor_pos.x, cursor_pos.y);
             let hint_color = egui::Color32::from_rgba_unmultiplied(255, 255, 100, 160);
             painter.circle_stroke(cursor_egui, 12.0, egui::Stroke::new(2.0, hint_color));
+        }
+    }
+
+    // Box-select drag rectangle
+    if squad_state.box_selecting {
+        if let Some(start) = squad_state.drag_start {
+            if let Some(cursor_pos) = window.cursor_position() {
+                let start_screen = egui::Pos2::new(
+                    center.x + (start.x - cam.x) * zoom,
+                    center.y - (start.y - cam.y) * zoom,
+                );
+                let end_screen = egui::Pos2::new(cursor_pos.x, cursor_pos.y);
+                let rect = egui::Rect::from_two_pos(start_screen, end_screen);
+                let fill = egui::Color32::from_rgba_unmultiplied(80, 220, 80, 30);
+                let stroke = egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(80, 220, 80, 180));
+                painter.rect_filled(rect, 0.0, fill);
+                painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Outside);
+            }
         }
     }
 

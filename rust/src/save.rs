@@ -806,6 +806,8 @@ pub fn apply_save(
             wave_min_start: ss.wave_min_start,
             wave_retreat_below_pct: ss.wave_retreat_below_pct.clamp(1, 100),
             owner: ss.owner,
+            hold_fire: false,
+            attack_target: None,
         });
     }
     // Ensure at least MAX_SQUADS player squads exist.

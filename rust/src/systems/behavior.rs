@@ -230,7 +230,7 @@ pub fn decision_system(
     // Main query: core NPC data (SquadId is Optional — only on squad-assigned guards)
     mut query: Query<
         (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
-         &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&SquadId>),
+         &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&SquadId>, Option<&ManualTarget>),
         Without<Dead>
     >,
     // Combat config queries
@@ -273,7 +273,7 @@ pub fn decision_system(
     let mut n_idle: u32 = 0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
-         mut activity, mut combat_state, at_destination, squad_id) in query.iter_mut()
+         mut activity, mut combat_state, at_destination, squad_id, manual_target) in query.iter_mut()
     {
         let idx = npc_idx.0;
 
@@ -584,7 +584,13 @@ pub fn decision_system(
         // Covers all squad-assigned units: archers, crossbow, raiders, fighters.
         // ====================================================================
         if let Some(sid) = squad_id {
-            if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
+            // Manual micro override: player-assigned attack target takes priority.
+            // Don't redirect the NPC — combat system handles ManualTarget directly.
+            if manual_target.is_some() {
+                // Still allow squad target to set movement destination (already done
+                // when the right-click command was issued), but don't override it here.
+                // Skip the rest of squad sync for this NPC.
+            } else if let Some(squad) = squad_state.squads.get(sid.0 as usize) {
                 if let Some(target) = squad.target {
                     let squad_needs_rest = energy.0 < ENERGY_TIRED_THRESHOLD
                         || (energy.0 < ENERGY_WAKE_THRESHOLD

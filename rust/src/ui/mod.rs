@@ -499,7 +499,12 @@ fn game_escape_system(
     settings: Res<crate::settings::UserSettings>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
-        // Cancel squad target placement first
+        // Cancel box-select or squad target placement first
+        if squad_state.box_selecting || squad_state.drag_start.is_some() {
+            squad_state.box_selecting = false;
+            squad_state.drag_start = None;
+            return;
+        }
         if squad_state.placing_target {
             squad_state.placing_target = false;
             return;

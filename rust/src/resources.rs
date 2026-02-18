@@ -1293,6 +1293,10 @@ pub struct Squad {
     pub wave_retreat_below_pct: usize,
     /// Squad owner: Player (indices 0..MAX_SQUADS) or AI Town (appended after).
     pub owner: SquadOwner,
+    /// Hold fire: when true, members only attack their ManualTarget (no auto-engage).
+    pub hold_fire: bool,
+    /// Forced attack position (enemy NPC or building). Set by right-click on enemy.
+    pub attack_target: Option<Vec2>,
 }
 
 impl Squad {
@@ -1312,6 +1316,8 @@ impl Default for Squad {
             wave_min_start: 0,
             wave_retreat_below_pct: 50,
             owner: SquadOwner::Player,
+            hold_fire: false,
+            attack_target: None,
         }
     }
 }
@@ -1324,6 +1330,10 @@ pub struct SquadState {
     pub selected: i32,
     /// When true, next left-click sets the selected squad's target.
     pub placing_target: bool,
+    /// Box-select drag: world-space start position (None = not dragging).
+    pub drag_start: Option<Vec2>,
+    /// True while mouse is held and drag exceeds threshold (5px).
+    pub box_selecting: bool,
 }
 
 impl Default for SquadState {
@@ -1332,6 +1342,8 @@ impl Default for SquadState {
             squads: (0..crate::constants::MAX_SQUADS).map(|_| Squad::default()).collect(),
             selected: 0,
             placing_target: false,
+            drag_start: None,
+            box_selecting: false,
         }
     }
 }
