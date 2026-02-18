@@ -1604,6 +1604,7 @@ pub fn squad_overlay_system(
     mut contexts: EguiContexts,
     squad_state: Res<SquadState>,
     ui_state: Res<UiState>,
+    gpu_state: Res<GpuReadState>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
 ) -> Result {
@@ -1635,30 +1636,77 @@ pub fn squad_overlay_system(
         egui::Color32::from_rgb(140, 140, 255),   // light blue
     ];
 
+    if !squad_state.box_selecting {
+        for (i, squad) in squad_state.squads.iter().enumerate() {
+            if !squad.is_player() { continue; }
+            let Some(target) = squad.target else { continue };
+            if squad.members.is_empty() { continue; }
+
+            let screen = egui::Pos2::new(
+                center.x + (target.x - cam.x) * zoom,
+                center.y - (target.y - cam.y) * zoom,
+            );
+
+            let color = colors[i % colors.len()];
+            let fill = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 120);
+
+            // Filled circle with border
+            painter.circle(screen, 10.0, fill, egui::Stroke::new(2.0, color));
+
+            // Squad number label
+            painter.text(
+                screen,
+                egui::Align2::CENTER_CENTER,
+                format!("{}", i + 1),
+                egui::FontId::proportional(11.0),
+                egui::Color32::BLACK,
+            );
+        }
+    }
+
+    // Crosshair on attack target (follows moving NPCs via GPU positions)
+    let positions = &gpu_state.positions;
+    let npc_count = positions.len() / 2;
     for (i, squad) in squad_state.squads.iter().enumerate() {
-        if !squad.is_player() { continue; }
-        let Some(target) = squad.target else { continue };
-        if squad.members.is_empty() { continue; }
-
-        let screen = egui::Pos2::new(
-            center.x + (target.x - cam.x) * zoom,
-            center.y - (target.y - cam.y) * zoom,
+        if !squad.is_player() || squad.members.is_empty() { continue; }
+        let Some(atk) = squad.attack_target else { continue };
+        let world_pos = match atk {
+            AttackTarget::Npc(slot) => {
+                if slot >= npc_count { continue; }
+                let px = positions[slot * 2];
+                let py = positions[slot * 2 + 1];
+                if px < -9000.0 { continue; } // dead/hidden
+                Vec2::new(px, py)
+            }
+            AttackTarget::Building(pos) => pos,
+        };
+        let sp = egui::Pos2::new(
+            center.x + (world_pos.x - cam.x) * zoom,
+            center.y - (world_pos.y - cam.y) * zoom,
         );
-
         let color = colors[i % colors.len()];
-        let fill = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 120);
-
-        // Filled circle with border
-        painter.circle(screen, 10.0, fill, egui::Stroke::new(2.0, color));
-
-        // Squad number label
-        painter.text(
-            screen,
-            egui::Align2::CENTER_CENTER,
-            format!("{}", i + 1),
-            egui::FontId::proportional(11.0),
-            egui::Color32::BLACK,
+        let xh_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 200);
+        let r = 10.0_f32;
+        let gap = 3.0_f32;
+        // Crosshair: 4 line segments with gap in center
+        painter.line_segment(
+            [egui::Pos2::new(sp.x - r, sp.y), egui::Pos2::new(sp.x - gap, sp.y)],
+            egui::Stroke::new(2.0, xh_color),
         );
+        painter.line_segment(
+            [egui::Pos2::new(sp.x + gap, sp.y), egui::Pos2::new(sp.x + r, sp.y)],
+            egui::Stroke::new(2.0, xh_color),
+        );
+        painter.line_segment(
+            [egui::Pos2::new(sp.x, sp.y - r), egui::Pos2::new(sp.x, sp.y - gap)],
+            egui::Stroke::new(2.0, xh_color),
+        );
+        painter.line_segment(
+            [egui::Pos2::new(sp.x, sp.y + gap), egui::Pos2::new(sp.x, sp.y + r)],
+            egui::Stroke::new(2.0, xh_color),
+        );
+        // Outer circle
+        painter.circle_stroke(sp, r, egui::Stroke::new(1.5, xh_color));
     }
 
     // Placement mode cursor hint

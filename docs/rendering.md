@@ -318,7 +318,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_camera_state` | Build CameraState from Camera2d Transform + Projection + Window |
 | Extract | `extract_overlay_instances` | Zero-clone read of OverlayInstances → BuildingOverlayBuffers (farms/BHP/mining) with RawBufferVec reuse |
 | PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), create bind group 2 |
-| Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build via `Extract<Res<T>>` |
+| Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build from `active_set` via `Extract<Res<T>>` |
 | PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from RenderFrameConfig.textures (6 textures: char + world + heal + sleep + arrow + building; building falls back to char_image until atlas loads) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from RenderFrameConfig.npc) |
 | Queue | `queue_npcs` | Add DrawBuildingBodyCommands (0.2), DrawBuildingOverlayCommands (0.3), DrawNpcBodyCommands (0.5), DrawNpcOverlayCommands (0.6) |

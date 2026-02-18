@@ -9,7 +9,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
 use crate::gpu::RenderFrameConfig;
-use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, NpcEntityMap};
+use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, NpcEntityMap, AttackTarget};
 use crate::components::ManualTarget;
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, TERRAIN_TILES, building_tiles};
@@ -402,7 +402,7 @@ fn click_to_select_system(
 
             let positions = &gpu_state.positions;
             let factions = &gpu_state.factions;
-            let npc_count = gpu_state.npc_count;
+            let npc_count = positions.len() / 2;
 
             // Hit-test enemy NPC (nearest within 20px, different faction)
             let select_radius = 20.0_f32;
@@ -435,7 +435,7 @@ fn click_to_select_system(
                         commands.entity(entity).insert(ManualTarget(enemy_slot));
                     }
                 }
-                squad.attack_target = Some(enemy_pos);
+                squad.attack_target = Some(AttackTarget::Npc(enemy_slot));
                 squad.target = Some(enemy_pos);
             } else {
                 // Hit-test enemy building (nearest within 24px, via building slots)
@@ -466,7 +466,7 @@ fn click_to_select_system(
                             commands.entity(entity).remove::<ManualTarget>();
                         }
                     }
-                    squad.attack_target = Some(bpos);
+                    squad.attack_target = Some(AttackTarget::Building(bpos));
                     squad.target = Some(bpos);
                 } else {
                     // Ground move: clear attack targets, move to position
@@ -719,7 +719,7 @@ fn box_select_system(
 
                 let positions = &gpu_state.positions;
                 let factions = &gpu_state.factions;
-                let npc_count = gpu_state.npc_count;
+                let npc_count = positions.len() / 2;
 
                 let mut selected_slots: Vec<usize> = Vec::new();
                 for i in 0..npc_count {

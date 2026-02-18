@@ -945,8 +945,14 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
     }
 
     // Show attack target if set
-    if let Some(atk) = squad.squad_state.squads[si].attack_target {
-        ui.small(format!("Attack target: ({:.0}, {:.0})", atk.x, atk.y));
+    match squad.squad_state.squads[si].attack_target {
+        Some(crate::resources::AttackTarget::Npc(slot)) => {
+            ui.small(format!("Attack target: NPC #{}", slot));
+        }
+        Some(crate::resources::AttackTarget::Building(pos)) => {
+            ui.small(format!("Attack target: building ({:.0}, {:.0})", pos.x, pos.y));
+        }
+        None => {}
     }
 
     ui.add_space(4.0);

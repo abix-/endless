@@ -674,7 +674,6 @@ fn extract_npc_data(
 fn extract_proj_data(
     mut commands: Commands,
     writes: Extract<Res<ProjBufferWrites>>,
-    config: Extract<Res<RenderFrameConfig>>,
     proj_pos_state: Extract<Res<crate::resources::ProjPositionState>>,
     gpu_buffers: Option<Res<ProjGpuBuffers>>,
     existing_buffers: Option<ResMut<ProjRenderBuffers>>,
@@ -708,28 +707,23 @@ fn extract_proj_data(
     }
 
     // --- Build projectile instance buffer for rendering ---
-    let proj_count = config.proj.proj_count as usize;
-    let readback_positions = if proj_pos_state.0.len() >= proj_count * 2 {
-        Some(&proj_pos_state.0)
-    } else {
-        None
-    };
+    let readback_positions = &proj_pos_state.0;
 
     let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
-    for i in 0..proj_count {
-        if writes.active.get(i).copied().unwrap_or(0) == 0 { continue; }
+    for &i in &writes.active_set {
+        let i2 = i * 2;
 
-        let (px, py) = if let Some(pos) = readback_positions {
-            (pos[i * 2], pos[i * 2 + 1])
+        let (px, py) = if i2 + 1 < readback_positions.len() {
+            (readback_positions[i2], readback_positions[i2 + 1])
         } else {
             (
-                writes.positions.get(i * 2).copied().unwrap_or(0.0),
-                writes.positions.get(i * 2 + 1).copied().unwrap_or(0.0),
+                writes.positions.get(i2).copied().unwrap_or(0.0),
+                writes.positions.get(i2 + 1).copied().unwrap_or(0.0),
             )
         };
         if px < -9000.0 { continue; }
 
-        let faction = writes.factions.get(i).copied().unwrap_or(0);
+        let faction = writes.factions[i];
         let (cr, cg, cb) = if faction == 0 {
             (0.0, 0.0, 1.0)
         } else {
@@ -737,8 +731,8 @@ fn extract_proj_data(
             (r, g, b)
         };
 
-        let vx = writes.velocities.get(i * 2).copied().unwrap_or(0.0);
-        let vy = writes.velocities.get(i * 2 + 1).copied().unwrap_or(0.0);
+        let vx = writes.velocities[i2];
+        let vy = writes.velocities[i2 + 1];
         let angle = vy.atan2(vx) - std::f32::consts::FRAC_PI_2;
 
         instances.push(InstanceData {

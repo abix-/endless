@@ -1270,6 +1270,15 @@ pub fn npc_matches_owner(owner: SquadOwner, npc_town_id: i32, player_town: i32) 
     }
 }
 
+/// What the squad is attacking (if anything).
+#[derive(Clone, Copy)]
+pub enum AttackTarget {
+    /// Attacking an NPC — store slot index so crosshair follows movement.
+    Npc(usize),
+    /// Attacking a building — static position.
+    Building(Vec2),
+}
+
 /// A squad of combat units (player-controlled or AI-commanded).
 #[derive(Clone)]
 pub struct Squad {
@@ -1295,8 +1304,8 @@ pub struct Squad {
     pub owner: SquadOwner,
     /// Hold fire: when true, members only attack their ManualTarget (no auto-engage).
     pub hold_fire: bool,
-    /// Forced attack position (enemy NPC or building). Set by right-click on enemy.
-    pub attack_target: Option<Vec2>,
+    /// Forced attack target. Set by right-click on enemy NPC or building.
+    pub attack_target: Option<AttackTarget>,
 }
 
 impl Squad {

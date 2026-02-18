@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-18aa
+
+- **projectile extract optimization** — `ProjBufferWrites.active_set` tracks live projectile indices incrementally (push on spawn, swap_remove on deactivate); `extract_proj_data` iterates only active slots instead of scanning 0..high_water_mark; eliminates O(50K) per-frame scan when most slots are dead
+- **typed attack targets** — `Squad.attack_target` changed from `Option<Vec2>` to `Option<AttackTarget>` enum (`Npc(slot)` / `Building(pos)`); crosshair overlay follows NPC targets via GPU readback positions instead of static coordinates; squad UI displays target type (NPC slot# vs building position)
+- **squad overlay cleanup** — removed arrow line from group centroid to target; target marker circles hidden during box-select to reduce visual clutter
+
 ## 2026-02-18z
 
 - **direct unit micromanagement (RTS-style)** — box-select (click-drag rectangle) to select player military NPCs on the map; right-click ground to move selected squad, right-click enemy NPC to focus-fire (ManualTarget component overrides GPU auto-targeting), right-click enemy building to attack it; per-squad "hold fire" toggle (members only attack when given a manual target); green selection brackets on all selected squad members; green drag-rectangle overlay during box-select; ManualTarget auto-clears when target dies; ESC cancels box-select; integrates with existing squad system (box-select populates active squad's members, right-click sets squad target)

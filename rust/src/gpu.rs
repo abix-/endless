@@ -478,6 +478,8 @@ pub struct ProjBufferWrites {
     /// Per-slot dirty tracking: Spawn writes all fields, Deactivate writes active+hits
     pub spawn_dirty_indices: Vec<usize>,
     pub deactivate_dirty_indices: Vec<usize>,
+    /// Currently active projectile indices — iterate this instead of 0..proj_count.
+    pub active_set: Vec<usize>,
 }
 
 impl Default for ProjBufferWrites {
@@ -495,6 +497,7 @@ impl Default for ProjBufferWrites {
             dirty: false,
             spawn_dirty_indices: Vec::new(),
             deactivate_dirty_indices: Vec::new(),
+            active_set: Vec::new(),
         }
     }
 }
@@ -518,6 +521,7 @@ impl ProjBufferWrites {
                     self.hits[i2 + 1] = 0;
                     self.dirty = true;
                     self.spawn_dirty_indices.push(*idx);
+                    self.active_set.push(*idx);
                 }
             }
             ProjGpuUpdate::Deactivate { idx } => {
@@ -531,6 +535,9 @@ impl ProjBufferWrites {
                     }
                     self.dirty = true;
                     self.deactivate_dirty_indices.push(*idx);
+                    if let Some(pos) = self.active_set.iter().position(|&s| s == *idx) {
+                        self.active_set.swap_remove(pos);
+                    }
                 }
             }
         }

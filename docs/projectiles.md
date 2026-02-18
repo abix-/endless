@@ -142,6 +142,8 @@ PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
 
 `ProjSlotAllocator` (Bevy Resource) manages slot indices with an internal free list, same pattern as NPC `SlotAllocator`. `proj_count` is the high-water mark from `ProjSlotAllocator.next`.
 
+`ProjBufferWrites.active_set` tracks currently active projectile indices — maintained incrementally by `apply()` (push on Spawn, swap_remove on Deactivate). `extract_proj_data` iterates only `active_set` instead of scanning `0..proj_count`, avoiding O(high_water_mark) per frame.
+
 ## Constants
 
 | Constant | Value | Purpose |
@@ -156,6 +158,5 @@ PROJ_GPU_UPDATE_QUEUE → ProjBufferWrites → GPU ──▶ ACTIVE
 
 ## Known Issues
 
-- **proj_count never shrinks**: High-water mark (`ProjSlotAllocator.next`). Freed slots are recycled via LIFO free list but don't reduce dispatch count.
 - **No projectile-projectile collision**: Projectiles pass through each other.
 - **Hit buffer must init to [-1, 0]**: `setup_readback_buffers` initializes proj hit `ShaderStorageBuffer` with `[-1, 0]` per slot. GPU zeroes would falsely indicate "hit NPC 0".
