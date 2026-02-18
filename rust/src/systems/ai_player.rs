@@ -1381,20 +1381,7 @@ fn log_ai(log: &mut CombatLog, gt: &GameTime, faction: i32, town: &str, personal
 /// Resolve a building's position from WorldData by kind + index.
 /// Returns None if index is out of bounds or building is dead.
 fn resolve_building_pos(world_data: &WorldData, kind: BuildingKind, index: usize) -> Option<Vec2> {
-    let pos = match kind {
-        BuildingKind::Farm => world_data.farms.get(index).map(|b| b.position),
-        BuildingKind::FarmerHome => world_data.farmer_homes.get(index).map(|b| b.position),
-        BuildingKind::ArcherHome => world_data.archer_homes.get(index).map(|b| b.position),
-        BuildingKind::CrossbowHome => world_data.crossbow_homes.get(index).map(|b| b.position),
-        BuildingKind::FighterHome => world_data.fighter_homes.get(index).map(|b| b.position),
-        BuildingKind::Waypoint => world_data.waypoints.get(index).map(|b| b.position),
-        BuildingKind::Tent => world_data.tents.get(index).map(|b| b.position),
-        BuildingKind::MinerHome => world_data.miner_homes.get(index).map(|b| b.position),
-        BuildingKind::Fountain | BuildingKind::Camp => world_data.towns.get(index).map(|b| b.center),
-        BuildingKind::GoldMine => world_data.gold_mines.get(index).map(|b| b.position),
-        BuildingKind::Bed => world_data.beds.get(index).map(|b| b.position),
-    }?;
-    if world::is_alive(pos) { Some(pos) } else { None }
+    (crate::constants::building_def(kind).pos_town)(world_data, index).map(|(pos, _)| pos)
 }
 
 impl AiPersonality {

@@ -465,6 +465,8 @@ pub struct BuildingDef {
     pub save_vec: fn(&WorldData) -> JsonValue,
     /// Deserialize JSON into this kind's WorldData vec.
     pub load_vec: fn(&mut WorldData, JsonValue),
+    /// Reconstruct a Building variant + position from WorldData at index.
+    pub get_building: fn(&WorldData, usize) -> Option<(Building, Vec2)>,
 }
 
 /// Single source of truth for all building types.
@@ -488,6 +490,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps_mut: |hp| &mut hp.towns,
         town_idx: |b| if let Building::Fountain { town_idx } = b { *town_idx } else { 0 },
         save_key: None, save_vec: |_| JsonValue::Null, load_vec: |_, _| {},
+        get_building: |wd, i| wd.towns.get(i).map(|t| {
+            let b = if t.faction == 0 { Building::Fountain { town_idx: i as u32 } }
+            else { Building::Camp { town_idx: i as u32 } };
+            (b, t.center)
+        }),
     },
     // 1: Bed
     BuildingDef {
@@ -509,6 +516,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("beds"),
         save_vec: |wd| serde_json::to_value(&wd.beds).unwrap(),
         load_vec: |wd, v| { wd.beds = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.beds.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Bed { town_idx: b.town_idx }, b.position)),
     },
     // 2: Waypoint
     BuildingDef {
@@ -530,6 +539,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("waypoints"),
         save_vec: |wd| serde_json::to_value(&wd.waypoints).unwrap(),
         load_vec: |wd, v| { wd.waypoints = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.waypoints.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Waypoint { town_idx: b.town_idx, patrol_order: b.patrol_order }, b.position)),
     },
     // 3: Farm
     BuildingDef {
@@ -551,6 +562,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("farms"),
         save_vec: |wd| serde_json::to_value(&wd.farms).unwrap(),
         load_vec: |wd, v| { wd.farms = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.farms.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Farm { town_idx: b.town_idx }, b.position)),
     },
     // 4: Camp (raider town center)
     BuildingDef {
@@ -570,6 +583,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hps_mut: |hp| &mut hp.towns,
         town_idx: |b| if let Building::Camp { town_idx } = b { *town_idx } else { 0 },
         save_key: None, save_vec: |_| JsonValue::Null, load_vec: |_, _| {},
+        get_building: |wd, i| wd.towns.get(i).map(|t| {
+            let b = if t.faction == 0 { Building::Fountain { town_idx: i as u32 } }
+            else { Building::Camp { town_idx: i as u32 } };
+            (b, t.center)
+        }),
     },
     // 5: Farmer Home
     BuildingDef {
@@ -592,6 +610,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("farmer_homes"),
         save_vec: |wd| serde_json::to_value(&wd.farmer_homes).unwrap(),
         load_vec: |wd, v| { wd.farmer_homes = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.farmer_homes.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::FarmerHome { town_idx: b.town_idx }, b.position)),
     },
     // 6: Archer Home
     BuildingDef {
@@ -614,6 +634,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("archer_homes"),
         save_vec: |wd| serde_json::to_value(&wd.archer_homes).unwrap(),
         load_vec: |wd, v| { wd.archer_homes = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.archer_homes.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::ArcherHome { town_idx: b.town_idx }, b.position)),
     },
     // 7: Tent (raider spawner)
     BuildingDef {
@@ -636,6 +658,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("tents"),
         save_vec: |wd| serde_json::to_value(&wd.tents).unwrap(),
         load_vec: |wd, v| { wd.tents = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.tents.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::Tent { town_idx: b.town_idx }, b.position)),
     },
     // 8: Gold Mine
     BuildingDef {
@@ -667,6 +691,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
                         .collect()
                 });
         },
+        get_building: |wd, i| wd.gold_mines.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::GoldMine, b.position)),
     },
     // 9: Miner Home
     BuildingDef {
@@ -689,6 +715,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("miner_homes"),
         save_vec: |wd| serde_json::to_value(&wd.miner_homes).unwrap(),
         load_vec: |wd, v| { wd.miner_homes = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.miner_homes.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::MinerHome { town_idx: b.town_idx }, b.position)),
     },
     // 10: Crossbow Home
     BuildingDef {
@@ -711,6 +739,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("crossbow_homes"),
         save_vec: |wd| serde_json::to_value(&wd.crossbow_homes).unwrap(),
         load_vec: |wd, v| { wd.crossbow_homes = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.crossbow_homes.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::CrossbowHome { town_idx: b.town_idx }, b.position)),
     },
     // 11: Fighter Home
     BuildingDef {
@@ -734,6 +764,8 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         save_key: Some("fighter_homes"),
         save_vec: |wd| serde_json::to_value(&wd.fighter_homes).unwrap(),
         load_vec: |wd, v| { wd.fighter_homes = serde_json::from_value(v).unwrap_or_default(); },
+        get_building: |wd, i| wd.fighter_homes.get(i).filter(|b| is_alive(b.position))
+            .map(|b| (Building::FighterHome { town_idx: b.town_idx }, b.position)),
     },
 ];
 

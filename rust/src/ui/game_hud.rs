@@ -802,32 +802,7 @@ fn inspector_content(
 // ============================================================================
 
 fn building_from_kind_index(world_data: &WorldData, kind: BuildingKind, index: usize) -> Option<(Building, Vec2)> {
-    match kind {
-        BuildingKind::Farm => world_data.farms.get(index).map(|b| (Building::Farm { town_idx: b.town_idx }, b.position)),
-        BuildingKind::Waypoint => world_data.waypoints.get(index)
-            .map(|b| (Building::Waypoint { town_idx: b.town_idx, patrol_order: b.patrol_order }, b.position)),
-        BuildingKind::FarmerHome => world_data.farmer_homes.get(index)
-            .map(|b| (Building::FarmerHome { town_idx: b.town_idx }, b.position)),
-        BuildingKind::ArcherHome => world_data.archer_homes.get(index)
-            .map(|b| (Building::ArcherHome { town_idx: b.town_idx }, b.position)),
-        BuildingKind::CrossbowHome => world_data.crossbow_homes.get(index)
-            .map(|b| (Building::CrossbowHome { town_idx: b.town_idx }, b.position)),
-        BuildingKind::FighterHome => world_data.fighter_homes.get(index)
-            .map(|b| (Building::FighterHome { town_idx: b.town_idx }, b.position)),
-        BuildingKind::Tent => world_data.tents.get(index).map(|b| (Building::Tent { town_idx: b.town_idx }, b.position)),
-        BuildingKind::MinerHome => world_data.miner_homes.get(index)
-            .map(|b| (Building::MinerHome { town_idx: b.town_idx }, b.position)),
-        BuildingKind::Bed => world_data.beds.get(index).map(|b| (Building::Bed { town_idx: b.town_idx }, b.position)),
-        BuildingKind::Fountain | BuildingKind::Camp => world_data.towns.get(index).map(|t| {
-            let b = if t.faction == 0 {
-                Building::Fountain { town_idx: index as u32 }
-            } else {
-                Building::Camp { town_idx: index as u32 }
-            };
-            (b, t.center)
-        }),
-        BuildingKind::GoldMine => world_data.gold_mines.get(index).map(|m| (Building::GoldMine, m.position)),
-    }
+    (crate::constants::building_def(kind).get_building)(world_data, index)
 }
 
 fn selected_building_info(
