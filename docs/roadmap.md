@@ -16,7 +16,7 @@ See [completed.md](completed.md) for completed work moved out of active stages.
 
 ## Stages
 
-Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
+Stages 1-13: [x] Complete (see [completed.md](completed.md))
 
 **Stage 14: Tension**
 
@@ -39,7 +39,37 @@ Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
 - [x] Endless mode: defeated AI towns become leaderless, toggle spawns replacement AI scaled to player strength
 - [x] Destructible enemy fountains/camps (AI deactivated on destruction, NPCs/buildings persist)
 
-**Stage 15: Performance**
+**Stage 15: Logistics & Flow**
+
+*Done when: player builds a road from town to gold mine, zooms out, and watches farmers carrying food and miners carrying gold streaming along the road — visible supply chains on infrastructure the player designed.*
+
+Farmer delivery (make food transport visible):
+- [ ] Farmer harvest no longer instantly credits `FoodStorage` — instead transitions to `Activity::Returning { loot: [(Food, yield)] }` with goal = FarmerHome position
+- [ ] Farmer walks home carrying food (visible food sprite via existing `build_visual_upload` equipment layer 3 — already renders carried items for `Returning` NPCs)
+- [ ] Food credited to `FoodStorage` on delivery at home (existing `DELIVERY_RADIUS` proximity check in `behavior.rs` already handles `Returning` NPCs)
+- [ ] After delivery, farmer transitions back to `GoingToWork` (same cycle as miner: work → harvest → carry home → return to work)
+- [ ] `harvest()` in `resources.rs` split: farm harvest returns yield amount without crediting storage; caller handles credit-on-delivery vs instant-credit (raiders/theft still instant)
+- [ ] Files: `resources.rs` (harvest split), `systems/behavior.rs` (farmer Returning transition + delivery), `systems/economy.rs` (working farmer harvest change)
+
+Roads (infrastructure the player builds and NPCs use):
+- [ ] `Biome::Road` variant added to world grid terrain enum
+- [ ] Road tileset sprite (simple dirt path / cobblestone tile, index 11+ in world tileset)
+- [ ] Road building: player places road segments on grid tiles via build menu (cost: 1 food per tile, no building slot required — roads go on terrain, not building layer)
+- [ ] Road grid uploaded to GPU as `road_flags` storage buffer (1 u32 per cell, 0/1) — compute shader reads it
+- [ ] Road speed bonus: `npc_compute.wgsl` checks NPC's current grid cell against road_flags; if on road, `speed *= ROAD_SPEED_MULT` (1.5x)
+- [ ] Road collision bypass: NPCs on road cells skip NPC-NPC separation force in compute shader (no bumping on roads = smooth traffic flow)
+- [ ] Road connects visually to adjacent road tiles (auto-tiling: straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
+- [ ] Roads persist in save/load (terrain is already saved via WorldGrid)
+- [ ] Destroy road via build menu destroy mode (reverts cell terrain to Dirt)
+- [ ] Files: `world.rs` (Biome::Road + road helpers), `constants.rs` (ROAD_SPEED_MULT, ROAD_COST), `gpu.rs` (road_flags buffer upload), `assets/shaders/npc_compute.wgsl` (speed bonus + separation skip), `ui/build_menu.rs` (road placement), `save.rs` (if terrain save needs update), tilemap rendering (road tileset sprite)
+
+AI road building:
+- [ ] AI towns auto-build roads between fountain and farm clusters, mine routes, and waypoint paths
+- [ ] AI road placement uses A* or straight-line between key building positions, placing `Biome::Road` on each cell along the path
+- [ ] Road building happens during AI build tick, costs food same as player (1 food/tile)
+- [ ] Files: `systems/ai_player.rs` (road building logic)
+
+**Stage 16: Performance**
 
 *Done when: `NpcGpuState` ExtractResource clone eliminated, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
 
@@ -81,7 +111,7 @@ Completed bundle work moved to [completed.md](completed.md).
 - [ ] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
 - [ ] Re-baseline and document actual parameter-count reductions after refactor, then verify with `cargo check`.
 
-**Stage 14b: AI Expansion & Mine Control**
+**Stage 17: AI Expansion & Mine Control**
 
 *Done when: AI towns grow beyond their starting 7×7 grid, compete for gold mines via patrol routes, and a passive AI that doesn't expand gets outcompeted and dies.*
 
@@ -95,7 +125,7 @@ Chunk 3 — Wilderness waypoint placement + AI territorial expansion:
 Mostly complete (see [completed.md](completed.md)).
 - [ ] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
 
-**Stage 14c: Generic Growth & Contestable Mines**
+**Stage 18: Generic Growth & Contestable Mines**
 
 *Done when: mines grow gold like farms grow food (tended-only, 4-hour cycle), any faction's miner can harvest a ready mine, and FarmStates is generalized to GrowthStates handling both farms and mines.*
 
@@ -109,13 +139,13 @@ Refactor FarmStates → GrowthStates (see plan file `velvet-crunching-torvalds.m
 - [ ] Delete: `MineStates`, `MiningProgress`, `MinerProgressRender`, `sync_miner_progress_render`, `mine_regen_system`, `MINE_MAX_GOLD`, `MINE_REGEN_RATE`, `MINE_WORK_HOURS`
 - [ ] Bulk rename `FarmStates` → `GrowthStates` across ~20 files (resources, systems, tests, UI, save)
 
-**Stage 14d: Auto-Mining Policy**
+**Stage 19: Auto-Mining Policy**
 
 *Done when: player sets a mining radius from the town fountain in the Policies tab, gold mines within that radius are auto-discovered, and all available miners are auto-distributed across enabled mines — no per-miner micromanagement needed.*
 
 Complete (see [completed.md](completed.md)).
 
-**Stage 16: Combat Depth**
+**Stage 20: Combat Depth**
 
 *Done when: two archers with different traits fight the same raider noticeably differently - one flees early, the other berserks at low HP.*
 
@@ -126,7 +156,7 @@ Complete (see [completed.md](completed.md)).
 - [ ] Squad behavior: add option for squad-assigned archers to ignore patrol responsibilities
 - [ ] When "Ignore Patrol" is enabled, archers with `SquadId` must never enter `OnDuty`/patrol route flow; they only follow squad target (or squad-idle behavior) while still respecting survival rules (combat/flee/rest/heal)
 
-**Stage 16b: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
+**Stage 21: NPC Skills & Proficiency** (see [specs/npc-skills.md](specs/npc-skills.md))
 
 *Done when: two NPCs with the same job but different proficiencies produce measurably different outcomes (farm output, combat effectiveness, dodge/survival), and those differences are visible in UI.*
 
@@ -139,7 +169,7 @@ Complete (see [completed.md](completed.md)).
 - [ ] Render skill/proficiency details in inspector + roster sorting/filtering support
 - [ ] Keep base-role identity intact (job still determines behavior class; proficiency scales effectiveness)
 
-**Stage 17: Walls & Defenses**
+**Stage 22: Walls & Defenses**
 
 *Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
 
@@ -149,25 +179,14 @@ Complete (see [completed.md](completed.md)).
 - [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
 - [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
 
-**Stage 17b: Roads**
-
-*Done when: player builds a road from town to a gold mine, NPCs visibly snap onto it, walk faster with no collision, and step off when their destination requires it.*
-
-- [ ] Road building: player and AI place road segments on grid tiles (like walls, connects to adjacent roads)
-- [ ] NPC road attraction: attraction strength parameter pulls nearby NPCs onto road (snapping, not teleporting)
-- [ ] Road speed bonus: NPCs on road tiles get increased movement speed
-- [ ] Road collision bypass: NPCs on road skip NPC-NPC collision (GPU spatial grid ignore flag or separate movement mode)
-- [ ] Road exit: NPCs leave road when destination is off-road (attraction releases when target bearing diverges)
-- [ ] AI road building: AI towns build roads between key buildings (home clusters → farms, mines, waypoints)
-
-**Stage 18: Save/Load**
+**Stage 23: Save/Load**
 
 *Done when: player builds up a town for 20 minutes, quits, relaunches, and continues exactly where they left off - NPCs in the same positions, same HP, same upgrades, same food.*
 
 Core save/load shipped (see [completed.md](completed.md)).
 - [ ] Save slot selection (3 slots)
 
-**Stage 19: Loot & Equipment**
+**Stage 24: Loot & Equipment**
 
 *Done when: raider dies -> drops loot bag -> archer picks it up -> item appears in town inventory -> player equips it on an archer -> archer's stats increase and sprite changes.*
 
@@ -178,7 +197,7 @@ Core save/load shipped (see [completed.md](completed.md)).
 - [ ] `Equipment` component: weapon + armor slots, feeds into `resolve_combat_stats()`
 - [ ] Equipped items reflected in NPC equipment sprite layers
 
-**Stage 20: Tech Trees** (see [specs/tech-tree.md](specs/tech-tree.md))
+**Stage 25: Tech Trees** (see [specs/tech-tree.md](specs/tech-tree.md))
 
 *Done when: player spends Food or Gold to buy tech-tree upgrades with prerequisites (no research building), and branch progression visibly unlocks stronger nodes (e.g., ArcherHome Lv2 unlock path, Military damage tier path).*
 
@@ -196,7 +215,7 @@ Chunk 4: Player AI Manager
 - [ ] Reuse `AiKind::Builder` decision logic for faction 0 town, gated by unlock + toggle
 - [ ] UI: hidden until unlocked, then show enable toggle + build/upgrade toggles + status label
 
-**Stage 21: Economy Depth**
+**Stage 26: Economy Depth**
 
 *Done when: player must choose between feeding NPCs and buying upgrades - food is a constraint, not a score.*
 
@@ -204,7 +223,7 @@ Chunk 4: Player AI Manager
 - [ ] FoodEfficiency upgrade wired into `decision_system` eat logic
 - [ ] Economy pressure: upgrades cost more food, NPCs consume more as population grows
 
-**Stage 22: Diplomacy**
+**Stage 27: Diplomacy**
 
 *Done when: a raider camp sends a messenger offering a truce for 3 food/hour tribute - accepting stops raids, refusing triggers an immediate attack wave.*
 
@@ -214,7 +233,7 @@ Chunk 4: Player AI Manager
 - [ ] Allied camps stop raiding, may send fighters during large attacks
 - [ ] Betrayal: allied camps can turn hostile if tribute stops or player is weak
 
-**Stage 24: Resources & Jobs**
+**Stage 28: Resources & Jobs**
 
 *Done when: player builds a lumber mill near Forest tiles, assigns a woodcutter, collects wood, and builds a stone wall using wood + stone instead of food - multi-resource economy with job specialization.*
 
@@ -222,10 +241,10 @@ Chunk 4: Player AI Manager
 - [ ] Harvester buildings: lumber mill, quarry (same spawner pattern as FarmerHome/ArcherHome, 1 worker each)
 - [ ] Resource storage per town (like FoodStorage but for each type - gold already done via GoldStorage)
 - [ ] Building costs use mixed resources (walls=stone, archer homes=wood+stone, upgrades=food+iron, etc.)
-- [ ] Crafting: blacksmith building consumes iron -> produces weapons/armor (feeds into Stage 19 loot system)
+- [ ] Crafting: blacksmith building consumes iron -> produces weapons/armor (feeds into Stage 24 loot system)
 - [ ] Villager job assignment UI (drag workers between roles - farming, woodcutting, mining, smithing, military)
 
-**Stage 25: Armies & Marching**
+**Stage 29: Armies & Marching**
 
 *Done when: player recruits 15 archers into an army, gives a march order to a neighboring camp, and the army walks across the map as a formation - arriving ready to fight.*
 
@@ -235,7 +254,7 @@ Chunk 4: Player AI Manager
 - [ ] Army supply: marching armies consume food from origin town's storage, starve without supply
 - [ ] Field battles: two armies in proximity -> combat triggers (existing combat system handles it)
 
-**Stage 26: Conquest**
+**Stage 30: Conquest**
 
 *Done when: player marches an army to a raider camp, defeats defenders, and claims the town - camp converts to player-owned town with buildings intact, player now manages two towns.*
 
@@ -245,7 +264,7 @@ Chunk 4: Player AI Manager
 - [ ] AI expansion: AI players can attack each other and the player (not just raid - full conquest attempts)
 - [ ] Victory condition: control all settlements on the map
 
-**Stage 27: World Map**
+**Stage 31: World Map**
 
 *Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI and more camps - campaign progression.*
 
@@ -254,7 +273,7 @@ Chunk 4: Player AI Manager
 - [ ] Persistent bonuses between regions (tech carries over, starting resources from tribute)
 - [ ] "Country" = set of regions. "World" = set of countries. Campaign arc.
 
-**Stage 28: Tower Defense (Wintermaul Wars-inspired)**
+**Stage 32: Tower Defense (Wintermaul Wars-inspired)**
 
 *Done when: player builds towers in a maze layout to shape enemy pathing, towers have elemental types with rock-paper-scissors counters, income accrues with interest, and towers upgrade/evolve into advanced forms.*
 
@@ -312,11 +331,11 @@ Implementation guides for upcoming stages. Once built, spec content rolls into r
 
 | Spec | Stage | File |
 |---|---|---|
-| GPU Extract Optimization | 15 | [specs/gpu-extract-optimization.md](specs/gpu-extract-optimization.md) |
-| Chunked Tilemap | 15 | [specs/chunked-tilemap.md](specs/chunked-tilemap.md) |
-| Tech Tree (Chunks 3-4) | 20 | [specs/tech-tree.md](specs/tech-tree.md) |
-| NPC Skills & Proficiency | 16b | [specs/npc-skills.md](specs/npc-skills.md) |
-| GPU-Native NPC Rendering | 15 | [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md) |
+| GPU Extract Optimization | 16 | [specs/gpu-extract-optimization.md](specs/gpu-extract-optimization.md) |
+| Chunked Tilemap | 16 | [specs/chunked-tilemap.md](specs/chunked-tilemap.md) |
+| Tech Tree (Chunks 3-4) | 25 | [specs/tech-tree.md](specs/tech-tree.md) |
+| NPC Skills & Proficiency | 21 | [specs/npc-skills.md](specs/npc-skills.md) |
+| GPU-Native NPC Rendering | 16 | [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md) |
 
 ## Performance
 
