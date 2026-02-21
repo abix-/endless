@@ -109,7 +109,7 @@ pub fn arrival_system(
                         if town_idx < economy.food_storage.food.len() {
                             economy.food_storage.food[town_idx] += amount;
                         }
-                        economy.food_events.delivered.push(FoodDelivered { camp_idx: town.0 as u32 });
+                        economy.food_events.delivered.push(FoodDelivered { town_idx: town.0 as u32 });
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
                             format!("Delivered {} food", amount));
                     }
@@ -1028,7 +1028,7 @@ pub fn decision_system(
                         if squad_id.is_some() {
                             // Squad assigned — target is managed by ai_squad_commander
                         } else {
-                            // No squad — wander near camp
+                            // No squad — wander near town
                             let offset_x = (pseudo_random(idx, frame + 1) - 0.5) * 100.0;
                             let offset_y = (pseudo_random(idx, frame + 2) - 0.5) * 100.0;
                             *activity = Activity::Wandering;

@@ -148,7 +148,7 @@ impl TownGrid {
     }
 }
 
-/// All town building grids. One per town (villager and raider camps).
+/// All town building grids. One per town (villager and raider towns).
 #[derive(Resource, Default)]
 pub struct TownGrids {
     pub grids: Vec<TownGrid>,
@@ -200,7 +200,7 @@ pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid) -> Vec<(i32, i
     out
 }
 
-/// Find which town (villager or camp) has a buildable slot matching the given grid coords.
+/// Find which town has a buildable slot matching the given grid coords.
 /// Returns the grid index and town data index.
 pub fn find_town_slot(
     world_pos: Vec2,
@@ -300,12 +300,12 @@ pub fn resolve_spawner_npc(
 
     // Look up the registry entry by tileset index (building_kind = tileset index)
     let Some(def) = BUILDING_REGISTRY.get(entry.building_kind as usize) else {
-        let camp_faction = towns.get(entry.town_idx as usize).map(|t| t.faction).unwrap_or(1);
-        return (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown");
+        let raider_faction = towns.get(entry.town_idx as usize).map(|t| t.faction).unwrap_or(1);
+        return (2, raider_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown");
     };
     let Some(ref spawner) = def.spawner else {
-        let camp_faction = towns.get(entry.town_idx as usize).map(|t| t.faction).unwrap_or(1);
-        return (2, camp_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown");
+        let raider_faction = towns.get(entry.town_idx as usize).map(|t| t.faction).unwrap_or(1);
+        return (2, raider_faction, -1.0, -1.0, -1, 0, "Raider", "Unknown");
     };
 
     let npc_label = npc_def(Job::from_i32(spawner.job)).label;
@@ -323,10 +323,10 @@ pub fn resolve_spawner_npc(
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
             (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, npc_label, def.label)
         }
-        SpawnBehavior::CampRaider => {
-            let camp_faction = towns.get(entry.town_idx as usize)
+        SpawnBehavior::Raider => {
+            let raider_faction = towns.get(entry.town_idx as usize)
                 .map(|t| t.faction).unwrap_or(1);
-            (spawner.job, camp_faction, -1.0, -1.0, -1, spawner.attack_type, npc_label, def.label)
+            (spawner.job, raider_faction, -1.0, -1.0, -1, spawner.attack_type, npc_label, def.label)
         }
         SpawnBehavior::Miner => {
             let assigned = miner_homes.iter()
@@ -472,19 +472,11 @@ pub fn allocate_all_building_slots(
 
     // Generic loop over all building kinds using registry fn pointers
     for def in BUILDING_REGISTRY {
-        // Fountain/Camp share towns vec — handle via special Fountain pos_town that returns both
-        if def.kind == BuildingKind::Camp { continue; }
         for i in 0..(def.len)(world_data) {
             if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
                 let faction = if def.kind == BuildingKind::GoldMine { FACTION_NEUTRAL }
                     else { town_faction(ti) };
-                // Fountain pos_town returns town index; check sprite_type to distinguish Camp
-                let actual_kind = if def.kind == BuildingKind::Fountain {
-                    if world_data.towns.get(i).map(|t| t.sprite_type == 1).unwrap_or(false) {
-                        BuildingKind::Camp
-                    } else { BuildingKind::Fountain }
-                } else { def.kind };
-                alloc(slot_alloc, building_slots, actual_kind, i, pos, faction);
+                alloc(slot_alloc, building_slots, def.kind, i, pos, faction);
             }
         }
     }
@@ -605,7 +597,7 @@ pub fn remove_building(
         None => return Err("cell out of bounds"),
     };
 
-    // Player UI guards (is_destructible) prevent click-destroying fountains/camps/gold mines.
+    // Player UI guards (is_destructible) prevent click-destroying fountains/gold mines.
     // The HP→0 path in building_damage_system is allowed to destroy any building kind.
 
     // Clear grid cell
@@ -744,7 +736,7 @@ pub fn find_location_within_radius(
     let bkind = match kind {
         LocationKind::Farm => BuildingKind::Farm,
         LocationKind::Waypoint => BuildingKind::Waypoint,
-        LocationKind::Town => BuildingKind::Fountain, // also matches Camp below
+        LocationKind::Town => BuildingKind::Fountain,
         LocationKind::GoldMine => BuildingKind::GoldMine,
     };
     let r2 = radius * radius;
@@ -752,7 +744,7 @@ pub fn find_location_within_radius(
     let mut result: Option<(usize, Vec2)> = None;
     bgrid.for_each_nearby(from, radius, |bref| {
         let matches = if is_town {
-            bref.kind == BuildingKind::Fountain || bref.kind == BuildingKind::Camp
+            bref.kind == BuildingKind::Fountain
         } else {
             bref.kind == bkind
         };
@@ -781,10 +773,10 @@ pub fn find_nearest_enemy_building(
     bgrid.for_each_nearby(from, radius, |bref| {
         if bref.faction == npc_faction { return; } // same faction
         if bref.faction < 0 { return; } // no faction (gold mines)
-        // Skip non-targetable building types (enemy fountains/camps ARE targetable)
+        // Skip non-targetable building types (enemy fountains ARE targetable)
         match bref.kind {
             BuildingKind::GoldMine | BuildingKind::Bed => return,
-            BuildingKind::Fountain | BuildingKind::Camp if bref.faction == 0 => return, // protect player fountain
+            BuildingKind::Fountain if bref.faction == 0 => return, // protect player fountain
             _ => {}
         }
         // Raiders only target military buildings
@@ -931,7 +923,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, Camp, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road }
+pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {
@@ -969,20 +961,12 @@ impl BuildingSpatialGrid {
 
         // Generic loop: registry-driven building ref insertion
         for def in crate::constants::BUILDING_REGISTRY {
-            // Fountain handles both Fountain and Camp via sprite_type check
-            if def.kind == BuildingKind::Camp { continue; }
             for i in 0..(def.len)(world) {
                 if let Some((pos, ti)) = (def.pos_town)(world, i) {
-                    // Fountain: check sprite_type to distinguish Camp
-                    let actual_kind = if def.kind == BuildingKind::Fountain {
-                        if world.towns.get(i).map(|t| t.faction > 0).unwrap_or(false) {
-                            BuildingKind::Camp
-                        } else { BuildingKind::Fountain }
-                    } else { def.kind };
                     let faction = if def.kind == BuildingKind::GoldMine { -1 } else { faction_of(ti) };
                     let town_idx = if def.kind == BuildingKind::GoldMine { u32::MAX } else { ti };
                     self.insert(BuildingRef {
-                        kind: actual_kind, index: i, town_idx, faction, position: pos,
+                        kind: def.kind, index: i, town_idx, faction, position: pos,
                     });
                 }
             }
@@ -1304,12 +1288,12 @@ pub struct WorldGenConfig {
     pub num_towns: usize,
     pub min_town_distance: f32,
     pub grid_spacing: f32,
-    pub camp_distance: f32,
+    pub raider_distance: f32,
     pub farms_per_town: usize,
-    /// Per-job home count: village NPCs = per town, camp NPCs = per camp.
+    /// Per-job home count: village NPCs = per builder town, raider NPCs = per raider town.
     pub npc_counts: BTreeMap<Job, usize>,
     pub ai_towns: usize,
-    pub raider_camps: usize,
+    pub raider_towns: usize,
     pub gold_mines_per_town: usize,
     pub town_names: Vec<String>,
 }
@@ -1324,11 +1308,11 @@ impl Default for WorldGenConfig {
             num_towns: 2,
             min_town_distance: 1200.0,
             grid_spacing: 34.0,
-            camp_distance: 3500.0,
+            raider_distance: 3500.0,
             farms_per_town: 2,
             npc_counts: NPC_REGISTRY.iter().map(|d| (d.job, d.default_count)).collect(),
             ai_towns: 1,
-            raider_camps: 1,
+            raider_towns: 1,
             gold_mines_per_town: 2,
             town_names: vec![
                 "Miami".into(), "Orlando".into(), "Tampa".into(), "Jacksonville".into(),
@@ -1455,10 +1439,10 @@ pub fn generate_world(
         place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false);
     }
 
-    // Step 4: Place raider camp centers (Raider AI, each gets unique faction)
-    let mut camp_positions: Vec<Vec2> = Vec::new();
+    // Step 4: Place raider town centers (Raider AI, each gets unique faction)
+    let mut raider_positions: Vec<Vec2> = Vec::new();
     attempts = 0;
-    while camp_positions.len() < config.raider_camps && attempts < max_attempts {
+    while raider_positions.len() < config.raider_towns && attempts < max_attempts {
         attempts += 1;
         let x = rng.random_range(config.world_margin..config.world_width - config.world_margin);
         let y = rng.random_range(config.world_margin..config.world_height - config.world_margin);
@@ -1470,15 +1454,15 @@ pub fn generate_world(
         if all_positions.iter().all(|e| pos.distance(*e) >= config.min_town_distance) {
             let (gc, gr) = grid.world_to_grid(pos);
             let pos = grid.grid_to_world(gc, gr);
-            camp_positions.push(pos);
+            raider_positions.push(pos);
             all_positions.push(pos);
         }
     }
 
-    for &center in &camp_positions {
+    for &center in &raider_positions {
         let faction = next_faction;
         next_faction += 1;
-        world_data.towns.push(Town { name: "Raider Camp".into(), center, faction, sprite_type: 1 });
+        world_data.towns.push(Town { name: "Raider Town".into(), center, faction, sprite_type: 1 });
         let town_data_idx = world_data.towns.len() - 1;
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
@@ -1530,14 +1514,14 @@ pub fn generate_world(
         mine_positions.push(snapped);
     }
 
-    info!("generate_world: {} player towns, {} AI towns, {} raider camps, {} gold mines, grid {}x{} ({})",
-        player_positions.len(), ai_town_positions.len(), camp_positions.len(), mine_positions.len(), w, h,
+    info!("generate_world: {} player towns, {} AI towns, {} raider towns, {} gold mines, grid {}x{} ({})",
+        player_positions.len(), ai_town_positions.len(), raider_positions.len(), mine_positions.len(), w, h,
         if is_continents { "continents" } else { "classic" });
 }
 
-/// Place buildings for a town or camp. Unified builder for both AI kinds:
-/// - Town (`is_camp: false`): fountain + farms + village NPC homes + corner waypoints
-/// - Camp (`is_camp: true`): camp center + camp NPC homes (tents)
+/// Place buildings for a town. Unified builder for both AI kinds:
+/// - Builder (`is_raider: false`): fountain + farms + village NPC homes + corner waypoints
+/// - Raider (`is_raider: true`): fountain + raider NPC homes (tents)
 pub fn place_buildings(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
@@ -1546,7 +1530,7 @@ pub fn place_buildings(
     town_idx: u32,
     config: &WorldGenConfig,
     town_grid: &mut TownGrid,
-    is_camp: bool,
+    is_raider: bool,
 ) {
     let mut occupied = HashSet::new();
 
@@ -1565,15 +1549,15 @@ pub fn place_buildings(
     };
 
     // Center building at (0, 0)
-    let center_kind = if is_camp { BuildingKind::Camp } else { BuildingKind::Fountain };
+    let center_kind = BuildingKind::Fountain;
     place(0, 0, center_kind, town_idx, &mut occupied);
 
-    // Count NPC homes needed (camp units for camps, village units for towns)
+    // Count NPC homes needed (raider units for raider towns, village units for builder towns)
     let homes: usize = NPC_REGISTRY.iter()
-        .filter(|d| d.is_camp_unit == is_camp)
+        .filter(|d| d.is_raider_unit == is_raider)
         .map(|d| config.npc_counts.get(&d.job).copied().unwrap_or(0))
         .sum();
-    let farms_count = if is_camp { 0 } else { config.farms_per_town };
+    let farms_count = if is_raider { 0 } else { config.farms_per_town };
     let slots = spiral_slots(&occupied, farms_count + homes);
     let mut slot_iter = slots.into_iter();
 
@@ -1585,8 +1569,8 @@ pub fn place_buildings(
         farm_states.push_farm(pos, town_idx as u32);
     }
 
-    // NPC homes from registry (filtered by is_camp_unit matching is_camp)
-    for def in NPC_REGISTRY.iter().filter(|d| d.is_camp_unit == is_camp) {
+    // NPC homes from registry (filtered by is_raider_unit matching is_raider)
+    for def in NPC_REGISTRY.iter().filter(|d| d.is_raider_unit == is_raider) {
         let count = config.npc_counts.get(&def.job).copied().unwrap_or(0);
         for _ in 0..count {
             let Some((row, col)) = slot_iter.next() else { break };
@@ -1596,7 +1580,7 @@ pub fn place_buildings(
     }
 
     // Waypoints at outer corners (towns only, clockwise patrol: TL → TR → BR → BL)
-    if !is_camp {
+    if !is_raider {
         let (min_row, max_row, min_col, max_col) = occupied.iter().fold(
             (i32::MAX, i32::MIN, i32::MAX, i32::MIN),
             |(rmin, rmax, cmin, cmax), &(r, c)| (rmin.min(r), rmax.max(r), cmin.min(c), cmax.max(c)),
@@ -1661,18 +1645,18 @@ fn spiral_slots(occupied: &HashSet<(i32, i32)>, count: usize) -> Vec<(i32, i32)>
     result
 }
 
-/// Fill grid terrain using simplex noise, with Dirt override near towns and camps.
+/// Fill grid terrain using simplex noise, with Dirt override near towns.
 fn generate_terrain(
     grid: &mut WorldGrid,
     town_positions: &[Vec2],
-    camp_positions: &[Vec2],
+    raider_positions: &[Vec2],
 ) {
     use noise::{NoiseFn, Simplex};
 
     let noise = Simplex::new(rand::random::<u32>());
     let frequency = 0.003;
     let town_clear_radius = 6.0 * grid.cell_size; // ~192px
-    let camp_clear_radius = 5.0 * grid.cell_size;  // ~160px
+    let raider_clear_radius = 5.0 * grid.cell_size;  // ~160px
 
     for row in 0..grid.height {
         for col in 0..grid.width {
@@ -1680,9 +1664,9 @@ fn generate_terrain(
 
             // Check proximity to towns → Dirt
             let near_town = town_positions.iter().any(|tc| world_pos.distance(*tc) < town_clear_radius);
-            let near_camp = camp_positions.iter().any(|cp| world_pos.distance(*cp) < camp_clear_radius);
+            let near_raider = raider_positions.iter().any(|cp| world_pos.distance(*cp) < raider_clear_radius);
 
-            let biome = if near_town || near_camp {
+            let biome = if near_town || near_raider {
                 Biome::Dirt
             } else {
                 let n = noise.get([world_pos.x as f64 * frequency as f64, world_pos.y as f64 * frequency as f64]);

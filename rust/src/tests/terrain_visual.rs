@@ -23,8 +23,8 @@ const TERRAIN_LABELS: [&str; GRID_COLS] = [
 
 // Building row (row 1 in grid)
 const BUILDING_ROW: usize = 1;
-const BUILDING_LABELS: [&str; 8] = [
-    "Fountain", "Bed", "Waypoint", "Farm", "Camp", "FarmerHome", "ArcherHome", "Tent",
+const BUILDING_LABELS: [&str; 7] = [
+    "Fountain", "Bed", "Waypoint", "Farm", "FarmerHome", "ArcherHome", "Tent",
 ];
 
 pub fn setup(
@@ -55,12 +55,11 @@ pub fn setup(
     }
 
     // Row 1: buildings on Dirt background
-    let buildings: [(BuildingKind, u32); 8] = [
+    let buildings: [(BuildingKind, u32); 7] = [
         (BuildingKind::Fountain, 0),
         (BuildingKind::Bed, 0),
         (BuildingKind::Waypoint, 0),
         (BuildingKind::Farm, 0),
-        (BuildingKind::Camp, 0),
         (BuildingKind::FarmerHome, 0),
         (BuildingKind::ArcherHome, 0),
         (BuildingKind::Tent, 0),

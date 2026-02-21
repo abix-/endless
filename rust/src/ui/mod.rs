@@ -229,7 +229,7 @@ fn game_load_system(
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
         &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
-        &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.camp_state,
+        &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state, &mut fs.endless,
         &mut tracking.npcs_by_town, &mut tracking.slots,
@@ -280,7 +280,7 @@ fn game_startup_system(
     mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut camp_state: ResMut<CampState>,
+    mut raider_state: ResMut<RaiderState>,
     mut game_config: ResMut<GameConfig>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut game_time: ResMut<GameTime>,
@@ -327,8 +327,8 @@ fn game_startup_system(
     extra.npcs_by_town.0.resize(num_towns, Vec::new());
     food_storage.init(num_towns);
     extra.gold_storage.init(num_towns);
-    faction_stats.init(num_towns); // one per settlement (player + AI + camps)
-    camp_state.init(num_towns, 10);
+    faction_stats.init(num_towns); // one per settlement (player + AI + raider towns)
+    raider_state.init(num_towns, 10);
 
     // Sync GameConfig from WorldGenConfig
     game_config.npc_counts = config.npc_counts.iter().map(|(&job, &count)| (job, count as i32)).collect();
@@ -354,8 +354,6 @@ fn game_startup_system(
         let hp = &mut world_state.building_hp;
         **hp = BuildingHpState::default();
         for def in crate::constants::BUILDING_REGISTRY {
-            // Skip Camp (shares towns vec with Fountain)
-            if def.kind == world::BuildingKind::Camp { continue; }
             let count = (def.len)(&world_state.world_data);
             let hps = (def.hps_mut)(hp);
             for _ in 0..count { hps.push(def.hp); }
@@ -788,7 +786,7 @@ fn build_place_click_system(
         build_ctx.clear_drag();
         let cell_building = world_state.grid.cell(gc, gr).and_then(|c| c.building);
         let is_destructible = cell_building
-            .map(|(k, _)| !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::Camp | world::BuildingKind::GoldMine))
+            .map(|(k, _)| !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
             .unwrap_or(false);
         if !is_destructible { return; }
         let bld_kind = cell_building.map(|(k, _)| k);
@@ -970,7 +968,7 @@ fn build_ghost_system(
         let has_building = cell.map(|c| c.building.is_some()).unwrap_or(false);
         let is_fountain = cell
             .and_then(|c| c.building)
-            .map(|(k, _)| matches!(k, world::BuildingKind::Fountain | world::BuildingKind::Camp | world::BuildingKind::GoldMine))
+            .map(|(k, _)| matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
             .unwrap_or(false);
         let valid = has_building && !is_fountain;
         build_ctx.show_cursor_hint = true;
@@ -1237,7 +1235,7 @@ fn process_destroy_system(
     let cell = world_state.grid.cell(col, row);
     let cell_building = cell.and_then(|c| c.building);
     let is_destructible = cell_building
-        .map(|(k, _)| !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::Camp | world::BuildingKind::GoldMine))
+        .map(|(k, _)| !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
         .unwrap_or(false);
     if !is_destructible { return; }
     let bld_kind = cell_building.map(|(k, _)| k);
@@ -1298,7 +1296,7 @@ struct CleanupDebug<'w> {
     combat_debug: ResMut<'w, CombatDebug>,
     health_debug: ResMut<'w, HealthDebug>,
     kill_stats: ResMut<'w, KillStats>,
-    camp_state: ResMut<'w, CampState>,
+    raider_state: ResMut<'w, RaiderState>,
     npc_entity_map: ResMut<'w, NpcEntityMap>,
     pop_stats: ResMut<'w, PopulationStats>,
 }
@@ -1383,7 +1381,7 @@ fn game_cleanup_system(
     *debug.health_debug = Default::default();
     *debug.kill_stats = Default::default();
     *world.world_state.building_occupancy = Default::default();
-    *debug.camp_state = Default::default();
+    *debug.raider_state = Default::default();
     *debug.npc_entity_map = Default::default();
     *debug.pop_stats = Default::default();
 

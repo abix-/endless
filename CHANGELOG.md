@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-21d
+
+- **kill "camp" — unify under "town"** — removed `BuildingKind::Camp` (merged into `Fountain`; `sprite_type` distinguishes rendering), collapsed ~15 `Fountain | Camp` match arms across the codebase, extracted `create_ai_town()` DRY helper in economy.rs (eliminates ~40 duplicated lines between migration and endless replacement), renamed all camp terminology: `CampState` → `RaiderState`, `SpawnBehavior::CampRaider` → `Raider`, `is_camp_unit` → `is_raider_unit`, `camp_buildable` → `raider_buildable`, all `CAMP_*` constants → `RAIDER_*`, `raider_camps` config → `raider_towns`, `camp_forage_system` → `raider_forage_system`; fountain towers now fire for all alive town centers (not just sprite_type==0); save backward compat via `LegacyBuilding::Camp` serde variant and `#[serde(alias)]` on renamed fields
+
 ## 2026-02-21c
 
 - **MVP roads** — `BuildingKind::Road` (BUILDING_REGISTRY[12]) as player-buildable wilderness building with 1.5× NPC speed bonus via GPU compute; `tile_flags` buffer (binding 18) stores per-world-grid-cell bitfield with terrain bits 0-4 (Grass/Forest/Water/Rock/Dirt) and building bits 5+ (Road=32); `populate_tile_flags` system rebuilds from WorldGrid biome + buildings on dirty flag; `place_waypoint_at_world_pos` generalized to `place_wilderness_building(kind)` handling both Road and Waypoint; building atlas layer count now dynamic via `camera.bldg_layers` (from `BUILDING_REGISTRY.len()`) instead of hardcoded `BLDG_LAYERS` constant — prevents sprite overlap when adding new building types
@@ -31,7 +35,7 @@
 ## 2026-02-18x
 
 - **loot system fixes** — three bugs preventing player NPCs from keeping loot on kill: (1) squad sync catch-all was overwriting `Activity::Returning` with `Patrolling`, discarding loot; (2) `xp_grant_system` didn't clear `CombatState`, so flee/leash could wipe loot; (3) flee and leash paths replaced `Returning{loot}` with `Returning{loot: []}`. Fix: squad sync preserves Returning, xp_grant clears CombatState on loot (immediate disengage), flee/leash preserve existing loot.
-- **building loot via method** — `BuildingDef::loot_drop()` derives loot from `cost / 2` as food; replaces hardcoded `cost / 2` in `building_damage_system`; buildings with cost 0 (Fountain, Bed, Camp, GoldMine) drop nothing
+- **building loot via method** — `BuildingDef::loot_drop()` derives loot from `cost / 2` as food; replaces hardcoded `cost / 2` in `building_damage_system`; buildings with cost 0 (Fountain, Bed, GoldMine) drop nothing
 - **inspector shows carried loot** — gold-colored "Loot: N food/gold" line in NPC inspector when carrying loot home
 
 ## 2026-02-18w

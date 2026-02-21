@@ -83,9 +83,9 @@ pub fn setup(
         (def.hps_mut)(&mut building_hp).push(def.hp);
     }
 
-    // Town HP entries (Fountain for town 0, Camp for town 1)
+    // Town HP entries (Fountain for both towns)
     building_hp.towns.push(crate::constants::building_def(world::BuildingKind::Fountain).hp);
-    building_hp.towns.push(crate::constants::building_def(world::BuildingKind::Camp).hp);
+    building_hp.towns.push(crate::constants::building_def(world::BuildingKind::Fountain).hp);
 
     // Resources
     params.init_economy(2);

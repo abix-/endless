@@ -1,4 +1,4 @@
-//! Economy systems - Game time, population tracking, farm growth, camp foraging, respawning
+//! Economy systems - Game time, population tracking, farm growth, raider town foraging, respawning
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 use crate::components::*;
 use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
-use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, CAMP_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
-    CAMP_SPAWN_CHECK_HOURS, MAX_DYNAMIC_CAMPS, CAMP_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_CAMP,
+use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
+    RAIDER_SPAWN_CHECK_HOURS, MAX_RAIDER_TOWNS, RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_RAIDER,
 };
 use crate::world::{self, WorldData, WorldGrid, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
@@ -139,27 +139,27 @@ pub fn growth_system(
 }
 
 // ============================================================================
-// CAMP FORAGING SYSTEM
+// RAIDER FORAGING SYSTEM
 // ============================================================================
 
-/// Camp foraging: each raider camp gains CAMP_FORAGE_RATE food per hour.
+/// Raider foraging: each raider town gains RAIDER_FORAGE_RATE food per hour.
 /// Only runs when game_time.hour_ticked is true.
-pub fn camp_forage_system(
+pub fn raider_forage_system(
     game_time: Res<GameTime>,
     mut economy: EconomyState,
     world_data: Res<WorldData>,
     user_settings: Res<crate::settings::UserSettings>,
     timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("camp_forage");
+    let _t = timings.scope("raider_forage");
     if !game_time.hour_ticked || !user_settings.raider_passive_forage {
         return;
     }
 
-    // Add foraging food to each raider camp (faction > 0)
+    // Add foraging food to each raider town (faction > 0)
     for (town_idx, town) in world_data.towns.iter().enumerate() {
         if town.faction > 0 && town_idx < economy.food_storage.food.len() {
-            economy.food_storage.food[town_idx] += CAMP_FORAGE_RATE;
+            economy.food_storage.food[town_idx] += RAIDER_FORAGE_RATE;
         }
     }
 }
@@ -518,12 +518,71 @@ pub struct MigrationResources<'w> {
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
     pub faction_stats: ResMut<'w, FactionStats>,
-    pub camp_state: ResMut<'w, CampState>,
+    pub raider_state: ResMut<'w, RaiderState>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub policies: ResMut<'w, TownPolicies>,
 }
 
-/// Runs every CAMP_SPAWN_CHECK_HOURS game hours. Group walks toward nearest player town
+/// Create a new AI town: allocate faction, push Town + TownGrid, extend all per-town
+/// resource vecs, create an inactive AiPlayer with random personality.
+/// Returns (town_data_idx, grid_idx, faction).
+fn create_ai_town(
+    world_data: &mut WorldData,
+    town_grids: &mut TownGrids,
+    res: &mut MigrationResources,
+    ai_state: &mut AiPlayerState,
+    center: Vec2,
+    is_raider: bool,
+) -> (usize, usize, i32) {
+    let next_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0) + 1;
+    let name = if is_raider { "Raider Town" } else { "Rival Town" };
+    let sprite_type = if is_raider { 1 } else { 0 };
+
+    world_data.towns.push(world::Town {
+        name: name.into(),
+        center,
+        faction: next_faction,
+        sprite_type,
+    });
+    let town_data_idx = world_data.towns.len() - 1;
+
+    town_grids.grids.push(world::TownGrid::new_base(town_data_idx));
+    let grid_idx = town_grids.grids.len() - 1;
+
+    // Extend per-town resources
+    let num_towns = world_data.towns.len();
+    res.food_storage.food.resize(num_towns, 0);
+    res.gold_storage.gold.resize(num_towns, 0);
+    res.faction_stats.stats.resize(num_towns, FactionStat::default());
+    res.raider_state.max_pop.resize(num_towns, 10);
+    res.raider_state.respawn_timers.resize(num_towns, 0.0);
+    res.raider_state.forage_timers.resize(num_towns, 0.0);
+    res.npcs_by_town.0.resize(num_towns, Vec::new());
+    res.policies.policies.resize(num_towns, PolicySet::default());
+
+    // Create AiPlayer with random personality
+    let ai_kind = if is_raider { AiKind::Raider } else { AiKind::Builder };
+    let mut rng = rand::rng();
+    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
+    let personality = personalities[rng.random_range(0..personalities.len())];
+    if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
+        *policy = personality.default_policies();
+    }
+    ai_state.players.push(AiPlayer {
+        town_data_idx,
+        grid_idx,
+        kind: ai_kind,
+        personality,
+        last_actions: std::collections::VecDeque::new(),
+        active: false,
+        squad_indices: Vec::new(),
+        squad_cmd: HashMap::new(),
+    });
+
+    (town_data_idx, grid_idx, next_faction)
+}
+
+/// Runs every RAIDER_SPAWN_CHECK_HOURS game hours. Group walks toward nearest player town
 /// via Home + Wander behavior, then settles when close enough (handled by migration_settle_system).
 pub fn migration_spawn_system(
     game_time: Res<GameTime>,
@@ -552,17 +611,17 @@ pub fn migration_spawn_system(
 
     if !debug_force {
         migration_state.check_timer += 1.0;
-        if migration_state.check_timer < CAMP_SPAWN_CHECK_HOURS { return; }
+        if migration_state.check_timer < RAIDER_SPAWN_CHECK_HOURS { return; }
         migration_state.check_timer = 0.0;
 
-        // Count player alive NPCs and existing camps
-        let camp_count = world_data.towns.iter().filter(|t| t.sprite_type == 1).count();
+        // Count player alive NPCs and existing raider towns
+        let raider_count = world_data.towns.iter().filter(|t| t.sprite_type == 1).count();
         let player_town = world_data.towns.iter().position(|t| t.faction == 0);
         let Some(player_idx) = player_town else { return };
         let player_alive = res.faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
-        let needed_camps = (player_alive as i32 / VILLAGERS_PER_CAMP) as usize;
-        if camp_count >= needed_camps { return; }
-        if camp_count >= MAX_DYNAMIC_CAMPS { return; }
+        let needed_raiders = (player_alive as i32 / VILLAGERS_PER_RAIDER) as usize;
+        if raider_count >= needed_raiders { return; }
+        if raider_count >= MAX_RAIDER_TOWNS { return; }
     }
 
     // Count player alive NPCs (needed for group size calc)
@@ -588,49 +647,10 @@ pub fn migration_spawn_system(
     };
     let direction = match edge { 0 => "north", 1 => "south", 2 => "west", _ => "east" };
 
-    // Create new faction (next unique ID)
-    let next_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0) + 1;
-
-    // Create Town entry
-    world_data.towns.push(world::Town {
-        name: "Raider Camp".into(),
-        center: Vec2::new(spawn_x, spawn_y), // temporary center — updated on settle
-        faction: next_faction,
-        sprite_type: 1,
-    });
-    let town_data_idx = world_data.towns.len() - 1;
-
-    // Create TownGrid
-    town_grids.grids.push(world::TownGrid::new_base(town_data_idx));
-    let grid_idx = town_grids.grids.len() - 1;
-
-    // Extend per-town resources
-    let num_towns = world_data.towns.len();
-    res.food_storage.food.resize(num_towns, 0);
-    res.gold_storage.gold.resize(num_towns, 0);
-    res.faction_stats.stats.resize(num_towns, FactionStat::default());
-    res.camp_state.max_pop.resize(num_towns, 10);
-    res.camp_state.respawn_timers.resize(num_towns, 0.0);
-    res.camp_state.forage_timers.resize(num_towns, 0.0);
-    res.npcs_by_town.0.resize(num_towns, Vec::new());
-    res.policies.policies.resize(num_towns, PolicySet::default());
-
-    // Create inactive AiPlayer (activated on settlement)
-    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
-    let personality = personalities[rng.random_range(0..personalities.len())];
-    if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
-        *policy = personality.default_policies();
-    }
-    ai_state.players.push(AiPlayer {
-        town_data_idx,
-        grid_idx,
-        kind: AiKind::Raider,
-        personality,
-        last_actions: std::collections::VecDeque::new(),
-        active: false,
-        squad_indices: Vec::new(),
-        squad_cmd: HashMap::new(),
-    });
+    let (town_data_idx, grid_idx, next_faction) = create_ai_town(
+        &mut world_data, &mut town_grids, &mut res, &mut ai_state,
+        Vec2::new(spawn_x, spawn_y), true,
+    );
 
     // Find nearest player town center as wander target
     let player_center = world_data.towns[player_idx].center;
@@ -663,7 +683,7 @@ pub fn migration_spawn_system(
         town_data_idx,
         grid_idx,
         member_slots,
-        is_camp: true,
+        is_raider: true,
     });
 
     combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
@@ -692,7 +712,7 @@ pub fn migration_attach_system(
 }
 
 /// Check if the migrating raider group has reached near a town and should settle.
-/// When within CAMP_SETTLE_RADIUS of any town, places camp buildings and activates the AI player.
+/// When within RAIDER_SETTLE_RADIUS of any town, places raider town buildings and activates the AI player.
 pub fn migration_settle_system(
     mut commands: Commands,
     mut migration_state: ResMut<MigrationState>,
@@ -735,7 +755,7 @@ pub fn migration_settle_system(
     // Check distance to any town (player or AI)
     let near_town = world_state.world_data.towns.iter().enumerate().any(|(i, t)| {
         // Skip our own temporary town entry
-        i != mg.town_data_idx && avg_pos.distance(t.center) < CAMP_SETTLE_RADIUS
+        i != mg.town_data_idx && avg_pos.distance(t.center) < RAIDER_SETTLE_RADIUS
     });
     if !near_town { return; }
 
@@ -743,16 +763,16 @@ pub fn migration_settle_system(
     let town_data_idx = mg.town_data_idx;
     let grid_idx = mg.grid_idx;
     let member_slots = mg.member_slots.clone();
-    let is_camp = mg.is_camp;
+    let is_raider = mg.is_raider;
 
     // Update town center to average group position
     if let Some(town) = world_state.world_data.towns.get_mut(town_data_idx) {
         town.center = avg_pos;
     }
 
-    // Place buildings (camp: tents, town: farms + homes + waypoints)
+    // Place buildings (raider town: tents, town: farms + homes + waypoints)
     if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-        world::place_buildings(&mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states, avg_pos, town_data_idx as u32, &config, town_grid, is_camp);
+        world::place_buildings(&mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states, avg_pos, town_data_idx as u32, &config, town_grid, is_raider);
     }
 
     // Register tent spawners
@@ -768,17 +788,17 @@ pub fn migration_settle_system(
     }
 
     // Add town center HP
-    world_state.building_hp.towns.push(crate::constants::building_def(BuildingKind::Camp).hp);
+    world_state.building_hp.towns.push(crate::constants::building_def(BuildingKind::Fountain).hp);
 
-    // Stamp dirt around the new camp
+    // Stamp dirt around the new raider town
     world::stamp_dirt(&mut world_state.grid, &[avg_pos]);
 
-    // Activate the AiPlayer for this camp
+    // Activate the AiPlayer for this raider town
     if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_data_idx) {
         player.active = true;
     }
 
-    // Remove Migrating from all group members and update their Home to camp center
+    // Remove Migrating from all group members and update their Home to raider town center
     for &slot in &member_slots {
         if let Some(&entity) = npc_map.0.get(&slot) {
             // Check if entity still has Migrating (may have died)
@@ -845,31 +865,10 @@ pub fn endless_respawn_system(
     };
     let direction = match edge { 0 => "north", 1 => "south", 2 => "west", _ => "east" };
 
-    let next_faction = world_data.towns.iter().map(|t| t.faction).max().unwrap_or(0) + 1;
-    let name = if spawn.is_camp { "Raider Camp" } else { "Rival Town" };
-    let sprite_type = if spawn.is_camp { 1 } else { 0 };
-
-    world_data.towns.push(world::Town {
-        name: name.into(),
-        center: Vec2::new(spawn_x, spawn_y),
-        faction: next_faction,
-        sprite_type,
-    });
-    let town_data_idx = world_data.towns.len() - 1;
-
-    town_grids.grids.push(world::TownGrid::new_base(town_data_idx));
-    let grid_idx = town_grids.grids.len() - 1;
-
-    // Extend per-town resources
-    let num_towns = world_data.towns.len();
-    res.food_storage.food.resize(num_towns, 0);
-    res.gold_storage.gold.resize(num_towns, 0);
-    res.faction_stats.stats.resize(num_towns, FactionStat::default());
-    res.camp_state.max_pop.resize(num_towns, 10);
-    res.camp_state.respawn_timers.resize(num_towns, 0.0);
-    res.camp_state.forage_timers.resize(num_towns, 0.0);
-    res.npcs_by_town.0.resize(num_towns, Vec::new());
-    res.policies.policies.resize(num_towns, PolicySet::default());
+    let (town_data_idx, grid_idx, next_faction) = create_ai_town(
+        &mut world_data, &mut town_grids, &mut res, &mut ai_state,
+        Vec2::new(spawn_x, spawn_y), spawn.is_raider,
+    );
 
     // Pre-set starting resources
     if let Some(food) = res.food_storage.food.get_mut(town_data_idx) {
@@ -880,34 +879,17 @@ pub fn endless_respawn_system(
     }
 
     // Pre-set upgrade levels
+    let num_towns = world_data.towns.len();
     upgrades.levels.resize(num_towns, Vec::new());
     upgrades.levels[town_data_idx] = spawn.upgrade_levels;
 
-    // Create AiPlayer with random personality
-    let ai_kind = if spawn.is_camp { AiKind::Raider } else { AiKind::Builder };
-    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
-    let personality = personalities[rng.random_range(0..personalities.len())];
-    if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
-        *policy = personality.default_policies();
-    }
-    ai_state.players.push(AiPlayer {
-        town_data_idx,
-        grid_idx,
-        kind: ai_kind,
-        personality,
-        last_actions: std::collections::VecDeque::new(),
-        active: false,
-        squad_indices: Vec::new(),
-        squad_cmd: HashMap::new(),
-    });
-
-    // Spawn NPCs at edge (camp units for raiders, village units for builders)
+    // Spawn NPCs at edge (raider units for raiders, village units for builders)
     let player_center = world_data.towns.iter()
         .find(|t| t.faction == 0)
         .map(|t| t.center)
         .unwrap_or(Vec2::new(world_w / 2.0, world_h / 2.0));
 
-    let group_size = if spawn.is_camp {
+    let group_size = if spawn.is_raider {
         // Raider: scale group like migration
         MIGRATION_BASE_SIZE + 5
     } else {
@@ -920,7 +902,7 @@ pub fn endless_respawn_system(
         let Some(slot) = slots.alloc() else { break };
         let jx = spawn_x + rng.random_range(-30.0..30.0);
         let jy = spawn_y + rng.random_range(-30.0..30.0);
-        let job = if spawn.is_camp { 2 } else { 1 }; // Raider or Archer
+        let job = if spawn.is_raider { 2 } else { 1 }; // Raider or Archer
         spawn_writer.write(SpawnNpcMsg {
             slot_idx: slot,
             x: jx,
@@ -942,10 +924,11 @@ pub fn endless_respawn_system(
         town_data_idx,
         grid_idx,
         member_slots,
-        is_camp: spawn.is_camp,
+        is_raider: spawn.is_raider,
     });
 
     combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
-        format!("A new {} approaches from the {}!", if spawn.is_camp { "raider band" } else { "rival faction" }, direction));
-    info!("Endless respawn: {} from {} edge, faction {}, kind={:?}", name, direction, next_faction, ai_kind);
+        format!("A new {} approaches from the {}!", if spawn.is_raider { "raider band" } else { "rival faction" }, direction));
+    let kind_str = if spawn.is_raider { "raider" } else { "builder" };
+    info!("Endless respawn: {} town from {} edge, faction {}", kind_str, direction, next_faction);
 }

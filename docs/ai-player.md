@@ -9,7 +9,7 @@ Autonomous opponents that build, upgrade, and fight like the player. Each AI set
 | Kind | Spawned By | Buildings | NPCs |
 |------|-----------|-----------|------|
 | **Builder** | World gen (AI towns) | Farms, farmer homes, archer homes, crossbow homes, fighter homes, miner homes, waypoints | Farmers, archers, crossbows, fighters, miners |
-| **Raider** | Migration system (dynamic camps) | Tents | Raiders |
+| **Raider** | Migration system (dynamic raider towns) | Tents | Raiders |
 
 ## Personalities
 
@@ -185,7 +185,7 @@ The TownArea upgrade has special rules beyond normal upgrade scoring:
 
 ### Raider Squads
 
-Raider camps get 1 squad containing all raiders. No reserve/attack split — the single squad always attacks. Targets nearest enemy farm via `pick_raider_farm_target()`. Replaces the old `RaidQueue` group-formation system.
+Raider towns get 1 squad containing all raiders. No reserve/attack split — the single squad always attacks. Targets nearest enemy farm via `pick_raider_farm_target()`. Replaces the old `RaidQueue` group-formation system.
 
 All squads have `rest_when_tired = true` (except raider squads: `rest_when_tired = false`).
 
@@ -217,19 +217,19 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 4. Preserve wilderness waypoints (outside town build area)
 5. Recalculate clockwise patrol order (angle-based sort around town center)
 
-## Migration (Dynamic Raider Camps)
+## Migration (Dynamic Raider Towns)
 
 `migration_spawn_system` + `migration_attach_system` + `migration_settle_system` in `economy.rs`.
 
 ### Spawn Trigger
-Every **12 game hours**, if `camp_count < player_alive / VILLAGERS_PER_CAMP (20)` and camps < 20. In other words, one camp is "earned" per 20 player NPCs alive.
+Every **12 game hours**, if `raider_count < player_alive / VILLAGERS_PER_RAIDER (20)` and raider_towns < 20. In other words, one raider town is "earned" per 20 player NPCs alive.
 
 ### Flow
 1. **Spawn**: 3 + player_alive/scaling raiders at random map edge (scaling = Easy:6, Normal:4, Hard:2)
 2. **Walk**: Group walks toward nearest player town using Home + Wander behavior
 3. **Settle**: When average group position is within 3000px of any town:
    - Snap town center to group position
-   - Place camp buildings (center + tents)
+   - Place buildings (town center + tents)
    - Stamp dirt terrain
    - Register tent spawners
    - Activate AI player

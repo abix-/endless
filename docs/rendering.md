@@ -441,7 +441,7 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **Slot Indicators** (`ui/mod.rs`): Building grid indicators use Sprite entities at z=-0.3 with a `SlotIndicator` marker component — not gizmos, because Bevy gizmos render in a separate pass after all Transparent2d items and can't be z-sorted with them. Green "+" crosshairs mark empty unlocked slots, dim bracket corners mark adjacent locked slots. Indicators are rebuilt when `TownGrids` or `WorldGrid` changes, and despawned on game cleanup.
 
-**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(&'static str)` for a standalone 32×32 PNG (asset path, e.g. `"sprites/house.png"`). Rock terrain uses Quad; Farm, Camp, and Tent buildings use Quad; FarmerHome, ArcherHome, Waypoint, MinerHome, CrossbowHome, and FighterHome use External (dedicated PNGs from `BUILDING_REGISTRY`).
+**`TileSpec` enum** (`world.rs`): `Single(col, row)` for a single 16×16 sprite, `Quad([(col,row); 4])` for a 2×2 composite of four 16×16 sprites (TL, TR, BL, BR), or `External(&'static str)` for a standalone 32×32 PNG (asset path, e.g. `"sprites/house.png"`). Rock terrain uses Quad; Farm and Tent buildings use Quad; FarmerHome, ArcherHome, Waypoint, MinerHome, CrossbowHome, and FighterHome use External (dedicated PNGs from `BUILDING_REGISTRY`).
 
 **`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array` for terrain. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images. Called once with `TERRAIN_TILES` (11 tiles, no extras).
 
@@ -449,7 +449,7 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
-**`Building::tileset_index()`**: Maps building variant to building strip index (0-12). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7, GoldMine=8, MinerHome=9, CrossbowHome=10, FighterHome=11, Road=12 (13 tiles total via `building_tiles()`).
+**`Building::tileset_index()`**: Maps building variant to building strip index (0-12). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, FarmerHome=4, ArcherHome=5, Tent=6, GoldMine=7, MinerHome=8, CrossbowHome=9, FighterHome=10, Road=11 (12 tiles total via `building_tiles()`).
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 

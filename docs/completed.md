@@ -90,7 +90,7 @@ Completed items moved from roadmap for readability.
 - [x] Archers: patrol posts clockwise, rest when tired (energy < 50), resume when rested (energy > 80)
 - [x] Per-squad patrol policy (`patrol_enabled`) with immediate next-decision enforcement for squad archers
 - [x] Farmers: work at assigned farm, rest when tired
-- [x] Raiders: steal food from farms, flee when wounded, return to camp, recover
+- [x] Raiders: steal food from farms, flee when wounded, return to town, recover
 - [x] Energy system (drain while active, recover while resting)
 - [x] Leash system (disengage if too far from home)
 - [x] Flee system (exit combat below HP threshold)
@@ -102,7 +102,7 @@ Completed items moved from roadmap for readability.
 
 ### Economy
 - [x] Food production (farmers generate food per hour)
-- [x] Food theft (raiders steal and deliver to camp)
+- [x] Food theft (raiders steal and deliver to town)
 - [x] Raider passive forage is runtime-toggleable from menu settings (default OFF)
 - [x] Respawning (dead NPCs respawn after cooldown via SpawnerState timers)
 - [x] Per-town food storage (FoodStorage resource)
@@ -127,7 +127,7 @@ Completed items moved from roadmap for readability.
 - [x] Towns, farms, guard posts as Bevy resources
 - [x] BuildingOccupancy resource (private map + claim/release/is_occupied/count API, replaces FarmOccupancy)
 - [x] Worksite trait + generic `find_nearest_free()`/`find_within_radius()`/`find_by_pos()` helpers
-- [x] Query APIs: get_town_center, get_camp_position, get_patrol_post
+- [x] Query APIs: get_town_center, get_raider_position, get_patrol_post
 - [x] init_world, add_town/farm/guard_post APIs
 
 ### UI Integration
@@ -211,7 +211,7 @@ Completed items moved from roadmap for readability.
 - [x] `healing` — Healing Aura (3 phases): damaged in zone → heal → full HP
 - [x] `spawning` — Spawn & Slot Reuse (4 phases): exist → kill → free slot → reuse slot
 - [x] `projectiles` — Projectile Pipeline (4 phases): targeting → spawn proj → hit → free slot
-- [x] `world-gen` — World Generation (6 phases): grid → towns → spacing → buildings → terrain → camps
+- [x] `world-gen` — World Generation (6 phases): grid → towns → spacing → buildings → terrain → raider towns
 - [x] `vertical-slice` — Full Core Loop (8 phases, time_scale=10)
 - [x] `sleep-visual` — Sleep Icon (3 phases): energy > 0 → rest shows SLEEP_SPRITE → wake clears
 - [x] `farm-visual` — Farm Ready Marker (3 phases): Growing → Ready spawns marker → harvest despawns
@@ -293,7 +293,7 @@ Completed items moved from roadmap for readability.
 - [x] `WorldGenStyle` enum (Classic/Continents) in `WorldGenConfig`, selectable from main menu combo box
 - [x] 3-octave fBm elevation noise (freq 0.0008/0.0016/0.0032) + square-bump edge falloff + power redistribution
 - [x] Independent moisture noise (freq 0.003) for biome selection: dry→Rock, moderate→Grass, wet→Forest
-- [x] Town/camp placement constrained to land cells in Continents mode (5000 max attempts)
+- [x] Town placement constrained to land cells in Continents mode (5000 max attempts)
 - [x] `stamp_dirt()` clears terrain around settlements after placement
 - [x] Setting persisted in UserSettings as `gen_style: u8`
 
@@ -334,8 +334,8 @@ Completed items moved from roadmap for readability.
 - [x] `AiPlayerState` resource with `Vec<AiPlayer>` — one per AI settlement
 - [x] `AiKind::Raider` AI: builds tents, unlocks slots, buys AttackSpeed/MoveSpeed upgrades
 - [x] `AiKind::Builder` AI: builds farms/farmer homes/archer homes/guard posts, buys all upgrade types
-- [x] World gen: independent placement of player towns, AI towns, and raider camps (not paired)
-- [x] Main menu sliders: AI Towns (0-10), Raider Camps (0-10), AI Speed (1-30s)
+- [x] World gen: independent placement of player towns, AI towns, and raider towns (not paired)
+- [x] Main menu sliders: AI Towns (0-10), Raider Towns (0-10), AI Speed (1-30s)
 - [x] Fix faction hardcoding: `spawner_respawn_system` + `game_startup_system` use town faction instead of 0
 - [x] Fix `NpcsByTownCache` initialization (resize to `num_towns` in `game_startup_system`)
 
@@ -363,4 +363,4 @@ Completed items moved from roadmap for readability.
 
 ### Intentional Removals
 - [x] Sprite atlas browser tool — intentional removal (Godot dev tool, not needed in Bevy)
-- [x] World-space town/camp labels — intentional removal (Godot scenes, not ported)
+- [x] World-space town labels — intentional removal (Godot scenes, not ported)

@@ -374,7 +374,7 @@ pub struct Healing;
 pub struct Starving;
 
 /// Marker: raider is part of an unsettled migrating group.
-/// Removed when the group settles into a camp.
+/// Removed when the group settles into a town.
 #[derive(Component)]
 pub struct Migrating;
 

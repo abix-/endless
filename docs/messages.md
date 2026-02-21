@@ -26,7 +26,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | **CPU-Authoritative** (written by ECS systems, uploaded to GPU next frame) ||||
 | Health | CPU | CPU → GPU | damage_system/healing_system write; uploaded for GPU targeting threshold |
 | Targets/Goals | CPU | CPU → GPU | decision_system/attack_system set destination; GPU interpolates movement |
-| Factions | CPU | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider camps) |
+| Factions | CPU | CPU → GPU | Set at spawn, never changes (0=Villager, 1+=Raider towns) |
 | Speeds | CPU | CPU → GPU | Set at spawn, modified by starvation_system |
 | **CPU-Only** (never sent to GPU) ||||
 | NpcIndex | CPU | Internal | Links Bevy entity to GPU slot index |
@@ -37,7 +37,7 @@ Each piece of NPC data has exactly one authoritative owner. Readers on the other
 | AttackTimer | CPU | Internal | Cooldown between attacks |
 | AttackStats | CPU | Internal | melee(range=150, speed=500) or ranged(range=300, speed=200) |
 | PatrolRoute | CPU | Internal | Guard post sequence for patrols |
-| Home | CPU | Internal | Rest location (bed or camp) |
+| Home | CPU | Internal | Rest location (spawner building) |
 | WorkPosition | CPU | Internal | Farm location for farmers |
 | **Render-Only** (uploaded to NPC visual/equip storage buffers, never in compute shader) ||||
 | Sprite indices | NpcGpuState | CPU → NpcVisualUpload → NpcVisualBuffers | Atlas col/row per NPC; packed into visual storage buffer [f32;8] by build_visual_upload |

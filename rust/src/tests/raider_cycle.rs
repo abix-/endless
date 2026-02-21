@@ -1,5 +1,5 @@
 //! Raider Raid Cycle Test (5 phases)
-//! Validates: raiders dispatched → arrive at farm → steal food → returning → deliver to camp.
+//! Validates: raiders dispatched → arrive at farm → steal food → returning → deliver to raider town.
 
 use bevy::prelude::*;
 use crate::components::*;
@@ -11,13 +11,13 @@ use super::{TestState, TestSetupParams};
 pub fn setup(
     mut params: TestSetupParams,
     mut farm_states: ResMut<GrowthStates>,
-    mut camp_state: ResMut<CampState>,
+    mut raider_state: ResMut<RaiderState>,
 ) {
     // Villager town (faction 0) with farms
     params.add_town("FarmVille");
-    // Raider camp (faction 1)
+    // Raider raider town (faction 1)
     params.world_data.towns.push(crate::world::Town {
-        name: "RaiderCamp".into(),
+        name: "RaiderTown".into(),
         center: Vec2::new(400.0, 100.0),
         faction: 1,
         sprite_type: 1,
@@ -33,8 +33,8 @@ pub fn setup(
     }
     params.init_economy(2);
     params.food_storage.food[0] = 10; // villager food
-    params.food_storage.food[1] = 0;  // raider camp starts empty
-    camp_state.init(1, 5);
+    params.food_storage.food[1] = 0;  // raider raider town starts empty
+    raider_state.init(1, 5);
     params.game_time.time_scale = 1.0;
 
     // Spawn 3 raiders (minimum for RAID_GROUP_SIZE)
@@ -79,7 +79,7 @@ pub fn tick(
             _ => {}
         }
     }
-    let camp_food = food_storage.food.get(1).copied().unwrap_or(0);
+    let raider_food = food_storage.food.get(1).copied().unwrap_or(0);
 
     match test.phase {
         // Phase 1: 3 raiders dispatched → Raiding
@@ -113,21 +113,21 @@ pub fn tick(
         }
         // Phase 4: Raiders returning home
         4 => {
-            test.phase_name = format!("returning={} carrying={} camp_food={}", returning, carrying, camp_food);
-            if returning > 0 || camp_food > 0 {
-                test.pass_phase(elapsed, format!("returning={} camp_food={}", returning, camp_food));
+            test.phase_name = format!("returning={} carrying={} raider_food={}", returning, carrying, raider_food);
+            if returning > 0 || raider_food > 0 {
+                test.pass_phase(elapsed, format!("returning={} raider_food={}", returning, raider_food));
             } else if elapsed > 40.0 {
-                test.fail_phase(elapsed, format!("returning=0 camp_food=0"));
+                test.fail_phase(elapsed, format!("returning=0 raider_food=0"));
             }
         }
-        // Phase 5: Food delivered (camp food increases)
+        // Phase 5: Food delivered (raider town food increases)
         5 => {
-            test.phase_name = format!("camp_food={} returning={}", camp_food, returning);
-            if camp_food > 0 {
-                test.pass_phase(elapsed, format!("camp_food={}", camp_food));
+            test.phase_name = format!("raider_food={} returning={}", raider_food, returning);
+            if raider_food > 0 {
+                test.pass_phase(elapsed, format!("raider_food={}", raider_food));
                 test.complete(elapsed);
             } else if elapsed > 60.0 {
-                test.fail_phase(elapsed, format!("camp_food=0 returning={}", returning));
+                test.fail_phase(elapsed, format!("raider_food=0 returning={}", returning));
             }
         }
         _ => {}

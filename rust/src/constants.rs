@@ -234,9 +234,9 @@ pub struct NpcDef {
     pub ui_color: (u8, u8, u8),
     /// Which building this NPC type spawns from (for world gen & menu).
     pub home_building: BuildingKind,
-    /// True for raider-camp units (menu groups under "Raider Camps"), false for village units.
-    pub is_camp_unit: bool,
-    /// Default count per town/camp in world gen.
+    /// True for raider town units (menu groups under "Raider Towns"), false for village units.
+    pub is_raider_unit: bool,
+    /// Default count per town in world gen.
     pub default_count: usize,
     /// Upgrade branch name. NPCs with the same category share upgrades. None = no upgrades (e.g. Raider).
     pub upgrade_category: Option<&'static str>,
@@ -256,7 +256,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         has_energy: true, has_attack_timer: false,
         weapon: None, helmet: None, stealer: false, leash_range: None,
         ui_color: (80, 200, 80),
-        home_building: BuildingKind::FarmerHome, is_camp_unit: false, default_count: 2,
+        home_building: BuildingKind::FarmerHome, is_raider_unit: false, default_count: 2,
         upgrade_category: Some("Farmer"), upgrade_stats: FARMER_UPGRADES,
         loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
@@ -269,7 +269,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         has_energy: true, has_attack_timer: true,
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
         ui_color: (80, 100, 220),
-        home_building: BuildingKind::ArcherHome, is_camp_unit: false, default_count: 4,
+        home_building: BuildingKind::ArcherHome, is_raider_unit: false, default_count: 4,
         upgrade_category: Some("Archer"), upgrade_stats: MILITARY_RANGED_UPGRADES,
         loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
@@ -282,7 +282,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         has_energy: true, has_attack_timer: true,
         weapon: Some(EQUIP_SWORD), helmet: None, stealer: true, leash_range: Some(400.0),
         ui_color: (220, 80, 80),
-        home_building: BuildingKind::Tent, is_camp_unit: true, default_count: 1,
+        home_building: BuildingKind::Tent, is_raider_unit: true, default_count: 1,
         upgrade_category: None, upgrade_stats: &[],
         loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
@@ -296,7 +296,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         has_energy: true, has_attack_timer: true,
         weapon: None, helmet: None, stealer: false, leash_range: None,
         ui_color: (220, 220, 80),
-        home_building: BuildingKind::FighterHome, is_camp_unit: false, default_count: 0,
+        home_building: BuildingKind::FighterHome, is_raider_unit: false, default_count: 0,
         upgrade_category: Some("Fighter"), upgrade_stats: MILITARY_MELEE_UPGRADES,
         loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
@@ -309,7 +309,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         has_energy: true, has_attack_timer: false,
         weapon: None, helmet: None, stealer: false, leash_range: None,
         ui_color: (160, 110, 60),
-        home_building: BuildingKind::MinerHome, is_camp_unit: false, default_count: 0,
+        home_building: BuildingKind::MinerHome, is_raider_unit: false, default_count: 0,
         upgrade_category: Some("Miner"), upgrade_stats: MINER_UPGRADES,
         loot_drop: LootDrop { item: ItemKind::Gold, min: 1, max: 2 },
     },
@@ -323,7 +323,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         has_energy: true, has_attack_timer: true,
         weapon: Some(EQUIP_SWORD), helmet: Some(EQUIP_HELMET), stealer: false, leash_range: None,
         ui_color: (140, 60, 220),
-        home_building: BuildingKind::CrossbowHome, is_camp_unit: false, default_count: 0,
+        home_building: BuildingKind::CrossbowHome, is_raider_unit: false, default_count: 0,
         upgrade_category: Some("Crossbow"), upgrade_stats: MILITARY_RANGED_UPGRADES,
         loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
     },
@@ -448,11 +448,11 @@ pub const PROJ_FLOATS_PER_INSTANCE: usize = 12;
 pub const PROJ_PUSH_CONSTANTS_SIZE: usize = 32;
 
 // ============================================================================
-// RAIDER CAMP CONSTANTS
+// RAIDER CONSTANTS
 // ============================================================================
 
 /// Food gained per game hour from passive foraging.
-pub const CAMP_FORAGE_RATE: i32 = 1;
+pub const RAIDER_FORAGE_RATE: i32 = 1;
 
 /// Food cost to spawn one raider.
 pub const RAIDER_SPAWN_COST: i32 = 5;
@@ -460,27 +460,27 @@ pub const RAIDER_SPAWN_COST: i32 = 5;
 /// Hours between respawn attempts.
 pub const RAIDER_RESPAWN_HOURS: f32 = 2.0;
 
-/// Maximum raiders per camp.
-pub const CAMP_MAX_POP: i32 = 500;
+/// Maximum raiders per town.
+pub const RAIDER_MAX_POP: i32 = 500;
 
 /// Minimum raiders needed to form a raid group.
 pub const RAID_GROUP_SIZE: i32 = 3;
 
-/// Villager population per raider camp (1 camp per 20 villagers).
-pub const VILLAGERS_PER_CAMP: i32 = 20;
+/// Villager population per raider town (1 raider town per 20 villagers).
+pub const VILLAGERS_PER_RAIDER: i32 = 20;
 
 // ============================================================================
 // MIGRATION CONSTANTS
 // ============================================================================
 
 /// Game hours between migration trigger checks.
-pub const CAMP_SPAWN_CHECK_HOURS: f32 = 12.0;
+pub const RAIDER_SPAWN_CHECK_HOURS: f32 = 12.0;
 
-/// Maximum dynamically-spawned camps.
-pub const MAX_DYNAMIC_CAMPS: usize = 20;
+/// Maximum dynamically-spawned raider towns.
+pub const MAX_RAIDER_TOWNS: usize = 20;
 
 /// Distance from a town at which migrating raiders settle (~30s walk at 100px/s).
-pub const CAMP_SETTLE_RADIUS: f32 = 3000.0;
+pub const RAIDER_SETTLE_RADIUS: f32 = 3000.0;
 
 /// Minimum raiders in a migrating group.
 pub const MIGRATION_BASE_SIZE: usize = 3;
@@ -609,7 +609,7 @@ pub enum TileSpec {
 pub enum PlacementMode {
     /// Snap to town grid (farms, homes, beds, tents).
     TownGrid,
-    /// Snap to world grid (waypoints, fountains, camps, gold mines).
+    /// Snap to world grid (waypoints, fountains, gold mines).
     Wilderness,
 }
 
@@ -628,8 +628,8 @@ pub enum SpawnBehavior {
     FindNearestFarm,
     /// Find nearest waypoint for patrol (archer, crossbow).
     FindNearestWaypoint,
-    /// Use camp faction (tent → raider).
-    CampRaider,
+    /// Use raider town faction (tent → raider).
+    Raider,
     /// Use assigned mine or find nearest (miner).
     Miner,
 }
@@ -658,7 +658,7 @@ pub struct BuildingDef {
     pub label: &'static str,
     pub help: &'static str,
     pub player_buildable: bool,
-    pub camp_buildable: bool,
+    pub raider_buildable: bool,
     pub placement: PlacementMode,
     pub is_tower: bool,
     pub tower_stats: Option<TowerStats>,
@@ -674,7 +674,7 @@ pub struct BuildingDef {
     pub hps: fn(&BuildingHpState) -> &[f32],
     /// Mutable access to this kind's HP vec.
     pub hps_mut: fn(&mut BuildingHpState) -> &mut Vec<f32>,
-    /// Save key in JSON (None for Fountain/Camp which share towns vec).
+    /// Save key in JSON (None for Fountain which uses towns vec).
     pub save_key: Option<&'static str>,
     /// Serialize this kind's WorldData vec to JSON.
     pub save_vec: fn(&WorldData) -> JsonValue,
@@ -711,13 +711,13 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::Single(50, 9),
         hp: 500.0, cost: 0,
         label: "Fountain", help: "Town center",
-        player_buildable: false, camp_buildable: false,
+        player_buildable: false, raider_buildable: false,
         placement: PlacementMode::Wilderness,
         is_tower: true, tower_stats: Some(FOUNTAIN_TOWER),
         on_place: OnPlace::None, spawner: None,
         len: |wd| wd.towns.len(),
         pos_town: |wd, i| wd.towns.get(i).filter(|t| is_alive(t.center)).map(|t| (t.center, i as u32)),
-        count_for_town: |wd, ti| if wd.towns.get(ti as usize).map(|t| t.sprite_type == 0 && is_alive(t.center)).unwrap_or(false) { 1 } else { 0 },
+        count_for_town: |wd, ti| if wd.towns.get(ti as usize).map(|t| is_alive(t.center)).unwrap_or(false) { 1 } else { 0 },
         hps: |hp| &hp.towns,
         hps_mut: |hp| &mut hp.towns,
         save_key: None, save_vec: |_| JsonValue::Null, load_vec: |_, _| {},
@@ -732,7 +732,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::Single(15, 2),
         hp: 50.0, cost: 0,
         label: "Bed", help: "NPC rest spot",
-        player_buildable: false, camp_buildable: false,
+        player_buildable: false, raider_buildable: false,
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,
@@ -755,7 +755,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::External("sprites/waypoint.png"),
         hp: 200.0, cost: 1,
         label: "Waypoint", help: "Patrol waypoint",
-        player_buildable: true, camp_buildable: false,
+        player_buildable: true, raider_buildable: false,
         placement: PlacementMode::Wilderness,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,
@@ -778,7 +778,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::Quad([(2, 15), (4, 15), (2, 17), (4, 17)]),
         hp: 80.0, cost: 2,
         label: "Farm", help: "Grows food over time",
-        player_buildable: true, camp_buildable: false,
+        player_buildable: true, raider_buildable: false,
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::InitFarmGrowth, spawner: None,
@@ -795,34 +795,13 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tombstone: |wd, pos| { if let Some(b) = wd.get_mut(BuildingKind::Farm).iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
         find_index: |wd, pos| wd.get(BuildingKind::Farm).iter().position(|b| (b.position - pos).length() < 1.0),
     },
-    // 4: Camp (raider town center)
-    BuildingDef {
-        kind: BuildingKind::Camp, display: DisplayCategory::Hidden,
-        tile: TileSpec::Quad([(46, 10), (47, 10), (46, 11), (47, 11)]),
-        hp: 500.0, cost: 0,
-        label: "Camp", help: "Raider camp center",
-        player_buildable: false, camp_buildable: false,
-        placement: PlacementMode::Wilderness,
-        is_tower: false, tower_stats: None,
-        on_place: OnPlace::None, spawner: None,
-        len: |wd| wd.towns.len(),
-        pos_town: |wd, i| wd.towns.get(i).filter(|t| is_alive(t.center)).map(|t| (t.center, i as u32)),
-        count_for_town: |wd, ti| if wd.towns.get(ti as usize).map(|t| t.sprite_type == 1 && is_alive(t.center)).unwrap_or(false) { 1 } else { 0 },
-        hps: |hp| &hp.towns,
-        hps_mut: |hp| &mut hp.towns,
-        save_key: None, save_vec: |_| JsonValue::Null, load_vec: |_, _| {},
-        is_unit_home: false,
-        place: |_, _, _| {},
-        tombstone: |wd, pos| { if let Some(t) = wd.towns.iter_mut().find(|t| (t.center - pos).length() < 1.0) { t.center = Vec2::new(-99999.0, -99999.0); } },
-        find_index: |wd, pos| wd.towns.iter().position(|t| (t.center - pos).length() < 1.0),
-    },
     // 5: Farmer Home
     BuildingDef {
         kind: BuildingKind::FarmerHome, display: DisplayCategory::Economy,
         tile: TileSpec::External("sprites/house.png"),
         hp: 100.0, cost: 2,
         label: "Farmer Home", help: "Spawns 1 farmer",
-        player_buildable: true, camp_buildable: false,
+        player_buildable: true, raider_buildable: false,
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
@@ -846,7 +825,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::External("sprites/barracks.png"),
         hp: 150.0, cost: 4,
         label: "Archer Home", help: "Spawns 1 archer",
-        player_buildable: true, camp_buildable: false,
+        player_buildable: true, raider_buildable: false,
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
@@ -870,11 +849,11 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::Quad([(48, 10), (49, 10), (48, 11), (49, 11)]),
         hp: 100.0, cost: 3,
         label: "Tent", help: "Spawns 1 raider",
-        player_buildable: false, camp_buildable: true,
+        player_buildable: false, raider_buildable: true,
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
-        spawner: Some(SpawnerDef { job: 2, attack_type: 0, behavior: SpawnBehavior::CampRaider }),
+        spawner: Some(SpawnerDef { job: 2, attack_type: 0, behavior: SpawnBehavior::Raider }),
         len: |wd| wd.get(BuildingKind::Tent).len(),
         pos_town: |wd, i| wd.get(BuildingKind::Tent).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::Tent).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
@@ -894,7 +873,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::Single(43, 11),
         hp: 200.0, cost: 0,
         label: "Gold Mine", help: "Source of gold",
-        player_buildable: false, camp_buildable: false,
+        player_buildable: false, raider_buildable: false,
         placement: PlacementMode::Wilderness,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,
@@ -927,7 +906,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::External("sprites/miner_house.png"),
         hp: 100.0, cost: 4,
         label: "Miner Home", help: "Spawns 1 miner",
-        player_buildable: true, camp_buildable: false,
+        player_buildable: true, raider_buildable: false,
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
@@ -951,7 +930,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::External("sprites/barracks.png"),
         hp: 150.0, cost: 8,
         label: "Crossbow Home", help: "Spawns 1 crossbow",
-        player_buildable: true, camp_buildable: false,
+        player_buildable: true, raider_buildable: false,
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
@@ -975,7 +954,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         tile: TileSpec::External("sprites/fighter_home.png"),
         hp: 150.0, cost: 5,
         label: "Fighter Home", help: "Spawns 1 fighter",
-        player_buildable: true, camp_buildable: false,
+        player_buildable: true, raider_buildable: false,
         placement: PlacementMode::TownGrid,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None,
@@ -996,10 +975,10 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 12: Road
     BuildingDef {
         kind: BuildingKind::Road, display: DisplayCategory::Economy,
-        tile: TileSpec::Single(9, 10),
+        tile: TileSpec::Single(8, 16),
         hp: 30.0, cost: 1,
         label: "Road", help: "1.5x NPC speed",
-        player_buildable: true, camp_buildable: false,
+        player_buildable: true, raider_buildable: false,
         placement: PlacementMode::Wilderness,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,

@@ -97,7 +97,7 @@ Execution order is **chained** — each system completes before the next starts.
 - If no NPC target: sets `CombatState::None`, then checks for opportunistic building attack:
   - Only **archers**, **crossbows**, and **raiders** attempt building attacks (farmers/miners/fighters skip)
   - Queries `BuildingSpatialGrid` via `find_nearest_enemy_building()` for enemy buildings within `CachedStats.range`
-  - Non-targetable buildings skipped: Fountain, Camp, GoldMine, Bed
+  - Non-targetable buildings skipped: Fountain, GoldMine, Bed
   - **Raiders**: only target ArcherHome, CrossbowHome, Waypoint (leave FarmerHome/MinerHome alone for farm raiding)
   - **Archers/Crossbows**: target any enemy building type (except non-targetable)
   - "Enemy" = building faction != NPC faction (uses `BuildingRef.faction` field)
@@ -160,7 +160,7 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 - **TowerState** resource: holds per-kind `TowerKindState` with `timers: Vec<f32>` and `attack_enabled: Vec<bool>`
 - **TowerStats** struct in `constants.rs`: `range`, `damage`, `cooldown`, `proj_speed`, `proj_lifetime`
 - State length auto-syncs with building count each tick
-- **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `Town.sprite_type == 0` every tick (camps excluded). Strong enough to defend spawn area.
+- **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `is_alive(town.center)` every tick (all alive town centers shoot). Strong enough to defend spawn area.
 - GPU integration: `allocate_building_slot` sets `npc_flags = 3` (bit 0 = combat scan, bit 1 = tower) for fountain buildings. Shader skips movement for towers but runs combat targeting → `combat_targets[slot]` populated by GPU.
 - `fire_towers()` loop: for each enabled building, reads `GpuReadState.combat_targets[slot]` (O(1) GPU targeting), validates range, fires `ProjGpuUpdate::Spawn` with `shooter: -1`
 - DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. `Building::is_tower()` and the shader handle the rest.

@@ -93,7 +93,7 @@ fn init_sprite_cache(
     }
 
     for def in BUILDING_REGISTRY {
-        if !def.player_buildable && !def.camp_buildable { continue; }
+        if !def.player_buildable && !def.raider_buildable { continue; }
 
         let handle = match def.tile {
             TileSpec::External(path) => {
@@ -170,7 +170,7 @@ pub(crate) fn build_menu_system(
     let Some(town) = world_data.towns.get(town_data_idx) else {
         return Ok(());
     };
-    let is_camp = town.faction > 0;
+    let is_raider = town.faction > 0;
     let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
     let text_scale = user_settings.build_menu_text_scale.clamp(0.7, 2.0);
     let label_size = 13.0 * text_scale;
@@ -193,7 +193,7 @@ pub(crate) fn build_menu_system(
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for def in BUILDING_REGISTRY {
-                    let show = if is_camp { def.camp_buildable } else { def.player_buildable };
+                    let show = if is_raider { def.raider_buildable } else { def.player_buildable };
                     if !show { continue; }
 
                     let cost = def.cost;

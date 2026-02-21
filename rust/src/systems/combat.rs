@@ -431,13 +431,13 @@ pub fn building_tower_system(
     }
     for (i, town) in world_data.towns.iter().enumerate() {
         if i < tower.town.attack_enabled.len() {
-            tower.town.attack_enabled[i] = town.sprite_type == 0 && is_alive(town.center);
+            tower.town.attack_enabled[i] = is_alive(town.center);
         }
     }
     let town_buildings: Vec<_> = world_data.towns.iter().enumerate()
         .map(|(i, t)| {
             let levels = upgrades.town_levels(i);
-            let kind = if t.faction == 0 { BuildingKind::Fountain } else { BuildingKind::Camp };
+            let kind = BuildingKind::Fountain;
             (t.center, t.faction, resolve_town_tower_stats(&levels), kind)
         })
         .collect();
@@ -524,7 +524,7 @@ pub fn building_damage_system(
         world.dirty.mark_building_changed(msg.kind);
 
         // Town center destroyed — deactivate AI player (town becomes leaderless)
-        if matches!(msg.kind, BuildingKind::Fountain | BuildingKind::Camp) {
+        if matches!(msg.kind, BuildingKind::Fountain) {
             if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
                 player.active = false;
             }
@@ -535,7 +535,7 @@ pub fn building_damage_system(
 
             // Endless mode: queue replacement AI scaled to player strength
             if endless.enabled {
-                let is_camp = world.world_data.towns.get(town_idx)
+                let is_raider = world.world_data.towns.get(town_idx)
                     .map(|t| t.sprite_type == 1).unwrap_or(true);
                 let player_town = world.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
                 let player_levels = upgrades.town_levels(player_town);
@@ -547,13 +547,13 @@ pub fn building_damage_system(
                 let starting_gold = (gold_storage.gold.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
                 endless.pending_spawns.push(crate::resources::PendingAiSpawn {
                     delay_remaining: crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
-                    is_camp,
+                    is_raider,
                     upgrade_levels: scaled_levels,
                     starting_food,
                     starting_gold,
                 });
-                info!("Endless mode: queued replacement AI (is_camp={}, delay={}h, strength={:.0}%)",
-                    is_camp, crate::constants::ENDLESS_RESPAWN_DELAY_HOURS, frac * 100.0);
+                info!("Endless mode: queued replacement AI (is_raider={}, delay={}h, strength={:.0}%)",
+                    is_raider, crate::constants::ENDLESS_RESPAWN_DELAY_HOURS, frac * 100.0);
             }
         }
 

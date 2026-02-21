@@ -85,7 +85,7 @@ pub struct UserSettings {
     #[serde(default = "default_five")]
     pub ai_towns: usize,
     #[serde(default = "default_five")]
-    pub raider_camps: usize,
+    pub raider_towns: usize,
     #[serde(default = "default_ai_interval")]
     pub ai_interval: f32,
     #[serde(default = "default_gold_mines")]
@@ -182,7 +182,7 @@ impl Default for UserSettings {
             show_all_faction_squad_lines: false,
             policy: PolicySet::default(),
             ai_towns: 5,
-            raider_camps: 5,
+            raider_towns: 5,
             ai_interval: 5.0,
             gold_mines_per_town: 2,
             npc_interval: 2.0,

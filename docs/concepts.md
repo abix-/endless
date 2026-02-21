@@ -479,8 +479,8 @@ Used in: `GpuComputePlugin` (NpcGpuData + NpcComputeParams via ExtractResourcePl
 | State | Jobs | Description |
 |-------|------|-------------|
 | Idle | All | Between decisions |
-| Resting | All | At home/camp, recovering energy |
-| Off Duty | All | At home/camp, awake |
+| Resting | All | At home, recovering energy |
+| Off Duty | All | At home, awake |
 | Fighting | Archer, Raider | In combat |
 | Fleeing | All | Running from combat |
 | Walking | Farmer, Archer | Moving to destination |
@@ -488,7 +488,7 @@ Used in: `GpuComputePlugin` (NpcGpuData + NpcComputeParams via ExtractResourcePl
 | On Duty | Archer | Stationed at post |
 | Patrolling | Archer | Moving between posts |
 | Raiding | Raider | Going to/at farm to steal |
-| Returning | Raider | Heading back to camp |
+| Returning | Raider | Heading back to town |
 | Wandering | Farmer, Archer | Off-duty wandering |
 
 ---

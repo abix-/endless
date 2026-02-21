@@ -25,7 +25,7 @@ pub fn setup(
         sprite_type: 0,
     });
     world_data.towns.push(world::Town {
-        name: "Camp".into(),
+        name: "Raider Town".into(),
         center: Vec2::new(400.0, 200.0),
         faction: 1,
         sprite_type: 1,

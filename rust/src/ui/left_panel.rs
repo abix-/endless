@@ -1920,7 +1920,7 @@ fn help_content(ui: &mut egui::Ui) {
         egui::CollapsingHeader::new(egui::RichText::new("Tips").strong())
             .show(ui, |ui| {
                 ui.label("- Build farms before homes -- no farm, no work.");
-                ui.label("- Waypoints between farms and enemy camps.");
+                ui.label("- Waypoints between farms and enemy towns.");
                 ui.label("- Day Only schedule (P) keeps farmers safe at night.");
                 ui.label("- Upgrade Fountain Radius early for faster healing.");
             });

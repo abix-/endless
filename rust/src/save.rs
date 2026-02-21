@@ -53,7 +53,7 @@ impl LegacyBuilding {
             Self::Farm { town_idx } => (Farm, town_idx),
             Self::Bed { town_idx } => (Bed, town_idx),
             Self::Waypoint { town_idx, .. } => (Waypoint, town_idx),
-            Self::Camp { town_idx } => (Camp, town_idx),
+            Self::Camp { town_idx } => (Fountain, town_idx),
             Self::GoldMine => (GoldMine, 0),
             Self::MinerHome { town_idx } => (MinerHome, town_idx),
             Self::FarmerHome { town_idx } => (FarmerHome, town_idx),
@@ -145,10 +145,13 @@ pub struct SaveData {
     #[serde(default, alias = "guard_post_attack")]
     pub waypoint_attack: Vec<bool>,
 
-    // Camp state
-    pub camp_respawn_timers: Vec<f32>,
-    pub camp_forage_timers: Vec<f32>,
-    pub camp_max_pop: Vec<i32>,
+    // Raider state
+    #[serde(alias = "camp_respawn_timers")]
+    pub raider_respawn_timers: Vec<f32>,
+    #[serde(alias = "camp_forage_timers")]
+    pub raider_forage_timers: Vec<f32>,
+    #[serde(alias = "camp_max_pop")]
+    pub raider_max_pop: Vec<i32>,
 
     // Faction stats
     pub faction_stats: Vec<FactionStatSave>,
@@ -245,7 +248,7 @@ pub struct MigrationSave {
     pub member_slots: Vec<usize>,
     pub check_timer: f32,
     #[serde(default)]
-    pub is_camp: bool,
+    pub is_raider: bool,
 }
 
 fn default_true() -> bool { true }
@@ -472,7 +475,7 @@ pub fn collect_save_data(
     policies: &TownPolicies,
     auto_upgrade: &AutoUpgrade,
     squad_state: &SquadState,
-    camp_state: &CampState,
+    raider_state: &RaiderState,
     faction_stats: &FactionStats,
     kill_stats: &KillStats,
     ai_state: &AiPlayerState,
@@ -594,9 +597,9 @@ pub fn collect_save_data(
         auto_upgrades: auto_upgrades_save,
         squads,
         waypoint_attack: vec![],
-        camp_respawn_timers: camp_state.respawn_timers.clone(),
-        camp_forage_timers: camp_state.forage_timers.clone(),
-        camp_max_pop: camp_state.max_pop.clone(),
+        raider_respawn_timers: raider_state.respawn_timers.clone(),
+        raider_forage_timers: raider_state.forage_timers.clone(),
+        raider_max_pop: raider_state.max_pop.clone(),
         faction_stats: faction_stats_save,
         kill_stats: [kill_stats.archer_kills, kill_stats.villager_kills],
         npcs,
@@ -606,7 +609,7 @@ pub fn collect_save_data(
             grid_idx: g.grid_idx,
             member_slots: g.member_slots.clone(),
             check_timer: migration_state.check_timer,
-            is_camp: g.is_camp,
+            is_raider: g.is_raider,
         }),
         endless_mode: endless.enabled,
         endless_strength: endless.strength_fraction,
@@ -699,7 +702,7 @@ pub fn apply_save(
     policies: &mut TownPolicies,
     auto_upgrade: &mut AutoUpgrade,
     squad_state: &mut SquadState,
-    camp_state: &mut CampState,
+    raider_state: &mut RaiderState,
     faction_stats: &mut FactionStats,
     kill_stats: &mut KillStats,
     ai_state: &mut AiPlayerState,
@@ -834,10 +837,10 @@ pub fn apply_save(
     squad_state.selected = 0;
     squad_state.placing_target = false;
 
-    // Camp state
-    camp_state.max_pop = save.camp_max_pop.clone();
-    camp_state.respawn_timers = save.camp_respawn_timers.clone();
-    camp_state.forage_timers = save.camp_forage_timers.clone();
+    // Raider state
+    raider_state.max_pop = save.raider_max_pop.clone();
+    raider_state.respawn_timers = save.raider_respawn_timers.clone();
+    raider_state.forage_timers = save.raider_forage_timers.clone();
 
     // Faction stats
     faction_stats.stats = save.faction_stats.iter().map(|s| FactionStat {
@@ -878,7 +881,7 @@ pub fn apply_save(
             town_data_idx: ms.town_data_idx,
             grid_idx: ms.grid_idx,
             member_slots: ms.member_slots.clone(),
-            is_camp: ms.is_camp,
+            is_raider: ms.is_raider,
         });
         migration_state.check_timer = ms.check_timer;
     } else {
@@ -1046,7 +1049,7 @@ pub struct SaveWorldState<'w> {
 /// More world state + faction/AI resources.
 #[derive(SystemParam)]
 pub struct SaveFactionState<'w> {
-    pub camp_state: ResMut<'w, CampState>,
+    pub raider_state: ResMut<'w, RaiderState>,
     pub faction_stats: ResMut<'w, FactionStats>,
     pub kill_stats: ResMut<'w, KillStats>,
     pub ai_state: ResMut<'w, AiPlayerState>,
@@ -1108,7 +1111,7 @@ pub fn save_game_system(
         &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
-        &ws.squad_state, &fs.camp_state, &fs.faction_stats,
+        &ws.squad_state, &fs.raider_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
 
@@ -1152,7 +1155,7 @@ pub fn autosave_system(
         &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
-        &ws.squad_state, &fs.camp_state, &fs.faction_stats,
+        &ws.squad_state, &fs.raider_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
 
@@ -1345,7 +1348,7 @@ pub fn load_game_system(
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
         &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
-        &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.camp_state,
+        &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state, &mut fs.endless,
         &mut tracking.npcs_by_town, &mut tracking.slots,

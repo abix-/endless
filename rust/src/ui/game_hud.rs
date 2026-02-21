@@ -316,13 +316,13 @@ pub fn bottom_panel_system(
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                     &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty, show_npc,
                 );
-                // Destroy button for selected buildings (not fountains/camps)
+                // Destroy button for selected buildings (not fountains)
                 let show_building = has_building && (!has_npc || !show_npc);
                 if show_building {
                     let selected_info = selected_building_info(&bld_data.selected_building, &bld_data.grid, &world_data);
                     let is_destructible = selected_info
                         .as_ref()
-                        .map(|(k, _, _, _, _)| !matches!(k, BuildingKind::Fountain | BuildingKind::Camp | BuildingKind::GoldMine))
+                        .map(|(k, _, _, _, _)| !matches!(k, BuildingKind::Fountain | BuildingKind::GoldMine))
                         .unwrap_or(false);
                     if is_destructible {
                         ui.separator();
@@ -1081,13 +1081,6 @@ fn building_inspector_content(
             }
         }
 
-        BuildingKind::Camp => {
-            // Camp food — town_idx is direct index into food_storage
-            if let Some(&food) = bld.food_storage.food.get(town_idx) {
-                ui.label(format!("Camp food: {}", food));
-            }
-        }
-
         BuildingKind::Bed => {
             ui.label("Rest point");
         }
@@ -1261,11 +1254,6 @@ fn building_inspector_content(
                     info.push_str(&format!("Tower projectile life: {:.2}s\n", tower.proj_lifetime));
                     if let Some(&food) = bld.food_storage.food.get(town_idx) {
                         info.push_str(&format!("Food: {}\n", food));
-                    }
-                }
-                BuildingKind::Camp => {
-                    if let Some(&food) = bld.food_storage.food.get(town_idx) {
-                        info.push_str(&format!("Camp food: {}\n", food));
                     }
                 }
                 BuildingKind::Bed => {

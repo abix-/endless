@@ -1599,13 +1599,13 @@ impl AiPersonality {
     }
 
     /// Broad fallback set when preferred kinds yield no target.
-    /// Fountain/Camp are last priority — destroy the base after clearing defenses.
+    /// Fountain last priority — destroy the base after clearing defenses.
     fn fallback_attack_kinds() -> &'static [BuildingKind] {
         &[
             BuildingKind::Farm, BuildingKind::FarmerHome,
             BuildingKind::ArcherHome, BuildingKind::CrossbowHome, BuildingKind::Waypoint,
             BuildingKind::Tent, BuildingKind::MinerHome,
-            BuildingKind::Fountain, BuildingKind::Camp,
+            BuildingKind::Fountain,
         ]
     }
 
@@ -1739,7 +1739,7 @@ pub fn ai_squad_commander_system(
         // --- Self-healing squad allocation ---
         let desired = match kind {
             AiKind::Builder => personality.desired_squad_count(),
-            AiKind::Raider => 1, // single attack squad for raider camps
+            AiKind::Raider => 1, // single attack squad for raider towns
         };
         let owned: usize = squad_state.squads.iter()
             .filter(|s| s.owner == SquadOwner::Town(tdi))
@@ -1770,7 +1770,7 @@ pub fn ai_squad_commander_system(
 
         match kind {
             AiKind::Raider => {
-                // Raider camps: single squad gets all raiders
+                // Raider towns: single squad gets all raiders
                 if let Some(&si) = squad_indices.first() {
                     if let Some(squad) = squad_state.squads.get_mut(si) {
                         let new_size = unit_count;
@@ -1849,7 +1849,7 @@ pub fn ai_squad_commander_system(
 
             // Determine if this squad is an attack squad
             let is_attack = match kind {
-                AiKind::Raider => true, // raider camp squads always attack
+                AiKind::Raider => true, // raider town squads always attack
                 AiKind::Builder => {
                     let role_idx = squad_indices.iter().position(|&i| i == si).unwrap_or(0);
                     let attack_squads = personality.attack_squad_count();

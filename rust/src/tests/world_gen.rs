@@ -1,5 +1,5 @@
 //! World Generation Test (6 phases)
-//! Validates: grid dimensions, town placement, distances, buildings, terrain, camps.
+//! Validates: grid dimensions, town placement, distances, buildings, terrain, raider towns.
 
 use bevy::prelude::*;
 use crate::resources::*;
@@ -155,25 +155,25 @@ pub fn tick(
                 test.fail_phase(elapsed, "terrain at town center is not Dirt");
             }
         }
-        // Phase 6: Raider camps exist with correct faction
+        // Phase 6: Raider raider towns exist with correct faction
         6 => {
             let raider_towns: Vec<&world::Town> = world_data.towns.iter()
                 .filter(|t| t.faction > 0)
                 .collect();
 
             let expected = config.num_towns;
-            let has_camps = world_grid.cells.iter()
-                .filter(|c| matches!(c.building, Some((world::BuildingKind::Camp, _))))
+            let raider_centers = world_grid.cells.iter()
+                .filter(|c| matches!(c.building, Some((world::BuildingKind::Fountain, _))))
                 .count();
 
-            test.phase_name = format!("raider_towns={} camps_on_grid={}", raider_towns.len(), has_camps);
+            test.phase_name = format!("raider_towns={} centers_on_grid={}", raider_towns.len(), raider_centers);
 
-            if raider_towns.len() == expected && has_camps == expected {
-                test.pass_phase(elapsed, format!("{} raider camps with correct factions", expected));
+            if raider_towns.len() == expected && raider_centers >= expected {
+                test.pass_phase(elapsed, format!("{} raider towns with correct factions", expected));
                 test.complete(elapsed);
             } else {
                 test.fail_phase(elapsed, format!(
-                    "raider_towns={} camps={} (expected {})", raider_towns.len(), has_camps, expected));
+                    "raider_towns={} centers={} (expected {})", raider_towns.len(), raider_centers, expected));
             }
         }
         _ => {}

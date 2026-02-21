@@ -383,17 +383,17 @@ impl NpcLogCache {
 // FOOD EVENT RESOURCES
 // ============================================================================
 
-/// A raider delivered stolen food to their camp.
+/// A raider delivered stolen food to their town.
 #[derive(Clone, Debug)]
 pub struct FoodDelivered {
-    pub camp_idx: u32,
+    pub town_idx: u32,
 }
 
 /// An NPC consumed food at their home location.
 #[derive(Clone, Debug)]
 pub struct FoodConsumed {
     pub location_idx: u32,
-    pub is_camp: bool,
+    pub is_raider: bool,
 }
 
 /// Food events (deliveries and consumption). Polled and drained by GDScript.
@@ -618,17 +618,17 @@ pub struct FactionStat {
     pub kills: i32,
 }
 
-/// Stats for all factions. Index 0 = player/villagers, 1+ = raider camps.
+/// Stats for all factions. Index 0 = player/villagers, 1+ = raider towns.
 #[derive(Resource, Default)]
 pub struct FactionStats {
     pub stats: Vec<FactionStat>,
 }
 
-/// Raider camp state for respawning and foraging.
-/// Faction 1+ are raider camps. Index 0 in this struct = faction 1.
+/// Raider town state for respawning and foraging.
+/// Faction 1+ are raider towns. Index 0 in this struct = faction 1.
 #[derive(Resource, Default)]
-pub struct CampState {
-    /// Max raiders per camp (set from config at init).
+pub struct RaiderState {
+    /// Max raiders per town (set from config at init).
     pub max_pop: Vec<i32>,
     /// Hours accumulated since last respawn check.
     pub respawn_timers: Vec<f32>,
@@ -636,16 +636,16 @@ pub struct CampState {
     pub forage_timers: Vec<f32>,
 }
 
-impl CampState {
-    /// Initialize camp state for N camps.
-    pub fn init(&mut self, num_camps: usize, max_per_camp: i32) {
-        self.max_pop = vec![max_per_camp; num_camps];
-        self.respawn_timers = vec![0.0; num_camps];
-        self.forage_timers = vec![0.0; num_camps];
+impl RaiderState {
+    /// Initialize raider state for N towns.
+    pub fn init(&mut self, count: usize, max_pop: i32) {
+        self.max_pop = vec![max_pop; count];
+        self.respawn_timers = vec![0.0; count];
+        self.forage_timers = vec![0.0; count];
     }
 
-    /// Get camp index from faction (faction 1 = camp 0, etc).
-    pub fn faction_to_camp(faction: i32) -> Option<usize> {
+    /// Get raider index from faction (faction 1 = index 0, etc).
+    pub fn faction_to_idx(faction: i32) -> Option<usize> {
         if faction > 0 {
             Some((faction - 1) as usize)
         } else {
@@ -892,7 +892,7 @@ pub struct TowerState {
 #[derive(Clone, Default)]
 pub struct SpawnerEntry {
     pub building_kind: i32,   // derived from Building::spawner_kind(): 0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome, 4=CrossbowHome
-    pub town_idx: i32,        // town data index (villager or raider camp)
+    pub town_idx: i32,        // town data index (villager or raider town)
     pub position: Vec2,       // building world position
     pub npc_slot: i32,        // linked NPC slot (-1 = no NPC alive)
     pub respawn_timer: f32,   // game hours remaining (-1 = not respawning)
@@ -917,7 +917,7 @@ pub struct SpawnerState(pub Vec<SpawnerEntry>);
 /// Non-unit-home buildings have named fields; unit homes use dynamic BTreeMap via registry.
 #[derive(Resource, Default, Clone)]
 pub struct BuildingHpState {
-    pub towns: Vec<f32>,      // indexed by town_data_idx (covers Fountain + Camp)
+    pub towns: Vec<f32>,      // indexed by town_data_idx (all town centers)
     /// All building HP vecs, keyed by BuildingKind.
     pub hps: BTreeMap<crate::world::BuildingKind, Vec<f32>>,
 }
@@ -1171,7 +1171,7 @@ pub struct MiningPolicy {
 pub struct DifficultyPreset {
     pub farms: usize,
     pub ai_towns: usize,
-    pub raider_camps: usize,
+    pub raider_towns: usize,
     pub gold_mines: usize,
     /// Per-job NPC counts (only jobs listed are overridden; unlisted keep current value).
     pub npc_counts: std::collections::BTreeMap<crate::components::Job, usize>,
@@ -1200,7 +1200,7 @@ impl Difficulty {
     /// World gen presets. Overrides listed explicitly; unlisted jobs reset to NPC_REGISTRY defaults.
     pub fn presets(self) -> DifficultyPreset {
         use crate::components::Job;
-        let (farms, ai_towns, raider_camps, gold_mines, overrides) = match self {
+        let (farms, ai_towns, raider_towns, gold_mines, overrides) = match self {
             Difficulty::Easy   => (4, 2, 2, 3, vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)]),
             Difficulty::Normal => (2, 5, 5, 2, vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)]),
             Difficulty::Hard   => (1, 10, 10, 1, vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)]),
@@ -1211,7 +1211,7 @@ impl Difficulty {
         for (job, count) in overrides {
             npc_counts.insert(job, count);
         }
-        DifficultyPreset { farms, ai_towns, raider_camps, gold_mines, npc_counts }
+        DifficultyPreset { farms, ai_towns, raider_towns, gold_mines, npc_counts }
     }
 
     /// Migration group scaling: extra raiders per N player villagers.
@@ -1393,7 +1393,7 @@ impl HelpCatalog {
         m.insert("build_farmer_home", "Spawns 1 farmer. Farmer works at the nearest free farm. Build farms first!");
         m.insert("build_archer_home", "Spawns 1 archer. Archer patrols nearby waypoints and fights enemies.");
         m.insert("build_waypoint", "Patrol waypoint for guards. Guards patrol between nearby waypoints and fight enemies.");
-        m.insert("build_tent", "Spawns 1 raider. Raiders steal food from enemy farms and bring it back to camp.");
+        m.insert("build_tent", "Spawns 1 raider. Raiders steal food from enemy farms and bring it back to their town.");
         m.insert("build_miner_home", "Spawns 1 miner. Miner works at the nearest gold mine.");
         m.insert("unlock_slot", "Pay food to unlock this grid slot. Then right-click it again to build.");
         m.insert("destroy", "Remove this building. Its NPC dies and the slot becomes empty.");
@@ -1453,11 +1453,11 @@ pub struct MigrationGroup {
     pub town_data_idx: usize,
     pub grid_idx: usize,
     pub member_slots: Vec<usize>,
-    /// true = raider camp (tents), false = builder town (farms + homes + waypoints)
-    pub is_camp: bool,
+    /// true = raider town (tents), false = builder town (farms + homes + waypoints)
+    pub is_raider: bool,
 }
 
-/// Tracks dynamic raider camp migrations.
+/// Tracks dynamic raider town migrations.
 #[derive(Resource, Default)]
 pub struct MigrationState {
     pub active: Option<MigrationGroup>,
@@ -1470,7 +1470,7 @@ pub struct MigrationState {
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct PendingAiSpawn {
     pub delay_remaining: f32,
-    pub is_camp: bool,
+    pub is_raider: bool,
     pub upgrade_levels: Vec<u8>,
     pub starting_food: i32,
     pub starting_gold: i32,

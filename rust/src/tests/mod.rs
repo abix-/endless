@@ -54,7 +54,7 @@ pub struct CleanupExtra<'w> {
     pub health_debug: ResMut<'w, crate::resources::HealthDebug>,
     pub kill_stats: ResMut<'w, crate::resources::KillStats>,
     pub farm_occ: ResMut<'w, crate::world::BuildingOccupancy>,
-    pub camp_state: ResMut<'w, crate::resources::CampState>,
+    pub raider_state: ResMut<'w, crate::resources::RaiderState>,
     pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
     pub world_grid: ResMut<'w, crate::world::WorldGrid>,
     pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
@@ -493,7 +493,7 @@ pub fn register_tests(app: &mut App) {
     // economy
     registry.tests.push(TestEntry {
         name: "economy".into(),
-        description: "Farm growth → harvest → camp forage → raider respawn".into(),
+        description: "Farm growth → harvest → raider town forage → raider respawn".into(),
         phase_count: 5,
         time_scale: 1.0,
     });
@@ -508,7 +508,7 @@ pub fn register_tests(app: &mut App) {
     // world-gen
     registry.tests.push(TestEntry {
         name: "world-gen".into(),
-        description: "Grid dimensions, town placement, buildings, terrain, camps".into(),
+        description: "Grid dimensions, town placement, buildings, terrain, raider towns".into(),
         phase_count: 6,
         time_scale: 1.0,
     });
@@ -859,7 +859,7 @@ fn cleanup_test_world(
     *extra.health_debug = Default::default();
     *extra.kill_stats = Default::default();
     *extra.farm_occ = Default::default();
-    *extra.camp_state = Default::default();
+    *extra.raider_state = Default::default();
     *extra.proj_alloc = Default::default();
     *extra.world_grid = Default::default();
     *extra.debug_flags = Default::default();

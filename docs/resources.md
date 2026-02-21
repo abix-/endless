@@ -37,7 +37,7 @@ NPC state is derived at query time via `derive_npc_state()` which checks ECS com
 | KillStats | archer_kills, villager_kills | death_cleanup_system | UI |
 | FactionStats | `Vec<FactionStat>` — alive, dead, kills per faction | spawn/death/xp_grant systems | UI |
 
-`FactionStats` — one entry per settlement (player towns + AI towns + raider camps). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`.
+`FactionStats` — one entry per settlement (player towns + AI towns + raider towns). Methods: `inc_alive()`, `dec_alive()`, `inc_dead()`, `inc_kills()`.
 
 ## World Layout
 
@@ -54,7 +54,7 @@ Static world data, immutable after initialization.
 | BuildingSlotMap | bidirectional `HashMap<(BuildingKind, usize), usize>` | Maps buildings ↔ NPC GPU slots; buildings occupy invisible NPC slots (speed=0, sprite hidden) for GPU projectile collision; allocated at startup/load, freed on building destroy |
 | BuildingHpState | `towns: Vec<f32>` + `hps: BTreeMap<BuildingKind, Vec<f32>>` — custom `Serialize + Deserialize` flattens BTreeMap keys using registry `save_key` for save-format compatibility | Tracks current HP for all buildings; `hps(kind)`/`hps_mut(kind)` delegate to `BUILDING_REGISTRY` fn pointers (no per-kind match); `push_for()` delegates to registry; `iter_damaged()` loops over `BUILDING_REGISTRY` to find all damaged buildings; initialized on game startup, pushed on build, zeroed on destroy |
 | DirtyFlags | `building_grid`, `patrols`, `patrol_perimeter`, `healing_zones`, `waypoint_slots`, `squads`, `mining`, `buildings_need_healing` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds (except `buildings_need_healing` = false); `buildings_need_healing` set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain; `waypoint_slots` triggers NPC slot alloc/free in `sync_waypoint_slots`; `squads` gates `squad_cleanup_system` (set by death/spawn/UI); `mining` gates `mining_policy_system`; `patrol_perimeter` gates `sync_patrol_perimeter_system`; `patrol_swap` queues patrol order swap from UI; `mark_building_changed(kind)` helper sets the right combo of flags for build/destroy events |
-| TownGrids | `Vec<TownGrid>` — one per town (villager + camp) | Per-town building slot unlock tracking |
+| TownGrids | `Vec<TownGrid>` — one per town (villager + raider) | Per-town building slot unlock tracking |
 | GameAudio | `music_volume: f32`, `sfx_volume: f32`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings |
 
 ### WorldData Structs
@@ -81,24 +81,24 @@ Helper functions: `building_pos_town(kind, index)` → `Option<(Vec2, u32)>` del
 
 **WorldGrid** helpers: `cell(col, row)`, `cell_mut(col, row)`, `world_to_grid(pos) -> (col, row)`, `grid_to_world(col, row) -> Vec2`.
 
-**WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px camp distance, npc_counts populated from NPC_REGISTRY default_count (Farmer:2, Archer:4, Raider:1, rest:0), 2 gold mines per town.
+**WorldGenConfig** defaults: 8000x8000 world, 400px margin, 2 towns, 1200px min distance, 32px grid spacing, 3500px raider distance, npc_counts populated from NPC_REGISTRY default_count (Farmer:2, Archer:4, Raider:1, rest:0), 2 gold mines per town.
 
-**`generate_world()`**: Takes config and populates WorldGrid, WorldData, TownGrids, and MineStates. Places towns randomly with min distance constraint, finds camp positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Villager towns get 1 fountain, N farms, then homes for each village NPC type from NPC_REGISTRY (spiral-placed via `npc_counts` map), then 4 waypoints on the outer ring. Raider camps get a Camp center + homes for each camp NPC type from NPC_REGISTRY (spiral-placed via `npc_counts` map). Both town types get a TownGrid with expandable building slots. Gold mines placed in wilderness between settlements (min 300px from any town, min 400px between mines, `gold_mines_per_town × total_towns` count). Building positions are generated via `spiral_slots()` — a spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
+**`generate_world()`**: Takes config and populates WorldGrid, WorldData, TownGrids, and MineStates. Places towns randomly with min distance constraint, finds raider town positions furthest from all towns (16 directions), assigns terrain via simplex noise with Dirt override near settlements. Villager towns get 1 fountain, N farms, then homes for each village NPC type from NPC_REGISTRY (spiral-placed via `npc_counts` map), then 4 waypoints on the outer ring. Raider towns get a fountain center + homes for each raider NPC type from NPC_REGISTRY (spiral-placed via `npc_counts` map). Both town types get a TownGrid with expandable building slots. Gold mines placed in wilderness between settlements (min 300px from any town, min 400px between mines, `gold_mines_per_town × total_towns` count). Building positions are generated via `spiral_slots()` — a spiral outward from center that skips occupied cells. Guard posts are placed after spawner buildings so they're always on the perimeter.
 
 ### Town Building Grid
 
-Per-town slot tracking for the building system. Each town (villager and raider camp) has a `TownGrid` with an `area_level: i32` controlling the buildable radius and a `town_data_idx` linking to its `WorldData.towns` entry. Initial base grid is 6x6 (rows/cols -2 to +3), expandable via `expand_town_build_area()` which increments `area_level` (max 50x50 extent).
+Per-town slot tracking for the building system. Each town (villager and raider) has a `TownGrid` with an `area_level: i32` controlling the buildable radius and a `town_data_idx` linking to its `WorldData.towns` entry. Initial base grid is 6x6 (rows/cols -2 to +3), expandable via `expand_town_build_area()` which increments `area_level` (max 50x50 extent).
 
 | Struct | Fields |
 |--------|--------|
 | TownGrid | town_data_idx: usize, area_level: i32 |
-| TownGrids | grids: `Vec<TownGrid>` (one per town — villager + camp) |
+| TownGrids | grids: `Vec<TownGrid>` (one per town — villager + raider) |
 | BuildMenuContext | town_data_idx: `Option<usize>`, selected_build: `Option<BuildingKind>`, destroy_mode: bool, hover_world_pos: Vec2, ghost_sprites: `HashMap<BuildingKind, Handle<Image>>` |
 | DestroyRequest | `Option<(usize, usize)>` — (grid_col, grid_row), set by inspector, processed by `process_destroy_system` |
 
 Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `build_bounds(grid) -> (min_row, max_row, min_col, max_col)`, `is_slot_buildable(grid, row, col)`, `find_town_slot(world_pos, towns, grids)`.
 
-Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `build_and_pay()` additionally deducts food, registers spawner, pushes HP entry, allocates building GPU slot, and marks DirtyFlags — shared by both player UI and AI. `place_waypoint_at_world_pos()` is the waypoint-specific variant (no spawner, auto-assigns patrol_order). `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. `destroy_building()` shared helper consolidates all destroy side effects: `remove_building()` + spawner tombstone + HP zero + GPU slot free + combat log — used by click-destroy, inspector-destroy, `building_damage_system` (HP→0), and waypoint pruning. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid)` scans a town grid for buildable cells. Tombstone deletion preserves parallel Vec indices (FarmStates, BuildingHpState). Fountains, camps, and gold mines cannot be destroyed.
+Building placement: `place_building()` validates cell empty, places on WorldGrid, pushes to WorldData + FarmStates. `build_and_pay()` additionally deducts food, registers spawner, pushes HP entry, allocates building GPU slot, and marks DirtyFlags — shared by both player UI and AI. `place_waypoint_at_world_pos()` is the waypoint-specific variant (no spawner, auto-assigns patrol_order). `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. `destroy_building()` shared helper consolidates all destroy side effects: `remove_building()` + spawner tombstone + HP zero + GPU slot free + combat log — used by click-destroy, inspector-destroy, `building_damage_system` (HP→0), and waypoint pruning. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid)` scans a town grid for buildable cells. Tombstone deletion preserves parallel Vec indices (FarmStates, BuildingHpState). Fountains and gold mines cannot be destroyed.
 
 Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=2, MinerHome=4, ArcherHome=4, CrossbowHome=8, Waypoint=1, Tent=3. All properties defined in `BUILDING_REGISTRY`.
 
@@ -106,20 +106,20 @@ Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficul
 
 | Resource | Data | Writers | Readers |
 |----------|------|---------|---------|
-| FoodStorage | `Vec<i32>` — food count per town/camp | economy systems (arrival, eating) | economy systems, UI |
-| GoldStorage | `Vec<i32>` — gold count per town/camp | mining delivery (arrival_system) | UI (top bar) |
+| FoodStorage | `Vec<i32>` — food count per town | economy systems (arrival, eating) | economy systems, UI |
+| GoldStorage | `Vec<i32>` — gold count per town | mining delivery (arrival_system) | UI (top bar) |
 | MiningPolicy | `discovered_mines: Vec<Vec<usize>>`, `mine_enabled: Vec<bool>` | mining_policy_system | UI (policies tab, mine inspector) |
 | FoodEvents | delivered: `Vec<FoodDelivered>`, consumed: `Vec<FoodConsumed>` | behavior systems | UI (poll and drain) |
 
-`FoodStorage.init(count)` initializes per-town counters. Villager towns and raider camps share the same indexing.
+`FoodStorage.init(count)` initializes per-town counters. Villager towns and raider towns share the same indexing.
 
-## Raider Camps
+## Raider Towns
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| CampState | max_pop, respawn_timers, forage_timers per camp | Camp respawn/forage scheduling |
+| RaiderState | max_pop, respawn_timers, forage_timers per raider town | Raider town respawn/forage scheduling |
 
-`CampState::faction_to_camp(faction)` maps faction ID to camp index (faction 1 = camp 0).
+`RaiderState::faction_to_idx(faction)` maps faction ID to raider index (faction 1 = index 0).
 
 ## Game Time
 
@@ -247,11 +247,11 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | UpgradeQueue | `Vec<(usize, usize)>` — (town_idx, upgrade_index) | left_panel upgrades (UI), auto_upgrade_system | process_upgrades_system |
 | TurretState | `waypoint: TurretKindState`, `town: TurretKindState` — each has `timers: Vec<f32>`, `attack_enabled: Vec<bool>` | building_turret_system (auto-sync + refresh) | building_turret_system |
 | SpawnerState | `Vec<SpawnerEntry>` — kind (BuildingKind), town_idx, position, npc_slot, respawn_timer. `is_population_spawner()` checks registry for spawner def. | game_startup, build_menu (push on build), spawner_respawn_system | spawner_respawn_system, game_hud (counts), ai_player (reserve calc) |
-| UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_camps, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet), upgrade_expanded (Vec\<String\> — expanded branch labels) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close), upgrade_content (save on expand/collapse) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
+| UserSettings | world_size, towns, farmers, archers, raiders, ai_towns, raider_towns, ai_interval, npc_interval, scroll_speed, ui_scale (f32, default 1.2), difficulty (Difficulty, default Normal), log_kills/spawns/raids/harvests/levelups/npc_activity/ai, debug_coordinates/all_npcs, policy (PolicySet), upgrade_expanded (Vec\<String\> — expanded branch labels) | main_menu (save on Play), bottom_panel (save on filter change), right_panel (save policies on tab leave), pause_menu (save on close), upgrade_content (save on expand/collapse) | main_menu (load on init), bottom_panel (load on init), game_startup (load policies), pause_menu settings, camera_pan_system, apply_ui_scale. **Loaded from disk at app startup** via `insert_resource(load_settings())` in `build_app()` — persists across app restarts without waiting for UI init. |
 
 `UiState` tracks which panels are open. All default to false. `LeftPanelTab` enum: Roster (default), Upgrades, Policies, Patrols, Squads, Factions, Help. `toggle_left_tab()` method: if panel shows that tab → close, otherwise open to that tab. `pending_faction_select`: set by double-clicking a fountain in `click_to_select_system`, consumed by `factions_content` to pre-select the matching faction. Reset on game cleanup.
 
-`CombatLog` has two ring buffers: `entries` (max 200) for normal events and `priority_entries` (max 200) for Raid/Ai events — this prevents high-frequency combat events from pushing out important strategic entries. 7 event kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai, BuildingDamage. Each entry has day/hour/minute timestamps, a `faction: i32` (-1=global, 0=player, 1+=AI), a message string, and an optional `location: Option<Vec2>` (world position for camera-pan button). `push()` evicts oldest when at capacity; `push_at()` routes to the correct buffer by kind. `iter_all()` chains both buffers for display. Raid entries for wave-started events include the target position as location. AI entries (purple in HUD) log build/unlock/upgrade actions; Raid entries (orange) log migration arrivals, camp settlements, and wave start/end. Combat log UI has "All"/"Mine" faction filter dropdown — "Mine" shows player (0) and global (-1) events only. Entries with a location show a clickable ">>" button that pans the camera to the target position.
+`CombatLog` has two ring buffers: `entries` (max 200) for normal events and `priority_entries` (max 200) for Raid/Ai events — this prevents high-frequency combat events from pushing out important strategic entries. 7 event kinds: Kill, Spawn, Raid, Harvest, LevelUp, Ai, BuildingDamage. Each entry has day/hour/minute timestamps, a `faction: i32` (-1=global, 0=player, 1+=AI), a message string, and an optional `location: Option<Vec2>` (world position for camera-pan button). `push()` evicts oldest when at capacity; `push_at()` routes to the correct buffer by kind. `iter_all()` chains both buffers for display. Raid entries for wave-started events include the target position as location. AI entries (purple in HUD) log build/unlock/upgrade actions; Raid entries (orange) log migration arrivals, town settlements, and wave start/end. Combat log UI has "All"/"Mine" faction filter dropdown — "Mine" shows player (0) and global (-1) events only. Entries with a location show a clickable ">>" button that pans the camera to the target position.
 
 `PolicySet` is serializable (`serde::Serialize + Deserialize`) and persisted as part of `UserSettings`. Loaded into `TownPolicies` on game startup, saved when leaving the Policies tab in the left panel.
 
@@ -287,14 +287,14 @@ UI filtering: left panel and squad overlay only show `is_player()` squads. Hotke
 | AiPlayerState | `players: Vec<AiPlayer>` — one per non-player settlement | game_startup (populate), game_cleanup (reset) | ai_decision_system |
 | NpcDecisionConfig | `interval: f32` (seconds between Tier 3 decisions, default 2.0) | main_menu (from settings) | decision_system |
 
-`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until camp settles), `squad_indices: Vec<usize>` (indices into SquadState.squads), `squad_cmd: HashMap<usize, AiSquadCmdState>` (per-squad command state with independent cooldown + target identity). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
+`AiPlayer` fields: `town_data_idx` (WorldData.towns index), `grid_idx` (TownGrids index), `kind` (Builder or Raider), `personality` (Aggressive, Balanced, or Economic — randomly assigned at game start), `active` (bool — `ai_decision_system` skips inactive players; used by migration system to defer AI until town settles), `squad_indices: Vec<usize>` (indices into SquadState.squads), `squad_cmd: HashMap<usize, AiSquadCmdState>` (per-squad command state with independent cooldown + target identity). `AiKind` determined by `Town.sprite_type`: 0 (fountain) = Builder, 1 (tent) = Raider.
 
 Personality drives build order, upgrade priority, food reserve, town policies, and **squad behavior**:
 - **Aggressive**: military first (archer homes → waypoints → economy), zero food reserve, combat upgrades prioritized, miner homes = 1/3 of farmer homes. 3 squads: reserve (25% defense), 2 attack squads (55/45 split of remainder). Retargets every 15s, attacks nearest enemy anything.
 - **Balanced**: economy and military in tandem (farm → farmer home → archer home → waypoint), 10 food reserve, miner homes = 1/2 of farmer homes. 2 squads: reserve (45% defense), 1 attack (remainder) targets military first. Retargets every 25s.
 - **Economic**: farms first with minimal military, 30 food reserve, FarmYield/FarmerHp upgrades prioritized, miner homes = 2/3 of farmer homes. 2 squads: reserve (65% defense), 1 attack (remainder) targeting enemy farms only. Retargets every 40s.
 
-Slot selection: economy buildings (farms, farmer homes, archer homes) prefer inner slots (closest to center). Guard posts prefer outer slots (farthest from center) with minimum Manhattan distance of 5 between posts. Raider tents cluster around camp center (inner slots).
+Slot selection: economy buildings (farms, farmer homes, archer homes) prefer inner slots (closest to center). Guard posts prefer outer slots (farthest from center) with minimum Manhattan distance of 5 between posts. Raider tents cluster around town center (inner slots).
 
 Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus food. Combat log shows personality tag: `"Town [Balanced] built farm"`.
 
@@ -304,7 +304,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 |----------|------|---------|---------|
 | MigrationState | `active: Option<MigrationGroup>`, `check_timer: f32` | migration_spawn_system, migration_settle_system | migration_attach_system, migration_settle_system, save/load |
 
-`MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the camp-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders).
+`MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the raider town-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders).
 
 `Migrating` component: marker on NPC entities that are part of an active migration group. Attached by `migration_attach_system`, removed by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-attached on load.
 

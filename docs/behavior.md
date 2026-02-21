@@ -2,7 +2,7 @@
 
 ## Overview
 
-NPC decision-making and state transitions. All run in `Step::Behavior` after combat is resolved. For economy systems (farm growth, starvation, camp foraging, raider respawning, game time), see [economy.md](economy.md).
+NPC decision-making and state transitions. All run in `Step::Behavior` after combat is resolved. For economy systems (farm growth, starvation, raider foraging, raider respawning, game time), see [economy.md](economy.md).
 
 **Unified Decision System**: All NPC decisions are handled by `decision_system` using a priority cascade. NPC state is modeled by two orthogonal enum components (concurrent state machines pattern):
 
@@ -156,14 +156,14 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 
 | Component | Type | Purpose |
 |-----------|------|---------|
-| TownId | `i32` | Town/camp identifier — every NPC belongs to one |
+| TownId | `i32` | Town identifier — every NPC belongs to one |
 | Energy | `f32` | 0-100, drains while active, recovers while resting |
 | Personality | `{ trait1, trait2 }` | 0-2 traits with magnitude affecting stats and decisions |
 | AssignedFarm | `Vec2` | Farm position farmer is working at (for occupancy tracking) |
 | Starving | marker | NPC energy at zero (50% HP cap, 50% speed) |
 | Healing | marker | NPC is inside healing aura (visual feedback) |
 | MaxHealth | `f32` | NPC's maximum health (for healing cap) |
-| Home | `{ x, y }` | NPC's spawner building position (FarmerHome/ArcherHome/Tent) — rest destination |
+| Home | `{ x, y }` | NPC's spawner building position — rest destination |
 | WorkPosition | `{ x, y }` | Farmer's field / miner's mine position |
 | MiningProgress | `f32` | Mining work progress 0.0–1.0, inserted when miner starts at mine, removed on extraction or interruption |
 | PatrolRoute | `{ posts: Vec<Vec2>, current: usize }` | Patrol unit's ordered patrol posts (archers, crossbows, fighters) |
@@ -222,8 +222,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 **Priority 7: Idle scoring (Utility AI)**
 - **Squad override**: NPCs with a `SquadId` component check `SquadState.squads[id].target` before normal patrol logic. If squad has a target, unit walks to squad target instead of patrol posts. Falls through to normal behavior if no target is set.
 - **Fighters**: Patrol waypoints like archers/crossbows, respond to squad targets. Work-allowed check uses `patrol_query` (needs `PatrolRoute`).
-- **Raiders**: Squad-driven only, not idle-scored — raiders without a squad wander near camp.
-- **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → `GoingToHeal` targeting fountain. Applies to all jobs (including raiders — they heal at their camp center). Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
+- **Raiders**: Squad-driven only, not idle-scored — raiders without a squad wander near town.
+- **Healing priority**: if `prioritize_healing` policy enabled, energy > 0, HP < `recovery_hp`, and town center known → `GoingToHeal` targeting fountain. Applies to all jobs (including raiders — they heal at their town center). Skipped when starving (energy=0) because HP is capped at 50% by starvation — NPC must rest for energy first.
 - **Work schedule gate**: Work only scored if the per-job schedule allows it — farmers and miners use `farmer_schedule`, archers use `archer_schedule` (`Both` = always, `DayOnly` = hours 6-20, `NightOnly` = hours 20-6)
 - **Off-duty behavior**: when work is gated out by schedule, off-duty policy applies: `GoToBed` boosts Rest to 80, `StayAtFountain` targets town center, `WanderTown` boosts Wander to 80
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
@@ -261,7 +261,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Adds/removes `Healing` marker component for visual feedback (heal icon derived by `sync_visual_sprites`)
 - Debug: `get_health_debug()` returns healing_in_zone_count and healing_healed_count
 
-*Economy systems (game_time, farm_growth, camp_forage, raider_respawn, starvation) documented in [economy.md](economy.md).*
+*Economy systems (game_time, farm_growth, raider_forage, raider_respawn, starvation) documented in [economy.md](economy.md).*
 
 *Farm growth, starvation, and group raid systems documented in [economy.md](economy.md).*
 
@@ -305,7 +305,7 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 **All survival behavior preserved**: Squad members still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities. Loot delivery takes priority over squad orders — NPCs with `Activity::Returning` carrying loot are not redirected until they deliver.
 
-**Raider behavior**: Raiders are squad-driven — if assigned to a squad with a target, the squad sync block redirects them. Raiders without a squad wander near their camp. The old `RaidQueue` (group formation + dispatch to farms) has been replaced by AI squad commander wave-based attacks.
+**Raider behavior**: Raiders are squad-driven — if assigned to a squad with a target, the squad sync block redirects them. Raiders without a squad wander near their town. The old `RaidQueue` (group formation + dispatch to farms) has been replaced by AI squad commander wave-based attacks.
 
 **Recruitment**: `squad_cleanup_system` queries alive `SquadUnit` NPCs without `SquadId`. Player squads recruit from player-town units; AI squads recruit from their owner town's units. "Dismiss All" removes `SquadId` from all squad members — units resume normal behavior.
 

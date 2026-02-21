@@ -1,5 +1,5 @@
 //! Economy Test (5 phases)
-//! Validates: farm growing → ready → harvest → camp forage → raider respawn.
+//! Validates: farm growing → ready → harvest → raider town forage → raider respawn.
 
 use bevy::prelude::*;
 use crate::components::*;
@@ -10,13 +10,13 @@ use super::{TestState, TestSetupParams};
 pub fn setup(
     mut params: TestSetupParams,
     mut farm_states: ResMut<GrowthStates>,
-    mut camp_state: ResMut<CampState>,
+    mut raider_state: ResMut<RaiderState>,
 ) {
     // Villager town
     params.add_town("EcoTown");
-    // Raider camp
+    // Raider raider town
     params.world_data.towns.push(crate::world::Town {
-        name: "EcoCamp".into(),
+        name: "EcoRaider".into(),
         center: Vec2::new(400.0, 100.0),
         faction: 1,
         sprite_type: 1,
@@ -31,8 +31,8 @@ pub fn setup(
     params.add_bed(400.0, 450.0);
 
     params.init_economy(2);
-    params.food_storage.food[1] = 10; // camp has food
-    camp_state.init(1, 5);
+    params.food_storage.food[1] = 10; // raider town has food
+    raider_state.init(1, 5);
     // Tent spawner so a raider can spawn via spawner_respawn_system
     params.spawner_state.0.push(SpawnerEntry {
         building_kind: 2,
@@ -56,7 +56,7 @@ pub fn setup(
     });
 
     params.test_state.phase_name = "Waiting for farmer...".into();
-    info!("economy: setup — 1 farmer, 1 farm at 95%, camp with 10 food");
+    info!("economy: setup — 1 farmer, 1 farm at 95%, raider town with 10 food");
 }
 
 pub fn tick(
@@ -73,7 +73,7 @@ pub fn tick(
     let farm_state = farm_states.states.first().copied().unwrap_or(FarmGrowthState::Growing);
     let farm_progress = farm_states.progress.first().copied().unwrap_or(0.0);
     let town_food = food_storage.food.first().copied().unwrap_or(0);
-    let camp_food = food_storage.food.get(1).copied().unwrap_or(0);
+    let raider_food = food_storage.food.get(1).copied().unwrap_or(0);
 
     match test.phase {
         // Phase 1: Farm is Growing
@@ -103,31 +103,31 @@ pub fn tick(
                 test.fail_phase(elapsed, format!("town_food=0 farm={:?}", farm_state));
             }
         }
-        // Phase 4: Camp forage adds food over time
+        // Phase 4: Raider forage adds food over time
         4 => {
-            // Camp started with 10 food, forage should add more
-            test.phase_name = format!("camp_food={}", camp_food);
-            if camp_food > 10 {
-                test.pass_phase(elapsed, format!("camp_food={} (foraged)", camp_food));
+            // Raider town started with 10 food, forage should add more
+            test.phase_name = format!("raider_food={}", raider_food);
+            if raider_food > 10 {
+                test.pass_phase(elapsed, format!("raider_food={} (foraged)", raider_food));
             } else if elapsed > 30.0 {
-                // Camp may have spent food on respawn — just pass if camp exists with food
-                if camp_food >= 0 {
-                    test.pass_phase(elapsed, format!("camp_food={} (may have respawned)", camp_food));
+                // Raider town may have spent food on respawn — just pass if raider town exists with food
+                if raider_food >= 0 {
+                    test.pass_phase(elapsed, format!("raider_food={} (may have respawned)", raider_food));
                 } else {
-                    test.fail_phase(elapsed, format!("camp_food={}", camp_food));
+                    test.fail_phase(elapsed, format!("raider_food={}", raider_food));
                 }
             }
         }
-        // Phase 5: Raider respawns when camp has food
+        // Phase 5: Raider respawns when raider town has food
         5 => {
             let raiders = stealer_query.iter().count();
-            test.phase_name = format!("raiders={} camp_food={}", raiders, camp_food);
+            test.phase_name = format!("raiders={} raider_food={}", raiders, raider_food);
             if raiders > 0 {
-                test.pass_phase(elapsed, format!("raiders={} camp_food={}", raiders, camp_food));
+                test.pass_phase(elapsed, format!("raiders={} raider_food={}", raiders, raider_food));
                 test.complete(elapsed);
             } else if elapsed > 60.0 {
                 let total = npc_query.iter().count();
-                test.fail_phase(elapsed, format!("raiders=0 total={} camp_food={}", total, camp_food));
+                test.fail_phase(elapsed, format!("raiders=0 total={} raider_food={}", total, raider_food));
             }
         }
         _ => {}

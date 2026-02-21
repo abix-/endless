@@ -37,7 +37,7 @@ Stages 1-13: [x] Complete (see [completed.md](completed.md))
   - AI builds (`ai_player.rs`) use same `build_and_pay()` path — construction delay applies to AI too
   - Files: `constants.rs` (BUILDING_CONSTRUCT_SECS), `resources.rs` (ConstructionQueue + GrowthStates.under_construction), `world.rs` (build_and_pay param), `systems/economy.rs` (new system + growth_system guard), `ui/mod.rs` + `systems/ai_player.rs` (pass queue), `lib.rs` + `gpu.rs` (register + extract), `npc_render.rs` (render bars)
 - [x] Endless mode: defeated AI towns become leaderless, toggle spawns replacement AI scaled to player strength
-- [x] Destructible enemy fountains/camps (AI deactivated on destruction, NPCs/buildings persist)
+- [x] Destructible enemy town centers (AI deactivated on destruction, NPCs/buildings persist)
 
 **Stage 15: Logistics & Flow**
 
@@ -225,13 +225,13 @@ Chunk 4: Player AI Manager
 
 **Stage 27: Diplomacy**
 
-*Done when: a raider camp sends a messenger offering a truce for 3 food/hour tribute - accepting stops raids, refusing triggers an immediate attack wave.*
+*Done when: a raider town sends a messenger offering a truce for 3 food/hour tribute - accepting stops raids, refusing triggers an immediate attack wave.*
 
-- [ ] Camp reputation system (hostile -> neutral -> friendly, based on food tribute and combat history)
-- [ ] Tribute offers: camps propose truces at reputation thresholds
+- [ ] Town reputation system (hostile -> neutral -> friendly, based on food tribute and combat history)
+- [ ] Tribute offers: raider towns propose truces at reputation thresholds
 - [ ] Trade routes between player towns (send food caravan from surplus town to deficit town)
-- [ ] Allied camps stop raiding, may send fighters during large attacks
-- [ ] Betrayal: allied camps can turn hostile if tribute stops or player is weak
+- [ ] Allied raider towns stop raiding, may send fighters during large attacks
+- [ ] Betrayal: allied raider towns can turn hostile if tribute stops or player is weak
 
 **Stage 28: Resources & Jobs**
 
@@ -246,7 +246,7 @@ Chunk 4: Player AI Manager
 
 **Stage 29: Armies & Marching**
 
-*Done when: player recruits 15 archers into an army, gives a march order to a neighboring camp, and the army walks across the map as a formation - arriving ready to fight.*
+*Done when: player recruits 15 archers into an army, gives a march order to a neighboring raider town, and the army walks across the map as a formation - arriving ready to fight.*
 
 - [ ] Army formation from existing squads (select squad -> "Form Army" -> army entity with member list)
 - [ ] March orders: right-click map location -> army walks as group (use existing movement system, group speed = slowest member)
@@ -256,9 +256,9 @@ Chunk 4: Player AI Manager
 
 **Stage 30: Conquest**
 
-*Done when: player marches an army to a raider camp, defeats defenders, and claims the town - camp converts to player-owned town with buildings intact, player now manages two towns.*
+*Done when: player marches an army to a raider town, defeats defenders, and claims the town - raider town converts to player-owned town with buildings intact, player now manages two towns.*
 
-- [ ] Camp/town siege: army arrives at hostile settlement -> attacks defenders + buildings
+- [ ] Town siege: army arrives at hostile settlement -> attacks defenders + buildings
 - [ ] Building HP: walls have HP - attackers must breach defenses (archer homes/farmer homes HP already done)
 - [ ] Town capture: all defenders dead + town center HP -> 0 = captured -> converts to player town
 - [ ] AI expansion: AI players can attack each other and the player (not just raid - full conquest attempts)
@@ -266,10 +266,10 @@ Chunk 4: Player AI Manager
 
 **Stage 31: World Map**
 
-*Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI and more camps - campaign progression.*
+*Done when: player conquers all towns on "County of Palm Beach", clicks "Next Region" on the world map, and starts a new county with harder AI and more raider towns - campaign progression.*
 
 - [ ] World map screen: grid of regions (counties), each is a separate game map
-- [ ] Region difficulty scaling (more camps, tougher AI, scarcer resources)
+- [ ] Region difficulty scaling (more raider towns, tougher AI, scarcer resources)
 - [ ] Persistent bonuses between regions (tech carries over, starting resources from tribute)
 - [ ] "Country" = set of regions. "World" = set of countries. Campaign arc.
 
@@ -312,7 +312,7 @@ Sound (bevy_audio) should be woven into stages as they're built - not deferred t
 - [ ] No active roadmap bugs listed right now.
 
 ### DRY & Single Source of Truth
-- [ ] Replace hardcoded town indices in HUD (player/camp assumptions) with faction/town lookup helpers
+- [ ] Replace hardcoded town indices in HUD with faction/town lookup helpers
 - [ ] Add regression tests that enforce no behavior drift between player and AI build flows, startup and respawn flows, and both destroy entry points
 
 ### UI & UX
