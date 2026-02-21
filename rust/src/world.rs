@@ -1273,8 +1273,8 @@ impl WorldGrid {
 /// World generation algorithm style.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum WorldGenStyle {
-    #[default]
     Classic,
+    #[default]
     Continents,
 }
 

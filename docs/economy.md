@@ -233,7 +233,7 @@ Both player build menu and AI player use `building_cost()` for affordability che
 - Flag set by: `death_cleanup_system` (any death), `spawn_npc_system` (archer spawn), left_panel UI (assign/dismiss), save load (`DirtyFlags::default()`)
 - **Phase 1**: retains only members whose slot is still in `NpcEntityMap` (alive)
 - **Phase 2**: keeps Default Squad (index 0) as live pool of unsquadded player archers (inserts `SquadId(0)`)
-- **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` component, pops from members)
+- **Phase 3**: if `target_size > 0` and `members.len() > target_size`, dismisses excess (removes `SquadId` + `DirectControl` components, pops from members)
 - **Phase 4**: if `target_size > 0` and `members.len() < target_size`, auto-recruits unsquadded player-faction archers (inserts `SquadId`, pushes to members). Pool is shared across squads — earlier squad indices get priority.
 
 ## Dynamic Raider Town Migration

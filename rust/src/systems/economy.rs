@@ -466,6 +466,7 @@ pub fn squad_cleanup_system(
                 for (entity, npc_idx, sid) in squad_units.iter() {
                     if npc_idx.0 == *slot && sid.0 == si as i32 {
                         commands.entity(entity).remove::<SquadId>();
+                        commands.entity(entity).remove::<crate::components::DirectControl>();
                         break;
                     }
                 }

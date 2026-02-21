@@ -19,6 +19,8 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 
+**DirectControl skip** (before all priorities): NPCs with a `DirectControl` component skip the entire decision system — no autonomous behavior whatsoever. `AtDestination` is removed if present to prevent stale arrival flags.
+
 **Tier 1 — every frame:**
 0. AtDestination → Handle arrival transitions (transient one-frame flag, can't miss)
 -- Transit skip (`activity.is_transit()` → continue, with GoingToHeal proximity check at Tier 2 cadence) --
@@ -175,7 +177,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 ## Systems
 
 ### decision_system (Unified Priority Cascade)
-- Query: NPCs with `&mut Activity`, `&mut CombatState`, skips NPCs in transit (`activity.is_transit()`)
+- Query: NPCs with `&mut Activity`, `&mut CombatState`, `Option<&DirectControl>`, skips `DirectControl` NPCs entirely, skips NPCs in transit (`activity.is_transit()`)
 - Uses **SystemParam bundles** for farm and economy parameters (see Overview)
 - Reads `NpcDecisionConfig.interval` for Tier 3 bucket count (`interval × 60fps`)
 - Three-tier throttling: arrivals every frame, combat every 8 frames, decisions bucketed by interval

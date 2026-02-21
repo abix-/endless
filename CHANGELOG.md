@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-21j
+
+- **main menu redesign** — replaced flat layout with sectioned UI (World / Difficulty / Options / Debug Options) using separators + bold section labels; difficulty presets (Easy/Normal/Hard) now control endless mode and replacement strength in addition to NPC counts; "Per Town (player & AI)" sub-group makes it clear that farms, gold mines, and NPC homes apply to both player and AI builder towns; renamed "AI Towns" → "AI Builder Towns" and "Raider Towns" → "AI Raider Towns" for consistent terminology; added `.on_hover_text()` tooltips to all 15+ sliders/controls; Debug Options collapsed by default; `DifficultyPreset` extended with `endless_mode`/`endless_strength` fields; `WorldGenStyle` default changed from Classic → Continents
+
 ## 2026-02-21i
 
 - **directcontrol right-click rework** — right-click now has two modes: in `placing_target` mode (hotkey 1-0 or "Set Target" button) right-click sets `squad.target` for the whole squad; in default mode right-click only commands DirectControl (box-selected) NPCs with direct GPU `SetTarget` writes. `ManualTarget` converted from `struct(usize)` to `enum { Npc, Building, Position }` — single source of truth for all DirectControl targets. green bracket overlay now driven by `DirectControl` component query instead of `squad.members`. crosshair overlay queries per-NPC `ManualTarget::Npc`/`Building` on DirectControl entities. removed dead `AttackTarget` enum and `squad.attack_target` field. inspector Copy Debug Info includes DirectControl status + squad details.

@@ -248,7 +248,8 @@ pub fn decision_system(
     // Main query: core NPC data (SquadId is Optional — only on squad-assigned guards)
     mut query: Query<
         (Entity, &NpcIndex, &Job, &mut Energy, &Health, &Home, &Personality, &TownId, &Faction,
-         &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&SquadId>, Option<&ManualTarget>),
+         &mut Activity, &mut CombatState, Option<&AtDestination>, Option<&SquadId>, Option<&ManualTarget>,
+         Option<&DirectControl>),
         Without<Dead>
     >,
     // Combat config queries
@@ -291,9 +292,20 @@ pub fn decision_system(
     let mut n_idle: u32 = 0;
 
     for (entity, npc_idx, job, mut energy, health, home, personality, town_id, faction,
-         mut activity, mut combat_state, at_destination, squad_id, manual_target) in query.iter_mut()
+         mut activity, mut combat_state, at_destination, squad_id, manual_target,
+         direct_control) in query.iter_mut()
     {
         let idx = npc_idx.0;
+
+        // ====================================================================
+        // DirectControl: absolute skip — no autonomous behavior whatsoever.
+        // ====================================================================
+        if direct_control.is_some() {
+            if at_destination.is_some() {
+                commands.entity(entity).remove::<AtDestination>();
+            }
+            continue;
+        }
 
         // ====================================================================
         // Priority 0: AtDestination -> Handle arrival transition

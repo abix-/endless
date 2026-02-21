@@ -96,6 +96,8 @@ pub fn main_menu_system(
         state.ai_towns = preset.ai_towns as f32;
         state.raider_towns = preset.raider_towns as f32;
         state.gold_mines = preset.gold_mines as f32;
+        state.endless_mode = preset.endless_mode;
+        state.endless_strength = preset.endless_strength;
         for (&job, &count) in &preset.npc_counts {
             state.npc_counts.insert(job, count as f32);
         }
@@ -106,7 +108,7 @@ pub fn main_menu_system(
         ui.vertical_centered(|ui| {
             ui.add_space(40.0);
             ui.heading(egui::RichText::new("Endless").size(32.0));
-            ui.add_space(30.0);
+            ui.add_space(20.0);
         });
 
         // Config sliders in a centered frame
@@ -114,9 +116,13 @@ pub fn main_menu_system(
         ui.vertical_centered(|ui| {
             ui.set_max_width(panel_width);
 
-            // World size
+            // ── World ──────────────────────────────
+            ui.separator();
+            ui.label(egui::RichText::new("World").strong());
+            ui.add_space(4.0);
+
             ui.horizontal(|ui| {
-                ui.label("World size:");
+                ui.label("World Size:").on_hover_text("Total world size in pixels. Larger worlds take longer to generate.");
                 ui.add(egui::Slider::new(&mut state.world_size, 4000.0..=32000.0)
                     .step_by(500.0)
                     .show_value(false));
@@ -130,9 +136,8 @@ pub fn main_menu_system(
 
             ui.add_space(4.0);
 
-            // World gen style
             ui.horizontal(|ui| {
-                ui.label("World gen:");
+                ui.label("World Gen:").on_hover_text("Classic: single landmass. Continents: multiple islands separated by ocean.");
                 egui::ComboBox::from_id_salt("gen_style")
                     .selected_text(match state.gen_style {
                         1 => "Continents",
@@ -144,131 +149,136 @@ pub fn main_menu_system(
                     });
             });
 
+            ui.add_space(8.0);
+
+            // ── Difficulty ─────────────────────────
+            ui.separator();
+            ui.label(egui::RichText::new("Difficulty").strong());
             ui.add_space(4.0);
 
-            // Difficulty section
-            egui::CollapsingHeader::new("Difficulty")
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Preset:");
-                        egui::ComboBox::from_id_salt("difficulty")
-                            .selected_text(state.difficulty.label())
-                            .show_ui(ui, |ui| {
-                                for d in crate::resources::Difficulty::ALL {
-                                    ui.selectable_value(&mut state.difficulty, d, d.label());
-                                }
-                            });
-                    });
-
-                    ui.add_space(4.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label("Farms:");
-                        ui.add(egui::Slider::new(&mut state.farms, 0.0..=100.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut fm = state.farms as i32;
-                        if ui.add(egui::DragValue::new(&mut fm).range(0..=100).suffix(" /town")).changed() {
-                            state.farms = fm as f32;
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Gold Mines:");
-                        ui.add(egui::Slider::new(&mut state.gold_mines, 0.0..=10.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut gm = state.gold_mines as i32;
-                        if ui.add(egui::DragValue::new(&mut gm).range(0..=10).suffix(" /town")).changed() {
-                            state.gold_mines = gm as f32;
-                        }
-                    });
-
-                    ui.add_space(4.0);
-
-                    // AI Towns group
-                    ui.horizontal(|ui| {
-                        ui.label("AI Towns:");
-                        ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=20.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut at = state.ai_towns as i32;
-                        if ui.add(egui::DragValue::new(&mut at).range(0..=20)).changed() {
-                            state.ai_towns = at as f32;
-                        }
-                    });
-                    ui.indent("ai_town_children", |ui| {
-                        // Village NPC home sliders — driven by NPC_REGISTRY
-                        for def in NPC_REGISTRY.iter().filter(|d| !d.is_raider_unit) {
-                            ui.horizontal(|ui| {
-                                let label = format!("{} Homes:", def.label);
-                                ui.label(label);
-                                let val = state.npc_counts.entry(def.job).or_insert(0.0);
-                                ui.add(egui::Slider::new(val, 0.0..=1000.0)
-                                    .step_by(1.0)
-                                    .show_value(false));
-                                let mut iv = *val as i32;
-                                if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /town")).changed() {
-                                    *val = iv as f32;
-                                }
-                            });
-                        }
-                    });
-
-                    ui.add_space(4.0);
-
-                    // Raider Towns group
-                    ui.horizontal(|ui| {
-                        ui.label("Raider Towns:");
-                        ui.add(egui::Slider::new(&mut state.raider_towns, 0.0..=20.0)
-                            .step_by(1.0)
-                            .show_value(false));
-                        let mut rc = state.raider_towns as i32;
-                        if ui.add(egui::DragValue::new(&mut rc).range(0..=20)).changed() {
-                            state.raider_towns = rc as f32;
-                        }
-                    });
-                    ui.indent("raider_town_children", |ui| {
-                        // Raider NPC home sliders — driven by NPC_REGISTRY
-                        for def in NPC_REGISTRY.iter().filter(|d| d.is_raider_unit) {
-                            ui.horizontal(|ui| {
-                                let label = format!("{}s:", def.label);
-                                ui.label(label);
-                                let val = state.npc_counts.entry(def.job).or_insert(0.0);
-                                ui.add(egui::Slider::new(val, 0.0..=1000.0)
-                                    .step_by(1.0)
-                                    .show_value(false));
-                                let mut iv = *val as i32;
-                                if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /town")).changed() {
-                                    *val = iv as f32;
-                                }
-                            });
-                        }
-                    });
-                });
-
-            ui.add_space(4.0);
-
-            // Autosave
             ui.horizontal(|ui| {
-                ui.label("Autosave:");
+                ui.label("Preset:").on_hover_text("Adjusts farms, mines, and NPC counts. Change individual sliders for custom difficulty.");
+                egui::ComboBox::from_id_salt("difficulty")
+                    .selected_text(state.difficulty.label())
+                    .show_ui(ui, |ui| {
+                        for d in crate::resources::Difficulty::ALL {
+                            ui.selectable_value(&mut state.difficulty, d, d.label());
+                        }
+                    });
+            });
+
+            ui.add_space(4.0);
+
+            // Per-town settings (apply to player AND AI towns)
+            ui.label(egui::RichText::new("Per Town (player & AI)").weak());
+            ui.indent("per_town_settings", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Farms:").on_hover_text("Farms per town. Farms produce food for NPCs.");
+                    ui.add(egui::Slider::new(&mut state.farms, 0.0..=100.0)
+                        .step_by(1.0)
+                        .show_value(false));
+                    let mut fm = state.farms as i32;
+                    if ui.add(egui::DragValue::new(&mut fm).range(0..=100).suffix(" /town")).changed() {
+                        state.farms = fm as f32;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Gold Mines:").on_hover_text("Gold mines per town. Miners extract gold for upgrades and recruiting.");
+                    ui.add(egui::Slider::new(&mut state.gold_mines, 0.0..=10.0)
+                        .step_by(1.0)
+                        .show_value(false));
+                    let mut gm = state.gold_mines as i32;
+                    if ui.add(egui::DragValue::new(&mut gm).range(0..=10).suffix(" /town")).changed() {
+                        state.gold_mines = gm as f32;
+                    }
+                });
+                for def in NPC_REGISTRY.iter().filter(|d| !d.is_raider_unit) {
+                    ui.horizontal(|ui| {
+                        let label = format!("{} Homes:", def.label);
+                        let tip = format!("{} homes per town (player & AI). Each home spawns one {}.", def.label, def.label.to_lowercase());
+                        ui.label(label).on_hover_text(tip);
+                        let val = state.npc_counts.entry(def.job).or_insert(0.0);
+                        ui.add(egui::Slider::new(val, 0.0..=1000.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut iv = *val as i32;
+                        if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /town")).changed() {
+                            *val = iv as f32;
+                        }
+                    });
+                }
+            });
+
+            ui.add_space(4.0);
+
+            // Town counts
+            ui.horizontal(|ui| {
+                ui.label("AI Builder Towns:").on_hover_text("Number of AI-controlled friendly builder towns on the map.");
+                ui.add(egui::Slider::new(&mut state.ai_towns, 0.0..=20.0)
+                    .step_by(1.0)
+                    .show_value(false));
+                let mut at = state.ai_towns as i32;
+                if ui.add(egui::DragValue::new(&mut at).range(0..=20)).changed() {
+                    state.ai_towns = at as f32;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("AI Raider Towns:").on_hover_text("Number of AI-controlled hostile raider towns on the map.");
+                ui.add(egui::Slider::new(&mut state.raider_towns, 0.0..=20.0)
+                    .step_by(1.0)
+                    .show_value(false));
+                let mut rc = state.raider_towns as i32;
+                if ui.add(egui::DragValue::new(&mut rc).range(0..=20)).changed() {
+                    state.raider_towns = rc as f32;
+                }
+            });
+            ui.indent("raider_town_children", |ui| {
+                for def in NPC_REGISTRY.iter().filter(|d| d.is_raider_unit) {
+                    ui.horizontal(|ui| {
+                        let label = format!("{}s:", def.label);
+                        let tip = format!("Raider tents per raider town. Each tent spawns one {}.", def.label.to_lowercase());
+                        ui.label(label).on_hover_text(tip);
+                        let val = state.npc_counts.entry(def.job).or_insert(0.0);
+                        ui.add(egui::Slider::new(val, 0.0..=1000.0)
+                            .step_by(1.0)
+                            .show_value(false));
+                        let mut iv = *val as i32;
+                        if ui.add(egui::DragValue::new(&mut iv).range(0..=1000).suffix(" /town")).changed() {
+                            *val = iv as f32;
+                        }
+                    });
+                }
+            });
+
+            ui.add_space(4.0);
+
+            // Endless mode (part of difficulty)
+            ui.checkbox(&mut state.endless_mode, "Endless Mode")
+                .on_hover_text("Destroyed AI towns (builder and raider) are replaced by new, stronger ones.");
+            if state.endless_mode {
+                ui.horizontal(|ui| {
+                    ui.label("Replacement Strength:").on_hover_text("Strength of replacement towns relative to the player. Higher = harder.");
+                    ui.add(egui::Slider::new(&mut state.endless_strength, 0.25..=1.5)
+                        .step_by(0.05)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+                });
+            }
+
+            ui.add_space(8.0);
+
+            // ── Options ────────────────────────────
+            ui.separator();
+            ui.label(egui::RichText::new("Options").strong());
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Autosave:").on_hover_text("Auto-save interval in game hours. 0 = disabled.");
                 ui.add(egui::Slider::new(&mut state.autosave_hours, 0..=48)
                     .step_by(1.0)
                     .show_value(false));
                 let label = if state.autosave_hours == 0 { "Off".to_string() } else { format!("{}h", state.autosave_hours) };
                 ui.label(label);
             });
-
-            // Endless mode
-            ui.checkbox(&mut state.endless_mode, "Endless Mode");
-            if state.endless_mode {
-                ui.horizontal(|ui| {
-                    ui.label("AI Strength:");
-                    ui.add(egui::Slider::new(&mut state.endless_strength, 0.25..=1.5)
-                        .step_by(0.05)
-                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
-                });
-            }
 
             ui.add_space(20.0);
 
@@ -342,13 +352,12 @@ pub fn main_menu_system(
 
             // Debug options — collapsed by default
             egui::CollapsingHeader::new("Debug Options")
-                .default_open(true)
+                .default_open(false)
                 .show(ui, |ui| {
                     ui.add_space(4.0);
 
-                    // AI Think interval
                     ui.horizontal(|ui| {
-                        ui.label("AI Think:");
+                        ui.label("AI Think:").on_hover_text("How often AI towns make decisions (build, recruit, attack). Lower = more responsive.");
                         ui.add(egui::Slider::new(&mut state.ai_interval, 1.0..=30.0)
                             .step_by(0.5)
                             .suffix("s")
@@ -357,9 +366,8 @@ pub fn main_menu_system(
 
                     ui.add_space(4.0);
 
-                    // NPC Think interval
                     ui.horizontal(|ui| {
-                        ui.label("NPC Think:");
+                        ui.label("NPC Think:").on_hover_text("How often NPCs re-evaluate their behavior. Lower = more responsive but heavier on CPU.");
                         ui.add(egui::Slider::new(&mut state.npc_interval, 0.5..=10.0)
                             .step_by(0.5)
                             .suffix("s")
@@ -369,7 +377,7 @@ pub fn main_menu_system(
                     ui.add_space(4.0);
 
                     ui.horizontal(|ui| {
-                        ui.label("Raider Passive Forage:");
+                        ui.label("Raider Passive Forage:").on_hover_text("Raiders passively gather food even when not actively raiding.");
                         ui.checkbox(&mut state.raider_passive_forage, "Enabled");
                     });
 
