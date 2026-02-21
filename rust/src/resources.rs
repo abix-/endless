@@ -1175,6 +1175,8 @@ pub struct DifficultyPreset {
     pub gold_mines: usize,
     /// Per-job NPC counts (only jobs listed are overridden; unlisted keep current value).
     pub npc_counts: std::collections::BTreeMap<crate::components::Job, usize>,
+    pub endless_mode: bool,
+    pub endless_strength: f32,
 }
 
 /// Game difficulty — scales building costs. Selected on main menu, immutable during play.
@@ -1200,10 +1202,10 @@ impl Difficulty {
     /// World gen presets. Overrides listed explicitly; unlisted jobs reset to NPC_REGISTRY defaults.
     pub fn presets(self) -> DifficultyPreset {
         use crate::components::Job;
-        let (farms, ai_towns, raider_towns, gold_mines, overrides) = match self {
-            Difficulty::Easy   => (4, 2, 2, 3, vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)]),
-            Difficulty::Normal => (2, 5, 5, 2, vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)]),
-            Difficulty::Hard   => (1, 10, 10, 1, vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)]),
+        let (farms, ai_towns, raider_towns, gold_mines, endless_mode, endless_strength, overrides) = match self {
+            Difficulty::Easy   => (4, 2, 2, 3, false, 0.5,  vec![(Job::Farmer, 4), (Job::Archer, 8), (Job::Raider, 0)]),
+            Difficulty::Normal => (2, 5, 5, 2, true,  0.75, vec![(Job::Farmer, 2), (Job::Archer, 4), (Job::Raider, 1)]),
+            Difficulty::Hard   => (1, 10, 10, 1, true, 1.25, vec![(Job::Farmer, 0), (Job::Archer, 2), (Job::Raider, 2)]),
         };
         // Start from registry defaults, then apply preset overrides
         let mut npc_counts: std::collections::BTreeMap<Job, usize> = crate::constants::NPC_REGISTRY
@@ -1211,7 +1213,7 @@ impl Difficulty {
         for (job, count) in overrides {
             npc_counts.insert(job, count);
         }
-        DifficultyPreset { farms, ai_towns, raider_towns, gold_mines, npc_counts }
+        DifficultyPreset { farms, ai_towns, raider_towns, gold_mines, npc_counts, endless_mode, endless_strength }
     }
 
     /// Migration group scaling: extra raiders per N player villagers.
@@ -1256,15 +1258,6 @@ pub fn npc_matches_owner(owner: SquadOwner, npc_town_id: i32, player_town: i32) 
     }
 }
 
-/// What the squad is attacking (if anything).
-#[derive(Clone, Copy)]
-pub enum AttackTarget {
-    /// Attacking an NPC — store slot index so crosshair follows movement.
-    Npc(usize),
-    /// Attacking a building — static position.
-    Building(Vec2),
-}
-
 /// A squad of combat units (player-controlled or AI-commanded).
 #[derive(Clone)]
 pub struct Squad {
@@ -1290,8 +1283,6 @@ pub struct Squad {
     pub owner: SquadOwner,
     /// Hold fire: when true, members only attack their ManualTarget (no auto-engage).
     pub hold_fire: bool,
-    /// Forced attack target. Set by right-click on enemy NPC or building.
-    pub attack_target: Option<AttackTarget>,
 }
 
 impl Squad {
@@ -1312,7 +1303,6 @@ impl Default for Squad {
             wave_retreat_below_pct: 50,
             owner: SquadOwner::Player,
             hold_fire: false,
-            attack_target: None,
         }
     }
 }

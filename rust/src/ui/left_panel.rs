@@ -944,17 +944,6 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
         squad.squad_state.squads[si].hold_fire = hold_fire;
     }
 
-    // Show attack target if set
-    match squad.squad_state.squads[si].attack_target {
-        Some(crate::resources::AttackTarget::Npc(slot)) => {
-            ui.small(format!("Attack target: NPC #{}", slot));
-        }
-        Some(crate::resources::AttackTarget::Building(pos)) => {
-            ui.small(format!("Attack target: building ({:.0}, {:.0})", pos.x, pos.y));
-        }
-        None => {}
-    }
-
     ui.add_space(4.0);
 
     // Per-job recruit controls — one row per military NPC type from registry
@@ -1011,6 +1000,7 @@ fn squads_content(ui: &mut egui::Ui, squad: &mut SquadParams, meta_cache: &NpcMe
             for (entity, _, sid, _) in squad.squad_guards.iter() {
                 if sid.0 == selected {
                     commands.entity(entity).remove::<SquadId>();
+                    commands.entity(entity).remove::<crate::components::DirectControl>();
                 }
             }
             squad.squad_state.squads[si].members.clear();

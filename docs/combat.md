@@ -72,7 +72,7 @@ attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or ap
 | CachedStats | struct | `damage, range, cooldown, projectile_speed, projectile_lifetime, max_health, speed` — resolved from `CombatConfig` via `resolve_combat_stats()` |
 | AttackTimer | `f32` | Seconds until next attack allowed |
 | CombatState | enum | `None`, `Fighting { origin: Vec2 }`, `Fleeing` — orthogonal to Activity enum (see [behavior.md](behavior.md)) |
-| ManualTarget | `usize` | Player-forced attack target (NPC slot index). Overrides GPU auto-targeting. Inserted by right-click on enemy, cleared on target death or move command. |
+| ManualTarget | enum | Player target: `Npc(usize)` (attack NPC slot), `Building(Vec2)` (attack building), `Position(Vec2)` (ground move). Inserted by right-click on DirectControl NPCs. `Npc` variant overrides GPU auto-targeting; others fall through. |
 
 ## System Pipeline
 
@@ -84,7 +84,7 @@ Execution order is **chained** — each system completes before the next starts.
 - Updates `CombatDebug` with sample timer and entity count
 
 ### 2. attack_system (combat.rs)
-- **Manual target override**: if NPC has `ManualTarget(slot)` component, uses that slot as target instead of GPU `combat_targets[i]`. Auto-clears `ManualTarget` when target's GPU health <= 0 (dead). See [behavior.md](behavior.md#squads) for how `ManualTarget` is set.
+- **Manual target override**: if NPC has `ManualTarget::Npc(slot)`, uses that slot as target instead of GPU `combat_targets[i]`. Auto-clears `ManualTarget` when target's GPU health <= 0 (dead). `ManualTarget::Building` and `ManualTarget::Position` variants fall through to GPU auto-targeting. See [behavior.md](behavior.md#squads) for how `ManualTarget` is set.
 - **Hold fire**: if NPC's squad has `hold_fire == true` and no `ManualTarget`, target is set to -1 (skip auto-engage). Reads `SquadState` via `SquadId`.
 - Falls back to `GpuReadState.combat_targets` for NPCs without manual target or hold-fire.
 - **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)

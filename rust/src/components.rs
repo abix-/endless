@@ -252,10 +252,22 @@ impl CombatState {
     }
 }
 
-/// Player-forced attack target. Overrides GPU auto-targeting.
-/// Cleared when target dies or player issues a move command.
+/// Player-forced target for DirectControl NPCs.
+#[derive(Component, Clone)]
+pub enum ManualTarget {
+    /// Attack a specific NPC (slot index).
+    Npc(usize),
+    /// Attack a building at position.
+    Building(Vec2),
+    /// Move to position.
+    Position(Vec2),
+}
+
+/// Marker: NPC is under direct player control (box-selected).
+/// Skips all autonomous behavior in decision_system — no flee, rest, eat, patrol.
+/// Only responds to right-click move/attack commands.
 #[derive(Component)]
-pub struct ManualTarget(pub usize); // target NPC slot index
+pub struct DirectControl;
 
 /// Farmer's assigned farm position for occupancy tracking.
 /// Added when entering Working at a farm, removed when leaving.

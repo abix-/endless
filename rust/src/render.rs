@@ -9,8 +9,9 @@ use bevy::ecs::system::SystemParam;
 use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileData};
 
 use crate::gpu::RenderFrameConfig;
-use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, NpcEntityMap, AttackTarget};
+use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, NpcEntityMap};
 use crate::components::ManualTarget;
+use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, TERRAIN_TILES, building_tiles};
 
@@ -368,37 +369,54 @@ fn click_to_select_system(
     mut dbl_click: Local<DoubleClickState>,
     timings: Res<SystemTimings>,
     mut commands: Commands,
+    dc_query: Query<(), With<crate::components::DirectControl>>,
+    mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     let _t = timings.scope("click_select");
-    // Right-click cancels squad target placement or mine assignment
+    // Right-click: squad target placement, DirectControl micro, or cancel mine assignment
     if mouse.just_pressed(MouseButton::Right) {
-        if click.squad_state.placing_target {
-            click.squad_state.placing_target = false;
-            return;
-        }
         if click.ui_state.assigning_mine.is_some() {
             click.ui_state.assigning_mine = None;
             return;
         }
 
-        // Right-click commands for selected squad members (move/attack)
+        let Ok(window) = windows.single() else { return };
+        let Some(cursor_pos) = window.cursor_position() else { return };
+        let Ok((transform, projection)) = camera_query.single() else { return };
+        let zoom = ortho_zoom(projection);
+        let cam = transform.translation.truncate();
+        let viewport = Vec2::new(window.width(), window.height());
+        let screen_center = viewport / 2.0;
+        let mouse_offset = Vec2::new(
+            cursor_pos.x - screen_center.x,
+            screen_center.y - cursor_pos.y,
+        );
+        let world_pos = cam + mouse_offset / zoom;
+
+        // Squad target placement mode: right-click sets squad.target for whole squad
+        if click.squad_state.placing_target {
+            let si = click.squad_state.selected;
+            if si >= 0 && (si as usize) < click.squad_state.squads.len() {
+                click.squad_state.squads[si as usize].target = Some(world_pos);
+            }
+            click.squad_state.placing_target = false;
+            return;
+        }
+
+        // DirectControl micro: right-click commands only box-selected (DirectControl) members
         let si = click.squad_state.selected;
         if si >= 0 && (si as usize) < click.squad_state.squads.len()
-            && !click.squad_state.squads[si as usize].members.is_empty()
             && click.squad_state.squads[si as usize].is_player()
         {
-            let Ok(window) = windows.single() else { return };
-            let Some(cursor_pos) = window.cursor_position() else { return };
-            let Ok((transform, projection)) = camera_query.single() else { return };
-            let zoom = ortho_zoom(projection);
-            let cam = transform.translation.truncate();
-            let viewport = Vec2::new(window.width(), window.height());
-            let screen_center = viewport / 2.0;
-            let mouse_offset = Vec2::new(
-                cursor_pos.x - screen_center.x,
-                screen_center.y - cursor_pos.y,
-            );
-            let world_pos = cam + mouse_offset / zoom;
+            let members: Vec<usize> = click.squad_state.squads[si as usize].members.iter()
+                .copied()
+                .filter(|slot| {
+                    click.npc_entity_map.0.get(slot)
+                        .and_then(|&e| dc_query.get(e).ok())
+                        .is_some()
+                })
+                .collect();
+            if members.is_empty() { return; }
 
             let positions = &gpu_state.positions;
             let factions = &gpu_state.factions;
@@ -415,7 +433,7 @@ fn click_to_select_system(
                 let py = positions[i * 2 + 1];
                 if px < -9000.0 { continue; }
                 let faction = factions.get(i).copied().unwrap_or(0);
-                if faction == 0 { continue; } // same faction as player
+                if faction == 0 { continue; }
                 let dx = world_pos.x - px;
                 let dy = world_pos.y - py;
                 let dist = (dx * dx + dy * dy).sqrt();
@@ -425,20 +443,18 @@ fn click_to_select_system(
                 }
             }
 
-            let squad = &mut click.squad_state.squads[si as usize];
-            let members = squad.members.clone();
-
             if let Some((enemy_slot, enemy_pos)) = best_enemy {
-                // Attack enemy NPC: set ManualTarget + move toward enemy
+                // Attack NPC: set ManualTarget + move toward enemy
                 for &slot in &members {
                     if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
-                        commands.entity(entity).insert(ManualTarget(enemy_slot));
+                        commands.entity(entity).insert(ManualTarget::Npc(enemy_slot));
                     }
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                        idx: slot, x: enemy_pos.x, y: enemy_pos.y,
+                    }));
                 }
-                squad.attack_target = Some(AttackTarget::Npc(enemy_slot));
-                squad.target = Some(enemy_pos);
             } else {
-                // Hit-test enemy building (nearest within 24px, via building slots)
+                // Hit-test enemy building (nearest within 24px)
                 let building_radius = 24.0_f32;
                 let mut best_bdist = building_radius;
                 let mut best_bpos: Option<Vec2> = None;
@@ -449,7 +465,7 @@ fn click_to_select_system(
                     let py = positions[i * 2 + 1];
                     if px < -9000.0 { continue; }
                     let faction = factions.get(i).copied().unwrap_or(0);
-                    if faction == 0 { continue; } // friendly building
+                    if faction == 0 { continue; }
                     let dx = world_pos.x - px;
                     let dy = world_pos.y - py;
                     let dist = (dx * dx + dy * dy).sqrt();
@@ -459,24 +475,19 @@ fn click_to_select_system(
                     }
                 }
 
-                if let Some(bpos) = best_bpos {
-                    // Attack enemy building: move toward + set attack_target
-                    for &slot in &members {
-                        if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
-                            commands.entity(entity).remove::<ManualTarget>();
-                        }
-                    }
-                    squad.attack_target = Some(AttackTarget::Building(bpos));
-                    squad.target = Some(bpos);
+                // Determine ManualTarget variant + GPU move target
+                let (mt, target_pos) = if let Some(bpos) = best_bpos {
+                    (ManualTarget::Building(bpos), bpos)
                 } else {
-                    // Ground move: clear attack targets, move to position
-                    for &slot in &members {
-                        if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
-                            commands.entity(entity).remove::<ManualTarget>();
-                        }
+                    (ManualTarget::Position(world_pos), world_pos)
+                };
+                for &slot in &members {
+                    if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
+                        commands.entity(entity).insert(mt.clone());
                     }
-                    squad.attack_target = None;
-                    squad.target = Some(world_pos);
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                        idx: slot, x: target_pos.x, y: target_pos.y,
+                    }));
                 }
             }
             return;
@@ -510,16 +521,6 @@ fn click_to_select_system(
         screen_center.y - cursor_pos.y,
     );
     let world_pos = position + mouse_offset / zoom;
-
-    // Squad target placement — intercept before NPC selection
-    if click.squad_state.placing_target {
-        let si = click.squad_state.selected;
-        if si >= 0 && (si as usize) < click.squad_state.squads.len() {
-            click.squad_state.squads[si as usize].target = Some(world_pos);
-        }
-        click.squad_state.placing_target = false;
-        return;
-    }
 
     // Mine assignment — snap to nearest gold mine within radius
     if let Some(mh_idx) = click.ui_state.assigning_mine {
@@ -652,6 +653,18 @@ fn click_to_select_system(
         click.ui_state.inspector_prefer_npc = false;
     }
     click.ui_state.inspector_click_seq = click.ui_state.inspector_click_seq.saturating_add(1);
+
+    // Click empty ground → clear DirectControl from all player squad members
+    if best_idx < 0 && best_building.is_none() {
+        for squad in click.squad_state.squads.iter() {
+            if !squad.is_player() { continue; }
+            for &slot in &squad.members {
+                if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
+                    commands.entity(entity).remove::<crate::components::DirectControl>();
+                }
+            }
+        }
+    }
 }
 
 // =============================================================================
@@ -744,6 +757,14 @@ fn box_select_system(
                     // Auto-select squad 0 if none selected
                     let si = if squad_state.selected < 0 { 0 } else { squad_state.selected as usize };
                     if si < squad_state.squads.len() && squad_state.squads[si].is_player() {
+                        // Remove DirectControl from old squad members being replaced
+                        for &old_slot in &squad_state.squads[si].members {
+                            if !selected_slots.contains(&old_slot) {
+                                if let Some(&entity) = npc_entity_map.0.get(&old_slot) {
+                                    commands.entity(entity).remove::<crate::components::DirectControl>();
+                                }
+                            }
+                        }
                         // Remove these slots from any other player squad first
                         for qi in 0..squad_state.squads.len() {
                             if qi == si { continue; }
@@ -752,10 +773,13 @@ fn box_select_system(
                         }
                         // Set as the squad's members (replace, not append)
                         squad_state.squads[si].members = selected_slots.clone();
-                        // Update SquadId component on each selected NPC
+                        // Update SquadId + DirectControl on each selected NPC
                         for &slot in &selected_slots {
                             if let Some(&entity) = npc_entity_map.0.get(&slot) {
-                                commands.entity(entity).insert(crate::components::SquadId(si as i32));
+                                commands.entity(entity).insert((
+                                    crate::components::SquadId(si as i32),
+                                    crate::components::DirectControl,
+                                ));
                             }
                         }
                         squad_state.selected = si as i32;

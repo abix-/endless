@@ -263,17 +263,17 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 
 `SquadOwner` enum: `Player` (default) or `Town(usize)` (town_data_idx). Determines which town's military units get recruited into the squad.
 
-`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`, `hold_fire: bool` (when true, members only attack ManualTarget — no auto-engage), `attack_target: Option<Vec2>` (forced attack position set by right-click on enemy).
+`Squad` fields: `members: Vec<usize>` (NPC slot indices), `target: Option<Vec2>` (world position or None), `target_size: usize` (desired member count, 0 = manual mode — no auto-recruit/dismiss), `patrol_enabled: bool`, `rest_when_tired: bool`, `owner: SquadOwner`, `wave_active: bool`, `wave_start_count: usize`, `wave_min_start: usize`, `wave_retreat_below_pct: usize`, `hold_fire: bool` (when true, members only attack ManualTarget — no auto-engage).
 
 `SquadId(i32)` component added to military units (archers, crossbows, fighters, raiders) when recruited into a squad. Removed on dismiss. Units with `SquadId` walk to squad target instead of patrolling (see [behavior.md](behavior.md#squads)).
 
 `SquadUnit` marker component applied to all military NPCs (archers, crossbows, fighters, raiders) at spawn. Used by `squad_cleanup_system` and `ai_squad_commander_system` for recruitment queries instead of per-job component filters.
 
-`placing_target`: when true, next left-click on the map sets the selected squad's target. Cancelled by ESC or right-click.
+`placing_target`: when true, next right-click on the map sets the selected squad's target. Cancelled by ESC.
 
 `drag_start` / `box_selecting`: box-select drag state. `drag_start` is set on left-click press (world-space position), `box_selecting` becomes true when the drag exceeds 5px threshold. On mouse release while `box_selecting`, all player military NPCs inside the AABB are assigned to the currently selected squad. Cleared by ESC or mouse release.
 
-`ManualTarget(usize)` component: per-NPC forced attack target (slot index). Inserted by right-click on enemy NPC, overrides GPU auto-targeting in `attack_system`. Auto-cleared when target dies (GPU health check). Removed by right-click on ground (move command).
+`ManualTarget` enum component: per-NPC target for DirectControl units. Variants: `Npc(usize)` (attack NPC slot), `Building(Vec2)` (attack building position), `Position(Vec2)` (ground move). Inserted by right-click commands on DirectControl NPCs. `Npc` variant overrides GPU auto-targeting in `attack_system`, auto-cleared when target dies. `Building`/`Position` variants fall through to GPU auto-targeting in combat. Crosshair overlay in `squad_overlay_system` renders for `Npc`/`Building` variants on DirectControl NPCs.
 
 `npc_matches_owner(owner, npc_town_id, player_town)`: helper for owner-safe recruitment in `squad_cleanup_system`. Player squads recruit from player-town `SquadUnit` NPCs; `Town(tdi)` squads recruit from units with matching `TownId`.
 

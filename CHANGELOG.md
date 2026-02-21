@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-21i
+
+- **directcontrol right-click rework** — right-click now has two modes: in `placing_target` mode (hotkey 1-0 or "Set Target" button) right-click sets `squad.target` for the whole squad; in default mode right-click only commands DirectControl (box-selected) NPCs with direct GPU `SetTarget` writes. `ManualTarget` converted from `struct(usize)` to `enum { Npc, Building, Position }` — single source of truth for all DirectControl targets. green bracket overlay now driven by `DirectControl` component query instead of `squad.members`. crosshair overlay queries per-NPC `ManualTarget::Npc`/`Building` on DirectControl entities. removed dead `AttackTarget` enum and `squad.attack_target` field. inspector Copy Debug Info includes DirectControl status + squad details.
+
 ## 2026-02-21h
 
 - **road attraction + collision bypass** — GPU compute shader steers off-road NPCs toward nearby roads via 4-cardinal-ray × 3-tile gradient sampling of `tile_flags` buffer; inverse-distance gradient → lateral-only pull at 35% speed; disabled when on-road or within 96px of destination; NPCs on road tiles skip separation force against other road NPCs for smooth traffic flow; pre-computed `my_on_road` bool reused by speed bonus, collision bypass, and attraction

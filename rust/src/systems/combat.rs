@@ -85,15 +85,21 @@ pub fn attack_system(
         }
 
         // Manual target override: player-assigned focus-fire takes priority over GPU auto-target.
-        // Clear ManualTarget if the target is dead.
+        // Clear ManualTarget::Npc if the target is dead.
         let target_idx = if let Some(mt) = manual_target {
-            let t = mt.0;
-            let dead = gpu_state.health.get(t).map_or(true, |&h| h <= 0.0);
-            if dead {
-                commands.entity(entity).remove::<ManualTarget>();
-                combat_targets.get(i).copied().unwrap_or(-1)
-            } else {
-                t as i32
+            match mt {
+                ManualTarget::Npc(t) => {
+                    let dead = gpu_state.health.get(*t).map_or(true, |&h| h <= 0.0);
+                    if dead {
+                        commands.entity(entity).remove::<ManualTarget>();
+                        combat_targets.get(i).copied().unwrap_or(-1)
+                    } else {
+                        *t as i32
+                    }
+                }
+                ManualTarget::Building(_) | ManualTarget::Position(_) => {
+                    combat_targets.get(i).copied().unwrap_or(-1)
+                }
             }
         } else {
             // Hold fire: squad members with hold_fire skip auto-targeting

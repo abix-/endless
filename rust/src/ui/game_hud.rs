@@ -192,11 +192,14 @@ pub struct BuildingInspectorData<'w> {
 }
 
 #[derive(SystemParam)]
-pub struct BottomPanelUiState<'w> {
+pub struct BottomPanelUiState<'w, 's> {
     destroy_request: ResMut<'w, DestroyRequest>,
     ui_state: ResMut<'w, UiState>,
     mining_policy: ResMut<'w, MiningPolicy>,
     dirty: ResMut<'w, DirtyFlags>,
+    npc_entity_map: Res<'w, NpcEntityMap>,
+    squad_state: Res<'w, SquadState>,
+    commands: Commands<'w, 's>,
 }
 
 #[derive(Default)]
@@ -249,6 +252,7 @@ pub fn bottom_panel_system(
     equip_query: Query<(
         &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
         Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
+        Option<&DirectControl>,
     ), Without<Dead>>,
     npc_states: NpcStateQuery,
     gpu_state: Res<GpuReadState>,
@@ -315,14 +319,18 @@ pub fn bottom_panel_system(
                     ui, &data, &mut meta_cache, &mut inspector_state.rename, &bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                     &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty, show_npc,
+                    &panel_state.npc_entity_map, &panel_state.squad_state, &mut panel_state.commands,
                 );
-                // Destroy button for selected buildings (not fountains)
+                // Destroy button for selected player-owned buildings (not fountains/mines)
                 let show_building = has_building && (!has_npc || !show_npc);
                 if show_building {
                     let selected_info = selected_building_info(&bld_data.selected_building, &bld_data.grid, &world_data);
                     let is_destructible = selected_info
                         .as_ref()
-                        .map(|(k, _, _, _, _)| !matches!(k, BuildingKind::Fountain | BuildingKind::GoldMine))
+                        .map(|(k, ti, _, _, _)| {
+                            !matches!(k, BuildingKind::Fountain | BuildingKind::GoldMine)
+                            && world_data.towns.get(*ti as usize).map_or(false, |t| t.faction == 0)
+                        })
                         .unwrap_or(false);
                     if is_destructible {
                         ui.separator();
@@ -547,6 +555,7 @@ fn inspector_content(
     equip_query: &Query<(
         &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
         Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
+        Option<&DirectControl>,
     ), Without<Dead>>,
     npc_states: &NpcStateQuery,
     gpu_state: &GpuReadState,
@@ -559,6 +568,9 @@ fn inspector_content(
     mining_policy: &mut MiningPolicy,
     dirty: &mut DirtyFlags,
     show_npc: bool,
+    npc_entity_map: &NpcEntityMap,
+    squad_state: &SquadState,
+    commands: &mut Commands,
 ) {
     if !show_npc {
         rename_state.slot = -1;
@@ -669,7 +681,7 @@ fn inspector_content(
     }
 
     // Equipment + status from equip_query
-    if let Some((_, weapon, helmet, armor, starving, squad, gold, atk_type, _speed))
+    if let Some((_, weapon, helmet, armor, starving, squad, gold, atk_type, _speed, direct_ctrl))
         = equip_query.iter().find(|(ni, ..)| ni.0 == idx)
     {
         let atk_str = match atk_type { BaseAttackType::Melee => "Melee", BaseAttackType::Ranged => "Ranged" };
@@ -687,6 +699,21 @@ fn inspector_content(
         if let Some(sq) = squad {
             ui.label(format!("Squad: {}", sq.0));
         }
+        // DirectControl toggle
+        ui.horizontal(|ui| {
+            let is_dc = direct_ctrl.is_some();
+            let label = if is_dc { "Direct Control: ON" } else { "Direct Control: OFF" };
+            let color = if is_dc { egui::Color32::from_rgb(80, 220, 80) } else { egui::Color32::GRAY };
+            if ui.button(egui::RichText::new(label).color(color)).clicked() {
+                if let Some(&entity) = npc_entity_map.0.get(&idx) {
+                    if is_dc {
+                        commands.entity(entity).remove::<DirectControl>();
+                    } else {
+                        commands.entity(entity).insert(DirectControl);
+                    }
+                }
+            }
+        });
         if let Some(g) = gold {
             if g.0 > 0 { ui.label(format!("Carrying: {} gold", g.0)); }
         }
@@ -829,7 +856,7 @@ fn inspector_content(
                     stats.damage, stats.range, stats.cooldown, stats.speed
                 ));
             }
-            if let Some((_, weapon, helmet, armor, starving, squad, gold, atk_type, _speed))
+            if let Some((_, weapon, helmet, armor, starving, squad, gold, atk_type, _speed, _dc))
                 = equip_query.iter().find(|(ni, ..)| ni.0 == idx)
             {
                 let atk_str = match atk_type {
@@ -845,8 +872,21 @@ fn inspector_content(
                 if starving.is_some() {
                     info.push_str("Starving\n");
                 }
+                info.push_str(&format!("DirectControl: {}\n", if _dc.is_some() { "ON" } else { "OFF" }));
                 if let Some(sq) = squad {
                     info.push_str(&format!("Squad: {}\n", sq.0));
+                    let ss = squad_state;
+                    info.push_str(&format!("Squad.selected: {}\n", ss.selected));
+                    if (sq.0 as usize) < ss.squads.len() {
+                        let s = &ss.squads[sq.0 as usize];
+                        let tgt = match s.target {
+                            Some(v) => format!("({:.0}, {:.0})", v.x, v.y),
+                            None => "None".to_string(),
+                        };
+                        info.push_str(&format!("Squad.target: {}\n", tgt));
+                        info.push_str(&format!("Squad.members: {:?}\n", s.members));
+                        info.push_str(&format!("Squad.placing_target: {}\n", ss.placing_target));
+                    }
                 }
                 if let Some(g) = gold {
                     if g.0 > 0 {
@@ -1391,13 +1431,11 @@ pub fn selection_overlay_system(
     world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
-    squad_state: Res<SquadState>,
+    dc_query: Query<&NpcIndex, With<DirectControl>>,
 ) -> Result {
-    let si = squad_state.selected;
-    let has_squad_sel = si >= 0 && (si as usize) < squad_state.squads.len()
-        && squad_state.squads[si as usize].members.len() > 1
-        && squad_state.squads[si as usize].is_player();
-    if selected.0 < 0 && !selected_building.active && !has_squad_sel { return Ok(()); }
+    let dc_slots: Vec<usize> = dc_query.iter().map(|ni| ni.0).collect();
+    let has_dc_sel = !dc_slots.is_empty();
+    if selected.0 < 0 && !selected_building.active && !has_dc_sel { return Ok(()); }
 
     let Ok(window) = windows.single() else { return Ok(()); };
     let Ok((transform, projection)) = camera_query.single() else { return Ok(()); };
@@ -1436,12 +1474,11 @@ pub fn selection_overlay_system(
         }
     }
 
-    // Multi-select: highlight all members of the selected squad (green brackets)
-    if has_squad_sel {
+    // DirectControl highlight: green brackets on box-selected NPCs
+    if has_dc_sel {
         let positions = &gpu_state.positions;
-        let members = &squad_state.squads[si as usize].members;
         let color = egui::Color32::from_rgba_unmultiplied(80, 220, 80, 180);
-        for &slot in members {
+        for &slot in &dc_slots {
             if slot * 2 + 1 >= positions.len() { continue; }
             let x = positions[slot * 2];
             let y = positions[slot * 2 + 1];
@@ -1595,6 +1632,7 @@ pub fn squad_overlay_system(
     gpu_state: Res<GpuReadState>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
+    dc_targets: Query<&ManualTarget, With<DirectControl>>,
 ) -> Result {
     let Ok(window) = windows.single() else { return Ok(()); };
     let Ok((transform, projection)) = camera_query.single() else { return Ok(()); };
@@ -1652,31 +1690,35 @@ pub fn squad_overlay_system(
         }
     }
 
-    // Crosshair on attack target (follows moving NPCs via GPU positions)
+    // Crosshair on DirectControl attack targets
     let positions = &gpu_state.positions;
     let npc_count = positions.len() / 2;
-    for (i, squad) in squad_state.squads.iter().enumerate() {
-        if !squad.is_player() || squad.members.is_empty() { continue; }
-        let Some(atk) = squad.attack_target else { continue };
-        let world_pos = match atk {
-            AttackTarget::Npc(slot) => {
-                if slot >= npc_count { continue; }
-                let px = positions[slot * 2];
-                let py = positions[slot * 2 + 1];
-                if px < -9000.0 { continue; } // dead/hidden
+    let xh_color = egui::Color32::from_rgba_unmultiplied(80, 220, 80, 200);
+    // Collect unique target positions to avoid drawing multiple crosshairs on same spot
+    let mut drawn_targets: Vec<egui::Pos2> = Vec::new();
+    for mt in dc_targets.iter() {
+        let world_pos = match mt {
+            ManualTarget::Npc(slot) => {
+                if *slot >= npc_count { continue; }
+                let px = positions[*slot * 2];
+                let py = positions[*slot * 2 + 1];
+                if px < -9000.0 { continue; }
                 Vec2::new(px, py)
             }
-            AttackTarget::Building(pos) => pos,
+            ManualTarget::Building(pos) => *pos,
+            ManualTarget::Position(_) => continue, // no crosshair for ground move
         };
         let sp = egui::Pos2::new(
             center.x + (world_pos.x - cam.x) * zoom,
             center.y - (world_pos.y - cam.y) * zoom,
         );
-        let color = colors[i % colors.len()];
-        let xh_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 200);
+        // Skip if we already drew a crosshair near this screen position
+        if drawn_targets.iter().any(|p| (p.x - sp.x).abs() < 2.0 && (p.y - sp.y).abs() < 2.0) {
+            continue;
+        }
+        drawn_targets.push(sp);
         let r = 10.0_f32;
         let gap = 3.0_f32;
-        // Crosshair: 4 line segments with gap in center
         painter.line_segment(
             [egui::Pos2::new(sp.x - r, sp.y), egui::Pos2::new(sp.x - gap, sp.y)],
             egui::Stroke::new(2.0, xh_color),
@@ -1693,7 +1735,6 @@ pub fn squad_overlay_system(
             [egui::Pos2::new(sp.x, sp.y + gap), egui::Pos2::new(sp.x, sp.y + r)],
             egui::Stroke::new(2.0, xh_color),
         );
-        // Outer circle
         painter.circle_stroke(sp, r, egui::Stroke::new(1.5, xh_color));
     }
 
