@@ -51,19 +51,20 @@ pub struct DecisionExtras<'w> {
     pub town_upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
 }
 
-/// Arrival system: proximity checks for returning raiders and working farmers.
+/// Arrival system: proximity checks for returning NPCs and working farmers.
 ///
 /// Responsibilities:
-/// 1. Proximity-based delivery for Returning raiders
-/// 2. Working farmer drift check + harvest (continuous, not event-based)
+/// 1. Proximity-based delivery for all Returning NPCs (raiders, farmers, miners)
+/// 2. Working farmer drift check + harvest → carry home (continuous, not event-based)
 ///
 /// Arrival detection (transit -> AtDestination) is handled by gpu_position_readback.
 /// All state transitions are handled by decision_system.
 pub fn arrival_system(
     // Query for Returning NPCs (proximity-based delivery) — Without<AssignedFarm> for disjointness
-    mut returning_query: Query<(Entity, &NpcIndex, &TownId, &Home, &Faction, &mut Activity), (Without<Dead>, Without<AssignedFarm>)>,
+    mut returning_query: Query<(Entity, &NpcIndex, &TownId, &Home, &Faction, &Job, Option<&WorkPosition>, &mut Activity), (Without<Dead>, Without<AssignedFarm>)>,
     // Query for Working farmers with AssignedFarm (for drift check + harvest)
-    working_farmers: Query<(&NpcIndex, &AssignedFarm, &TownId, &Activity), Without<Dead>>,
+    mut working_farmers: Query<(Entity, &NpcIndex, &AssignedFarm, &TownId, &Home, &Job, &mut Activity), Without<Dead>>,
+    mut commands: Commands,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut economy: EconomyState,
     world_data: Res<WorldData>,
@@ -71,6 +72,7 @@ pub fn arrival_system(
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
     mut farm_states: ResMut<GrowthStates>,
+    mut occupancy: ResMut<BuildingOccupancy>,
     mut frame_counter: Local<u32>,
     mut combat_log: ResMut<CombatLog>,
     timings: Res<SystemTimings>,
@@ -81,9 +83,9 @@ pub fn arrival_system(
     const MAX_DRIFT: f32 = 20.0;            // Keep farmers visually on the farm
 
     // ========================================================================
-    // 1. Proximity-based delivery for Returning raiders
+    // 1. Proximity-based delivery for all Returning NPCs
     // ========================================================================
-    for (_entity, npc_idx, town, home, _faction, mut activity) in returning_query.iter_mut() {
+    for (_entity, npc_idx, town, home, _faction, job, work_pos, mut activity) in returning_query.iter_mut() {
         let loot = match &*activity {
             Activity::Returning { loot } => loot.clone(),
             _ => continue,
@@ -120,18 +122,28 @@ pub fn arrival_system(
                     }
                 }
             }
-            *activity = Activity::Idle;
+            // Farmers return to work after delivery, others go idle
+            if *job == Job::Farmer {
+                if let Some(wp) = work_pos {
+                    *activity = Activity::GoingToWork;
+                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: wp.0.x, y: wp.0.y }));
+                } else {
+                    *activity = Activity::Idle;
+                }
+            } else {
+                *activity = Activity::Idle;
+            }
         }
     }
 
     // ========================================================================
-    // 2. Working farmer drift check + harvest (throttled: each farmer once per 30 frames)
+    // 2. Working farmer drift check + harvest → carry home (throttled: each farmer once per 30 frames)
     // ========================================================================
     *frame_counter = frame_counter.wrapping_add(1);
     let frame_slot = *frame_counter % 30;
 
-    for (npc_idx, assigned, town, activity) in working_farmers.iter() {
-        if !matches!(activity, Activity::Working) { continue; }
+    for (entity, npc_idx, assigned, town, home, job, mut activity) in working_farmers.iter_mut() {
+        if !matches!(*activity, Activity::Working) { continue; }
         if (npc_idx.0 as u32) % 30 != frame_slot { continue; }
 
         let farm_pos = assigned.0;
@@ -146,11 +158,17 @@ pub fn arrival_system(
             }));
         }
 
-        // Harvest check: if farm became Ready while working, harvest it
+        // Harvest check: if farm became Ready while working, harvest and carry home
         if let Some(farm_idx) = find_by_pos(world_data.farms(), farm_pos) {
             let fac = world_data.towns.get(town.0 as usize).map(|t| t.faction).unwrap_or(0);
-            if farm_states.harvest(farm_idx, Some(town.0 as usize), &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, &mut combat_log, &game_time, fac) {
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested (tending)");
+            let food = farm_states.harvest(farm_idx, &mut combat_log, &game_time, fac);
+            if food > 0 {
+                occupancy.release(farm_pos);
+                pop_dec_working(&mut economy.pop_stats, *job, town.0);
+                commands.entity(entity).remove::<AssignedFarm>();
+                *activity = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Carrying home");
             }
         }
     }
@@ -342,17 +360,19 @@ pub fn decision_system(
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
                                 }
                             } else {
-                                farms.occupancy.claim(farm_pos);
-
-                                *activity = Activity::Working;
-                                commands.entity(entity).insert(AssignedFarm(farm_pos));
-                                pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
-                                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
-
-                                // Check if farm is ready to harvest
-                                if farms.states.harvest(farm_idx, Some(town_id.0 as usize), &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, combat_log, &game_time, faction.0) {
-                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Working");
+                                // Check if farm is ready — harvest and carry home immediately
+                                let food = farms.states.harvest(farm_idx, combat_log, &game_time, faction.0);
+                                if food > 0 {
+                                    *activity = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Harvested -> Carrying home");
                                 } else {
+                                    // Farm not ready — claim and tend
+                                    farms.occupancy.claim(farm_pos);
+                                    *activity = Activity::Working;
+                                    commands.entity(entity).insert(AssignedFarm(farm_pos));
+                                    pop_inc_working(&mut economy.pop_stats, *job, town_id.0);
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Working (tending)");
                                 }
                             }
@@ -384,9 +404,9 @@ pub fn decision_system(
                             });
 
                         if let Some((farm_idx, _)) = ready_farm {
-                            farms.states.harvest(farm_idx, None, &mut economy.food_storage, &mut economy.gold_storage, &mut economy.food_events, combat_log, &game_time, faction.0);
+                            let food = farms.states.harvest(farm_idx, combat_log, &game_time, faction.0);
 
-                            *activity = Activity::Returning { loot: vec![(ItemKind::Food, 1)] };
+                            *activity = Activity::Returning { loot: vec![(ItemKind::Food, food.max(1))] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food -> Returning");
                         } else {
@@ -419,10 +439,8 @@ pub fn decision_system(
                             // Mine ready — harvest immediately
                             let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                             let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
-                            let gold_amount = ((crate::constants::MINE_EXTRACT_PER_CYCLE as f32) * yield_mult).round() as i32;
-                            farms.states.harvest(gi, None,
-                                &mut economy.food_storage, &mut economy.gold_storage,
-                                &mut economy.food_events, combat_log, &game_time, faction.0);
+                            let base_gold = farms.states.harvest(gi, combat_log, &game_time, faction.0);
+                            let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                             *activity = Activity::Returning { loot: vec![(ItemKind::Gold, gold_amount)] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(),
@@ -756,10 +774,8 @@ pub fn decision_system(
                         // Mine ready — harvest gold and return home
                         let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                         let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
-                        let gold_amount = ((crate::constants::MINE_EXTRACT_PER_CYCLE as f32) * yield_mult).round() as i32;
-                        farms.states.harvest(gi, None,
-                            &mut economy.food_storage, &mut economy.gold_storage,
-                            &mut economy.food_events, combat_log, &game_time, faction.0);
+                        let base_gold = farms.states.harvest(gi, combat_log, &game_time, faction.0);
+                        let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                         farms.occupancy.release(mine_pos);
                         commands.entity(entity).remove::<WorkPosition>();
                         *activity = Activity::Returning { loot: vec![(ItemKind::Gold, gold_amount)] };

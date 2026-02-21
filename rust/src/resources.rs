@@ -573,54 +573,40 @@ impl GrowthStates {
         }
     }
 
-    /// Harvest a Ready entry. Farm credits food, Mine credits gold.
-    /// `credit_town`: Some(idx) = friendly harvest, None = theft/reset only.
+    /// Harvest a Ready growth entry. Resets state, returns yield (0 if not ready).
+    /// All callers enter Returning with the yield — delivery happens via arrival_system.
     pub fn harvest(
         &mut self,
         idx: usize,
-        credit_town: Option<usize>,
-        food_storage: &mut FoodStorage,
-        gold_storage: &mut GoldStorage,
-        food_events: &mut FoodEvents,
         combat_log: &mut CombatLog,
         game_time: &GameTime,
         faction: i32,
-    ) -> bool {
+    ) -> i32 {
         if idx >= self.states.len() || self.states[idx] != FarmGrowthState::Ready {
-            return false;
+            return 0;
         }
         let kind = self.kinds[idx];
-        if let Some(town_idx) = credit_town {
-            match kind {
-                GrowthKind::Farm => {
-                    if town_idx < food_storage.food.len() {
-                        food_storage.food[town_idx] += 1;
-                        food_events.consumed.push(FoodConsumed {
-                            location_idx: idx as u32,
-                            is_camp: false,
-                        });
-                    }
-                    combat_log.push(
-                        CombatEventKind::Harvest, faction,
-                        game_time.day(), game_time.hour(), game_time.minute(),
-                        format!("Farm #{} harvested", idx),
-                    );
-                }
-                GrowthKind::Mine => {
-                    if town_idx < gold_storage.gold.len() {
-                        gold_storage.gold[town_idx] += crate::constants::MINE_EXTRACT_PER_CYCLE;
-                    }
-                    combat_log.push(
-                        CombatEventKind::Harvest, faction,
-                        game_time.day(), game_time.hour(), game_time.minute(),
-                        format!("Mine #{} harvested ({} gold)", idx, crate::constants::MINE_EXTRACT_PER_CYCLE),
-                    );
-                }
-            }
-        }
         self.states[idx] = FarmGrowthState::Growing;
         self.progress[idx] = 0.0;
-        true
+        match kind {
+            GrowthKind::Farm => {
+                combat_log.push(
+                    CombatEventKind::Harvest, faction,
+                    game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("Farm #{} harvested", idx),
+                );
+                1
+            }
+            GrowthKind::Mine => {
+                let gold = crate::constants::MINE_EXTRACT_PER_CYCLE;
+                combat_log.push(
+                    CombatEventKind::Harvest, faction,
+                    game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("Mine #{} harvested ({} gold)", idx, gold),
+                );
+                gold
+            }
+        }
     }
 }
 

@@ -98,15 +98,15 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
          ▼                ┌──────────┐         ┌──────────┐       ┌──────────────────┐
     ┌──────────┐         │ Working  │         │Mining{pos}│       │ Raiding{target}  │
     │Patrolling│         └────┬─────┘         └────┬─────┘       └────┬─────────────┘
-    └────┬─────┘              │                     │ arrival          │ arrival at farm
-         │ arrival            │                     ▼                  ▼
-         ▼                    │                ┌──────────┐       ┌──────────────────┐
-    ┌──────────┐              │                │MiningAt  │       │Returning{food:T} │
-    │  OnDuty  │              │                │Mine      │       └────┬─────────────┘
-    │{ticks: 0}│              │                │(4h cycle)│            │ proximity delivery
-    └────┬─────┘              │                └────┬─────┘            ▼
-         │                    │                     │ full/tired  deliver food, re-enter
-         │                    │                Returning{gold}     decision_system
+    └────┬─────┘              │ farm Ready         │ arrival          │ arrival at farm
+         │ arrival            ▼                     ▼                  ▼
+         ▼              ┌──────────────┐       ┌──────────┐       ┌──────────────────┐
+    ┌──────────┐        │Returning     │       │MiningAt  │       │Returning{food:T} │
+    │  OnDuty  │        │{food: yield} │       │Mine      │       └────┬─────────────┘
+    │{ticks: 0}│        └────┬─────────┘       │(4h cycle)│            │ proximity delivery
+    └────┬─────┘              │ delivery        └────┬─────┘            ▼
+         │                    ▼                     │ full/tired  deliver food, re-enter
+         │               GoingToWork           Returning{gold}     decision_system
          └────────┬───────────┴─────────────────────┘
                   │ decision_system
                   ▼ (weighted random)
@@ -190,7 +190,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `Patrolling` → check squad rest first (tired squad members → `GoingToRest` targeting home instead of `OnDuty`); otherwise `Activity::OnDuty { ticks_waiting: 0 }`
   - `GoingToRest` → `Activity::Resting` (sleep icon derived by `sync_visual_sprites`)
   - `GoingToHeal` → `Activity::HealingAtFountain { recover_until: policy.recovery_hp }` (healing aura handles HP recovery)
-  - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + harvest if ready
+  - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else check if farm is Ready — if so, harvest and immediately enter `Returning { loot: Food }` (carry home without claiming); if not Ready, claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + `Working`
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
   - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `BuildingOccupancy`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
   - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
@@ -238,8 +238,8 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Separated from decision_system to allow mutable Activity access while main query has immutable view
 
 ### arrival_system (Proximity Checks)
-- **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px), sets `Activity::Idle`. Gold delivered to `GoldStorage` per town.
-- **Working farmer drift check + harvest** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm; checks if farm became Ready while tending and harvests via `FarmStates::harvest(Some(town_idx))`
+- **Proximity-based delivery** for Returning NPCs: matches `Activity::Returning { .. }`, checks distance to home, delivers food and/or gold within DELIVERY_RADIUS (50px). Farmers return to `GoingToWork` (targeting their `WorkPosition`) after delivery; all other NPCs go `Idle`. Gold delivered to `GoldStorage` per town.
+- **Working farmer harvest → carry home** (throttled every 30 frames): re-targets farmers who drifted >20px from their assigned farm; when farm becomes Ready, calls `harvest()` (resets farm, returns yield), releases occupancy, removes `AssignedFarm`, enters `Returning { loot: [(Food, yield)] }` targeting home — farmer visibly carries food home for delivery
 - **Healing drift check** in decision_system: `HealingAtFountain` NPCs pushed >100px from town center by separation physics get re-targeted to fountain (prevents deadlock where NPC is outside healing range but stuck in healing state)
 - **GoingToHeal early arrival** in decision_system: NPCs transition to `HealingAtFountain` as soon as they're within 100px of town center, before reaching the exact pixel
 - Arrival detection (`is_transit()` → `AtDestination`) is handled by `gpu_position_readback` in movement.rs

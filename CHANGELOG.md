@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-21b
+
+- **farmer delivery (visible food transport)** — farmers now physically carry food home after harvesting instead of instantly crediting storage; `harvest()` simplified from dual-path (instant credit vs theft-only) to single DRY path that resets growth and returns yield; all 5 harvest callers (farmers, raiders, miners) use the same carry-home pattern via `Activity::Returning`; farmers show food sprite while carrying (layer 3 in GPU visual pipeline); on delivery, farmers return to `GoingToWork` instead of Idle for continuous work→carry→deliver cycle
+
 ## 2026-02-21a
 
 - **endless mode** — toggle in main menu enables replacement of defeated AI towns; when enemy fountain/camp HP reaches 0, AI brain deactivates (NPCs + buildings persist as leaderless remnant); with endless mode on, a new AI migrates from the map edge after 4 game-hours, scaled to player's upgrade levels × configurable strength fraction (25%–150%, default 75%); new AI gets random personality (Aggressive/Balanced/Economic) and matching kind (Raider/Builder based on defeated town type); reuses existing migration system for edge spawn → walk → settle → place_buildings flow

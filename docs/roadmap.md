@@ -44,12 +44,12 @@ Stages 1-13: [x] Complete (see [completed.md](completed.md))
 *Done when: player builds a road from town to gold mine, zooms out, and watches farmers carrying food and miners carrying gold streaming along the road — visible supply chains on infrastructure the player designed.*
 
 Farmer delivery (make food transport visible):
-- [ ] Farmer harvest no longer instantly credits `FoodStorage` — instead transitions to `Activity::Returning { loot: [(Food, yield)] }` with goal = FarmerHome position
-- [ ] Farmer walks home carrying food (visible food sprite via existing `build_visual_upload` equipment layer 3 — already renders carried items for `Returning` NPCs)
-- [ ] Food credited to `FoodStorage` on delivery at home (existing `DELIVERY_RADIUS` proximity check in `behavior.rs` already handles `Returning` NPCs)
-- [ ] After delivery, farmer transitions back to `GoingToWork` (same cycle as miner: work → harvest → carry home → return to work)
-- [ ] `harvest()` in `resources.rs` split: farm harvest returns yield amount without crediting storage; caller handles credit-on-delivery vs instant-credit (raiders/theft still instant)
-- [ ] Files: `resources.rs` (harvest split), `systems/behavior.rs` (farmer Returning transition + delivery), `systems/economy.rs` (working farmer harvest change)
+- [x] Farmer harvest no longer instantly credits `FoodStorage` — instead transitions to `Activity::Returning { loot: [(Food, yield)] }` with goal = FarmerHome position
+- [x] Farmer walks home carrying food (visible food sprite via existing `build_visual_upload` equipment layer 3 — already renders carried items for `Returning` NPCs)
+- [x] Food credited to `FoodStorage` on delivery at home (existing `DELIVERY_RADIUS` proximity check in `behavior.rs` already handles `Returning` NPCs)
+- [x] After delivery, farmer transitions back to `GoingToWork` (same cycle as miner: work → harvest → carry home → return to work)
+- [x] `harvest()` in `resources.rs` simplified: single DRY path resets growth and returns yield; all callers use carry-home delivery
+- [x] Files: `resources.rs` (harvest simplification), `systems/behavior.rs` (farmer Returning transition + delivery)
 
 Roads (infrastructure the player builds and NPCs use):
 - [ ] `Biome::Road` variant added to world grid terrain enum

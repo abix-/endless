@@ -51,10 +51,10 @@ game_time_system (every frame)
 - Respects `paused` flag
 - Other systems check `game_time.hour_ticked` instead of tracking their own timers
 
-### farm_growth_system
-- Runs every frame, advances farm growth based on elapsed game time
-- Skips tombstoned farms (`position.x < -9000`) — destroyed farms don't regrow
-- **FarmStates resource**: tracks `Growing` vs `Ready` state and progress (0.0-1.0) per farm
+### growth_system (unified farms + mines)
+- Runs every frame, advances growth based on elapsed game time
+- Skips tombstoned entries (`position.x < -9000`) — destroyed farms/mines don't regrow
+- **GrowthStates resource**: tracks `Growing` vs `Ready` state, progress (0.0-1.0), and `GrowthKind` (Farm/Mine) per entry
 - **Hybrid growth model**:
   - Passive: `FARM_BASE_GROWTH_RATE` (0.08/hour) — ~12 game hours to full growth
   - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
@@ -101,18 +101,19 @@ Farms have a growth cycle instead of infinite food:
 
 ```
 
-**Farm harvest** uses `FarmStates::harvest()` (single source of truth for Ready → Growing transition):
-- `harvest(farm_idx, Some(town_idx), ...)` = farmer harvest: add food to town, emit FoodConsumed event, log to CombatLog, reset to Growing
-- `harvest(farm_idx, None, ...)` = raider theft: reset to Growing only (no food credit — raider carries food home via `Activity::Returning`)
-- Called from 3 sites: arrival_system (tending check), decision_system (farmer work arrival), decision_system (raider steal)
+**Farm harvest** uses `GrowthStates::harvest()` (single source of truth for Ready → Growing transition):
+- `harvest(idx, combat_log, game_time, faction) -> i32` — resets to Growing, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold), logs to CombatLog. Returns 0 if not Ready.
+- All callers enter `Activity::Returning { loot }` and carry yield home — delivery happens via `arrival_system` proximity check. No caller instant-credits storage.
+- Called from 5 sites: arrival_system (working farmer harvest), decision_system (farmer GoingToWork arrival), decision_system (raider steal), decision_system (miner Mining arrival), decision_system (MiningAtMine harvest)
 
-**Farmer harvest** (decision_system, GoingToWork → Working arrival):
-- If farm is Ready: `harvest(Some(town_idx))` adds food + resets farm
-- Logs "Harvested → Working" vs "→ Working (tending)"
+**Farmer harvest** (visible food transport):
+- Working farmer at farm: `arrival_system` detects Ready farm, calls `harvest()`, releases occupancy, removes `AssignedFarm`, enters `Returning { loot: [(Food, 1)] }` targeting home. Farmer visibly carries food sprite home.
+- GoingToWork arrival: if farm already Ready, `harvest()` + immediate `Returning` (no claim/Working). If not Ready, claim farm + `Working` (tending).
+- On delivery at home: farmer goes `GoingToWork` (back to farm), not Idle. Continuous work→carry→deliver→return cycle.
 
 **Raider steal** (decision_system, Raiding arrival):
 - Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS
-- Only steals if farm is Ready — `harvest(None)` resets farm, set CarryingFood + Returning
+- Only steals if farm is Ready — `harvest()` resets farm, enters `Returning { loot: Food }`
 - If farm not ready: find a different farm (excludes current position, skips tombstoned); if no other farm found, return home
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another" vs "No other farms, returning"
 
