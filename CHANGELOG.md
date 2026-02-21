@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-21e
+
+- **DRY spawn: materialize_npc()** — extracted shared `materialize_npc()` helper in `spawn.rs` that both `spawn_npc_system` (fresh spawn) and `spawn_npcs_from_save` (save-load) call; `NpcSpawnOverrides` struct carries optional saved state (health, energy, activity, personality, name, level, equipment, squad); eliminates ~80 lines of duplicated entity creation, GPU init, and tracking registration from `save.rs`; `FactionStats.inc_alive()` stays spawn-only (save restores faction stats from file)
+
 ## 2026-02-21d
 
 - **kill "camp" — unify under "town"** — removed `BuildingKind::Camp` (merged into `Fountain`; `sprite_type` distinguishes rendering), collapsed ~15 `Fountain | Camp` match arms across the codebase, extracted `create_ai_town()` DRY helper in economy.rs (eliminates ~40 duplicated lines between migration and endless replacement), renamed all camp terminology: `CampState` → `RaiderState`, `SpawnBehavior::CampRaider` → `Raider`, `is_camp_unit` → `is_raider_unit`, `camp_buildable` → `raider_buildable`, all `CAMP_*` constants → `RAIDER_*`, `raider_camps` config → `raider_towns`, `camp_forage_system` → `raider_forage_system`; fountain towers now fire for all alive town centers (not just sprite_type==0); save backward compat via `LegacyBuilding::Camp` serde variant and `#[serde(alias)]` on renamed fields

@@ -6,11 +6,11 @@ use serde::{Serialize, Deserialize};
 
 use crate::components::*;
 use crate::constants::{MAX_SQUADS, ItemKind};
-use crate::messages::{GpuUpdate, GpuUpdateMsg};
+use crate::messages::GpuUpdateMsg;
 use crate::resources::*;
-use crate::systems::stats::{TownUpgrades, CombatConfig, resolve_combat_stats, decode_upgrade_levels, decode_auto_upgrade_flags};
-use crate::systems::{pop_inc_alive, AiPlayerState};
-use crate::systems::spawn::build_patrol_route;
+use crate::systems::stats::{TownUpgrades, CombatConfig, decode_upgrade_levels, decode_auto_upgrade_flags};
+use crate::systems::AiPlayerState;
+use crate::systems::spawn::{materialize_npc, NpcSpawnOverrides};
 use crate::world::{self, WorldData, WorldGrid, WorldCell, TownGrids};
 
 // ============================================================================
@@ -827,7 +827,6 @@ pub fn apply_save(
             wave_retreat_below_pct: ss.wave_retreat_below_pct.clamp(1, 100),
             owner: ss.owner,
             hold_fire: false,
-            attack_target: None,
         });
     }
     // Ensure at least MAX_SQUADS player squads exist.
@@ -1186,107 +1185,33 @@ pub fn spawn_npcs_from_save(
     upgrades: &TownUpgrades,
 ) {
     for npc in &save.npcs {
-        let job = Job::from_i32(npc.job as i32);
-        let attack_type = if npc.attack_type == 1 { BaseAttackType::Ranged } else { BaseAttackType::Melee };
-        let personality = npc.personality.to_personality();
-        let faction = Faction::from_i32(npc.faction);
+        let overrides = NpcSpawnOverrides {
+            health: Some(npc.health),
+            energy: Some(npc.energy),
+            activity: Some(npc.activity.to_activity()),
+            combat_state: Some(npc.combat_state.to_combat_state()),
+            personality: Some(npc.personality.to_personality()),
+            name: Some(npc.name.clone()),
+            level: Some(npc.level),
+            xp: Some(npc.xp),
+            weapon: npc.weapon,
+            helmet: npc.helmet,
+            armor: npc.armor,
+            carried_gold: npc.carried_gold,
+            squad_id: npc.squad_id,
+        };
 
-        let cached = resolve_combat_stats(
-            job, attack_type, npc.town_id, npc.level, &personality, combat_config, upgrades,
+        // Patrol units always get starting_post=0 on load (patrol route rebuilt from world)
+        let starting_post = if crate::constants::npc_def(Job::from_i32(npc.job as i32)).is_patrol_unit { 0 } else { -1 };
+
+        materialize_npc(
+            npc.slot, npc.position[0], npc.position[1],
+            npc.job as i32, npc.faction, npc.town_id,
+            npc.home, npc.work_position, starting_post, npc.attack_type as i32,
+            &overrides,
+            commands, npc_map, pop_stats, npc_meta,
+            npcs_by_town, gpu_updates, world_data, combat_config, upgrades,
         );
-
-        let def = crate::constants::npc_def(job);
-        let (sprite_col, sprite_row) = def.sprite;
-        let idx = npc.slot;
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx, x: npc.position[0], y: npc.position[1] }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: npc.position[0], y: npc.position[1] }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx, speed: cached.speed }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx, faction: npc.faction }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: npc.health }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx, col: sprite_col, row: sprite_row, atlas: 0.0 }));
-        let combat_flags = if job.is_military() { 1u32 } else { 0u32 };
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFlags { idx, flags: combat_flags }));
-
-        let activity = npc.activity.to_activity();
-        let combat_state = npc.combat_state.to_combat_state();
-
-        let mut ec = commands.spawn((
-            NpcIndex(idx),
-            Position::new(npc.position[0], npc.position[1]),
-            job,
-            TownId(npc.town_id),
-            Speed(cached.speed),
-            Health(npc.health),
-            cached,
-            attack_type,
-            faction,
-            Home(to_vec2(npc.home)),
-            personality,
-            activity,
-            combat_state,
-        ));
-
-        // Data-driven components from NPC registry
-        if def.has_energy { ec.insert(Energy(npc.energy)); }
-        if def.has_attack_timer { ec.insert(AttackTimer(0.0)); }
-        if let Some(w_default) = def.weapon {
-            let w = npc.weapon.unwrap_or([w_default.0, w_default.1]);
-            ec.insert(EquippedWeapon(w[0], w[1]));
-        }
-        if let Some(h_default) = def.helmet {
-            let h = npc.helmet.unwrap_or([h_default.0, h_default.1]);
-            ec.insert(EquippedHelmet(h[0], h[1]));
-        }
-        if def.stealer { ec.insert(Stealer); }
-        if let Some(d) = def.leash_range { ec.insert(LeashRange { distance: d }); }
-
-        // Marker components
-        match job {
-            Job::Archer => { ec.insert(Archer); }
-            Job::Farmer => { ec.insert(Farmer); }
-            Job::Miner => { ec.insert(Miner); }
-            Job::Crossbow => { ec.insert(Crossbow); }
-            _ => {}
-        }
-        if def.is_military { ec.insert(SquadUnit); }
-
-        // Save-specific optional data
-        if let Some(a) = npc.armor { ec.insert(EquippedArmor(a[0], a[1])); }
-        if let Some(cg) = npc.carried_gold { ec.insert(CarriedGold(cg)); }
-        if def.is_patrol_unit {
-            let patrol_posts = build_patrol_route(world_data, npc.town_id as u32);
-            if !patrol_posts.is_empty() {
-                ec.insert(PatrolRoute { posts: patrol_posts, current: 0 });
-            }
-        }
-        if let Some(wp) = npc.work_position {
-            ec.insert(WorkPosition(to_vec2(wp)));
-        }
-
-        if let Some(sq) = npc.squad_id {
-            ec.insert(SquadId(sq));
-        }
-
-        npc_map.0.insert(idx, ec.id());
-        pop_inc_alive(pop_stats, job, npc.town_id);
-
-        if idx < npc_meta.0.len() {
-            npc_meta.0[idx] = NpcMeta {
-                name: npc.name.clone(),
-                level: npc.level,
-                xp: npc.xp,
-                trait_id: 0,
-                town_id: npc.town_id,
-                job: npc.job as i32,
-            };
-        }
-
-        if npc.town_id >= 0 {
-            let ti = npc.town_id as usize;
-            if ti < npcs_by_town.0.len() {
-                npcs_by_town.0[ti].push(idx);
-            }
-        }
     }
 }
 

@@ -4,25 +4,33 @@
 
 NPCs are created through `SpawnNpcMsg` messages processed by `spawn_npc_system`. Slot allocation uses Bevy's `SlotAllocator` resource, which reuses dead NPC indices before allocating new ones. Job determines the component template at spawn time. All GPU writes go through `GpuUpdateMsg` messages — see [messages.md](messages.md).
 
+The core spawn logic lives in `materialize_npc()` — a shared helper used by both fresh spawns and save-load. This ensures a single source of truth for entity creation, GPU init, and tracking cache registration.
+
 ## Data Flow
 
 ```
-SpawnNpcMsg (via MessageWriter)
-    │
-    ▼ (Step::Spawn)
-spawn_npc_system
-    │
-    ├─ Emit GPU updates: SetPosition, SetTarget,
-    │   SetSpeed, SetFaction, SetHealth, SetSpriteFrame
-    │
-    ├─ Spawn ECS entity with base + job-specific components
-    │
-    ├─ Update NpcEntityMap, PopulationStats, FactionStats
-    │
-    ├─ Initialize NpcMetaCache (name, level, trait)
-    │
-    └─ Add to NpcsByTownCache
+SpawnNpcMsg (via MessageWriter)          NpcSaveData (from save file)
+    │                                        │
+    ▼ (Step::Spawn)                          ▼ (load_game_system)
+spawn_npc_system                         spawn_npcs_from_save
+    │                                        │
+    └──────────┐                ┌────────────┘
+               ▼                ▼
+          materialize_npc(overrides)
+               │
+               ├─ Emit GPU updates: SetPosition, SetTarget,
+               │   SetSpeed, SetFaction, SetHealth, SetSpriteFrame, SetFlags
+               │
+               ├─ Spawn ECS entity with base + job-specific components
+               │
+               ├─ Update NpcEntityMap, PopulationStats
+               │
+               ├─ Initialize NpcMetaCache (name, level, trait)
+               │
+               └─ Add to NpcsByTownCache
 ```
+
+Fresh spawns pass `NpcSpawnOverrides::default()` (all None — uses generated values). Save-load fills overrides with restored state (health, energy, activity, personality, name, level, equipment, etc.). `FactionStats.inc_alive()` is called only in `spawn_npc_system` (save-load restores FactionStats from the save file directly).
 
 ## Slot Allocation
 
@@ -55,9 +63,9 @@ GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next
 | starting_post | i32 | Patrol start index (-1 = none, archers only) |
 | attack_type | i32 | 0=melee, 1=ranged (fighters only) |
 
-## spawn_npc_system
+## materialize_npc
 
-Base components (all NPCs): `NpcIndex`, `Position`, `Job`, `TownId`, `Speed(resolved)`, `Health(resolved max_health)`, `CachedStats` (from `resolve_combat_stats()`), `Faction`, `Home`, `Personality`, `LastAteHour`, `Activity::default()`, `CombatState::default()`
+Base components (all NPCs): `NpcIndex`, `Position`, `Job`, `TownId`, `Speed(resolved)`, `Health(resolved max_health)`, `CachedStats` (from `resolve_combat_stats()`), `BaseAttackType`, `Faction`, `Home`, `Personality`, `Activity::default()`, `CombatState::default()`
 
 Stats are resolved from `CombatConfig` resource via `resolve_combat_stats(job, attack_type, town_idx, level, personality, &config, &upgrades)`. The resolver applies job base stats × upgrade multipliers × trait multipliers × level multipliers. See `systems/stats.rs`. New NPCs spawn at level 0 (`level_from_xp(0) == 0`).
 
