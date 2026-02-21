@@ -1706,7 +1706,7 @@ pub fn squad_overlay_system(
                 Vec2::new(px, py)
             }
             ManualTarget::Building(pos) => *pos,
-            ManualTarget::Position(_) => continue, // no crosshair for ground move
+            ManualTarget::Position(pos) => *pos,
         };
         let sp = egui::Pos2::new(
             center.x + (world_pos.x - cam.x) * zoom,

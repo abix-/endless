@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-21k
+
+- **ground-move crosshair** — `ManualTarget::Position` now draws the same green crosshair as Npc/Building targets in DirectControl mode
+
 ## 2026-02-21j
 
 - **main menu redesign** — replaced flat layout with sectioned UI (World / Difficulty / Options / Debug Options) using separators + bold section labels; difficulty presets (Easy/Normal/Hard) now control endless mode and replacement strength in addition to NPC counts; "Per Town (player & AI)" sub-group makes it clear that farms, gold mines, and NPC homes apply to both player and AI builder towns; renamed "AI Towns" → "AI Builder Towns" and "Raider Towns" → "AI Raider Towns" for consistent terminology; added `.on_hover_text()` tooltips to all 15+ sliders/controls; Debug Options collapsed by default; `DifficultyPreset` extended with `endless_mode`/`endless_strength` fields; `WorldGenStyle` default changed from Classic → Continents
