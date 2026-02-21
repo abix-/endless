@@ -185,7 +185,7 @@ impl Default for AiPlayerConfig {
     fn default() -> Self { Self { decision_interval: DEFAULT_AI_INTERVAL } }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AiKind { Raider, Builder }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1598,11 +1598,13 @@ impl AiPersonality {
     }
 
     /// Broad fallback set when preferred kinds yield no target.
+    /// Fountain/Camp are last priority — destroy the base after clearing defenses.
     fn fallback_attack_kinds() -> &'static [BuildingKind] {
         &[
             BuildingKind::Farm, BuildingKind::FarmerHome,
             BuildingKind::ArcherHome, BuildingKind::CrossbowHome, BuildingKind::Waypoint,
             BuildingKind::Tent, BuildingKind::MinerHome,
+            BuildingKind::Fountain, BuildingKind::Camp,
         ]
     }
 

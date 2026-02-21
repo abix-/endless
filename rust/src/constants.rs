@@ -485,6 +485,9 @@ pub const CAMP_SETTLE_RADIUS: f32 = 3000.0;
 /// Minimum raiders in a migrating group.
 pub const MIGRATION_BASE_SIZE: usize = 3;
 
+/// Game-hours delay before a replacement AI spawns in endless mode.
+pub const ENDLESS_RESPAWN_DELAY_HOURS: f32 = 4.0;
+
 // ============================================================================
 // STARVATION CONSTANTS
 // ============================================================================

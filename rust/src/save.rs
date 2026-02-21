@@ -164,6 +164,14 @@ pub struct SaveData {
     #[serde(default)]
     pub migration: Option<MigrationSave>,
 
+    // Endless mode
+    #[serde(default)]
+    pub endless_mode: bool,
+    #[serde(default = "default_endless_strength")]
+    pub endless_strength: f32,
+    #[serde(default)]
+    pub endless_pending: Vec<PendingAiSpawn>,
+
     // Building vecs + towns — registry-driven via #[serde(flatten)]
     // Captures: towns, farms, beds, waypoints, farmer_homes, archer_homes,
     // crossbow_homes, fighter_homes, tents, miner_homes, gold_mines
@@ -236,10 +244,13 @@ pub struct MigrationSave {
     pub grid_idx: usize,
     pub member_slots: Vec<usize>,
     pub check_timer: f32,
+    #[serde(default)]
+    pub is_camp: bool,
 }
 
 fn default_true() -> bool { true }
 fn default_wave_retreat_below_pct() -> usize { 50 }
+fn default_endless_strength() -> f32 { 0.75 }
 
 // Building save (mirrors world::Building)
 
@@ -466,6 +477,7 @@ pub fn collect_save_data(
     kill_stats: &KillStats,
     ai_state: &AiPlayerState,
     migration_state: &MigrationState,
+    endless: &EndlessMode,
     npcs: Vec<NpcSaveData>,
 ) -> SaveData {
     // Terrain + buildings
@@ -594,7 +606,11 @@ pub fn collect_save_data(
             grid_idx: g.grid_idx,
             member_slots: g.member_slots.clone(),
             check_timer: migration_state.check_timer,
+            is_camp: g.is_camp,
         }),
+        endless_mode: endless.enabled,
+        endless_strength: endless.strength_fraction,
+        endless_pending: endless.pending_spawns.clone(),
     }
 }
 
@@ -688,6 +704,7 @@ pub fn apply_save(
     kill_stats: &mut KillStats,
     ai_state: &mut AiPlayerState,
     migration_state: &mut MigrationState,
+    endless: &mut EndlessMode,
     npcs_by_town: &mut NpcsByTownCache,
     slots: &mut SlotAllocator,
 ) {
@@ -861,11 +878,17 @@ pub fn apply_save(
             town_data_idx: ms.town_data_idx,
             grid_idx: ms.grid_idx,
             member_slots: ms.member_slots.clone(),
+            is_camp: ms.is_camp,
         });
         migration_state.check_timer = ms.check_timer;
     } else {
         *migration_state = MigrationState::default();
     }
+
+    // Endless mode
+    endless.enabled = save.endless_mode;
+    endless.strength_fraction = save.endless_strength;
+    endless.pending_spawns = save.endless_pending.clone();
 
     // NPC tracking
     npcs_by_town.0 = vec![Vec::new(); num_towns];
@@ -1028,6 +1051,7 @@ pub struct SaveFactionState<'w> {
     pub kill_stats: ResMut<'w, KillStats>,
     pub ai_state: ResMut<'w, AiPlayerState>,
     pub migration_state: ResMut<'w, MigrationState>,
+    pub endless: ResMut<'w, EndlessMode>,
 }
 
 /// NPC tracking resources for load.
@@ -1085,7 +1109,7 @@ pub fn save_game_system(
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.camp_state, &fs.faction_stats,
-        &fs.kill_stats, &fs.ai_state, &fs.migration_state, npcs,
+        &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
 
     match write_save(&data) {
@@ -1129,7 +1153,7 @@ pub fn autosave_system(
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.camp_state, &fs.faction_stats,
-        &fs.kill_stats, &fs.ai_state, &fs.migration_state, npcs,
+        &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
 
     match write_save_to(&data, &path) {
@@ -1323,7 +1347,7 @@ pub fn load_game_system(
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.camp_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
-        &mut fs.migration_state,
+        &mut fs.migration_state, &mut fs.endless,
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 

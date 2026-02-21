@@ -605,9 +605,8 @@ pub fn remove_building(
         None => return Err("cell out of bounds"),
     };
 
-    // Don't allow removing fountains or camps
-    if kind == BuildingKind::Fountain { return Err("cannot remove fountain"); }
-    if kind == BuildingKind::Camp { return Err("cannot remove camp"); }
+    // Player UI guards (is_destructible) prevent click-destroying fountains/camps/gold mines.
+    // The HP→0 path in building_damage_system is allowed to destroy any building kind.
 
     // Clear grid cell
     if let Some(cell) = grid.cell_mut(gc, gr) {
@@ -782,9 +781,10 @@ pub fn find_nearest_enemy_building(
     bgrid.for_each_nearby(from, radius, |bref| {
         if bref.faction == npc_faction { return; } // same faction
         if bref.faction < 0 { return; } // no faction (gold mines)
-        // Skip non-targetable building types
+        // Skip non-targetable building types (enemy fountains/camps ARE targetable)
         match bref.kind {
-            BuildingKind::Fountain | BuildingKind::Camp | BuildingKind::GoldMine | BuildingKind::Bed => return,
+            BuildingKind::GoldMine | BuildingKind::Bed => return,
+            BuildingKind::Fountain | BuildingKind::Camp if bref.faction == 0 => return, // protect player fountain
             _ => {}
         }
         // Raiders only target military buildings
@@ -1419,7 +1419,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_town_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi]);
+        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false);
     }
 
     // Step 3: Place AI town centers (Builder AI, each gets unique faction)
@@ -1452,7 +1452,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_town_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi]);
+        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false);
     }
 
     // Step 4: Place raider camp centers (Raider AI, each gets unique faction)
@@ -1483,7 +1483,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_camp_buildings(grid, world_data, center, town_idx, config, &mut town_grids.grids[gi]);
+        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], true);
     }
 
     // Step 5: Generate terrain
@@ -1535,9 +1535,10 @@ pub fn generate_world(
         if is_continents { "continents" } else { "classic" });
 }
 
-/// Place buildings for one town on the grid: fountain, farms, farmer homes, archer homes, waypoints.
-/// Uses grid-relative offsets from center, snapped to grid cells.
-fn place_town_buildings(
+/// Place buildings for a town or camp. Unified builder for both AI kinds:
+/// - Town (`is_camp: false`): fountain + farms + village NPC homes + corner waypoints
+/// - Camp (`is_camp: true`): camp center + camp NPC homes (tents)
+pub fn place_buildings(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     farm_states: &mut GrowthStates,
@@ -1545,12 +1546,12 @@ fn place_town_buildings(
     town_idx: u32,
     config: &WorldGenConfig,
     town_grid: &mut TownGrid,
+    is_camp: bool,
 ) {
-    // Track which town-grid slots are occupied by buildings
     let mut occupied = HashSet::new();
 
     // Helper: place building at town grid (row, col), return snapped world position
-    let mut place = |row: i32, col: i32, kind: BuildingKind, ti: u32, occ: &mut HashSet<(i32, i32)>, _tg: &mut TownGrid| -> Vec2 {
+    let mut place = |row: i32, col: i32, kind: BuildingKind, ti: u32, occ: &mut HashSet<(i32, i32)>| -> Vec2 {
         let world_pos = town_grid_to_world(center, row, col);
         let (gc, gr) = grid.world_to_grid(world_pos);
         let snapped_pos = grid.grid_to_world(gc, gr);
@@ -1563,110 +1564,61 @@ fn place_town_buildings(
         snapped_pos
     };
 
-    // Fountain at (0, 0) = town center
-    place(0, 0, BuildingKind::Fountain, town_idx, &mut occupied, town_grid);
+    // Center building at (0, 0)
+    let center_kind = if is_camp { BuildingKind::Camp } else { BuildingKind::Fountain };
+    place(0, 0, center_kind, town_idx, &mut occupied);
 
-    // All buildings spiral outward from center: farms first, then NPC homes from registry
-    let village_homes: usize = NPC_REGISTRY.iter()
-        .filter(|d| !d.is_camp_unit)
+    // Count NPC homes needed (camp units for camps, village units for towns)
+    let homes: usize = NPC_REGISTRY.iter()
+        .filter(|d| d.is_camp_unit == is_camp)
         .map(|d| config.npc_counts.get(&d.job).copied().unwrap_or(0))
         .sum();
-    let needed = config.farms_per_town + village_homes;
-    let slots = spiral_slots(&occupied, needed);
+    let farms_count = if is_camp { 0 } else { config.farms_per_town };
+    let slots = spiral_slots(&occupied, farms_count + homes);
     let mut slot_iter = slots.into_iter();
 
-    for _ in 0..config.farms_per_town {
+    // Farms (towns only)
+    for _ in 0..farms_count {
         let Some((row, col)) = slot_iter.next() else { break };
-        let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied, town_grid);
+        let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied);
         world_data.get_mut(BuildingKind::Farm).push(PlacedBuilding::new(pos, town_idx));
         farm_states.push_farm(pos, town_idx as u32);
     }
 
-    // Place homes for each village NPC type from registry
-    for def in NPC_REGISTRY.iter().filter(|d| !d.is_camp_unit) {
+    // NPC homes from registry (filtered by is_camp_unit matching is_camp)
+    for def in NPC_REGISTRY.iter().filter(|d| d.is_camp_unit == is_camp) {
         let count = config.npc_counts.get(&def.job).copied().unwrap_or(0);
         for _ in 0..count {
             let Some((row, col)) = slot_iter.next() else { break };
-            let pos = place(row, col, def.home_building, town_idx, &mut occupied, town_grid);
+            let pos = place(row, col, def.home_building, town_idx, &mut occupied);
             world_data.get_mut(def.home_building).push(PlacedBuilding::new(pos, town_idx));
         }
     }
 
-    // 4 waypoints: at the outer corners of all placed buildings (clockwise patrol: TL → TR → BR → BL)
-    let (min_row, max_row, min_col, max_col) = occupied.iter().fold(
-        (i32::MAX, i32::MIN, i32::MAX, i32::MIN),
-        |(rmin, rmax, cmin, cmax), &(r, c)| (rmin.min(r), rmax.max(r), cmin.min(c), cmax.max(c)),
-    );
-    // Bevy 2D: Y-up, so max_row = top on screen, min_row = bottom
-    let corners = [
-        (max_row + 1, min_col - 1), // TL (top-left)
-        (max_row + 1, max_col + 1), // TR (top-right)
-        (min_row - 1, max_col + 1), // BR (bottom-right)
-        (min_row - 1, min_col - 1), // BL (bottom-left)
-    ];
-    for (order, (row, col)) in corners.into_iter().enumerate() {
-        let post_pos = place(row, col, BuildingKind::Waypoint, town_idx, &mut occupied, town_grid);
-        world_data.get_mut(BuildingKind::Waypoint).push(PlacedBuilding {
-            position: post_pos,
-            town_idx,
-            patrol_order: order as u32,
-            ..PlacedBuilding::new(post_pos, town_idx)
-        });
-    }
-
-    // Ensure generated buildings are always inside the buildable area.
-    let required = occupied.iter().fold(0, |acc, &(row, col)| {
-        let row_need = (BASE_GRID_MIN - row).max(row - BASE_GRID_MAX).max(0);
-        let col_need = (BASE_GRID_MIN - col).max(col - BASE_GRID_MAX).max(0);
-        acc.max(row_need).max(col_need)
-    });
-    town_grid.area_level = town_grid.area_level.max(required);
-}
-
-/// Place buildings for a raider camp: camp center + tents in spiral.
-pub fn place_camp_buildings(
-    grid: &mut WorldGrid,
-    world_data: &mut WorldData,
-    center: Vec2,
-    town_idx: u32,
-    config: &WorldGenConfig,
-    town_grid: &mut TownGrid,
-) {
-    let mut occupied = HashSet::new();
-
-    // Place camp center at (0,0)
-    let world_pos = town_grid_to_world(center, 0, 0);
-    let (gc, gr) = grid.world_to_grid(world_pos);
-    if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = Some((BuildingKind::Camp, town_idx));
-    }
-    occupied.insert((0, 0));
-
-    // Place camp unit homes in spiral around camp center (from NPC registry)
-    let camp_homes: usize = NPC_REGISTRY.iter()
-        .filter(|d| d.is_camp_unit)
-        .map(|d| config.npc_counts.get(&d.job).copied().unwrap_or(0))
-        .sum();
-    let slots = spiral_slots(&occupied, camp_homes);
-    let mut slot_iter = slots.into_iter();
-    for def in NPC_REGISTRY.iter().filter(|d| d.is_camp_unit) {
-        let count = config.npc_counts.get(&def.job).copied().unwrap_or(0);
-        for _ in 0..count {
-            let Some((row, col)) = slot_iter.next() else { break };
-            let world_pos = town_grid_to_world(center, row, col);
-            let (gc, gr) = grid.world_to_grid(world_pos);
-            let snapped = grid.grid_to_world(gc, gr);
-            if let Some(cell) = grid.cell_mut(gc, gr) {
-                if cell.building.is_none() {
-                    cell.building = Some((def.home_building, town_idx));
-                }
-            }
-            occupied.insert((row, col));
-            world_data.get_mut(def.home_building).push(PlacedBuilding::new(snapped, town_idx));
+    // Waypoints at outer corners (towns only, clockwise patrol: TL → TR → BR → BL)
+    if !is_camp {
+        let (min_row, max_row, min_col, max_col) = occupied.iter().fold(
+            (i32::MAX, i32::MIN, i32::MAX, i32::MIN),
+            |(rmin, rmax, cmin, cmax), &(r, c)| (rmin.min(r), rmax.max(r), cmin.min(c), cmax.max(c)),
+        );
+        let corners = [
+            (max_row + 1, min_col - 1), // TL (top-left)
+            (max_row + 1, max_col + 1), // TR (top-right)
+            (min_row - 1, max_col + 1), // BR (bottom-right)
+            (min_row - 1, min_col - 1), // BL (bottom-left)
+        ];
+        for (order, (row, col)) in corners.into_iter().enumerate() {
+            let post_pos = place(row, col, BuildingKind::Waypoint, town_idx, &mut occupied);
+            world_data.get_mut(BuildingKind::Waypoint).push(PlacedBuilding {
+                position: post_pos,
+                town_idx,
+                patrol_order: order as u32,
+                ..PlacedBuilding::new(post_pos, town_idx)
+            });
         }
     }
 
-    // Ensure generated tents are always inside the buildable area.
+    // Ensure generated buildings are always inside the buildable area
     let required = occupied.iter().fold(0, |acc, &(row, col)| {
         let row_need = (BASE_GRID_MIN - row).max(row - BASE_GRID_MAX).max(0);
         let col_need = (BASE_GRID_MIN - col).max(col - BASE_GRID_MAX).max(0);

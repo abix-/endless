@@ -36,6 +36,8 @@ Stages 1-13, 23: [x] Complete (see [completed.md](completed.md))
   - Render in `npc_render.rs` prepare function as misc instances (`atlas_id: 6.0`, blue tint, `health` = progress pct)
   - AI builds (`ai_player.rs`) use same `build_and_pay()` path — construction delay applies to AI too
   - Files: `constants.rs` (BUILDING_CONSTRUCT_SECS), `resources.rs` (ConstructionQueue + GrowthStates.under_construction), `world.rs` (build_and_pay param), `systems/economy.rs` (new system + growth_system guard), `ui/mod.rs` + `systems/ai_player.rs` (pass queue), `lib.rs` + `gpu.rs` (register + extract), `npc_render.rs` (render bars)
+- [x] Endless mode: defeated AI towns become leaderless, toggle spawns replacement AI scaled to player strength
+- [x] Destructible enemy fountains/camps (AI deactivated on destruction, NPCs/buildings persist)
 
 **Stage 15: Performance**
 

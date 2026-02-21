@@ -231,7 +231,7 @@ fn game_load_system(
         &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.camp_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
-        &mut fs.migration_state,
+        &mut fs.migration_state, &mut fs.endless,
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 

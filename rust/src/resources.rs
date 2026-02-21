@@ -1462,11 +1462,13 @@ impl Default for TutorialState {
 // MIGRATION STATE
 // ============================================================================
 
-/// Active migration group: raiders walking from map edge toward a town.
+/// Active migration group: NPCs walking from map edge toward a town to settle.
 pub struct MigrationGroup {
     pub town_data_idx: usize,
     pub grid_idx: usize,
     pub member_slots: Vec<usize>,
+    /// true = raider camp (tents), false = builder town (farms + homes + waypoints)
+    pub is_camp: bool,
 }
 
 /// Tracks dynamic raider camp migrations.
@@ -1476,6 +1478,31 @@ pub struct MigrationState {
     pub check_timer: f32,
     /// Debug: force-spawn a migration group next frame (ignores cooldown/population checks).
     pub debug_spawn: bool,
+}
+
+/// Pending AI respawn queued by endless mode after a town is defeated.
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct PendingAiSpawn {
+    pub delay_remaining: f32,
+    pub is_camp: bool,
+    pub upgrade_levels: Vec<u8>,
+    pub starting_food: i32,
+    pub starting_gold: i32,
+}
+
+/// Endless mode: defeated AI enemies are replaced by new ones scaled to player strength.
+#[derive(Resource)]
+pub struct EndlessMode {
+    pub enabled: bool,
+    /// Fraction of player strength for replacement AI (0.25–1.5)
+    pub strength_fraction: f32,
+    pub pending_spawns: Vec<PendingAiSpawn>,
+}
+
+impl Default for EndlessMode {
+    fn default() -> Self {
+        Self { enabled: false, strength_fraction: 0.75, pending_spawns: Vec::new() }
+    }
 }
 
 /// Pre-computed healing zone per town, indexed by faction for O(1) lookup.

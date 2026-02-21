@@ -31,6 +31,8 @@ pub struct MenuState {
     pub autosave_hours: i32,
     pub show_load_menu: bool,
     pub initialized: bool,
+    pub endless_mode: bool,
+    pub endless_strength: f32,
 }
 
 fn size_name(size: f32) -> &'static str {
@@ -82,6 +84,8 @@ pub fn main_menu_system(
         state.difficulty = saved.difficulty;
         state.prev_difficulty = saved.difficulty;
         state.autosave_hours = saved.autosave_hours;
+        state.endless_mode = saved.endless_mode;
+        state.endless_strength = saved.endless_strength;
         state.initialized = true;
     }
 
@@ -255,6 +259,17 @@ pub fn main_menu_system(
                 ui.label(label);
             });
 
+            // Endless mode
+            ui.checkbox(&mut state.endless_mode, "Endless Mode");
+            if state.endless_mode {
+                ui.horizontal(|ui| {
+                    ui.label("AI Strength:");
+                    ui.add(egui::Slider::new(&mut state.endless_strength, 0.25..=1.5)
+                        .step_by(0.05)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+                });
+            }
+
             ui.add_space(20.0);
 
             // Play button
@@ -287,10 +302,17 @@ pub fn main_menu_system(
                 saved.raider_passive_forage = state.raider_passive_forage;
                 saved.difficulty = state.difficulty;
                 saved.autosave_hours = state.autosave_hours;
+                saved.endless_mode = state.endless_mode;
+                saved.endless_strength = state.endless_strength;
                 settings::save_settings(&saved);
                 user_settings.raider_passive_forage = state.raider_passive_forage;
 
                 commands.insert_resource(state.difficulty);
+                commands.insert_resource(crate::resources::EndlessMode {
+                    enabled: state.endless_mode,
+                    strength_fraction: state.endless_strength,
+                    pending_spawns: Vec::new(),
+                });
                 save_request.autosave_hours = state.autosave_hours;
                 next_state.set(AppState::Playing);
             }
@@ -393,6 +415,8 @@ pub fn main_menu_system(
                             state.raider_passive_forage = defaults.raider_passive_forage;
                             state.difficulty = defaults.difficulty;
                             state.autosave_hours = defaults.autosave_hours;
+                            state.endless_mode = defaults.endless_mode;
+                            state.endless_strength = defaults.endless_strength;
                             settings::save_settings(&defaults);
                         }
                     });

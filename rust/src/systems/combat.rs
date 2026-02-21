@@ -459,6 +459,11 @@ pub fn building_damage_system(
     npc_map: Res<NpcEntityMap>,
     mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction), Without<Dead>>,
     npc_meta: Res<NpcMetaCache>,
+    mut ai_state: ResMut<crate::systems::AiPlayerState>,
+    mut endless: ResMut<crate::resources::EndlessMode>,
+    upgrades: Res<crate::systems::stats::TownUpgrades>,
+    food_storage: Res<crate::resources::FoodStorage>,
+    gold_storage: Res<crate::resources::GoldStorage>,
 ) {
     let _t = timings.scope("building_damage");
     for msg in damage_reader.read() {
@@ -517,6 +522,40 @@ pub fn building_damage_system(
             &format!("{:?} destroyed in {}", msg.kind, town_name),
         );
         world.dirty.mark_building_changed(msg.kind);
+
+        // Town center destroyed — deactivate AI player (town becomes leaderless)
+        if matches!(msg.kind, BuildingKind::Fountain | BuildingKind::Camp) {
+            if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
+                player.active = false;
+            }
+            combat_log.push(CombatEventKind::Raid, defender_faction,
+                game_time.day(), game_time.hour(), game_time.minute(),
+                format!("{} has been defeated!", town_name));
+            info!("{} (town_idx={}) defeated — AI deactivated", town_name, town_idx);
+
+            // Endless mode: queue replacement AI scaled to player strength
+            if endless.enabled {
+                let is_camp = world.world_data.towns.get(town_idx)
+                    .map(|t| t.sprite_type == 1).unwrap_or(true);
+                let player_town = world.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
+                let player_levels = upgrades.town_levels(player_town);
+                let frac = endless.strength_fraction;
+                let scaled_levels: Vec<u8> = player_levels.iter()
+                    .map(|&lv| (lv as f32 * frac).round() as u8)
+                    .collect();
+                let starting_food = (food_storage.food.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
+                let starting_gold = (gold_storage.gold.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
+                endless.pending_spawns.push(crate::resources::PendingAiSpawn {
+                    delay_remaining: crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
+                    is_camp,
+                    upgrade_levels: scaled_levels,
+                    starting_food,
+                    starting_gold,
+                });
+                info!("Endless mode: queued replacement AI (is_camp={}, delay={}h, strength={:.0}%)",
+                    is_camp, crate::constants::ENDLESS_RESPAWN_DELAY_HOURS, frac * 100.0);
+            }
+        }
 
         // Kill the linked NPC if alive
         if npc_slot >= 0 {

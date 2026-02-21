@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-21a
+
+- **endless mode** — toggle in main menu enables replacement of defeated AI towns; when enemy fountain/camp HP reaches 0, AI brain deactivates (NPCs + buildings persist as leaderless remnant); with endless mode on, a new AI migrates from the map edge after 4 game-hours, scaled to player's upgrade levels × configurable strength fraction (25%–150%, default 75%); new AI gets random personality (Aggressive/Balanced/Economic) and matching kind (Raider/Builder based on defeated town type); reuses existing migration system for edge spawn → walk → settle → place_buildings flow
+- **destructible enemy town centers** — enemy fountains and camps can now be targeted and destroyed by player NPCs and AI squads; player's own fountain remains protected; `place_buildings` consolidated from two separate functions into one unified `place_buildings(..., is_camp: bool)`
+- **save/load endless state** — endless mode toggle, strength fraction, and pending AI spawns all persist across save/load
+
 ## 2026-02-18aa
 
 - **projectile extract optimization** — `ProjBufferWrites.active_set` tracks live projectile indices incrementally (push on spawn, swap_remove on deactivate); `extract_proj_data` iterates only active slots instead of scanning 0..high_water_mark; eliminates O(50K) per-frame scan when most slots are dead

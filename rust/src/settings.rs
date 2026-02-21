@@ -121,8 +121,14 @@ pub struct UserSettings {
     pub music_speed: f32,
     #[serde(default)]
     pub tutorial_completed: bool,
+    // Endless mode
+    #[serde(default)]
+    pub endless_mode: bool,
+    #[serde(default = "default_endless_strength")]
+    pub endless_strength: f32,
 }
 
+fn default_endless_strength() -> f32 { 0.75 }
 fn default_gold_mines() -> usize { 2 }
 
 fn default_true() -> bool { true }
@@ -192,6 +198,8 @@ impl Default for UserSettings {
             music_speed: 1.0,
             tutorial_completed: false,
             upgrade_expanded: Vec::new(),
+            endless_mode: false,
+            endless_strength: 0.75,
         }
     }
 }
