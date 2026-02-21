@@ -493,9 +493,11 @@ pub fn allocate_all_building_slots(
 }
 
 /// Place a waypoint at an arbitrary world position (not tied to town grid).
-/// Used for wilderness placement by players and AI territorial expansion.
+/// Place a wilderness building (world-grid snapping, not town-grid).
+/// Used for Waypoint, Road, and AI territorial expansion.
 /// Snaps to the nearest grid cell, validates empty + not water, deducts food.
-pub fn place_waypoint_at_world_pos(
+pub fn place_wilderness_building(
+    kind: BuildingKind,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     building_hp: &mut BuildingHpState,
@@ -519,31 +521,29 @@ pub fn place_waypoint_at_world_pos(
     if *food < cost { return Err("not enough food"); }
     *food -= cost;
 
-    // Auto-assign patrol_order
     let ti = town_data_idx as u32;
-    let existing = world_data.get(BuildingKind::Waypoint).iter()
-        .filter(|w| w.town_idx == ti && is_alive(w.position))
-        .count() as u32;
 
     // Place on grid
     if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = Some((BuildingKind::Waypoint, ti));
+        cell.building = Some((kind, ti));
     }
 
     // Register in WorldData + HP
-    let data_idx = world_data.get(BuildingKind::Waypoint).len();
-    world_data.get_mut(BuildingKind::Waypoint).push(PlacedBuilding {
-        position: snapped,
-        town_idx: ti,
-        patrol_order: existing,
-        ..PlacedBuilding::new(snapped, ti)
-    });
-    building_hp.push_for(BuildingKind::Waypoint);
+    let data_idx = world_data.get(kind).len();
+    let mut building = PlacedBuilding::new(snapped, ti);
+    // Waypoint-specific: auto-assign patrol_order
+    if kind == BuildingKind::Waypoint {
+        building.patrol_order = world_data.get(BuildingKind::Waypoint).iter()
+            .filter(|w| w.town_idx == ti && is_alive(w.position))
+            .count() as u32;
+    }
+    world_data.get_mut(kind).push(building);
+    building_hp.push_for(kind);
 
-    // Allocate GPU NPC slot for collision
+    // Allocate GPU NPC slot for rendering + collision
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-    let def = crate::constants::building_def(BuildingKind::Waypoint);
-    allocate_building_slot(slot_alloc, building_slots, BuildingKind::Waypoint, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(BuildingKind::Waypoint), def.is_tower);
+    let def = crate::constants::building_def(kind);
+    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(kind), def.is_tower);
 
     Ok(())
 }
@@ -931,7 +931,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, Camp, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome }
+pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, Camp, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {

@@ -64,6 +64,7 @@ struct Camera {
     zoom: f32,
     npc_count: u32,
     viewport: vec2<f32>,
+    bldg_layers: f32,
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
 
@@ -97,8 +98,7 @@ const WORLD_TEX_H: f32 = 526.0;
 // Degenerate triangle — moves vertex off-screen to discard
 const HIDDEN: vec4<f32> = vec4<f32>(0.0, 0.0, -2.0, 1.0);
 
-// Building atlas: 12 tiles in a vertical strip (backed by compile-time assert in world.rs)
-const BLDG_LAYERS: f32 = 12.0;
+// Building atlas layer count comes from camera.bldg_layers (= BUILDING_REGISTRY.len())
 
 // Atlas ID 7 = building (source of truth: constants.rs)
 fn is_building_atlas(id: f32) -> bool {
@@ -112,7 +112,7 @@ fn is_building_atlas(id: f32) -> bool {
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
     if is_building_atlas(atlas_id) {
         // Building atlas: vertical strip, sprite_col selects tile layer
-        return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / BLDG_LAYERS);
+        return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / camera.bldg_layers);
     } else if atlas_id >= 1.5 {
         // Single-sprite textures (heal, sleep, arrow): UV = quad_uv directly
         return quad_uv;

@@ -212,14 +212,14 @@ Six textures are bound simultaneously at group 0 (bindings 0-11). Per-instance/p
 | Heal halo | 4-5 | 2 | `heal.png` | 16×16 | Healing overlay |
 | Sleep icon | 6-7 | 3 | `sleep.png` | 16×16 | Sleep indicator |
 | Arrow | 8-9 | 4 | `arrow.png` | 16×16 | Projectile sprite |
-| Building | 10-11 | 7 | (generated at runtime) | 32×384 | Building sprites |
+| Building | 10-11 | 7 | (generated at runtime) | 32×(N×32) | Building sprites |
 
-Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The building atlas is a vertical strip of 12 tiles (32×32 each), generated at runtime by `build_building_atlas()` from individual building sprites. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
+Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The building atlas is a vertical strip of N tiles (32×32 each, currently 13), generated at runtime by `build_building_atlas()` from individual building sprites. Layer count is dynamic — `camera.bldg_layers` is set from `BUILDING_REGISTRY.len()` each frame, eliminating hardcoded shader constants. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
 
 ```wgsl
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
     if is_building_atlas(atlas_id) {
-        return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / BLDG_LAYERS);
+        return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / camera.bldg_layers);
     } else if atlas_id >= 1.5 {
         return quad_uv;  // Single-sprite textures (heal, sleep, arrow)
     } else if atlas_id < 0.5 {
@@ -369,7 +369,7 @@ Bevy's Camera2d is the single source of truth — input systems write directly t
 - `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), writes `Projection::Orthographic.scale` and `Transform` directly
 - `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE. If no NPC found, checks `WorldGrid` for a building at the clicked cell and sets `SelectedBuilding` (col, row, active). Guarded by `ctx.wants_pointer_input() || ctx.is_pointer_over_area()` to avoid stealing clicks from egui UI panels.
 
-**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `RenderFrameConfig.npc`), creating a bind group at group 1.
+**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `RenderFrameConfig.npc` and `bldg_layers` from `BUILDING_REGISTRY.len()`), creating a bind group at group 1.
 
 **Shader** (`npc_render.wgsl`): reads camera from uniform buffer:
 ```wgsl
@@ -378,6 +378,7 @@ struct Camera {
     zoom: f32,
     npc_count: u32,     // used by vertex_npc for instance offset decoding
     viewport: vec2<f32>,
+    bldg_layers: f32,   // building atlas layer count (from BUILDING_REGISTRY.len())
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
 
@@ -444,11 +445,11 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array` for terrain. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images. Called once with `TERRAIN_TILES` (11 tiles, no extras).
 
-**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×384 vertical strip `texture_2d` for the building atlas (12 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `RenderFrameConfig.textures.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
+**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×(N×32) vertical strip `texture_2d` for the building atlas (currently 13 tiles × 32×32). Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. Stored in `RenderFrameConfig.textures.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
-**`Building::tileset_index()`**: Maps building variant to building strip index (0-11). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7, GoldMine=8, MinerHome=9, CrossbowHome=10, FighterHome=11 (12 tiles total via `building_tiles()`).
+**`Building::tileset_index()`**: Maps building variant to building strip index (0-12). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, Camp=4, FarmerHome=5, ArcherHome=6, Tent=7, GoldMine=8, MinerHome=9, CrossbowHome=10, FighterHome=11, Road=12 (13 tiles total via `building_tiles()`).
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 

@@ -75,6 +75,9 @@ pub struct NpcGpuData {
     pub proj_max_per_cell: u32,
     pub dodge_unlocked: u32,
     pub threat_radius: f32,
+    pub tile_grid_width: u32,
+    pub tile_grid_height: u32,
+    pub tile_cell_size: f32,
 }
 
 impl Default for NpcGpuData {
@@ -94,6 +97,9 @@ impl Default for NpcGpuData {
             proj_max_per_cell: MAX_PER_CELL,
             dodge_unlocked: 0,
             threat_radius: 200.0,
+            tile_grid_width: 0,
+            tile_grid_height: 0,
+            tile_cell_size: 32.0,
         }
     }
 }
@@ -106,6 +112,7 @@ pub struct RenderFrameConfig {
     pub proj: ProjGpuData,
     pub textures: NpcSpriteTexture,
     pub readback: ReadbackHandles,
+    pub tile_flags: Vec<u32>,
 }
 
 /// All persistent per-NPC GPU data: compute fields + visual state + dirty tracking.
@@ -695,7 +702,7 @@ impl Plugin for GpuComputePlugin {
             .init_resource::<NpcGpuState>()
             .init_resource::<NpcVisualUpload>()
             .init_resource::<ProjBufferWrites>()
-            .add_systems(Update, (update_gpu_data, update_proj_gpu_data))
+            .add_systems(Update, (update_gpu_data, update_proj_gpu_data, populate_tile_flags))
             .add_systems(PostUpdate, (populate_gpu_state, build_visual_upload).chain())
             .add_systems(PostUpdate, populate_proj_buffer_writes);
 
@@ -759,6 +766,47 @@ fn update_gpu_data(
     config.npc.dodge_unlocked = if stats::dodge_unlocked(&levels) { 1 } else { 0 };
 }
 
+/// Populate tile_flags vec from WorldGrid for GPU upload.
+/// Only rebuilds when buildings have changed.
+fn populate_tile_flags(
+    mut config: ResMut<RenderFrameConfig>,
+    grid: Res<crate::world::WorldGrid>,
+    dirty: Res<crate::DirtyFlags>,
+) {
+    // Set grid dimensions every frame (cheap)
+    config.npc.tile_grid_width = grid.width as u32;
+    config.npc.tile_grid_height = grid.height as u32;
+    config.npc.tile_cell_size = grid.cell_size;
+
+    // Only rebuild flags vec when buildings changed
+    if !dirty.building_grid && !config.tile_flags.is_empty() {
+        return;
+    }
+    let total = grid.width * grid.height;
+    if total == 0 { return; }
+    let mut flags = vec![0u32; total];
+    for row in 0..grid.height {
+        for col in 0..grid.width {
+            if let Some(cell) = grid.cell(col, row) {
+                let idx = row * grid.width + col;
+                // Base terrain bits
+                flags[idx] = match cell.terrain {
+                    crate::world::Biome::Grass => crate::constants::TILE_GRASS,
+                    crate::world::Biome::Forest => crate::constants::TILE_FOREST,
+                    crate::world::Biome::Water => crate::constants::TILE_WATER,
+                    crate::world::Biome::Rock => crate::constants::TILE_ROCK,
+                    crate::world::Biome::Dirt => crate::constants::TILE_DIRT,
+                };
+                // Building bits OR'd on top
+                if let Some((crate::world::BuildingKind::Road, _)) = cell.building {
+                    flags[idx] |= crate::constants::TILE_ROAD;
+                }
+            }
+        }
+    }
+    config.tile_flags = flags;
+}
+
 // =============================================================================
 // RENDER WORLD RESOURCES
 // =============================================================================
@@ -779,6 +827,7 @@ pub struct NpcGpuBuffers {
     pub combat_targets: Buffer,
     pub threat_counts: Buffer,
     pub npc_flags: Buffer,
+    pub tile_flags: Buffer,
 }
 
 /// Bind groups for compute passes (one per mode, different uniform buffer).
@@ -923,6 +972,13 @@ fn init_npc_compute_pipeline(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
+        tile_flags: render_device.create_buffer(&BufferDescriptor {
+            label: Some("tile_flags"),
+            // Max world: 32000px / 32px = 1000 cells per side → 1024×1024 buffer
+            size: (1024 * 1024 * std::mem::size_of::<u32>()) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
     };
 
     commands.insert_resource(buffers);
@@ -965,6 +1021,8 @@ fn init_npc_compute_pipeline(
                 // 16: threat counts output (packed enemies<<16 | allies)
                 storage_buffer::<Vec<u32>>(false),
                 // 17: npc_flags (bit 0: combat scan enabled)
+                storage_buffer_read_only::<Vec<u32>>(false),
+                // 18: tile_flags (bitfield per world grid cell: bit 0=road)
                 storage_buffer_read_only::<Vec<u32>>(false),
             ),
         ),
@@ -1051,6 +1109,7 @@ fn prepare_npc_bind_groups(
 
     let threat_bind = buffers.threat_counts.as_entire_buffer_binding();
     let flags_bind = buffers.npc_flags.as_entire_buffer_binding();
+    let tile_bind = buffers.tile_flags.as_entire_buffer_binding();
 
     let mode0 = render_device.create_bind_group(
         Some("npc_compute_bg_mode0"),
@@ -1066,6 +1125,7 @@ fn prepare_npc_bind_groups(
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
             threat_bind.clone(),
             flags_bind.clone(),
+            tile_bind.clone(),
         )),
     );
     let mode1 = render_device.create_bind_group(
@@ -1082,6 +1142,7 @@ fn prepare_npc_bind_groups(
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
             threat_bind.clone(),
             flags_bind.clone(),
+            tile_bind.clone(),
         )),
     );
     let mode2 = render_device.create_bind_group(
@@ -1098,6 +1159,7 @@ fn prepare_npc_bind_groups(
             proj_bind.2.clone(), proj_bind.3.clone(), proj_bind.4.clone(),
             threat_bind.clone(),
             flags_bind.clone(),
+            tile_bind.clone(),
         )),
     );
 

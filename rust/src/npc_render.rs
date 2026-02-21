@@ -186,6 +186,7 @@ pub struct CameraUniform {
     pub zoom: f32,
     pub npc_count: u32,
     pub viewport: Vec2,
+    pub bldg_layers: f32,
 }
 
 /// Bind group for camera uniform.
@@ -654,6 +655,10 @@ fn extract_npc_data(
         if gpu_state.dirty_factions  { write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n); }
         if gpu_state.dirty_healths   { write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n); }
         if gpu_state.dirty_flags     { write_bulk(&render_queue, &gpu_bufs.npc_flags, &gpu_state.npc_flags, n); }
+        // Road flags: upload when present (rebuilt when roads change)
+        if !config.tile_flags.is_empty() {
+            render_queue.write_buffer(&gpu_bufs.tile_flags, 0, bytemuck::cast_slice(&config.tile_flags));
+        }
     }
 
     // Visual data: bulk write_buffer
@@ -950,6 +955,7 @@ fn prepare_npc_camera_bind_group(
         zoom: camera_state.zoom,
         npc_count: config.map(|c| c.npc.count).unwrap_or(0),
         viewport: camera_state.viewport,
+        bldg_layers: crate::constants::BUILDING_REGISTRY.len() as f32,
     };
 
     let mut buffer = UniformBuffer::from(uniform);

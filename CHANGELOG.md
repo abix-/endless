@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-21c
+
+- **MVP roads** — `BuildingKind::Road` (BUILDING_REGISTRY[12]) as player-buildable wilderness building with 1.5× NPC speed bonus via GPU compute; `tile_flags` buffer (binding 18) stores per-world-grid-cell bitfield with terrain bits 0-4 (Grass/Forest/Water/Rock/Dirt) and building bits 5+ (Road=32); `populate_tile_flags` system rebuilds from WorldGrid biome + buildings on dirty flag; `place_waypoint_at_world_pos` generalized to `place_wilderness_building(kind)` handling both Road and Waypoint; building atlas layer count now dynamic via `camera.bldg_layers` (from `BUILDING_REGISTRY.len()`) instead of hardcoded `BLDG_LAYERS` constant — prevents sprite overlap when adding new building types
+
 ## 2026-02-21b
 
 - **farmer delivery (visible food transport)** — farmers now physically carry food home after harvesting instead of instantly crediting storage; `harvest()` simplified from dual-path (instant credit vs theft-only) to single DRY path that resets growth and returns yield; all 5 harvest callers (farmers, raiders, miners) use the same carry-home pattern via `Activity::Returning`; farmers show food sprite while carrying (layer 3 in GPU visual pipeline); on delivery, farmers return to `GoingToWork` instead of Idle for continuous work→carry→deliver cycle

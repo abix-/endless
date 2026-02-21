@@ -809,22 +809,24 @@ fn build_place_click_system(
 
     let kind = build_ctx.selected_build.unwrap();
 
-    // Waypoint: wilderness placement (snap to world grid, not town grid)
-    if kind == BuildingKind::Waypoint {
+    // Wilderness placement (snap to world grid, not town grid)
+    if matches!(kind, BuildingKind::Waypoint | BuildingKind::Road) {
         if !just_pressed { return; }
         build_ctx.clear_drag();
-        let cost = crate::constants::building_cost(BuildingKind::Waypoint);
-        if world::place_waypoint_at_world_pos(
+        let cost = crate::constants::building_cost(kind);
+        if world::place_wilderness_building(
+            kind,
             &mut world_state.grid, &mut world_state.world_data,
             &mut world_state.building_hp, &mut food_storage,
             &mut world_state.slot_alloc, &mut world_state.building_slots,
             town_data_idx, world_pos, cost,
         ).is_ok() {
-            world_state.dirty.mark_building_changed(world::BuildingKind::Waypoint);
+            world_state.dirty.mark_building_changed(kind);
+            let label = crate::constants::building_def(kind).label;
             combat_log.push(
                 CombatEventKind::Harvest, 0,
                 game_time.day(), game_time.hour(), game_time.minute(),
-                format!("Built waypoint in {}", town_name),
+                format!("Built {} in {}", label.to_lowercase(), town_name),
             );
         }
         return;

@@ -550,6 +550,19 @@ pub const DEFAULT_AI_INTERVAL: f32 = 5.0;
 /// Gold extracted per harvest cycle (mine becomes Ready → miner takes this much).
 pub const MINE_EXTRACT_PER_CYCLE: i32 = 5;
 
+/// Speed multiplier for NPCs walking on road tiles.
+pub const ROAD_SPEED_MULT: f32 = 1.5;
+
+/// Tile flags bitfield (1 u32 per world grid cell in tile_flags GPU buffer).
+/// Terrain bits (0-4): base terrain from Biome, set every rebuild.
+pub const TILE_GRASS: u32 = 1;   // bit 0
+pub const TILE_FOREST: u32 = 2;  // bit 1
+pub const TILE_WATER: u32 = 4;   // bit 2
+pub const TILE_ROCK: u32 = 8;    // bit 3
+pub const TILE_DIRT: u32 = 16;   // bit 4
+/// Building bits (5+): OR'd on top of terrain.
+pub const TILE_ROAD: u32 = 32;   // bit 5 — 1.5x NPC speed
+
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
 
@@ -979,6 +992,29 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         place: |wd, pos, ti| wd.get_mut(BuildingKind::FighterHome).push(PlacedBuilding::new(pos, ti)),
         tombstone: |wd, pos| { if let Some(b) = wd.get_mut(BuildingKind::FighterHome).iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
         find_index: |wd, pos| wd.get(BuildingKind::FighterHome).iter().position(|b| (b.position - pos).length() < 1.0),
+    },
+    // 12: Road
+    BuildingDef {
+        kind: BuildingKind::Road, display: DisplayCategory::Economy,
+        tile: TileSpec::Single(9, 10),
+        hp: 30.0, cost: 1,
+        label: "Road", help: "1.5x NPC speed",
+        player_buildable: true, camp_buildable: false,
+        placement: PlacementMode::Wilderness,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None, spawner: None,
+        len: |wd| wd.get(BuildingKind::Road).len(),
+        pos_town: |wd, i| wd.get(BuildingKind::Road).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.get(BuildingKind::Road).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| hp.hps.get(&BuildingKind::Road).map(|v| v.as_slice()).unwrap_or(&[]),
+        hps_mut: |hp| hp.hps.entry(BuildingKind::Road).or_default(),
+        save_key: Some("roads"),
+        save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::Road)).unwrap(),
+        load_vec: |wd, v| { wd.buildings.insert(BuildingKind::Road, serde_json::from_value(v).unwrap_or_default()); },
+        is_unit_home: false,
+        place: |wd, pos, ti| wd.get_mut(BuildingKind::Road).push(PlacedBuilding::new(pos, ti)),
+        tombstone: |wd, pos| { if let Some(b) = wd.get_mut(BuildingKind::Road).iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.get(BuildingKind::Road).iter().position(|b| (b.position - pos).length() < 1.0),
     },
 ];
 

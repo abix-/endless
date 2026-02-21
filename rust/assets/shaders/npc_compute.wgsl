@@ -21,6 +21,9 @@ struct Params {
     proj_max_per_cell: u32,
     dodge_unlocked: u32,
     threat_radius: f32,
+    tile_grid_width: u32,
+    tile_grid_height: u32,
+    tile_cell_size: f32,
 }
 
 // Storage buffers matching Rust bind group layout
@@ -48,6 +51,11 @@ struct Params {
 
 // NPC flags: bit 0 = combat scan enabled (archers/raiders/waypoints)
 @group(0) @binding(17) var<storage, read> npc_flags: array<u32>;
+
+// Tile flags: 1 u32 per world grid cell, bitfield for tile modifiers
+// Bit 0: TILE_ROAD (1.5x speed)
+@group(0) @binding(18) var<storage, read> tile_flags: array<u32>;
+const TILE_ROAD: u32 = 32u;  // bit 5
 
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -97,7 +105,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     var pos = positions[i];
     let goal = goals[i];
-    let speed = speeds[i];
+    var speed = speeds[i];
     var settled = arrivals[i];
     var my_backoff = backoff[i];
 
@@ -106,6 +114,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         combat_targets[i] = -1;
         threat_counts[i] = 0u;
         return;
+    }
+
+    // Tile modifier: road speed bonus (1.5x)
+    if (speed > 0.0 && params.tile_cell_size > 0.0) {
+        let tcol = u32(pos.x / params.tile_cell_size);
+        let trow = u32(pos.y / params.tile_cell_size);
+        if (tcol < params.tile_grid_width && trow < params.tile_grid_height) {
+            let tidx = trow * params.tile_grid_width + tcol;
+            let tflags = tile_flags[tidx];
+            if ((tflags & TILE_ROAD) != 0u) {
+                speed = speed * 1.5;
+            }
+        }
     }
 
     // Grid constants (shared by movement + combat targeting)

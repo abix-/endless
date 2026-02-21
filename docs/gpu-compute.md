@@ -131,6 +131,8 @@ Four phases per thread (tiers 2+3):
 
 **Projectile dodge** (spatial grid scan): After separation, scans 3x3 neighborhood of the projectile spatial grid (built by projectile compute modes 0+1 in the previous frame). For each enemy projectile within 60px heading toward the NPC (approach dot > 0.3), computes a perpendicular dodge force. Direction is away from the projectile's path (consistent side-picking via `select`). Urgency scales linearly with proximity (closer = stronger). Normalized and scaled to `speed * 1.5`. Applied as a separate force in the position update (`movement + avoidance + proj_dodge`), independent of avoidance clamping. 1-frame latency is acceptable: at 60fps, an arrow at speed 500 moves ~8px — within the 60px dodge radius.
 
+**Road speed bonus**: Before movement, checks `tile_flags` for the NPC's current grid cell. If `TILE_ROAD` (bit 5) is set, speed is multiplied by 1.5×.
+
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 
 **Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (300px, 9×9 cells) for combatants, `threat_radius` (200px, 7×7 cells) for non-combatants. For each NPC in neighboring cells, checks: alive (health > 0), not self, **not a building (speed > 0)**. Buildings are excluded from both combat targeting and threat counts — building attacks are handled CPU-side via `find_nearest_enemy_building()`. Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting (tier 3 only) tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
@@ -161,6 +163,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 15 | proj_factions | i32[] | — | ProjGpuBuffers.factions (read) | Projectile factions for friendly fire skip |
 | 16 | threat_counts | u32 | 4B | Not uploaded | Packed threat assessment: (enemies << 16 \| allies) per NPC |
 | 17 | npc_flags | u32 | 4B | NpcGpuState.npc_flags | Bit 0: combat scan enabled (archers/raiders/fighters). Bit 1: tower building (skip movement, run combat targeting). Fountains = 3 (bits 0+1). Other buildings + farmers/miners = 0. |
+| 18 | tile_flags | u32[] | 4B/cell | RenderFrameConfig.tile_flags | Per-world-grid-cell bitfield (1024×1024 max). Terrain bits 0-4 (Grass=1, Forest=2, Water=4, Rock=8, Dirt=16), building bits 5+ (Road=32). Populated by `populate_tile_flags` system from WorldGrid biome + buildings. |
 
 ### NPC Visual Storage Buffers (npc_render.rs)
 
@@ -197,6 +200,9 @@ Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelme
 | proj_max_per_cell | 48 | Max projectiles per spatial grid cell (for dodge scan) |
 | dodge_unlocked | 0 | Whether projectile dodge is enabled (tech tree unlock) |
 | threat_radius | 200.0 | Radius for threat assessment enemy/ally counting |
+| tile_grid_width | 0 | World grid columns (for tile_flags lookup) |
+| tile_grid_height | 0 | World grid rows (for tile_flags lookup) |
+| tile_cell_size | 0.0 | World grid cell size in pixels (for tile_flags lookup) |
 
 ## Spatial Grid
 

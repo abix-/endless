@@ -1504,7 +1504,8 @@ fn execute_action(
             let Some(pos) = wp_pos else { return None; };
             // Placement is world-position based (not town-slot based),
             // so this supports both in-town and wilderness waypoint targets.
-            if world::place_waypoint_at_world_pos(
+            if world::place_wilderness_building(
+                world::BuildingKind::Waypoint,
                 &mut res.world.grid, &mut res.world.world_data,
                 &mut res.world.building_hp, &mut res.food_storage,
                 &mut res.world.slot_alloc, &mut res.world.building_slots,
