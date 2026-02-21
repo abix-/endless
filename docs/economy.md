@@ -244,8 +244,8 @@ New raider towns spawn organically as the player grows. Three systems in `econom
 migration_spawn_system (hourly check)
         │
         ▼ check_timer >= RAIDER_SPAWN_CHECK_HOURS (12h)?
-        │ player_alive >= VILLAGERS_PER_RAIDER * (raider_count + 1)?
-        │ no active migration? raider_towns < MAX_RAIDER_TOWNS (20)?
+        │ player_alive >= VILLAGERS_PER_RAIDER * (raider_count + 1)? (alive towns only)
+        │ no active migration? alive raider_towns < MAX_RAIDER_TOWNS (20)?
         │
         ▼ YES: spawn group at random map edge
         │

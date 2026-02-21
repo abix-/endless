@@ -11,7 +11,7 @@ use crate::systemparams::{EconomyState, WorldState};
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
     RAIDER_SPAWN_CHECK_HOURS, MAX_RAIDER_TOWNS, RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_RAIDER,
 };
-use crate::world::{self, WorldData, WorldGrid, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids};
+use crate::world::{self, WorldData, WorldGrid, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids, is_alive};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UPGRADES};
 use crate::constants::UpgradeStatKind;
@@ -616,7 +616,7 @@ pub fn migration_spawn_system(
         migration_state.check_timer = 0.0;
 
         // Count player alive NPCs and existing raider towns
-        let raider_count = world_data.towns.iter().filter(|t| t.sprite_type == 1).count();
+        let raider_count = world_data.towns.iter().filter(|t| t.sprite_type == 1 && is_alive(t.center)).count();
         let player_town = world_data.towns.iter().position(|t| t.faction == 0);
         let Some(player_idx) = player_town else { return };
         let player_alive = res.faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);

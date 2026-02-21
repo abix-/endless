@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-21l
+
+- **fix migration stall** — `migration_spawn_system` now counts only alive raider towns (`is_alive(t.center)`) when checking if new migrations are needed; defeated towns with tombstoned centers no longer block new raider spawns
+
 ## 2026-02-21k
 
 - **ground-move crosshair** — `ManualTarget::Position` now draws the same green crosshair as Npc/Building targets in DirectControl mode
