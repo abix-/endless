@@ -245,6 +245,10 @@ pub(crate) fn build_menu_system(
                         }
                     }
 
+                    if !def.tooltip.is_empty() {
+                        resp.response.on_hover_text(def.tooltip);
+                    }
+
                     ui.separator();
                 }
 

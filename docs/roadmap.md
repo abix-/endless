@@ -52,20 +52,20 @@ Farmer delivery (make food transport visible):
 - [x] Files: `resources.rs` (harvest simplification), `systems/behavior.rs` (farmer Returning transition + delivery)
 
 Roads (infrastructure the player builds and NPCs use):
-- [ ] `Biome::Road` variant added to world grid terrain enum
-- [ ] Road tileset sprite (simple dirt path / cobblestone tile, index 11+ in world tileset)
-- [ ] Road building: player places road segments on grid tiles via build menu (cost: 1 food per tile, no building slot required — roads go on terrain, not building layer)
-- [ ] Road grid uploaded to GPU as `road_flags` storage buffer (1 u32 per cell, 0/1) — compute shader reads it
-- [ ] Road speed bonus: `npc_compute.wgsl` checks NPC's current grid cell against road_flags; if on road, `speed *= ROAD_SPEED_MULT` (1.5x)
+- [x] `BuildingKind::Road` with building registry entry (HP 30, cost 1 food, `PlacementMode::Wilderness`)
+- [x] Road tileset sprite (tile index 9,10 in world tileset)
+- [x] Road building: player places road segments via build menu (cost: 1 food per tile, wilderness placement)
+- [x] `tile_flags` bitfield GPU buffer (1 u32 per cell, terrain bits 0-4 + building bits 5+) — `populate_tile_flags` system rebuilds on dirty
+- [x] Road speed bonus: `npc_compute.wgsl` checks NPC's current grid cell against `tile_flags` bit 5; if on road, `speed *= 1.5`
+- [x] Roads persist in save/load (building layer with `save_key: "roads"`)
+- [x] Destroy road via build menu destroy mode (tombstone pattern)
 - [ ] Road collision bypass: NPCs on road cells skip NPC-NPC separation force in compute shader (no bumping on roads = smooth traffic flow)
 - [ ] Road connects visually to adjacent road tiles (auto-tiling: straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
-- [ ] Roads persist in save/load (terrain is already saved via WorldGrid)
-- [ ] Destroy road via build menu destroy mode (reverts cell terrain to Dirt)
-- [ ] Files: `world.rs` (Biome::Road + road helpers), `constants.rs` (ROAD_SPEED_MULT, ROAD_COST), `gpu.rs` (road_flags buffer upload), `assets/shaders/npc_compute.wgsl` (speed bonus + separation skip), `ui/build_menu.rs` (road placement), `save.rs` (if terrain save needs update), tilemap rendering (road tileset sprite)
+- [x] Files: `constants.rs` (ROAD_SPEED_MULT, TILE_ROAD, BuildingDef), `gpu.rs` (tile_flags buffer + populate_tile_flags), `npc_compute.wgsl` (speed bonus), `world.rs` (building layer), `npc_render.rs` (dynamic bldg_layers)
 
 AI road building:
 - [ ] AI towns auto-build roads between fountain and farm clusters, mine routes, and waypoint paths
-- [ ] AI road placement uses A* or straight-line between key building positions, placing `Biome::Road` on each cell along the path
+- [ ] AI road placement uses A* or straight-line between key building positions, placing `BuildingKind::Road` on each cell along the path
 - [ ] Road building happens during AI build tick, costs food same as player (1 food/tile)
 - [ ] Files: `systems/ai_player.rs` (road building logic)
 

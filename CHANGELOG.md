@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-02-21h
+
+- **road attraction + collision bypass** — GPU compute shader steers off-road NPCs toward nearby roads via 4-cardinal-ray × 3-tile gradient sampling of `tile_flags` buffer; inverse-distance gradient → lateral-only pull at 35% speed; disabled when on-road or within 96px of destination; NPCs on road tiles skip separation force against other road NPCs for smooth traffic flow; pre-computed `my_on_road` bool reused by speed bonus, collision bypass, and attraction
+
+## 2026-02-21g
+
+- **road multibuild** — click-drag to place road lines using existing drag infrastructure (`drag_start_slot`/`drag_current_slot`, `slots_on_line` Bresenham, `BuildGhostTrail`); ghost trail preview shows green/red affordability per cell; reuses `place_wilderness_building` for each cell on the line
+
+## 2026-02-21f
+
+- **build menu tooltips** — added `tooltip: &'static str` field to `BuildingDef` in BUILDING_REGISTRY; each buildable building has detailed hover tooltip with stats (HP, damage, range, cooldown, growth rates, costs) explaining why a player should build it; wired via `on_hover_text(def.tooltip)` in build_menu.rs
+
 ## 2026-02-21e
 
 - **DRY spawn: materialize_npc()** — extracted shared `materialize_npc()` helper in `spawn.rs` that both `spawn_npc_system` (fresh spawn) and `spawn_npcs_from_save` (save-load) call; `NpcSpawnOverrides` struct carries optional saved state (health, energy, activity, personality, name, level, equipment, squad); eliminates ~80 lines of duplicated entity creation, GPU init, and tracking registration from `save.rs`; `FactionStats.inc_alive()` stays spawn-only (save restores faction stats from file)

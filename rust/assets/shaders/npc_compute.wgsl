@@ -116,14 +116,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    // Tile modifier: road speed bonus (1.5x)
+    // Tile: pre-compute road status (reused by speed bonus, collision bypass, attraction)
+    var my_on_road = false;
+    var my_tcol = 0u;
+    var my_trow = 0u;
     if (speed > 0.0 && params.tile_cell_size > 0.0) {
-        let tcol = u32(pos.x / params.tile_cell_size);
-        let trow = u32(pos.y / params.tile_cell_size);
-        if (tcol < params.tile_grid_width && trow < params.tile_grid_height) {
-            let tidx = trow * params.tile_grid_width + tcol;
-            let tflags = tile_flags[tidx];
-            if ((tflags & TILE_ROAD) != 0u) {
+        my_tcol = u32(pos.x / params.tile_cell_size);
+        my_trow = u32(pos.y / params.tile_cell_size);
+        if (my_tcol < params.tile_grid_width && my_trow < params.tile_grid_height) {
+            let tidx = my_trow * params.tile_grid_width + my_tcol;
+            if ((tile_flags[tidx] & TILE_ROAD) != 0u) {
+                my_on_road = true;
                 speed = speed * 1.5;
             }
         }
@@ -194,6 +197,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
                 // --- Separation force ---
                 if (dist_sq < sep_radius_sq) {
+                    // Both on road → skip separation (smooth traffic flow)
+                    if (my_on_road) {
+                        let j_tcol = u32(other_pos.x / params.tile_cell_size);
+                        let j_trow = u32(other_pos.y / params.tile_cell_size);
+                        if (j_tcol < params.tile_grid_width && j_trow < params.tile_grid_height) {
+                            let j_tidx = j_trow * params.tile_grid_width + j_tcol;
+                            if ((tile_flags[j_tidx] & TILE_ROAD) != 0u) { continue; }
+                        }
+                    }
+
                     var push_strength = 1.0;
                     if (settled == 0 && neighbor_settled == 1) {
                         push_strength = 0.2;  // I'm moving, they're settled: barely block me
@@ -317,6 +330,55 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
+    // --- Road attraction: steer off-road NPCs toward nearby road cells ---
+    // 4 cardinal rays, 3 tiles each. Inverse-distance gradient → lateral pull.
+    // Disabled when on-road (already getting 1.5x speed) or near destination.
+    var road_pull = vec2<f32>(0.0, 0.0);
+    if (is_moving && !my_on_road && dist_to_goal > 96.0 && params.tile_cell_size > 0.0) {
+        let tw = i32(params.tile_grid_width);
+        let th = i32(params.tile_grid_height);
+        let tc = i32(my_tcol);
+        let tr = i32(my_trow);
+
+        // Find nearest road in each cardinal direction (early exit per ray)
+        var rd_right = 4;
+        var rd_left = 4;
+        var rd_down = 4;
+        var rd_up = 4;
+        for (var rs: i32 = 1; rs <= 3; rs++) {
+            if (rd_right > 3 && tc + rs < tw) {
+                if ((tile_flags[u32(tr * tw + tc + rs)] & TILE_ROAD) != 0u) { rd_right = rs; }
+            }
+            if (rd_left > 3 && tc - rs >= 0) {
+                if ((tile_flags[u32(tr * tw + tc - rs)] & TILE_ROAD) != 0u) { rd_left = rs; }
+            }
+            if (rd_down > 3 && tr + rs < th) {
+                if ((tile_flags[u32((tr + rs) * tw + tc)] & TILE_ROAD) != 0u) { rd_down = rs; }
+            }
+            if (rd_up > 3 && tr - rs >= 0) {
+                if ((tile_flags[u32((tr - rs) * tw + tc)] & TILE_ROAD) != 0u) { rd_up = rs; }
+            }
+        }
+
+        // Gradient: inverse distance pulls toward closer road
+        var grad = vec2<f32>(0.0, 0.0);
+        if (rd_right <= 3) { grad.x += 1.0 / f32(rd_right); }
+        if (rd_left <= 3) { grad.x -= 1.0 / f32(rd_left); }
+        if (rd_down <= 3) { grad.y += 1.0 / f32(rd_down); }
+        if (rd_up <= 3) { grad.y -= 1.0 / f32(rd_up); }
+
+        let grad_len = length(grad);
+        if (grad_len > 0.01) {
+            let road_dir = grad / grad_len;
+            // Lateral component only — steer toward road without changing forward speed
+            let lateral = road_dir - my_dir * dot(road_dir, my_dir);
+            let lat_len = length(lateral);
+            if (lat_len > 0.01) {
+                road_pull = (lateral / lat_len) * speed * 0.35;
+            }
+        }
+    }
+
     // --- STEP 3: Movement toward goal + lateral steering when blocked ---
     // Instead of slowing down when blocked, steer sideways to route around.
     var movement = vec2<f32>(0.0, 0.0);
@@ -354,8 +416,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         settled = 0;
     }
 
-    // --- STEP 4: Apply movement + avoidance ---
-    pos += (movement + avoidance + proj_dodge) * params.delta;
+    // --- STEP 4: Apply movement + avoidance + road attraction ---
+    pos += (movement + avoidance + proj_dodge + road_pull) * params.delta;
 
     positions[i] = pos;
     arrivals[i] = settled;

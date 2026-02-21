@@ -131,7 +131,10 @@ Four phases per thread (tiers 2+3):
 
 **Projectile dodge** (spatial grid scan): After separation, scans 3x3 neighborhood of the projectile spatial grid (built by projectile compute modes 0+1 in the previous frame). For each enemy projectile within 60px heading toward the NPC (approach dot > 0.3), computes a perpendicular dodge force. Direction is away from the projectile's path (consistent side-picking via `select`). Urgency scales linearly with proximity (closer = stronger). Normalized and scaled to `speed * 1.5`. Applied as a separate force in the position update (`movement + avoidance + proj_dodge`), independent of avoidance clamping. 1-frame latency is acceptable: at 60fps, an arrow at speed 500 moves ~8px — within the 60px dodge radius.
 
-**Road speed bonus**: Before movement, checks `tile_flags` for the NPC's current grid cell. If `TILE_ROAD` (bit 5) is set, speed is multiplied by 1.5×.
+**Road system** (pre-computed `my_on_road` bool, reused by 3 features):
+- **Speed bonus**: If NPC's current tile has `TILE_ROAD` (bit 5), speed × 1.5.
+- **Collision bypass**: During separation scan, if both NPCs are on road tiles, `continue` — skip separation force entirely for smooth traffic flow on roads.
+- **Road attraction** (after projectile dodge): Off-road moving NPCs scan 4 cardinal rays × 3 tiles each in `tile_flags` for `TILE_ROAD`. Computes inverse-distance gradient, extracts lateral component (perpendicular to goal direction) → `road_pull` force at 35% of speed. Disabled when already on-road or within 96px of destination (release distance). Applied as a 4th force component: `movement + avoidance + proj_dodge + road_pull`.
 
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 

@@ -780,13 +780,16 @@ fn build_place_click_system(
 
     let (gc, gr) = world_state.grid.world_to_grid(slot_pos);
 
-    // Destroy mode: remove building at clicked cell
+    // Destroy mode: remove building at clicked cell (player-owned only)
     if build_ctx.destroy_mode {
         if !just_pressed { return; }
         build_ctx.clear_drag();
         let cell_building = world_state.grid.cell(gc, gr).and_then(|c| c.building);
         let is_destructible = cell_building
-            .map(|(k, _)| !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
+            .map(|(k, ti)| {
+                !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
+                && world_state.world_data.towns.get(ti as usize).map_or(false, |t| t.faction == 0)
+            })
             .unwrap_or(false);
         if !is_destructible { return; }
         let bld_kind = cell_building.map(|(k, _)| k);
@@ -807,8 +810,8 @@ fn build_place_click_system(
 
     let kind = build_ctx.selected_build.unwrap();
 
-    // Wilderness placement (snap to world grid, not town grid)
-    if matches!(kind, BuildingKind::Waypoint | BuildingKind::Road) {
+    // Waypoint: single-click wilderness placement
+    if kind == BuildingKind::Waypoint {
         if !just_pressed { return; }
         build_ctx.clear_drag();
         let cost = crate::constants::building_cost(kind);
@@ -826,6 +829,44 @@ fn build_place_click_system(
                 game_time.day(), game_time.hour(), game_time.minute(),
                 format!("Built {} in {}", label.to_lowercase(), town_name),
             );
+        }
+        return;
+    }
+
+    // Road: drag-line placement on world grid (reuses drag_start_slot/slots_on_line)
+    if kind == BuildingKind::Road {
+        let (gc, gr) = world_state.grid.world_to_grid(world_pos);
+        if just_pressed {
+            build_ctx.drag_start_slot = Some((gr as i32, gc as i32));
+            build_ctx.drag_current_slot = Some((gr as i32, gc as i32));
+        } else if pressed && build_ctx.drag_start_slot.is_some() {
+            build_ctx.drag_current_slot = Some((gr as i32, gc as i32));
+        }
+        if !just_released { return; }
+
+        let start = build_ctx.drag_start_slot.take().unwrap_or((gr as i32, gc as i32));
+        let end = build_ctx.drag_current_slot.take().unwrap_or((gr as i32, gc as i32));
+        let cost = crate::constants::building_cost(kind);
+        let mut placed = 0usize;
+        for (sr, sc) in slots_on_line(start, end) {
+            let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
+            if world::place_wilderness_building(
+                kind, &mut world_state.grid, &mut world_state.world_data,
+                &mut world_state.building_hp, &mut food_storage,
+                &mut world_state.slot_alloc, &mut world_state.building_slots,
+                town_data_idx, cell_pos, cost,
+            ).is_ok() { placed += 1; }
+        }
+        if placed > 0 {
+            world_state.dirty.mark_building_changed(kind);
+            let label = crate::constants::building_def(kind).label;
+            let msg = if placed == 1 {
+                format!("Built {} in {}", label.to_lowercase(), town_name)
+            } else {
+                format!("Built {} {}s in {}", placed, label.to_lowercase(), town_name)
+            };
+            combat_log.push(CombatEventKind::Harvest, 0,
+                game_time.day(), game_time.hour(), game_time.minute(), msg);
         }
         return;
     }
@@ -991,7 +1032,78 @@ fn build_ghost_system(
 
     let kind = build_ctx.selected_build.unwrap();
 
-    // Waypoint: snap to world grid (wilderness placement)
+    // Road: world-grid ghost with drag trail preview (mirrors town-grid trail pattern)
+    if kind == BuildingKind::Road {
+        let (gc, gr) = grid.world_to_grid(world_pos);
+        let snapped = grid.grid_to_world(gc, gr);
+        build_ctx.hover_world_pos = snapped;
+
+        let path = match build_ctx.drag_start_slot {
+            Some(start) => {
+                build_ctx.drag_current_slot = Some((gr as i32, gc as i32));
+                slots_on_line(start, (gr as i32, gc as i32))
+            }
+            None => vec![(gr as i32, gc as i32)],
+        };
+
+        let cost = crate::constants::building_cost(kind);
+        let town_idx = build_ctx.town_data_idx.unwrap_or(0);
+        let mut budget = food_storage.food.get(town_idx).copied().unwrap_or(0);
+        let ghost_image = build_ctx.ghost_sprites.get(&kind).cloned().unwrap_or_default();
+        let ghost_z = 0.5;
+
+        // Despawn old trail, rebuild (same pattern as town-grid lines 1118-1142)
+        for entity in trail_query.iter() { commands.entity(entity).despawn(); }
+
+        let mut cursor_valid = false;
+        for (idx, &(sr, sc)) in path.iter().enumerate() {
+            let cell_world = grid.grid_to_world(sc as usize, sr as usize);
+            let (cgc, cgr) = grid.world_to_grid(cell_world);
+            let cell = grid.cell(cgc, cgr);
+            let empty = cell.map(|c| c.building.is_none()).unwrap_or(false);
+            let not_water = cell.map(|c| c.terrain != world::Biome::Water).unwrap_or(false);
+            let valid = empty && not_water && budget >= cost;
+            if valid { budget -= cost; }
+
+            if idx == path.len() - 1 {
+                cursor_valid = valid;
+            } else {
+                let color = if valid {
+                    Color::srgba(1.0, 1.0, 1.0, 0.45)
+                } else {
+                    Color::srgba(0.8, 0.2, 0.2, 0.35)
+                };
+                commands.spawn((
+                    Sprite { color, image: ghost_image.clone(),
+                        custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)), ..default() },
+                    Transform::from_xyz(cell_world.x, cell_world.y, ghost_z),
+                    BuildGhost, BuildGhostTrail,
+                ));
+            }
+        }
+
+        build_ctx.show_cursor_hint = !cursor_valid;
+        let color = if cursor_valid {
+            Color::srgba(1.0, 1.0, 1.0, 0.7)
+        } else {
+            Color::srgba(0.8, 0.2, 0.2, 0.5)
+        };
+        if let Some((_, mut transform, mut sprite)) = ghost_query.iter_mut().next() {
+            transform.translation = Vec3::new(snapped.x, snapped.y, ghost_z);
+            sprite.color = color;
+            sprite.image = ghost_image;
+        } else {
+            commands.spawn((
+                Sprite { color, image: ghost_image,
+                    custom_size: Some(Vec2::splat(TOWN_GRID_SPACING)), ..default() },
+                Transform::from_xyz(snapped.x, snapped.y, ghost_z),
+                BuildGhost,
+            ));
+        }
+        return;
+    }
+
+    // Waypoint: snap to world grid (wilderness placement, single ghost)
     if kind == BuildingKind::Waypoint {
         for entity in trail_query.iter() {
             commands.entity(entity).despawn();
@@ -1235,7 +1347,10 @@ fn process_destroy_system(
     let cell = world_state.grid.cell(col, row);
     let cell_building = cell.and_then(|c| c.building);
     let is_destructible = cell_building
-        .map(|(k, _)| !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine))
+        .map(|(k, ti)| {
+            !matches!(k, world::BuildingKind::Fountain | world::BuildingKind::GoldMine)
+            && world_state.world_data.towns.get(ti as usize).map_or(false, |t| t.faction == 0)
+        })
         .unwrap_or(false);
     if !is_destructible { return; }
     let bld_kind = cell_building.map(|(k, _)| k);
