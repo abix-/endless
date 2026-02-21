@@ -9,7 +9,7 @@ use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingSlotMap;
-use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid};
+use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, is_alive};
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
@@ -431,7 +431,7 @@ pub fn building_tower_system(
     }
     for (i, town) in world_data.towns.iter().enumerate() {
         if i < tower.town.attack_enabled.len() {
-            tower.town.attack_enabled[i] = town.sprite_type == 0;
+            tower.town.attack_enabled[i] = town.sprite_type == 0 && is_alive(town.center);
         }
     }
     let town_buildings: Vec<_> = world_data.towns.iter().enumerate()
