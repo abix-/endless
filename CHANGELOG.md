@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-22h
+
+- **AI military snowball fix** — balanced builder no longer spirals to 11:1 military-to-civilian ratio; added symmetric population ratio correction (over-military dampens military_desire and boosts food_desire), capped waypoint_gap at 0.5 to break self-reinforcing feedback loop, gave farmer homes a 0.5 baseline score when at target to match military's existing maintenance trickle
+- **multi-drop loot tables** — NPC loot_drop changed from single LootDrop to slice; military NPCs (archers, crossbows, fighters, raiders) now drop food or gold (deterministic pick via xp%len); miners drop gold only, farmers drop food only
+- **miner-cycle test scene** — new 5-phase integration test: Mining → MiningAtMine → harvest gold → deliver → rest/wake; validates full mining pipeline end-to-end
+
 ## 2026-02-22g
 
 - **unified building placement** — collapsed `place_building`, `build_and_pay`, and `place_wilderness_building` into a single `place_building(world_pos)` that handles everything: validate cell (exists, empty, not water), reject foreign territory, deduct food, place on grid, register in WorldData, set waypoint patrol_order, push farm growth state, register spawner, push HP, allocate GPU slot, mark dirty flags; all callers (player UI + AI) now use one code path

@@ -242,8 +242,8 @@ pub struct NpcDef {
     pub upgrade_category: Option<&'static str>,
     /// Which stats this NPC type can upgrade. Defines the upgrade branch content.
     pub upgrade_stats: &'static [UpgradeStatDef],
-    /// What this NPC drops when killed.
-    pub loot_drop: LootDrop,
+    /// Possible loot drops when killed — one is picked deterministically per death.
+    pub loot_drop: &'static [LootDrop],
 }
 
 pub const NPC_REGISTRY: &[NpcDef] = &[
@@ -258,7 +258,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (80, 200, 80),
         home_building: BuildingKind::FarmerHome, is_raider_unit: false, default_count: 2,
         upgrade_category: Some("Farmer"), upgrade_stats: FARMER_UPGRADES,
-        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
+        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }],
     },
     NpcDef {
         job: Job::Archer, label: "Archer", label_plural: "Archers",
@@ -271,7 +271,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (80, 100, 220),
         home_building: BuildingKind::ArcherHome, is_raider_unit: false, default_count: 4,
         upgrade_category: Some("Archer"), upgrade_stats: MILITARY_RANGED_UPGRADES,
-        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
+        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }, LootDrop { item: ItemKind::Gold, min: 0, max: 1 }],
     },
     NpcDef {
         job: Job::Raider, label: "Raider", label_plural: "Raiders",
@@ -284,7 +284,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (220, 80, 80),
         home_building: BuildingKind::Tent, is_raider_unit: true, default_count: 1,
         upgrade_category: None, upgrade_stats: &[],
-        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
+        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }, LootDrop { item: ItemKind::Gold, min: 0, max: 1 }],
     },
     NpcDef {
         job: Job::Fighter, label: "Fighter", label_plural: "Fighters",
@@ -298,7 +298,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (220, 220, 80),
         home_building: BuildingKind::FighterHome, is_raider_unit: false, default_count: 0,
         upgrade_category: Some("Fighter"), upgrade_stats: MILITARY_MELEE_UPGRADES,
-        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
+        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }, LootDrop { item: ItemKind::Gold, min: 0, max: 1 }],
     },
     NpcDef {
         job: Job::Miner, label: "Miner", label_plural: "Miners",
@@ -311,7 +311,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (160, 110, 60),
         home_building: BuildingKind::MinerHome, is_raider_unit: false, default_count: 0,
         upgrade_category: Some("Miner"), upgrade_stats: MINER_UPGRADES,
-        loot_drop: LootDrop { item: ItemKind::Gold, min: 1, max: 2 },
+        loot_drop: &[LootDrop { item: ItemKind::Gold, min: 1, max: 2 }],
     },
     NpcDef {
         job: Job::Crossbow, label: "Crossbow", label_plural: "Crossbows",
@@ -325,7 +325,7 @@ pub const NPC_REGISTRY: &[NpcDef] = &[
         ui_color: (140, 60, 220),
         home_building: BuildingKind::CrossbowHome, is_raider_unit: false, default_count: 0,
         upgrade_category: Some("Crossbow"), upgrade_stats: MILITARY_RANGED_UPGRADES,
-        loot_drop: LootDrop { item: ItemKind::Food, min: 1, max: 2 },
+        loot_drop: &[LootDrop { item: ItemKind::Food, min: 1, max: 2 }, LootDrop { item: ItemKind::Gold, min: 0, max: 1 }],
     },
 ];
 

@@ -24,6 +24,7 @@ pub mod npc_visuals;
 pub mod terrain_visual;
 pub mod endless_mode;
 pub mod ai_building;
+pub mod miner_cycle;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -661,6 +662,21 @@ pub fn register_tests(app: &mut App) {
         ai_building::tick
             .run_if(in_state(AppState::Running))
             .run_if(test_is("ai-building"))
+            .after(Step::Behavior));
+
+    // miner-cycle
+    registry.tests.push(TestEntry {
+        name: "miner-cycle".into(),
+        description: "Miner: walk to mine → tend → harvest gold → deliver → rest".into(),
+        phase_count: 5,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        miner_cycle::setup.run_if(test_is("miner-cycle")));
+    app.add_systems(Update,
+        miner_cycle::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("miner-cycle"))
             .after(Step::Behavior));
 
     app.insert_resource(registry);

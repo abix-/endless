@@ -764,7 +764,8 @@ pub fn xp_grant_system(
         }
 
         // Loot: killer picks up loot from dead NPC and carries it home
-        let drop = &npc_def(*dead_job).loot_drop;
+        let drops = npc_def(*dead_job).loot_drop;
+        let drop = &drops[(meta.xp as usize) % drops.len()];
         let amount = if drop.min == drop.max { drop.min } else {
             drop.min + (meta.xp as i32 % (drop.max - drop.min + 1)) // deterministic spread
         };

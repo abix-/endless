@@ -534,7 +534,8 @@ fn desire_state(
     let barracks_target = personality.archer_home_target(houses).max(1);
     let barracks_gap = barracks_target.saturating_sub(barracks) as f32 / barracks_target as f32;
     let waypoint_gap = if barracks > 0 {
-        barracks.saturating_sub(waypoints) as f32 / barracks as f32
+        // Cap at 0.5 so waypoint deficit can't snowball military_desire
+        (barracks.saturating_sub(waypoints) as f32 / barracks as f32).min(0.5)
     } else {
         0.0
     };
@@ -542,17 +543,22 @@ fn desire_state(
     // threat from GPU spatial grid adds direct enemy presence signal.
     let mut military_desire = (barracks_gap * 0.75 + waypoint_gap * 0.25 + threat).clamp(0.0, 1.0);
 
-    // Population ratio correction: dampen food_desire when military is underweight.
+    // Population ratio correction: dampen the underweight side's desire.
     // Only applies once the town has enough NPCs to meaningfully measure ratios.
     let total_pop = civilians + military;
     if total_pop >= 10 {
         let actual_ratio = military as f32 / total_pop as f32;
         let target = personality.target_military_ratio();
         if actual_ratio < target {
-            // ratio_health: 0.0 = no military at all, 1.0 = at or above target
+            // Under-military: boost military, dampen food
             let ratio_health = (actual_ratio / target).min(1.0);
             food_desire *= ratio_health;
             military_desire = (military_desire + (1.0 - ratio_health)).clamp(0.0, 1.0);
+        } else if actual_ratio > target {
+            // Over-military: dampen military, boost food
+            let excess = ((actual_ratio - target) / (1.0 - target)).min(1.0);
+            military_desire *= 1.0 - excess;
+            food_desire = (food_desire + excess * 0.5).clamp(0.0, 1.0);
         }
     }
 
@@ -1244,7 +1250,7 @@ pub fn ai_decision_system(
                     let house_need = if house_deficit > 0 {
                         desires.food_desire * (house_deficit as f32).min(10.0)
                     } else {
-                        0.0
+                        desires.food_desire * 0.5  // baseline to match military's 0.5 floor
                     };
                     let barracks_need = if barracks_deficit > 0 {
                         desires.military_desire * barracks_deficit as f32

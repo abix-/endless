@@ -120,7 +120,7 @@ food_desire = clamp(1.0 - (food - reserve) / reserve, 0.0, 1.0)
 **Military desire** — drives barracks, crossbow homes, and waypoint construction:
 ```
 barracks_gap = (target - barracks) / target
-waypoint_gap = (barracks - waypoints) / barracks
+waypoint_gap = min((barracks - waypoints) / barracks, 0.5)   // capped to prevent snowball
 military_desire = clamp(barracks_gap × 0.75 + waypoint_gap × 0.25, 0.0, 1.0)
 ```
 
@@ -130,6 +130,18 @@ cheapest_gold = cost of cheapest affordable gold upgrade
 gold_desire = clamp((1 - gold / cheapest_gold) × gold_desire_mult, 0..1)
 ```
 Falls back to `base_mining_desire()` if no gold upgrades exist.
+
+**Population ratio correction** — symmetric rebalancing when military/civilian ratio drifts from target (requires 10+ total NPCs):
+```
+if actual_military_ratio < target:
+    ratio_health = actual / target                 // 0..1
+    food_desire *= ratio_health                    // dampen food → build military
+    military_desire += (1 - ratio_health)          // boost military
+if actual_military_ratio > target:
+    excess = (actual - target) / (1 - target)      // 0..1
+    military_desire *= (1 - excess)                // dampen military
+    food_desire += excess × 0.5                    // boost food → build civilians
+```
 
 **Economy desire** — floors other desires while town has empty slots:
 ```
@@ -150,8 +162,9 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 - Zero when food is comfortable (food_desire = 0) or farms ≥ houses
 - Scales with both food pressure and farm deficit vs houses
 
-**Farmer homes:** `food_desire × min(deficit, 10)` when deficit > 0, else 0
+**Farmer homes:** `food_desire × min(deficit, 10)` when deficit > 0, else `food_desire × 0.5`
 - Deficit capped at 10 to prevent runaway scores with large targets (Economic: 2× farms)
+- Baseline 0.5 when at target matches military's maintenance trickle
 
 **Archer homes:** `military_desire × deficit` when deficit > 0, else `military_desire × 0.5`
 - Maintenance trickle (0.5) when at target keeps slow replacement of losses
