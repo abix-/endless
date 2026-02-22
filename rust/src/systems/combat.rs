@@ -474,7 +474,7 @@ pub fn building_damage_system(
 ) {
     let _t = timings.scope("building_damage");
     for msg in damage_reader.read() {
-        if msg.kind == BuildingKind::GoldMine { continue; } // mines are indestructible
+        if matches!(msg.kind, BuildingKind::GoldMine | BuildingKind::Road) { continue; } // mines + roads are indestructible
         let Some(hp) = world.building_hp.get_mut(msg.kind, msg.index) else { continue };
         if *hp <= 0.0 { continue; } // already dead
 

@@ -171,7 +171,7 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 - Looks up position/town via `WorldData::building_pos_town()` (single dispatch method for all building kinds)
 - Sets `DirtyFlags.buildings_need_healing` when a building survives damage (hp > 0)
 - Syncs HP to GPU: looks up NPC slot via `BuildingSlotMap.get_slot()`, writes `GpuUpdate::SetHealth` with new HP
-- Skips already-dead buildings (HP <= 0)
+- Skips already-dead buildings (HP <= 0) and indestructible buildings (GoldMine, Road)
 - When HP reaches 0:
   1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
   2. Calls `destroy_building()` shared helper (grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log + free building NPC slot)

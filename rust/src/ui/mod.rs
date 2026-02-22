@@ -732,7 +732,7 @@ fn build_place_click_system(
             &mut world_state.grid, &mut world_state.world_data,
             &mut world_state.building_hp, &mut food_storage,
             &mut world_state.slot_alloc, &mut world_state.building_slots,
-            town_data_idx, world_pos, cost,
+            town_data_idx, world_pos, cost, &world_state.town_grids,
         ).is_ok() {
             world_state.dirty.mark_building_changed(kind);
             let label = crate::constants::building_def(kind).label;
@@ -766,7 +766,7 @@ fn build_place_click_system(
                 kind, &mut world_state.grid, &mut world_state.world_data,
                 &mut world_state.building_hp, &mut food_storage,
                 &mut world_state.slot_alloc, &mut world_state.building_slots,
-                town_data_idx, cell_pos, cost,
+                town_data_idx, cell_pos, cost, &world_state.town_grids,
             ).is_ok() { placed += 1; }
         }
         if placed > 0 {

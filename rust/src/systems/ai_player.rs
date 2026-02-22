@@ -1509,7 +1509,7 @@ fn execute_action(
                 &mut res.world.grid, &mut res.world.world_data,
                 &mut res.world.building_hp, &mut res.food_storage,
                 &mut res.world.slot_alloc, &mut res.world.building_slots,
-                ctx.tdi, pos, cost,
+                ctx.tdi, pos, cost, &res.world.town_grids,
             ).is_ok() {
                 recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, ctx.ti);
                 res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);

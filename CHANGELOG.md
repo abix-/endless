@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-22b
+
+- **DC wake on move** — DirectControl NPCs that are resting (`GoingToRest`/`Resting`) now wake to `Idle` when given a right-click move or attack command; previously they slid to the destination while still in resting state, recovering energy incorrectly
+- **roads raider-buildable + indestructible** — roads are now buildable by raider AI and cannot be destroyed by projectile damage (same as gold mines)
+- **foreign territory build rejection** — `place_wilderness_building` now rejects placement inside another faction's build area via `in_foreign_build_area()` check; prevents AI from placing waypoints/roads inside enemy towns
+
 ## 2026-02-22a
 
 - **box-select inspector fix** — box-selecting NPCs now clears `SelectedNpc` and `SelectedBuilding` so the DC group inspector shows immediately; previously stale individual selections masked the group view; also added missing `dc_count` check in the `!show_npc` branch of `inspector_content`

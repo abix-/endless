@@ -183,6 +183,19 @@ pub fn is_slot_buildable(grid: &TownGrid, row: i32, col: i32) -> bool {
     row >= min_row && row <= max_row && col >= min_col && col <= max_col
 }
 
+/// Returns true if world_pos falls inside any town's build area OTHER than own_town_idx.
+pub fn in_foreign_build_area(pos: Vec2, own_town_idx: usize, towns: &[Town], town_grids: &TownGrids) -> bool {
+    for tg in &town_grids.grids {
+        if tg.town_data_idx == own_town_idx { continue; }
+        let Some(town) = towns.get(tg.town_data_idx) else { continue };
+        let (row, col) = world_to_town_grid(town.center, pos);
+        if is_slot_buildable(tg, row, col) {
+            return true;
+        }
+    }
+    false
+}
+
 /// All empty buildable slots in a town grid (excludes center 0,0).
 pub fn empty_slots(tg: &TownGrid, center: Vec2, grid: &WorldGrid) -> Vec<(i32, i32)> {
     let (min_row, max_row, min_col, max_col) = build_bounds(tg);
@@ -655,6 +668,7 @@ pub fn place_wilderness_building(
     town_data_idx: usize,
     world_pos: Vec2,
     cost: i32,
+    town_grids: &TownGrids,
 ) -> Result<(), &'static str> {
     let (gc, gr) = grid.world_to_grid(world_pos);
     let snapped = grid.grid_to_world(gc, gr);
@@ -663,6 +677,11 @@ pub fn place_wilderness_building(
     let cell = grid.cell(gc, gr).ok_or("cell out of bounds")?;
     if cell.building.is_some() { return Err("cell already has a building"); }
     if cell.terrain == Biome::Water { return Err("cannot build on water"); }
+
+    // Reject placement inside another faction's build area
+    if in_foreign_build_area(snapped, town_data_idx, &world_data.towns, town_grids) {
+        return Err("cannot build in foreign territory");
+    }
 
     // Deduct food
     let food = food_storage.food.get_mut(town_data_idx).ok_or("invalid town")?;

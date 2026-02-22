@@ -19,7 +19,7 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 
-**DirectControl skip** (before all priorities): NPCs with a `DirectControl` component skip the entire decision system — no autonomous behavior whatsoever. `AtDestination` is removed if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active.
+**DirectControl skip** (before all priorities): NPCs with a `DirectControl` component skip the entire decision system — no autonomous behavior whatsoever. `AtDestination` is removed if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active. When a DC right-click move/attack command is issued (`click_to_select_system` in render.rs), resting NPCs (`GoingToRest`/`Resting`) are woken to `Idle` so they respond to the command instead of sliding while asleep.
 
 **Tier 1 — every frame:**
 0. AtDestination → Handle arrival transitions (transient one-frame flag, can't miss)

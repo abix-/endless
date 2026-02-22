@@ -990,7 +990,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         hp: 30.0, cost: 1,
         label: "Road", help: "1.5x NPC speed",
         tooltip: "NPCs move 50% faster on roads. Click-drag to\nbuild lines. Connect farms, mines, and town\ncenter for faster supply chains. HP: 30",
-        player_buildable: true, raider_buildable: false,
+        player_buildable: true, raider_buildable: true,
         placement: PlacementMode::Wilderness,
         is_tower: false, tower_stats: None,
         on_place: OnPlace::None, spawner: None,

@@ -10,7 +10,7 @@ use bevy::sprite_render::{AlphaMode2d, TilemapChunk, TileData, TilemapChunkTileD
 
 use crate::gpu::RenderFrameConfig;
 use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTimings, NpcEntityMap};
-use crate::components::ManualTarget;
+use crate::components::{ManualTarget, Activity};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::settings::UserSettings;
 use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, build_extras_atlas, TERRAIN_TILES, building_tiles};
@@ -373,6 +373,7 @@ fn click_to_select_system(
     timings: Res<SystemTimings>,
     mut commands: Commands,
     dc_query: Query<(), With<crate::components::DirectControl>>,
+    mut activity_query: Query<&mut Activity, With<crate::components::DirectControl>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
 ) {
     let _t = timings.scope("click_select");
@@ -451,6 +452,12 @@ fn click_to_select_system(
                 for &slot in &members {
                     if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
                         commands.entity(entity).insert(ManualTarget::Npc(enemy_slot));
+                        // Wake resting NPCs on move command
+                        if let Ok(mut activity) = activity_query.get_mut(entity) {
+                            if matches!(*activity, Activity::GoingToRest | Activity::Resting) {
+                                *activity = Activity::Idle;
+                            }
+                        }
                     }
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                         idx: slot, x: enemy_pos.x, y: enemy_pos.y,
@@ -487,6 +494,12 @@ fn click_to_select_system(
                 for &slot in &members {
                     if let Some(&entity) = click.npc_entity_map.0.get(&slot) {
                         commands.entity(entity).insert(mt.clone());
+                        // Wake resting NPCs on move command
+                        if let Ok(mut activity) = activity_query.get_mut(entity) {
+                            if matches!(*activity, Activity::GoingToRest | Activity::Resting) {
+                                *activity = Activity::Idle;
+                            }
+                        }
                     }
                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
                         idx: slot, x: target_pos.x, y: target_pos.y,
