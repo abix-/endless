@@ -1374,12 +1374,17 @@ pub fn ai_decision_system(
                 // Roads: build grid-pattern roads around economy buildings
                 let rw = personality.road_weight();
                 if rw > 0.0 && ctx.food >= building_cost(BuildingKind::Road) * 4 {
-                    let roads = bc(BuildingKind::Road);
-                    let economy_buildings = farms + houses + mine_shafts;
-                    // Want roughly 1 road per 2 economy buildings
-                    let road_need = economy_buildings.saturating_sub(roads / 2);
-                    if road_need > 0 {
-                        build_scores.push((AiAction::BuildRoads, rw * road_need as f32));
+                    let road_candidates = count_road_candidates(
+                        &res.world.world_data, &res.world.town_grids, &res.world.grid,
+                        ctx.ti, ctx.center, ctx.grid_idx, personality,
+                    );
+                    if road_candidates > 0 {
+                        let roads = bc(BuildingKind::Road);
+                        let economy_buildings = farms + houses + mine_shafts;
+                        let road_need = road_candidates.min(economy_buildings.saturating_sub(roads / 2));
+                        if road_need > 0 {
+                            build_scores.push((AiAction::BuildRoads, rw * road_need as f32));
+                        }
                     }
                 }
             }
@@ -1576,6 +1581,38 @@ fn try_build_miner_home(
         building_cost(BuildingKind::MinerHome), "miner home",
         ctx.tdi, ctx.center, res, slot.0, slot.1,
     )
+}
+
+/// Count available road candidate slots (road-pattern slots near economy buildings, minus existing roads).
+/// Used to gate road scoring so roads aren't scored when no candidates exist.
+fn count_road_candidates(
+    world_data: &world::WorldData, town_grids: &world::TownGrids, grid: &world::WorldGrid,
+    ti: u32, center: Vec2, grid_idx: usize, personality: AiPersonality,
+) -> usize {
+    let econ_slots: Vec<(i32, i32)> = town_building_slots!(world_data.farms(), ti, center)
+        .chain(town_building_slots!(world_data.get(BuildingKind::FarmerHome), ti, center))
+        .chain(town_building_slots!(world_data.miner_homes(), ti, center))
+        .collect();
+    if econ_slots.is_empty() { return 0; }
+    let road_slots: HashSet<(i32, i32)> = town_building_slots!(world_data.get(BuildingKind::Road), ti, center).collect();
+    let (min_r, max_r, min_c, max_c) = town_grids.grids.get(grid_idx)
+        .map(|g| world::build_bounds(g)).unwrap_or((-4, 3, -4, 3));
+    let mut count = 0usize;
+    for r in min_r..=max_r {
+        for c in min_c..=max_c {
+            if !personality.is_road_slot(r, c) { continue; }
+            if road_slots.contains(&(r, c)) { continue; }
+            // Check if cell is occupied by a non-road building
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = grid.world_to_grid(pos);
+            if grid.cell(gc, gr).map_or(true, |cell| cell.building.is_some()) { continue; }
+            let adj = econ_slots.iter().any(|&(er, ec)| {
+                (er - r).abs() <= 2 && (ec - c).abs() <= 2
+            });
+            if adj { count += 1; }
+        }
+    }
+    count
 }
 
 /// Build roads in personality-specific patterns around economy buildings.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22e
+
+- **road scoring reflects candidate availability** — road scoring now pre-checks actual available road-pattern slots via `count_road_candidates()` before entering the score pool; `road_need` is capped at the real candidate count, so roads score 0 when no candidates exist instead of inflating to 296+ and failing every tick
+
 ## 2026-02-22d
 
 - **AI decision retry loop** — when a building action fails (e.g., no road candidates), the AI now removes that action variant and re-picks from remaining candidates instead of wasting the tick; previously Roads (score 48) could fail silently for hours while Farm (11) and MinerHome (9) never got a chance

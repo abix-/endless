@@ -162,7 +162,7 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 
 **Miner homes:** Only scored when miner deficit > 0: `gold_desire × deficit`. Uses house base weight `hw`.
 
-**Roads:** `road_weight × road_need` where `road_need = economy_buildings - roads/2`. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality).
+**Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()` — if no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality).
 
 **Waypoints:** `military_desire × gap`. Scored when uncovered mines exist (gap = uncovered count, no slot requirement) or when waypoints < total military homes AND town has slots. Waypoint cost check is independent of `has_slots` since waypoints can be placed in wilderness.
 
