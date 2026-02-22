@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-21m
+
+- **extras atlas consolidation** — merged 3 individual sprite textures (heal, sleep, arrow) + new boat into 1 horizontal grid atlas (4×32px cells) via `build_extras_atlas()`; reduced texture bindings from 6 pairs to 4 pairs in the render pipeline; `extras_cols` camera uniform replaces `textureDimensions()` in shader (avoids VERTEX visibility requirement on texture binding); shader `calc_uv` extras branch selects column by atlas_id
+- **boat migration** — migration groups now spawn a boat entity at the map edge that sails toward `settle_target` at `BOAT_SPEED` (150px/s); boat disembarks NPCs on land; `pick_settle_site()` selects settlement position farthest from all existing towns; `MigrationGroup` restructured with `boat_slot`, `boat_pos`, `settle_target`, `faction` fields; `RAIDER_SETTLE_RADIUS` reduced from 3000→500 (distance to settle_target, not any town); entity despawn guard via `commands.get_entity()` for stale npc_map entries; SETTLE count==0 guard only cancels when `member_slots.is_empty()`
+- **DC group inspector** — when DirectControl (box-selected) units exist but no single NPC is selected, the bottom panel inspector shows a group summary: unit count, total/average HP, job breakdown; inspector now opens when `dc_count > 0`
+- **endless mode test extended** — test expanded from 8 to 16 phases; phases 1-8 test builder AI town destruction, phase 9 waits 1 game hour, phases 10-16 test raider AI town destruction; validates both AI kinds go through the full fountain destroy → spawn queued → boat migration → settle pipeline; uses `WorldGenStyle::Continents` for water
+
 ## 2026-02-21l
 
 - **fix migration stall** — `migration_spawn_system` now counts only alive raider towns (`is_alive(t.center)`) when checking if new migrations are needed; defeated towns with tombstoned centers no longer block new raider spawns

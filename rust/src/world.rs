@@ -34,7 +34,7 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{GrowthStates, FoodStorage, SpawnerState, SpawnerEntry, BuildingHpState, BuildingSlotMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
+use crate::resources::{GrowthStates, FoodStorage, GoldStorage, FactionStats, RaiderState, SpawnerState, SpawnerEntry, BuildingHpState, BuildingSlotMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
 use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
 
 /// True if a position has not been tombstoned (i.e. the entity still exists).
@@ -482,6 +482,161 @@ pub fn allocate_all_building_slots(
     }
 
     info!("Allocated {} building GPU slots", building_slots.len());
+}
+
+/// Post-world-gen building init: spawners, HP, GPU slots.
+/// Called by game startup and test scenes after `generate_world`.
+pub fn init_world_buildings(
+    world_data: &WorldData,
+    spawner_state: &mut SpawnerState,
+    building_hp: &mut BuildingHpState,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
+) {
+    spawner_state.0.clear();
+    *building_hp = BuildingHpState::default();
+    building_slots.clear();
+
+    for town_idx in 0..world_data.towns.len() {
+        init_single_town_buildings(town_idx, world_data, spawner_state, building_hp, slot_alloc, building_slots);
+    }
+
+    info!("Allocated {} building GPU slots", building_slots.len());
+}
+
+/// Register spawners, push HP, allocate GPU slots for buildings belonging to one town.
+/// Works both at startup (after clear) and incrementally (migration settle).
+pub fn init_single_town_buildings(
+    town_data_idx: usize,
+    world_data: &WorldData,
+    spawner_state: &mut SpawnerState,
+    building_hp: &mut BuildingHpState,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
+) {
+    use crate::constants::{tileset_index, FACTION_NEUTRAL, BUILDING_REGISTRY};
+
+    let town_faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
+
+    for def in BUILDING_REGISTRY {
+        let hps = (def.hps_mut)(building_hp);
+        let hp_start = hps.len();
+
+        for i in 0..(def.len)(world_data) {
+            if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
+                if ti as usize != town_data_idx { continue; }
+
+                // Spawner
+                if def.spawner.is_some() {
+                    register_spawner(spawner_state, def.kind, town_data_idx as i32, pos, -1.0);
+                }
+
+                // HP — push only for new entries (incremental safety)
+                if i >= hp_start {
+                    hps.push(def.hp);
+                }
+
+                // GPU slot — skip if already allocated
+                if building_slots.get_slot(def.kind, i).is_none() {
+                    let faction = if def.kind == BuildingKind::GoldMine { FACTION_NEUTRAL } else { town_faction };
+                    allocate_building_slot(slot_alloc, building_slots, def.kind, i, pos, faction, def.hp, tileset_index(def.kind), def.is_tower);
+                }
+            }
+        }
+    }
+}
+
+/// Spawn one NPC per building spawner. Returns messages for the caller to write.
+fn spawn_npcs_from_spawners(
+    spawner_state: &mut SpawnerState,
+    slot_alloc: &mut SlotAllocator,
+    towns: &[Town],
+    bgrid: &BuildingSpatialGrid,
+    miner_homes: &[PlacedBuilding],
+) -> Vec<crate::messages::SpawnNpcMsg> {
+    let mut claimed = BuildingOccupancy::default();
+    let mut msgs = Vec::new();
+    for entry in spawner_state.0.iter_mut() {
+        let Some(slot) = slot_alloc.alloc() else { break };
+        let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
+            resolve_spawner_npc(entry, towns, bgrid, &claimed, miner_homes);
+        if work_x > 0.0 { claimed.claim(Vec2::new(work_x, work_y)); }
+        msgs.push(crate::messages::SpawnNpcMsg {
+            slot_idx: slot,
+            x: entry.position.x, y: entry.position.y,
+            job, faction, town_idx: entry.town_idx as i32,
+            home_x: entry.position.x, home_y: entry.position.y,
+            work_x, work_y, starting_post, attack_type,
+        });
+        entry.npc_slot = slot as i32;
+    }
+    msgs
+}
+
+/// Create AI players for all non-player towns with random personalities.
+fn create_ai_players(
+    world_data: &WorldData,
+    town_grids: &TownGrids,
+) -> Vec<crate::systems::AiPlayer> {
+    use crate::systems::{AiKind, AiPlayer, AiPersonality};
+    use rand::Rng;
+    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
+    let mut rng = rand::rng();
+    let mut players = Vec::new();
+    for (grid_idx, tg) in town_grids.grids.iter().enumerate() {
+        let tdi = tg.town_data_idx;
+        if let Some(town) = world_data.towns.get(tdi) {
+            if town.faction > 0 {
+                let kind = if town.sprite_type == 1 { AiKind::Raider } else { AiKind::Builder };
+                let personality = personalities[rng.random_range(0..personalities.len())];
+                players.push(AiPlayer {
+                    town_data_idx: tdi, grid_idx, kind, personality,
+                    last_actions: std::collections::VecDeque::new(),
+                    active: true, squad_indices: Vec::new(),
+                    squad_cmd: std::collections::HashMap::new(),
+                });
+            }
+        }
+    }
+    players
+}
+
+/// Full world setup: generate terrain/towns, init resources, buildings, spawners, NPCs.
+/// Returns (spawn_messages, ai_players) for the caller to write into Bevy.
+pub fn setup_world(
+    config: &WorldGenConfig,
+    grid: &mut WorldGrid,
+    world_data: &mut WorldData,
+    farm_states: &mut GrowthStates,
+    town_grids: &mut TownGrids,
+    spawner_state: &mut SpawnerState,
+    building_hp: &mut BuildingHpState,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
+    food_storage: &mut FoodStorage,
+    gold_storage: &mut GoldStorage,
+    faction_stats: &mut FactionStats,
+    raider_state: &mut RaiderState,
+) -> (Vec<crate::messages::SpawnNpcMsg>, Vec<crate::systems::AiPlayer>) {
+    town_grids.grids.clear();
+    generate_world(config, grid, world_data, farm_states, town_grids);
+
+    let n = world_data.towns.len();
+    food_storage.init(n);
+    gold_storage.init(n);
+    faction_stats.init(n);
+    raider_state.init(n, 10);
+
+    init_world_buildings(world_data, spawner_state, building_hp, slot_alloc, building_slots);
+
+    let bgrid = BuildingSpatialGrid::default();
+    let npc_msgs = spawn_npcs_from_spawners(
+        spawner_state, slot_alloc,
+        &world_data.towns, &bgrid, &world_data.miner_homes(),
+    );
+    let ai_players = create_ai_players(world_data, town_grids);
+
+    (npc_msgs, ai_players)
 }
 
 /// Place a waypoint at an arbitrary world position (not tied to town grid).
@@ -1184,6 +1339,40 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
             height: out_size * layers,
             depth_or_array_layers: 1,
         },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        Default::default(),
+    ))
+}
+
+/// Extras atlas: composites individual 16x16 sprites into a horizontal grid (32x32 cells, 2x upscale).
+/// Used for heal, sleep, arrow, boat — any single-sprite overlay. Order matches atlas_id mapping in shader.
+pub fn build_extras_atlas(sprites: &[Image], images: &mut Assets<Image>) -> Handle<Image> {
+    let cell = 32u32; // 2x upscale of 16px sprites
+    let count = sprites.len() as u32;
+    let mut data = vec![0u8; (cell * count * cell * 4) as usize];
+
+    for (i, img) in sprites.iter().enumerate() {
+        let src = img.data.as_ref().expect("extras sprite has no data");
+        let sw = img.width();
+        let sh = img.height();
+        // 2x nearest-neighbor upscale into the cell
+        for dy in 0..cell {
+            for dx in 0..cell {
+                let sx = (dx * sw / cell).min(sw - 1);
+                let sy = (dy * sh / cell).min(sh - 1);
+                let si = (sy * sw + sx) as usize * 4;
+                let di = (dy * cell * count + i as u32 * cell + dx) as usize * 4;
+                if si + 4 <= src.len() && di + 4 <= data.len() {
+                    data[di..di + 4].copy_from_slice(&src[si..si + 4]);
+                }
+            }
+        }
+    }
+
+    images.add(Image::new(
+        Extent3d { width: cell * count, height: cell, depth_or_array_layers: 1 },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8UnormSrgb,

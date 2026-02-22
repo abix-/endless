@@ -6,13 +6,10 @@ pub mod build_menu;
 pub mod left_panel;
 pub mod tutorial;
 
-use std::collections::{HashMap, VecDeque};
-
 use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContextSettings, EguiPrimaryContextPass, egui};
-use rand::Rng;
 
 use crate::AppState;
 use crate::constants::TOWN_GRID_SPACING;
@@ -20,7 +17,7 @@ use crate::components::*;
 use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::systemparams::WorldState;
-use crate::systems::{AiPlayerState, AiKind, AiPlayer, AiPersonality, TownUpgrades, UpgradeQueue};
+use crate::systems::{AiPlayerState, TownUpgrades, UpgradeQueue};
 use crate::world::{self, BuildingKind, WorldGenConfig, allocate_all_building_slots};
 
 /// Render a small "?" button (frameless) that shows help text on hover.
@@ -183,7 +180,6 @@ struct StartupExtra<'w> {
     ai_state: ResMut<'w, AiPlayerState>,
     combat_log: ResMut<'w, CombatLog>,
     gold_storage: ResMut<'w, GoldStorage>,
-    bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     auto_upgrade: ResMut<'w, AutoUpgrade>,
     mining_policy: ResMut<'w, MiningPolicy>,
 }
@@ -297,19 +293,26 @@ fn game_startup_system(
 
     info!("Game startup: generating world...");
 
-    // Generate world (populates grid + world_data + farm_states + houses/barracks + town_grids)
-    world_state.town_grids.grids.clear();
-    world::generate_world(
+    // Full world setup: terrain, towns, resources, buildings, spawners, NPCs, AI players
+    let (npc_msgs, ai_players) = world::setup_world(
         &config,
-        &mut world_state.grid,
-        &mut world_state.world_data,
-        &mut world_state.farm_states,
-        &mut world_state.town_grids,
+        &mut world_state.grid, &mut world_state.world_data,
+        &mut world_state.farm_states, &mut world_state.town_grids,
+        &mut world_state.spawner_state, &mut world_state.building_hp,
+        &mut world_state.slot_alloc, &mut world_state.building_slots,
+        &mut food_storage, &mut extra.gold_storage,
+        &mut faction_stats, &mut raider_state,
     );
-    *extra.mining_policy = MiningPolicy::default();
+    let total = npc_msgs.len();
+    for msg in npc_msgs { spawn_writer.write(msg); }
 
-    // Build spatial grid for startup find calls
-    extra.bgrid.rebuild(&world_state.world_data, world_state.grid.width as f32 * world_state.grid.cell_size);
+    // Game-specific post-setup: settings, policies, combat log
+    *extra.mining_policy = MiningPolicy::default();
+    let num_towns = world_state.world_data.towns.len();
+    extra.npcs_by_town.0.resize(num_towns, Vec::new());
+    game_config.npc_counts = config.npc_counts.iter().map(|(&job, &count)| (job, count as i32)).collect();
+    *game_time = GameTime::default();
+    world_state.building_occupancy.clear();
 
     // Load saved policies + auto-upgrade flags for player's town
     let saved = crate::settings::load_settings();
@@ -322,108 +325,17 @@ fn game_startup_system(
         *flags = crate::systems::stats::decode_auto_upgrade_flags(&saved.auto_upgrades);
     }
 
-    // Init NPC tracking per town
-    let num_towns = world_state.world_data.towns.len();
-    extra.npcs_by_town.0.resize(num_towns, Vec::new());
-    food_storage.init(num_towns);
-    extra.gold_storage.init(num_towns);
-    faction_stats.init(num_towns); // one per settlement (player + AI + raider towns)
-    raider_state.init(num_towns, 10);
-
-    // Sync GameConfig from WorldGenConfig
-    game_config.npc_counts = config.npc_counts.iter().map(|(&job, &count)| (job, count as i32)).collect();
-
-    // Reset game time
-    *game_time = GameTime::default();
-
-    // Build SpawnerState from world gen buildings — registry-driven
-    world_state.spawner_state.0.clear();
-    for def in crate::constants::BUILDING_REGISTRY {
-        if def.spawner.is_some() {
-            for i in 0..(def.len)(&world_state.world_data) {
-                if let Some((pos, ti)) = (def.pos_town)(&world_state.world_data, i) {
-                    world::register_spawner(&mut world_state.spawner_state, def.kind,
-                        ti as i32, pos, -1.0);
-                }
-            }
+    // Apply personality-based policies + log AI players joining
+    for player in &ai_players {
+        if let Some(policy) = extra.policies.policies.get_mut(player.town_data_idx) {
+            *policy = player.personality.default_policies();
+        }
+        if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
+            extra.combat_log.push(CombatEventKind::Ai, -1, 1, 6, 0,
+                format!("{} [{}] joined the game", town.name, player.personality.name()));
         }
     }
-
-    // Initialize building HP for all world-gen buildings — registry-driven
-    {
-        let hp = &mut world_state.building_hp;
-        **hp = BuildingHpState::default();
-        for def in crate::constants::BUILDING_REGISTRY {
-            let count = (def.len)(&world_state.world_data);
-            let hps = (def.hps_mut)(hp);
-            for _ in 0..count { hps.push(def.hp); }
-        }
-    }
-
-    // Allocate GPU NPC slots for all buildings (invisible, speed=0, for collision)
-    world_state.building_slots.clear();
-    allocate_all_building_slots(&world_state.world_data, &mut world_state.slot_alloc, &mut world_state.building_slots);
-
-    // Reset farm occupancy for fresh game
-    world_state.building_occupancy.clear();
-
-    // Local tracker to prevent two farmers picking the same farm at startup.
-    // NOT written to BuildingOccupancy — the arrival handler will populate that when farmers arrive.
-    let mut startup_claimed = world::BuildingOccupancy::default();
-
-    // Spawn 1 NPC per building spawner (instant, no timer)
-    let mut total = 0;
-    for entry in world_state.spawner_state.0.iter_mut() {
-        let Some(slot) = world_state.slot_alloc.alloc() else { break };
-        let town_data_idx = entry.town_idx as usize;
-
-        let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
-            world::resolve_spawner_npc(entry, &world_state.world_data.towns, &extra.bgrid, &startup_claimed, &world_state.world_data.miner_homes());
-        // Mark farm as claimed so next farmer picks a different one
-        if work_x > 0.0 { startup_claimed.claim(Vec2::new(work_x, work_y)); }
-
-        // Home = spawner building position (house/barracks/tent)
-        let (home_x, home_y) = (entry.position.x, entry.position.y);
-
-        spawn_writer.write(SpawnNpcMsg {
-            slot_idx: slot,
-            x: entry.position.x,
-            y: entry.position.y,
-            job,
-            faction,
-            town_idx: town_data_idx as i32,
-            home_x,
-            home_y,
-            work_x,
-            work_y,
-            starting_post,
-            attack_type,
-        });
-        entry.npc_slot = slot as i32;
-        total += 1;
-    }
-
-    // Populate AI players (non-player factions) with random personalities
-    extra.ai_state.players.clear();
-    let personalities = [AiPersonality::Aggressive, AiPersonality::Balanced, AiPersonality::Economic];
-    let mut rng = rand::rng();
-    for (grid_idx, town_grid) in world_state.town_grids.grids.iter().enumerate() {
-        let tdi = town_grid.town_data_idx;
-        if let Some(town) = world_state.world_data.towns.get(tdi) {
-            if town.faction > 0 {
-                let kind = if town.sprite_type == 1 { AiKind::Raider } else { AiKind::Builder };
-                let personality = personalities[rng.random_range(0..personalities.len())];
-                // Set town policies based on personality
-                if let Some(policy) = extra.policies.policies.get_mut(tdi) {
-                    *policy = personality.default_policies();
-                }
-                extra.ai_state.players.push(AiPlayer { town_data_idx: tdi, grid_idx, kind, personality, last_actions: VecDeque::new(), active: true, squad_indices: Vec::new(), squad_cmd: HashMap::new() });
-                // Log AI player joining
-                extra.combat_log.push(CombatEventKind::Ai, -1, 1, 6, 0,
-                    format!("{} [{}] joined the game", town.name, personality.name()));
-            }
-        }
-    }
+    extra.ai_state.players = ai_players;
 
     // Center camera on first town
     if let Some(first_town) = world_state.world_data.towns.first() {

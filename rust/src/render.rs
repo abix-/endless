@@ -13,7 +13,7 @@ use crate::resources::{SelectedNpc, SelectedBuilding, LeftPanelTab, SystemTiming
 use crate::components::ManualTarget;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::settings::UserSettings;
-use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, TERRAIN_TILES, building_tiles};
+use crate::world::{WorldData, WorldGrid, BuildingKind, build_tileset, build_building_atlas, build_extras_atlas, TERRAIN_TILES, building_tiles};
 
 // =============================================================================
 // CONSTANTS
@@ -48,6 +48,8 @@ pub struct SpriteAssets {
     pub world_atlas: Handle<TextureAtlasLayout>,
     /// External building sprites loaded from BUILDING_REGISTRY paths.
     pub external_textures: Vec<Handle<Image>>,
+    /// Individual sprites composited into the extras atlas (heal, sleep, arrow, boat).
+    pub extras_sprites: Vec<Handle<Image>>,
     /// Whether assets are loaded
     pub loaded: bool,
 }
@@ -143,14 +145,15 @@ fn load_sprites(
     }).collect();
     config.textures.world_handle = Some(assets.world_texture.clone());
 
-    // Load heal halo sprite (single 16x16 texture)
-    config.textures.heal_handle = Some(asset_server.load("sprites/heal.png"));
-
-    // Load sleep icon sprite (single 16x16 texture)
-    config.textures.sleep_handle = Some(asset_server.load("sprites/sleep.png"));
-
-    // Load arrow projectile sprite (single texture, white, points up)
-    config.textures.arrow_handle = Some(asset_server.load("sprites/arrow.png"));
+    // Extras atlas sprites: composited into a single grid texture in spawn_world_tilemap
+    // Order must match atlas_id mapping in npc_render.wgsl calc_uv:
+    //   col 0 = heal (atlas 2), col 1 = sleep (atlas 3), col 2 = arrow (atlas 4), col 3 = boat (atlas 8)
+    assets.extras_sprites = vec![
+        asset_server.load("sprites/heal.png"),
+        asset_server.load("sprites/sleep.png"),
+        asset_server.load("sprites/arrow.png"),
+        asset_server.load("sprites/boat.png"),
+    ];
 
     // Create atlas layout for world sprites
     let world_layout = TextureAtlasLayout::from_grid(
@@ -854,6 +857,13 @@ fn spawn_world_tilemap(
             "building atlas height mismatch");
     }
     config.textures.building_handle = Some(building_atlas);
+
+    // Extras atlas: composites heal, sleep, arrow, boat into a single grid texture
+    let extras_imgs: Option<Vec<Image>> = assets.extras_sprites.iter()
+        .map(|h| images.get(h).cloned()).collect();
+    if let Some(extras_imgs) = extras_imgs {
+        config.textures.extras_handle = Some(build_extras_atlas(&extras_imgs, &mut images));
+    }
 
     info!("World tilemap spawned: {}x{} grid", grid.width, grid.height);
     spawned.0 = true;

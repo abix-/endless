@@ -269,10 +269,11 @@ pub fn bottom_panel_system(
 
     let mut copy_text: Option<String> = None;
 
-    // Only show inspector when something is selected
+    // Only show inspector when something is selected (or DC group active)
     let has_npc = data.selected.0 >= 0;
     let has_building = bld_data.selected_building.active;
-    if has_npc || has_building {
+    let dc_count = equip_query.iter().filter(|(.., dc)| dc.is_some()).count();
+    if has_npc || has_building || dc_count > 0 {
         if has_npc && !has_building {
             inspector_state.tabs.show_npc = true;
         } else if has_building && !has_npc {
@@ -319,7 +320,7 @@ pub fn bottom_panel_system(
                     ui, &data, &mut meta_cache, &mut inspector_state.rename, &bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                     &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty, show_npc,
-                    &panel_state.npc_entity_map, &panel_state.squad_state, &mut panel_state.commands,
+                    &panel_state.npc_entity_map, &panel_state.squad_state, &mut panel_state.commands, dc_count,
                 );
                 // Destroy button for selected player-owned buildings (not fountains/mines)
                 let show_building = has_building && (!has_npc || !show_npc);
@@ -543,6 +544,52 @@ pub fn combat_log_system(
     Ok(())
 }
 
+/// DirectControl group summary — shown when DC units exist but no single NPC selected.
+fn dc_group_inspector(
+    ui: &mut egui::Ui,
+    health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
+    equip_query: &Query<(
+        &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
+        Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
+        Option<&DirectControl>,
+    ), Without<Dead>>,
+    meta_cache: &NpcMetaCache,
+) {
+    let mut total_hp = 0.0f32;
+    let mut total_max_hp = 0.0f32;
+    let mut job_counts: Vec<(&str, usize)> = Vec::new();
+    let mut count = 0usize;
+
+    for (ni, .., dc) in equip_query.iter() {
+        if dc.is_none() { continue; }
+        count += 1;
+        let idx = ni.0;
+        if let Some((_, health, stats, _)) = health_query.iter().find(|(n, ..)| n.0 == idx) {
+            total_hp += health.0;
+            total_max_hp += stats.max_health;
+        }
+        if idx < meta_cache.0.len() {
+            let name = crate::job_name(meta_cache.0[idx].job);
+            if let Some(entry) = job_counts.iter_mut().find(|(n, _)| *n == name) {
+                entry.1 += 1;
+            } else {
+                job_counts.push((name, 1));
+            }
+        }
+    }
+
+    ui.heading(format!("Direct Control — {} units", count));
+    ui.separator();
+
+    let hp_frac = if total_max_hp > 0.0 { total_hp / total_max_hp } else { 1.0 };
+    ui.label(format!("HP: {:.0} / {:.0} ({:.0}%)", total_hp, total_max_hp, hp_frac * 100.0));
+
+    let parts: Vec<String> = job_counts.iter().map(|(j, c)| format!("{} {}", c, j)).collect();
+    if !parts.is_empty() {
+        ui.label(parts.join(", "));
+    }
+}
+
 /// Render inspector content into a ui region (left side of bottom panel).
 fn inspector_content(
     ui: &mut egui::Ui,
@@ -571,6 +618,7 @@ fn inspector_content(
     npc_entity_map: &NpcEntityMap,
     squad_state: &SquadState,
     commands: &mut Commands,
+    dc_count: usize,
 ) {
     if !show_npc {
         rename_state.slot = -1;
@@ -589,6 +637,10 @@ fn inspector_content(
         rename_state.text.clear();
         if bld_data.selected_building.active {
             building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
+            return;
+        }
+        if dc_count > 0 {
+            dc_group_inspector(ui, health_query, equip_query, meta_cache);
             return;
         }
         ui.label("Click an NPC or building to inspect");

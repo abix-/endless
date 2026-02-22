@@ -851,10 +851,8 @@ struct NpcComputePipeline {
 pub struct NpcSpriteTexture {
     pub handle: Option<Handle<Image>>,
     pub world_handle: Option<Handle<Image>>,
-    pub heal_handle: Option<Handle<Image>>,
-    pub sleep_handle: Option<Handle<Image>>,
-    pub arrow_handle: Option<Handle<Image>>,
     pub building_handle: Option<Handle<Image>>,
+    pub extras_handle: Option<Handle<Image>>,
 }
 
 /// GPU buffers for projectile compute.

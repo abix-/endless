@@ -145,7 +145,7 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Status |
 |----------|------|--------|
 | GpuReadState | positions, combat_targets, health, factions, npc_count | Populated via staging buffer readback each frame |
-| NpcSpriteTexture | handle (char atlas), world_handle (world atlas) | Shared with instanced renderer for dual atlas bind group |
+| NpcSpriteTexture | handle (char atlas), world_handle (world atlas), extras_handle (extras atlas), building_handle (building atlas) | Shared with instanced renderer for texture bind group |
 | ProjSlotAllocator | next, free list, max (50,000) | Active — allocates projectile slots |
 
 `GpuReadState` is populated each frame by staging buffer readback. Used by combat systems, position sync, and test assertions.
@@ -304,7 +304,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 |----------|------|---------|---------|
 | MigrationState | `active: Option<MigrationGroup>`, `check_timer: f32` | migration_spawn_system, migration_settle_system | migration_attach_system, migration_settle_system, save/load |
 
-`MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the raider town-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders).
+`MigrationGroup` fields: `town_data_idx` (index into WorldData.towns for the raider town-to-be), `grid_idx` (TownGrids index), `member_slots: Vec<usize>` (NPC slot indices of migrating raiders), `boat_slot: Option<usize>` (NPC GPU slot for boat entity), `boat_pos: Vec2` (current boat position), `settle_target: Vec2` (destination chosen by `pick_settle_site`), `faction: i32`.
 
 `Migrating` component: marker on NPC entities that are part of an active migration group. Attached by `migration_attach_system`, removed by `migration_settle_system` on settlement. Persisted in save via `MigrationSave.member_slots` and re-attached on load.
 

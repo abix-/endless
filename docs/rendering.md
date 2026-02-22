@@ -7,7 +7,7 @@
 - **Storage buffer path** (buildings + NPCs): `vertex_npc` shader entry point reads positions/health directly from compute shader's `NpcGpuBuffers` storage buffers (bind group 2). Visual/equipment data uploaded from CPU as flat storage buffers (`NpcVisualBuffers`). Three specialized variants via `#ifdef` shader defs: `MODE_BUILDING_BODY` (layer 0, building atlas only), `MODE_NPC_BODY` (layer 0, non-building only), `MODE_NPC_OVERLAY` (layers 1-6, non-building only).
 - **Instance buffer path** (building overlays, projectiles): `vertex` shader entry point reads from classic per-instance `InstanceData` vertex attributes (slot 1).
 
-Six textures bound simultaneously (group 0, bindings 0-11) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal halo, 3=sleep icon, 4=arrow, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BUILDING`).
+Four textures bound simultaneously (group 0, bindings 0-7) — `atlas_id` selects which to sample (0=character, 1=world, 2=heal/3=sleep/4=arrow/8=boat via extras atlas, 7=building). Bar-only modes: 5=building HP bar (green/yellow/red), 6=mining progress bar (gold). Atlas ID constants defined in `constants.rs` (`ATLAS_CHAR` through `ATLAS_BOAT`).
 
 Defined in: `rust/src/npc_render.rs`, `rust/src/render.rs`, `shaders/npc_render.wgsl`
 
@@ -45,8 +45,8 @@ NpcBatch entity       ──extract_npc_batch──▶ NpcBatch entity
                                       │
                                       ▼
                             prepare_npc_texture_bind_group
-                            (6 textures: char + world + heal + sleep + arrow + building;
-                             building atlas falls back to char_image until loaded)
+                            (4 textures: char + world + extras + building;
+                             building/extras atlas falls back to char_image until loaded)
                             prepare_npc_camera_bind_group
                             (CameraUniform with npc_count)
                                       │
@@ -116,8 +116,8 @@ let layer = in.instance_index / camera.npc_count;
 **Layer 0 (body):** reads `npc_visual_buf[slot]` for sprite/color/flash, `npc_healths[slot] / 100.0` for health bar. Hidden: `pos.x < -9000.0` or `sprite_col < 0`.
 
 **Layers 1-6 (equipment):** reads `npc_equip[slot * 6u + (layer - 1u)]`. Color/scale by atlas type (all in shader):
-- `atlas >= 2.5` (sleep icon): scale=16, color=white — preserves sprite's natural blue Zz
-- `atlas >= 1.5` (heal halo): scale=20, color=yellow [1.0, 0.9, 0.2]
+- `atlas >= 2.5` (sleep icon, extras atlas): scale=16, color=white — preserves sprite's natural blue Zz
+- `atlas >= 1.5` (heal halo, extras atlas): scale=20, color=yellow [1.0, 0.9, 0.2]
 - `atlas >= 0.5` (carried item/world atlas): scale=16, color=white
 - `atlas < 0.5` (character atlas equipment): scale=16, color=NPC job color from `npc_visual_buf`
 
@@ -135,7 +135,7 @@ pub struct InstanceData {
     pub health: f32,         // normalized 0.0-1.0 (4 bytes)
     pub flash: f32,          // damage flash 0.0-1.0 (4 bytes)
     pub scale: f32,          // world-space quad size (4 bytes)
-    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal, 3.0=sleep, 4.0=arrow, 5.0=BHP bar, 6.0=mining progress bar (4 bytes)
+    pub atlas_id: f32,       // 0.0=character, 1.0=world, 2.0=heal, 3.0=sleep, 4.0=arrow, 5.0=BHP bar, 6.0=mining progress bar, 7.0=building, 8.0=boat (4 bytes)
     pub rotation: f32,       // radians, used for projectile orientation (4 bytes)
 }
 ```
@@ -203,25 +203,29 @@ Both paths share `quad_vertex_layout()` (slot 0). The instance path adds `instan
 
 ## Sprite Atlases
 
-Six textures are bound simultaneously at group 0 (bindings 0-11). Per-instance/per-slot `atlas_id` selects which to sample.
+Four textures are bound simultaneously at group 0 (bindings 0-7). Per-instance/per-slot `atlas_id` selects which to sample.
 
 | Atlas | Bindings | atlas_id | File | Size | Used By |
 |-------|----------|----------|------|------|---------|
 | Character | 0-1 | 0 | `roguelikeChar_transparent.png` | 918×203 | NPCs, equipment |
 | World | 2-3 | 1 | `roguelikeSheet_transparent.png` | 968×526 | Farms |
-| Heal halo | 4-5 | 2 | `heal.png` | 16×16 | Healing overlay |
-| Sleep icon | 6-7 | 3 | `sleep.png` | 16×16 | Sleep indicator |
-| Arrow | 8-9 | 4 | `arrow.png` | 16×16 | Projectile sprite |
-| Building | 10-11 | 7 | (generated at runtime) | 32×(N×32) | Building sprites |
+| Extras | 4-5 | 2,3,4,8 | (generated at runtime) | 128×32 | Heal halo, sleep icon, arrow, boat |
+| Building | 6-7 | 7 | (generated at runtime) | 32×(N×32) | Building sprites |
 
-Character and world atlases use 16px sprites with 1px margin (17px cells). Heal, sleep, and arrow textures are single-sprite (UV = quad_uv directly). The building atlas is a vertical strip of N tiles (32×32 each, currently 13), generated at runtime by `build_building_atlas()` from individual building sprites. Layer count is dynamic — `camera.bldg_layers` is set from `BUILDING_REGISTRY.len()` each frame, eliminating hardcoded shader constants. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
+Character and world atlases use 16px sprites with 1px margin (17px cells). The **extras atlas** is a horizontal grid of 4×32px cells generated at runtime by `build_extras_atlas()` from individual sprites (heal.png, sleep.png, arrow.png, boat.png) — each 16px source is nearest-neighbor 2× upscaled to 32×32. Column mapping: 0=heal, 1=sleep, 2=arrow, 3=boat. The building atlas is a vertical strip of N tiles (32×32 each, currently 13), generated at runtime by `build_building_atlas()` from individual building sprites. Layer count is dynamic — `camera.bldg_layers` is set from `BUILDING_REGISTRY.len()` each frame, eliminating hardcoded shader constants. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
 
 ```wgsl
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
     if is_building_atlas(atlas_id) {
         return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / camera.bldg_layers);
     } else if atlas_id >= 1.5 {
-        return quad_uv;  // Single-sprite textures (heal, sleep, arrow)
+        // Extras atlas: col selected by atlas_id, UV spans one cell
+        var col: f32 = 0.0;
+        if atlas_id >= 7.5 { col = 3.0; }       // boat (atlas 8)
+        else if atlas_id >= 3.5 { col = 2.0; }  // arrow (atlas 4)
+        else if atlas_id >= 2.5 { col = 1.0; }  // sleep (atlas 3)
+        let px = (col + quad_uv.x) / camera.extras_cols;
+        return vec2<f32>(px, quad_uv.y);
     } else if atlas_id < 0.5 {
         // Character atlas: 918×203
     } else {
@@ -230,7 +234,7 @@ fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) 
 }
 ```
 
-The fragment shader dispatches by `atlas_id` — building (7) first, then descending: mining progress bar (≥5.5) renders gold bar and discards, building HP bar-only (≥4.5) renders health bar and discards, arrow projectile (≥3.5) samples `arrow_texture`, sleep (≥2.5) samples `sleep_texture`, heal (≥1.5) samples `heal_texture`, then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`). Sleep and heal both early-return after texture sampling with color tint applied.
+The fragment shader dispatches by `atlas_id` — building (7) first, then descending: mining progress bar (≥5.5) renders gold bar and discards, building HP bar-only (≥4.5) renders health bar and discards, extras (≥1.5) samples `extras_texture` with per-atlas_id color tint (arrow=white, sleep=white, heal=yellow, boat=white), then character (<0.5) or world atlas. Health bars, damage flash, and equipment layer masking only apply to character atlas sprites (`atlas_id < 0.5`).
 
 Job sprite assignments (from constants.rs):
 - Farmer: (1, 6)
@@ -242,11 +246,9 @@ Job sprite assignments (from constants.rs):
 
 The fragment shader handles both health bar rendering and sprite rendering. The vertex shader passes two UV sets: `uv` (atlas-transformed for texture sampling) and `quad_uv` (raw 0-1 within the sprite quad for health bar positioning).
 
-**Dedicated texture overlays** (early-return before health bar / sprite rendering):
+**Extras atlas overlays** (early-return before health bar / sprite rendering):
 ```wgsl
-// Sleep icon (atlas_id 3): sample sleep_texture, discard transparent, apply color tint
-if in.atlas_id >= 2.5 { ... return; }
-// Heal halo (atlas_id 2): sample heal_texture, discard transparent, apply color tint
+// Extras atlas (atlas_id 2=heal, 3=sleep, 4=arrow, 8=boat): sample extras_texture, discard transparent, apply color tint
 if in.atlas_id >= 1.5 { ... return; }
 ```
 
@@ -319,7 +321,7 @@ The render pipeline runs in Bevy's render world after extract:
 | Extract | `extract_overlay_instances` | Zero-clone read of OverlayInstances → BuildingOverlayBuffers (farms/BHP/mining) with RawBufferVec reuse |
 | PrepareResources | `prepare_npc_buffers` | Buffer creation + sentinel init (first frame), create bind group 2 |
 | Extract | `extract_proj_data` | Zero-clone GPU upload: per-dirty-index compute writes + projectile instance buffer build from `active_set` via `Extract<Res<T>>` |
-| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from RenderFrameConfig.textures (6 textures: char + world + heal + sleep + arrow + building; building falls back to char_image until atlas loads) |
+| PrepareBindGroups | `prepare_npc_texture_bind_group` | Create texture bind group from RenderFrameConfig.textures (4 textures: char + world + extras + building; building/extras fall back to char_image until atlas loads) |
 | PrepareBindGroups | `prepare_npc_camera_bind_group` | Create camera uniform bind group (includes npc_count from RenderFrameConfig.npc) |
 | Queue | `queue_npcs` | Add DrawBuildingBodyCommands (0.2), DrawBuildingOverlayCommands (0.3), DrawNpcBodyCommands (0.5), DrawNpcOverlayCommands (0.6) |
 | Queue | `queue_projs` | Add DrawProjCommands (sort_key=1.0, above NPCs) |
@@ -369,7 +371,7 @@ Bevy's Camera2d is the single source of truth — input systems write directly t
 - `camera_zoom_system`: scroll wheel zoom toward mouse cursor (factor 0.1, range 0.1–4.0), writes `Projection::Orthographic.scale` and `Transform` directly
 - `click_to_select_system`: left click → screen-to-world via camera `Transform` + `Projection` → find nearest NPC within 20px from GPU_READ_STATE. If no NPC found, checks `WorldGrid` for a building at the clicked cell and sets `SelectedBuilding` (col, row, active). Guarded by `ctx.wants_pointer_input() || ctx.is_pointer_over_area()` to avoid stealing clicks from egui UI panels.
 
-**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `RenderFrameConfig.npc` and `bldg_layers` from `BUILDING_REGISTRY.len()`), creating a bind group at group 1.
+**Render world**: `extract_camera_state` (ExtractSchedule, `npc_render.rs`) reads the camera entity's `Transform`, `Projection`, and `Window` to build a `CameraState` resource in the render world. `prepare_npc_camera_bind_group` writes this to a `CameraUniform` `UniformBuffer` each frame (including `npc_count` from `RenderFrameConfig.npc`, `bldg_layers` from `BUILDING_REGISTRY.len()`, and `extras_cols` = 4.0), creating a bind group at group 1.
 
 **Shader** (`npc_render.wgsl`): reads camera from uniform buffer:
 ```wgsl
@@ -379,6 +381,7 @@ struct Camera {
     npc_count: u32,     // used by vertex_npc for instance offset decoding
     viewport: vec2<f32>,
     bldg_layers: f32,   // building atlas layer count (from BUILDING_REGISTRY.len())
+    extras_cols: f32,   // extras atlas column count (currently 4.0)
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
 
@@ -398,15 +401,17 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 |-------|------|------|------|---------|
 | Characters | `roguelikeChar_transparent.png` | 918×203 | 54×12 (16px + 1px margin) | NPC instanced rendering |
 | World | `roguelikeSheet_transparent.png` | 968×526 | 57×31 (16px + 1px margin) | Building/terrain sprites |
-| Heal halo | `heal.png` | 16×16 | 1×1 (single sprite) | Healing overlay |
-| Sleep icon | `sleep.png` | 16×16 | 1×1 (single sprite) | Sleep indicator overlay |
+| Heal halo | `heal.png` | 16×16 | 1×1 (single sprite) | Extras atlas source (col 0) |
+| Sleep icon | `sleep.png` | 16×16 | 1×1 (single sprite) | Extras atlas source (col 1) |
+| Arrow | `arrow.png` | 16×16 | 1×1 (single sprite) | Extras atlas source (col 2) |
+| Boat | `boat.png` | 32×32 | 1×1 (single sprite) | Extras atlas source (col 3) |
 | Farmer Home | `house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Archer Home | `barracks.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Waypoint | `waypoint.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Miner Home | `miner_house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Fighter Home | `fighter_home.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 
-`SpriteAssets` holds handles for all loaded textures. External building sprites are stored as a `Vec<Handle<Image>>` (`external_textures`), loaded dynamically from `BUILDING_REGISTRY` — each `TileSpec::External("sprites/foo.png")` entry is loaded at startup. NPC instanced rendering textures are shared via `RenderFrameConfig.textures` (NpcSpriteTexture: `handle` for character, `world_handle` for world atlas, `heal_handle` for heal halo, `sleep_handle` for sleep icon, `arrow_handle` for arrow, `building_handle` for building atlas), extracted to render world for bind group creation. The building atlas handle is set later by `spawn_world_tilemap` (not at startup like the others); `prepare_npc_texture_bind_group` falls back to `char_image` until it's available.
+`SpriteAssets` holds handles for all loaded textures. External building sprites are stored as a `Vec<Handle<Image>>` (`external_textures`), loaded dynamically from `BUILDING_REGISTRY` — each `TileSpec::External("sprites/foo.png")` entry is loaded at startup. NPC instanced rendering textures are shared via `RenderFrameConfig.textures` (NpcSpriteTexture: `handle` for character, `world_handle` for world atlas, `extras_handle` for extras atlas, `building_handle` for building atlas), extracted to render world for bind group creation. The building and extras atlas handles are set later by `spawn_world_tilemap` (not at startup like the others); `prepare_npc_texture_bind_group` falls back to `char_image` until they're available.
 
 ## Equipment Layers
 
@@ -453,7 +458,7 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 
-**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Spawns terrain chunk with `TerrainChunk` marker. Also creates the building atlas from `SpriteAssets.external_textures` (registry-driven) and stores it in `RenderFrameConfig.textures.building_handle`.
+**`spawn_world_tilemap`** system (`render.rs`, Update schedule): Runs once when WorldGrid is populated and world atlas is loaded. Spawns terrain chunk with `TerrainChunk` marker. Also creates the building atlas from `SpriteAssets.external_textures` (registry-driven) and the extras atlas from heal/sleep/arrow/boat sprites via `build_extras_atlas()`, storing both in `RenderFrameConfig.textures`.
 
 **`TerrainChunk`** marker component (`render.rs`): Attached to the terrain TilemapChunk entity so `sync_terrain_tilemap` can query it for runtime terrain updates (e.g. slot unlock → Dirt).
 

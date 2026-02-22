@@ -243,12 +243,22 @@ pub struct AiPlayerSave {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MigrationSave {
-    pub town_data_idx: usize,
+    #[serde(default)]
+    pub town_data_idx: Option<usize>,
+    #[serde(default)]
     pub grid_idx: usize,
     pub member_slots: Vec<usize>,
     pub check_timer: f32,
     #[serde(default)]
     pub is_raider: bool,
+    #[serde(default)]
+    pub faction: i32,
+    #[serde(default)]
+    pub upgrade_levels: Vec<u8>,
+    #[serde(default)]
+    pub starting_food: i32,
+    #[serde(default)]
+    pub starting_gold: i32,
 }
 
 fn default_true() -> bool { true }
@@ -604,13 +614,19 @@ pub fn collect_save_data(
         kill_stats: [kill_stats.archer_kills, kill_stats.villager_kills],
         npcs,
         ai_players,
-        migration: migration_state.active.as_ref().map(|g| MigrationSave {
-            town_data_idx: g.town_data_idx,
-            grid_idx: g.grid_idx,
-            member_slots: g.member_slots.clone(),
-            check_timer: migration_state.check_timer,
-            is_raider: g.is_raider,
-        }),
+        migration: migration_state.active.as_ref()
+            .filter(|g| g.boat_slot.is_none()) // don't save boat phase — transient
+            .map(|g| MigrationSave {
+                town_data_idx: g.town_data_idx,
+                grid_idx: g.grid_idx,
+                member_slots: g.member_slots.clone(),
+                check_timer: migration_state.check_timer,
+                is_raider: g.is_raider,
+                faction: g.faction,
+                upgrade_levels: g.upgrade_levels.clone(),
+                starting_food: g.starting_food,
+                starting_gold: g.starting_gold,
+            }),
         endless_mode: endless.enabled,
         endless_strength: endless.strength_fraction,
         endless_pending: endless.pending_spawns.clone(),
@@ -874,13 +890,20 @@ pub fn apply_save(
         }
     }
 
-    // Migration state
+    // Migration state (boat phase is not saved — only walk/settle phase)
     if let Some(ms) = &save.migration {
         migration_state.active = Some(MigrationGroup {
+            boat_slot: None,
+            boat_pos: Vec2::ZERO,
+            settle_target: Vec2::ZERO,
+            is_raider: ms.is_raider,
+            upgrade_levels: ms.upgrade_levels.clone(),
+            starting_food: ms.starting_food,
+            starting_gold: ms.starting_gold,
+            member_slots: ms.member_slots.clone(),
+            faction: ms.faction,
             town_data_idx: ms.town_data_idx,
             grid_idx: ms.grid_idx,
-            member_slots: ms.member_slots.clone(),
-            is_raider: ms.is_raider,
         });
         migration_state.check_timer = ms.check_timer;
     } else {

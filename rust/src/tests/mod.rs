@@ -22,6 +22,7 @@ pub mod farm_visual;
 pub mod heal_visual;
 pub mod npc_visuals;
 pub mod terrain_visual;
+pub mod endless_mode;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -63,6 +64,19 @@ pub struct CleanupExtra<'w> {
     pub building_hp: ResMut<'w, crate::resources::BuildingHpState>,
 }
 
+#[derive(SystemParam)]
+pub struct CleanupEndless<'w> {
+    pub endless: ResMut<'w, crate::resources::EndlessMode>,
+    pub ai_state: ResMut<'w, crate::systems::AiPlayerState>,
+    pub migration: ResMut<'w, crate::resources::MigrationState>,
+    pub town_grids: ResMut<'w, crate::world::TownGrids>,
+    pub upgrades: ResMut<'w, crate::systems::TownUpgrades>,
+    pub gold_storage: ResMut<'w, crate::resources::GoldStorage>,
+    pub npcs_by_town: ResMut<'w, crate::resources::NpcsByTownCache>,
+    pub policies: ResMut<'w, crate::resources::TownPolicies>,
+    pub combat_log: ResMut<'w, crate::resources::CombatLog>,
+}
+
 // ============================================================================
 // TEST SETUP PARAMS (shared by most test setup functions)
 // ============================================================================
@@ -77,6 +91,15 @@ pub struct TestSetupParams<'w> {
     pub game_time: ResMut<'w, GameTime>,
     pub test_state: ResMut<'w, TestState>,
     pub spawner_state: ResMut<'w, SpawnerState>,
+}
+
+/// Resources needed by `world::init_world_buildings` — shared bundle to stay under 16-param limit.
+#[derive(SystemParam)]
+pub struct BuildingInitParams<'w> {
+    pub spawner_state: ResMut<'w, SpawnerState>,
+    pub building_hp: ResMut<'w, BuildingHpState>,
+    pub slot_alloc: ResMut<'w, SlotAllocator>,
+    pub building_slots: ResMut<'w, BuildingSlotMap>,
 }
 
 impl TestSetupParams<'_> {
@@ -296,7 +319,11 @@ pub fn register_tests(app: &mut App) {
 
     // Menu + HUD UI (must run in EguiPrimaryContextPass, not Update)
     app.add_systems(EguiPrimaryContextPass, test_menu_system.run_if(in_state(AppState::TestMenu)));
-    app.add_systems(EguiPrimaryContextPass, test_hud_system.run_if(in_state(AppState::Running)));
+    app.add_systems(EguiPrimaryContextPass, (
+        crate::ui::game_hud::top_bar_system,
+        crate::ui::game_hud::combat_log_system,
+        test_hud_system,
+    ).chain().run_if(in_state(AppState::Running)));
     app.add_systems(OnEnter(AppState::TestMenu), auto_start_next_test);
 
     // Cleanup when leaving Running
@@ -595,6 +622,21 @@ pub fn register_tests(app: &mut App) {
             .run_if(test_is("terrain-visual"))
             .after(Step::Behavior));
 
+    // endless-mode
+    registry.tests.push(TestEntry {
+        name: "endless-mode".into(),
+        description: "Builder + raider fountain destroyed → spawn queued → migration → settle".into(),
+        phase_count: 16,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        endless_mode::setup.run_if(test_is("endless-mode")));
+    app.add_systems(Update,
+        endless_mode::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("endless-mode"))
+            .after(Step::Behavior));
+
     app.insert_resource(registry);
 }
 
@@ -837,6 +879,7 @@ fn cleanup_test_world(
     tilemap_query: Query<Entity, With<crate::render::TerrainChunk>>,
     mut core: CleanupCore,
     mut extra: CleanupExtra,
+    mut endless_cleanup: CleanupEndless,
 ) {
     let count = entity_query.iter().count();
     for entity in entity_query.iter() {
@@ -866,6 +909,16 @@ fn cleanup_test_world(
     *extra.spawner_state = Default::default();
     *extra.building_hp = Default::default();
     extra.tilemap_spawned.0 = false;
+
+    *endless_cleanup.endless = Default::default();
+    *endless_cleanup.ai_state = Default::default();
+    *endless_cleanup.migration = Default::default();
+    *endless_cleanup.town_grids = Default::default();
+    *endless_cleanup.upgrades = Default::default();
+    *endless_cleanup.gold_storage = Default::default();
+    *endless_cleanup.npcs_by_town = Default::default();
+    *endless_cleanup.policies = Default::default();
+    *endless_cleanup.combat_log = Default::default();
 
     info!("Test cleanup: despawned {} NPCs + {} tilemap chunks, reset resources", count, tilemap_count);
 }

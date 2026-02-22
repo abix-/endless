@@ -187,6 +187,7 @@ pub struct CameraUniform {
     pub npc_count: u32,
     pub viewport: Vec2,
     pub bldg_layers: f32,
+    pub extras_cols: f32,
 }
 
 /// Bind group for camera uniform.
@@ -878,7 +879,7 @@ fn prepare_npc_buffers(
     }
 }
 
-/// Prepare texture bind group (dual atlas: character + world).
+/// Prepare texture bind group (4 atlases: char, world, building, extras).
 fn prepare_npc_texture_bind_group(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
@@ -886,32 +887,27 @@ fn prepare_npc_texture_bind_group(
     pipeline_cache: Res<PipelineCache>,
     config: Option<Res<RenderFrameConfig>>,
     gpu_images: Res<RenderAssets<GpuImage>>,
-    mut building_atlas_ready: Local<bool>,
+    mut atlases_ready: Local<bool>,
 ) {
     let Some(pipeline) = pipeline else { return };
     let Some(config) = config else { return };
     let textures = &config.textures;
     let Some(char_handle) = &textures.handle else { return };
     let Some(world_handle) = &textures.world_handle else { return };
-    let Some(heal_handle) = &textures.heal_handle else { return };
-    let Some(sleep_handle) = &textures.sleep_handle else { return };
-    let Some(arrow_handle) = &textures.arrow_handle else { return };
     let Some(char_image) = gpu_images.get(char_handle) else { return };
     let Some(world_image) = gpu_images.get(world_handle) else { return };
-    let Some(heal_image) = gpu_images.get(heal_handle) else { return };
-    let Some(sleep_image) = gpu_images.get(sleep_handle) else { return };
-    let Some(arrow_image) = gpu_images.get(arrow_handle) else { return };
 
-    // Building atlas: fallback to char_image until spawn_world_tilemap creates it
-    let building_image = textures.building_handle.as_ref()
-        .and_then(|h| gpu_images.get(h));
-    if !*building_atlas_ready {
-        if building_image.is_some() {
-            info!("Building atlas bound");
-            *building_atlas_ready = true;
+    // Building + extras atlases: fallback to char_image until spawn_world_tilemap composites them
+    let building_image = textures.building_handle.as_ref().and_then(|h| gpu_images.get(h));
+    let extras_image = textures.extras_handle.as_ref().and_then(|h| gpu_images.get(h));
+    if !*atlases_ready {
+        if building_image.is_some() && extras_image.is_some() {
+            info!("Building + extras atlases bound");
+            *atlases_ready = true;
         }
     }
     let building_image = building_image.unwrap_or(char_image);
+    let extras_image = extras_image.unwrap_or(char_image);
 
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.texture_bind_group_layout);
 
@@ -923,14 +919,10 @@ fn prepare_npc_texture_bind_group(
             &char_image.sampler,
             &world_image.texture_view,
             &world_image.sampler,
-            &heal_image.texture_view,
-            &heal_image.sampler,
-            &sleep_image.texture_view,
-            &sleep_image.sampler,
-            &arrow_image.texture_view,
-            &arrow_image.sampler,
             &building_image.texture_view,
             &building_image.sampler,
+            &extras_image.texture_view,
+            &extras_image.sampler,
         )),
     );
 
@@ -956,6 +948,7 @@ fn prepare_npc_camera_bind_group(
         npc_count: config.map(|c| c.npc.count).unwrap_or(0),
         viewport: camera_state.viewport,
         bldg_layers: crate::constants::BUILDING_REGISTRY.len() as f32,
+        extras_cols: 4.0,
     };
 
     let mut buffer = UniformBuffer::from(uniform);
@@ -1240,15 +1233,12 @@ impl FromWorld for NpcPipeline {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
 
+        // 4 texture+sampler pairs: char, world, building, extras
         let texture_bind_group_layout = BindGroupLayoutDescriptor::new(
             "npc_texture_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
                 (
-                    texture_2d(TextureSampleType::Float { filterable: true }),
-                    sampler(SamplerBindingType::Filtering),
-                    texture_2d(TextureSampleType::Float { filterable: true }),
-                    sampler(SamplerBindingType::Filtering),
                     texture_2d(TextureSampleType::Float { filterable: true }),
                     sampler(SamplerBindingType::Filtering),
                     texture_2d(TextureSampleType::Float { filterable: true }),

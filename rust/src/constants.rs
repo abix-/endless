@@ -479,8 +479,11 @@ pub const RAIDER_SPAWN_CHECK_HOURS: f32 = 12.0;
 /// Maximum dynamically-spawned raider towns.
 pub const MAX_RAIDER_TOWNS: usize = 20;
 
-/// Distance from a town at which migrating raiders settle (~30s walk at 100px/s).
-pub const RAIDER_SETTLE_RADIUS: f32 = 3000.0;
+/// Distance from a town at which migrating settlers settle (~5s walk at 100px/s).
+pub const RAIDER_SETTLE_RADIUS: f32 = 500.0;
+
+/// Boat movement speed (px/s) — faster than NPC walk (100px/s).
+pub const BOAT_SPEED: f32 = 150.0;
 
 /// Minimum raiders in a migrating group.
 pub const MIGRATION_BASE_SIZE: usize = 3;
@@ -1035,3 +1038,4 @@ pub const ATLAS_ARROW: f32 = 4.0;
 pub const ATLAS_BUILDING_HP: f32 = 5.0;
 pub const ATLAS_MINING_BAR: f32 = 6.0;
 pub const ATLAS_BUILDING: f32 = 7.0;
+pub const ATLAS_BOAT: f32 = 8.0;

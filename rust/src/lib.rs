@@ -317,14 +317,11 @@ pub fn build_app(app: &mut App) {
            auto_upgrade_system,
            process_upgrades_system.after(auto_upgrade_system),
            ai_decision_system,
-           migration_spawn_system,
-           migration_settle_system,
+           endless_system,
            (rebuild_patrol_routes_system, squad_cleanup_system),
        ).in_set(Step::Behavior))
        .add_systems(Update, sync_patrol_perimeter_system.before(rebuild_patrol_routes_system).in_set(Step::Behavior))
        .add_systems(Update, ai_squad_commander_system.after(ai_decision_system).before(decision_system).in_set(Step::Behavior))
-       .add_systems(Update, endless_respawn_system.after(migration_settle_system).in_set(Step::Behavior))
-       .add_systems(Update, migration_attach_system.after(Step::Spawn).before(Step::Combat).run_if(game_active.clone()))
        .add_systems(Update, (building_damage_system, sync_building_hp_render).chain().in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        // Debug settings sync + tick logging

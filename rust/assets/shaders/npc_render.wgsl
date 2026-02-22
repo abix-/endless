@@ -42,21 +42,14 @@ struct VertexOutput {
 @group(0) @binding(2) var world_texture: texture_2d<f32>;
 @group(0) @binding(3) var world_sampler: sampler;
 
-// Heal halo sprite (bind group 0, bindings 4-5)
-@group(0) @binding(4) var heal_texture: texture_2d<f32>;
-@group(0) @binding(5) var heal_sampler: sampler;
+// Building atlas (bind group 0, bindings 4-5) — vertical strip, 32x32 per tile
+@group(0) @binding(4) var building_texture: texture_2d<f32>;
+@group(0) @binding(5) var building_sampler: sampler;
 
-// Sleep icon sprite (bind group 0, bindings 6-7)
-@group(0) @binding(6) var sleep_texture: texture_2d<f32>;
-@group(0) @binding(7) var sleep_sampler: sampler;
-
-// Arrow projectile sprite (bind group 0, bindings 8-9)
-@group(0) @binding(8) var arrow_texture: texture_2d<f32>;
-@group(0) @binding(9) var arrow_sampler: sampler;
-
-// Building atlas (bind group 0, bindings 10-11) — vertical strip, 32x32 per tile
-@group(0) @binding(10) var building_texture: texture_2d<f32>;
-@group(0) @binding(11) var building_sampler: sampler;
+// Extras atlas (bind group 0, bindings 6-7) — horizontal grid of 32x32 cells
+// Sprites: col 0=heal, 1=sleep, 2=arrow, 3=boat (mapped from atlas_id in calc_uv)
+@group(0) @binding(6) var extras_texture: texture_2d<f32>;
+@group(0) @binding(7) var extras_sampler: sampler;
 
 // Camera uniform (bind group 1)
 struct Camera {
@@ -65,6 +58,7 @@ struct Camera {
     npc_count: u32,
     viewport: vec2<f32>,
     bldg_layers: f32,
+    extras_cols: f32,
 };
 @group(1) @binding(0) var<uniform> camera: Camera;
 
@@ -114,8 +108,15 @@ fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) 
         // Building atlas: vertical strip, sprite_col selects tile layer
         return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / camera.bldg_layers);
     } else if atlas_id >= 1.5 {
-        // Single-sprite textures (heal, sleep, arrow): UV = quad_uv directly
-        return quad_uv;
+        // Extras atlas: horizontal grid of 32x32 cells, atlas_id maps to column
+        var col: f32 = 0.0;
+        if atlas_id >= 7.5 { col = 3.0; }       // boat (atlas 8)
+        else if atlas_id >= 3.5 { col = 2.0; }  // arrow (atlas 4)
+        else if atlas_id >= 2.5 { col = 1.0; }  // sleep (atlas 3)
+        // else col = 0.0 → heal (atlas 2)
+        let px = (col + quad_uv.x) / camera.extras_cols;
+        let py = quad_uv.y;
+        return vec2<f32>(px, py);
     } else if atlas_id < 0.5 {
         // Character atlas
         let px = sprite_col * CHAR_CELL + quad_uv.x * CHAR_SPRITE;
@@ -256,6 +257,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
     }
 
+    // Boat sprite (atlas_id 8) — extras atlas, check before mining/HP bar branches
+    if in.atlas_id >= 7.5 {
+        let tex_color = textureSample(extras_texture, extras_sampler, in.uv);
+        if tex_color.a < 0.1 { discard; }
+        return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
+    }
+
     // Mining progress bar (atlas_id 6): gold bar in bottom 15%, discard rest
     if in.atlas_id >= 5.5 {
         if in.quad_uv.y > 0.85 {
@@ -286,23 +294,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    // Arrow projectile sprite (atlas_id 4)
-    if in.atlas_id >= 3.5 {
-        let tex_color = textureSample(arrow_texture, arrow_sampler, in.uv);
-        if tex_color.a < 0.1 { discard; }
-        return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
-    }
-
-    // Sleep icon sprite (atlas_id 3)
-    if in.atlas_id >= 2.5 {
-        let tex_color = textureSample(sleep_texture, sleep_sampler, in.uv);
-        if tex_color.a < 0.1 { discard; }
-        return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
-    }
-
-    // Heal halo sprite (atlas_id 2)
+    // Extras atlas sprites: heal (2), sleep (3), arrow (4), boat (8)
     if in.atlas_id >= 1.5 {
-        let tex_color = textureSample(heal_texture, heal_sampler, in.uv);
+        let tex_color = textureSample(extras_texture, extras_sampler, in.uv);
         if tex_color.a < 0.1 { discard; }
         return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
     }

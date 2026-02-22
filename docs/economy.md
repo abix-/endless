@@ -255,6 +255,8 @@ migration_spawn_system (hourly check)
         ├─ Spawn N raiders via SpawnNpcMsg with Home = player town center
         │   Group size: MIGRATION_BASE_SIZE (3) + player_alive / difficulty.migration_scaling()
         │   (Easy=6, Normal=4, Hard=2), capped at 20
+        ├─ pick_settle_site() selects target position (farthest from existing towns)
+        ├─ Spawn boat entity at map edge (building slot with ATLAS_BOAT sprite)
         └─ Store MigrationGroup in MigrationState resource
            Combat log: "A raider band approaches from the {direction}!"
 
@@ -265,10 +267,16 @@ migration_attach_system (after Step::Spawn, before Step::Combat)
 
 migration_settle_system (every frame, early-returns if no active migration)
         │
-        ▼ read GPU positions for group members
+        ▼ BOAT phase: sail boat toward settle_target at BOAT_SPEED
+        │ when boat reaches land → disembark NPCs (SpawnNpcMsg), free boat slot
+        │
+        ▼ ATTACH phase: insert Migrating component on spawned entities
+        │ (bridges 1-frame gap between SpawnNpcMsg and entity creation)
+        │
+        ▼ SETTLE phase: read GPU positions for group members
         │ compute average position
         │
-        ▼ within RAIDER_SETTLE_RADIUS (3000px, ~30s walk) of any town?
+        ▼ within RAIDER_SETTLE_RADIUS (500px) of settle_target?
         │
         ▼ YES: settle town
         ├─ Update Town.center to average group position
@@ -282,7 +290,9 @@ migration_settle_system (every frame, early-returns if no active migration)
            Combat log: "A raider band has settled nearby!"
 ```
 
-**Movement**: Raiders use the existing `Home` component + `Action::Wander` behavior. Setting `Home` to the player's town center makes them naturally walk there — no custom pathfinding needed.
+**Movement**: Migration group spawns a boat entity (building slot with `ATLAS_BOAT` sprite) at the map edge. The boat sails toward `settle_target` at `BOAT_SPEED` (150px/s). When the boat reaches land (non-water terrain), NPCs disembark — spawned at the boat position with `Migrating` component, boat slot freed. NPCs then walk toward `settle_target` using the existing `Home` component + `Action::Wander` behavior.
+
+**Settlement site selection**: `pick_settle_site()` samples 100 random land positions and picks the one farthest from all existing towns — ensures new raider settlements spread across the map rather than clustering.
 
 **Save/load**: `MigrationState` serialized as `Option<MigrationSave>` in `SaveData`. On load, `Migrating` component re-attached to saved member slot entities.
 
@@ -294,7 +304,8 @@ migration_settle_system (every frame, early-returns if no active migration)
 |----------|-------|---------|
 | RAIDER_SPAWN_CHECK_HOURS | 12.0 | Game hours between migration trigger checks |
 | MAX_RAIDER_TOWNS | 20 | Maximum number of dynamic raider towns |
-| RAIDER_SETTLE_RADIUS | 3000.0px | Distance to any town that triggers settlement (~30s walk at 100px/s) |
+| RAIDER_SETTLE_RADIUS | 500.0px | Distance to settle_target that triggers settlement |
+| BOAT_SPEED | 150.0 | Boat movement speed (px/s) |
 | MIGRATION_BASE_SIZE | 3 | Base raiders per migration group |
 | VILLAGERS_PER_RAIDER | 20 | Player alive NPCs per raider town threshold |
 

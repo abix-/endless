@@ -9,9 +9,9 @@ use crate::components::*;
 use crate::resources::*;
 use crate::systemparams::{EconomyState, WorldState};
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
-    RAIDER_SPAWN_CHECK_HOURS, MAX_RAIDER_TOWNS, RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, VILLAGERS_PER_RAIDER,
+    RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, BOAT_SPEED, ATLAS_BOAT, ENDLESS_RESPAWN_DELAY_HOURS,
 };
-use crate::world::{self, WorldData, WorldGrid, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids, is_alive};
+use crate::world::{self, WorldData, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids, Biome};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UPGRADES};
 use crate::constants::UpgradeStatKind;
@@ -522,6 +522,7 @@ pub struct MigrationResources<'w> {
     pub raider_state: ResMut<'w, RaiderState>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub policies: ResMut<'w, TownPolicies>,
+    pub gpu_updates: MessageWriter<'w, GpuUpdateMsg>,
 }
 
 /// Create a new AI town: allocate faction, push Town + TownGrid, extend all per-town
@@ -583,279 +584,246 @@ fn create_ai_town(
     (town_data_idx, grid_idx, next_faction)
 }
 
-/// Runs every RAIDER_SPAWN_CHECK_HOURS game hours. Group walks toward nearest player town
-/// via Home + Wander behavior, then settles when close enough (handled by migration_settle_system).
-pub fn migration_spawn_system(
-    game_time: Res<GameTime>,
-    mut migration_state: ResMut<MigrationState>,
-    mut world_data: ResMut<WorldData>,
-    mut town_grids: ResMut<TownGrids>,
-    mut res: MigrationResources,
-    mut ai_state: ResMut<AiPlayerState>,
-    mut slots: ResMut<SlotAllocator>,
-    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
-    mut combat_log: ResMut<CombatLog>,
-    grid: Res<WorldGrid>,
-    difficulty: Res<Difficulty>,
-    timings: Res<SystemTimings>,
-) {
-    let _t = timings.scope("migration_spawn");
-    let debug_force = migration_state.debug_spawn;
-    if debug_force {
-        migration_state.debug_spawn = false;
-    }
-
-    if !debug_force {
-        if !game_time.hour_ticked { return; }
-    }
-    if migration_state.active.is_some() { return; }
-
-    if !debug_force {
-        migration_state.check_timer += 1.0;
-        if migration_state.check_timer < RAIDER_SPAWN_CHECK_HOURS { return; }
-        migration_state.check_timer = 0.0;
-
-        // Count player alive NPCs and existing raider towns
-        let raider_count = world_data.towns.iter().filter(|t| t.sprite_type == 1 && is_alive(t.center)).count();
-        let player_town = world_data.towns.iter().position(|t| t.faction == 0);
-        let Some(player_idx) = player_town else { return };
-        let player_alive = res.faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
-        let needed_raiders = (player_alive as i32 / VILLAGERS_PER_RAIDER) as usize;
-        if raider_count >= needed_raiders { return; }
-        if raider_count >= MAX_RAIDER_TOWNS { return; }
-    }
-
-    // Count player alive NPCs (needed for group size calc)
-    let player_town = world_data.towns.iter().position(|t| t.faction == 0);
-    let Some(player_idx) = player_town else { return };
-    let player_alive = res.faction_stats.stats.get(player_idx).map(|s| s.alive).unwrap_or(0);
-
-    // Determine group size
-    let scaling = difficulty.migration_scaling().max(1);
-    let group_size = MIGRATION_BASE_SIZE + (player_alive as usize / scaling as usize);
-    let group_size = group_size.min(20); // cap at 20 raiders per group
-
-    // Pick random edge position
-    let world_w = grid.width as f32 * grid.cell_size;
-    let world_h = grid.height as f32 * grid.cell_size;
+/// Pick a settlement site far from all existing towns.
+/// Samples random land positions, scores by min distance to any town, picks the farthest.
+fn pick_settle_site(
+    grid: &crate::world::WorldGrid,
+    world_data: &WorldData,
+    world_w: f32, world_h: f32,
+) -> Vec2 {
+    let margin = 200.0;
     let mut rng = rand::rng();
-    let edge: u8 = rng.random_range(0..4);
-    let (spawn_x, spawn_y) = match edge {
-        0 => (rng.random_range(0.0..world_w), 50.0),                // top
-        1 => (rng.random_range(0.0..world_w), world_h - 50.0),      // bottom
-        2 => (50.0, rng.random_range(0.0..world_h)),                 // left
-        _ => (world_w - 50.0, rng.random_range(0.0..world_h)),      // right
-    };
-    let direction = match edge { 0 => "north", 1 => "south", 2 => "west", _ => "east" };
+    let mut best_pos = Vec2::new(world_w / 2.0, world_h / 2.0);
+    let mut best_min_dist = 0.0f32;
 
-    let (town_data_idx, grid_idx, next_faction) = create_ai_town(
-        &mut world_data, &mut town_grids, &mut res, &mut ai_state,
-        Vec2::new(spawn_x, spawn_y), true,
-    );
+    for _ in 0..100 {
+        let x = rng.random_range(margin..world_w - margin);
+        let y = rng.random_range(margin..world_h - margin);
+        let pos = Vec2::new(x, y);
 
-    // Find nearest player town center as wander target
-    let player_center = world_data.towns[player_idx].center;
+        // Reject water cells
+        let (gc, gr) = grid.world_to_grid(pos);
+        if grid.cell(gc, gr).is_some_and(|c| c.terrain == Biome::Water) { continue; }
 
-    // Spawn raiders via SpawnNpcMsg with Home = player town center
-    let mut member_slots = Vec::with_capacity(group_size);
-    for _ in 0..group_size {
-        let Some(slot) = slots.alloc() else { break };
-        // Slight jitter around spawn point
-        let jx = spawn_x + rng.random_range(-30.0..30.0);
-        let jy = spawn_y + rng.random_range(-30.0..30.0);
-        spawn_writer.write(SpawnNpcMsg {
-            slot_idx: slot,
-            x: jx,
-            y: jy,
-            job: 2,              // Raider
-            faction: next_faction,
-            town_idx: town_data_idx as i32,
-            home_x: player_center.x,
-            home_y: player_center.y,
-            work_x: -1.0,
-            work_y: -1.0,
-            starting_post: -1,
-            attack_type: 0,      // melee
-        });
-        member_slots.push(slot);
-    }
+        // Score: minimum distance to any existing town
+        let min_dist = world_data.towns.iter()
+            .map(|t| pos.distance(t.center))
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(f32::MAX);
 
-    migration_state.active = Some(MigrationGroup {
-        town_data_idx,
-        grid_idx,
-        member_slots,
-        is_raider: true,
-    });
-
-    combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
-        format!("A raider band approaches from the {}!", direction));
-    info!("Migration spawned: {} raiders from {} edge, faction {}", group_size, direction, next_faction);
-}
-
-/// Attach Migrating component to newly spawned migration group members.
-/// Runs after spawn_npc_system so entities exist before we try to tag them.
-pub fn migration_attach_system(
-    mut commands: Commands,
-    migration_state: Res<MigrationState>,
-    npc_map: Res<NpcEntityMap>,
-    existing: Query<&Migrating>,
-    timings: Res<SystemTimings>,
-) {
-    let _t = timings.scope("migration_attach");
-    let Some(mg) = &migration_state.active else { return };
-    for &slot in &mg.member_slots {
-        if let Some(&entity) = npc_map.0.get(&slot) {
-            if existing.get(entity).is_err() {
-                commands.entity(entity).insert(Migrating);
-            }
+        if min_dist > best_min_dist {
+            best_min_dist = min_dist;
+            best_pos = pos;
         }
     }
+
+    // Snap to grid center for alignment
+    let (gc, gr) = grid.world_to_grid(best_pos);
+    grid.grid_to_world(gc, gr)
 }
 
-/// Check if the migrating raider group has reached near a town and should settle.
-/// When within RAIDER_SETTLE_RADIUS of any town, places raider town buildings and activates the AI player.
-pub fn migration_settle_system(
+/// Endless mode lifecycle: boat → disembark → walk → settle.
+/// Phase 1: Spawn boat at map edge (no town, no NPCs)
+/// Phase 2: Sail toward settle site, disembark NPCs on shore
+/// Phase 3: NPCs walk toward settle target, attach Migrating
+/// Phase 4: Settle near target — create AI town, place buildings, activate AI
+pub fn endless_system(
     mut commands: Commands,
+    mut endless: ResMut<EndlessMode>,
     mut migration_state: ResMut<MigrationState>,
     mut world_state: WorldState,
     mut ai_state: ResMut<AiPlayerState>,
+    mut upgrades: ResMut<TownUpgrades>,
     mut combat_log: ResMut<CombatLog>,
     mut tilemap_spawned: ResMut<crate::render::TilemapSpawned>,
-    gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
+    time: Res<Time>,
     npc_map: Res<NpcEntityMap>,
     config: Res<world::WorldGenConfig>,
-    migrating_query: Query<(Entity, &NpcIndex), With<Migrating>>,
+    mut res: MigrationResources,
+    migrating_query: Query<(Entity, &NpcIndex, &Position), With<Migrating>>,
+    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     timings: Res<SystemTimings>,
 ) {
-    let _t = timings.scope("migration_settle");
-    let Some(mg) = &migration_state.active else { return };
+    let _t = timings.scope("endless");
 
-    // Compute average position of living migration group members from GPU readback
-    let mut sum_x = 0.0f32;
-    let mut sum_y = 0.0f32;
-    let mut count = 0u32;
-    for &slot in &mg.member_slots {
-        let x = gpu_state.positions.get(slot * 2).copied().unwrap_or(-9999.0);
-        let y = gpu_state.positions.get(slot * 2 + 1).copied().unwrap_or(-9999.0);
-        if world::is_alive(Vec2::new(x, y)) {
-            sum_x += x;
-            sum_y += y;
-            count += 1;
+    // Debug button: queue an immediate raider spawn
+    if migration_state.debug_spawn {
+        migration_state.debug_spawn = false;
+        endless.pending_spawns.push(PendingAiSpawn {
+            delay_remaining: 0.0, is_raider: true,
+            upgrade_levels: Vec::new(), starting_food: 0, starting_gold: 0,
+        });
+    }
+
+    if !endless.enabled { return; }
+
+    let world_w = world_state.grid.width as f32 * world_state.grid.cell_size;
+    let world_h = world_state.grid.height as f32 * world_state.grid.cell_size;
+
+    // === BOAT SAIL — move boat toward settle target, disembark when on shore ===
+    if let Some(mg) = &mut migration_state.active {
+        if let Some(boat_slot) = mg.boat_slot {
+            let dir = (mg.settle_target - mg.boat_pos).normalize_or_zero();
+            mg.boat_pos += dir * BOAT_SPEED * time.delta_secs();
+
+            res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition {
+                idx: boat_slot, x: mg.boat_pos.x, y: mg.boat_pos.y,
+            }));
+
+            // Check if boat reached land
+            let (gc, gr) = world_state.grid.world_to_grid(mg.boat_pos);
+            let on_water = world_state.grid.cell(gc, gr)
+                .map(|c| c.terrain == Biome::Water)
+                .unwrap_or(true);
+
+            if !on_water {
+                // === DISEMBARK — spawn NPCs at boat position ===
+                let next_faction = world_state.world_data.towns.iter()
+                    .map(|t| t.faction).max().unwrap_or(0) + 1;
+                let group_size = if mg.is_raider { MIGRATION_BASE_SIZE + 5 } else { 5 };
+                let mut rng = rand::rng();
+
+                for _ in 0..group_size {
+                    let Some(slot) = world_state.slot_alloc.alloc() else { break };
+                    let jx = mg.boat_pos.x + rng.random_range(-30.0..30.0);
+                    let jy = mg.boat_pos.y + rng.random_range(-30.0..30.0);
+                    let job = if mg.is_raider { 2 } else { 1 };
+                    spawn_writer.write(SpawnNpcMsg {
+                        slot_idx: slot, x: jx, y: jy, job,
+                        faction: next_faction, town_idx: -1,
+                        home_x: mg.settle_target.x, home_y: mg.settle_target.y,
+                        work_x: -1.0, work_y: -1.0, starting_post: -1, attack_type: 0,
+                    });
+                    mg.member_slots.push(slot);
+                }
+                mg.faction = next_faction;
+
+                // Free boat slot
+                res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx: boat_slot }));
+                world_state.slot_alloc.free(boat_slot);
+                mg.boat_slot = None;
+
+                let kind_str = if mg.is_raider { "Raiders" } else { "Settlers" };
+                combat_log.push_at(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("{} have landed!", kind_str), Some(mg.boat_pos));
+                info!("Migration disembarked at ({:.0}, {:.0}), faction {}", mg.boat_pos.x, mg.boat_pos.y, next_faction);
+            }
+
+            // While boat active, skip attach/settle
+            if mg.boat_slot.is_some() { return; }
         }
     }
-    if count == 0 {
-        // All members dead — cancel migration
+
+    // === ATTACH Migrating component to newly spawned members ===
+    if let Some(mg) = &migration_state.active {
+        for &slot in &mg.member_slots {
+            if let Some(&entity) = npc_map.0.get(&slot) {
+                if migrating_query.get(entity).is_err() {
+                    if let Ok(mut ec) = commands.get_entity(entity) {
+                        ec.insert(Migrating);
+                    }
+                }
+            }
+        }
+    }
+
+    // === SETTLE — when NPCs are near a town, create AI town + buildings ===
+    if let Some(mg) = &migration_state.active {
+        if mg.town_data_idx.is_some() { return; } // already settled (shouldn't happen)
+
+        let mut sum_x = 0.0f32;
+        let mut sum_y = 0.0f32;
+        let mut count = 0u32;
+        for &slot in &mg.member_slots {
+            if let Some(&entity) = npc_map.0.get(&slot) {
+                if let Ok((_, _, pos)) = migrating_query.get(entity) {
+                    sum_x += pos.x;
+                    sum_y += pos.y;
+                    count += 1;
+                }
+            }
+        }
+        if count == 0 {
+            // Members spawned but no entities have Migrating yet — wait for spawn system
+            if mg.member_slots.is_empty() {
+                migration_state.active = None;
+            }
+            return;
+        }
+        let avg_pos = Vec2::new(sum_x / count as f32, sum_y / count as f32);
+
+        let near_target = avg_pos.distance(mg.settle_target) < RAIDER_SETTLE_RADIUS;
+        if !near_target { return; }
+
+        // === CREATE TOWN + SETTLE ===
+        let is_raider = mg.is_raider;
+        let member_slots = mg.member_slots.clone();
+
+        let (town_data_idx, grid_idx, _faction) = create_ai_town(
+            &mut world_state.world_data, &mut world_state.town_grids, &mut res, &mut ai_state,
+            mg.settle_target, is_raider,
+        );
+
+        // Apply stored resources and upgrades
+        if let Some(food) = res.food_storage.food.get_mut(town_data_idx) {
+            *food = mg.starting_food;
+        }
+        if let Some(gold) = res.gold_storage.gold.get_mut(town_data_idx) {
+            *gold = mg.starting_gold;
+        }
+        let num_towns = world_state.world_data.towns.len();
+        upgrades.levels.resize(num_towns, Vec::new());
+        upgrades.levels[town_data_idx] = mg.upgrade_levels.clone();
+
+        // Place buildings
+        if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
+            world::place_buildings(&mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider);
+        }
+        world::init_single_town_buildings(
+            town_data_idx, &world_state.world_data,
+            &mut world_state.spawner_state, &mut world_state.building_hp,
+            &mut world_state.slot_alloc, &mut world_state.building_slots,
+        );
+        world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
+
+        // Activate AI
+        if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_data_idx) {
+            player.active = true;
+        }
+
+        // Settle NPCs: remove Migrating, set Home, update town_idx
+        for &slot in &member_slots {
+            if let Some(&entity) = npc_map.0.get(&slot) {
+                if migrating_query.get(entity).is_ok() {
+                    commands.entity(entity).remove::<Migrating>();
+                    commands.entity(entity).insert(Home(mg.settle_target));
+                }
+            }
+        }
+
+        world_state.dirty.building_grid = true;
+        tilemap_spawned.0 = false;
+
+        let kind_str = if is_raider { "raider band" } else { "rival faction" };
+        combat_log.push_at(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
+            format!("A {} has settled nearby!", kind_str), Some(mg.settle_target));
+        info!("Migration settled at ({:.0}, {:.0}), town_data_idx={}", mg.settle_target.x, mg.settle_target.y, town_data_idx);
         migration_state.active = None;
         return;
     }
-    let avg_x = sum_x / count as f32;
-    let avg_y = sum_y / count as f32;
-    let avg_pos = Vec2::new(avg_x, avg_y);
 
-    // Check distance to any town (player or AI)
-    let near_town = world_state.world_data.towns.iter().enumerate().any(|(i, t)| {
-        // Skip our own temporary town entry
-        i != mg.town_data_idx && avg_pos.distance(t.center) < RAIDER_SETTLE_RADIUS
-    });
-    if !near_town { return; }
+    // === SPAWN BOAT — pick edge, allocate boat GPU slot ===
+    if endless.pending_spawns.is_empty() { return; }
 
-    // === SETTLE ===
-    let town_data_idx = mg.town_data_idx;
-    let grid_idx = mg.grid_idx;
-    let member_slots = mg.member_slots.clone();
-    let is_raider = mg.is_raider;
-
-    // Update town center to average group position
-    if let Some(town) = world_state.world_data.towns.get_mut(town_data_idx) {
-        town.center = avg_pos;
-    }
-
-    // Place buildings (raider town: tents, town: farms + homes + waypoints)
-    if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-        world::place_buildings(&mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states, avg_pos, town_data_idx as u32, &config, town_grid, is_raider);
-    }
-
-    // Register tent spawners
-    let tent_def = crate::constants::building_def(BuildingKind::Tent);
-    for i in 0..(tent_def.len)(&world_state.world_data) {
-        if let Some((pos, ti)) = (tent_def.pos_town)(&world_state.world_data, i) {
-            if ti == town_data_idx as u32 {
-                world::register_spawner(&mut world_state.spawner_state, BuildingKind::Tent,
-                    town_data_idx as i32, pos, -1.0);
-                (tent_def.hps_mut)(&mut world_state.building_hp).push(tent_def.hp);
-            }
-        }
-    }
-
-    // Add town center HP
-    world_state.building_hp.towns.push(crate::constants::building_def(BuildingKind::Fountain).hp);
-
-    // Stamp dirt around the new raider town
-    world::stamp_dirt(&mut world_state.grid, &[avg_pos]);
-
-    // Activate the AiPlayer for this raider town
-    if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_data_idx) {
-        player.active = true;
-    }
-
-    // Remove Migrating from all group members and update their Home to raider town center
-    for &slot in &member_slots {
-        if let Some(&entity) = npc_map.0.get(&slot) {
-            // Check if entity still has Migrating (may have died)
-            if migrating_query.get(entity).is_ok() {
-                commands.entity(entity).remove::<Migrating>();
-                commands.entity(entity).insert(Home(avg_pos));
-            }
-        }
-    }
-
-    // Mark dirty for building grid + tilemap rebuild
-    world_state.dirty.building_grid = true;
-    tilemap_spawned.0 = false; // force tilemap rebuild with new terrain + buildings
-
-    combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
-        format!("A raider band has settled nearby!"));
-    info!("Migration settled at ({:.0}, {:.0}), town_data_idx={}", avg_x, avg_y, town_data_idx);
-
-    migration_state.active = None;
-}
-
-/// Tick pending endless respawns and trigger migrations when ready.
-pub fn endless_respawn_system(
-    mut endless: ResMut<EndlessMode>,
-    mut migration_state: ResMut<MigrationState>,
-    mut world_data: ResMut<WorldData>,
-    mut town_grids: ResMut<TownGrids>,
-    mut ai_state: ResMut<AiPlayerState>,
-    mut upgrades: ResMut<TownUpgrades>,
-    grid: Res<WorldGrid>,
-    game_time: Res<GameTime>,
-    time: Res<Time>,
-    mut res: MigrationResources,
-    mut slots: ResMut<SlotAllocator>,
-    mut spawn_writer: MessageWriter<SpawnNpcMsg>,
-    mut combat_log: ResMut<CombatLog>,
-    timings: Res<SystemTimings>,
-) {
-    let _t = timings.scope("endless_respawn");
-    if !endless.enabled || endless.pending_spawns.is_empty() { return; }
-    if migration_state.active.is_some() { return; } // wait for current migration to finish
-
-    let dt_hours = time.delta_secs() * game_time.time_scale / 3600.0;
-
-    // Tick all pending spawns
+    let dt_hours = game_time.delta(&time) / game_time.seconds_per_hour;
     for spawn in &mut endless.pending_spawns {
         spawn.delay_remaining -= dt_hours;
     }
 
-    // Find first ready spawn
     let Some(idx) = endless.pending_spawns.iter().position(|s| s.delay_remaining <= 0.0) else { return };
     let spawn = endless.pending_spawns.remove(idx);
 
-    // --- Trigger migration (reuses migration_spawn_system pattern) ---
-    let world_w = grid.width as f32 * grid.cell_size;
-    let world_h = grid.height as f32 * grid.cell_size;
     let mut rng = rand::rng();
     let edge: u8 = rng.random_range(0..4);
     let (spawn_x, spawn_y) = match edge {
@@ -866,70 +834,37 @@ pub fn endless_respawn_system(
     };
     let direction = match edge { 0 => "north", 1 => "south", 2 => "west", _ => "east" };
 
-    let (town_data_idx, grid_idx, next_faction) = create_ai_town(
-        &mut world_data, &mut town_grids, &mut res, &mut ai_state,
-        Vec2::new(spawn_x, spawn_y), spawn.is_raider,
-    );
+    // Pick settlement site far from existing towns
+    let settle_target = pick_settle_site(&world_state.grid, &world_state.world_data, world_w, world_h);
+    info!("Endless: settle target at ({:.0}, {:.0})", settle_target.x, settle_target.y);
 
-    // Pre-set starting resources
-    if let Some(food) = res.food_storage.food.get_mut(town_data_idx) {
-        *food = spawn.starting_food;
-    }
-    if let Some(gold) = res.gold_storage.gold.get_mut(town_data_idx) {
-        *gold = spawn.starting_gold;
-    }
-
-    // Pre-set upgrade levels
-    let num_towns = world_data.towns.len();
-    upgrades.levels.resize(num_towns, Vec::new());
-    upgrades.levels[town_data_idx] = spawn.upgrade_levels;
-
-    // Spawn NPCs at edge (raider units for raiders, village units for builders)
-    let player_center = world_data.towns.iter()
-        .find(|t| t.faction == 0)
-        .map(|t| t.center)
-        .unwrap_or(Vec2::new(world_w / 2.0, world_h / 2.0));
-
-    let group_size = if spawn.is_raider {
-        // Raider: scale group like migration
-        MIGRATION_BASE_SIZE + 5
-    } else {
-        // Builder: spawn a few archers to walk in (town buildings placed on settle)
-        5
-    };
-
-    let mut member_slots = Vec::with_capacity(group_size);
-    for _ in 0..group_size {
-        let Some(slot) = slots.alloc() else { break };
-        let jx = spawn_x + rng.random_range(-30.0..30.0);
-        let jy = spawn_y + rng.random_range(-30.0..30.0);
-        let job = if spawn.is_raider { 2 } else { 1 }; // Raider or Archer
-        spawn_writer.write(SpawnNpcMsg {
-            slot_idx: slot,
-            x: jx,
-            y: jy,
-            job,
-            faction: next_faction,
-            town_idx: town_data_idx as i32,
-            home_x: player_center.x,
-            home_y: player_center.y,
-            work_x: -1.0,
-            work_y: -1.0,
-            starting_post: -1,
-            attack_type: 0,
-        });
-        member_slots.push(slot);
+    // Allocate boat GPU slot
+    let boat_slot = world_state.slot_alloc.alloc();
+    if let Some(bs) = boat_slot {
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetPosition { idx: bs, x: spawn_x, y: spawn_y }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpriteFrame { idx: bs, col: 0.0, row: 0.0, atlas: ATLAS_BOAT }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetSpeed { idx: bs, speed: BOAT_SPEED }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: bs, x: settle_target.x, y: settle_target.y }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: bs, health: 100.0 }));
+        res.gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetFaction { idx: bs, faction: 0 }));
     }
 
     migration_state.active = Some(MigrationGroup {
-        town_data_idx,
-        grid_idx,
-        member_slots,
+        boat_slot,
+        boat_pos: Vec2::new(spawn_x, spawn_y),
+        settle_target,
         is_raider: spawn.is_raider,
+        upgrade_levels: spawn.upgrade_levels,
+        starting_food: spawn.starting_food,
+        starting_gold: spawn.starting_gold,
+        member_slots: Vec::new(),
+        faction: 0,
+        town_data_idx: None,
+        grid_idx: 0,
     });
 
-    combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
-        format!("A new {} approaches from the {}!", if spawn.is_raider { "raider band" } else { "rival faction" }, direction));
-    let kind_str = if spawn.is_raider { "raider" } else { "builder" };
-    info!("Endless respawn: {} town from {} edge, faction {}", kind_str, direction, next_faction);
+    let kind_str = if spawn.is_raider { "raider band" } else { "rival faction" };
+    combat_log.push_at(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
+        format!("A {} approaches from the {}!", kind_str, direction), Some(Vec2::new(spawn_x, spawn_y)));
+    info!("Endless: boat spawned from {} edge", direction);
 }

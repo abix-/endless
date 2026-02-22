@@ -1438,13 +1438,27 @@ impl Default for TutorialState {
 // MIGRATION STATE
 // ============================================================================
 
-/// Active migration group: NPCs walking from map edge toward a town to settle.
+/// Active migration group: boat → walk → settle lifecycle.
+/// Phase 1 (boat): boat_slot is Some, member_slots empty, town_data_idx None
+/// Phase 2 (walk): boat_slot None, member_slots filled, town_data_idx None
+/// Phase 3 (settle): town created, NPCs get Home, migration cleared
 pub struct MigrationGroup {
-    pub town_data_idx: usize,
-    pub grid_idx: usize,
-    pub member_slots: Vec<usize>,
-    /// true = raider town (tents), false = builder town (farms + homes + waypoints)
+    // Boat phase
+    pub boat_slot: Option<usize>,
+    pub boat_pos: Vec2,
+    /// Where the AI wants to settle (picked at boat spawn, far from existing towns).
+    pub settle_target: Vec2,
+    // Intent (from PendingAiSpawn)
     pub is_raider: bool,
+    pub upgrade_levels: Vec<u8>,
+    pub starting_food: i32,
+    pub starting_gold: i32,
+    // Set at disembark
+    pub member_slots: Vec<usize>,
+    pub faction: i32,
+    // Set at settle
+    pub town_data_idx: Option<usize>,
+    pub grid_idx: usize,
 }
 
 /// Tracks dynamic raider town migrations.
