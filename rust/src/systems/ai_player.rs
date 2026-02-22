@@ -303,7 +303,7 @@ impl AiPersonality {
     /// How many road cells to place per BuildRoads tick.
     fn road_batch_size(self) -> usize {
         match self {
-            Self::Aggressive => 2,
+            Self::Aggressive => 4,
             Self::Balanced => 3,
             Self::Economic => 6,
         }
@@ -1508,19 +1508,26 @@ fn count_road_candidates(
     let road_slots: HashSet<(i32, i32)> = town_building_slots!(world_data.get(BuildingKind::Road), ti, center).collect();
     let (min_r, max_r, min_c, max_c) = town_grids.grids.get(grid_idx)
         .map(|g| world::build_bounds(g)).unwrap_or((-4, 3, -4, 3));
+    // Aggressive: extend cardinal axes to 2× build radius for attack corridors
+    let (ext_min_r, ext_max_r, ext_min_c, ext_max_c) = if personality == AiPersonality::Aggressive {
+        (min_r * 2, max_r * 2, min_c * 2, max_c * 2)
+    } else {
+        (min_r, max_r, min_c, max_c)
+    };
     let mut count = 0usize;
-    for r in min_r..=max_r {
-        for c in min_c..=max_c {
+    for r in ext_min_r..=ext_max_r {
+        for c in ext_min_c..=ext_max_c {
             if !personality.is_road_slot(r, c) { continue; }
             if road_slots.contains(&(r, c)) { continue; }
-            // Check if cell is occupied by a non-road building
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
             if grid.cell(gc, gr).map_or(true, |cell| cell.building.is_some()) { continue; }
+            let in_bounds = r >= min_r && r <= max_r && c >= min_c && c <= max_c;
             let adj = econ_slots.iter().any(|&(er, ec)| {
                 (er - r).abs() <= 2 && (ec - c).abs() <= 2
             });
-            if adj { count += 1; }
+            // Inside bounds: require adjacency. Outside bounds (Aggressive corridors): always count.
+            if adj || !in_bounds { count += 1; }
         }
     }
     count
@@ -1553,16 +1560,30 @@ fn try_build_road_grid(
     let mut candidates: HashMap<(i32, i32), i32> = HashMap::new();
     let tg = res.world.town_grids.grids.get(ctx.grid_idx);
     let (min_r, max_r, min_c, max_c) = tg.map(|g| world::build_bounds(g)).unwrap_or((-4, 3, -4, 3));
+    // Aggressive: extend cardinal axes to 2× build radius for attack corridors
+    let (ext_min_r, ext_max_r, ext_min_c, ext_max_c) = if personality == AiPersonality::Aggressive {
+        (min_r * 2, max_r * 2, min_c * 2, max_c * 2)
+    } else {
+        (min_r, max_r, min_c, max_c)
+    };
 
-    for r in min_r..=max_r {
-        for c in min_c..=max_c {
+    for r in ext_min_r..=ext_max_r {
+        for c in ext_min_c..=ext_max_c {
             if !personality.is_road_slot(r, c) { continue; }
+            // Skip cells occupied by non-road buildings
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = res.world.grid.world_to_grid(pos);
+            if res.world.grid.cell(gc, gr).map_or(true, |cell| cell.building.is_some()) { continue; }
             // Score by adjacency to economy buildings (distance 2 covers the 4-cell pattern gap)
+            let in_bounds = r >= min_r && r <= max_r && c >= min_c && c <= max_c;
             let adj = econ_slots.iter().filter(|&&(er, ec)| {
                 (er - r).abs() <= 2 && (ec - c).abs() <= 2
             }).count() as i32;
+            // Inside bounds: require adjacency. Outside bounds (Aggressive corridors): score 1.
             if adj > 0 {
                 candidates.insert((r, c), adj);
+            } else if !in_bounds {
+                candidates.insert((r, c), 1);
             }
         }
     }

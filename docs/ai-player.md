@@ -26,8 +26,8 @@ Assigned randomly at creation. Drives every decision the AI makes. All personali
 | **Slot placement: farms** | `farm_slot_score` (adjacency + 2×2 block + line bonus) | `balanced_farm_ray_score` (cardinal axis rays from center) | same as Aggressive |
 | **Slot placement: homes** | `farmer_home_border_score` (must border farms) | `balanced_house_side_score` (beside axis rays, not on them) | same as Aggressive |
 | **Road weight** | 2.0 | 3.0 | 8.0 |
-| **Road batch size** | 2 | 3 | 6 |
-| **Road pattern** | Cardinal axes from center | 3×3 grid (`rem_euclid(3)`) | 4×4 grid (`rem_euclid(4)`) |
+| **Road batch size** | 4 | 3 | 6 |
+| **Road pattern** | Cardinal axes from center (2× build radius attack corridors) | 3×3 grid (`rem_euclid(3)`) | 4×4 grid (`rem_euclid(4)`) |
 
 ### Mining
 
@@ -175,7 +175,7 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 
 **Miner homes:** Only scored when miner deficit > 0: `gold_desire × deficit`. Uses house base weight `hw`.
 
-**Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()` — if no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality).
+**Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()` — if no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality). **Aggressive attack corridors**: cardinal axis roads extend to 2× the build radius as offensive attack routes — cells outside town bounds skip the economy-adjacency requirement, scored at priority 1 (built after inner utility roads).
 
 **Waypoints:** `military_desire × gap` where gap = total military homes − waypoints. Scored when waypoints < total military homes. Waypoints are placed on the personality's outer ring pattern (block corners on build area perimeter).
 

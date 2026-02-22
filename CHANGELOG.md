@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22j
+
+- **aggressive AI attack corridors** — fixed road placement bug where `try_build_road_grid` didn't filter occupied cells (only filtered existing roads), causing all top-ranked candidates to fail `place_building`; aggressive roads now extend to 2× build radius on cardinal axes as offensive attack routes, corridor cells outside town bounds skip economy-adjacency requirement, batch size increased from 2 to 4
+
 ## 2026-02-22i
 
 - **starvation prevention** — work score now scales down linearly when energy is below tired threshold (30), so rest naturally outcompetes work around energy ~24; previously NPCs at energy 29 would choose work (score 40) over rest (score 21), enter farm-retarget loops that burned energy to 0, and starve despite having 90K+ food available
