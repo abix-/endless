@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-22a
+
+- **box-select inspector fix** — box-selecting NPCs now clears `SelectedNpc` and `SelectedBuilding` so the DC group inspector shows immediately; previously stale individual selections masked the group view; also added missing `dc_count` check in the `!show_npc` branch of `inspector_content`
+- **DC keep-fighting toggle** — new "Keep fighting after loot" checkbox in DC group inspector; when enabled, DirectControl NPCs accumulate loot from kills without disengaging combat or walking home; loot piles up in `Activity::Returning { loot }` while NPC stays put; on DC removal, behavior system redirects to home for delivery; `Returning` NPCs arriving at non-home positions (after DC removal) now redirect home instead of discarding loot
+
 ## 2026-02-21o
 
 - **fix farm growth index mismatch** — `GrowthStates` stores farms and mines in one flat vec, but WorldData indexes them separately; when farms are built after mines exist, WorldData farm index ≠ GrowthStates index, causing UI to show 0% growth (reading mine data), harvest to read wrong entry, and destroy to tombstone wrong entry; added `GrowthStates::find_farm_at(pos)` position-based lookup and replaced all 6 WorldData-index-based GrowthStates lookups (UI display, UI tooltip, arrival harvest, working farmer harvest, raider harvest, destroy tombstone) with position-based lookups

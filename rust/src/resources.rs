@@ -1326,6 +1326,8 @@ pub struct SquadState {
     pub drag_start: Option<Vec2>,
     /// True while mouse is held and drag exceeds threshold (5px).
     pub box_selecting: bool,
+    /// DC NPCs keep fighting after looting instead of returning home.
+    pub dc_no_return: bool,
 }
 
 impl Default for SquadState {
@@ -1336,6 +1338,7 @@ impl Default for SquadState {
             placing_target: false,
             drag_start: None,
             box_selecting: false,
+            dc_no_return: false,
         }
     }
 }

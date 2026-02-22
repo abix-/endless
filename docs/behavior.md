@@ -19,7 +19,7 @@ The system uses **SystemParam bundles** for farm and economy parameters:
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 
-**DirectControl skip** (before all priorities): NPCs with a `DirectControl` component skip the entire decision system — no autonomous behavior whatsoever. `AtDestination` is removed if present to prevent stale arrival flags.
+**DirectControl skip** (before all priorities): NPCs with a `DirectControl` component skip the entire decision system — no autonomous behavior whatsoever. `AtDestination` is removed if present to prevent stale arrival flags. DC NPCs may accumulate loot in `Activity::Returning` while fighting (via `dc_no_return` toggle) — the Returning activity is inert while DC is active.
 
 **Tier 1 — every frame:**
 0. AtDestination → Handle arrival transitions (transient one-frame flag, can't miss)
@@ -195,6 +195,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
   - `GoingToWork` → check `BuildingOccupancy`: if farm occupied, redirect to nearest free farm in own town (or idle if none); else check if farm is Ready via `find_farm_at(pos)` (position-based GrowthStates lookup) — if so, harvest and immediately enter `Returning { loot: Food }` (carry home without claiming); if not Ready, claim farm via `BuildingOccupancy.claim()` + `AssignedFarm` + `Working`. Note: farmer dynamically picked this farm via priority scan (ready > unoccupied, closest) during work decision — no permanent assignment.
   - `Raiding { .. }` → steal if farm ready, else find a different farm (excludes current position, skips tombstoned); if no other farm exists, return home
   - `Mining { mine_pos }` → find mine at position, check gold > 0 and occupancy < `MAX_MINE_OCCUPANCY`, claim occupancy via `BuildingOccupancy`, insert `MiningProgress(0.0)`, set `Activity::MiningAtMine`
+  - `Returning { .. }` → if home is valid, redirect to home (may have arrived at wrong place after DC removal); otherwise transition to Idle
   - `Wandering` → `Activity::Idle` (wander targets are offset from home position, not current position, preventing unbounded drift)
 - Removes `AtDestination` after handling
 

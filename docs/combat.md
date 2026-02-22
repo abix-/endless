@@ -124,7 +124,7 @@ Execution order is **chained** — each system completes before the next starts.
 - Increments `FactionStats.inc_kills()` for the killer's faction
 - Checks for level-up: `level_from_xp(new_xp) > level_from_xp(old_xp)`
 - On level-up: re-resolves `CachedStats`, updates `Speed` component, rescales HP proportionally (`hp * new_max / old_max`), sends `GpuUpdate::SetSpeed` and `GpuUpdate::SetHealth`, emits `CombatEventKind::LevelUp` to `CombatLog`
-- **Loot on kill**: reads `npc_def(dead_job).loot_drop` (LootDrop with item/min/max), deterministic spread via `min + (xp % range)`. Sets killer to `Activity::Returning { loot }`, clears `CombatState::None` (immediate disengage — loot delivery is highest priority), targets home. Accumulates into existing Returning loot if already carrying.
+- **Loot on kill**: reads `npc_def(dead_job).loot_drop` (LootDrop with item/min/max), deterministic spread via `min + (xp % range)`. Sets killer to `Activity::Returning { loot }`, clears `CombatState::None` (immediate disengage — loot delivery is highest priority), targets home. Accumulates into existing Returning loot if already carrying. **DC keep-fighting**: if killer has `DirectControl` and `SquadState.dc_no_return` is true, loot is accumulated but combat is NOT disengaged and GPU target is NOT set to home — NPC keeps fighting with loot piling up.
 - XP formula: `level = floor(sqrt(xp / 100))`, level multiplier = `1.0 + level * 0.01`
 
 ### 6. death_cleanup_system (health.rs)
@@ -176,7 +176,7 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
   1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
   2. Calls `destroy_building()` shared helper (grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log + free building NPC slot)
   3. Kills linked NPC via `GpuUpdate::HideNpc` + `SetHealth(0.0)`
-  4. **Building loot**: `BuildingDef::loot_drop()` method returns `cost / 2` as food (None if cost 0). Attacker set to `Activity::Returning { loot }`, targets home. Accumulates into existing loot.
+  4. **Building loot**: `BuildingDef::loot_drop()` method returns `cost / 2` as food (None if cost 0). Attacker set to `Activity::Returning { loot }`, targets home. Accumulates into existing loot. DC keep-fighting override same as xp_grant_system (skip disengage + skip home target when `dc_no_return`).
 - Profiled under `"building_damage"` scope
 
 ## Slot Recycling

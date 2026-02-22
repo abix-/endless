@@ -688,6 +688,8 @@ fn box_select_system(
     mut egui_contexts: bevy_egui::EguiContexts,
     npc_entity_map: Res<NpcEntityMap>,
     meta_cache: Res<crate::resources::NpcMetaCache>,
+    mut selected_npc: ResMut<SelectedNpc>,
+    mut selected_building: ResMut<crate::resources::SelectedBuilding>,
     mut commands: Commands,
 ) {
     // Don't box-select while building or placing squad targets
@@ -787,6 +789,9 @@ fn box_select_system(
                         }
                         squad_state.selected = si as i32;
                     }
+                    // Clear individual selections so inspector shows DC group view
+                    selected_npc.0 = -1;
+                    selected_building.active = false;
                 }
             }
         }

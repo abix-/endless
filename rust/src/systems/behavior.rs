@@ -467,8 +467,12 @@ pub fn decision_system(
                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "-> Idle");
                 }
                 Activity::Returning { .. } => {
-                    // Arrived home (proximity delivery handled by arrival_system, this is backup)
-                    *activity = Activity::Idle;
+                    // May have arrived at wrong place (e.g. after DC removal) — redirect home
+                    if home.is_valid() {
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+                    } else {
+                        *activity = Activity::Idle;
+                    }
                 }
                 _ => {}
             }

@@ -463,8 +463,9 @@ pub fn building_damage_system(
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
     npc_map: Res<NpcEntityMap>,
-    mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction), Without<Dead>>,
+    mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction, Option<&DirectControl>), Without<Dead>>,
     npc_meta: Res<NpcMetaCache>,
+    squad_state: Res<crate::resources::SquadState>,
     mut ai_state: ResMut<crate::systems::AiPlayerState>,
     mut endless: ResMut<crate::resources::EndlessMode>,
     upgrades: Res<crate::systems::stats::TownUpgrades>,
@@ -577,13 +578,17 @@ pub fn building_damage_system(
             if amount > 0 && msg.attacker >= 0 {
                 let attacker_slot = msg.attacker as usize;
                 if let Some(&attacker_entity) = npc_map.0.get(&attacker_slot) {
-                    if let Ok((npc_idx, mut activity, home, faction)) = loot_query.get_mut(attacker_entity) {
+                    if let Ok((npc_idx, mut activity, home, faction, dc)) = loot_query.get_mut(attacker_entity) {
+                        let dc_keep_fighting = dc.is_some() && squad_state.dc_no_return;
+
                         if matches!(&*activity, Activity::Returning { .. }) {
                             activity.add_loot(drop.item, amount);
                         } else {
                             *activity = Activity::Returning { loot: vec![(drop.item, amount)] };
                         }
-                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: npc_idx.0, x: home.0.x, y: home.0.y }));
+                        if !dc_keep_fighting {
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: npc_idx.0, x: home.0.x, y: home.0.y }));
+                        }
 
                         let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
                         let killer_name = &npc_meta.0[npc_idx.0].name;

@@ -198,7 +198,7 @@ pub struct BottomPanelUiState<'w, 's> {
     mining_policy: ResMut<'w, MiningPolicy>,
     dirty: ResMut<'w, DirtyFlags>,
     npc_entity_map: Res<'w, NpcEntityMap>,
-    squad_state: Res<'w, SquadState>,
+    squad_state: ResMut<'w, SquadState>,
     commands: Commands<'w, 's>,
 }
 
@@ -320,7 +320,7 @@ pub fn bottom_panel_system(
                     ui, &data, &mut meta_cache, &mut inspector_state.rename, &bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                     &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty, show_npc,
-                    &panel_state.npc_entity_map, &panel_state.squad_state, &mut panel_state.commands, dc_count,
+                    &panel_state.npc_entity_map, &mut panel_state.squad_state, &mut panel_state.commands, dc_count,
                 );
                 // Destroy button for selected player-owned buildings (not fountains/mines)
                 let show_building = has_building && (!has_npc || !show_npc);
@@ -554,6 +554,7 @@ fn dc_group_inspector(
         Option<&DirectControl>,
     ), Without<Dead>>,
     meta_cache: &NpcMetaCache,
+    squad_state: &mut SquadState,
 ) {
     let mut total_hp = 0.0f32;
     let mut total_max_hp = 0.0f32;
@@ -588,6 +589,9 @@ fn dc_group_inspector(
     if !parts.is_empty() {
         ui.label(parts.join(", "));
     }
+
+    ui.separator();
+    ui.checkbox(&mut squad_state.dc_no_return, "Keep fighting after loot");
 }
 
 /// Render inspector content into a ui region (left side of bottom panel).
@@ -616,7 +620,7 @@ fn inspector_content(
     dirty: &mut DirtyFlags,
     show_npc: bool,
     npc_entity_map: &NpcEntityMap,
-    squad_state: &SquadState,
+    squad_state: &mut SquadState,
     commands: &mut Commands,
     dc_count: usize,
 ) {
@@ -625,6 +629,10 @@ fn inspector_content(
         rename_state.text.clear();
         if bld_data.selected_building.active {
             building_inspector_content(ui, bld_data, world_data, mining_policy, dirty, meta_cache, ui_state, copy_text, &data.game_time, settings, &data.combat_log, npc_states, gpu_state);
+            return;
+        }
+        if dc_count > 0 {
+            dc_group_inspector(ui, health_query, equip_query, meta_cache, squad_state);
             return;
         }
         ui.label("Click an NPC or building to inspect");
@@ -640,7 +648,7 @@ fn inspector_content(
             return;
         }
         if dc_count > 0 {
-            dc_group_inspector(ui, health_query, equip_query, meta_cache);
+            dc_group_inspector(ui, health_query, equip_query, meta_cache, squad_state);
             return;
         }
         ui.label("Click an NPC or building to inspect");

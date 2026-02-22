@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use bevy::prelude::*;
-use crate::components::{Job, BaseAttackType, CachedStats, CombatState, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction, Activity, Home};
+use crate::components::{Job, BaseAttackType, CachedStats, CombatState, Personality, Dead, LastHitBy, Health, Speed, NpcIndex, TownId, Faction, Activity, Home, DirectControl};
 use crate::constants::{FOUNTAIN_TOWER, TowerStats, NPC_REGISTRY, npc_def, AttackTypeStats, UpgradeStatKind, UpgradeStatDef, ResourceKind, EffectDisplay, TOWN_UPGRADES, ItemKind};
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::resources::{NpcEntityMap, NpcMetaCache, NpcsByTownCache, FactionStats, CombatLog, CombatEventKind, GameTime, SystemTimings};
@@ -711,7 +711,7 @@ pub fn auto_upgrade_system(
 /// Grant XP to killers when NPCs die. Runs between death_system and death_cleanup_system.
 pub fn xp_grant_system(
     dead_query: Query<(&NpcIndex, &Job, Option<&LastHitBy>), With<Dead>>,
-    mut killer_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed, &Faction, &mut Activity, &Home, &mut CombatState), Without<Dead>>,
+    mut killer_query: Query<(&NpcIndex, &Job, &TownId, &BaseAttackType, &Personality, &mut Health, &mut CachedStats, &mut Speed, &Faction, &mut Activity, &Home, &mut CombatState, Option<&DirectControl>), Without<Dead>>,
     npc_map: Res<NpcEntityMap>,
     mut npc_meta: ResMut<NpcMetaCache>,
     mut faction_stats: ResMut<FactionStats>,
@@ -721,6 +721,7 @@ pub fn xp_grant_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
+    squad_state: Res<crate::resources::SquadState>,
 ) {
     let _t = timings.scope("xp_grant");
     for (_dead_idx, dead_job, last_hit) in dead_query.iter() {
@@ -729,7 +730,7 @@ pub fn xp_grant_system(
         let killer_slot = last_hit.0 as usize;
 
         let Some(&killer_entity) = npc_map.0.get(&killer_slot) else { continue };
-        let Ok((npc_idx, job, town_id, atk_type, personality, mut health, mut cached, mut speed, killer_faction, mut activity, home, mut combat_state)) = killer_query.get_mut(killer_entity) else { continue };
+        let Ok((npc_idx, job, town_id, atk_type, personality, mut health, mut cached, mut speed, killer_faction, mut activity, home, mut combat_state, direct_control)) = killer_query.get_mut(killer_entity) else { continue };
 
         faction_stats.inc_kills(killer_faction.0);
         let idx = npc_idx.0;
@@ -768,15 +769,21 @@ pub fn xp_grant_system(
             drop.min + (meta.xp as i32 % (drop.max - drop.min + 1)) // deterministic spread
         };
         if amount > 0 {
-            // Disengage combat — loot delivery is highest priority
-            *combat_state = CombatState::None;
+            let dc_keep_fighting = direct_control.is_some() && squad_state.dc_no_return;
+
+            if !dc_keep_fighting {
+                // Disengage combat — loot delivery is highest priority
+                *combat_state = CombatState::None;
+            }
             // Accumulate into existing Returning loot or create new
             if matches!(&*activity, Activity::Returning { .. }) {
                 activity.add_loot(drop.item, amount);
             } else {
                 *activity = Activity::Returning { loot: vec![(drop.item, amount)] };
             }
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+            if !dc_keep_fighting {
+                gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
+            }
 
             let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
             let killer_name = &npc_meta.0[idx].name;
