@@ -13,7 +13,7 @@ use crate::systems::stats::{CombatConfig, TownUpgrades, UpgradeQueue, UPGRADES, 
 use crate::constants::UpgradeStatKind;
 use crate::systems::{AiPlayerState, AiKind};
 use crate::systems::ai_player::{AiPersonality, cheapest_gold_upgrade_cost};
-use crate::world::{WorldData, BuildingKind, is_alive};
+use crate::world::{WorldData, WorldGrid, TownGrids, BuildingKind, is_alive};
 
 // ============================================================================
 // PROFILER PARAMS
@@ -121,6 +121,8 @@ pub struct FactionsParams<'w> {
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     combat_config: Res<'w, CombatConfig>,
+    town_grids: Res<'w, TownGrids>,
+    world_grid: Res<'w, WorldGrid>,
 }
 
 #[derive(Clone)]
@@ -150,7 +152,7 @@ struct AiSnapshot {
     dead: i32,
     kills: i32,
     upgrades: Vec<u8>,
-    last_actions: Vec<String>,
+    last_actions: Vec<(String, i32, i32)>,
     mining_radius: f32,
     mines_in_radius: usize,
     mines_discovered: usize,
@@ -159,9 +161,11 @@ struct AiSnapshot {
     food_desire: Option<f32>,
     military_desire: Option<f32>,
     gold_desire: Option<f32>,
+    economy_desire: Option<f32>,
     food_desire_tip: String,
     military_desire_tip: String,
     gold_desire_tip: String,
+    economy_desire_tip: String,
     center: Vec2,
     squads: Vec<SquadSnapshot>,
     next_upgrade: Option<NextUpgradeSnapshot>,
@@ -1072,7 +1076,7 @@ fn rebuild_factions_cache(
         kind_name: &'static str,
         personality_name: &'static str,
         personality: Option<AiPersonality>,
-        last_actions: Vec<String>,
+        last_actions: Vec<(String, i32, i32)>,
     ) {
         let ti = tdi as u32;
         let town_name = world_data.towns.get(tdi)
@@ -1211,6 +1215,27 @@ fn rebuild_factions_cache(
             (None, "Not applicable: desire metrics are only computed for AI factions.".to_string())
         };
 
+        // Economy desire = 1 - slot_fullness = empty_slots / total_slots (mirrors ai_player.rs).
+        let (economy_desire, economy_desire_tip) = if personality.is_some() {
+            let (empty, total, fullness) = factions.town_grids.grids.iter()
+                .find(|tg| tg.town_data_idx == tdi)
+                .map(|tg| {
+                    let empty = crate::world::empty_slots(tg, center, &factions.world_grid).len();
+                    let (min_r, max_r, min_c, max_c) = crate::world::build_bounds(tg);
+                    let total = ((max_r - min_r + 1) * (max_c - min_c + 1) - 1) as f32;
+                    (empty, total, 1.0 - empty as f32 / total.max(1.0))
+                })
+                .unwrap_or((0, 0.0, 0.0));
+            let ed = 1.0 - fullness;
+            let tip = format!(
+                "Economy desire = 1 - slot_fullness\nempty={empty}, total={total:.0}, fullness={fullness:.2}\n=> {:.0}%",
+                ed * 100.0
+            );
+            (Some(ed), tip)
+        } else {
+            (None, "Not applicable: desire metrics are only computed for AI factions.".to_string())
+        };
+
         let ai_player = factions.ai_state.players.iter().find(|p| p.town_data_idx == tdi);
         let squads = squad_state.squads.iter().enumerate()
             .filter_map(|(si, squad)| {
@@ -1263,9 +1288,11 @@ fn rebuild_factions_cache(
             food_desire,
             military_desire,
             gold_desire,
+            economy_desire,
             food_desire_tip,
             military_desire_tip,
             gold_desire_tip,
+            economy_desire_tip,
             center,
             squads,
             next_upgrade,
@@ -1287,7 +1314,7 @@ fn rebuild_factions_cache(
             AiKind::Raider => "Raider",
         };
 
-        let last_actions: Vec<String> = player.last_actions.iter().rev().cloned().collect();
+        let last_actions: Vec<(String, i32, i32)> = player.last_actions.iter().rev().cloned().collect();
         push_snapshot(
             factions,
             squad_state,
@@ -1322,6 +1349,8 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
     let _ = writeln!(s, "Military: {} — {}", md, snap.military_desire_tip);
     let gd = snap.gold_desire.map(|v| format!("{:.0}%", v * 100.0)).unwrap_or("-".into());
     let _ = writeln!(s, "Gold: {} — {}", gd, snap.gold_desire_tip);
+    let ed = snap.economy_desire.map(|v| format!("{:.0}%", v * 100.0)).unwrap_or("-".into());
+    let _ = writeln!(s, "Economy: {} — {}", ed, snap.economy_desire_tip);
 
     let _ = writeln!(s, "\n--- Buildings ---");
     let mut bld_sorted: Vec<_> = snap.buildings.iter().collect();
@@ -1388,8 +1417,8 @@ fn build_faction_debug_string(snap: &AiSnapshot) -> String {
     if snap.last_actions.is_empty() {
         let _ = writeln!(s, "(none)");
     } else {
-        for action in &snap.last_actions {
-            let _ = writeln!(s, "{}", action);
+        for (action, day, hour) in &snap.last_actions {
+            let _ = writeln!(s, "D{} {:02}:00  {}", day, hour, action);
         }
     }
 
@@ -1533,6 +1562,10 @@ fn factions_content(
 
                     ui.label("Gold Desire").on_hover_text(&snap.gold_desire_tip);
                     ui.label(fmt_desire(snap.gold_desire)).on_hover_text(&snap.gold_desire_tip);
+                    ui.end_row();
+
+                    ui.label("Economy Desire").on_hover_text(&snap.economy_desire_tip);
+                    ui.label(fmt_desire(snap.economy_desire)).on_hover_text(&snap.economy_desire_tip);
                     ui.end_row();
 
                     ui.label("Reserve Food");
@@ -1897,8 +1930,8 @@ fn factions_content(
         egui::CollapsingHeader::new("Recent Actions")
             .default_open(true)
             .show(ui, |ui| {
-                for action in &snap.last_actions {
-                    ui.label(action);
+                for (action, day, hour) in &snap.last_actions {
+                    ui.label(format!("D{} {:02}:00  {}", day, hour, action));
                 }
             });
     }

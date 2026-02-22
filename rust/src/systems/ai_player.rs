@@ -581,7 +581,7 @@ pub struct AiPlayer {
     pub grid_idx: usize,
     pub kind: AiKind,
     pub personality: AiPersonality,
-    pub last_actions: VecDeque<String>,
+    pub last_actions: VecDeque<(String, i32, i32)>,
     pub active: bool,
     /// Indices into SquadState.squads owned by this AI.
     pub squad_indices: Vec<usize>,
@@ -1369,7 +1369,7 @@ pub fn ai_decision_system(
                 log_ai(&mut combat_log, &game_time, faction, &town_name, pname, &what);
                 let actions = &mut ai_state.players[pi].last_actions;
                 if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
-                actions.push_back(what);
+                actions.push_back((what, game_time.day(), game_time.hour()));
             }
         }
 
@@ -1424,7 +1424,7 @@ pub fn ai_decision_system(
                     log_ai(&mut combat_log, &game_time, faction, &town_name, pname, &what);
                     let actions = &mut ai_state.players[pi].last_actions;
                     if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
-                    actions.push_back(what);
+                    actions.push_back((what, game_time.day(), game_time.hour()));
                 }
             }
         }
