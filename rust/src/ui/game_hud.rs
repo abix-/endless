@@ -1113,10 +1113,8 @@ fn building_inspector_content(
     // Per-type details
     match kind {
         BuildingKind::Farm => {
-            // Find farm index by matching grid position
-            if let Some(farm_idx) = world_data.farms().iter().position(|f| {
-                (f.position - world_pos).length() < 1.0
-            }) {
+            // Find growth index by position (not WorldData index — GrowthStates has farms+mines)
+            if let Some(farm_idx) = bld.farm_states.find_farm_at(world_pos) {
                 if let Some(state) = bld.farm_states.states.get(farm_idx) {
                     let state_name = match state {
                         FarmGrowthState::Growing => "Growing",
@@ -1311,7 +1309,7 @@ fn building_inspector_content(
             );
             match kind {
                 BuildingKind::Farm => {
-                    if let Some(farm_idx) = world_data.farms().iter().position(|f| (f.position - world_pos).length() < 1.0) {
+                    if let Some(farm_idx) = bld.farm_states.find_farm_at(world_pos) {
                         if let Some(state) = bld.farm_states.states.get(farm_idx) {
                             let state_name = match state {
                                 FarmGrowthState::Growing => "Growing",

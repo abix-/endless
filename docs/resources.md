@@ -48,7 +48,7 @@ Static world data, immutable after initialization.
 | WorldData | towns, buildings (BTreeMap\<BuildingKind, Vec\<PlacedBuilding\>\>) | All building positions and metadata |
 | SpawnerState | `Vec<SpawnerEntry>` — one per unit-home spawner or MinerHome | Building→NPC links + respawn timers |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
-| FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress + `Vec<Vec2>` positions | Per-farm growth tracking; methods: `push_farm()`, `harvest()`, `tombstone()` (resets all 3 vecs, marks position offscreen) |
+| FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress + `Vec<Vec2>` positions | Per-farm growth tracking; methods: `push_farm()`, `harvest()`, `tombstone()` (resets all 3 vecs, marks position offscreen), `find_farm_at(pos) -> Option<usize>` (position-based GrowthStates index lookup — searches by GrowthKind::Farm + position proximity, avoids WorldData index mismatch when farms are built after mines) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
 | BuildingSpatialGrid | 256px cell grid of `BuildingRef` entries (farms, waypoints, towns, gold mines, archer homes, crossbow homes, fighter homes, farmer homes, tents, miner homes, beds) | O(1) spatial queries for building find functions + enemy building targeting; rebuilt by `rebuild_building_grid_system` only when `DirtyFlags.building_grid` is set |
 | BuildingSlotMap | bidirectional `HashMap<(BuildingKind, usize), usize>` | Maps buildings ↔ NPC GPU slots; buildings occupy invisible NPC slots (speed=0, sprite hidden) for GPU projectile collision; allocated at startup/load, freed on building destroy |

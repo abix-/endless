@@ -24,7 +24,7 @@ use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
 use crate::constants::UpgradeStatKind;
-use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, find_by_pos, BuildingSpatialGrid, BuildingKind};
+use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, BuildingSpatialGrid, BuildingKind};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -85,7 +85,7 @@ pub fn arrival_system(
     // ========================================================================
     // 1. Proximity-based delivery for all Returning NPCs
     // ========================================================================
-    for (_entity, npc_idx, town, home, _faction, job, work_pos, mut activity) in returning_query.iter_mut() {
+    for (_entity, npc_idx, town, home, _faction, _job, _work_pos, mut activity) in returning_query.iter_mut() {
         let loot = match &*activity {
             Activity::Returning { loot } => loot.clone(),
             _ => continue,
@@ -122,17 +122,8 @@ pub fn arrival_system(
                     }
                 }
             }
-            // Farmers return to work after delivery, others go idle
-            if *job == Job::Farmer {
-                if let Some(wp) = work_pos {
-                    *activity = Activity::GoingToWork;
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: wp.0.x, y: wp.0.y }));
-                } else {
-                    *activity = Activity::Idle;
-                }
-            } else {
-                *activity = Activity::Idle;
-            }
+            // Go idle after delivery — decision system re-evaluates best target
+            *activity = Activity::Idle;
         }
     }
 
@@ -159,9 +150,9 @@ pub fn arrival_system(
         }
 
         // Harvest check: if farm became Ready while working, harvest and carry home
-        if let Some(farm_idx) = find_by_pos(world_data.farms(), farm_pos) {
+        if let Some(gi) = farm_states.find_farm_at(farm_pos) {
             let fac = world_data.towns.get(town.0 as usize).map(|t| t.faction).unwrap_or(0);
-            let food = farm_states.harvest(farm_idx, &mut combat_log, &game_time, fac);
+            let food = farm_states.harvest(gi, &mut combat_log, &game_time, fac);
             if food > 0 {
                 occupancy.release(farm_pos);
                 pop_dec_working(&mut economy.pop_stats, *job, town.0);
@@ -357,7 +348,7 @@ pub fn decision_system(
                                 }
                             });
 
-                        if let Some((farm_idx, farm_pos)) = find_within_radius(search_pos, &bgrid, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
+                        if let Some((_bldg_idx, farm_pos)) = find_within_radius(search_pos, &bgrid, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
                             let occupied = farms.occupancy.is_occupied(farm_pos);
 
                             if occupied {
@@ -371,9 +362,9 @@ pub fn decision_system(
                                     *activity = Activity::Idle;
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
                                 }
-                            } else {
+                            } else if let Some(gi) = farms.states.find_farm_at(farm_pos) {
                                 // Check if farm is ready — harvest and carry home immediately
-                                let food = farms.states.harvest(farm_idx, combat_log, &game_time, faction.0);
+                                let food = farms.states.harvest(gi, combat_log, &game_time, faction.0);
                                 if food > 0 {
                                     *activity = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -410,13 +401,13 @@ pub fn decision_system(
                         let pos = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
                         let ready_farm = find_location_within_radius(pos, &bgrid, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
-                            .filter(|(farm_idx, _)| {
-                                *farm_idx < farms.states.states.len()
-                                    && farms.states.states[*farm_idx] == FarmGrowthState::Ready
+                            .and_then(|(_, fp)| farms.states.find_farm_at(fp).map(|gi| (gi, fp)))
+                            .filter(|(gi, _)| {
+                                farms.states.states.get(*gi) == Some(&FarmGrowthState::Ready)
                             });
 
-                        if let Some((farm_idx, _)) = ready_farm {
-                            let food = farms.states.harvest(farm_idx, combat_log, &game_time, faction.0);
+                        if let Some((gi, _)) = ready_farm {
+                            let food = farms.states.harvest(gi, combat_log, &game_time, faction.0);
 
                             *activity = Activity::Returning { loot: vec![(ItemKind::Food, food.max(1))] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -750,13 +741,30 @@ pub fn decision_system(
         // Priority 5: Working/Mining + tired?
         // ====================================================================
         if matches!(*activity, Activity::Working) {
-            if energy.0 < ENERGY_TIRED_THRESHOLD {
-                *activity = Activity::Idle;
+            let should_stop = if energy.0 < ENERGY_TIRED_THRESHOLD {
+                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Stopped");
+                true
+            } else if *job == Job::Farmer {
+                // Check if any Ready farm exists in our faction — go harvest it instead
+                let has_ready = farms.states.positions.iter().enumerate().any(|(gi, pos)| {
+                    farms.states.kinds.get(gi) == Some(&crate::resources::GrowthKind::Farm)
+                    && farms.states.town_indices.get(gi) == Some(&Some(town_id.0 as u32))
+                    && pos.x > -9000.0
+                    && farms.states.states.get(gi) == Some(&FarmGrowthState::Ready)
+                });
+                if has_ready {
+                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Ready crop found -> redirecting");
+                }
+                has_ready
+            } else {
+                false
+            };
+            if should_stop {
                 if let Ok(assigned) = assigned_query.get(entity) {
                     farms.occupancy.release(assigned.0);
                     commands.entity(entity).remove::<AssignedFarm>();
                 }
-                npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Stopped");
+                *activity = Activity::Idle;
             }
             continue;
         }

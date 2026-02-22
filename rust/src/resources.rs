@@ -561,6 +561,13 @@ impl GrowthStates {
         self.town_indices.push(None);
     }
 
+    /// Find growth index for a farm at the given position (position-based, not WorldData-index-based).
+    pub fn find_farm_at(&self, pos: Vec2) -> Option<usize> {
+        self.positions.iter().enumerate()
+            .find(|(i, p)| self.kinds[*i] == GrowthKind::Farm && (**p - pos).length() < 1.0)
+            .map(|(i, _)| i)
+    }
+
     pub fn tombstone(&mut self, idx: usize) {
         if let Some(pos) = self.positions.get_mut(idx) {
             *pos = Vec2::new(-99999.0, -99999.0);

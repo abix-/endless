@@ -103,13 +103,14 @@ Farms have a growth cycle instead of infinite food:
 
 **Farm harvest** uses `GrowthStates::harvest()` (single source of truth for Ready → Growing transition):
 - `harvest(idx, combat_log, game_time, faction) -> i32` — resets to Growing, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold), logs to CombatLog. Returns 0 if not Ready.
+- All farm harvest callers use `GrowthStates::find_farm_at(pos)` for position-based index lookup (not WorldData farm index, which diverges from GrowthStates index when farms are built after mines).
 - All callers enter `Activity::Returning { loot }` and carry yield home — delivery happens via `arrival_system` proximity check. No caller instant-credits storage.
 - Called from 5 sites: arrival_system (working farmer harvest), decision_system (farmer GoingToWork arrival), decision_system (raider steal), decision_system (miner Mining arrival), decision_system (MiningAtMine harvest)
 
 **Farmer harvest** (visible food transport):
 - Working farmer at farm: `arrival_system` detects Ready farm, calls `harvest()`, releases occupancy, removes `AssignedFarm`, enters `Returning { loot: [(Food, 1)] }` targeting home. Farmer visibly carries food sprite home.
 - GoingToWork arrival: if farm already Ready, `harvest()` + immediate `Returning` (no claim/Working). If not Ready, claim farm + `Working` (tending).
-- On delivery at home: farmer goes `GoingToWork` (back to farm), not Idle. Continuous work→carry→deliver→return cycle.
+- On delivery at home: farmer goes `Idle` — decision system re-evaluates best target (may pick a different farm if one is Ready). Dynamic work→carry→deliver→re-evaluate cycle.
 
 **Raider steal** (decision_system, Raiding arrival):
 - Uses `find_location_within_radius()` to find farm within FARM_ARRIVAL_RADIUS
@@ -117,7 +118,7 @@ Farms have a growth cycle instead of infinite food:
 - If farm not ready: find a different farm (excludes current position, skips tombstoned); if no other farm found, return home
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another" vs "No other farms, returning"
 
-**Farm destruction**: `FarmStates::tombstone(farm_idx)` resets all 3 parallel vecs (positions, states, progress) — called by `remove_building()`. Tombstoned position (-99999) causes render pipeline to skip the crop sprite and `farm_growth_system` to skip growth.
+**Farm destruction**: `FarmStates::tombstone(farm_idx)` resets all 3 parallel vecs (positions, states, progress) — called by `remove_building()` via `find_farm_at(pos)` position-based lookup. Tombstoned position (-99999) causes render pipeline to skip the crop sprite and `farm_growth_system` to skip growth.
 
 **Visual feedback**: `farm_visual_system` watches `FarmStates` for state transitions and spawns/despawns `FarmReadyMarker` entities. Uses `Local<Vec<FarmGrowthState>>` to detect transitions without extra resources. Growing→Ready spawns a marker; Ready→Growing (harvest) despawns it.
 

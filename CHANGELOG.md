@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-02-21o
+
+- **fix farm growth index mismatch** — `GrowthStates` stores farms and mines in one flat vec, but WorldData indexes them separately; when farms are built after mines exist, WorldData farm index ≠ GrowthStates index, causing UI to show 0% growth (reading mine data), harvest to read wrong entry, and destroy to tombstone wrong entry; added `GrowthStates::find_farm_at(pos)` position-based lookup and replaced all 6 WorldData-index-based GrowthStates lookups (UI display, UI tooltip, arrival harvest, working farmer harvest, raider harvest, destroy tombstone) with position-based lookups
+- **farmer post-delivery idle** — farmers now go Idle after delivering food (not GoingToWork to old farm); decision system re-evaluates best target, allowing farmers to redirect to ready farms instead of returning to a growing farm
+- **working farmer ready-check** — working farmers scan for Ready same-faction farms; if found, release current farm and go Idle so decision system redirects to the ready crop
+
 ## 2026-02-21n
 
 - **settle on land** — migration town creation now uses verified `settle_target` (guaranteed land cell from `pick_settle_site()`) instead of NPC centroid `avg_pos` (which could be over water) for all placement: `create_ai_town`, `place_buildings`, `stamp_dirt`, NPC `Home`, combat log location

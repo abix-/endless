@@ -765,8 +765,8 @@ pub fn remove_building(
     let def = crate::constants::building_def(kind);
     // Farm also needs growth state tombstoned (find index before tombstone moves position)
     if kind == BuildingKind::Farm {
-        if let Some(farm_idx) = (def.find_index)(world_data, snapped_pos) {
-            farm_states.tombstone(farm_idx);
+        if let Some(gi) = farm_states.find_farm_at(snapped_pos) {
+            farm_states.tombstone(gi);
         }
     }
     (def.tombstone)(world_data, snapped_pos);
