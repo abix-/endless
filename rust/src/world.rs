@@ -693,48 +693,6 @@ pub fn expand_town_build_area(
     Ok(())
 }
 
-/// Remove a building from the world grid. Tombstones in WorldData (position = -99999).
-pub fn remove_building(
-    grid: &mut WorldGrid,
-    world_data: &mut WorldData,
-    farm_states: &mut GrowthStates,
-    row: i32,
-    col: i32,
-    town_center: Vec2,
-) -> Result<(), &'static str> {
-    let world_pos = town_grid_to_world(town_center, row, col);
-    let (gc, gr) = grid.world_to_grid(world_pos);
-    let snapped_pos = grid.grid_to_world(gc, gr);
-
-    let (kind, _town_idx) = match grid.cell(gc, gr) {
-        Some(cell) => match cell.building {
-            Some(b) => b,
-            None => return Err("no building to remove"),
-        },
-        None => return Err("cell out of bounds"),
-    };
-
-    // Player UI guards (is_destructible) prevent click-destroying fountains/gold mines.
-    // The HP→0 path in building_damage_system is allowed to destroy any building kind.
-
-    // Clear grid cell
-    if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = None;
-    }
-
-    // Tombstone in WorldData (set position to far offscreen so spatial queries skip it)
-    let def = crate::constants::building_def(kind);
-    // Farm also needs growth state tombstoned (find index before tombstone moves position)
-    if kind == BuildingKind::Farm {
-        if let Some(gi) = farm_states.find_farm_at(snapped_pos) {
-            farm_states.tombstone(gi);
-        }
-    }
-    (def.tombstone)(world_data, snapped_pos);
-
-    Ok(())
-}
-
 impl WorldData {
     /// Find miner home index by position (grid-snapped, < 1px tolerance).
     pub fn miner_home_at(&self, pos: Vec2) -> Option<usize> {
@@ -789,7 +747,6 @@ pub fn destroy_building(
     let (gc, gr) = grid.world_to_grid(world_pos);
     let snapped = grid.grid_to_world(gc, gr);
 
-    // Capture building info BEFORE remove_building clears the grid cell
     let (kind, bld_town_idx) = grid.cell(gc, gr)
         .and_then(|c| c.building)
         .ok_or("no building")?;
@@ -800,8 +757,19 @@ pub fn destroy_building(
         free_building_slot(slot_alloc, building_slots, kind, idx);
     }
 
-    // Grid clear + WorldData tombstone
-    remove_building(grid, world_data, farm_states, row, col, town_center)?;
+    // Clear grid cell
+    if let Some(cell) = grid.cell_mut(gc, gr) {
+        cell.building = None;
+    }
+
+    // Tombstone in WorldData (farm growth state must be found before tombstone moves position)
+    let def = crate::constants::building_def(kind);
+    if kind == BuildingKind::Farm {
+        if let Some(gi) = farm_states.find_farm_at(snapped) {
+            farm_states.tombstone(gi);
+        }
+    }
+    (def.tombstone)(world_data, snapped);
 
     // Tombstone matching spawner entry
     if let Some(se) = spawner_state.0.iter_mut().find(|s| (s.position - snapped).length() < 1.0) {

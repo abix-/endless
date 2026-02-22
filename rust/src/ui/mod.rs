@@ -337,6 +337,9 @@ fn game_startup_system(
     for player in &ai_players {
         if let Some(policy) = extra.policies.policies.get_mut(player.town_data_idx) {
             *policy = player.personality.default_policies();
+            if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
+                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(&world_state.world_data, town.center);
+            }
         }
         if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
             extra.combat_log.push(CombatEventKind::Ai, -1, 1, 6, 0,

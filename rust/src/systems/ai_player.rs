@@ -53,6 +53,20 @@ const MAX_MINING_RADIUS: f32 = 5000.0;
 /// Hard ceiling on miners per mine, regardless of personality target.
 const MAX_MINERS_PER_MINE: usize = 5;
 
+/// Initial mining radius: reaches at least the nearest gold mine, rounded up to step grid.
+pub fn initial_mining_radius(world_data: &WorldData, center: Vec2) -> f32 {
+    let nearest = world_data.gold_mines().iter()
+        .filter(|m| world::is_alive(m.position))
+        .map(|m| (m.position - center).length())
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    match nearest {
+        Some(dist) => ((dist / MINING_RADIUS_STEP).ceil() * MINING_RADIUS_STEP)
+            .max(DEFAULT_MINING_RADIUS)
+            .min(MAX_MINING_RADIUS),
+        None => DEFAULT_MINING_RADIUS,
+    }
+}
+
 fn recalc_waypoint_patrol_order_clockwise(
     world_data: &mut WorldData,
     town_idx: u32,
@@ -254,6 +268,15 @@ impl AiPersonality {
             Self::Aggressive => 0.1,
             Self::Balanced => 0.2,
             Self::Economic => 0.3,
+        }
+    }
+
+    /// Minimum miner homes this personality guarantees before other buildings outcompete.
+    fn min_miner_homes(self) -> usize {
+        match self {
+            Self::Aggressive => 1,
+            Self::Balanced => 2,
+            Self::Economic => 3,
         }
     }
 
@@ -1252,6 +1275,7 @@ pub fn ai_decision_system(
                 let ht = personality.farmer_home_target(farms);
                 let mines = ctx.mines.as_ref().unwrap();
                 let ms_target = ((total_civilians as f32 * personality.mining_ratio()) as usize)
+                    .max(if mines.in_radius > 0 { 1 } else { 0 })
                     .min(mines.in_radius * MAX_MINERS_PER_MINE);
                 let house_deficit = ht.saturating_sub(houses);
                 let barracks_deficit = bt.saturating_sub(barracks);
@@ -1288,7 +1312,9 @@ pub fn ai_decision_system(
                     }
                     if miner_deficit > 0 && ctx.food >= building_cost(BuildingKind::MinerHome) {
                         let ms_need = desires.gold_desire * miner_deficit as f32;
-                        build_scores.push((AiAction::BuildMinerHome, hw * ms_need));
+                        // Bootstrap boost: guarantee min miner homes per personality
+                        let bootstrap = if mine_shafts < personality.min_miner_homes() { 5.0 } else { 1.0 };
+                        build_scores.push((AiAction::BuildMinerHome, hw * ms_need * bootstrap));
                     } else if miner_deficit == 0 && mines.outside_radius > 0 {
                         let expand_need = desires.gold_desire * mines.outside_radius as f32;
                         build_scores.push((AiAction::ExpandMiningRadius, personality.expand_mining_weight() * expand_need));

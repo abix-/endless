@@ -569,6 +569,7 @@ fn create_ai_town(
     let personality = personalities[rng.random_range(0..personalities.len())];
     if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
         *policy = personality.default_policies();
+        policy.mining_radius = super::ai_player::initial_mining_radius(world_data, center);
     }
     ai_state.players.push(AiPlayer {
         town_data_idx,

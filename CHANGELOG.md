@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22m
+
+- **AI mining bootstrap** — initial mining radius now reaches nearest gold mine (rounded up to 300px step grid) instead of fixed default; miner target has floor of 1 when mines exist in radius; miner homes get 5× score boost until personality's min_miner_homes reached (Aggressive:1, Balanced:2, Economic:3); inlined `remove_building` into `destroy_building` (was unused public helper)
+
 ## 2026-02-22l
 
 - **AI player per-frame overhead reduction** — `ai_squad_commander_system` now uses dirty+heartbeat gating (wakes on `dirty.ai_squads` or 2s fallback) instead of running every frame; spawner counts cached in `AiTownSnapshotCache` (recomputed only when buildings change); inlined building counts (eliminated per-tick HashMap allocation); cached waypoint ring slots in `AiTownSnapshot` (was computed 4× per tick with allocation + sort)
