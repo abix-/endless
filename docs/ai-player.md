@@ -80,7 +80,9 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 2. Build/refresh town snapshot (cached; cleared when building_grid, mining, or patrol_perimeter dirty). Snapshot includes cached waypoint ring slots and building positions as HashSets.
 3. Count food and spawners (spawner counts cached in AiTownSnapshotCache, recomputed only when snapshot is dirty)
 4. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
-5. DETERMINISTIC MINER BOOTSTRAP: if mine_shafts < min_miner_homes and mines exist → build miner home immediately (bypasses food reserve gate and weighted scoring)
+5. DETERMINISTIC MINER BOOTSTRAP: if mine_shafts < min_miner_homes and mines exist:
+   - food ≥ 4 → build miner home immediately (bypasses reserve gate and scoring)
+   - food < 4 → skip tick entirely (hoard food for miner home)
 6. GATE: if food ≤ reserve → skip this tick entirely
 7. Count remaining buildings via inline building_def calls, compute targets and deficits
 8. Compute desire signals (food, military, gold, economy)
@@ -101,7 +103,12 @@ When the picked building action fails to execute (e.g., no valid road candidates
 
 ### Deterministic Miner Bootstrap
 
-Before the food reserve gate, the AI checks if `mine_shafts < min_miner_homes` (personality-driven: Aggressive=1, Balanced=2, Economic=3). If mines exist and the town can afford a miner home (4 food), it builds one immediately — bypassing both the food reserve gate and weighted random scoring. This guarantees early mining infrastructure regardless of food pressure or competing building scores. After `min_miner_homes` are built, normal scored building resumes.
+Before the food reserve gate, the AI checks if `mine_shafts < min_miner_homes` (personality-driven: Aggressive=1, Balanced=2, Economic=3). Two gates work together:
+
+1. **Build gate**: If mines exist and `food >= 4` (miner home cost), build a miner home immediately — bypassing both the food reserve gate and weighted random scoring.
+2. **Hoard gate**: If mines exist but `food < 4`, skip the entire tick — no other buildings are built, allowing food to accumulate until the build gate can fire.
+
+This guarantees early mining infrastructure regardless of food pressure or competing building scores. Without the hoard gate, cheaper buildings (farms=2, houses=2) drain food before it reaches 4, and all slots fill with zero miner homes. After `min_miner_homes` are built, normal scored building resumes.
 
 ### Food Reserve Gate
 

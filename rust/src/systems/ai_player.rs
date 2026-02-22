@@ -1218,6 +1218,16 @@ pub fn ai_decision_system(
             }
         }
 
+        // Hoard food for miner home: if bootstrap didn't fire (food < 4), block all spending.
+        if matches!(kind, AiKind::Builder) && ctx.has_slots
+            && mine_shafts < personality.min_miner_homes()
+            && food < building_cost(BuildingKind::MinerHome)
+        {
+            if ctx.mines.as_ref().is_some_and(|m| m.in_radius + m.outside_radius > 0) {
+                continue;
+            }
+        }
+
         // Food reserve rule: if town is at/below reserve, skip spending this tick.
         if food <= reserve { continue; }
 

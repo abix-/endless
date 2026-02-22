@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22o
+
+- **AI miner food hoarding** — when miner homes are below personality minimum and food < 4 (miner home cost), AI now skips all other building to let food accumulate; without this, cheaper buildings (farms=2, houses=2) drained food before it reached 4, filling all slots with zero miner homes
+
 ## 2026-02-22n
 
 - **Deterministic miner bootstrap** — AI now builds miner homes deterministically before the food reserve gate, bypassing both weighted random scoring and food reserve restrictions; guarantees min_miner_homes (Aggressive:1, Balanced:2, Economic:3) are built as the very first actions; fixes gold economy deadlock where growing spawner count pushed reserve above food, permanently blocking all scored building including miners
