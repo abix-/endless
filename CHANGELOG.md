@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22i
+
+- **starvation prevention** — work score now scales down linearly when energy is below tired threshold (30), so rest naturally outcompetes work around energy ~24; previously NPCs at energy 29 would choose work (score 40) over rest (score 21), enter farm-retarget loops that burned energy to 0, and starve despite having 90K+ food available
+
 ## 2026-02-22h
 
 - **AI military snowball fix** — balanced builder no longer spirals to 11:1 military-to-civilian ratio; added symmetric population ratio correction (over-military dampens military_desire and boosts food_desire), capped waypoint_gap at 0.5 to break self-reinforcing feedback loop, gave farmer homes a 0.5 baseline score when at target to match military's existing maintenance trickle

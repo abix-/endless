@@ -65,12 +65,14 @@ Each NPC has a `Personality` with 0-2 traits, each with a magnitude (0.5-1.5):
 |--------|-----------|-----------|
 | Eat | `(ENERGY_EAT_THRESHOLD - energy) * 1.5` | town has food AND energy < 10 |
 | Rest | `(ENERGY_HUNGRY - energy) * 1.0` | home valid AND energy < ENERGY_HUNGRY |
-| Work | `40.0 * hp_mult` | has job, HP > 30% |
+| Work | `40.0 * hp_mult * energy_factor` | has job, HP > 30% |
 | Wander | `10.0` | always |
 
 **Eat action**: Instantly consumes 1 food from town storage and restores energy to 100. No travel required — NPCs eat at current location. Only available as emergency option when energy < `ENERGY_EAT_THRESHOLD` (10) — NPCs prefer resting over eating.
 
 **HP-based work score**: `hp_mult = 0` if HP < 30%, otherwise `(hp_pct - 0.3) / 0.7`. This prevents critically wounded NPCs from working/raiding while still allowing starving NPCs (HP capped at 50%) to join raid queues at reduced priority.
+
+**Energy-based work score**: `energy_factor = energy / ENERGY_TIRED_THRESHOLD` when energy < 30, otherwise 1.0. This scales work desire down linearly as energy drops, so rest naturally outcompetes work around energy ~24. Prevents the starvation death spiral where NPCs repeatedly choose work over rest, burn energy in farm-retarget loops, and hit energy 0.
 
 **Note**: The code defines `Action::Fight` and `Action::Flee` in the enum, but these are not scored in decision_system. Fight/flee behavior is handled by combat systems (attack_system, flee_system) instead.
 

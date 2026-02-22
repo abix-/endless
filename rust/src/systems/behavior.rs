@@ -922,7 +922,13 @@ pub fn decision_system(
         if can_work {
             let hp_pct = health.0 / 100.0;
             let hp_mult = if hp_pct < 0.3 { 0.0 } else { (hp_pct - 0.3) * (1.0 / 0.7) };
-            let work_score = SCORE_WORK_BASE * work_m * hp_mult;
+            // Scale down work desire when tired so rest/eat can win before starvation
+            let energy_factor = if en < ENERGY_TIRED_THRESHOLD {
+                en / ENERGY_TIRED_THRESHOLD
+            } else {
+                1.0
+            };
+            let work_score = SCORE_WORK_BASE * work_m * hp_mult * energy_factor;
             if work_score > 0.0 { scores[score_count] = (Action::Work, work_score); score_count += 1; }
         }
 
