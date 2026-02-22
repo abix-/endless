@@ -79,13 +79,14 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 1. Skip if inactive (migration not settled yet)
 2. Build/refresh town snapshot (cached; cleared when building_grid, mining, or patrol_perimeter dirty). Snapshot includes cached waypoint ring slots and building positions as HashSets.
 3. Count food and spawners (spawner counts cached in AiTownSnapshotCache, recomputed only when snapshot is dirty)
-4. GATE: if food ≤ reserve → skip this tick entirely
-5. Compute desire signals (food, military, gold, economy)
-6. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
-7. Count buildings via inline building_def calls (no HashMap allocation), compute targets and deficits
-8. Phase 1 — BUILDING: score eligible building actions, retry loop (weighted pick → execute → on failure remove variant and re-pick)
-9. Phase 2 — UPGRADE: re-check food/gold after Phase 1 spend, score eligible upgrades, pick, execute
-10. Invalidate snapshot on successful build/upgrade, log to combat log
+4. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
+5. DETERMINISTIC MINER BOOTSTRAP: if mine_shafts < min_miner_homes and mines exist → build miner home immediately (bypasses food reserve gate and weighted scoring)
+6. GATE: if food ≤ reserve → skip this tick entirely
+7. Count remaining buildings via inline building_def calls, compute targets and deficits
+8. Compute desire signals (food, military, gold, economy)
+9. Phase 1 — BUILDING: score eligible building actions, retry loop (weighted pick → execute → on failure remove variant and re-pick)
+10. Phase 2 — UPGRADE: re-check food/gold after Phase 1 spend, score eligible upgrades, pick, execute
+11. Invalidate snapshot on successful build/upgrade, log to combat log
 ```
 
 Each tick can produce up to **two** actions: one building and one upgrade. Phase 2 re-reads food/gold after Phase 1 spending.
@@ -98,13 +99,17 @@ When the picked building action fails to execute (e.g., no valid road candidates
 
 `UserSettings.debug_ai_decisions` toggle (Settings → Debug → "AI Decision Logging"). When enabled, failed actions are logged to `last_actions` as `[dbg] Roads FAILED (Roads=48.0 Farm=11.4 ...)` showing the action and top scores at time of failure. Appears in the faction inspector's Recent Actions list.
 
+### Deterministic Miner Bootstrap
+
+Before the food reserve gate, the AI checks if `mine_shafts < min_miner_homes` (personality-driven: Aggressive=1, Balanced=2, Economic=3). If mines exist and the town can afford a miner home (4 food), it builds one immediately — bypassing both the food reserve gate and weighted random scoring. This guarantees early mining infrastructure regardless of food pressure or competing building scores. After `min_miner_homes` are built, normal scored building resumes.
+
 ### Food Reserve Gate
 
 ```
 reserve = food_reserve_per_spawner × spawner_count
 ```
 
-Every spawner building (farmer home, archer home, crossbow home, fighter home, miner home) counts. The AI won't spend food if at or below reserve. This prevents self-starvation but also slows building as the town grows.
+Every spawner building (farmer home, archer home, crossbow home, fighter home, miner home) counts. The AI won't spend food if at or below reserve (except for the deterministic miner bootstrap above). This prevents self-starvation but also slows building as the town grows.
 
 ### Desire Signals
 

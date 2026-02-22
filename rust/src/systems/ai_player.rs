@@ -1183,8 +1183,6 @@ pub fn ai_decision_system(
         let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let spawner_count = snapshots.spawner_counts.get(&tdi).copied().unwrap_or(0);
         let reserve = personality.food_reserve_per_spawner() * spawner_count;
-        // Food reserve rule: if town is at/below reserve, skip spending this tick.
-        if food <= reserve { continue; }
         // Desire signals are computed once below and reused by action + upgrade scoring.
         let mining_radius = res.policies.policies.get(tdi)
             .map(|p| p.mining_radius)
@@ -1197,13 +1195,38 @@ pub fn ai_decision_system(
         let town_name = res.world.world_data.towns.get(tdi).map(|t| t.name.clone()).unwrap_or_default();
         let pname = personality.name();
 
+        // Pre-compute mine_shafts before bc closure to allow mutable borrow for bootstrap.
+        let mine_shafts = (building_def(BuildingKind::MinerHome).count_for_town)(&res.world.world_data, ctx.ti);
+
+        // Deterministic miner bootstrap: bypasses food reserve gate.
+        // Ensures min miner homes are built before the town can starve its gold economy.
+        if matches!(kind, AiKind::Builder) && ctx.has_slots
+            && mine_shafts < personality.min_miner_homes()
+            && food >= building_cost(BuildingKind::MinerHome)
+        {
+            let mines = ctx.mines.as_ref();
+            if mines.is_some_and(|m| m.in_radius + m.outside_radius > 0) {
+                if let Some(what) = try_build_miner_home(&ctx, mines.unwrap(), &mut res, snapshots.towns.get(&tdi), personality) {
+                    snapshots.towns.remove(&tdi);
+                    let faction = res.world.world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
+                    log_ai(&mut combat_log, &game_time, faction, &town_name, pname, &what);
+                    let actions = &mut ai_state.players[pi].last_actions;
+                    if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
+                    actions.push_back((what, game_time.day(), game_time.hour()));
+                    continue;
+                }
+            }
+        }
+
+        // Food reserve rule: if town is at/below reserve, skip spending this tick.
+        if food <= reserve { continue; }
+
         let bc = |k: BuildingKind| (building_def(k).count_for_town)(&res.world.world_data, ctx.ti);
         let farms = bc(BuildingKind::Farm);
         let houses = bc(BuildingKind::FarmerHome);
         let barracks = bc(BuildingKind::ArcherHome);
         let xbow_homes = bc(BuildingKind::CrossbowHome);
         let waypoints = bc(BuildingKind::Waypoint);
-        let mine_shafts = bc(BuildingKind::MinerHome);
         let total_military_homes = barracks + xbow_homes;
         let faction = res.world.world_data.towns.get(tdi).map(|t| t.faction).unwrap_or(0);
         // Threat signal from GPU spatial grid: fountain's enemy count from readback.

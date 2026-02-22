@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22n
+
+- **Deterministic miner bootstrap** — AI now builds miner homes deterministically before the food reserve gate, bypassing both weighted random scoring and food reserve restrictions; guarantees min_miner_homes (Aggressive:1, Balanced:2, Economic:3) are built as the very first actions; fixes gold economy deadlock where growing spawner count pushed reserve above food, permanently blocking all scored building including miners
+
 ## 2026-02-22m
 
 - **AI mining bootstrap** — initial mining radius now reaches nearest gold mine (rounded up to 300px step grid) instead of fixed default; miner target has floor of 1 when mines exist in radius; miner homes get 5× score boost until personality's min_miner_homes reached (Aggressive:1, Balanced:2, Economic:3); inlined `remove_building` into `destroy_building` (was unused public helper)
