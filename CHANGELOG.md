@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-02-22c
+
+- **AI road building** — AI towns now build roads in personality-specific grid patterns: Economic uses 4×4 grid, Balanced uses 3×3 grid, Aggressive uses cardinal axes from center; roads are batch-placed adjacent to economy buildings (farms, farmer homes, miner homes); non-road buildings filter out road pattern slots via `is_road_slot` to reserve space for future roads
+- **Phase 1/Phase 2 AI decision split** — AI decision system now runs two independent phases per tick: Phase 1 scores and executes one building action, Phase 2 re-checks food/gold and scores one upgrade; previously buildings and upgrades competed in a single weighted pool, causing upgrades to crowd out building when scores were high
+- **economy desire signal** — new `economy_desire = 1 - slot_fullness` floors food/military/gold desires so building scores never collapse to zero while the town has empty slots
+- **expansion delay fix** — expansion upgrades are now delayed whenever the town has empty slots and can afford any building; previously the guard only checked specific home targets against personality quotas, allowing expansion to slip through when targets were met but slots were still unfilled (farms, waypoints, roads)
+- **migration nearest-edge approach** — migration boats now spawn at the map edge closest to the settle target instead of a random edge; reduces travel time and prevents boats from crossing the entire map
+- **factions copy debug** — Factions tab (I key) now has a "Copy Debug" button that builds a comprehensive debug string (resources, desires with formulas, buildings, NPCs, population, mining, upgrades, squads, recent actions, stat multipliers) and copies it to clipboard via arboard
+- **AI action history** — increased `MAX_ACTION_HISTORY` from 3 to 20 for better debug visibility
+- **ai-building test** — new test scene: pick an AI personality, observe it building a town with 100K food+gold and 1s decision interval; includes test time controls (Space=pause, +/-=speed) and left panel (I key for Factions tab)
+
 ## 2026-02-22b
 
 - **DC wake on move** — DirectControl NPCs that are resting (`GoingToRest`/`Resting`) now wake to `Idle` when given a right-click move or attack command; previously they slid to the destination while still in resting state, recovering energy incorrectly

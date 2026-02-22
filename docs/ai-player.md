@@ -20,11 +20,14 @@ Assigned randomly at creation. Drives every decision the AI makes. All personali
 | | Aggressive | Balanced | Economic |
 |-|-----------|----------|----------|
 | **Build weights** (farm/house/archer/waypoint) | 10/10/30/20 | 20/20/15/10 | 30/25/5/5 |
-| **Farmer home target** | 1:1 with farms | farms + 1 | 2× farms |
+| **Farmer home target** | 1:1 with farms | farms + 1 | farms + 2 |
 | **Archer home target** | 1:1 with homes | homes / 2 | 1 + homes / 3 |
 | **Food reserve per spawner** | 0 | 1 | 2 |
 | **Slot placement: farms** | `farm_slot_score` (adjacency + 2×2 block + line bonus) | `balanced_farm_ray_score` (cardinal axis rays from center) | same as Aggressive |
 | **Slot placement: homes** | `farmer_home_border_score` (must border farms) | `balanced_house_side_score` (beside axis rays, not on them) | same as Aggressive |
+| **Road weight** | 2.0 | 3.0 | 8.0 |
+| **Road batch size** | 2 | 3 | 6 |
+| **Road pattern** | Cardinal axes from center | 3×3 grid (`rem_euclid(3)`) | 4×4 grid (`rem_euclid(4)`) |
 
 ### Mining
 
@@ -76,13 +79,15 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 2. Build/refresh town snapshot (cached; cleared when building_grid, mining, or patrol_perimeter dirty)
 3. Count food and spawners
 4. GATE: if food ≤ reserve → skip this tick entirely
-5. Compute hunger signal
+5. Compute desire signals (food, military, gold, economy)
 6. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
 7. Count buildings via building_counts() → HashMap<BuildingKind, usize>, compute targets and deficits
-8. Score all eligible actions (buildings + upgrades)
-9. Weighted random pick → execute one action
-10. Invalidate snapshot on successful build, log to combat log
+8. Phase 1 — BUILDING: score eligible building actions, weighted random pick, execute
+9. Phase 2 — UPGRADE: re-check food/gold after Phase 1 spend, score eligible upgrades, pick, execute
+10. Invalidate snapshot on successful build/upgrade, log to combat log
 ```
+
+Each tick can produce up to **two** actions: one building and one upgrade. Phase 2 re-reads food/gold after Phase 1 spending.
 
 ### Food Reserve Gate
 
@@ -94,7 +99,7 @@ Every spawner building (farmer home, archer home, crossbow home, fighter home, m
 
 ### Desire Signals
 
-Two desire signals computed once per tick, used as multiplicative gates on building scores:
+Four desire signals computed once per tick, used as multiplicative gates on building scores:
 
 **Food desire** — drives farm and farmer home construction:
 ```
@@ -110,6 +115,22 @@ barracks_gap = (target - barracks) / target
 waypoint_gap = (barracks - waypoints) / barracks
 military_desire = clamp(barracks_gap × 0.75 + waypoint_gap × 0.25, 0.0, 1.0)
 ```
+
+**Gold desire** — drives mining and gold-costing upgrades:
+```
+cheapest_gold = cost of cheapest affordable gold upgrade
+gold_desire = clamp((1 - gold / cheapest_gold) × gold_desire_mult, 0..1)
+```
+Falls back to `base_mining_desire()` if no gold upgrades exist.
+
+**Economy desire** — floors other desires while town has empty slots:
+```
+economy_desire = 1.0 - slot_fullness
+food_desire = max(food_desire, economy_desire)
+military_desire = max(military_desire, economy_desire)
+gold_desire = max(gold_desire, economy_desire)
+```
+Prevents building scores from collapsing to zero while the town still has room to grow.
 
 ## Building Scoring
 
@@ -131,7 +152,9 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 - Below target: `military_desire × deficit`
 - At target: `military_desire × 0.5`
 
-**Miner homes:** Only scored when miner deficit > 0: `1.0 + deficit`. Uses house base weight `hw`.
+**Miner homes:** Only scored when miner deficit > 0: `gold_desire × deficit`. Uses house base weight `hw`.
+
+**Roads:** `road_weight × road_need` where `road_need = economy_buildings - roads/2`. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) adjacent to economy buildings (farms, farmer homes, miner homes), scored by adjacency count. Batch places multiple roads per action (batch size per personality).
 
 **Waypoints:** `military_desire × gap`. Scored when uncovered mines exist (gap = uncovered count, no slot requirement) or when waypoints < total military homes AND town has slots. Waypoint cost check is independent of `has_slots` since waypoints can be placed in wilderness.
 
@@ -152,7 +175,9 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 | Miner home | Minimizes distance to nearest gold mine. Center-biased fallback when no mines exist. |
 | Waypoint | Two-stage: (1) wilderness near nearest uncovered mine if spacing OK, (2) in-town perimeter slot maximizing spacing then radial distance. |
 
-**Fallback:** If no snapshot or scorer produces a candidate, `find_inner_slot` picks the empty slot closest to town center. Waypoints use `place_waypoint_at_world_pos` (world-position-based, not town-slot-based) so they can be placed both in-town and in wilderness.
+**Road-aware placement:** All non-road building placement (both `find_inner_slot` and snapshot empty slots) filters out slots that match the personality's road pattern (`is_road_slot`). This prevents buildings from being placed on future road positions.
+
+**Fallback:** If no snapshot or scorer produces a candidate, `find_inner_slot` picks the empty non-road slot closest to town center. Waypoints use `place_waypoint_at_world_pos` (world-position-based, not town-slot-based) so they can be placed both in-town and in wilderness.
 
 ## Mining & Expansion
 
@@ -169,7 +194,8 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 ## Expansion Upgrade
 
 The TownArea upgrade has special rules beyond normal upgrade scoring:
-- Delayed while building deficits exist and town has slots (homes, total military homes, or miners below target)
+- Phase 2 blocks all non-expansion upgrades while town has empty slots (`has_slots && !is_expansion → skip`)
+- Expansion itself is delayed while `has_slots` and AI can afford any building (cheapest of farm/farmer home/archer home/miner home) — ensures Phase 1 fills slots before expanding
 - Urgency ramps with slot fullness: 70%→100% = 2×→6× weight
 - Hard 10× boost when no empty slots remain
 

@@ -836,19 +836,27 @@ pub fn endless_system(
     let Some(idx) = endless.pending_spawns.iter().position(|s| s.delay_remaining <= 0.0) else { return };
     let spawn = endless.pending_spawns.remove(idx);
 
-    let mut rng = rand::rng();
-    let edge: u8 = rng.random_range(0..4);
-    let (spawn_x, spawn_y) = match edge {
-        0 => (rng.random_range(0.0..world_w), 50.0),
-        1 => (rng.random_range(0.0..world_w), world_h - 50.0),
-        2 => (50.0, rng.random_range(0.0..world_h)),
-        _ => (world_w - 50.0, rng.random_range(0.0..world_h)),
-    };
-    let direction = match edge { 0 => "north", 1 => "south", 2 => "west", _ => "east" };
-
-    // Pick settlement site far from existing towns
+    // Pick settlement site first so we can approach from the nearest edge
     let settle_target = pick_settle_site(&world_state.grid, &world_state.world_data, world_w, world_h);
     info!("Endless: settle target at ({:.0}, {:.0})", settle_target.x, settle_target.y);
+
+    // Approach from the map edge closest to settle target
+    let dist_north = settle_target.y;
+    let dist_south = world_h - settle_target.y;
+    let dist_west  = settle_target.x;
+    let dist_east  = world_w - settle_target.x;
+    let min_dist = dist_north.min(dist_south).min(dist_west).min(dist_east);
+
+    let mut rng = rand::rng();
+    let (spawn_x, spawn_y, direction) = if min_dist == dist_north {
+        (rng.random_range(0.0..world_w), 50.0, "north")
+    } else if min_dist == dist_south {
+        (rng.random_range(0.0..world_w), world_h - 50.0, "south")
+    } else if min_dist == dist_west {
+        (50.0, rng.random_range(0.0..world_h), "west")
+    } else {
+        (world_w - 50.0, rng.random_range(0.0..world_h), "east")
+    };
 
     // Allocate boat GPU slot
     let boat_slot = world_state.slot_alloc.alloc();

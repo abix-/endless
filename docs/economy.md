@@ -248,7 +248,7 @@ migration_spawn_system (hourly check)
         │ player_alive >= VILLAGERS_PER_RAIDER * (raider_count + 1)? (alive towns only)
         │ no active migration? alive raider_towns < MAX_RAIDER_TOWNS (20)?
         │
-        ▼ YES: spawn group at random map edge
+        ▼ YES: spawn group at nearest map edge to settle target
         │
         ├─ Create Town entry (faction = max+1, sprite_type = 1)
         ├─ Create TownGrid, extend all per-town resources (food, gold, factions, raider_state, policies)
@@ -297,7 +297,7 @@ migration_settle_system (every frame, early-returns if no active migration)
         └─ Clear MigrationState.active (unblock pipeline for next migration)
 ```
 
-**Movement**: Migration group spawns a boat entity (building slot with `ATLAS_BOAT` sprite) at the map edge. The boat sails toward `settle_target` at `BOAT_SPEED` (150px/s). When the boat reaches land (non-water terrain), NPCs disembark — spawned at the boat position with `Migrating` component, boat slot freed. NPCs then walk toward `settle_target` using the existing `Home` component + `Action::Wander` behavior.
+**Movement**: Migration group spawns a boat entity (building slot with `ATLAS_BOAT` sprite) at the map edge nearest to the settle target. The boat sails toward `settle_target` at `BOAT_SPEED` (150px/s). When the boat reaches land (non-water terrain), NPCs disembark — spawned at the boat position with `Migrating` component, boat slot freed. NPCs then walk toward `settle_target` using the existing `Home` component + `Action::Wander` behavior.
 
 **Settlement site selection**: `pick_settle_site()` samples 100 random land positions and picks the one farthest from all existing towns — ensures new settlements spread across the map rather than clustering. The verified `settle_target` position is used for all placement (town center, buildings, dirt stamp, NPC homes, combat log) — never the NPC centroid `avg_pos` (which could be over water).
 

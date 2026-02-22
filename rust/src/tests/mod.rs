@@ -23,6 +23,7 @@ pub mod heal_visual;
 pub mod npc_visuals;
 pub mod terrain_visual;
 pub mod endless_mode;
+pub mod ai_building;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -321,9 +322,12 @@ pub fn register_tests(app: &mut App) {
     app.add_systems(EguiPrimaryContextPass, test_menu_system.run_if(in_state(AppState::TestMenu)));
     app.add_systems(EguiPrimaryContextPass, (
         crate::ui::game_hud::top_bar_system,
+        crate::ui::left_panel::left_panel_system,
         crate::ui::game_hud::combat_log_system,
         test_hud_system,
     ).chain().run_if(in_state(AppState::Running)));
+    app.add_systems(Update, crate::ui::ui_toggle_system
+        .run_if(in_state(AppState::Running)));
     app.add_systems(OnEnter(AppState::TestMenu), auto_start_next_test);
 
     // Cleanup when leaving Running
@@ -333,6 +337,9 @@ pub fn register_tests(app: &mut App) {
     app.add_systems(Update, test_completion_system
         .run_if(in_state(AppState::Running))
         .after(Step::Behavior));
+
+    // Speed controls: Space=pause, +/-=scale (same keys as game_escape_system)
+    app.add_systems(Update, test_time_controls.run_if(in_state(AppState::Running)));
 
     // Register individual tests
     let mut registry = TestRegistry::default();
@@ -637,6 +644,25 @@ pub fn register_tests(app: &mut App) {
             .run_if(test_is("endless-mode"))
             .after(Step::Behavior));
 
+    // ai-building
+    registry.tests.push(TestEntry {
+        name: "ai-building".into(),
+        description: "AI town building: pick personality, watch it build with 100K food+gold".into(),
+        phase_count: 2,
+        time_scale: 1.0,
+    });
+    app.add_systems(OnEnter(AppState::Running),
+        ai_building::setup.run_if(test_is("ai-building")));
+    app.add_systems(EguiPrimaryContextPass,
+        ai_building::ui
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("ai-building")));
+    app.add_systems(Update,
+        ai_building::tick
+            .run_if(in_state(AppState::Running))
+            .run_if(test_is("ai-building"))
+            .after(Step::Behavior));
+
     app.insert_resource(registry);
 }
 
@@ -749,7 +775,7 @@ fn test_hud_system(
 
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("Test")
-        .anchor(egui::Align2::LEFT_TOP, [8.0, 8.0])
+        .anchor(egui::Align2::RIGHT_TOP, [-8.0, 8.0])
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
@@ -795,6 +821,26 @@ fn test_hud_system(
             }
         });
     Ok(())
+}
+
+// ============================================================================
+// TIME CONTROLS (for test scenes)
+// ============================================================================
+
+/// Space=pause, +/- =speed. Mirrors game_escape_system keys.
+fn test_time_controls(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut game_time: ResMut<GameTime>,
+) {
+    if keys.just_pressed(KeyCode::Space) {
+        game_time.paused = !game_time.paused;
+    }
+    if keys.just_pressed(KeyCode::Equal) {
+        game_time.time_scale = (game_time.time_scale * 2.0).min(128.0);
+    }
+    if keys.just_pressed(KeyCode::Minus) {
+        game_time.time_scale = (game_time.time_scale / 2.0).max(0.25);
+    }
 }
 
 // ============================================================================

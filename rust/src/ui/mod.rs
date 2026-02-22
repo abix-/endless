@@ -102,7 +102,7 @@ pub fn register_ui(app: &mut App) {
 }
 
 /// Keyboard shortcuts for toggling UI panels.
-fn ui_toggle_system(
+pub fn ui_toggle_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<UiState>,
     mut follow: ResMut<FollowSelected>,
