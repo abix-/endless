@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-22g
+
+- **unified building placement** — collapsed `place_building`, `build_and_pay`, and `place_wilderness_building` into a single `place_building(world_pos)` that handles everything: validate cell (exists, empty, not water), reject foreign territory, deduct food, place on grid, register in WorldData, set waypoint patrol_order, push farm growth state, register spawner, push HP, allocate GPU slot, mark dirty flags; all callers (player UI + AI) now use one code path
+- **military target civilian homes fix** — AI military desire now counts miner homes in civilian homes total for archer home target calculation (previously only counted farmer homes)
+
 ## 2026-02-22f
 
 - **farmer farm-rushing fix** — farmers no longer dogpile the same farm; all occupied farms are now skipped during farm selection (previously Ready farms bypassed occupancy check), working farmers no longer abandon their current farm when any Ready crop exists elsewhere, and en-route farmers retarget to the nearest free farm if their target gets claimed by another farmer who arrived first

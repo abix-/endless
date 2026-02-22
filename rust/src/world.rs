@@ -255,43 +255,81 @@ pub struct TownSlotInfo {
 // BUILDING PLACEMENT / REMOVAL
 // ============================================================================
 
-/// Place a building on the world grid and register it in WorldData.
-/// Returns Ok(()) on success, Err with reason on failure.
+/// Unified building placement: validate, pay, place on grid, register in WorldData,
+/// push spawner/HP/GPU slot, and mark dirty flags. Single entry point for all
+/// runtime building placement (player and AI, town-grid and wilderness).
 pub fn place_building(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     farm_states: &mut GrowthStates,
+    building_hp: &mut BuildingHpState,
+    food_storage: &mut FoodStorage,
+    spawner_state: &mut SpawnerState,
+    slot_alloc: &mut SlotAllocator,
+    building_slots: &mut BuildingSlotMap,
+    dirty: &mut DirtyFlags,
     kind: BuildingKind,
-    town_idx: u32,
-    row: i32,
-    col: i32,
-    town_center: Vec2,
+    town_data_idx: usize,
+    world_pos: Vec2,
+    cost: i32,
+    town_grids: &TownGrids,
 ) -> Result<(), &'static str> {
-    let world_pos = town_grid_to_world(town_center, row, col);
     let (gc, gr) = grid.world_to_grid(world_pos);
-    let snapped_pos = grid.grid_to_world(gc, gr);
+    let snapped = grid.grid_to_world(gc, gr);
+    let town_idx = town_data_idx as u32;
 
-    // Validate cell is empty
-    if let Some(cell) = grid.cell(gc, gr) {
-        if cell.building.is_some() {
-            return Err("cell already has a building");
-        }
-    } else {
-        return Err("cell out of bounds");
+    // Validate: cell exists, empty, not water
+    let cell = grid.cell(gc, gr).ok_or("cell out of bounds")?;
+    if cell.building.is_some() { return Err("cell already has a building"); }
+    if cell.terrain == Biome::Water { return Err("cannot build on water"); }
+
+    // Reject placement inside another faction's build area
+    if in_foreign_build_area(snapped, town_data_idx, &world_data.towns, town_grids) {
+        return Err("cannot build in foreign territory");
     }
+
+    // Deduct food
+    let food = food_storage.food.get_mut(town_data_idx).ok_or("invalid town")?;
+    if *food < cost { return Err("not enough food"); }
+    *food -= cost;
 
     // Place on grid
     if let Some(cell) = grid.cell_mut(gc, gr) {
         cell.building = Some((kind, town_idx));
     }
 
-    // Register in WorldData
+    // Register in WorldData via building registry
     let def = crate::constants::building_def(kind);
-    (def.place)(world_data, snapped_pos, town_idx);
-    // Farm also needs growth state
-    if kind == BuildingKind::Farm {
-        farm_states.push_farm(snapped_pos, town_idx);
+    (def.place)(world_data, snapped, town_idx);
+
+    // Waypoint: set patrol_order on the just-pushed entry
+    if kind == BuildingKind::Waypoint {
+        let order = world_data.get(BuildingKind::Waypoint).iter()
+            .filter(|w| w.town_idx == town_idx && is_alive(w.position))
+            .count() as u32 - 1; // -1 because we just pushed this one
+        if let Some(wp) = world_data.get_mut(BuildingKind::Waypoint).last_mut() {
+            wp.patrol_order = order;
+        }
     }
+
+    // Farm: register growth state
+    if kind == BuildingKind::Farm {
+        farm_states.push_farm(snapped, town_idx);
+    }
+
+    // Spawner registration (no-op for non-spawner kinds)
+    register_spawner(spawner_state, kind, town_data_idx as i32, snapped, 0.0);
+
+    // Building HP
+    building_hp.push_for(kind);
+
+    // GPU slot allocation
+    let data_idx = find_building_data_index(world_data, kind, snapped).unwrap_or(0);
+    let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
+    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(kind), def.is_tower);
+
+    // Dirty flags
+    dirty.mark_building_changed(kind);
 
     Ok(())
 }
@@ -375,44 +413,6 @@ pub fn register_spawner(
     }
 }
 
-/// Place a building, deduct food, and push a spawner entry if applicable.
-/// Shared by player build menu and AI.
-pub fn build_and_pay(
-    grid: &mut WorldGrid,
-    world_data: &mut WorldData,
-    farm_states: &mut GrowthStates,
-    food_storage: &mut FoodStorage,
-    spawner_state: &mut SpawnerState,
-    building_hp: &mut BuildingHpState,
-    slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
-    dirty: &mut DirtyFlags,
-    kind: BuildingKind,
-    town_data_idx: usize,
-    row: i32, col: i32,
-    town_center: Vec2,
-    cost: i32,
-) -> bool {
-    let town_idx = town_data_idx as u32;
-    if place_building(grid, world_data, farm_states, kind, town_idx, row, col, town_center).is_err() {
-        return false;
-    }
-    if let Some(f) = food_storage.food.get_mut(town_data_idx) { *f -= cost; }
-    let pos = town_grid_to_world(town_center, row, col);
-    let (gc, gr) = grid.world_to_grid(pos);
-    let snapped = grid.grid_to_world(gc, gr);
-    register_spawner(spawner_state, kind, town_data_idx as i32, snapped, 0.0);
-    building_hp.push_for(kind);
-
-    // Allocate GPU NPC slot for building collision
-    let def = crate::constants::building_def(kind);
-    let data_idx = find_building_data_index(world_data, kind, snapped).unwrap_or(0);
-    let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(kind), def.is_tower);
-
-    dirty.mark_building_changed(kind);
-    true
-}
 
 /// Allocate an NPC GPU slot for a building (speed=0, rendered via instanced pipeline).
 /// `tower` = true enables GPU combat targeting for this building (bit 0 + bit 1 in npc_flags).
@@ -656,64 +656,6 @@ pub fn setup_world(
 /// Place a waypoint at an arbitrary world position (not tied to town grid).
 /// Place a wilderness building (world-grid snapping, not town-grid).
 /// Used for Waypoint, Road, and AI territorial expansion.
-/// Snaps to the nearest grid cell, validates empty + not water, deducts food.
-pub fn place_wilderness_building(
-    kind: BuildingKind,
-    grid: &mut WorldGrid,
-    world_data: &mut WorldData,
-    building_hp: &mut BuildingHpState,
-    food_storage: &mut FoodStorage,
-    slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
-    town_data_idx: usize,
-    world_pos: Vec2,
-    cost: i32,
-    town_grids: &TownGrids,
-) -> Result<(), &'static str> {
-    let (gc, gr) = grid.world_to_grid(world_pos);
-    let snapped = grid.grid_to_world(gc, gr);
-
-    // Validate: cell exists, empty, not water
-    let cell = grid.cell(gc, gr).ok_or("cell out of bounds")?;
-    if cell.building.is_some() { return Err("cell already has a building"); }
-    if cell.terrain == Biome::Water { return Err("cannot build on water"); }
-
-    // Reject placement inside another faction's build area
-    if in_foreign_build_area(snapped, town_data_idx, &world_data.towns, town_grids) {
-        return Err("cannot build in foreign territory");
-    }
-
-    // Deduct food
-    let food = food_storage.food.get_mut(town_data_idx).ok_or("invalid town")?;
-    if *food < cost { return Err("not enough food"); }
-    *food -= cost;
-
-    let ti = town_data_idx as u32;
-
-    // Place on grid
-    if let Some(cell) = grid.cell_mut(gc, gr) {
-        cell.building = Some((kind, ti));
-    }
-
-    // Register in WorldData + HP
-    let data_idx = world_data.get(kind).len();
-    let mut building = PlacedBuilding::new(snapped, ti);
-    // Waypoint-specific: auto-assign patrol_order
-    if kind == BuildingKind::Waypoint {
-        building.patrol_order = world_data.get(BuildingKind::Waypoint).iter()
-            .filter(|w| w.town_idx == ti && is_alive(w.position))
-            .count() as u32;
-    }
-    world_data.get_mut(kind).push(building);
-    building_hp.push_for(kind);
-
-    // Allocate GPU NPC slot for rendering + collision
-    let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-    let def = crate::constants::building_def(kind);
-    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(kind), def.is_tower);
-
-    Ok(())
-}
 
 /// Expand one town's buildable area by one ring and convert new ring terrain to Dirt.
 pub fn expand_town_build_area(

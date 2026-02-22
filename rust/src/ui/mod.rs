@@ -733,19 +733,17 @@ fn build_place_click_system(
 
     let kind = build_ctx.selected_build.unwrap();
 
-    // Waypoint: single-click wilderness placement
+    // Waypoint: single-click placement
     if kind == BuildingKind::Waypoint {
         if !just_pressed { return; }
         build_ctx.clear_drag();
         let cost = crate::constants::building_cost(kind);
-        if world::place_wilderness_building(
-            kind,
-            &mut world_state.grid, &mut world_state.world_data,
-            &mut world_state.building_hp, &mut food_storage,
-            &mut world_state.slot_alloc, &mut world_state.building_slots,
-            town_data_idx, world_pos, cost, &world_state.town_grids,
+        if world::place_building(
+            &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
+            &mut world_state.building_hp, &mut food_storage, &mut world_state.spawner_state,
+            &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
+            kind, town_data_idx, world_pos, cost, &world_state.town_grids,
         ).is_ok() {
-            world_state.dirty.mark_building_changed(kind);
             let label = crate::constants::building_def(kind).label;
             combat_log.push(
                 CombatEventKind::Harvest, 0,
@@ -773,15 +771,14 @@ fn build_place_click_system(
         let mut placed = 0usize;
         for (sr, sc) in slots_on_line(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
-            if world::place_wilderness_building(
-                kind, &mut world_state.grid, &mut world_state.world_data,
-                &mut world_state.building_hp, &mut food_storage,
-                &mut world_state.slot_alloc, &mut world_state.building_slots,
-                town_data_idx, cell_pos, cost, &world_state.town_grids,
+            if world::place_building(
+                &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
+                &mut world_state.building_hp, &mut food_storage, &mut world_state.spawner_state,
+                &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
+                kind, town_data_idx, cell_pos, cost, &world_state.town_grids,
             ).is_ok() { placed += 1; }
         }
         if placed > 0 {
-            world_state.dirty.mark_building_changed(kind);
             let label = crate::constants::building_def(kind).label;
             let msg = if placed == 1 {
                 format!("Built {} in {}", label.to_lowercase(), town_name)
@@ -801,21 +798,15 @@ fn build_place_click_system(
         let Some(town_grid) = world_state.town_grids.grids.iter().find(|tg| tg.town_data_idx == town_data_idx) else { return false };
         if !world::is_slot_buildable(town_grid, slot_row, slot_col) { return false; }
         if slot_row == 0 && slot_col == 0 { return false; }
-        let snapped = world::town_grid_to_world(center, slot_row, slot_col);
-        let (sgc, sgr) = world_state.grid.world_to_grid(snapped);
-        if world_state.grid.cell(sgc, sgr).map(|c| c.building.is_some()) != Some(false) { return false; }
-
+        let pos = world::town_grid_to_world(center, slot_row, slot_col);
         let cost = crate::constants::building_cost(kind);
-        let food = food_storage.food.get(town_data_idx).copied().unwrap_or(0);
-        if food < cost { return false; }
 
-        world::build_and_pay(
+        world::place_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut food_storage, &mut world_state.spawner_state, &mut world_state.building_hp,
+            &mut world_state.building_hp, &mut food_storage, &mut world_state.spawner_state,
             &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
-            kind, town_data_idx,
-            slot_row, slot_col, center, cost,
-        )
+            kind, town_data_idx, pos, cost, &world_state.town_grids,
+        ).is_ok()
     };
 
     if just_pressed {

@@ -185,7 +185,7 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 
 **Road and waypoint-aware placement:** All non-road building placement (both `find_inner_slot` and snapshot empty slots) filters out slots that match the personality's road pattern (`is_road_slot`) or waypoint ring (`waypoint_ring_slots`). This prevents buildings from being placed on future road or waypoint positions.
 
-**Fallback:** If no snapshot or scorer produces a candidate, `find_inner_slot` picks the empty non-road slot closest to town center. Waypoints use `place_waypoint_at_world_pos` (world-position-based, not town-slot-based) so they can be placed both in-town and in wilderness.
+**Fallback:** If no snapshot or scorer produces a candidate, `find_inner_slot` picks the empty non-road slot closest to town center. All buildings use the unified `place_building` (world-position-based) — callers convert town grid coords to world_pos before calling.
 
 ## Mining & Expansion
 

@@ -169,7 +169,7 @@ impl AiPersonality {
         match self {
             Self::Aggressive => 0,
             Self::Balanced => 1,
-            Self::Economic => 2,
+            Self::Economic => 1,
         }
     }
 
@@ -223,15 +223,12 @@ impl AiPersonality {
         }
     }
 
-    /// Barracks target count relative to houses.
-    pub fn archer_home_target(self, houses: usize) -> usize {
-        // Desired military housing ratio relative to civilian farmer homes.
+    /// Barracks target count relative to total civilian homes (farmer + miner).
+    pub fn archer_home_target(self, civilian_homes: usize) -> usize {
         match self {
-            Self::Aggressive => houses.max(1),
-            // Balanced aims for about half as many archer homes as farmer homes.
-            Self::Balanced   => (houses / 2).max(1),
-            // Economic keeps military lighter: about one archer home per 3 farmer homes.
-            Self::Economic   => 1 + houses / 3,
+            Self::Aggressive => civilian_homes.max(1),
+            Self::Balanced   => (civilian_homes / 2).max(1),
+            Self::Economic   => 1 + civilian_homes / 3,
         }
     }
 
@@ -247,13 +244,12 @@ impl AiPersonality {
         }
     }
 
-    /// Desired miners per discovered gold mine in policy radius.
-    fn miners_per_mine_target(self) -> usize {
-        // Economic personality invests the most in mining saturation.
+    /// Fraction of total civilian homes that should be miner homes.
+    fn mining_ratio(self) -> f32 {
         match self {
-            Self::Aggressive => 1,
-            Self::Balanced => 2,
-            Self::Economic => 4,
+            Self::Aggressive => 0.1,
+            Self::Balanced => 0.2,
+            Self::Economic => 0.3,
         }
     }
 
@@ -1178,7 +1174,7 @@ pub fn ai_decision_system(
         let pop_alive = |job: Job| pop_stats.0.get(&(job as i32, town_key)).map(|p| p.alive).unwrap_or(0).max(0) as usize;
         let civilians = pop_alive(Job::Farmer) + pop_alive(Job::Miner);
         let military = pop_alive(Job::Archer) + pop_alive(Job::Fighter) + pop_alive(Job::Crossbow);
-        let mut desires = desire_state(personality, food, reserve, houses, total_military_homes, waypoints, threat, civilians, military);
+        let mut desires = desire_state(personality, food, reserve, houses + mine_shafts, total_military_homes, waypoints, threat, civilians, military);
 
         // Gold desire: driven by cheapest gold-costing upgrade the AI wants but can't afford.
         let uw = personality.upgrade_weights(kind);
@@ -1229,11 +1225,12 @@ pub fn ai_decision_system(
             AiKind::Builder => {
                 // Builder AI scores economic + military + mining expansion actions.
                 let (fw, hw, bw, gw) = personality.building_weights();
-                let bt = personality.archer_home_target(houses);
+                let total_civilians = houses + mine_shafts;
+                let bt = personality.archer_home_target(total_civilians);
                 let ht = personality.farmer_home_target(farms);
                 let mines = ctx.mines.as_ref().unwrap();
-                let miners_per_mine = personality.miners_per_mine_target().min(MAX_MINERS_PER_MINE);
-                let ms_target = mines.in_radius * miners_per_mine;
+                let ms_target = ((total_civilians as f32 * personality.mining_ratio()) as usize)
+                    .min(mines.in_radius * MAX_MINERS_PER_MINE);
                 let house_deficit = ht.saturating_sub(houses);
                 let barracks_deficit = bt.saturating_sub(barracks);
                 let miner_deficit = ms_target.saturating_sub(mine_shafts);
@@ -1410,25 +1407,23 @@ fn try_build_at_slot(
     row: i32,
     col: i32,
 ) -> Option<String> {
-    // Thin wrapper around world::build_and_pay that returns a user-facing log label.
-    let ok = world::build_and_pay(
+    let pos = world::town_grid_to_world(center, row, col);
+    world::place_building(
         &mut res.world.grid,
         &mut res.world.world_data,
         &mut res.world.farm_states,
+        &mut res.world.building_hp,
         &mut res.food_storage,
         &mut res.world.spawner_state,
-        &mut res.world.building_hp,
         &mut res.world.slot_alloc,
         &mut res.world.building_slots,
         &mut res.world.dirty,
         kind,
         tdi,
-        row,
-        col,
-        center,
+        pos,
         cost,
-    );
-    ok.then_some(format!("built {label}"))
+        &res.world.town_grids,
+    ).ok().map(|_| format!("built {label}"))
 }
 
 fn pick_slot_from_snapshot_or_inner(
@@ -1585,22 +1580,18 @@ fn try_build_road_grid(
         let food = res.food_storage.food.get(ctx.tdi).copied().unwrap_or(0);
         if food < cost { break; }
 
-        let raw = world::town_grid_to_world(center, r, c);
-        let (gc, gr) = res.world.grid.world_to_grid(raw);
-        let pos = res.world.grid.grid_to_world(gc, gr);
-        if world::place_wilderness_building(
-            BuildingKind::Road,
-            &mut res.world.grid, &mut res.world.world_data,
-            &mut res.world.building_hp, &mut res.food_storage,
-            &mut res.world.slot_alloc, &mut res.world.building_slots,
-            ctx.tdi, pos, cost, &res.world.town_grids,
+        let pos = world::town_grid_to_world(center, r, c);
+        if world::place_building(
+            &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
+            &mut res.world.building_hp, &mut res.food_storage, &mut res.world.spawner_state,
+            &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
+            BuildingKind::Road, ctx.tdi, pos, cost, &res.world.town_grids,
         ).is_ok() {
             placed += 1;
         }
     }
 
     if placed > 0 {
-        res.world.dirty.mark_building_changed(BuildingKind::Road);
         Some(format!("built {} roads", placed))
     } else {
         None
@@ -1660,15 +1651,13 @@ fn execute_action(
             let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
             let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.world_data, ctx.ti, personality)?;
             let pos = world::town_grid_to_world(ctx.center, row, col);
-            if world::place_wilderness_building(
-                world::BuildingKind::Waypoint,
-                &mut res.world.grid, &mut res.world.world_data,
-                &mut res.world.building_hp, &mut res.food_storage,
-                &mut res.world.slot_alloc, &mut res.world.building_slots,
-                ctx.tdi, pos, cost, &res.world.town_grids,
+            if world::place_building(
+                &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
+                &mut res.world.building_hp, &mut res.food_storage, &mut res.world.spawner_state,
+                &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
+                world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &res.world.town_grids,
             ).is_ok() {
                 recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, ctx.ti);
-                res.world.dirty.mark_building_changed(world::BuildingKind::Waypoint);
                 Some("built waypoint".into())
             } else {
                 None

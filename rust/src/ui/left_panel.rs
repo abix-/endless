@@ -1140,6 +1140,8 @@ fn rebuild_factions_cache(
             .unwrap_or(0);
 
         let farmer_homes = buildings.get(&BuildingKind::FarmerHome).copied().unwrap_or(0);
+        let miner_homes = buildings.get(&BuildingKind::MinerHome).copied().unwrap_or(0);
+        let civilian_homes = farmer_homes + miner_homes;
         let archer_homes = buildings.get(&BuildingKind::ArcherHome).copied().unwrap_or(0);
         let crossbow_homes = buildings.get(&BuildingKind::CrossbowHome).copied().unwrap_or(0);
         let military_homes = archer_homes + crossbow_homes;
@@ -1168,7 +1170,7 @@ fn rebuild_factions_cache(
                 )
             };
 
-            let barracks_target = p.archer_home_target(farmer_homes).max(1);
+            let barracks_target = p.archer_home_target(civilian_homes).max(1);
             let barracks_gap = barracks_target.saturating_sub(military_homes) as f32 / barracks_target as f32;
             let waypoint_gap = if military_homes > 0 {
                 military_homes.saturating_sub(waypoints) as f32 / military_homes as f32
@@ -1178,8 +1180,8 @@ fn rebuild_factions_cache(
             let military_desire = (barracks_gap * 0.75 + waypoint_gap * 0.25).clamp(0.0, 1.0);
             let military_tip = format!(
                 "Military desire = clamp(barracks_gap*0.75 + waypoint_gap*0.25, 0..1)\n\
-                 barracks_target = max(1, archer_home_target(farmer_homes)) = {barracks_target}\n\
-                 farmer_homes = {farmer_homes}, military_homes = {military_homes}, waypoints = {waypoints}\n\
+                 barracks_target = max(1, archer_home_target(civilian_homes)) = {barracks_target}\n\
+                 civilian_homes = {civilian_homes} (farmer={farmer_homes} + miner={miner_homes}), military_homes = {military_homes}, waypoints = {waypoints}\n\
                  barracks_gap = {barracks_gap:.2}, waypoint_gap = {waypoint_gap:.2}\n\
                  => {:.0}%",
                 military_desire * 100.0,
