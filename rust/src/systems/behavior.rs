@@ -895,7 +895,7 @@ pub fn decision_system(
         };
 
         let can_work = work_allowed && match job {
-            Job::Farmer => work_query.get(entity).is_ok(),
+            Job::Farmer => true,  // dynamically find farms (same as Miner)
             Job::Miner => true,  // miners always have work (find nearest mine dynamically)
             Job::Archer | Job::Crossbow | Job::Fighter => patrol_query.get(entity).is_ok(),
             Job::Raider => false, // squad-driven, not idle-scored
@@ -961,9 +961,28 @@ pub fn decision_system(
             Action::Work => {
                 match job {
                     Job::Farmer => {
-                        if let Ok(wp) = work_query.get(entity) {
+                        // Scan all faction farms: priority ready > unoccupied growing
+                        let current_pos = if idx * 2 + 1 < positions.len() {
+                            Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
+                        } else { home.0 };
+                        let mut best: Option<(i32, f32, Vec2)> = None; // (priority, dist, pos)
+                        for (gi, pos) in farms.states.positions.iter().enumerate() {
+                            if farms.states.kinds.get(gi) != Some(&crate::resources::GrowthKind::Farm) { continue; }
+                            if farms.states.town_indices.get(gi) != Some(&Some(town_id.0 as u32)) { continue; }
+                            if pos.x < -9000.0 { continue; }
+                            let ready = farms.states.states.get(gi) == Some(&FarmGrowthState::Ready);
+                            let occupied = farms.occupancy.is_occupied(*pos);
+                            let priority = if ready { 0 } else if !occupied { 1 } else { 2 };
+                            if priority == 2 { continue; }
+                            let dist = current_pos.distance(*pos);
+                            if best.is_none() || (priority, dist as i32) < (best.unwrap().0, best.unwrap().1 as i32) {
+                                best = Some((priority, dist, *pos));
+                            }
+                        }
+                        if let Some((_, _, farm_pos)) = best {
                             *activity = Activity::GoingToWork;
-                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: wp.0.x, y: wp.0.y }));
+                            commands.entity(entity).insert(WorkPosition(farm_pos));
+                            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: farm_pos.x, y: farm_pos.y }));
                         }
                     }
                     Job::Miner => {

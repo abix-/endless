@@ -629,7 +629,8 @@ pub fn setup_world(
 
     init_world_buildings(world_data, spawner_state, building_hp, slot_alloc, building_slots);
 
-    let bgrid = BuildingSpatialGrid::default();
+    let mut bgrid = BuildingSpatialGrid::default();
+    bgrid.rebuild(world_data, grid.width as f32 * grid.cell_size);
     let npc_msgs = spawn_npcs_from_spawners(
         spawner_state, slot_alloc,
         &world_data.towns, &bgrid, &world_data.miner_homes(),

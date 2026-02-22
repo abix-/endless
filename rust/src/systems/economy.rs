@@ -745,10 +745,22 @@ pub fn endless_system(
             }
         }
         if count == 0 {
-            // Members spawned but no entities have Migrating yet — wait for spawn system
-            if mg.member_slots.is_empty() {
-                migration_state.active = None;
+            if !mg.member_slots.is_empty() {
+                // All members dead — migration wiped out, queue replacement
+                let is_raider = mg.is_raider;
+                let kind_str = if is_raider { "raider band" } else { "rival faction" };
+                combat_log.push(CombatEventKind::Raid, -1, game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("The migrating {} was wiped out!", kind_str));
+                endless.pending_spawns.push(PendingAiSpawn {
+                    delay_remaining: ENDLESS_RESPAWN_DELAY_HOURS,
+                    is_raider,
+                    upgrade_levels: mg.upgrade_levels.clone(),
+                    starting_food: mg.starting_food,
+                    starting_gold: mg.starting_gold,
+                });
+                info!("Migration wiped out (is_raider={}), queued replacement in {}h", is_raider, ENDLESS_RESPAWN_DELAY_HOURS);
             }
+            migration_state.active = None;
             return;
         }
         let avg_pos = Vec2::new(sum_x / count as f32, sum_y / count as f32);

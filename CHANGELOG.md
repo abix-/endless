@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-21n
+
+- **settle on land** — migration town creation now uses verified `settle_target` (guaranteed land cell from `pick_settle_site()`) instead of NPC centroid `avg_pos` (which could be over water) for all placement: `create_ai_town`, `place_buildings`, `stamp_dirt`, NPC `Home`, combat log location
+- **migration wipeout respawn** — if all NPCs in a migration group die before settling, the migration is cleared and a replacement `PendingAiSpawn` is queued with 4h delay (same `ENDLESS_RESPAWN_DELAY_HOURS` used by defeated-town respawn); replacement inherits original strength/resources; previously this case left `migration_state.active` permanently stuck
+- **farmer dynamic farm scanning** — farmers now dynamically scan same-faction farms each work decision instead of requiring a pre-assigned `WorkPosition`; priority: ready farms > unoccupied growing (closest within tier); mirrors miner dynamic mine selection
+- **BuildingSpatialGrid init** — `setup_world` now calls `bgrid.rebuild()` before initial NPC spawn so `BuildingSpatialGrid` lookups work from frame 1
+
 ## 2026-02-21m
 
 - **extras atlas consolidation** — merged 3 individual sprite textures (heal, sleep, arrow) + new boat into 1 horizontal grid atlas (4×32px cells) via `build_extras_atlas()`; reduced texture bindings from 6 pairs to 4 pairs in the render pipeline; `extras_cols` camera uniform replaces `textureDimensions()` in shader (avoids VERTEX visibility requirement on texture binding); shader `calc_uv` extras branch selects column by atlas_id

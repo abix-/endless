@@ -278,21 +278,29 @@ migration_settle_system (every frame, early-returns if no active migration)
         │
         ▼ within RAIDER_SETTLE_RADIUS (500px) of settle_target?
         │
+        ▼ count == 0 (all dead)? → queue replacement, clear migration
+        │
         ▼ YES: settle town
-        ├─ Update Town.center to average group position
-        ├─ place_buildings() — town center + tents in spiral
+        ├─ Town center = settle_target (verified land cell, not NPC centroid)
         ├─ register_spawner() for each tent
         ├─ stamp_dirt() around town
         ├─ Activate AiPlayer (active = true)
-        ├─ Remove Migrating from members, update Home to town center
+        ├─ Remove Migrating from members, update Home to settle_target
         ├─ Force tilemap rebuild (TilemapSpawned = false)
         └─ Clear MigrationState.active
            Combat log: "A raider band has settled nearby!"
+
+        ▼ WIPEOUT: count == 0 but member_slots not empty (all NPCs dead)
+        ├─ Queue replacement PendingAiSpawn (same strength/resources, 4h delay)
+        ├─ Combat log: "The migrating {kind} was wiped out!"
+        └─ Clear MigrationState.active (unblock pipeline for next migration)
 ```
 
 **Movement**: Migration group spawns a boat entity (building slot with `ATLAS_BOAT` sprite) at the map edge. The boat sails toward `settle_target` at `BOAT_SPEED` (150px/s). When the boat reaches land (non-water terrain), NPCs disembark — spawned at the boat position with `Migrating` component, boat slot freed. NPCs then walk toward `settle_target` using the existing `Home` component + `Action::Wander` behavior.
 
-**Settlement site selection**: `pick_settle_site()` samples 100 random land positions and picks the one farthest from all existing towns — ensures new raider settlements spread across the map rather than clustering.
+**Settlement site selection**: `pick_settle_site()` samples 100 random land positions and picks the one farthest from all existing towns — ensures new settlements spread across the map rather than clustering. The verified `settle_target` position is used for all placement (town center, buildings, dirt stamp, NPC homes, combat log) — never the NPC centroid `avg_pos` (which could be over water).
+
+**Migration wipeout**: If all NPCs in the group die before settling (`count == 0` but `member_slots` not empty), the migration is cleared and a replacement `PendingAiSpawn` is queued with `ENDLESS_RESPAWN_DELAY_HOURS` (4h) delay. The replacement inherits the original group's `upgrade_levels`, `starting_food`, and `starting_gold`. This ensures the target number of AI towns is eventually reached — it's endless.
 
 **Save/load**: `MigrationState` serialized as `Option<MigrationSave>` in `SaveData`. On load, `Migrating` component re-attached to saved member slot entities.
 
@@ -308,6 +316,7 @@ migration_settle_system (every frame, early-returns if no active migration)
 | BOAT_SPEED | 150.0 | Boat movement speed (px/s) |
 | MIGRATION_BASE_SIZE | 3 | Base raiders per migration group |
 | VILLAGERS_PER_RAIDER | 20 | Player alive NPCs per raider town threshold |
+| ENDLESS_RESPAWN_DELAY_HOURS | 4.0 | Delay before replacement migration after wipeout or town defeat |
 
 ## Known Issues
 
