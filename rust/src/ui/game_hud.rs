@@ -1315,6 +1315,15 @@ fn building_inspector_content(
                 hp = hp,
                 max = max_hp,
             );
+            if let Some(town) = world_data.towns.get(town_idx) {
+                let center = town.center;
+                let (trow, tcol) = crate::world::world_to_town_grid(center, world_pos);
+                info.push_str(&format!("Town center: ({:.0}, {:.0})\n", center.x, center.y));
+                info.push_str(&format!("Town slot: ({}, {})\n", trow, tcol));
+            }
+            if let Some(di) = data_idx {
+                info.push_str(&format!("Data idx: {}\n", di));
+            }
             match kind {
                 BuildingKind::Farm => {
                     if let Some(farm_idx) = bld.farm_states.find_farm_at(world_pos) {

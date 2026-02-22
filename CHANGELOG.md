@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22k
+
+- **AI gold hoarding for expansion** — when all build slots are full, AI now reserves gold for the next expansion upgrade; non-expansion gold-costing upgrades are skipped unless surplus gold exists beyond what expansion costs; prevents AI from wasting gold on stat upgrades while unable to expand
+
 ## 2026-02-22j
 
 - **aggressive AI attack corridors** — fixed road placement bug where `try_build_road_grid` didn't filter occupied cells (only filtered existing roads), causing all top-ranked candidates to fail `place_building`; aggressive roads now extend to 2× build radius on cardinal axes as offensive attack routes, corridor cells outside town bounds skip economy-adjacency requirement, batch size increased from 2 to 4

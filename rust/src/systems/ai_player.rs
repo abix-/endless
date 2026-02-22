@@ -18,7 +18,7 @@ use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::components::{Dead, Job, NpcIndex, SquadUnit, TownId};
 use crate::world::{self, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
-use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, upgrade_unlocked, upgrade_cost, UPGRADES};
+use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, upgrade_unlocked, upgrade_cost, expansion_cost, UPGRADES};
 use crate::constants::UpgradeStatKind;
 
 // Rust orientation notes for readers coming from PowerShell:
@@ -1344,6 +1344,30 @@ pub fn ai_decision_system(
         // ================================================================
         let food_after = res.food_storage.food.get(tdi).copied().unwrap_or(0);
         let gold_after = gold_storage.gold.get(tdi).copied().unwrap_or(0);
+        // Gold reservation: when no empty slots, reserve gold for expansion upgrade.
+        let expansion_gold_reserve = if !ctx.has_slots {
+            uw.iter().enumerate()
+                .filter(|&(_, &w)| w > 0.0)
+                .filter(|&(idx, _)| UPGRADES.nodes[idx].triggers_expansion)
+                .filter(|&(idx, _)| upgrade_unlocked(&levels, idx))
+                .map(|(idx, _)| {
+                    let lv = levels.get(idx).copied().unwrap_or(0);
+                    let node = &UPGRADES.nodes[idx];
+                    if node.custom_cost {
+                        expansion_cost(lv).1
+                    } else {
+                        let scale = upgrade_cost(lv);
+                        node.cost.iter()
+                            .filter(|&&(kind, _)| kind == ResourceKind::Gold)
+                            .map(|&(_, base)| base * scale)
+                            .sum::<i32>()
+                    }
+                })
+                .min()
+                .unwrap_or(0)
+        } else {
+            0
+        };
         if food_after > reserve {
             let mut upgrade_scores: Vec<(AiAction, f32)> = Vec::with_capacity(8);
             for (idx, &weight) in uw.iter().enumerate() {
@@ -1352,6 +1376,24 @@ pub fn ai_decision_system(
                 // Fill slots first: only expansion upgrades allowed while town has empty slots
                 let is_expansion = UPGRADES.nodes[idx].triggers_expansion;
                 if ctx.has_slots && !is_expansion { continue; }
+                // Hoard gold for expansion: skip non-expansion gold-costing upgrades
+                // unless we have surplus gold beyond what expansion needs.
+                if !ctx.has_slots && !is_expansion && expansion_gold_reserve > 0 {
+                    let lv = levels.get(idx).copied().unwrap_or(0);
+                    let node = &UPGRADES.nodes[idx];
+                    let gold_cost: i32 = if node.custom_cost {
+                        expansion_cost(lv).1
+                    } else {
+                        let scale = upgrade_cost(lv);
+                        node.cost.iter()
+                            .filter(|&&(kind, _)| kind == ResourceKind::Gold)
+                            .map(|&(_, base)| base * scale)
+                            .sum()
+                    };
+                    if gold_cost > 0 && gold_after - gold_cost < expansion_gold_reserve {
+                        continue;
+                    }
+                }
                 let mut w = weight;
                 if is_military_upgrade(idx) {
                     w *= 1.0 + desires.military_desire * 2.0;

@@ -218,6 +218,7 @@ The TownArea upgrade has special rules beyond normal upgrade scoring:
 - Expansion itself is delayed while `has_slots` and AI can afford any building (cheapest of farm/farmer home/archer home/miner home) — ensures Phase 1 fills slots before expanding
 - Urgency ramps with slot fullness: 70%→100% = 2×→6× weight
 - Hard 10× boost when no empty slots remain
+- **Gold hoarding**: when `!has_slots`, computes the gold cost of the cheapest available expansion upgrade and reserves that amount. Non-expansion upgrades that cost gold are skipped unless `gold_after - upgrade_gold_cost ≥ expansion_gold_reserve`. Food-only upgrades are unaffected. Prevents the AI from draining gold on stat upgrades while waiting for expansion.
 
 ## Squad Commander
 
