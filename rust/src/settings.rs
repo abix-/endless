@@ -68,6 +68,8 @@ pub struct UserSettings {
     pub debug_behavior: bool,
     #[serde(default)]
     pub debug_profiler: bool,
+    #[serde(default)]
+    pub debug_ai_decisions: bool,
     #[serde(default = "default_true")]
     pub show_terrain_sprites: bool,
     #[serde(default)]
@@ -178,6 +180,7 @@ impl Default for UserSettings {
             debug_spawns: false,
             debug_behavior: false,
             debug_profiler: false,
+            debug_ai_decisions: false,
             show_terrain_sprites: true,
             show_all_faction_squad_lines: false,
             policy: PolicySet::default(),

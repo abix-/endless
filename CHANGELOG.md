@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-22d
+
+- **AI decision retry loop** — when a building action fails (e.g., no road candidates), the AI now removes that action variant and re-picks from remaining candidates instead of wasting the tick; previously Roads (score 48) could fail silently for hours while Farm (11) and MinerHome (9) never got a chance
+- **road adjacency expanded** — road candidate adjacency check increased from Chebyshev distance 1 to 2, covering the full gap in Economic's 4×4 road pattern; previously buildings in interior rows/cols (distance 2+ from road lanes) created zero road candidates, causing road placement to fail even when empty road slots existed
+- **AI decision debug logging** — new `debug_ai_decisions` setting (Settings → Debug → "AI Decision Logging"); when enabled, failed actions appear in the faction inspector's Recent Actions as `[dbg] Roads FAILED (Roads=48.0 Farm=11.4 ...)` with top scores
+- **escape menu in test scenes** — pause menu (ESC) and settings now available during `AppState::Running` test scenes, not just during normal gameplay
+
 ## 2026-02-22c
 
 - **AI road building** — AI towns now build roads in personality-specific grid patterns: Economic uses 4×4 grid, Balanced uses 3×3 grid, Aggressive uses cardinal axes from center; roads are batch-placed adjacent to economy buildings (farms, farmer homes, miner homes); non-road buildings filter out road pattern slots via `is_road_slot` to reserve space for future roads

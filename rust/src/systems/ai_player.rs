@@ -206,6 +206,23 @@ enum AiAction {
     Upgrade(usize), // upgrade index into UPGRADES registry
 }
 
+impl AiAction {
+    fn label(self) -> &'static str {
+        match self {
+            Self::BuildFarm => "Farm",
+            Self::BuildFarmerHome => "FarmerHome",
+            Self::BuildArcherHome => "ArcherHome",
+            Self::BuildCrossbowHome => "XbowHome",
+            Self::BuildWaypoint => "Waypoint",
+            Self::BuildTent => "Tent",
+            Self::BuildMinerHome => "MinerHome",
+            Self::BuildRoads => "Roads",
+            Self::ExpandMiningRadius => "ExpandMining",
+            Self::Upgrade(_) => "Upgrade",
+        }
+    }
+}
+
 impl AiPersonality {
     // Human-readable label for UI/logging.
     pub fn name(self) -> &'static str {
@@ -456,6 +473,16 @@ impl AiPersonality {
         }
         weights
     }
+}
+
+/// Format top N scores for debug logging.
+fn format_top_scores(scores: &[(AiAction, f32)], n: usize) -> String {
+    let mut sorted: Vec<_> = scores.iter().collect();
+    sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.iter().take(n)
+        .map(|(a, s)| format!("{}={:.1}", a.label(), s))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Weighted random selection from scored actions.
@@ -1155,6 +1182,7 @@ pub fn ai_decision_system(
     mut timer: Local<f32>,
     mut snapshots: Local<AiTownSnapshotCache>,
     timings: Res<SystemTimings>,
+    settings: Res<crate::settings::UserSettings>,
 ) {
     // System timing gate:
     // runs every `decision_interval`, not every frame.
@@ -1357,19 +1385,39 @@ pub fn ai_decision_system(
             }
         }
 
-        if let Some(action) = weighted_pick(&build_scores) {
+        let debug = settings.debug_ai_decisions;
+        // Retry loop: if picked action fails, remove it and re-pick from remaining.
+        let mut build_succeeded = false;
+        loop {
+            let Some(action) = weighted_pick(&build_scores) else { break };
             let label = execute_action(
                 action, &ctx, &mut res,
                 snapshots.towns.get(&tdi), personality, *difficulty,
             );
-            if label.is_some() {
-                snapshots.towns.remove(&tdi);
-            }
             if let Some(what) = label {
+                snapshots.towns.remove(&tdi);
                 log_ai(&mut combat_log, &game_time, faction, &town_name, pname, &what);
                 let actions = &mut ai_state.players[pi].last_actions;
                 if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
                 actions.push_back((what, game_time.day(), game_time.hour()));
+                build_succeeded = true;
+                break;
+            }
+            // Action failed — log and remove this variant from candidates
+            if debug {
+                let msg = format!("[dbg] {} FAILED ({})", action.label(), format_top_scores(&build_scores, 4));
+                let actions = &mut ai_state.players[pi].last_actions;
+                if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
+                actions.push_back((msg, game_time.day(), game_time.hour()));
+            }
+            let failed = std::mem::discriminant(&action);
+            build_scores.retain(|(a, _)| std::mem::discriminant(a) != failed);
+        }
+        if !build_succeeded && debug {
+            if build_scores.is_empty() {
+                let actions = &mut ai_state.players[pi].last_actions;
+                if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
+                actions.push_back(("[dbg] no build candidates".into(), game_time.day(), game_time.hour()));
             }
         }
 
@@ -1425,6 +1473,12 @@ pub fn ai_decision_system(
                     let actions = &mut ai_state.players[pi].last_actions;
                     if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
                     actions.push_back((what, game_time.day(), game_time.hour()));
+                } else if debug {
+                    let name = if let AiAction::Upgrade(idx) = action { upgrade_node(idx).label } else { action.label() };
+                    let msg = format!("[dbg] upgrade {} FAILED", name);
+                    let actions = &mut ai_state.players[pi].last_actions;
+                    if actions.len() >= MAX_ACTION_HISTORY { actions.pop_front(); }
+                    actions.push_back((msg, game_time.day(), game_time.hour()));
                 }
             }
         }
@@ -1555,9 +1609,9 @@ fn try_build_road_grid(
     for r in min_r..=max_r {
         for c in min_c..=max_c {
             if !personality.is_road_slot(r, c) { continue; }
-            // Score by adjacency to economy buildings
+            // Score by adjacency to economy buildings (distance 2 covers the 4-cell pattern gap)
             let adj = econ_slots.iter().filter(|&&(er, ec)| {
-                (er - r).abs() <= 1 && (ec - c).abs() <= 1
+                (er - r).abs() <= 2 && (ec - c).abs() <= 2
             }).count() as i32;
             if adj > 0 {
                 candidates.insert((r, c), adj);

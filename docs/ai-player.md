@@ -82,12 +82,20 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 5. Compute desire signals (food, military, gold, economy)
 6. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
 7. Count buildings via building_counts() → HashMap<BuildingKind, usize>, compute targets and deficits
-8. Phase 1 — BUILDING: score eligible building actions, weighted random pick, execute
+8. Phase 1 — BUILDING: score eligible building actions, retry loop (weighted pick → execute → on failure remove variant and re-pick)
 9. Phase 2 — UPGRADE: re-check food/gold after Phase 1 spend, score eligible upgrades, pick, execute
 10. Invalidate snapshot on successful build/upgrade, log to combat log
 ```
 
 Each tick can produce up to **two** actions: one building and one upgrade. Phase 2 re-reads food/gold after Phase 1 spending.
+
+### Retry Loop (Phase 1)
+
+When the picked building action fails to execute (e.g., no valid road candidates, waypoint cell blocked), the AI removes that action variant from the score pool using `std::mem::discriminant` and re-picks from remaining candidates. This prevents wasted ticks — previously a dominant action like Roads (score 48) could fail silently every tick for hours while lower-scored actions (Farm=11, MinerHome=9) never got a chance.
+
+### Debug Logging
+
+`UserSettings.debug_ai_decisions` toggle (Settings → Debug → "AI Decision Logging"). When enabled, failed actions are logged to `last_actions` as `[dbg] Roads FAILED (Roads=48.0 Farm=11.4 ...)` showing the action and top scores at time of failure. Appears in the faction inspector's Recent Actions list.
 
 ### Food Reserve Gate
 
@@ -154,7 +162,7 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 
 **Miner homes:** Only scored when miner deficit > 0: `gold_desire × deficit`. Uses house base weight `hw`.
 
-**Roads:** `road_weight × road_need` where `road_need = economy_buildings - roads/2`. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) adjacent to economy buildings (farms, farmer homes, miner homes), scored by adjacency count. Batch places multiple roads per action (batch size per personality).
+**Roads:** `road_weight × road_need` where `road_need = economy_buildings - roads/2`. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality).
 
 **Waypoints:** `military_desire × gap`. Scored when uncovered mines exist (gap = uncovered count, no slot requirement) or when waypoints < total military homes AND town has slots. Waypoint cost check is independent of `has_slots` since waypoints can be placed in wilderness.
 

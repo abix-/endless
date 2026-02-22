@@ -88,6 +88,10 @@ pub fn register_ui(app: &mut App) {
         game_escape_system,
     ).run_if(in_state(AppState::Playing)));
 
+    // Escape + settings menu in test scenes
+    app.add_systems(Update, game_escape_system.run_if(in_state(AppState::Running)));
+    app.add_systems(EguiPrimaryContextPass, pause_menu_system.run_if(in_state(AppState::Running)));
+
     // Building slot click detection + visual indicators + ghost
     app.add_systems(Update, (
         build_place_click_system,
@@ -555,7 +559,8 @@ fn pause_menu_system(
                     let prev_debug = (settings.debug_coordinates, settings.debug_all_npcs,
                         settings.debug_readback, settings.debug_combat,
                         settings.debug_spawns, settings.debug_behavior, settings.debug_profiler,
-                        settings.show_terrain_sprites, settings.show_all_faction_squad_lines);
+                        settings.show_terrain_sprites, settings.show_all_faction_squad_lines,
+                        settings.debug_ai_decisions);
                     ui.checkbox(&mut settings.debug_coordinates, "NPC Coordinates");
                     ui.checkbox(&mut settings.debug_all_npcs, "All NPCs in Roster");
                     ui.checkbox(&mut settings.debug_readback, "GPU Readback");
@@ -563,12 +568,14 @@ fn pause_menu_system(
                     ui.checkbox(&mut settings.debug_spawns, "Spawn Logging");
                     ui.checkbox(&mut settings.debug_behavior, "Behavior Logging");
                     ui.checkbox(&mut settings.debug_profiler, "System Profiler");
+                    ui.checkbox(&mut settings.debug_ai_decisions, "AI Decision Logging");
                     ui.checkbox(&mut settings.show_terrain_sprites, "Show Terrain Sprites");
                     ui.checkbox(&mut settings.show_all_faction_squad_lines, "Show All Faction Squad Lines");
                     let now_debug = (settings.debug_coordinates, settings.debug_all_npcs,
                         settings.debug_readback, settings.debug_combat,
                         settings.debug_spawns, settings.debug_behavior, settings.debug_profiler,
-                        settings.show_terrain_sprites, settings.show_all_faction_squad_lines);
+                        settings.show_terrain_sprites, settings.show_all_faction_squad_lines,
+                        settings.debug_ai_decisions);
                     if prev_debug != now_debug {
                         crate::settings::save_settings(&settings);
                     }
