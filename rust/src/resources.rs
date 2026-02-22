@@ -1528,6 +1528,8 @@ pub struct DirtyFlags {
     pub healing_zones: bool,
     pub squads: bool,
     pub mining: bool,
+    /// AI squad commander wake-up: set on military spawn/death/building changes.
+    pub ai_squads: bool,
     /// Set when buildings take damage; cleared when no damaged buildings remain.
     pub buildings_need_healing: bool,
     /// Pending patrol order swap from UI (waypoint indices).
@@ -1538,6 +1540,7 @@ impl DirtyFlags {
     /// Mark all relevant dirty flags after a building is destroyed or built.
     pub fn mark_building_changed(&mut self, kind: crate::world::BuildingKind) {
         self.building_grid = true;
+        self.ai_squads = true;
         if kind == crate::world::BuildingKind::Waypoint {
             self.patrols = true;
             self.patrol_perimeter = true;
@@ -1556,7 +1559,7 @@ impl DirtyFlags {
     }
 }
 impl Default for DirtyFlags {
-    fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, squads: true, mining: true, buildings_need_healing: false, patrol_swap: None } }
+    fn default() -> Self { Self { building_grid: true, patrols: true, patrol_perimeter: true, healing_zones: true, squads: true, mining: true, ai_squads: true, buildings_need_healing: false, patrol_swap: None } }
 }
 
 // ============================================================================

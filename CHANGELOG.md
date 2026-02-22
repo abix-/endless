@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22l
+
+- **AI player per-frame overhead reduction** — `ai_squad_commander_system` now uses dirty+heartbeat gating (wakes on `dirty.ai_squads` or 2s fallback) instead of running every frame; spawner counts cached in `AiTownSnapshotCache` (recomputed only when buildings change); inlined building counts (eliminated per-tick HashMap allocation); cached waypoint ring slots in `AiTownSnapshot` (was computed 4× per tick with allocation + sort)
+
 ## 2026-02-22k
 
 - **AI gold hoarding for expansion** — when all build slots are full, AI now reserves gold for the next expansion upgrade; non-expansion gold-costing upgrades are skipped unless surplus gold exists beyond what expansion costs; prevents AI from wasting gold on stat upgrades while unable to expand

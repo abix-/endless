@@ -76,12 +76,12 @@ Runs every **5 seconds** (`DEFAULT_AI_INTERVAL`). Each tick, every active AI pla
 
 ```
 1. Skip if inactive (migration not settled yet)
-2. Build/refresh town snapshot (cached; cleared when building_grid, mining, or patrol_perimeter dirty)
-3. Count food and spawners
+2. Build/refresh town snapshot (cached; cleared when building_grid, mining, or patrol_perimeter dirty). Snapshot includes cached waypoint ring slots and building positions as HashSets.
+3. Count food and spawners (spawner counts cached in AiTownSnapshotCache, recomputed only when snapshot is dirty)
 4. GATE: if food ≤ reserve → skip this tick entirely
 5. Compute desire signals (food, military, gold, economy)
 6. Build TownContext (center, food, has_slots, slot_fullness, MineAnalysis for Builders)
-7. Count buildings via building_counts() → HashMap<BuildingKind, usize>, compute targets and deficits
+7. Count buildings via inline building_def calls (no HashMap allocation), compute targets and deficits
 8. Phase 1 — BUILDING: score eligible building actions, retry loop (weighted pick → execute → on failure remove variant and re-pick)
 9. Phase 2 — UPGRADE: re-check food/gold after Phase 1 spend, score eligible upgrades, pick, execute
 10. Invalidate snapshot on successful build/upgrade, log to combat log
@@ -222,7 +222,7 @@ The TownArea upgrade has special rules beyond normal upgrade scoring:
 
 ## Squad Commander
 
-`ai_squad_commander_system` runs every frame (not every 5s). Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (`SquadUnit` component: archers, crossbows, fighters, raiders) participate.
+`ai_squad_commander_system` uses dirty+heartbeat gating: wakes immediately when `dirty.ai_squads` is set (military spawn/death, building changes) or on a 2-second heartbeat fallback. Skips entirely when neither condition fires — near-zero cost most frames. Both Builder and Raider AIs use squads. Squad counts and splits are personality-driven (see Personalities section). All military unit types (`SquadUnit` component: archers, crossbows, fighters, raiders) participate.
 
 ### Squad Roles (Builder AIs)
 

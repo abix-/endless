@@ -97,6 +97,7 @@ pub fn death_cleanup_system(
     let mut despawn_count = 0;
     if !query.is_empty() {
         res.dirty.squads = true;
+        res.dirty.ai_squads = true;
     }
     for (entity, npc_idx, job, town_id, faction, activity, assigned_farm, work_position) in query.iter() {
         let idx = npc_idx.0;

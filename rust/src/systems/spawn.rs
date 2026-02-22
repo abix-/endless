@@ -278,7 +278,7 @@ pub fn spawn_npc_system(
         let job = Job::from_i32(msg.job);
         faction_stats.inc_alive(msg.faction);
         if job == Job::Miner { dirty.mining = true; }
-        if crate::constants::npc_def(job).is_military { dirty.squads = true; }
+        if crate::constants::npc_def(job).is_military { dirty.squads = true; dirty.ai_squads = true; }
 
         if game_time.total_hours() > 0 {
             let job_str = crate::job_name(msg.job);

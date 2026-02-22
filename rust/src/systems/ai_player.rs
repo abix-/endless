@@ -98,6 +98,8 @@ struct AiTownSnapshot {
     farmer_homes: HashSet<(i32, i32)>,
     archer_homes: HashSet<(i32, i32)>,
     crossbow_homes: HashSet<(i32, i32)>,
+    /// Cached ideal waypoint ring positions (computed once per snapshot).
+    waypoint_ring: Vec<(i32, i32)>,
 }
 
 
@@ -105,6 +107,8 @@ struct AiTownSnapshot {
 #[derive(Default)]
 pub struct AiTownSnapshotCache {
     towns: HashMap<usize, AiTownSnapshot>,
+    /// Cached population-spawner count per town. Recomputed on dirty.building_grid.
+    spawner_counts: HashMap<usize, i32>,
 }
 
 #[derive(Resource)]
@@ -344,8 +348,8 @@ impl AiPersonality {
             if s == 0 {
                 // Aggressive: roads on axes only. Waypoint at corners of build area
                 // and midpoints, all adjacent to an axis road.
-                return (r.abs() > 1 || c.abs() > 1)
-                    && (r == 0 || c == 0 || (r.abs() == c.abs()));
+                // Diagonal corners only — axis slots are reserved for roads.
+                return r.abs() > 1 && c.abs() > 1 && r.abs() == c.abs();
             }
             // For grid-based roads: block corner = diagonally adjacent to a road intersection.
             // A road intersection is at (R, C) where R%S==0 && C%S==0.
@@ -360,6 +364,7 @@ impl AiPersonality {
                 if r == 0 && c == 0 { continue; }
                 if !is_perimeter(r, c) { continue; }
                 if !is_block_corner(r, c) { continue; }
+                if self.is_road_slot(r, c) { continue; }
                 candidates.push((r, c));
             }
         }
@@ -666,8 +671,9 @@ fn build_town_snapshot(
     let farmer_homes = town_building_slots!(world_data.get(BuildingKind::FarmerHome), ti, center).collect();
     let archer_homes = town_building_slots!(world_data.get(BuildingKind::ArcherHome), ti, center).collect();
     let crossbow_homes = town_building_slots!(world_data.get(BuildingKind::CrossbowHome), ti, center).collect();
-    // Exclude road and waypoint pattern slots so non-road buildings never pick them
-    let wp_slots: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
+    // Compute waypoint ring once and cache — reused for slot filtering and find_waypoint_slot
+    let waypoint_ring = personality.waypoint_ring_slots(tg);
+    let wp_slots: HashSet<(i32, i32)> = waypoint_ring.iter().copied().collect();
     let empty_slots = world::empty_slots(tg, center, grid).into_iter()
         .filter(|&(r, c)| !personality.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .collect();
@@ -679,6 +685,7 @@ fn build_town_snapshot(
         farmer_homes,
         archer_homes,
         crossbow_homes,
+        waypoint_ring,
     })
 }
 
@@ -896,18 +903,25 @@ fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i3
 }
 
 /// Find the next ideal waypoint slot from the personality's outer ring pattern.
+/// Uses cached ring from snapshot if available, otherwise computes fresh.
 fn find_waypoint_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid,
     world_data: &WorldData, ti: u32, personality: AiPersonality,
+    cached_ring: Option<&[(i32, i32)]>,
 ) -> Option<(i32, i32)> {
-    let ideal = personality.waypoint_ring_slots(tg);
+    let computed;
+    let ideal = match cached_ring {
+        Some(ring) => ring,
+        None => { computed = personality.waypoint_ring_slots(tg); &computed }
+    };
     let existing: HashSet<(i32, i32)> = town_building_slots!(
         world_data.waypoints(), ti, center
     ).collect();
 
-    // Pick first ideal slot not already occupied by any building
-    ideal.into_iter()
+    // Pick first ideal slot not already occupied by any building or road slot
+    ideal.iter().copied()
         .filter(|slot| !existing.contains(slot))
+        .filter(|&(r, c)| !personality.is_road_slot(r, c))
         .find(|&(r, c)| {
             let pos = world::town_grid_to_world(center, r, c);
             let (gc, gr) = grid.world_to_grid(pos);
@@ -1115,6 +1129,13 @@ pub fn ai_decision_system(
     let snapshot_dirty = res.world.dirty.building_grid || res.world.dirty.mining || res.world.dirty.patrol_perimeter;
     if snapshot_dirty {
         snapshots.towns.clear();
+        // Recompute spawner counts per town (single pass over all spawners)
+        snapshots.spawner_counts.clear();
+        for s in res.world.spawner_state.0.iter() {
+            if world::is_alive(s.position) && s.is_population_spawner() {
+                *snapshots.spawner_counts.entry(s.town_idx as usize).or_default() += 1;
+            }
+        }
     }
 
     for pi in 0..ai_state.players.len() {
@@ -1137,11 +1158,7 @@ pub fn ai_decision_system(
         }
 
         let food = res.food_storage.food.get(tdi).copied().unwrap_or(0);
-        let spawner_count = res.world.spawner_state.0.iter()
-            .filter(|s| world::is_alive(s.position))
-            .filter(|s| s.town_idx == tdi as i32)
-            .filter(|s| s.is_population_spawner())
-            .count() as i32;
+        let spawner_count = snapshots.spawner_counts.get(&tdi).copied().unwrap_or(0);
         let reserve = personality.food_reserve_per_spawner() * spawner_count;
         // Food reserve rule: if town is at/below reserve, skip spending this tick.
         if food <= reserve { continue; }
@@ -1157,8 +1174,7 @@ pub fn ai_decision_system(
         let town_name = res.world.world_data.towns.get(tdi).map(|t| t.name.clone()).unwrap_or_default();
         let pname = personality.name();
 
-        let counts = res.world.world_data.building_counts(ctx.ti);
-        let bc = |k: BuildingKind| counts.get(&k).copied().unwrap_or(0);
+        let bc = |k: BuildingKind| (building_def(k).count_for_town)(&res.world.world_data, ctx.ti);
         let farms = bc(BuildingKind::Farm);
         let houses = bc(BuildingKind::FarmerHome);
         let barracks = bc(BuildingKind::ArcherHome);
@@ -1718,7 +1734,8 @@ fn execute_action(
         AiAction::BuildWaypoint => {
             let cost = building_cost(BuildingKind::Waypoint);
             let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
-            let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.world_data, ctx.ti, personality)?;
+            let cached_ring = snapshot.map(|s| s.waypoint_ring.as_slice());
+            let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.world_data, ctx.ti, personality, cached_ring)?;
             let pos = world::town_grid_to_world(ctx.center, row, col);
             if world::place_building(
                 &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
@@ -1932,9 +1949,16 @@ pub fn ai_squad_commander_system(
     game_time: Res<GameTime>,
     mut dirty: ResMut<DirtyFlags>,
     timings: Res<SystemTimings>,
+    mut timer: Local<f32>,
 ) {
+    const AI_SQUAD_HEARTBEAT: f32 = 2.0;
     let _t = timings.scope("ai_squad_commander");
     let dt = game_time.delta(&time);
+    *timer += dt;
+    if !dirty.ai_squads && *timer < AI_SQUAD_HEARTBEAT { return; }
+    dirty.ai_squads = false;
+    let elapsed = *timer;
+    *timer = 0.0;
 
     // Count alive military units per town.
     let mut units_by_town: HashMap<i32, usize> = HashMap::new();
@@ -2060,7 +2084,7 @@ pub fn ai_squad_commander_system(
         let mut claimed_targets: HashSet<(BuildingKind, usize)> = HashSet::new();
         for &si in &squad_indices {
             let cmd = ai_state.players[pi].squad_cmd.entry(si).or_default();
-            if cmd.cooldown > 0.0 { cmd.cooldown -= dt; }
+            if cmd.cooldown > 0.0 { cmd.cooldown -= elapsed; }
 
             let Some(squad) = squad_state.squads.get(si) else { continue };
 
