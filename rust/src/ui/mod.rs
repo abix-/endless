@@ -88,9 +88,13 @@ pub fn register_ui(app: &mut App) {
         game_escape_system,
     ).run_if(in_state(AppState::Playing)));
 
-    // Escape + settings menu in test scenes
+    // Escape + settings + inspector in test scenes
     app.add_systems(Update, game_escape_system.run_if(in_state(AppState::Running)));
-    app.add_systems(EguiPrimaryContextPass, pause_menu_system.run_if(in_state(AppState::Running)));
+    app.add_systems(EguiPrimaryContextPass, (
+        game_hud::bottom_panel_system,
+        game_hud::selection_overlay_system,
+        pause_menu_system,
+    ).run_if(in_state(AppState::Running)));
 
     // Building slot click detection + visual indicators + ghost
     app.add_systems(Update, (

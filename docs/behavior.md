@@ -23,6 +23,7 @@ Priority order (first match wins), with three-tier throttling via `NpcDecisionCo
 
 **Tier 1 — every frame:**
 0. AtDestination → Handle arrival transitions (transient one-frame flag, can't miss)
+-- Farmer en-route retarget (GoingToWork + target farm occupied → find nearest free farm or idle, throttled at Tier 3 cadence) --
 -- Transit skip (`activity.is_transit()` → continue, with GoingToHeal proximity check at Tier 2 cadence) --
 
 **Tier 2 — every 8 frames (~133ms):**
@@ -215,7 +216,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - If `Activity::Resting` + energy >= `ENERGY_WAKE_THRESHOLD` (90%): set `Activity::Idle`, proceed to scoring
 
 **Priority 5: Working/Mining progress**
-- If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release `AssignedFarm`. **Farmer ready-check**: working farmers also scan all same-faction farms for `Ready` state — if a ready farm exists, the farmer releases their current farm and goes Idle so the decision system re-evaluates (redirecting to the ready farm).
+- If `Activity::Working` + energy < `ENERGY_TIRED_THRESHOLD` (30%): set `Activity::Idle`, release `AssignedFarm`.
 - If `Activity::MiningAtMine`: tick `MiningProgress` by `delta_hours / MINE_WORK_HOURS` (4h cycle). When progress >= 1.0 OR energy < tired threshold: extract gold scaled by progress fraction × `MINE_EXTRACT_PER_CYCLE` × GoldYield upgrade, release occupancy, remove `MiningProgress` + `WorkPosition`, set `Activity::Returning { loot: [(Gold, extracted)] }`. Gold progress bar rendered overhead via `MinerProgressRender` (atlas_id=6.0, gold color).
 
 **Priority 6: Patrol**
@@ -232,7 +233,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Score Eat/Rest/Work/Wander with personality multipliers and HP modifier
 - Select via weighted random, execute action
 - **Food check**: Eat only scored if town has food in storage
-- **Farmer work branch**: Farmers dynamically scan all same-faction farms each work decision. Priority: ready farms > unoccupied growing farms (occupied farms skipped). Within each tier, picks the closest farm. Inserts `WorkPosition` with the chosen farm and sets `GoingToWork`. No pre-assigned farm needed — farmers find work like miners.
+- **Farmer work branch**: Farmers dynamically scan all same-faction farms each work decision. All occupied farms are skipped first, then priority: ready unoccupied > growing unoccupied, closest within each tier. Inserts `WorkPosition` with the chosen farm and sets `GoingToWork`. While en-route (`GoingToWork`), farmers re-check occupancy at Tier 3 cadence — if another farmer claimed the target farm first, the en-route farmer retargets to the nearest free farm (or idles if none). This prevents dogpiling: closest farmer wins, others keep searching.
 - **Miner work branch**: Miners have a separate `Action::Work` → `Job::Miner` branch. If the miner's `MinerHome` has `assigned_mine` set (via building inspector UI), that mine is used directly. Otherwise, finds the nearest unoccupied mine and walks there (`Activity::Mining { mine_pos }`). Completely independent of farmer logic — no `mining_pct` roll. Miners share farmer schedule/flee/off-duty policies.
 - **Decision logging**: Each decision logged to `NpcLogCache`
 

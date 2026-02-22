@@ -674,6 +674,25 @@ pub fn decision_system(
         }
 
         // ====================================================================
+        // Farmer en-route retarget: if target farm became occupied, find another
+        // ====================================================================
+        if *job == Job::Farmer && matches!(*activity, Activity::GoingToWork) && (idx + frame) % think_buckets == 0 {
+            if let Ok(wp) = work_query.get(entity) {
+                if farms.occupancy.is_occupied(wp.0) {
+                    if let Some(free) = find_nearest_free(wp.0, &bgrid, BuildingKind::Farm, &farms.occupancy, Some(town_id.0 as u32)) {
+                        commands.entity(entity).insert(WorkPosition(free));
+                        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: free.x, y: free.y }));
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm taken, retargeting");
+                    } else {
+                        *activity = Activity::Idle;
+                        npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // ====================================================================
         // Skip NPCs in transit states (they're walking to their destination)
         // GoingToHeal proximity check runs at combat cadence (every 8 frames).
         // ====================================================================
@@ -748,18 +767,6 @@ pub fn decision_system(
             let should_stop = if energy.0 < ENERGY_TIRED_THRESHOLD {
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Tired -> Stopped");
                 true
-            } else if *job == Job::Farmer {
-                // Check if any Ready farm exists in our faction — go harvest it instead
-                let has_ready = farms.states.positions.iter().enumerate().any(|(gi, pos)| {
-                    farms.states.kinds.get(gi) == Some(&crate::resources::GrowthKind::Farm)
-                    && farms.states.town_indices.get(gi) == Some(&Some(town_id.0 as u32))
-                    && pos.x > -9000.0
-                    && farms.states.states.get(gi) == Some(&FarmGrowthState::Ready)
-                });
-                if has_ready {
-                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Ready crop found -> redirecting");
-                }
-                has_ready
             } else {
                 false
             };
@@ -982,10 +989,9 @@ pub fn decision_system(
                             if farms.states.kinds.get(gi) != Some(&crate::resources::GrowthKind::Farm) { continue; }
                             if farms.states.town_indices.get(gi) != Some(&Some(town_id.0 as u32)) { continue; }
                             if pos.x < -9000.0 { continue; }
+                            if farms.occupancy.is_occupied(*pos) { continue; }
                             let ready = farms.states.states.get(gi) == Some(&FarmGrowthState::Ready);
-                            let occupied = farms.occupancy.is_occupied(*pos);
-                            let priority = if ready { 0 } else if !occupied { 1 } else { 2 };
-                            if priority == 2 { continue; }
+                            let priority = if ready { 0 } else { 1 };
                             let dist = current_pos.distance(*pos);
                             if best.is_none() || (priority, dist as i32) < (best.unwrap().0, best.unwrap().1 as i32) {
                                 best = Some((priority, dist, *pos));

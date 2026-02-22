@@ -164,7 +164,7 @@ Each eligible action gets a score = `base_weight × need_multiplier`. All scores
 
 **Roads:** `road_weight × road_need` where `road_need = min(road_candidates, economy_buildings - roads/2)`. Pre-checks actual candidate availability via `count_road_candidates()` — if no road-pattern slots are available near economy buildings, roads aren't scored at all. Scored when `road_weight > 0` and food ≥ 4× road cost. Places roads in personality-specific grid patterns (see Personalities table) near economy buildings (farms, farmer homes, miner homes) within Chebyshev distance ≤ 2, scored by adjacency count. Batch places multiple roads per action (batch size per personality).
 
-**Waypoints:** `military_desire × gap`. Scored when uncovered mines exist (gap = uncovered count, no slot requirement) or when waypoints < total military homes AND town has slots. Waypoint cost check is independent of `has_slots` since waypoints can be placed in wilderness.
+**Waypoints:** `military_desire × gap` where gap = total military homes − waypoints. Scored when waypoints < total military homes. Waypoints are placed on the personality's outer ring pattern (block corners on build area perimeter).
 
 ### Raider AI
 
@@ -181,9 +181,9 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 | Archer home | Near economic core (farms + homes), anti-clump penalty for adjacent archer/crossbow homes. |
 | Crossbow home | Same scoring as archer home (`archer_fill_score`). |
 | Miner home | Minimizes distance to nearest gold mine. Center-biased fallback when no mines exist. |
-| Waypoint | Two-stage: (1) wilderness near nearest uncovered mine if spacing OK, (2) in-town perimeter slot maximizing spacing then radial distance. |
+| Waypoint | Personality's outer ring: block corners on build area perimeter adjacent to road intersections, min spacing per personality (Aggressive:3, Balanced:4, Economic:5). First unfilled ring slot wins. |
 
-**Road-aware placement:** All non-road building placement (both `find_inner_slot` and snapshot empty slots) filters out slots that match the personality's road pattern (`is_road_slot`). This prevents buildings from being placed on future road positions.
+**Road and waypoint-aware placement:** All non-road building placement (both `find_inner_slot` and snapshot empty slots) filters out slots that match the personality's road pattern (`is_road_slot`) or waypoint ring (`waypoint_ring_slots`). This prevents buildings from being placed on future road or waypoint positions.
 
 **Fallback:** If no snapshot or scorer produces a candidate, `find_inner_slot` picks the empty non-road slot closest to town center. Waypoints use `place_waypoint_at_world_pos` (world-position-based, not town-slot-based) so they can be placed both in-town and in wilderness.
 
@@ -191,8 +191,7 @@ Buildings use scored slot selection with fallback to center-nearest. Scorer func
 
 `MineAnalysis` is computed once per AI tick (single pass over all gold mines):
 - Counts mines in/outside mining radius
-- Finds uncovered mines (no friendly waypoint within 200px)
-- Tracks nearest uncovered mine for waypoint targeting
+- Collects all alive mine positions (for miner home slot scoring)
 
 **Flow** (miner and expand are mutually exclusive per tick):
 1. Miner deficit > 0 → score BuildMinerHome (uses house base weight `hw`)
@@ -245,11 +244,9 @@ Search radius: 5000px from town center. Cooldown includes ±2s jitter. Initial c
 ## Perimeter Maintenance
 
 `sync_patrol_perimeter_system` (dirty-flag-gated on `patrol_perimeter`):
-1. Compute owned territory (farms + all unit homes + miner homes, via `territory_building_sets!` macro using `WorldData.homes(kind)` BTreeMap access)
-2. Compute one-cell perimeter ring around territory (orthogonal directions only)
-3. Prune in-town waypoints no longer on perimeter (uses full `destroy_building` teardown)
-4. Preserve wilderness waypoints (outside town build area)
-5. Recalculate clockwise patrol order (angle-based sort around town center)
+1. Compute personality's ideal outer ring via `waypoint_ring_slots(tg)` (block corners on build area perimeter)
+2. Prune waypoints not in the ideal ring (uses full `destroy_building` teardown) — when town area expands, the ring shifts outward and inner waypoints are destroyed
+3. Recalculate clockwise patrol order (angle-based sort around town center)
 
 ## Migration (Dynamic Raider Towns)
 

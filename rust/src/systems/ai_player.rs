@@ -3,8 +3,9 @@
 //! random decisions — same pattern as NPC behavior scoring.
 //!
 //! Slot selection: economy buildings (farms, houses, barracks) prefer inner slots
-//! (closest to center). Guard posts target the perimeter around controlled buildings
-//! with minimum spacing of 5 grid slots between posts.
+//! (closest to center). Waypoints form a single outer ring on the perimeter of the
+//! build area, placed at block corners adjacent to road intersections. When the town
+//! area expands, inner waypoints are pruned to maintain one ring.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -46,45 +47,11 @@ macro_rules! town_building_slots {
     }
 }
 
-/// Minimum grid-step distance between waypoints on the town grid
-/// (counting only up/down/left/right steps, not diagonals).
-const MIN_WAYPOINT_SPACING: i32 = 5;
-/// Patrol posts sit one slot outside controlled buildings.
-const TERRITORY_PERIMETER_PADDING: i32 = 1;
 const DEFAULT_MINING_RADIUS: f32 = 300.0;
 const MINING_RADIUS_STEP: f32 = 300.0;
 const MAX_MINING_RADIUS: f32 = 5000.0;
 /// Hard ceiling on miners per mine, regardless of personality target.
 const MAX_MINERS_PER_MINE: usize = 5;
-
-/// Minimum grid-step distance from `candidate` to any existing waypoint for this town.
-/// Returns `i32::MAX` if no waypoints exist.
-fn min_waypoint_spacing(
-    grid: &WorldGrid,
-    world_data: &WorldData,
-    town_idx: u32,
-    candidate: Vec2,
-) -> i32 {
-    // Distance metric here is "grid steps" (taxicab):
-    // |row_a - row_b| + |col_a - col_b|.
-    // That means diagonal movement is counted as two steps.
-    let (cc, cr) = grid.world_to_grid(candidate);
-    world_data.waypoints().iter()
-        .filter(|w| w.town_idx == town_idx && world::is_alive(w.position))
-        .map(|w| {
-            let (wc, wr) = grid.world_to_grid(w.position);
-            (cc as i32 - wc as i32).abs() + (cr as i32 - wr as i32).abs()
-        })
-        .min()
-        .unwrap_or(i32::MAX)
-}
-
-fn waypoint_spacing_ok(
-    grid: &WorldGrid, world_data: &WorldData, town_idx: u32, candidate: Vec2,
-) -> bool {
-    // Small helper so call sites read like English: "is spacing OK?"
-    min_waypoint_spacing(grid, world_data, town_idx, candidate) >= MIN_WAYPOINT_SPACING
-}
 
 fn recalc_waypoint_patrol_order_clockwise(
     world_data: &mut WorldData,
@@ -131,45 +98,9 @@ struct AiTownSnapshot {
     farmer_homes: HashSet<(i32, i32)>,
     archer_homes: HashSet<(i32, i32)>,
     crossbow_homes: HashSet<(i32, i32)>,
-    miner_homes: HashSet<(i32, i32)>,
 }
 
-/// Single definition of the four building types that constitute owned territory.
-/// Adding a new territory-defining building? Add it here — both paths expand from this.
-macro_rules! territory_building_sets {
-    (snapshot $snap:expr) => {
-        // Snapshot path: already normalized into HashSets.
-        $snap.farms.iter()
-            .chain(&$snap.farmer_homes)
-            .chain(&$snap.archer_homes)
-            .chain(&$snap.crossbow_homes)
-            .chain(&$snap.miner_homes)
-            .copied()
-    };
-    (world $wd:expr, $ti:expr, $center:expr) => {
-        // World path: derive slots from live world arrays using the same conversion pipeline.
-        town_building_slots!($wd.farms(), $ti, $center)
-            .chain(town_building_slots!($wd.get(BuildingKind::FarmerHome), $ti, $center))
-            .chain(town_building_slots!($wd.get(BuildingKind::ArcherHome), $ti, $center))
-            .chain(town_building_slots!($wd.get(BuildingKind::CrossbowHome), $ti, $center))
-            .chain(town_building_slots!($wd.miner_homes(), $ti, $center))
-    };
-}
 
-impl AiTownSnapshot {
-    // Snapshot utility: union all territory-defining building slots into one set.
-    fn all_building_slots(&self) -> HashSet<(i32, i32)> {
-        territory_building_sets!(snapshot self).collect()
-    }
-}
-
-// Fallback utility: produce the same territory set directly from world state.
-// Keep behavior equivalent to `AiTownSnapshot::all_building_slots`.
-fn all_building_slots_from_world(
-    world_data: &WorldData, ti: u32, center: Vec2,
-) -> HashSet<(i32, i32)> {
-    territory_building_sets!(world world_data, ti, center).collect()
-}
 
 #[derive(Default)]
 pub struct AiTownSnapshotCache {
@@ -382,6 +313,15 @@ impl AiPersonality {
         }
     }
 
+    /// Road grid spacing for this personality.
+    fn road_spacing(self) -> i32 {
+        match self {
+            Self::Aggressive => 0, // cardinal axes only, no regular grid
+            Self::Balanced => 3,
+            Self::Economic => 4,
+        }
+    }
+
     /// True if (row, col) is reserved for road placement in this personality's pattern.
     /// Economic: 4x4 grid, Balanced: 3x3 grid, Aggressive: cardinal axes from center.
     fn is_road_slot(self, row: i32, col: i32) -> bool {
@@ -392,6 +332,67 @@ impl AiPersonality {
             Self::Economic => row.rem_euclid(4) == 0 || col.rem_euclid(4) == 0,
         }
     }
+
+    /// Compute the ideal outer ring of waypoint positions for the current build area.
+    /// Waypoints sit at block corners on the perimeter — adjacent to road intersections
+    /// so patrol routes always have road access.
+    fn waypoint_ring_slots(self, tg: &world::TownGrid) -> Vec<(i32, i32)> {
+        let (min_r, max_r, min_c, max_c) = world::build_bounds(tg);
+        let s = self.road_spacing();
+
+        // Collect all perimeter cells that are block corners (adjacent to a road intersection)
+        let is_perimeter = |r: i32, c: i32| {
+            r == min_r || r == max_r || c == min_c || c == max_c
+        };
+        let is_block_corner = |r: i32, c: i32| -> bool {
+            if s == 0 {
+                // Aggressive: roads on axes only. Waypoint at corners of build area
+                // and midpoints, all adjacent to an axis road.
+                return (r.abs() > 1 || c.abs() > 1)
+                    && (r == 0 || c == 0 || (r.abs() == c.abs()));
+            }
+            // For grid-based roads: block corner = diagonally adjacent to a road intersection.
+            // A road intersection is at (R, C) where R%S==0 && C%S==0.
+            // Block corners are at offsets ±1 from intersections in both axes.
+            (r.rem_euclid(s) == 1 || r.rem_euclid(s) == s - 1)
+                && (c.rem_euclid(s) == 1 || c.rem_euclid(s) == s - 1)
+        };
+
+        let mut candidates: Vec<(i32, i32)> = Vec::new();
+        for r in min_r..=max_r {
+            for c in min_c..=max_c {
+                if r == 0 && c == 0 { continue; }
+                if !is_perimeter(r, c) { continue; }
+                if !is_block_corner(r, c) { continue; }
+                candidates.push((r, c));
+            }
+        }
+
+        // Sort clockwise by angle from center for stable patrol ordering
+        candidates.sort_by(|a, b| {
+            let aa = (a.1 as f32).atan2(a.0 as f32);
+            let ab = (b.1 as f32).atan2(b.0 as f32);
+            aa.partial_cmp(&ab).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Apply minimum spacing along the ring to avoid clustering
+        let min_spacing: i32 = match self {
+            Self::Aggressive => 3,
+            Self::Balanced => 4,
+            Self::Economic => 5,
+        };
+        let mut result: Vec<(i32, i32)> = Vec::new();
+        for &(r, c) in &candidates {
+            let too_close = result.iter().any(|&(pr, pc)| {
+                (r - pr).abs() + (c - pc).abs() < min_spacing
+            });
+            if !too_close {
+                result.push((r, c));
+            }
+        }
+        result
+    }
+
 
     /// Upgrade weights by (category, stat_kind). Returns a Vec indexed by upgrade registry index.
     /// Only entries with weight > 0 are scored.
@@ -636,14 +637,13 @@ pub struct AiPlayerState {
 // ============================================================================
 
 /// Find best empty slot closest to town center (for economy buildings).
-/// Excludes road pattern slots for the given personality.
+/// Excludes road and waypoint pattern slots for the given personality.
 fn find_inner_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, personality: AiPersonality,
 ) -> Option<(i32, i32)> {
-    // Deterministic fallback placement policy:
-    // choose the empty non-road slot closest to town center.
+    let wp_slots: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
     world::empty_slots(tg, center, grid).into_iter()
-        .filter(|&(r, c)| !personality.is_road_slot(r, c))
+        .filter(|&(r, c)| !personality.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .min_by_key(|&(r, c)| r * r + c * c)
 }
 
@@ -664,10 +664,10 @@ fn build_town_snapshot(
     let farmer_homes = town_building_slots!(world_data.get(BuildingKind::FarmerHome), ti, center).collect();
     let archer_homes = town_building_slots!(world_data.get(BuildingKind::ArcherHome), ti, center).collect();
     let crossbow_homes = town_building_slots!(world_data.get(BuildingKind::CrossbowHome), ti, center).collect();
-    let miner_homes = town_building_slots!(world_data.miner_homes(), ti, center).collect();
-    // Exclude road pattern slots so non-road buildings never pick them
+    // Exclude road and waypoint pattern slots so non-road buildings never pick them
+    let wp_slots: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
     let empty_slots = world::empty_slots(tg, center, grid).into_iter()
-        .filter(|&(r, c)| !personality.is_road_slot(r, c))
+        .filter(|&(r, c)| !personality.is_road_slot(r, c) && !wp_slots.contains(&(r, c)))
         .collect();
 
     Some(AiTownSnapshot {
@@ -677,7 +677,6 @@ fn build_town_snapshot(
         farmer_homes,
         archer_homes,
         crossbow_homes,
-        miner_homes,
     })
 }
 
@@ -894,76 +893,24 @@ fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i3
     -(best as i32) - radial
 }
 
-/// Find outermost empty slot at least MIN_WAYPOINT_SPACING from all existing waypoints.
+/// Find the next ideal waypoint slot from the personality's outer ring pattern.
 fn find_waypoint_slot(
-    tg: &world::TownGrid, center: Vec2, grid: &WorldGrid, world_data: &WorldData, ti: u32,
+    tg: &world::TownGrid, center: Vec2, grid: &WorldGrid,
+    world_data: &WorldData, ti: u32, personality: AiPersonality,
 ) -> Option<(i32, i32)> {
-    // Waypoint placement policy (in-town fallback):
-    // 1) compute perimeter around owned territory
-    // 2) discard occupied/unbuildable/too-close candidates
-    // 3) choose candidate maximizing spacing, then radial distance
-    let occupied = controlled_territory_slots(None, world_data, center, ti);
-    if occupied.is_empty() { return None; }
-    let perimeter = territory_perimeter_slots(&occupied, tg);
-    if perimeter.is_empty() { return None; }
+    let ideal = personality.waypoint_ring_slots(tg);
+    let existing: HashSet<(i32, i32)> = town_building_slots!(
+        world_data.waypoints(), ti, center
+    ).collect();
 
-    let mut best: Option<((i32, i32), i32, i32)> = None;
-    for &(r, c) in &perimeter {
-        if r == 0 && c == 0 { continue; }
-        let pos = world::town_grid_to_world(center, r, c);
-        let (gc, gr) = grid.world_to_grid(pos);
-        if grid.cell(gc, gr).map(|cl| cl.building.is_none()) != Some(true) { continue; }
-        let min_spacing = min_waypoint_spacing(grid, world_data, ti, pos);
-        if min_spacing < MIN_WAYPOINT_SPACING { continue; }
-
-        let radial = r * r + c * c;
-        if best.map_or(true, |(_, best_spacing, best_radial)| {
-            // Primary objective: maximize spacing from existing waypoints.
-            // Secondary objective (tie-break): choose farther-out perimeter slot.
-            min_spacing > best_spacing || (min_spacing == best_spacing && radial > best_radial)
-        }) {
-            best = Some(((r, c), min_spacing, radial));
-        }
-    }
-    best.map(|(slot, _, _)| slot)
-}
-
-/// Grid slots controlled by this town's owned buildings.
-/// Uses snapshot if available, otherwise scans WorldData.
-fn controlled_territory_slots(
-    snapshot: Option<&AiTownSnapshot>,
-    world_data: &WorldData,
-    center: Vec2,
-    ti: u32,
-) -> HashSet<(i32, i32)> {
-    // `Option<&AiTownSnapshot>` lets caller pass a cache when available.
-    // Pattern:
-    // - fast path: use snapshot (already precomputed)
-    // - fallback: compute from world state
-    if let Some(snap) = snapshot {
-        return snap.all_building_slots();
-    }
-    all_building_slots_from_world(world_data, ti, center)
-}
-
-/// Candidate perimeter slots around controlled buildings, clamped to buildable town grid.
-fn territory_perimeter_slots(
-    occupied: &HashSet<(i32, i32)>, tg: &world::TownGrid,
-) -> HashSet<(i32, i32)> {
-    // Convert occupied territory slots into a one-cell perimeter ring.
-    let mut out = HashSet::new();
-    let dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)];
-
-    for &(r, c) in occupied {
-        for (dr, dc) in dirs {
-            let nr = r + dr * TERRITORY_PERIMETER_PADDING;
-            let nc = c + dc * TERRITORY_PERIMETER_PADDING;
-            if occupied.contains(&(nr, nc)) { continue; }
-            if !world::is_slot_buildable(tg, nr, nc) { continue; }
-            out.insert((nr, nc));
-        }
-    }
-    out
+    // Pick first ideal slot not already occupied by any building
+    ideal.into_iter()
+        .filter(|slot| !existing.contains(slot))
+        .find(|&(r, c)| {
+            let pos = world::town_grid_to_world(center, r, c);
+            let (gc, gr) = grid.world_to_grid(pos);
+            grid.cell(gc, gr).map(|cl| cl.building.is_none()) == Some(true)
+        })
 }
 
 fn sync_town_perimeter_waypoints(
@@ -978,27 +925,22 @@ fn sync_town_perimeter_waypoints(
     game_time: &GameTime,
     town_grids: &world::TownGrids,
     town_data_idx: usize,
+    personality: AiPersonality,
 ) -> usize {
-    // Maintenance pass:
-    // if town territory changed, prune in-town waypoints no longer on perimeter.
-    // Wilderness waypoints are preserved.
+    // Prune waypoints not in the personality's ideal outer ring.
+    // When the town area expands, the ring shifts outward and inner waypoints are destroyed.
     let Some(town) = world_data.towns.get(town_data_idx) else { return 0; };
     let Some(tg) = town_grids.grids.iter().find(|g| g.town_data_idx == town_data_idx) else { return 0; };
     let center = town.center;
     let ti = town_data_idx as u32;
 
-    let occupied = controlled_territory_slots(None, world_data, center, ti);
-    if occupied.is_empty() { return 0; }
-    let perimeter = territory_perimeter_slots(&occupied, tg);
-    if perimeter.is_empty() { return 0; }
+    let ideal: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
 
     let mut prune_slots: Vec<(i32, i32)> = Vec::new();
     for wp in world_data.waypoints() {
         if wp.town_idx != ti || !world::is_alive(wp.position) { continue; }
         let slot = world::world_to_town_grid(center, wp.position);
-        // Preserve wilderness/mine outposts: only prune waypoints inside town build area.
-        if !world::is_slot_buildable(tg, slot.0, slot.1) { continue; }
-        if !perimeter.contains(&slot) {
+        if !ideal.contains(&slot) {
             prune_slots.push(slot);
         }
     }
@@ -1008,7 +950,7 @@ fn sync_town_perimeter_waypoints(
         if world::destroy_building(
             grid, world_data, farm_states, spawner_state, building_hp,
             slot_alloc, building_slots, combat_log, game_time,
-            row, col, center, "waypoint pruned (perimeter shifted)",
+            row, col, center, "waypoint pruned (not on outer ring)",
         ).is_ok() {
             removed += 1;
         }
@@ -1032,13 +974,13 @@ pub fn sync_patrol_perimeter_system(
     if !world.dirty.patrol_perimeter { return; }
     world.dirty.patrol_perimeter = false;
 
-    let mut town_ids: HashSet<usize> = HashSet::new();
-    for p in ai_state.players.iter().filter(|p| p.active) {
-        town_ids.insert(p.town_data_idx);
-    }
+    let town_personalities: Vec<(usize, AiPersonality)> = ai_state.players.iter()
+        .filter(|p| p.active)
+        .map(|p| (p.town_data_idx, p.personality))
+        .collect();
 
     let mut removed_total = 0usize;
-    for town_idx in town_ids {
+    for (town_idx, personality) in town_personalities {
         removed_total += sync_town_perimeter_waypoints(
             &mut world.grid,
             &mut world.world_data,
@@ -1051,6 +993,7 @@ pub fn sync_patrol_perimeter_system(
             &game_time,
             &world.town_grids,
             town_idx,
+            personality,
         );
     }
 
@@ -1068,30 +1011,15 @@ pub fn sync_patrol_perimeter_system(
 struct MineAnalysis {
     in_radius: usize,
     outside_radius: usize,
-    uncovered: Vec<Vec2>,
-    /// Closest uncovered mine to town center (for wilderness waypoint placement).
-    nearest_uncovered: Option<Vec2>,
     /// All alive mine positions on the map (for miner home slot scoring).
     all_positions: Vec<Vec2>,
 }
 
-fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f32) -> MineAnalysis {
+fn analyze_mines(world_data: &WorldData, center: Vec2, mining_radius: f32) -> MineAnalysis {
     // Single-pass analysis over alive gold mines.
-    // We derive multiple outputs from one loop to avoid duplicate scans:
-    // - count in/out of radius
-    // - uncovered mines
-    // - nearest uncovered mine
-    // - all mine positions (for miner-home placement scoring)
-    // Compare squared distances to avoid sqrt in hot loops.
     let radius_sq = mining_radius * mining_radius;
-    let friendly: Vec<Vec2> = world_data.waypoints().iter()
-        .filter(|w| w.town_idx == ti && world::is_alive(w.position))
-        .map(|w| w.position)
-        .collect();
-
     let mut in_radius = 0usize;
     let mut outside_radius = 0usize;
-    let mut uncovered = Vec::new();
     let mut all_positions = Vec::new();
 
     for m in world_data.gold_mines() {
@@ -1102,18 +1030,9 @@ fn analyze_mines(world_data: &WorldData, center: Vec2, ti: u32, mining_radius: f
         } else {
             outside_radius += 1;
         }
-        // A mine is "covered" if any friendly waypoint is within cover radius.
-        if !friendly.iter().any(|wp| (*wp - m.position).length() < WAYPOINT_COVER_RADIUS) {
-            uncovered.push(m.position);
-        }
     }
 
-    // Choose the uncovered mine nearest to town center for likely next waypoint target.
-    let nearest_uncovered = uncovered.iter()
-        .min_by(|a: &&Vec2, b: &&Vec2| a.distance(center).partial_cmp(&b.distance(center)).unwrap())
-        .copied();
-
-    MineAnalysis { in_radius, outside_radius, uncovered, nearest_uncovered, all_positions }
+    MineAnalysis { in_radius, outside_radius, all_positions }
 }
 
 /// Per-tick derived context for one AI town. Built once before scoring/execution.
@@ -1154,7 +1073,7 @@ impl TownContext {
             .unwrap_or(0.0);
         let mines = match kind {
             // Builder AIs use mine analysis for scoring/execution.
-            AiKind::Builder => Some(analyze_mines(&res.world.world_data, center, ti, mining_radius)),
+            AiKind::Builder => Some(analyze_mines(&res.world.world_data, center, mining_radius)),
             // Raider AIs don't use mining logic.
             AiKind::Raider => None,
         };
@@ -1357,18 +1276,9 @@ pub fn ai_decision_system(
                     }
                 }
 
-                if ctx.food >= building_cost(BuildingKind::Waypoint) {
-                    // Prefer uncovered mine support; otherwise maintain patrol coverage parity.
-                    let uncovered = mines.uncovered.len();
-                    if uncovered > 0 {
-                        let mine_need = desires.military_desire * uncovered as f32;
-                        build_scores.push((AiAction::BuildWaypoint, gw * mine_need));
-                    } else if waypoints < total_military_homes {
-                        let gp_need = desires.military_desire * (total_military_homes - waypoints) as f32;
-                        if ctx.has_slots {
-                            build_scores.push((AiAction::BuildWaypoint, gw * gp_need));
-                        }
-                    }
+                if ctx.food >= building_cost(BuildingKind::Waypoint) && waypoints < total_military_homes {
+                    let gp_need = desires.military_desire * (total_military_homes - waypoints) as f32;
+                    build_scores.push((AiAction::BuildWaypoint, gw * gp_need));
                 }
 
                 // Roads: build grid-pattern roads around economy buildings
@@ -1675,7 +1585,9 @@ fn try_build_road_grid(
         let food = res.food_storage.food.get(ctx.tdi).copied().unwrap_or(0);
         if food < cost { break; }
 
-        let pos = world::town_grid_to_world(center, r, c);
+        let raw = world::town_grid_to_world(center, r, c);
+        let (gc, gr) = res.world.grid.world_to_grid(raw);
+        let pos = res.world.grid.grid_to_world(gc, gr);
         if world::place_wilderness_building(
             BuildingKind::Road,
             &mut res.world.grid, &mut res.world.world_data,
@@ -1744,19 +1656,10 @@ fn execute_action(
             Some(format!("expanded mining radius to {:.0}px", new))
         }
         AiAction::BuildWaypoint => {
-            // Builder-only guard: if mines are unavailable, skip action safely.
-            let Some(mines) = &ctx.mines else { return None; };
             let cost = building_cost(BuildingKind::Waypoint);
-            let wp_pos = mines.nearest_uncovered
-                .filter(|&pos| waypoint_spacing_ok(&res.world.grid, &res.world.world_data, ctx.ti, pos))
-                .or_else(|| {
-                    let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
-                    let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.world_data, ctx.ti)?;
-                    Some(world::town_grid_to_world(ctx.center, row, col))
-                });
-            let Some(pos) = wp_pos else { return None; };
-            // Placement is world-position based (not town-slot based),
-            // so this supports both in-town and wilderness waypoint targets.
+            let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
+            let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.world_data, ctx.ti, personality)?;
+            let pos = world::town_grid_to_world(ctx.center, row, col);
             if world::place_wilderness_building(
                 world::BuildingKind::Waypoint,
                 &mut res.world.grid, &mut res.world.world_data,

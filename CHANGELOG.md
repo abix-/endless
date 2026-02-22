@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-02-22f
+
+- **farmer farm-rushing fix** — farmers no longer dogpile the same farm; all occupied farms are now skipped during farm selection (previously Ready farms bypassed occupancy check), working farmers no longer abandon their current farm when any Ready crop exists elsewhere, and en-route farmers retarget to the nearest free farm if their target gets claimed by another farmer who arrived first
+- **waypoint ring placement** — AI waypoints now use a personality-driven outer ring pattern (block corners on build area perimeter adjacent to road intersections) instead of territory perimeter + spacing heuristic; when the town expands, inner waypoints are pruned to maintain one ring; removed uncovered-mine wilderness waypoint logic and territory macro system
+- **road grid snapping** — AI road positions are now grid-snapped via `world_to_grid`→`grid_to_world` roundtrip for pixel-perfect alignment
+- **test scene inspector** — bottom panel and selection overlay now available in test scenes (AppState::Running)
+
 ## 2026-02-22e
 
 - **road scoring reflects candidate availability** — road scoring now pre-checks actual available road-pattern slots via `count_road_candidates()` before entering the score pool; `road_need` is capped at the real candidate count, so roads score 0 when no candidates exist instead of inflating to 296+ and failing every tick
