@@ -367,8 +367,8 @@ pub fn wall_autotile_variant(grid: &WorldGrid, col: usize, row: usize) -> u16 {
         (true, true, false, false) => 1,  // N-S straight
         (true, false, false, false) => 1, // N dead-end
         (false, true, false, false) => 1, // S dead-end
-        (true, false, true, false) => 4,  // corner BR on screen (south+east)
-        (true, false, false, true) => 3,  // corner BL on screen (south+west)
+        (true, false, true, false) => 3,  // corner TR (was 4)
+        (true, false, false, true) => 4,  // corner BL (was 3)
         (false, true, false, true) => 2,  // corner TL on screen (north+west)
         (false, true, true, false) => 5,  // corner TR on screen (north+east)
         _ => 0,                           // T/cross/isolated → E-W fallback
