@@ -244,6 +244,7 @@ pub fn decision_system(
         Without<Dead>
     >,
     // Combat config queries
+    stats_query: Query<&CachedStats>,
     leash_query: Query<&LeashRange>,
     // Work-related queries
     work_query: Query<&WorkPosition>,
@@ -287,6 +288,7 @@ pub fn decision_system(
          direct_control) in query.iter_mut()
     {
         let idx = npc_idx.0;
+        let max_hp = stats_query.get(entity).map(|s| s.max_health).unwrap_or(100.0);
 
         // ====================================================================
         // DirectControl: absolute skip — no autonomous behavior whatsoever.
@@ -547,7 +549,7 @@ pub fn decision_system(
                     flee_pct
                 };
 
-                if health.0 / 100.0 < effective_threshold {
+                if health.0 / max_hp < effective_threshold {
                     // Clean up work state if fleeing mid-mine
                     if matches!(*activity, Activity::MiningAtMine) {
                         if let Ok(wp) = work_query.get(entity) {
@@ -629,6 +631,22 @@ pub fn decision_system(
                         }
                         continue;
                     }
+                    // Wounded: prioritize healing over squad target (prevents flee-engage oscillation)
+                    let ti = town_id.0 as usize;
+                    if let Some(p) = policies.policies.get(ti) {
+                        if p.prioritize_healing && energy.0 > 0.0 && health.0 / max_hp < p.recovery_hp {
+                            if !matches!(*activity, Activity::GoingToHeal) {
+                                if let Some(town) = farms.world.towns.get(ti) {
+                                    *activity = Activity::GoingToHeal;
+                                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget {
+                                        idx, x: town.center.x, y: town.center.y
+                                    }));
+                                    npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Squad: wounded -> Fountain");
+                                }
+                            }
+                            continue;
+                        }
+                    }
                     // Squad target — only redirect when needed (no per-frame GPU writes)
                     match *activity {
                         Activity::OnDuty { .. } => {
@@ -646,8 +664,9 @@ pub fn decision_system(
                         }
                         Activity::Patrolling | Activity::Raiding { .. } |
                         Activity::GoingToRest | Activity::Resting |
+                        Activity::GoingToHeal |
                         Activity::Returning { .. } => {
-                            // Already heading to target, resting, or carrying loot — no redirect
+                            // Already heading to target, resting, healing, or carrying loot — no redirect
                         }
                         _ => {
                             // Idle/Wandering/Returning/other — redirect to squad target
@@ -726,7 +745,7 @@ pub fn decision_system(
         // Priority 4a: HealingAtFountain? -> Wake when HP recovered
         // ====================================================================
         if let Activity::HealingAtFountain { recover_until } = &*activity {
-            if health.0 / 100.0 >= *recover_until {
+            if health.0 / max_hp >= *recover_until {
                 *activity = Activity::Idle;
                 npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Recovered");
                 // Fall through to make a decision
@@ -879,7 +898,7 @@ pub fn decision_system(
         // Prioritize healing: wounded NPCs go to fountain before doing anything else
         // Skip if starving — HP capped at 50% until energy recovers
         if let Some(p) = policy {
-            if p.prioritize_healing && energy.0 > 0.0 && health.0 / 100.0 < p.recovery_hp {
+            if p.prioritize_healing && energy.0 > 0.0 && health.0 / max_hp < p.recovery_hp {
                 if let Some(town) = farms.world.towns.get(town_idx) {
                     let center = town.center;
                     *activity = Activity::GoingToHeal;
@@ -920,7 +939,7 @@ pub fn decision_system(
             Job::Raider => false, // squad-driven, not idle-scored
         };
         if can_work {
-            let hp_pct = health.0 / 100.0;
+            let hp_pct = health.0 / max_hp;
             let hp_mult = if hp_pct < 0.3 { 0.0 } else { (hp_pct - 0.3) * (1.0 / 0.7) };
             // Scale down work desire when tired so rest/eat can win before starvation
             let energy_factor = if en < ENERGY_TIRED_THRESHOLD {

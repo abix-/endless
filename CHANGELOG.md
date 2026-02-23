@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-22p
+
+- **squad wounded→fountain fix** — low-HP squad members no longer oscillate between fleeing and re-engaging; squad sync now checks `prioritize_healing` policy before redirecting to squad target, sending wounded NPCs to fountain instead; added `GoingToHeal` to squad sync no-redirect list; fixed all HP percentage checks to use `CachedStats.max_health` instead of hardcoded 100.0 (4 occurrences)
+
 ## 2026-02-22o
 
 - **AI miner food hoarding** — when miner homes are below personality minimum and food < 4 (miner home cost), AI now skips all other building to let food accumulate; without this, cheaper buildings (farms=2, houses=2) drained food before it reached 4, filling all slots with zero miner homes

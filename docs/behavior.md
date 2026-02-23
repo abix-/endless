@@ -203,7 +203,7 @@ Two concurrent state machines: `Activity` (what NPC is doing) and `CombatState` 
 - Removes `AtDestination` after handling
 
 **Priority 1-3: Combat decisions**
-- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — archers use `archer_flee_hp`, farmers and miners use `farmer_flee_hp`, raiders hardcoded 0.50. `archer_aggressive` disables archer flee, `farmer_fight_back` disables farmer/miner flee. Dynamic threat assessment via GPU spatial grid (enemies vs allies within 200px, computed in npc_compute.wgsl Mode 2, packed u32 readback via `GpuReadState.threat_counts`, throttled every 30 frames on CPU). Preserves existing `Activity::Returning` loot when fleeing.
+- If `CombatState::Fighting` + should flee: policy-driven flee thresholds per job — archers use `archer_flee_hp`, farmers and miners use `farmer_flee_hp`, raiders hardcoded 0.50. Threshold compared against `health.0 / max_hp` (from `CachedStats.max_health` via separate query). `archer_aggressive` disables archer flee, `farmer_fight_back` disables farmer/miner flee. Dynamic threat assessment via GPU spatial grid (enemies vs allies within 200px, computed in npc_compute.wgsl Mode 2, packed u32 readback via `GpuReadState.threat_counts`, throttled every 30 frames on CPU). Preserves existing `Activity::Returning` loot when fleeing.
 - If `CombatState::Fighting` + should leash: archers check `archer_leash` policy (if disabled, archers chase freely), raiders use per-entity `LeashRange` component. Preserves existing `Activity::Returning` loot when leashing.
 - If `CombatState::Fighting`: skip (attack_system handles targeting)
 
@@ -306,9 +306,11 @@ Military unit groups for both player and AI. 10 player-reserved squads + AI squa
 
 **Manual micro override**: NPCs with a `ManualTarget` component skip the squad sync block entirely — player-assigned attack targets take priority over squad auto-redirect. The combat system handles `ManualTarget` directly (see [combat.md](combat.md#attack-system)).
 
-**Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` units are redirected only when the squad target moves >100px from the unit's position. `Patrolling`, `Raiding`, `GoingToRest`, `Resting`, and `Returning` units are left alone (already heading to target, resting, or carrying loot home). Other activities (`Idle`, `Wandering`) get redirected immediately.
+**Squad sync optimization**: The squad sync block only writes GPU targets when needed — not every frame. `OnDuty` units are redirected only when the squad target moves >100px from the unit's position. `Patrolling`, `Raiding`, `GoingToRest`, `Resting`, `GoingToHeal`, and `Returning` units are left alone (already heading to target, resting, healing, or carrying loot home). Other activities (`Idle`, `Wandering`) get redirected immediately.
 
 **Rest-when-tired**: Squad members respect `rest_when_tired` flag via four gates: (1) arrival handler catches tired members before `OnDuty`, (2) hard gate before combat priorities forces `GoingToRest`, (3) squad sync block skips resting members, (4) Priority 6 OnDuty+tired check skips leave-post when `rest_when_tired == false`. Gates 1-3 use hysteresis (enter at energy < 30, stay until energy ≥ 90). Gate 4 is the inverse — it prevents units from leaving post when the flag is off. `attack_system` skips `GoingToRest` NPCs to prevent GPU target override.
+
+**Wounded→fountain**: After the rest-when-tired check, the squad sync block checks `prioritize_healing` policy. If enabled and HP / max_hp < `recovery_hp` (and energy > 0), the NPC is sent to fountain (`GoingToHeal`) instead of the squad target. This prevents flee-engage oscillation where low-HP squad members repeatedly flee combat, arrive home, get redirected by squad sync back to the enemy, and flee again. The check runs at the same priority level as the rest check so it can't be overridden by the squad target redirect.
 
 **All survival behavior preserved**: Squad members still flee (policy-driven), rest when tired, heal at fountain when wounded, fight enemies they encounter, and leash back. The squad override only affects the *work decision*, not combat or energy priorities. Loot delivery takes priority over squad orders — NPCs with `Activity::Returning` carrying loot are not redirected until they deliver.
 
