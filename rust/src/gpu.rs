@@ -771,6 +771,7 @@ fn update_gpu_data(
 fn populate_tile_flags(
     mut config: ResMut<RenderFrameConfig>,
     grid: Res<crate::world::WorldGrid>,
+    world_data: Res<crate::world::WorldData>,
     dirty: Res<crate::DirtyFlags>,
 ) {
     // Set grid dimensions every frame (cheap)
@@ -798,8 +799,17 @@ fn populate_tile_flags(
                     crate::world::Biome::Dirt => crate::constants::TILE_DIRT,
                 };
                 // Building bits OR'd on top
-                if let Some((crate::world::BuildingKind::Road, _)) = cell.building {
-                    flags[idx] |= crate::constants::TILE_ROAD;
+                if let Some((kind, town_idx)) = cell.building {
+                    if kind == crate::world::BuildingKind::Road {
+                        flags[idx] |= crate::constants::TILE_ROAD;
+                    }
+                    if kind == crate::world::BuildingKind::Wall {
+                        let faction = world_data.towns.get(town_idx as usize)
+                            .map(|t| t.faction as u32)
+                            .unwrap_or(0);
+                        flags[idx] |= crate::constants::TILE_WALL
+                            | ((faction & crate::constants::WALL_FACTION_MASK) << crate::constants::WALL_FACTION_SHIFT);
+                    }
                 }
             }
         }

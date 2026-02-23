@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-23a
+
+- **castle fortification system** — new Wall building type (BuildingKind::Wall) placed on town grid, blocks enemy faction NPCs via GPU tile_flags (bit 6 + faction bits 8-11); raiders target and breach walls via existing building attack fallback; 3-tier upgrade system (Wooden Palisade 80HP → Stone Wall 200HP → Fortified Wall 400HP) with per-wall click-to-upgrade in building inspector; walls compete for build slots with economy/military buildings creating strategic trade-offs
+
 ## 2026-02-22p
 
 - **squad wounded→fountain fix** — low-HP squad members no longer oscillate between fleeing and re-engaging; squad sync now checks `prioritize_healing` policy before redirecting to squad target, sending wounded NPCs to fountain instead; added `GoingToHeal` to squad sync no-redirect list; fixed all HP percentage checks to use `CachedStats.max_health` instead of hardcoded 100.0 (4 occurrences)

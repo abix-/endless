@@ -84,11 +84,17 @@ pub struct PlacedBuilding {
     /// Whether mine was manually assigned — used by MinerHome only.
     #[serde(default)]
     pub manual_mine: bool,
+    /// Wall tier level (1-3) — used by Wall only. 0 = not a wall (default).
+    #[serde(default)]
+    pub wall_level: u8,
 }
 
 impl PlacedBuilding {
     pub fn new(position: Vec2, town_idx: u32) -> Self {
-        Self { position, town_idx, patrol_order: 0, assigned_mine: None, manual_mine: false }
+        Self { position, town_idx, patrol_order: 0, assigned_mine: None, manual_mine: false, wall_level: 0 }
+    }
+    pub fn new_wall(position: Vec2, town_idx: u32) -> Self {
+        Self { position, town_idx, patrol_order: 0, assigned_mine: None, manual_mine: false, wall_level: 1 }
     }
 }
 
@@ -864,8 +870,8 @@ pub fn find_nearest_enemy_building(
             BuildingKind::Fountain if bref.faction == 0 => return, // protect player fountain
             _ => {}
         }
-        // Raiders only target military buildings
-        if is_raider && !matches!(bref.kind, BuildingKind::ArcherHome | BuildingKind::CrossbowHome | BuildingKind::Waypoint) {
+        // Raiders only target military buildings + walls (breach defenses)
+        if is_raider && !matches!(bref.kind, BuildingKind::ArcherHome | BuildingKind::CrossbowHome | BuildingKind::Waypoint | BuildingKind::Wall) {
             return;
         }
         let dx = bref.position.x - from.x;
@@ -1008,7 +1014,7 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road }
+pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road, Wall }
 
 #[derive(Clone, Copy)]
 pub struct BuildingRef {

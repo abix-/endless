@@ -6,7 +6,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
-use crate::constants::{building_def, npc_def, tileset_index, ItemKind};
+use crate::constants::{building_def, npc_def, tileset_index, ItemKind, ResourceKind, WALL_TIER_HP, WALL_TIER_NAMES, WALL_UPGRADE_COSTS};
 use crate::components::*;
 use crate::gpu::NpcGpuState;
 use crate::render::MainCamera;
@@ -185,10 +185,11 @@ pub struct BuildingInspectorData<'w> {
     farm_states: Res<'w, GrowthStates>,
     farm_occupancy: Res<'w, BuildingOccupancy>,
     spawner_state: Res<'w, SpawnerState>,
-    food_storage: Res<'w, FoodStorage>,
+    food_storage: ResMut<'w, FoodStorage>,
+    gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
-    building_hp: Res<'w, BuildingHpState>,
+    building_hp: ResMut<'w, BuildingHpState>,
 }
 
 #[derive(SystemParam)]
@@ -246,7 +247,7 @@ pub fn bottom_panel_system(
     mut contexts: EguiContexts,
     data: BottomPanelData,
     mut meta_cache: ResMut<NpcMetaCache>,
-    bld_data: BuildingInspectorData,
+    mut bld_data: BuildingInspectorData,
     mut world_data: ResMut<WorldData>,
     health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
     equip_query: Query<(
@@ -317,7 +318,7 @@ pub fn bottom_panel_system(
 
                 let show_npc = has_npc && (!has_building || inspector_state.tabs.show_npc);
                 inspector_content(
-                    ui, &data, &mut meta_cache, &mut inspector_state.rename, &bld_data, &mut world_data, &health_query,
+                    ui, &data, &mut meta_cache, &mut inspector_state.rename, &mut bld_data, &mut world_data, &health_query,
                     &equip_query, &npc_states, &gpu_state, &buffer_writes, &mut follow, &settings, &catalog, &mut copy_text,
                     &mut panel_state.ui_state, &mut panel_state.mining_policy, &mut panel_state.dirty, show_npc,
                     &panel_state.npc_entity_map, &mut panel_state.squad_state, &mut panel_state.commands, dc_count,
@@ -600,7 +601,7 @@ fn inspector_content(
     data: &BottomPanelData,
     meta_cache: &mut NpcMetaCache,
     rename_state: &mut InspectorRenameState,
-    bld_data: &BuildingInspectorData,
+    bld_data: &mut BuildingInspectorData,
     world_data: &mut WorldData,
     health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
     equip_query: &Query<(
@@ -1083,7 +1084,7 @@ fn mine_assignment_ui(
 /// Render building inspector content when a building cell is selected.
 fn building_inspector_content(
     ui: &mut egui::Ui,
-    bld: &BuildingInspectorData,
+    bld: &mut BuildingInspectorData,
     world_data: &mut WorldData,
     mining_policy: &mut MiningPolicy,
     dirty: &mut DirtyFlags,
@@ -1216,6 +1217,92 @@ fn building_inspector_content(
                 if occupants > 0 {
                     let mult = crate::constants::mine_productivity_mult(occupants);
                     ui.label(format!("Miners: {} ({:.0}% speed)", occupants, mult * 100.0));
+                }
+            }
+        }
+
+        BuildingKind::Wall => {
+            // Wall tier info + upgrade button
+            if let Some(wall) = world_data.get(BuildingKind::Wall).iter()
+                .find(|w| (w.position - world_pos).length() < 1.0)
+            {
+                let level = wall.wall_level.max(1) as usize;
+                let tier_name = WALL_TIER_NAMES.get(level - 1).unwrap_or(&"Wall");
+                let tier_hp = WALL_TIER_HP.get(level - 1).copied().unwrap_or(80.0);
+                ui.label(format!("Tier: {} (Lv.{})", tier_name, level));
+                ui.label(format!("Max HP: {:.0}", tier_hp));
+
+                // Show current HP from BuildingHpState
+                if let Some(wall_idx) = world_data.get(BuildingKind::Wall).iter()
+                    .position(|w| (w.position - world_pos).length() < 1.0)
+                {
+                    if let Some(hp) = bld.building_hp.get(BuildingKind::Wall, wall_idx) {
+                        let color = if hp > tier_hp * 0.5 {
+                            egui::Color32::from_rgb(80, 200, 80)
+                        } else {
+                            egui::Color32::from_rgb(200, 80, 80)
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label("HP:");
+                            ui.add(egui::ProgressBar::new(hp / tier_hp)
+                                .text(format!("{:.0}/{:.0}", hp, tier_hp))
+                                .fill(color));
+                        });
+                    }
+                }
+
+                // Upgrade button (if not max tier)
+                if level < 3 {
+                    let costs = WALL_UPGRADE_COSTS[level - 1];
+                    let cost_str: Vec<String> = costs.iter().map(|(r, amt)| {
+                        match r { ResourceKind::Food => format!("{} food", amt), ResourceKind::Gold => format!("{} gold", amt) }
+                    }).collect();
+                    let next_name = WALL_TIER_NAMES[level];
+                    let can_afford = costs.iter().all(|(r, amt)| match r {
+                        ResourceKind::Food => bld.food_storage.food.get(town_idx).copied().unwrap_or(0) >= *amt,
+                        ResourceKind::Gold => bld.gold_storage.gold.get(town_idx).copied().unwrap_or(0) >= *amt,
+                    });
+
+                    ui.separator();
+                    let btn_text = format!("Upgrade to {} ({})", next_name, cost_str.join(", "));
+                    let btn = ui.add_enabled(can_afford, egui::Button::new(
+                        egui::RichText::new(btn_text).color(if can_afford {
+                            egui::Color32::from_rgb(80, 200, 200)
+                        } else {
+                            egui::Color32::from_rgb(120, 120, 120)
+                        })
+                    ));
+                    if btn.clicked() && can_afford {
+                        // Deduct costs
+                        for (r, amt) in costs {
+                            match r {
+                                ResourceKind::Food => {
+                                    if let Some(f) = bld.food_storage.food.get_mut(town_idx) { *f -= amt; }
+                                }
+                                ResourceKind::Gold => {
+                                    if let Some(g) = bld.gold_storage.gold.get_mut(town_idx) { *g -= amt; }
+                                }
+                            }
+                        }
+                        // Upgrade wall level + HP
+                        let new_level = (level + 1) as u8;
+                        let new_hp = WALL_TIER_HP[level]; // level is 0-indexed for next tier
+                        if let Some(wall_mut) = world_data.get_mut(BuildingKind::Wall).iter_mut()
+                            .find(|w| (w.position - world_pos).length() < 1.0)
+                        {
+                            wall_mut.wall_level = new_level;
+                        }
+                        if let Some(wall_idx) = world_data.get(BuildingKind::Wall).iter()
+                            .position(|w| (w.position - world_pos).length() < 1.0)
+                        {
+                            if let Some(hp) = bld.building_hp.get_mut(BuildingKind::Wall, wall_idx) {
+                                *hp = new_hp;
+                            }
+                        }
+                        dirty.building_grid = true;
+                    }
+                } else {
+                    ui.colored_label(egui::Color32::from_rgb(200, 180, 40), "Max tier reached");
                 }
             }
         }

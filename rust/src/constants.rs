@@ -565,6 +565,19 @@ pub const TILE_ROCK: u32 = 8;    // bit 3
 pub const TILE_DIRT: u32 = 16;   // bit 4
 /// Building bits (5+): OR'd on top of terrain.
 pub const TILE_ROAD: u32 = 32;   // bit 5 — 1.5x NPC speed
+pub const TILE_WALL: u32 = 64;   // bit 6 — blocks enemy faction NPCs
+pub const WALL_FACTION_SHIFT: u32 = 8;  // bits 8-11 encode wall owner faction
+pub const WALL_FACTION_MASK: u32 = 0xF; // 4 bits = 16 factions
+
+/// Per-tier wall HP values (indexed by wall_level - 1).
+pub const WALL_TIER_HP: [f32; 3] = [80.0, 200.0, 400.0];
+/// Per-tier wall names.
+pub const WALL_TIER_NAMES: [&str; 3] = ["Wooden Palisade", "Stone Wall", "Fortified Wall"];
+/// Cost to upgrade wall from tier N to tier N+1: (tier_index, &[(resource, amount)]).
+pub const WALL_UPGRADE_COSTS: [&[(ResourceKind, i32)]; 2] = [
+    &[(F, 2), (G, 1)],   // wooden → stone
+    &[(F, 4), (G, 2)],   // stone → fortified
+];
 
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
@@ -1006,6 +1019,30 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         place: |wd, pos, ti| wd.get_mut(BuildingKind::Road).push(PlacedBuilding::new(pos, ti)),
         tombstone: |wd, pos| { if let Some(b) = wd.get_mut(BuildingKind::Road).iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
         find_index: |wd, pos| wd.get(BuildingKind::Road).iter().position(|b| (b.position - pos).length() < 1.0),
+    },
+    // 13: Wall
+    BuildingDef {
+        kind: BuildingKind::Wall, display: DisplayCategory::Military,
+        tile: TileSpec::Single(2, 0),
+        hp: 80.0, cost: 1,
+        label: "Wall", help: "Blocks enemy movement",
+        tooltip: "Defensive wall — blocks enemy NPCs from\npassing through. Click to upgrade tier.\nWooden: 80 HP, Stone: 200, Fortified: 400.",
+        player_buildable: true, raider_buildable: false,
+        placement: PlacementMode::TownGrid,
+        is_tower: false, tower_stats: None,
+        on_place: OnPlace::None, spawner: None,
+        len: |wd| wd.get(BuildingKind::Wall).len(),
+        pos_town: |wd, i| wd.get(BuildingKind::Wall).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
+        count_for_town: |wd, ti| wd.get(BuildingKind::Wall).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
+        hps: |hp| hp.hps.get(&BuildingKind::Wall).map(|v| v.as_slice()).unwrap_or(&[]),
+        hps_mut: |hp| hp.hps.entry(BuildingKind::Wall).or_default(),
+        save_key: Some("walls"),
+        save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::Wall)).unwrap(),
+        load_vec: |wd, v| { wd.buildings.insert(BuildingKind::Wall, serde_json::from_value(v).unwrap_or_default()); },
+        is_unit_home: false,
+        place: |wd, pos, ti| wd.get_mut(BuildingKind::Wall).push(PlacedBuilding::new_wall(pos, ti)),
+        tombstone: |wd, pos| { if let Some(b) = wd.get_mut(BuildingKind::Wall).iter_mut().find(|b| (b.position - pos).length() < 1.0) { b.position = Vec2::new(-99999.0, -99999.0); } },
+        find_index: |wd, pos| wd.get(BuildingKind::Wall).iter().position(|b| (b.position - pos).length() < 1.0),
     },
 ];
 

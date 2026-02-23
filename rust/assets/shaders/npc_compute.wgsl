@@ -56,6 +56,9 @@ struct Params {
 // Bit 0: TILE_ROAD (1.5x speed)
 @group(0) @binding(18) var<storage, read> tile_flags: array<u32>;
 const TILE_ROAD: u32 = 32u;  // bit 5
+const TILE_WALL: u32 = 64u;  // bit 6 — blocks enemy faction NPCs
+const WALL_FACTION_SHIFT: u32 = 8u;  // bits 8-11 encode wall owner faction
+const WALL_FACTION_MASK: u32 = 0xFu;
 
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -417,7 +420,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // --- STEP 4: Apply movement + avoidance + road attraction ---
+    let pre_wall_pos = pos;
     pos += (movement + avoidance + proj_dodge + road_pull) * params.delta;
+
+    // Wall collision: block enemy NPCs from entering wall cells
+    if (params.tile_cell_size > 0.0) {
+        let wcol = u32(pos.x / params.tile_cell_size);
+        let wrow = u32(pos.y / params.tile_cell_size);
+        if (wcol < params.tile_grid_width && wrow < params.tile_grid_height) {
+            let widx = wrow * params.tile_grid_width + wcol;
+            let wflags = tile_flags[widx];
+            if ((wflags & TILE_WALL) != 0u) {
+                let wall_faction = i32((wflags >> WALL_FACTION_SHIFT) & WALL_FACTION_MASK);
+                if (my_faction != wall_faction) {
+                    pos = pre_wall_pos; // blocked — revert to pre-movement position
+                }
+            }
+        }
+    }
 
     positions[i] = pos;
     arrivals[i] = settled;

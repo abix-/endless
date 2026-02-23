@@ -173,8 +173,10 @@ Complete (see [completed.md](completed.md)).
 
 *Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
 
-- [ ] Wall building type (straight segments on grid, connects to adjacent walls)
-- [ ] Wall HP + raiders attack walls blocking their path to farms
+- [x] Wall building type (town grid placement, blocks enemy NPCs via GPU tile_flags, 3-tier upgrades: Wooden/Stone/Fortified)
+- [x] Wall HP + raiders attack walls blocking their path (building attack fallback targets walls)
+- [x] Per-wall tier upgrade (click wall in inspector → pay food+gold → HP and tier increase)
+- [ ] Wall auto-tiling (connect adjacent walls visually: straight, corner, T-junction, crossroads)
 - [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
 - [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
 - [ ] Guard towers (upgrade from guard post - elevated, +range, requires wall adjacency)
