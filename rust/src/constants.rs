@@ -580,6 +580,15 @@ pub const WALL_UPGRADE_COSTS: [&[(ResourceKind, i32)]; 2] = [
 ];
 /// Extra atlas layers for wall auto-tile variants (N-S, 4 corners) appended after base E-W layer.
 pub const WALL_EXTRA_LAYERS: usize = 5;
+/// Wall auto-tile atlas offsets. Appended in build_building_atlas as:
+/// 0=E-W base, 1=N-S(90°), 2=BR src(0°), 3=BL(90°), 4=TL(180°), 5=TR(270°).
+/// Bevy Y-flip inverts on screen: src BR renders as TR, etc.
+pub const WALL_EW: u16 = 0; // base layer
+pub const WALL_NS: u16 = 1; // rotate_90(E-W)
+pub const WALL_TR: u16 = 2; // BR src → TR on screen
+pub const WALL_TL: u16 = 3; // BL(90°) → TL on screen
+pub const WALL_BL: u16 = 4; // TL(180°) → BL on screen
+pub const WALL_BR: u16 = 5; // TR(270°) → BR on screen
 
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;

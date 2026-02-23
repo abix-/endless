@@ -210,6 +210,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                         }
                     }
 
+                    // Both settled at same goal → skip separation (prevents patrol oscillation)
+                    if (settled == 1 && neighbor_settled == 1) {
+                        let goal_j = goals[j];
+                        if (goal.x == goal_j.x && goal.y == goal_j.y) { continue; }
+                    }
+
                     var push_strength = 1.0;
                     if (settled == 0 && neighbor_settled == 1) {
                         push_strength = 0.2;  // I'm moving, they're settled: barely block me

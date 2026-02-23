@@ -2,7 +2,7 @@
 
 ## 2026-02-23b
 
-- **wall auto-tile corner fix** — swapped TR and BL atlas offsets (3↔4) in `wall_autotile_variant()` so all four corners render correctly
+- **wall auto-tile corner fix** — fixed corner atlas offsets in `wall_autotile_variant()` so all four corners render correctly; replaced magic numbers with named constants (`WALL_TR`/`WALL_TL`/`WALL_BL`/`WALL_BR`) that trace through atlas generation order → rotation → Y-flip to screen appearance
 
 ## 2026-02-23a
 

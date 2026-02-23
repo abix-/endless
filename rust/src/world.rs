@@ -360,18 +360,19 @@ pub fn wall_autotile_variant(grid: &WorldGrid, col: usize, row: usize) -> u16 {
     let s = is_wall_at(grid, col, row + 1);
     let e = is_wall_at(grid, col + 1, row);
     let w = col > 0 && is_wall_at(grid, col - 1, row);
+    use crate::constants::*;
     match (n, s, e, w) {
-        (false, false, true, true) => 0,  // E-W straight
-        (false, false, true, false) => 0, // E dead-end
-        (false, false, false, true) => 0, // W dead-end
-        (true, true, false, false) => 1,  // N-S straight
-        (true, false, false, false) => 1, // N dead-end
-        (false, true, false, false) => 1, // S dead-end
-        (true, false, true, false) => 3,  // corner TR (was 4)
-        (true, false, false, true) => 4,  // corner BL (was 3)
-        (false, true, false, true) => 2,  // corner TL on screen (north+west)
-        (false, true, true, false) => 5,  // corner TR on screen (north+east)
-        _ => 0,                           // T/cross/isolated → E-W fallback
+        (false, false, true, true)  => WALL_EW,
+        (false, false, true, false) => WALL_EW,
+        (false, false, false, true) => WALL_EW,
+        (true, true, false, false)  => WALL_NS,
+        (true, false, false, false) => WALL_NS,
+        (false, true, false, false) => WALL_NS,
+        (true, false, true, false)  => WALL_TR,
+        (true, false, false, true)  => WALL_TL,
+        (false, true, false, true)  => WALL_BL,
+        (false, true, true, false)  => WALL_BR,
+        _ => WALL_EW,
     }
 }
 
