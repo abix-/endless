@@ -578,6 +578,8 @@ pub const WALL_UPGRADE_COSTS: [&[(ResourceKind, i32)]; 2] = [
     &[(F, 2), (G, 1)],   // wooden → stone
     &[(F, 4), (G, 2)],   // stone → fortified
 ];
+/// Extra atlas layers for wall auto-tile variants (N-S, 4 corners) appended after base E-W layer.
+pub const WALL_EXTRA_LAYERS: usize = 5;
 
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
@@ -1023,7 +1025,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 13: Wall
     BuildingDef {
         kind: BuildingKind::Wall, display: DisplayCategory::Military,
-        tile: TileSpec::Single(2, 0),
+        tile: TileSpec::External("sprites/wood_walls_98x32.png"),
         hp: 80.0, cost: 1,
         label: "Wall", help: "Blocks enemy movement",
         tooltip: "Defensive wall — blocks enemy NPCs from\npassing through. Click to upgrade tier.\nWooden: 80 HP, Stone: 200, Fortified: 400.",

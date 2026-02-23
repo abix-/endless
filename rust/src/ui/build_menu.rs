@@ -97,7 +97,27 @@ fn init_sprite_cache(
 
         let handle = match def.tile {
             TileSpec::External(path) => {
-                external_handle(path, sprites).unwrap().clone()
+                let ext_h = external_handle(path, sprites).unwrap();
+                // Wall: extract just the first 32x32 sprite from the strip
+                if def.kind == BuildingKind::Wall {
+                    if let Some(ext_img) = images.get(ext_h) {
+                        let sprite = crate::world::extract_sprite_32(ext_img, 0);
+                        let img = Image::new(
+                            bevy::render::render_resource::Extent3d { width: 32, height: 32, depth_or_array_layers: 1 },
+                            bevy::render::render_resource::TextureDimension::D2,
+                            sprite,
+                            bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+                            Default::default(),
+                        );
+                        let h = images.add(img);
+                        cache._handles.push(h.clone());
+                        h
+                    } else {
+                        ext_h.clone()
+                    }
+                } else {
+                    ext_h.clone()
+                }
             }
             TileSpec::Quad(quad) => {
                 let img = extract_quad_tile(&atlas, quad);

@@ -947,7 +947,7 @@ fn prepare_npc_camera_bind_group(
         zoom: camera_state.zoom,
         npc_count: config.map(|c| c.npc.count).unwrap_or(0),
         viewport: camera_state.viewport,
-        bldg_layers: crate::constants::BUILDING_REGISTRY.len() as f32,
+        bldg_layers: (crate::constants::BUILDING_REGISTRY.len() + crate::constants::WALL_EXTRA_LAYERS) as f32,
         extras_cols: 4.0,
     };
 

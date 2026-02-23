@@ -1306,6 +1306,7 @@ pub fn load_game_system(
     tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
     tracking.building_slots.clear();
     world::allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
+    world::update_all_wall_sprites(&ws.grid, &ws.world_data, &tracking.building_slots);
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(
         &save, &mut commands,

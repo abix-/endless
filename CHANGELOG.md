@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-23b
+
+- **wall auto-tile corner fix** — swapped atlas offsets 2↔4 in `wall_autotile_variant()` so TL and BR corners render correctly; root cause was inverted N/S neighbor labels (row-1=south, row+1=north in Bevy's Y-up coords) causing the previous fix attempt to swap the wrong pair (3↔5 targeted already-correct BL/TR instead of broken TL/BR)
+
 ## 2026-02-23a
 
 - **castle fortification system** — new Wall building type (BuildingKind::Wall) placed on town grid, blocks enemy faction NPCs via GPU tile_flags (bit 6 + faction bits 8-11); raiders target and breach walls via existing building attack fallback; 3-tier upgrade system (Wooden Palisade 80HP → Stone Wall 200HP → Fortified Wall 400HP) with per-wall click-to-upgrade in building inspector; walls compete for build slots with economy/military buildings creating strategic trade-offs

@@ -871,7 +871,7 @@ fn spawn_world_tilemap(
         &mut images,
     );
     if let Some(img) = images.get(&building_atlas) {
-        assert_eq!(img.height(), 32 * btiles.len() as u32,
+        assert_eq!(img.height(), 32 * (btiles.len() + crate::constants::WALL_EXTRA_LAYERS) as u32,
             "building atlas height mismatch");
     }
     config.textures.building_handle = Some(building_atlas);

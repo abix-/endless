@@ -246,6 +246,7 @@ fn game_load_system(
 
     // Allocate GPU slots for buildings (collision via GPU compute)
     allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
+    world::update_all_wall_sprites(&ws.grid, &ws.world_data, &tracking.building_slots);
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
