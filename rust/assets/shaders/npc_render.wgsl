@@ -106,7 +106,10 @@ fn is_building_atlas(id: f32) -> bool {
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
     if is_building_atlas(atlas_id) {
         // Building atlas: vertical strip, sprite_col selects tile layer
-        return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / camera.bldg_layers);
+        // Inset by half a pixel to avoid sampling at layer boundaries
+        let inset = 0.5 / (camera.bldg_layers * 32.0);
+        let v = (sprite_col + clamp(quad_uv.y, inset, 1.0 - inset)) / camera.bldg_layers;
+        return vec2<f32>(quad_uv.x, v);
     } else if atlas_id >= 1.5 {
         // Extras atlas: horizontal grid of 32x32 cells, atlas_id maps to column
         var col: f32 = 0.0;

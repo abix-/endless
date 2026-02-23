@@ -579,7 +579,7 @@ pub const WALL_UPGRADE_COSTS: [&[(ResourceKind, i32)]; 2] = [
     &[(F, 4), (G, 2)],   // stone → fortified
 ];
 /// Extra atlas layers for wall auto-tile variants (N-S, 4 corners) appended after base E-W layer.
-pub const WALL_EXTRA_LAYERS: usize = 5;
+pub const WALL_EXTRA_LAYERS: usize = 10;
 /// Wall auto-tile atlas offsets. Appended in build_building_atlas as:
 /// 0=E-W base, 1=N-S(90°), 2=BR src(0°), 3=BL(90°), 4=TL(180°), 5=TR(270°).
 /// Bevy Y-flip inverts on screen: src BR renders as TR, etc.
@@ -589,6 +589,11 @@ pub const WALL_TR: u16 = 4; // TL(180°) → TR on screen
 pub const WALL_TL: u16 = 5; // TR(270°) → TL on screen
 pub const WALL_BL: u16 = 2; // BR src(0°) → BL on screen
 pub const WALL_BR: u16 = 3; // BL(90°) → BR on screen
+pub const WALL_CROSS: u16 = 6; // junction/cross sprite (4 neighbors)
+pub const WALL_T_OPEN_N: u16 = 7;  // T src(0°) → open north on screen
+pub const WALL_T_OPEN_W: u16 = 8;  // T(90°) → open west on screen
+pub const WALL_T_OPEN_S: u16 = 9;  // T(180°) → open south on screen
+pub const WALL_T_OPEN_E: u16 = 10; // T(270°) → open east on screen
 
 /// Tended growth rate for mines (per game-hour). 0.25 = 4 hours to full when miner is working.
 pub const MINE_TENDED_GROWTH_RATE: f32 = 0.25;
@@ -1034,7 +1039,7 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
     // 13: Wall
     BuildingDef {
         kind: BuildingKind::Wall, display: DisplayCategory::Military,
-        tile: TileSpec::External("sprites/wood_walls_98x32.png"),
+        tile: TileSpec::External("sprites/wood_walls_131x32.png"),
         hp: 80.0, cost: 1,
         label: "Wall", help: "Blocks enemy movement",
         tooltip: "Defensive wall — blocks enemy NPCs from\npassing through. Click to upgrade tier.\nWooden: 80 HP, Stone: 200, Fortified: 400.",

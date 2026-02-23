@@ -196,7 +196,7 @@ rust/
       sleep.png                       # Sleep icon sprite (single 16x16, atlas_id=3.0)
       arrow.png                       # Arrow projectile sprite (single texture, white, extras atlas col 2)
       boat.png                        # Boat migration sprite (32x32, extras atlas col 3)
-      wood_walls_98x32.png            # Wall sprites (3×32 strip: E-W straight, middle, BR corner; rotated at runtime for auto-tile)
+      wood_walls_131x32.png            # Wall sprites (131×32 strip: E-W straight, cross, BR corner, T-junction; rotated at runtime for auto-tile)
       house.png                       # Farmer Home building sprite (32x32, External tileset)
       barracks.png                    # Archer Home building sprite (32x32, External tileset)
       waypoint.png                    # Waypoint building sprite (32x32, External tileset)

@@ -210,14 +210,17 @@ Four textures are bound simultaneously at group 0 (bindings 0-7). Per-instance/p
 | Character | 0-1 | 0 | `roguelikeChar_transparent.png` | 918×203 | NPCs, equipment |
 | World | 2-3 | 1 | `roguelikeSheet_transparent.png` | 968×526 | Farms |
 | Extras | 4-5 | 2,3,4,8 | (generated at runtime) | 128×32 | Heal halo, sleep icon, arrow, boat |
-| Building | 6-7 | 7 | (generated at runtime) | 32×(N×32) | Building sprites + wall auto-tile (5 extra layers) |
+| Building | 6-7 | 7 | (generated at runtime) | 32×(N×32) | Building sprites + wall auto-tile (10 extra layers), nearest-neighbor sampled |
 
 Character and world atlases use 16px sprites with 1px margin (17px cells). The **extras atlas** is a horizontal grid of 4×32px cells generated at runtime by `build_extras_atlas()` from individual sprites (heal.png, sleep.png, arrow.png, boat.png) — each 16px source is nearest-neighbor 2× upscaled to 32×32. Column mapping: 0=heal, 1=sleep, 2=arrow, 3=boat. The building atlas is a vertical strip of N tiles (32×32 each, currently 13), generated at runtime by `build_building_atlas()` from individual building sprites. Layer count is dynamic — `camera.bldg_layers` is set from `BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS` each frame, eliminating hardcoded shader constants. The shared `calc_uv()` helper selects atlas constants based on `atlas_id`:
 
 ```wgsl
 fn calc_uv(sprite_col: f32, sprite_row: f32, atlas_id: f32, quad_uv: vec2<f32>) -> vec2<f32> {
     if is_building_atlas(atlas_id) {
-        return vec2<f32>(quad_uv.x, (sprite_col + quad_uv.y) / camera.bldg_layers);
+        // Half-pixel inset prevents sampling at layer boundaries (GPU rounding artifact)
+        let inset = 0.5 / (camera.bldg_layers * 32.0);
+        let v = (sprite_col + clamp(quad_uv.y, inset, 1.0 - inset)) / camera.bldg_layers;
+        return vec2<f32>(quad_uv.x, v);
     } else if atlas_id >= 1.5 {
         // Extras atlas: col selected by atlas_id, UV spans one cell
         var col: f32 = 0.0;
@@ -410,7 +413,7 @@ fn world_to_clip(world_pos: vec2<f32>) -> vec4<f32> {
 | Waypoint | `waypoint.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Miner Home | `miner_house.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
 | Fighter Home | `fighter_home.png` | 32×32 | 1×1 (standalone) | Building tileset (External) |
-| Wall | `wood_walls_98x32.png` | 98×32 | 3 sprites in strip | Building tileset (External) + 5 auto-tile layers |
+| Wall | `wood_walls_131x32.png` | 131×32 | 4 sprites in strip (E-W, cross, BR corner, T-junction) | Building tileset (External) + 10 auto-tile layers |
 
 `SpriteAssets` holds handles for all loaded textures. External building sprites are stored as a `Vec<Handle<Image>>` (`external_textures`), loaded dynamically from `BUILDING_REGISTRY` — each `TileSpec::External("sprites/foo.png")` entry is loaded at startup. NPC instanced rendering textures are shared via `RenderFrameConfig.textures` (NpcSpriteTexture: `handle` for character, `world_handle` for world atlas, `extras_handle` for extras atlas, `building_handle` for building atlas), extracted to render world for bind group creation. The building and extras atlas handles are set later by `spawn_world_tilemap` (not at startup like the others); `prepare_npc_texture_bind_group` falls back to `char_image` until they're available.
 
@@ -451,13 +454,13 @@ Terrain uses `AlphaMode2d::Opaque`. Buildings are rendered through the GPU insta
 
 **`build_tileset(atlas, tiles, extra, images)`** (`world.rs`): Extracts tiles from the world atlas and builds a 32×32 `texture_2d_array` for terrain. `Single` tiles are nearest-neighbor 2× upscaled (each pixel → 2×2 block). `Quad` tiles blit four 16×16 sprites into quadrants. `External` tiles copy raw pixel data from extra images. Called once with `TERRAIN_TILES` (11 tiles, no extras).
 
-**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×(N×32) vertical strip `texture_2d` for the building atlas. Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. After base tiles (14 from BUILDING_REGISTRY), appends 5 wall auto-tile layers: E-W straight sprite extracted from `wood_walls_98x32.png` overwrites Wall's base layer, then N-S (90° rotation of E-W), plus 4 corner sprites (BR source at x=66, rotated 90°/180°/270° for BL/TL/TR). Total layers = BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS (5). `camera.bldg_layers` includes the extra layers. Stored in `RenderFrameConfig.textures.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
+**`build_building_atlas(atlas, tiles, extra, images)`** (`world.rs`): Builds a 32×(N×32) vertical strip `texture_2d` for the building atlas with `ImageSampler::nearest()` to prevent texture bleeding between layers. Same tile extraction logic as `build_tileset` but outputs a single strip texture instead of a `texture_2d_array`. After base tiles (14 from BUILDING_REGISTRY), appends 10 wall auto-tile layers: E-W straight sprite extracted from `wood_walls_131x32.png` overwrites Wall's base layer, then N-S (90° rotation of E-W), 4 corner sprites (BR source at x=66, rotated 90°/180°/270° for BL/TL/TR), cross/junction sprite (x=33), and 4 T-junction sprites (T source at x=99, rotated 90°/180°/270°). Total layers = BUILDING_REGISTRY.len() + WALL_EXTRA_LAYERS (10). `camera.bldg_layers` includes the extra layers. Stored in `RenderFrameConfig.textures.building_handle`. `BUILDING_REGISTRY` order = tileset strip indices.
 
 **`Biome::tileset_index(cell_index)`**: Maps biome + cell position to terrain tileset array index (0-10). Grass alternates 0/1, Forest cycles 2-7, Water=8, Rock=9, Dirt=10.
 
-**`Building::tileset_index()`**: Maps building variant to building strip index (0-13). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, FarmerHome=4, ArcherHome=5, Tent=6, GoldMine=7, MinerHome=8, CrossbowHome=9, FighterHome=10, Road=11, Wall=13 (14 base tiles via `building_tiles()`, plus 5 wall auto-tile layers at indices 14-18: N-S=14, BR=15, BL=16, TL=17, TR=18).
+**`Building::tileset_index()`**: Maps building variant to building strip index (0-13). Delegates to `constants::tileset_index(kind)` which looks up position in `BUILDING_REGISTRY`. Fountain=0, Bed=1, Waypoint=2, Farm=3, FarmerHome=4, ArcherHome=5, Tent=6, GoldMine=7, MinerHome=8, CrossbowHome=9, FighterHome=10, Road=11, Wall=13 (14 base tiles via `building_tiles()`, plus 10 wall auto-tile layers at indices 14-23: N-S=14, BR=15, BL=16, TL=17, TR=18, Cross=19, T-open-N=20, T-open-W=21, T-open-S=22, T-open-E=23).
 
-**Wall auto-tile** (`world.rs`): `wall_autotile_variant()` examines N/S/E/W neighbors to select one of 6 atlas layer offsets (0=E-W, 1=N-S, 2=TL, 3=BL, 4=BR, 5=TR — screen-space corners). `update_wall_sprites_around()` pushes GPU `SetSpriteFrame` updates for the wall and its 4 neighbors on placement/removal. `update_all_wall_sprites()` resets all wall sprites on world load. Build menu extracts just the first 32x32 sprite from the wall strip for the toolbar icon.
+**Wall auto-tile** (`world.rs`): `wall_autotile_variant()` examines N/S/E/W neighbors to select one of 11 atlas layer offsets: 0=E-W, 1=N-S, 2-5=corners (BL/BR/TR/TL — screen-space), 6=cross (4-way), 7-10=T-junctions (open N/W/S/E — screen-space, named by missing neighbor). `update_wall_sprites_around()` pushes GPU `SetSpriteFrame` updates for the wall and its 4 neighbors on placement/removal. `update_all_wall_sprites()` resets all wall sprites on world load. Build menu extracts just the first 32x32 sprite from the wall strip for the toolbar icon.
 
 **`TilemapSpawned`** resource (`render.rs`): Tracks whether the tilemap has been spawned. Uses a `Resource` (not `Local`) so that `game_cleanup_system` can reset it when leaving Playing state, enabling tilemap re-creation on re-entry.
 

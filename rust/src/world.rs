@@ -372,6 +372,11 @@ pub fn wall_autotile_variant(grid: &WorldGrid, col: usize, row: usize) -> u16 {
         (true, false, false, true)  => WALL_TL,
         (false, true, false, true)  => WALL_BL,
         (false, true, true, false)  => WALL_BR,
+        (true, false, true, true)   => WALL_T_OPEN_N,  // 3 neighbors, open north
+        (true, true, true, false)   => WALL_T_OPEN_W,  // 3 neighbors, open west
+        (false, true, true, true)   => WALL_T_OPEN_S,  // 3 neighbors, open south
+        (true, true, false, true)   => WALL_T_OPEN_E,  // 3 neighbors, open east
+        (true, true, true, true)    => WALL_CROSS,      // 4-way
         _ => WALL_EW,
     }
 }
@@ -1430,12 +1435,24 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
             let tl_sprite = rotate_90_cw(&bl_sprite, out_size);  // TL corner (180°)
             let tr_sprite = rotate_90_cw(&tl_sprite, out_size);  // TR corner (270°)
 
-            // Append 5 extra layers: N-S, BR, BL, TL, TR
+            // Extract junction/cross sprite at x=33, T-junction at x=99
+            let cross_sprite = extract_sprite_32(wall_img, 33);
+            let t_sprite = extract_sprite_32(wall_img, 99);
+            let t_90 = rotate_90_cw(&t_sprite, out_size);
+            let t_180 = rotate_90_cw(&t_90, out_size);
+            let t_270 = rotate_90_cw(&t_180, out_size);
+
+            // Append 10 extra layers: N-S, BR, BL, TL, TR, Cross, T×4
             data.extend_from_slice(&ns_sprite);
             data.extend_from_slice(&br_sprite);
             data.extend_from_slice(&bl_sprite);
             data.extend_from_slice(&tl_sprite);
             data.extend_from_slice(&tr_sprite);
+            data.extend_from_slice(&cross_sprite);
+            data.extend_from_slice(&t_sprite);  // open N on screen
+            data.extend_from_slice(&t_90);      // open W on screen
+            data.extend_from_slice(&t_180);     // open S on screen
+            data.extend_from_slice(&t_270);     // open E on screen
 
             base_layers + crate::constants::WALL_EXTRA_LAYERS as u32
         } else {
@@ -1445,7 +1462,7 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
         base_layers
     };
 
-    images.add(Image::new(
+    let mut img = Image::new(
         Extent3d {
             width: out_size,
             height: out_size * total_layers,
@@ -1455,7 +1472,9 @@ pub fn build_building_atlas(atlas: &Image, tiles: &[TileSpec], extra: &[&Image],
         data,
         TextureFormat::Rgba8UnormSrgb,
         Default::default(),
-    ))
+    );
+    img.sampler = bevy::image::ImageSampler::nearest();
+    images.add(img)
 }
 
 /// Extras atlas: composites individual 16x16 sprites into a horizontal grid (32x32 cells, 2x upscale).

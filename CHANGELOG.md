@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-23c
+
+- **wall T-junctions + cross sprites** — added cross (4-way) and T-junction (3-way) wall sprites from `wood_walls_131x32.png`; 4 T-junction rotations for all orientations; nearest-neighbor atlas sampling + half-pixel UV inset to eliminate rendering artifacts at layer boundaries
+
 ## 2026-02-23b
 
 - **wall auto-tile corner fix** — fixed all four corner atlas offsets (were diagonally opposite); replaced magic numbers with named constants (`WALL_TR`/`WALL_TL`/`WALL_BL`/`WALL_BR`) that trace atlas generation order → rotation → Y-flip to screen appearance

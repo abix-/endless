@@ -2,9 +2,9 @@
 
 Build a town under siege. Farm, fortify, raise an army, conquer
 
-Every NPC has a job, a home, and a personality. Set town policies, plan your upgrades, organize squads
+Every NPC has a job, a home, and a personality. Set policies, build walls, lay roads, organize squads
 
-Your AI rivals do the same
+Your AI rivals do the same — each with a distinct strategy
 
 <!-- TODO: Add screenshot/GIF here -->
 
@@ -12,9 +12,9 @@ Your AI rivals do the same
 
 ## Download
 
-- **Windows:** [endless-windows-v0.1.3.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-windows-v0.1.3.zip) — extract, run `endless.exe`
-- **macOS:** [endless-macos-v0.1.3.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-macos-v0.1.3.zip) — extract, run `endless`
-- **Linux:** [endless-linux-v0.1.3.zip](https://github.com/abix-/endless/releases/download/v0.1.1/endless-linux-v0.1.3.zip) — extract, run `endless`
+- **Windows:** [endless-windows-v0.1.4.zip](https://github.com/abix-/endless/releases/download/v0.1.4/endless-windows-v0.1.4.zip) — extract, run `endless.exe`
+- **macOS:** [endless-macos-v0.1.4.zip](https://github.com/abix-/endless/releases/download/v0.1.4/endless-macos-v0.1.4.zip) — extract, run `endless`
+- **Linux:** [endless-linux-v0.1.4.zip](https://github.com/abix-/endless/releases/download/v0.1.4/endless-linux-v0.1.4.zip) — extract, run `endless`
 
 ## Controls
 
