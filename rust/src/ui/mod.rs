@@ -18,7 +18,7 @@ use crate::messages::SpawnNpcMsg;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::systems::{AiPlayerState, TownUpgrades, UpgradeQueue};
-use crate::world::{self, BuildingKind, WorldGenConfig, allocate_all_building_slots};
+use crate::world::{self, BuildingKind, WorldGenConfig};
 
 /// Render a small "?" button (frameless) that shows help text on hover.
 pub fn help_tip(ui: &mut egui::Ui, catalog: &HelpCatalog, key: &str) {
@@ -243,13 +243,10 @@ fn game_load_system(
     *tracking.dirty = DirtyFlags::default();
     *mining_policy = MiningPolicy::default();
 
-    // Allocate GPU slots for buildings (collision via GPU compute)
-    allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
+    // Load building instances from save → BuildingEntityMap
+    crate::save::load_building_instances_from_save(&save, &mut tracking.slots, &mut tracking.building_slots, &mut ws.spawner_state, &ws.world_data, world_size_px);
     world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
-
-    // Populate instances + spawn building entities
-    tracking.building_slots.init_spatial(world_size_px);
-    world::populate_building_instances(&ws.world_data, &mut tracking.building_slots, world_size_px);
+    crate::save::rebuild_growth_states_from_instances(&save, &mut ws.farm_states, &tracking.building_slots);
     let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &tracking.building_slots, &ws.world_data);
     world::spawn_building_entities(&mut commands, &mut tracking.building_slots, Some(&hp_by_slot));
 

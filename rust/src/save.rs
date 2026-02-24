@@ -475,6 +475,7 @@ fn quicksave_path() -> Option<std::path::PathBuf> {
 pub fn collect_save_data(
     grid: &WorldGrid,
     world_data: &WorldData,
+    building_slots: &BuildingEntityMap,
     town_grids: &TownGrids,
     game_time: &GameTime,
     food_storage: &FoodStorage,
@@ -500,13 +501,19 @@ pub fn collect_save_data(
         .map(|c| c.building)
         .collect();
 
-    // Building vecs — registry-driven
+    // Building vecs — serialized from BuildingEntityMap instances
     let mut building_data: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
     building_data.insert("towns".to_string(), serde_json::to_value(&world_data.towns).unwrap());
     for def in crate::constants::BUILDING_REGISTRY.iter() {
-        if let Some(key) = def.save_key {
-            building_data.insert(key.to_string(), (def.save_vec)(world_data));
-        }
+        let Some(key) = def.save_key else { continue };
+        let mut insts: Vec<_> = building_slots.iter_kind(def.kind).collect();
+        insts.sort_by_key(|i| i.slot);
+        let placed: Vec<world::PlacedBuilding> = insts.iter().map(|inst| world::PlacedBuilding {
+            position: inst.position, town_idx: inst.town_idx,
+            patrol_order: inst.patrol_order, assigned_mine: inst.assigned_mine,
+            manual_mine: inst.manual_mine, wall_level: inst.wall_level,
+        }).collect();
+        building_data.insert(key.to_string(), serde_json::to_value(&placed).unwrap());
     }
 
     // Town grids
@@ -706,7 +713,7 @@ pub fn apply_save(
     game_time: &mut GameTime,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
-    farm_states: &mut GrowthStates,
+    _farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
     upgrades: &mut TownUpgrades,
     policies: &mut TownPolicies,
@@ -733,16 +740,9 @@ pub fn apply_save(
             building: *b,
         }).collect();
 
-    // World data — registry-driven building vecs
+    // Towns
     if let Some(val) = save.building_data.get("towns") {
         world_data.towns = serde_json::from_value(val.clone()).unwrap_or_default();
-    }
-    for def in crate::constants::BUILDING_REGISTRY.iter() {
-        if let Some(key) = def.save_key {
-            if let Some(val) = save.building_data.get(key) {
-                (def.load_vec)(world_data, val.clone());
-            }
-        }
     }
 
     // Town grids
@@ -763,35 +763,7 @@ pub fn apply_save(
     food_storage.food = save.food.clone();
     gold_storage.gold = save.gold.clone();
 
-    // Growth states: farms first, then mines (world_data already loaded above)
-    let farm_count = world_data.farms().len();
-    let mine_count = world_data.gold_mines().len();
-    farm_states.kinds = vec![crate::resources::GrowthKind::Farm; farm_count];
-    farm_states.kinds.extend(vec![crate::resources::GrowthKind::Mine; mine_count]);
-    // v1: farm_growth contained farms+mines combined; v2+: farms only
-    let farm_growth = if save.version < 2 {
-        &save.farm_growth[..farm_count.min(save.farm_growth.len())]
-    } else {
-        &save.farm_growth[..]
-    };
-    farm_states.states = farm_growth.iter().map(|fg| {
-        if fg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing }
-    }).collect();
-    farm_states.progress = farm_growth.iter().map(|fg| fg.progress).collect();
-    farm_states.positions = world_data.farms().iter().map(|f| f.position).collect();
-    farm_states.town_indices = world_data.farms().iter().map(|f| Some(f.town_idx as u32)).collect();
-    // Append mine entries
-    for (i, gm) in world_data.gold_mines().iter().enumerate() {
-        farm_states.positions.push(gm.position);
-        farm_states.town_indices.push(None);
-        if let Some(mg) = save.mine_growth.get(i) {
-            farm_states.states.push(if mg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing });
-            farm_states.progress.push(mg.progress);
-        } else {
-            farm_states.states.push(FarmGrowthState::Growing);
-            farm_states.progress.push(0.0);
-        }
-    }
+    // Growth states are rebuilt after building instances are loaded (in load_game_system)
 
     // Spawners
     spawner_state.0 = save.spawners.iter().map(|s| SpawnerEntry {
@@ -1095,32 +1067,23 @@ pub struct LoadNpcTracking<'w> {
 fn collect_building_hp(
     building_query: &Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
     building_slots: &BuildingEntityMap,
-    world_data: &WorldData,
 ) -> std::collections::HashMap<String, Vec<f32>> {
     use std::collections::HashMap;
-    // Build slot → hp lookup from entities
     let mut slot_hp: HashMap<usize, f32> = HashMap::new();
     for (_, npc_idx, health) in building_query.iter() {
         slot_hp.insert(npc_idx.0, health.0);
     }
-    let mut map = HashMap::new();
-    // "towns" = fountain HP indexed by town_data_idx
-    let town_hps: Vec<f32> = world_data.towns.iter().enumerate().map(|(i, _)| {
-        building_slots.get_slot(world::BuildingKind::Fountain, i)
-            .and_then(|s| slot_hp.get(&s).copied())
-            .unwrap_or(0.0)
-    }).collect();
-    map.insert("towns".into(), town_hps);
-    // Per-kind HP vecs matching WorldData indices
+    let mut map: HashMap<String, Vec<f32>> = HashMap::new();
     for def in crate::constants::BUILDING_REGISTRY {
-        if let Some(key) = def.save_key {
-            let hps: Vec<f32> = (0..(def.len)(world_data)).map(|i| {
-                building_slots.get_slot(def.kind, i)
-                    .and_then(|s| slot_hp.get(&s).copied())
-                    .unwrap_or(0.0)
-            }).collect();
-            map.insert(key.into(), hps);
-        }
+        let key = if def.kind == world::BuildingKind::Fountain { "towns" } else {
+            match def.save_key { Some(k) => k, None => continue }
+        };
+        let mut insts: Vec<_> = building_slots.iter_kind(def.kind).collect();
+        insts.sort_by_key(|i| i.slot);
+        let hps: Vec<f32> = insts.iter().map(|inst| {
+            slot_hp.get(&inst.slot).copied().unwrap_or(0.0)
+        }).collect();
+        map.insert(key.into(), hps);
     }
     map
 }
@@ -1143,6 +1106,104 @@ pub fn convert_building_hp_to_slots(
         }
     }
     result
+}
+
+/// Load building instances from save data directly into BuildingEntityMap.
+/// Handles backward compat: deserializes PlacedBuilding vecs, skips tombstoned (is_alive check).
+pub fn load_building_instances_from_save(
+    save: &SaveData,
+    slot_alloc: &mut SlotAllocator,
+    building_map: &mut BuildingEntityMap,
+    spawner_state: &mut SpawnerState,
+    world_data: &WorldData,
+    world_size_px: f32,
+) {
+    use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
+    building_map.clear();
+    building_map.init_spatial(world_size_px);
+
+    // Fountain instances from towns
+    for (i, town) in world_data.towns.iter().enumerate() {
+        if !world::is_alive(town.center) { continue; }
+        world::place_building_instance(
+            slot_alloc, building_map, spawner_state,
+            world::BuildingKind::Fountain, town.center, i as u32, town.faction, 0, 0,
+        );
+    }
+
+    // All other kinds from building_data
+    for def in BUILDING_REGISTRY {
+        let Some(key) = def.save_key else { continue };
+        let Some(val) = save.building_data.get(key) else { continue };
+        let buildings: Vec<world::PlacedBuilding> = serde_json::from_value(val.clone()).unwrap_or_default();
+        for b in &buildings {
+            if !world::is_alive(b.position) { continue; }
+            let faction = if def.kind == world::BuildingKind::GoldMine { FACTION_NEUTRAL }
+                else { world_data.towns.get(b.town_idx as usize).map(|t| t.faction).unwrap_or(0) };
+            world::place_building_instance(
+                slot_alloc, building_map, spawner_state,
+                def.kind, b.position, b.town_idx, faction,
+                b.patrol_order, b.wall_level,
+            );
+            // Restore miner home fields
+            if def.kind == world::BuildingKind::MinerHome {
+                if let Some(inst) = building_map.find_by_position_mut(b.position) {
+                    inst.assigned_mine = b.assigned_mine;
+                    inst.manual_mine = b.manual_mine;
+                }
+            }
+        }
+    }
+    info!("Loaded {} building instances from save", building_map.len());
+}
+
+/// Rebuild growth states from BuildingEntityMap instances + save data.
+pub fn rebuild_growth_states_from_instances(
+    save: &SaveData,
+    farm_states: &mut GrowthStates,
+    building_map: &BuildingEntityMap,
+) {
+    use crate::resources::{GrowthKind, FarmGrowthState};
+
+    // Farms
+    let mut farms: Vec<_> = building_map.iter_kind(world::BuildingKind::Farm).collect();
+    farms.sort_by_key(|i| i.slot);
+    let farm_count = farms.len();
+
+    farm_states.kinds = vec![GrowthKind::Farm; farm_count];
+    let farm_growth = if save.version < 2 {
+        &save.farm_growth[..farm_count.min(save.farm_growth.len())]
+    } else {
+        &save.farm_growth[..]
+    };
+    farm_states.states = farm_growth.iter().map(|fg| {
+        if fg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing }
+    }).collect();
+    farm_states.progress = farm_growth.iter().map(|fg| fg.progress).collect();
+    farm_states.positions = farms.iter().map(|f| f.position).collect();
+    farm_states.town_indices = farms.iter().map(|f| Some(f.town_idx as u32)).collect();
+
+    // Pad if save had fewer farm entries than instances
+    while farm_states.states.len() < farm_count {
+        farm_states.states.push(FarmGrowthState::Growing);
+        farm_states.progress.push(0.0);
+    }
+
+    // Mines
+    let mut mines: Vec<_> = building_map.iter_kind(world::BuildingKind::GoldMine).collect();
+    mines.sort_by_key(|i| i.slot);
+    farm_states.kinds.extend(vec![GrowthKind::Mine; mines.len()]);
+    for (i, mine) in mines.iter().enumerate() {
+        farm_states.positions.push(mine.position);
+        farm_states.town_indices.push(None);
+        if let Some(mg) = save.mine_growth.get(i) {
+            farm_states.states.push(if mg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing });
+            farm_states.progress.push(mg.progress);
+        } else {
+            farm_states.states.push(FarmGrowthState::Growing);
+            farm_states.progress.push(0.0);
+        }
+    }
 }
 
 // ============================================================================
@@ -1179,9 +1240,9 @@ pub fn save_game_system(
     request.save_requested = false;
 
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
-    let building_hp = collect_building_hp(&building_query, &building_slots, &ws.world_data);
+    let building_hp = collect_building_hp(&building_query, &building_slots);
     let data = collect_save_data(
-        &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
+        &ws.grid, &ws.world_data, &building_slots, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
@@ -1226,9 +1287,9 @@ pub fn autosave_system(
     let Some(path) = autosave_path(slot) else { return };
 
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
-    let building_hp = collect_building_hp(&building_query, &building_slots, &ws.world_data);
+    let building_hp = collect_building_hp(&building_query, &building_slots);
     let data = collect_save_data(
-        &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
+        &ws.grid, &ws.world_data, &building_slots, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
@@ -1356,15 +1417,15 @@ pub fn load_game_system(
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 
-    // 4. Rebuild building GPU slots + instances
+    // 4. Load building instances from save data → BuildingEntityMap
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    tracking.building_slots.clear();
-    world::allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
+    load_building_instances_from_save(&save, &mut tracking.slots, &mut tracking.building_slots, &mut ws.spawner_state, &ws.world_data, world_size_px);
     world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
-    tracking.building_slots.init_spatial(world_size_px);
-    world::populate_building_instances(&ws.world_data, &mut tracking.building_slots, world_size_px);
 
-    // 4b. Convert old HP format (String→Vec<f32>) to slot-keyed map, then spawn entities
+    // 4b. Rebuild growth states from instances
+    rebuild_growth_states_from_instances(&save, &mut ws.farm_states, &tracking.building_slots);
+
+    // 4c. Convert old HP format, spawn building entities
     let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, &tracking.building_slots, &ws.world_data);
     world::spawn_building_entities(&mut commands, &mut tracking.building_slots, Some(&hp_by_slot));
 
