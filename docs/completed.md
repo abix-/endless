@@ -2,6 +2,38 @@
 
 Completed items moved from roadmap for readability.
 
+### Roadmap Migration (Stages 14, 15, 16, 16.5, 18, 22)
+- [x] Stage 14: endless mode (defeated AI towns become leaderless, replacement AI scaled to player strength)
+- [x] Stage 14: destructible enemy town centers (AI deactivated on destruction, NPCs/buildings persist)
+- [x] Stage 15: farmer harvest carry-home delivery (visible food transport, `Activity::Returning` with loot)
+- [x] Stage 15: `harvest()` simplified to single DRY path (resets growth, returns yield, all callers use carry-home)
+- [x] Stage 15: `BuildingKind::Road` with road tileset sprite, build menu placement (1 food/tile, wilderness)
+- [x] Stage 15: `tile_flags` bitfield GPU buffer (terrain bits 0-4 + building bits 5+, `populate_tile_flags` system)
+- [x] Stage 15: road speed bonus in `npc_compute.wgsl` (tile_flags bit 5 → `speed *= 1.5`)
+- [x] Stage 15: roads persist in save/load, destroyable via build menu destroy mode
+- [x] Stage 16 linear scan: farmer/miner work assignment via `BuildingEntityMap::iter_kind_for_town()` O(k)
+- [x] Stage 16 linear scan: miner home lookup via `find_by_position()` O(1), mine arrival via `find_mine_at()` O(1)
+- [x] Stage 16 linear scan: `economy.rs` spawner scan via `iter_kind_for_town()`, mine check via `HashSet` O(1)
+- [x] Stage 16 linear scan: `BUILDING_REGISTRY` fn pointers deleted, `destroy_building` spawner tombstone cleaned up
+- [x] Stage 16 linear scan: `combat.rs` NPC slot lookup via `find_by_position()` O(1)
+- [x] Stage 16 linear scan: `miner_home_at`/`gold_mine_at` deleted, `GrowthStates` deleted (spatial grid lookups)
+- [x] Stage 16 linear scan: `game_hud.rs` building inspector + spawner count migrated to `BuildingEntityMap`
+- [x] Stage 16 every-frame: `top_bar_system` HUD counts via `BuildingEntityMap::iter_instances()`
+- [x] Stage 16.5: buildings as ECS entities (phase 1 + phase 2 HP migration, `BuildingHpState` deleted)
+- [x] Stage 16.5: `BuildingEntityMap` replaces `BuildingSlotMap` — bidirectional slot maps + entity tracking
+- [x] Stage 16.5: `BuildingEntityMap` absorbs `BuildingSpatialGrid` — instance storage, spatial grid, per-kind indexes
+- [x] Stage 16.5: all spatial queries → `for_each_nearby()`, all count reads → `count_for_town()`/`building_counts()`
+- [x] Stage 16.5: all consumer reads migrated (tutorial, render, game_hud, left_panel, behavior, combat, ai_player, economy)
+- [x] Stage 16.5: deleted `BuildingSpatialGrid`, `BuildingRef`, `BuildingSlotMap`, `BuildingHpState`, `town_building_slots!`
+- [x] Stage 16.5: growth_states/mine_enabled decoupled from sequential WorldData indices (re-keyed by slot/position)
+- [x] Stage 16.5: building instances serialized from `BuildingEntityMap`, `WorldData.buildings` + legacy accessors deleted
+- [x] Stage 16.5: `BUILDING_REGISTRY` fn pointers stripped (keep only static definition fields)
+- [x] Stage 18: `GrowthStates` resource deleted — `growth_ready`/`growth_progress` fields on `BuildingInstance`
+- [x] Stage 18: mine growth uses same `BuildingInstance` fields (`FarmGrowthState` enum deleted → `growth_ready: bool`)
+- [x] Stage 22: wall building type (town grid placement, blocks enemy NPCs via GPU tile_flags bit 6 + faction bits)
+- [x] Stage 22: wall HP + raiders attack walls via building attack fallback
+- [x] Stage 22: per-wall tier upgrade (Wooden Palisade 80HP → Stone Wall 200HP → Fortified Wall 400HP)
+
 ### Roadmap Migration (Stages 14, 14b, 14d, 15, 18)
 - [x] Stage 14: food consumption added (hourly eating restores HP/energy)
 - [x] Stage 14: starvation effects added (HP drain + speed penalty)

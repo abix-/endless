@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-24e
+
+- **roadmap cleanup** — migrated ~40 checked items from stages 14-22 to completed.md; collapsed Stage 19 into completed stages line; removed linear scan elimination section (all done); cleaned up GPU extract/rendering/buildings-as-entities completed stubs; removed 3 completed spec entries from Specs table; net -87 lines in roadmap making current sprint (Stage 14: Tension) immediately scannable
+
 ## 2026-02-24d
 
 - **kill FarmGrowthState enum** — deleted `FarmGrowthState` enum entirely; replaced `growth_state: FarmGrowthState` with `growth_ready: bool` on `BuildingInstance` (false = growing, true = ready to harvest); updated `BuildingInstance::harvest()`, `growth_system`, `farm_visual_system` (now `Local<HashMap<usize, bool>>`), all 5 behavior.rs harvest/assignment checks, save/load, game_hud inspector/tooltips, npc_render overlay, and 5 test files; pure type simplification, no logic changes

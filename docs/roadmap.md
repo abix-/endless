@@ -16,7 +16,7 @@ See [completed.md](completed.md) for completed work moved out of active stages.
 
 ## Stages
 
-Stages 1-13: [x] Complete (see [completed.md](completed.md))
+Stages 1-13, 19: [x] Complete (see [completed.md](completed.md))
 
 **Stage 14: Tension**
 
@@ -36,32 +36,16 @@ Stages 1-13: [x] Complete (see [completed.md](completed.md))
   - Render in `npc_render.rs` prepare function as misc instances (`atlas_id: 6.0`, blue tint, `health` = progress pct)
   - AI builds (`ai_player.rs`) use same `place_building()` path — construction delay applies to AI too
   - Files: `constants.rs` (BUILDING_CONSTRUCT_SECS), `resources.rs` (ConstructionQueue + BuildingInstance.under_construction), `world.rs` (place_building param), `systems/economy.rs` (new system + growth_system guard), `ui/mod.rs` + `systems/ai_player.rs` (pass queue), `lib.rs` + `gpu.rs` (register + extract), `npc_render.rs` (render bars)
-- [x] Endless mode: defeated AI towns become leaderless, toggle spawns replacement AI scaled to player strength
-- [x] Destructible enemy town centers (AI deactivated on destruction, NPCs/buildings persist)
 
 **Stage 15: Logistics & Flow**
 
 *Done when: player builds a road from town to gold mine, zooms out, and watches farmers carrying food and miners carrying gold streaming along the road — visible supply chains on infrastructure the player designed.*
 
-Farmer delivery (make food transport visible):
-- [x] Farmer harvest no longer instantly credits `FoodStorage` — instead transitions to `Activity::Returning { loot: [(Food, yield)] }` with goal = FarmerHome position
-- [x] Farmer walks home carrying food (visible food sprite via existing `build_visual_upload` equipment layer 3 — already renders carried items for `Returning` NPCs)
-- [x] Food credited to `FoodStorage` on delivery at home (existing `DELIVERY_RADIUS` proximity check in `behavior.rs` already handles `Returning` NPCs)
-- [x] After delivery, farmer transitions back to `GoingToWork` (same cycle as miner: work → harvest → carry home → return to work)
-- [x] `harvest()` in `resources.rs` simplified: single DRY path resets growth and returns yield; all callers use carry-home delivery
-- [x] Files: `resources.rs` (harvest simplification), `systems/behavior.rs` (farmer Returning transition + delivery)
+Farmer delivery and core roads complete (see [completed.md](completed.md)).
 
-Roads (infrastructure the player builds and NPCs use):
-- [x] `BuildingKind::Road` with building registry entry (HP 30, cost 1 food, `PlacementMode::Wilderness`)
-- [x] Road tileset sprite (tile index 9,10 in world tileset)
-- [x] Road building: player places road segments via build menu (cost: 1 food per tile, wilderness placement)
-- [x] `tile_flags` bitfield GPU buffer (1 u32 per cell, terrain bits 0-4 + building bits 5+) — `populate_tile_flags` system rebuilds on dirty
-- [x] Road speed bonus: `npc_compute.wgsl` checks NPC's current grid cell against `tile_flags` bit 5; if on road, `speed *= 1.5`
-- [x] Roads persist in save/load (building layer with `save_key: "roads"`)
-- [x] Destroy road via build menu destroy mode (tombstone pattern)
+Roads (remaining):
 - [ ] Road collision bypass: NPCs on road cells skip NPC-NPC separation force in compute shader (no bumping on roads = smooth traffic flow)
 - [ ] Road connects visually to adjacent road tiles (auto-tiling: straight, corner, T-junction, crossroads — 4-bit neighbor mask → tileset index lookup)
-- [x] Files: `constants.rs` (ROAD_SPEED_MULT, TILE_ROAD, BuildingDef), `gpu.rs` (tile_flags buffer + populate_tile_flags), `npc_compute.wgsl` (speed bonus), `world.rs` (building layer), `npc_render.rs` (dynamic bldg_layers)
 
 AI road building:
 - [ ] AI towns auto-build roads between fountain and farm clusters, mine routes, and waypoint paths
@@ -73,8 +57,8 @@ AI road building:
 
 *Done when: `NpcGpuState` ExtractResource clone eliminated, and `command_buffer_generation_tasks` drops from ~10ms to ~1ms at default zoom on a 250x250 world.*
 
-GPU extract optimization (see [specs/gpu-visual-direct-upload.md](specs/gpu-visual-direct-upload.md)):
-Completed (see [completed.md](completed.md)).
+GPU extract optimization and GPU-native NPC rendering complete (see [completed.md](completed.md)).
+Linear scan elimination complete (see [completed.md](completed.md)).
 
 Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
 - [ ] Split single 250x250 TilemapChunk per layer into 32x32 tile chunks
@@ -84,15 +68,13 @@ Chunked tilemap (see [specs/chunked-tilemap.md](specs/chunked-tilemap.md)):
 Entity sleeping:
 - [ ] Entity sleeping (Factorio-style: NPCs outside camera radius sleep)
 
-GPU-native NPC rendering (see [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md)):
-Completed work moved to [completed.md](completed.md).
+GPU readback optimization:
 - [ ] Throttle readback: factions every 60 frames, threat_counts every 30 frames, `buffer_range()` sized to `npc_count`
 - [ ] Pre-allocate `GpuReadState` vecs and `copy_from_slice` instead of per-frame `Vec` allocation (GpuReadState extraction already deleted)
 
 Every-frame review backlog:
 - [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
 - [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
-- [x] `top_bar_system` HUD counts: `spawner_state` scans replaced by `BuildingEntityMap::iter_instances()` (SpawnerState deleted).
 - [ ] `sync_building_hp_render`: rebuild only when `BuildingHpState`/`WorldData` changes (or via dirty flag), not every frame.
 - [ ] DirtyFlags regression tests (state transitions + load): add automated coverage for cleanup/enter behavior.
   - Add tests (likely in `tests/vertical_slice.rs` or dedicated `tests/dirty_flags.rs`) that exercise:
@@ -103,32 +85,6 @@ Every-frame review backlog:
   - Done when tests fail on current bug states and pass after fixes, guarding against regressions.
 - [ ] Narrow `on_duty_tick_system` workset so only on-duty archers are iterated each frame.
 - [ ] Remove linear HP lookup in inspector rendering (`bottom_panel_system`) by using direct selected-NPC lookup/cached handle.
-
-Linear scan elimination (20K scale):
-
-CRITICAL — per-NPC per-tick (O(NPCs × buildings) each frame):
-- [x] `behavior.rs:1013,1050` — farmer/miner work assignment: `GrowthStates` deleted, farmer scan uses `BuildingEntityMap::iter_kind_for_town(Farm, town_id)` O(k), miner scan uses `iter_kind(GoldMine)` O(k). Growth fields (`growth_ready`, `growth_progress`) absorbed into `BuildingInstance`. `BuildingInstance::harvest()` method for Ready→Growing transition.
-- [x] `behavior.rs:1033` — miner home lookup migrated to `BuildingEntityMap::find_by_position(home.0)` (O(1) via `by_grid_cell`).
-- [x] `behavior.rs:442,822` — arriving miners use `BuildingEntityMap::find_mine_at[_mut](pos)` O(1) via spatial grid.
-
-HIGH — per-building per-tick:
-- [x] `economy.rs:381` — spawner state scan: migrated to `BuildingEntityMap::iter_kind_for_town(MinerHome, town_idx)`. SpawnerState deleted entirely — `npc_slot`/`respawn_timer` fields absorbed into `BuildingInstance`.
-- [x] `economy.rs:398` — stale mine assignment check: replaced `enabled_positions.iter().any(|p| length() < 1.0)` with `HashSet<(i32,i32)>` of enabled grid cells, O(1) lookup per slot.
-
-MEDIUM — per-event (building destroy/place):
-- [x] `constants.rs` — all `BUILDING_REGISTRY` fn pointers (`tombstone`, `find_index`, `len`, `pos_town`, `count_for_town`, `save_vec`, `load_vec`, `place`) deleted. Callers migrated to `BuildingEntityMap` methods.
-- [x] `world.rs:973` — `destroy_building` spawner tombstone: SpawnerState deleted; spawner fields live on `BuildingInstance`, cleaned up by instance removal.
-- [x] `combat.rs:534` — building destroyed NPC slot lookup: uses `BuildingEntityMap::find_by_position()` to read `npc_slot` from `BuildingInstance` (O(1)).
-- [x] `world.rs` — `miner_home_at` / `gold_mine_at` deleted. Callers use `BuildingEntityMap::find_by_position()` and `BuildingEntityMap::gold_mine_index()`.
-- [x] `resources.rs` — `GrowthStates` deleted entirely; `BuildingEntityMap::find_farm_at()` uses O(1) spatial grid lookup.
-
-LOW — UI only (click handler, not per-tick):
-- [x] `game_hud.rs` — building inspector position-based linear scans migrated to `BuildingEntityMap::find_by_position()` and `get_instance(slot)`.
-- [x] `game_hud.rs:135-142` — spawner count for tutorial: uses `BuildingEntityMap::count_for_town()` and `iter_instances()` (SpawnerState deleted).
-
-Implementation order: (1) GrowthStates — deleted entirely, growth fields absorbed into BuildingInstance, (2) behavior.rs miner home via BuildingEntityMap — done, (3) economy.rs spawner/mine lookups — done (SpawnerState deleted), (4) BUILDING_REGISTRY closures — done, (5) SpawnerState — deleted entirely, (6) UI click migrations — done.
-
-Existing infrastructure to reuse: `BuildingEntityMap::find_by_position()` (`resources.rs:1115`) is O(1) via `by_grid_cell` HashMap. `BuildingEntityMap::iter_kind_for_town()` for filtered iteration. Spatial grid pattern at `resources.rs:1136-1160` (`init_spatial`, `rebuild_spatial`).
 
 SystemParam bundle consolidation:
 Completed bundle work moved to [completed.md](completed.md).
@@ -141,55 +97,32 @@ Completed bundle work moved to [completed.md](completed.md).
 
 *Done when: all redundant building infrastructure (`WorldData.buildings`, `PlacedBuilding`, tombstone guards) is deleted and `BuildingEntityMap` is the sole source of truth.*
 
-Completed:
-- [x] Phase 1: Buildings as ECS entities (`Building` marker, `spawn_building_entities`, `place_building`/`destroy_building` dual-write, `death_cleanup_system` building branch)
-- [x] Phase 2: HP migration (`BuildingHpState` deleted, `Health` component used directly)
-- [x] `BuildingEntityMap` replaces `BuildingSlotMap` — bidirectional slot maps + entity tracking
-- [x] `BuildingEntityMap` absorbs `BuildingSpatialGrid` — `BuildingInstance` storage, spatial grid, per-kind/per-entity/per-grid-cell indexes
-- [x] Migrate all spatial queries to `BuildingEntityMap.for_each_nearby()`
-- [x] Migrate all building count reads to `BuildingEntityMap.count_for_town()` / `building_counts()`
-- [x] Migrate all consumer reads (tutorial, render, game_hud, left_panel, behavior, combat, ai_player, economy)
-- [x] Delete `BuildingSpatialGrid`, `BuildingRef`, `BuildingSlotMap`, `BuildingHpState`, `town_building_slots!` macro
+Phases 1-2, BuildingEntityMap migration, and WorldData deletion complete (see [completed.md](completed.md)).
 
 Remaining:
-- [x] Decouple growth_states/mine_enabled from sequential WorldData indices (re-key by slot or position)
-- [x] Serialize building instances from `BuildingEntityMap` instead of WorldData
-- [x] Delete `WorldData.buildings` and all legacy accessors — `BuildingEntityMap` is sole source of truth
-- [x] Strip `BUILDING_REGISTRY` fn pointers (keep only static definition fields)
 - [ ] `WorldGrid.cells[].building` stores `Option<Entity>`
 
 **Stage 17: AI Expansion & Mine Control**
 
 *Done when: AI towns grow beyond their starting 7×7 grid, compete for gold mines via patrol routes, and a passive AI that doesn't expand gets outcompeted and dies.*
 
-Chunk 1 — AI expansion brain (`systems/ai_player.rs` only):
-Complete (see [completed.md](completed.md)).
+Chunks 1-3 complete (see [completed.md](completed.md)).
 
-Chunk 2 — Disable turrets on waypoints (code preserved for future Tower building):
-Complete (see [completed.md](completed.md)).
-
-Chunk 3 — Wilderness waypoint placement + AI territorial expansion:
-Mostly complete (see [completed.md](completed.md)).
+Remaining:
 - [ ] AI patrol routes automatically cover placed waypoints (PatrolRoute rebuild already handles this via `build_patrol_route`)
 
 **Stage 18: Generic Growth & Contestable Mines**
 
 *Done when: mines grow gold like farms grow food (tended-only, 4-hour cycle), any faction's miner can harvest a ready mine, and growth is unified on BuildingInstance for both farms and mines.*
 
-Unify mine growth onto BuildingInstance (farm growth already migrated — `GrowthStates` deleted):
-- [x] `GrowthStates` resource deleted — `growth_ready`/`growth_progress` fields live on `BuildingInstance` (farms already use these)
-- [x] Mine growth uses same `BuildingInstance` fields: `growth_ready: bool`, `growth_progress: f32` (`FarmGrowthState` enum deleted — replaced with bool)
+Growth field unification complete (see [completed.md](completed.md)).
+
+Remaining:
 - [ ] `harvest()` generalized: Farm credits food to town, Mine credits `MINE_EXTRACT_PER_CYCLE` gold to harvester's town
 - [ ] `growth_system` replaces both `farm_growth_system` and `mine_regen_system` — farms: passive + tended rates (unchanged), mines: tended-only (`MINE_TENDED_GROWTH_RATE` = 0.25/hr, 4 hours to ready)
 - [ ] Miner behavior: walk to mine → claim occupancy → tend (accelerate growth) → harvest when Ready → return with gold. Same pattern as farmer but for gold.
 - [ ] Mine progress bar rendered at mine position (atlas_id=6.0, gold color) via BuildingEntityMap misc instance buffer — not on the miner
 - [ ] Delete: `MineStates`, `MiningProgress`, `MinerProgressRender`, `sync_miner_progress_render`, `mine_regen_system`, `MINE_MAX_GOLD`, `MINE_REGEN_RATE`, `MINE_WORK_HOURS`
-
-**Stage 19: Auto-Mining Policy**
-
-*Done when: player sets a mining radius from the town fountain in the Policies tab, gold mines within that radius are auto-discovered, and all available miners are auto-distributed across enabled mines — no per-miner micromanagement needed.*
-
-Complete (see [completed.md](completed.md)).
 
 **Stage 20: Combat Depth**
 
@@ -219,9 +152,9 @@ Complete (see [completed.md](completed.md)).
 
 *Done when: player builds a stone wall perimeter with a gate, raiders path around it or attack through it, chokepoints make guard placement strategic.*
 
-- [x] Wall building type (town grid placement, blocks enemy NPCs via GPU tile_flags, 3-tier upgrades: Wooden/Stone/Fortified)
-- [x] Wall HP + raiders attack walls blocking their path (building attack fallback targets walls)
-- [x] Per-wall tier upgrade (click wall in inspector → pay food+gold → HP and tier increase)
+Core wall system complete (see [completed.md](completed.md)).
+
+Remaining:
 - [ ] Wall auto-tiling (connect adjacent walls visually: straight, corner, T-junction, crossroads)
 - [ ] Gate building (walls with a passthrough that friendlies use, raiders must breach)
 - [ ] Pathfinding update: raiders route around walls to find openings, attack walls when no path exists
@@ -379,12 +312,9 @@ Implementation guides for upcoming stages. Once built, spec content rolls into r
 
 | Spec | Stage | File |
 |---|---|---|
-| GPU Extract Optimization | 16 | [specs/gpu-extract-optimization.md](specs/gpu-extract-optimization.md) |
 | Chunked Tilemap | 16 | [specs/chunked-tilemap.md](specs/chunked-tilemap.md) |
 | Tech Tree (Chunks 3-4) | 25 | [specs/tech-tree.md](specs/tech-tree.md) |
 | NPC Skills & Proficiency | 21 | [specs/npc-skills.md](specs/npc-skills.md) |
-| GPU-Native NPC Rendering | 16 | [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md) |
-| Buildings as ECS Entities | 16.5 | [specs/buildings-as-entities.md](specs/buildings-as-entities.md) |
 
 ## Performance
 
@@ -406,4 +336,3 @@ Implementation guides for upcoming stages. Once built, spec content rolls into r
 - [Bevy Render Graph](https://docs.rs/bevy/latest/bevy/render/render_graph/) - compute + render pipeline
 - [Factorio FFF #251](https://www.factorio.com/blog/post/fff-251) - sprite batching, per-layer draw queues
 - [Factorio FFF #421](https://www.factorio.com/blog/post/fff-421) - entity update optimization, lazy activation
-
