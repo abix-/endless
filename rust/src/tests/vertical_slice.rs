@@ -37,7 +37,7 @@ pub fn setup(
 
     // 5 farms near town 0
     for &(fx, fy) in &FARMS {
-        params.world_data.farms_mut().push(world::PlacedBuilding::new(Vec2::new(fx, fy), 0));
+        params.add_building(world::BuildingKind::Farm, fx, fy, 0);
         farm_states.kinds.push(crate::resources::GrowthKind::Farm);
         farm_states.states.push(FarmGrowthState::Ready);
         farm_states.progress.push(1.0);
@@ -52,28 +52,18 @@ pub fn setup(
 
     // 4 waypoints (square patrol around town)
     for (order, &(gx, gy)) in [(250.0, 250.0), (550.0, 250.0), (550.0, 550.0), (250.0, 550.0)].iter().enumerate() {
-        params.world_data.waypoints_mut().push(world::PlacedBuilding {
-            position: Vec2::new(gx, gy),
-            town_idx: 0,
-            patrol_order: order as u32,
-            ..world::PlacedBuilding::new(Vec2::new(gx, gy), 0)
-        });
+        params.add_waypoint(gx, gy, 0, order as u32);
     }
 
     // Spawner buildings: FarmerHomes, ArcherHomes, Tents (for respawn system)
     for i in 0..5 {
-        let pos = Vec2::new(300.0 + (i as f32 * 50.0), 450.0);
-        let def = crate::constants::building_def(world::BuildingKind::FarmerHome);
-        (def.place)(&mut params.world_data, pos, 0);
+        params.add_building(world::BuildingKind::FarmerHome, 300.0 + (i as f32 * 50.0), 450.0, 0);
     }
     for _ in 0..2 {
-        let def = crate::constants::building_def(world::BuildingKind::ArcherHome);
-        (def.place)(&mut params.world_data, Vec2::new(400.0, 400.0), 0);
+        params.add_building(world::BuildingKind::ArcherHome, 400.0, 400.0, 0);
     }
     for i in 0..5 {
-        let pos = Vec2::new(380.0 + (i as f32 * 10.0), 100.0);
-        let def = crate::constants::building_def(world::BuildingKind::Tent);
-        (def.place)(&mut params.world_data, pos, 1);
+        params.add_building(world::BuildingKind::Tent, 380.0 + (i as f32 * 10.0), 100.0, 1);
     }
 
     // Resources

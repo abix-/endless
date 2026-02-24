@@ -21,10 +21,10 @@ pub fn setup(
     params.game_time.time_scale = 1.0;
 
     // Place MinerHome building at (380,400)
-    params.world_data.miner_homes_mut().push(crate::world::PlacedBuilding::new(Vec2::new(380.0, 400.0), 0));
+    params.add_building(crate::world::BuildingKind::MinerHome, 380.0, 400.0, 0);
 
     // Place GoldMine building at (400,300) + register in GrowthStates
-    params.world_data.gold_mines_mut().push(crate::world::PlacedBuilding::new(Vec2::new(400.0, 300.0), 0));
+    params.add_building(crate::world::BuildingKind::GoldMine, 400.0, 300.0, 0);
     farm_states.push_mine(Vec2::new(400.0, 300.0));
 
     // Spawn miner (job=4) at town center, home at MinerHome

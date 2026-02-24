@@ -244,18 +244,18 @@ fn game_load_system(
     *mining_policy = MiningPolicy::default();
 
     // Load building instances from save → BuildingEntityMap
-    crate::save::load_building_instances_from_save(&save, &mut tracking.slots, &mut tracking.building_slots, &mut ws.spawner_state, &ws.world_data, world_size_px);
-    world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
-    crate::save::rebuild_growth_states_from_instances(&save, &mut ws.farm_states, &tracking.building_slots);
-    let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &tracking.building_slots, &ws.world_data);
-    world::spawn_building_entities(&mut commands, &mut tracking.building_slots, Some(&hp_by_slot));
+    crate::save::load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &mut ws.spawner_state, &ws.world_data, world_size_px);
+    world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
+    crate::save::rebuild_growth_states_from_instances(&save, &mut ws.farm_states, &ws.building_slots);
+    let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
+    world::spawn_building_entities(&mut commands, &mut ws.building_slots, Some(&hp_by_slot));
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
         &save, &mut commands,
         &mut tracking.npc_map, &mut tracking.pop_stats, &mut tracking.npc_meta,
         &mut tracking.npcs_by_town, &mut gpu_updates,
-        &ws.world_data, &combat_config, &ws.upgrades,
+        &ws.world_data, &ws.building_slots, &combat_config, &ws.upgrades,
     );
 
     // Re-attach Migrating component to migration group members

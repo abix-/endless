@@ -302,7 +302,7 @@ pub fn bottom_panel_system(
                     } else {
                         "NPC".to_string()
                     };
-                    let bld_label = selected_building_info(&bld_data.selected_building, &bld_data.grid, &world_data)
+                    let bld_label = selected_building_info(&bld_data.selected_building, &bld_data.grid, &bld_data.building_map)
                         .map(|(k, _, _, _, _)| format!("Building: {}", building_def(k).label))
                         .unwrap_or_else(|| "Building".to_string());
 
@@ -327,7 +327,7 @@ pub fn bottom_panel_system(
                 // Destroy button for selected player-owned buildings (not fountains/mines)
                 let show_building = has_building && (!has_npc || !show_npc);
                 if show_building {
-                    let selected_info = selected_building_info(&bld_data.selected_building, &bld_data.grid, &world_data);
+                    let selected_info = selected_building_info(&bld_data.selected_building, &bld_data.grid, &bld_data.building_map);
                     let is_destructible = selected_info
                         .as_ref()
                         .map(|(k, ti, _, _, _)| {
@@ -843,14 +843,15 @@ fn inspector_content(
     // Mine assignment for miners (same UI as MinerHome building inspector)
     if meta.job == 4 {
         if let Some(hp) = home_pos {
-            let mh_idx = world_data.miner_home_at(hp);
-            if let Some(mh_idx) = mh_idx {
+            let mh_slot = bld_data.building_map.find_by_position(hp)
+                .filter(|i| i.kind == BuildingKind::MinerHome)
+                .map(|i| i.slot);
+            if let Some(mh_slot) = mh_slot {
                 ui.separator();
-                mine_assignment_ui(ui, world_data, &mut bld_data.building_map, mh_idx, hp, dirty, ui_state);
+                mine_assignment_ui(ui, world_data, &mut bld_data.building_map, mh_slot, hp, dirty, ui_state);
                 // Show mine productivity when actively mining
                 if is_mining_at_mine {
-                    let slot = bld_data.building_map.get_slot(BuildingKind::MinerHome, mh_idx);
-                    let mine_pos = slot.and_then(|s| bld_data.building_map.get_instance(s)).and_then(|i| i.assigned_mine);
+                    let mine_pos = bld_data.building_map.get_instance(mh_slot).and_then(|i| i.assigned_mine);
                     if let Some(mine_pos) = mine_pos {
                         let occupants = bld_data.farm_occupancy.count(mine_pos);
                         if occupants > 0 {
@@ -977,7 +978,7 @@ fn inspector_content(
                         let manual = inst.manual_mine;
                         if let Some(mine_pos) = assigned {
                             let dist = mine_pos.distance(hp);
-                            if let Some(mine_idx) = world_data.gold_mine_at(mine_pos) {
+                            if let Some(mine_idx) = bld_data.building_map.gold_mine_index(mine_pos) {
                                 info.push_str(&format!("Mine: {} - {:.0}px\n", crate::ui::gold_mine_name(mine_idx), dist));
                             } else {
                                 info.push_str(&format!("Mine: ({:.0}, {:.0}) - {:.0}px\n", mine_pos.x, mine_pos.y, dist));
@@ -1025,15 +1026,14 @@ fn inspector_content(
 fn selected_building_info(
     selected: &SelectedBuilding,
     grid: &WorldGrid,
-    world_data: &WorldData,
+    building_map: &BuildingEntityMap,
 ) -> Option<(BuildingKind, u32, Vec2, usize, usize)> {
     if !selected.active { return None; }
 
-    if let (Some(kind), Some(index)) = (selected.kind, selected.index) {
-        let def = crate::constants::building_def(kind);
-        if let Some((pos, town_idx)) = (def.pos_town)(world_data, index) {
-            let (col, row) = grid.world_to_grid(pos);
-            return Some((kind, town_idx, pos, col, row));
+    if let (Some(kind), Some(slot)) = (selected.kind, selected.slot) {
+        if let Some(inst) = building_map.get_instance(slot) {
+            let (col, row) = grid.world_to_grid(inst.position);
+            return Some((kind, inst.town_idx, inst.position, col, row));
         }
     }
 
@@ -1049,22 +1049,19 @@ fn selected_building_info(
 /// Shared by building inspector (MinerHome) and NPC inspector (Miner).
 fn mine_assignment_ui(
     ui: &mut egui::Ui,
-    world_data: &mut WorldData,
+    _world_data: &mut WorldData,
     building_map: &mut BuildingEntityMap,
-    mh_idx: usize,
+    mh_slot: usize,
     ref_pos: Vec2,
     dirty: &mut DirtyFlags,
     ui_state: &mut UiState,
 ) {
-    // Read from BuildingEntityMap
-    let slot = building_map.get_slot(BuildingKind::MinerHome, mh_idx);
-    let (assigned, manual) = slot
-        .and_then(|s| building_map.get_instance(s))
+    let (assigned, manual) = building_map.get_instance(mh_slot)
         .map(|inst| (inst.assigned_mine, inst.manual_mine))
         .unwrap_or((None, false));
     if let Some(mine_pos) = assigned {
         let dist = mine_pos.distance(ref_pos);
-        if let Some(mine_idx) = world_data.gold_mine_at(mine_pos) {
+        if let Some(mine_idx) = building_map.gold_mine_index(mine_pos) {
             ui.label(format!("Mine: {} - {:.0}px", crate::ui::gold_mine_name(mine_idx), dist));
         } else {
             ui.label(format!("Mine: ({:.0}, {:.0}) - {:.0}px", mine_pos.x, mine_pos.y, dist));
@@ -1075,17 +1072,15 @@ fn mine_assignment_ui(
     ui.small(if manual { "Mode: Manual" } else { "Mode: Auto-policy" });
     ui.horizontal(|ui| {
         if ui.button("Set Mine").clicked() {
-            if let Some(s) = slot { if let Some(inst) = building_map.get_instance_mut(s) { inst.manual_mine = true; } }
+            if let Some(inst) = building_map.get_instance_mut(mh_slot) { inst.manual_mine = true; }
             dirty.mining = true;
-            ui_state.assigning_mine = Some(mh_idx);
+            ui_state.assigning_mine = Some(mh_slot);
         }
         if assigned.is_some() || manual {
             if ui.button("Clear").clicked() {
-                if let Some(s) = slot {
-                    if let Some(inst) = building_map.get_instance_mut(s) {
-                        inst.manual_mine = false;
-                        inst.assigned_mine = None;
-                    }
+                if let Some(inst) = building_map.get_instance_mut(mh_slot) {
+                    inst.manual_mine = false;
+                    inst.assigned_mine = None;
                 }
                 dirty.mining = true;
             }
@@ -1110,7 +1105,7 @@ fn building_inspector_content(
     gpu_state: &GpuReadState,
 ) {
     let Some((kind, bld_town_idx, world_pos, col, row)) =
-        selected_building_info(&bld.selected_building, &bld.grid, world_data)
+        selected_building_info(&bld.selected_building, &bld.grid, &bld.building_map)
     else { return };
 
     let def = building_def(kind);
@@ -1355,9 +1350,11 @@ fn building_inspector_content(
                 }
                 if def.kind == BuildingKind::MinerHome {
                     ui.separator();
-                    let mh_idx = world_data.miner_home_at(world_pos);
-                    if let Some(mh_idx) = mh_idx {
-                        mine_assignment_ui(ui, world_data, &mut bld.building_map, mh_idx, world_pos, dirty, ui_state);
+                    let mh_slot = bld.building_map.find_by_position(world_pos)
+                        .filter(|i| i.kind == BuildingKind::MinerHome)
+                        .map(|i| i.slot);
+                    if let Some(mh_slot) = mh_slot {
+                        mine_assignment_ui(ui, world_data, &mut bld.building_map, mh_slot, world_pos, dirty, ui_state);
                     }
                 }
             }
@@ -1367,10 +1364,9 @@ fn building_inspector_content(
     // Copy Debug Info — gated behind debug_coordinates (same as NPC inspector)
     if settings.debug_coordinates {
         ui.separator();
-        let data_idx = crate::world::find_building_data_index(world_data, kind, world_pos);
         let max_hp = crate::constants::building_def(kind).hp;
-        let hp = data_idx
-            .and_then(|i| bld.building_map.get_entity_by_building(kind, i))
+        let hp = bld.building_map.find_by_position(world_pos)
+            .and_then(|inst| bld.building_map.get_entity(inst.slot))
             .and_then(|e| bld.building_health.get(e).ok())
             .map(|h| h.0)
             .unwrap_or(0.0);
@@ -1409,8 +1405,8 @@ fn building_inspector_content(
                 info.push_str(&format!("Town center: ({:.0}, {:.0})\n", center.x, center.y));
                 info.push_str(&format!("Town slot: ({}, {})\n", trow, tcol));
             }
-            if let Some(di) = data_idx {
-                info.push_str(&format!("Data idx: {}\n", di));
+            if let Some(inst) = bld.building_map.find_by_position(world_pos) {
+                info.push_str(&format!("Slot: {}\n", inst.slot));
             }
             match kind {
                 BuildingKind::Farm => {
@@ -1581,7 +1577,7 @@ pub fn selection_overlay_system(
     gpu_state: Res<GpuReadState>,
     building_slots: Res<BuildingEntityMap>,
     grid: Res<WorldGrid>,
-    world_data: Res<WorldData>,
+    _world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
     windows: Query<&Window>,
     dc_query: Query<&NpcIndex, With<DirectControl>>,
@@ -1658,21 +1654,10 @@ pub fn selection_overlay_system(
             } else {
                 None
             }
-        } else if let (Some(kind), Some(index)) = (selected_building.kind, selected_building.index) {
-            building_slots.get_slot(kind, index).and_then(|slot| {
-                let i = slot * 2;
-                if i + 1 < gpu_state.positions.len() {
-                    let x = gpu_state.positions[i];
-                    let y = gpu_state.positions[i + 1];
-                    { let p = Vec2::new(x, y); if is_alive(p) { Some(p) } else { None } }
-                } else {
-                    None
-                }
-            })
         } else {
             None
         }.or_else(|| {
-            selected_building_info(&selected_building, &grid, &world_data)
+            selected_building_info(&selected_building, &grid, &building_slots)
                 .map(|(_, _, pos, _, _)| pos)
         }).or_else(|| {
             let col = selected_building.col;

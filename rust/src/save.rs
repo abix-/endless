@@ -1028,6 +1028,7 @@ pub struct SaveWorldState<'w> {
     pub auto_upgrade: ResMut<'w, AutoUpgrade>,
     pub squad_state: ResMut<'w, SquadState>,
     pub tower_state: ResMut<'w, TowerState>,
+    pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
 /// More world state + faction/AI resources.
@@ -1055,7 +1056,6 @@ pub struct LoadNpcTracking<'w> {
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
     pub healing_cache: ResMut<'w, HealingZoneCache>,
-    pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
 // ============================================================================
@@ -1319,6 +1319,7 @@ pub fn spawn_npcs_from_save(
     npcs_by_town: &mut NpcsByTownCache,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
     world_data: &WorldData,
+    building_map: &BuildingEntityMap,
     combat_config: &CombatConfig,
     upgrades: &TownUpgrades,
 ) {
@@ -1348,7 +1349,7 @@ pub fn spawn_npcs_from_save(
             npc.home, npc.work_position, starting_post, npc.attack_type as i32,
             &overrides,
             commands, npc_map, pop_stats, npc_meta,
-            npcs_by_town, gpu_updates, world_data, combat_config, upgrades,
+            npcs_by_town, gpu_updates, world_data, building_map, combat_config, upgrades,
         );
     }
 }
@@ -1419,22 +1420,22 @@ pub fn load_game_system(
 
     // 4. Load building instances from save data → BuildingEntityMap
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    load_building_instances_from_save(&save, &mut tracking.slots, &mut tracking.building_slots, &mut ws.spawner_state, &ws.world_data, world_size_px);
-    world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
+    load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &mut ws.spawner_state, &ws.world_data, world_size_px);
+    world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
 
     // 4b. Rebuild growth states from instances
-    rebuild_growth_states_from_instances(&save, &mut ws.farm_states, &tracking.building_slots);
+    rebuild_growth_states_from_instances(&save, &mut ws.farm_states, &ws.building_slots);
 
     // 4c. Convert old HP format, spawn building entities
-    let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, &tracking.building_slots, &ws.world_data);
-    world::spawn_building_entities(&mut commands, &mut tracking.building_slots, Some(&hp_by_slot));
+    let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
+    world::spawn_building_entities(&mut commands, &mut ws.building_slots, Some(&hp_by_slot));
 
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(
         &save, &mut commands,
         &mut tracking.npc_map, &mut tracking.pop_stats, &mut tracking.npc_meta,
         &mut tracking.npcs_by_town, &mut gpu_updates,
-        &ws.world_data, &combat_config, &ws.upgrades,
+        &ws.world_data, &ws.building_slots, &combat_config, &ws.upgrades,
     );
 
     // 6. Re-attach Migrating component to migration group members

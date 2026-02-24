@@ -87,6 +87,7 @@ pub struct TestSetupParams<'w> {
     pub slot_alloc: ResMut<'w, SlotAllocator>,
     pub spawn_events: MessageWriter<'w, SpawnNpcMsg>,
     pub world_data: ResMut<'w, world::WorldData>,
+    pub building_slots: ResMut<'w, BuildingEntityMap>,
     pub food_storage: ResMut<'w, FoodStorage>,
     pub faction_stats: ResMut<'w, FactionStats>,
     pub game_time: ResMut<'w, GameTime>,
@@ -94,7 +95,7 @@ pub struct TestSetupParams<'w> {
     pub spawner_state: ResMut<'w, SpawnerState>,
 }
 
-/// Resources needed by `world::init_world_buildings` — shared bundle to stay under 16-param limit.
+/// Shared test setup params bundle — stays under 16-param limit.
 #[derive(SystemParam)]
 pub struct BuildingInitParams<'w> {
     pub spawner_state: ResMut<'w, SpawnerState>,
@@ -115,7 +116,19 @@ impl TestSetupParams<'_> {
 
     /// Add a bed at the given position for town 0.
     pub fn add_bed(&mut self, x: f32, y: f32) {
-        self.world_data.beds_mut().push(world::PlacedBuilding::new(Vec2::new(x, y), 0));
+        self.add_building(world::BuildingKind::Bed, x, y, 0);
+    }
+
+    /// Add a building instance at the given position for a town.
+    pub fn add_building(&mut self, kind: world::BuildingKind, x: f32, y: f32, town_idx: u32) {
+        let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
+        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, &mut self.spawner_state, kind, Vec2::new(x, y), town_idx, faction, 0, 0);
+    }
+
+    /// Add a waypoint with patrol_order at the given position for a town.
+    pub fn add_waypoint(&mut self, x: f32, y: f32, town_idx: u32, patrol_order: u32) {
+        let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
+        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, &mut self.spawner_state, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0);
     }
 
     /// Init food_storage + faction_stats for N towns.

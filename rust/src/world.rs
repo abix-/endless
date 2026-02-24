@@ -103,36 +103,10 @@ impl PlacedBuilding {
 // WORLD RESOURCES
 // ============================================================================
 
-/// Contains all world layout data. Mutated at runtime when buildings are placed/destroyed.
+/// Contains all world layout data. Towns only — building instances live in BuildingEntityMap.
 #[derive(Resource, Default)]
 pub struct WorldData {
     pub towns: Vec<Town>,
-    /// All placed buildings, keyed by BuildingKind.
-    pub buildings: BTreeMap<BuildingKind, Vec<PlacedBuilding>>,
-}
-
-impl WorldData {
-    /// Immutable access to buildings of a given kind (empty slice if none).
-    pub fn get(&self, kind: BuildingKind) -> &[PlacedBuilding] {
-        self.buildings.get(&kind).map(|v| v.as_slice()).unwrap_or(&[])
-    }
-    /// Mutable access to buildings of a given kind (creates entry if missing).
-    pub fn get_mut(&mut self, kind: BuildingKind) -> &mut Vec<PlacedBuilding> {
-        self.buildings.entry(kind).or_default()
-    }
-
-    // Legacy accessors — thin wrappers for migration convenience.
-    pub fn farms(&self) -> &[PlacedBuilding] { self.get(BuildingKind::Farm) }
-    pub fn beds(&self) -> &[PlacedBuilding] { self.get(BuildingKind::Bed) }
-    pub fn waypoints(&self) -> &[PlacedBuilding] { self.get(BuildingKind::Waypoint) }
-    pub fn miner_homes(&self) -> &[PlacedBuilding] { self.get(BuildingKind::MinerHome) }
-    pub fn gold_mines(&self) -> &[PlacedBuilding] { self.get(BuildingKind::GoldMine) }
-    // Mutable variants
-    pub fn farms_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::Farm) }
-    pub fn beds_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::Bed) }
-    pub fn waypoints_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::Waypoint) }
-    pub fn miner_homes_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::MinerHome) }
-    pub fn gold_mines_mut(&mut self) -> &mut Vec<PlacedBuilding> { self.get_mut(BuildingKind::GoldMine) }
 }
 
 // ============================================================================
@@ -411,7 +385,7 @@ pub fn update_wall_sprites_around(
     }
 }
 
-/// Set auto-tile sprites for all walls in the world. Call after allocate_all_building_slots.
+/// Set auto-tile sprites for all walls in the world. Call after building instances are created.
 pub fn update_all_wall_sprites(
     grid: &WorldGrid,
     building_slots: &BuildingEntityMap,
@@ -508,27 +482,6 @@ pub fn register_spawner(
 }
 
 
-/// Allocate an NPC GPU slot for a building (speed=0, rendered via instanced pipeline).
-/// `tower` = true enables GPU combat targeting for this building (bit 0 + bit 1 in npc_flags).
-fn allocate_building_slot(
-    slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingEntityMap,
-    kind: BuildingKind,
-    data_idx: usize,
-    pos: Vec2,
-    faction: i32,
-    max_hp: f32,
-    tileset_idx: u16,
-    tower: bool,
-) {
-    let Some(slot) = slot_alloc.alloc() else {
-        warn!("No NPC slots available for building {:?}", kind);
-        return;
-    };
-    building_slots.insert(kind, data_idx, slot);
-    push_building_gpu_updates(slot, pos, faction, max_hp, tileset_idx, tower);
-}
-
 /// Push GPU updates for a building slot (position, faction, health, sprite).
 fn push_building_gpu_updates(slot: usize, pos: Vec2, faction: i32, max_hp: f32, tileset_idx: u16, tower: bool) {
     let flags = if tower { 3u32 } else { 0u32 };
@@ -578,60 +531,6 @@ pub fn place_building_instance(
 }
 
 
-/// Allocate GPU NPC slots for all existing buildings in WorldData.
-/// Called at game startup and when loading a save.
-pub fn allocate_all_building_slots(
-    world_data: &WorldData,
-    slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingEntityMap,
-) {
-    use crate::constants::{building_def, tileset_index, FACTION_NEUTRAL, BUILDING_REGISTRY};
-
-    let town_faction = |town_idx: u32| -> i32 {
-        world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0)
-    };
-
-    let alloc = |slot_alloc: &mut SlotAllocator, building_slots: &mut BuildingEntityMap,
-                 kind: BuildingKind, idx: usize, pos: Vec2, faction: i32| {
-        let def = building_def(kind);
-        allocate_building_slot(slot_alloc, building_slots, kind, idx,
-            pos, faction, def.hp, tileset_index(kind), def.is_tower);
-    };
-
-    // Generic loop over all building kinds using registry fn pointers
-    for def in BUILDING_REGISTRY {
-        for i in 0..(def.len)(world_data) {
-            if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
-                let faction = if def.kind == BuildingKind::GoldMine { FACTION_NEUTRAL }
-                    else { town_faction(ti) };
-                alloc(slot_alloc, building_slots, def.kind, i, pos, faction);
-            }
-        }
-    }
-
-    info!("Allocated {} building GPU slots", building_slots.len());
-}
-
-/// Read kind-specific PlacedBuilding fields from WorldData for a given building.
-/// Returns (patrol_order, assigned_mine, manual_mine, wall_level).
-fn read_placed_building_fields(world_data: &WorldData, kind: BuildingKind, index: usize) -> (u32, Option<Vec2>, bool, u8) {
-    match kind {
-        BuildingKind::Waypoint => {
-            let po = world_data.get(kind).get(index).map(|b| b.patrol_order).unwrap_or(0);
-            (po, None, false, 0)
-        }
-        BuildingKind::MinerHome => {
-            let (am, mm) = world_data.get(kind).get(index)
-                .map(|b| (b.assigned_mine, b.manual_mine)).unwrap_or((None, false));
-            (0, am, mm, 0)
-        }
-        BuildingKind::Wall => {
-            let wl = world_data.get(kind).get(index).map(|b| b.wall_level).unwrap_or(1);
-            (0, None, false, wl)
-        }
-        _ => (0, None, false, 0),
-    }
-}
 
 /// Spawn ECS entities for all building instances in BuildingEntityMap.
 /// Reads instances (which have Entity::PLACEHOLDER), spawns real entities, updates the map.
@@ -669,87 +568,6 @@ pub fn spawn_building_entities(
         count += 1;
     }
     info!("Spawned {} building entities", count);
-}
-
-/// Post-world-gen building init: spawners, HP, GPU slots.
-/// Called by game startup and test scenes after `generate_world`.
-pub fn init_world_buildings(
-    world_data: &WorldData,
-    spawner_state: &mut SpawnerState,
-    slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingEntityMap,
-) {
-    spawner_state.0.clear();
-    building_slots.clear();
-
-    for town_idx in 0..world_data.towns.len() {
-        init_single_town_buildings(town_idx, world_data, spawner_state, slot_alloc, building_slots);
-    }
-
-    info!("Allocated {} building GPU slots", building_slots.len());
-}
-
-/// Register spawners, push HP, allocate GPU slots for buildings belonging to one town.
-/// Works both at startup (after clear) and incrementally (migration settle).
-pub fn init_single_town_buildings(
-    town_data_idx: usize,
-    world_data: &WorldData,
-    spawner_state: &mut SpawnerState,
-    slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingEntityMap,
-) {
-    use crate::constants::{tileset_index, FACTION_NEUTRAL, BUILDING_REGISTRY};
-
-    let town_faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-
-    for def in BUILDING_REGISTRY {
-        for i in 0..(def.len)(world_data) {
-            if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
-                if ti as usize != town_data_idx { continue; }
-
-                // Spawner
-                if def.spawner.is_some() {
-                    register_spawner(spawner_state, def.kind, town_data_idx as i32, pos, -1.0);
-                }
-
-                // GPU slot — skip if already allocated
-                if building_slots.get_slot(def.kind, i).is_none() {
-                    let faction = if def.kind == BuildingKind::GoldMine { FACTION_NEUTRAL } else { town_faction };
-                    allocate_building_slot(slot_alloc, building_slots, def.kind, i, pos, faction, def.hp, tileset_index(def.kind), def.is_tower);
-                }
-            }
-        }
-    }
-}
-
-/// Populate BuildingEntityMap instances from WorldData (Entity::PLACEHOLDER).
-/// Called during setup before entities exist, so spatial queries work for spawner resolution.
-/// `spawn_building_entities` later replaces these with real entities via upsert.
-pub fn populate_building_instances(
-    world_data: &WorldData,
-    building_map: &mut BuildingEntityMap,
-    world_size_px: f32,
-) {
-    use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
-    building_map.init_spatial(world_size_px);
-    for def in BUILDING_REGISTRY {
-        for i in 0..(def.len)(world_data) {
-            if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
-                let Some(slot) = building_map.get_slot(def.kind, i) else { continue };
-                if building_map.get_instance(slot).is_some() { continue; } // already populated
-                let faction = if def.kind == BuildingKind::GoldMine { FACTION_NEUTRAL } else {
-                    world_data.towns.get(ti as usize).map(|t| t.faction).unwrap_or(0)
-                };
-                let (patrol_order, assigned_mine, manual_mine, wall_level) =
-                    read_placed_building_fields(world_data, def.kind, i);
-                building_map.add_instance(crate::resources::BuildingInstance {
-                    kind: def.kind, position: pos, town_idx: ti, slot,
-                    entity: Entity::PLACEHOLDER, faction,
-                    patrol_order, assigned_mine, manual_mine, wall_level,
-                });
-            }
-        }
-    }
 }
 
 /// Spawn one NPC per building spawner. Returns messages for the caller to write.
@@ -882,39 +700,6 @@ pub fn expand_town_build_area(
     Ok(())
 }
 
-impl WorldData {
-    /// Find miner home index by position (grid-snapped, < 1px tolerance).
-    pub fn miner_home_at(&self, pos: Vec2) -> Option<usize> {
-        self.miner_homes().iter().position(|m| (m.position - pos).length() < 1.0)
-    }
-
-    /// Find gold mine index by position (grid-snapped, < 1px tolerance).
-    pub fn gold_mine_at(&self, pos: Vec2) -> Option<usize> {
-        self.gold_mines().iter().position(|m| (m.position - pos).length() < 1.0)
-    }
-
-    /// Look up position and town index for a building by kind and index.
-    /// Returns None if the building is tombstoned or index out of range.
-    pub fn building_pos_town(&self, kind: BuildingKind, index: usize) -> Option<(Vec2, u32)> {
-        (crate::constants::building_def(kind).pos_town)(self, index)
-    }
-
-    pub fn building_len(&self, kind: BuildingKind) -> usize {
-        (crate::constants::building_def(kind).len)(self)
-    }
-
-    /// Count alive buildings per type for a town. Returns HashMap keyed by BuildingKind.
-    pub fn building_counts(&self, town_idx: u32) -> std::collections::HashMap<BuildingKind, usize> {
-        crate::constants::BUILDING_REGISTRY.iter()
-            .map(|def| (def.kind, (def.count_for_town)(self, town_idx)))
-            .collect()
-    }
-}
-
-/// Find the index of a building in its WorldData vec by position match.
-pub fn find_building_data_index(world_data: &WorldData, kind: BuildingKind, pos: Vec2) -> Option<usize> {
-    (crate::constants::building_def(kind).find_index)(world_data, pos)
-}
 
 /// Consolidated building destruction: grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log.
 /// Used by click-destroy, inspector-destroy, and building_damage_system (HP→0).

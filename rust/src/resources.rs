@@ -211,7 +211,6 @@ pub struct SelectedBuilding {
     pub active: bool,
     pub slot: Option<usize>,
     pub kind: Option<crate::world::BuildingKind>,
-    pub index: Option<usize>,
 }
 
 /// Camera follow mode — when true, camera tracks the selected NPC.
@@ -1114,6 +1113,14 @@ impl BuildingEntityMap {
             if count > 0 { counts.insert(*kind, count); }
         }
         counts
+    }
+
+    /// Find gold mine display index by position (for "Gold Mine N" labels).
+    pub fn gold_mine_index(&self, pos: Vec2) -> Option<usize> {
+        self.iter_kind(crate::world::BuildingKind::GoldMine)
+            .enumerate()
+            .find(|(_, inst)| (inst.position - pos).length() < 1.0)
+            .map(|(i, _)| i)
     }
 
     /// Find instance by grid-snapped position (< 1px tolerance).

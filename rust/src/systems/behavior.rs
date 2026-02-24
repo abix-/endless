@@ -416,8 +416,7 @@ pub fn decision_system(
                             npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Stole food -> Returning");
                         } else {
                             // Farm not ready - find a different farm (exclude current one)
-                            let other_farm = farms.world.farms().iter()
-                                .filter(|f| crate::world::is_alive(f.position)) // skip tombstoned
+                            let other_farm = building_map.iter_kind(BuildingKind::Farm)
                                 .filter(|f| f.position.distance(pos) > FARM_ARRIVAL_RADIUS)
                                 .min_by(|a, b| {
                                     a.position.distance_squared(pos)
@@ -1030,10 +1029,9 @@ pub fn decision_system(
                     }
                     Job::Miner => {
                         // Check for manually assigned mine (via miner home UI)
-                        let assigned = farms.world.miner_homes().iter()
-                            .find(|mh| (mh.position - home.0).length() < 1.0)
-                            .and_then(|mh| mh.assigned_mine)
-                            .filter(|p| crate::world::is_alive(*p));
+                        let assigned = building_map.find_by_position(home.0)
+                            .filter(|inst| inst.kind == BuildingKind::MinerHome)
+                            .and_then(|inst| inst.assigned_mine);
 
                         let mine_target = if let Some(assigned_pos) = assigned {
                             // Use assigned mine directly
@@ -1163,7 +1161,7 @@ pub fn on_duty_tick_system(
 /// Rebuild all guards' patrol routes when WorldData changes (waypoint added/removed/reordered).
 pub fn rebuild_patrol_routes_system(
     mut commands: Commands,
-    world_data: Res<WorldData>,
+    _world_data: Res<WorldData>,
     mut building_map: ResMut<BuildingEntityMap>,
     mut dirty: ResMut<DirtyFlags>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
@@ -1197,7 +1195,7 @@ pub fn rebuild_patrol_routes_system(
         if !job.is_patrol_unit() { continue; }
         let tid = town_id.0 as u32;
         town_routes.entry(tid).or_insert_with(|| {
-            crate::systems::spawn::build_patrol_route(&world_data, tid)
+            crate::systems::spawn::build_patrol_route(&building_map, tid)
         });
     }
 
@@ -1214,7 +1212,7 @@ pub fn rebuild_patrol_routes_system(
         if !job.is_patrol_unit() { continue; }
         let tid = town_id.0 as u32;
         let posts = town_routes.entry(tid).or_insert_with(|| {
-            crate::systems::spawn::build_patrol_route(&world_data, tid)
+            crate::systems::spawn::build_patrol_route(&building_map, tid)
         });
         if !posts.is_empty() {
             commands.entity(entity).insert(PatrolRoute { posts: posts.clone(), current: 0 });

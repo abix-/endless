@@ -1186,7 +1186,7 @@ pub fn ai_decision_system(
         let pname = personality.name();
 
         // Pre-compute mine_shafts before bc closure to allow mutable borrow for bootstrap.
-        let mine_shafts = (building_def(BuildingKind::MinerHome).count_for_town)(&res.world.world_data, ctx.ti);
+        let mine_shafts = res.world.building_slots.count_for_town(BuildingKind::MinerHome, ctx.ti);
 
         // Deterministic miner bootstrap: bypasses food reserve gate.
         // Ensures min miner homes are built before the town can starve its gold economy.
@@ -1221,7 +1221,7 @@ pub fn ai_decision_system(
         // Food reserve rule: if town is at/below reserve, skip spending this tick.
         if food <= reserve { continue; }
 
-        let bc = |k: BuildingKind| (building_def(k).count_for_town)(&res.world.world_data, ctx.ti);
+        let bc = |k: BuildingKind| res.world.building_slots.count_for_town(k, ctx.ti);
         let farms = bc(BuildingKind::Farm);
         let houses = bc(BuildingKind::FarmerHome);
         let barracks = bc(BuildingKind::ArcherHome);
@@ -1826,10 +1826,12 @@ fn log_ai(log: &mut CombatLog, gt: &GameTime, faction: i32, town: &str, personal
 // AI SQUAD COMMANDER
 // ============================================================================
 
-/// Resolve a building's position from WorldData by kind + index.
+/// Resolve a building's position from BuildingEntityMap by kind + data_idx.
 /// Returns None if index is out of bounds or building is dead.
-fn resolve_building_pos(world_data: &WorldData, kind: BuildingKind, index: usize) -> Option<Vec2> {
-    (crate::constants::building_def(kind).pos_town)(world_data, index).map(|(pos, _)| pos)
+fn resolve_building_pos(building_map: &BuildingEntityMap, kind: BuildingKind, index: usize) -> Option<Vec2> {
+    building_map.get_slot(kind, index)
+        .and_then(|s| building_map.get_instance(s))
+        .map(|inst| inst.position)
 }
 
 impl AiPersonality {
@@ -2162,7 +2164,7 @@ pub fn ai_squad_commander_system(
             if squad.wave_active {
                 // --- Wave end conditions ---
                 let target_alive = cmd.target_kind
-                    .and_then(|k| resolve_building_pos(&world_data, k, cmd.target_index))
+                    .and_then(|k| resolve_building_pos(&building_map, k, cmd.target_index))
                     .is_some();
 
                 let loss_threshold = squad.wave_start_count

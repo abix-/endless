@@ -5,12 +5,12 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::resources::{
-    NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta,
+    NpcEntityMap, PopulationStats, NpcMetaCache, NpcMeta, BuildingEntityMap,
     NpcsByTownCache, FactionStats, GameTime, CombatLog, CombatEventKind, SystemTimings, DirtyFlags,
 };
 use crate::systems::stats::{CombatConfig, TownUpgrades, resolve_combat_stats};
 use crate::systems::economy::*;
-use crate::world::WorldData;
+use crate::world::{WorldData, BuildingKind};
 
 // Name generation word lists
 const ADJECTIVES: &[&str] = &["Swift", "Brave", "Calm", "Bold", "Sharp", "Quick", "Stern", "Wise", "Keen", "Strong"];
@@ -115,7 +115,8 @@ pub fn materialize_npc(
     npc_meta: &mut NpcMetaCache,
     npcs_by_town: &mut NpcsByTownCache,
     gpu_updates: &mut MessageWriter<GpuUpdateMsg>,
-    world_data: &WorldData,
+    _world_data: &WorldData,
+    building_map: &BuildingEntityMap,
     combat_config: &CombatConfig,
     upgrades: &TownUpgrades,
 ) {
@@ -202,7 +203,7 @@ pub fn materialize_npc(
 
     // Patrol route
     if def.is_patrol_unit && starting_post >= 0 {
-        let patrol_posts = build_patrol_route(world_data, town_idx as u32);
+        let patrol_posts = build_patrol_route(building_map, town_idx as u32);
         if !patrol_posts.is_empty() {
             ec.insert(PatrolRoute { posts: patrol_posts, current: starting_post as usize });
             // Only set OnDuty for fresh spawns (save restores activity via override)
@@ -261,6 +262,7 @@ pub fn spawn_npc_system(
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
     mut dirty: ResMut<DirtyFlags>,
+    building_map: Res<BuildingEntityMap>,
 ) {
     let _t = timings.scope("spawn_npc");
     for msg in events.read() {
@@ -271,7 +273,7 @@ pub fn spawn_npc_system(
             [msg.home_x, msg.home_y], work_pos, msg.starting_post, msg.attack_type,
             &NpcSpawnOverrides::default(),
             &mut commands, &mut npc_map, &mut pop_stats, &mut npc_meta,
-            &mut npcs_by_town, &mut gpu_updates, &world_data, &combat_config, &upgrades,
+            &mut npcs_by_town, &mut gpu_updates, &world_data, &building_map, &combat_config, &upgrades,
         );
 
         // Spawn-only bookkeeping (not needed for save-load)
@@ -290,11 +292,10 @@ pub fn spawn_npc_system(
 
 }
 
-/// Build sorted patrol route from WorldData for a given town.
-pub(crate) fn build_patrol_route(world: &WorldData, town_idx: u32) -> Vec<Vec2> {
-    let mut posts: Vec<(u32, Vec2)> = world.waypoints().iter()
-        .filter(|p| p.town_idx == town_idx && crate::world::is_alive(p.position))
-        .map(|p| (p.patrol_order, p.position))
+/// Build sorted patrol route from BuildingEntityMap for a given town.
+pub(crate) fn build_patrol_route(building_map: &BuildingEntityMap, town_idx: u32) -> Vec<Vec2> {
+    let mut posts: Vec<(u32, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
+        .map(|inst| (inst.patrol_order, inst.position))
         .collect();
     posts.sort_by_key(|(order, _)| *order);
     posts.into_iter().map(|(_, pos)| pos).collect()

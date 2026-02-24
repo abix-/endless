@@ -539,18 +539,16 @@ fn click_to_select_system(
     let world_pos = position + mouse_offset / zoom;
 
     // Mine assignment — snap to nearest gold mine within radius
-    if let Some(mh_idx) = click.ui_state.assigning_mine {
+    if let Some(mh_slot) = click.ui_state.assigning_mine {
         let snap_radius = 60.0;
         let best = click.building_slots.iter_kind(BuildingKind::GoldMine)
             .map(|inst| (inst.position.distance(world_pos), inst.position))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((dist, mine_pos)) = best {
             if dist < snap_radius {
-                if let Some(slot) = click.building_slots.get_slot(BuildingKind::MinerHome, mh_idx) {
-                    if let Some(inst) = click.building_slots.get_instance_mut(slot) {
-                        inst.manual_mine = true;
-                        inst.assigned_mine = Some(mine_pos);
-                    }
+                if let Some(inst) = click.building_slots.get_instance_mut(mh_slot) {
+                    inst.manual_mine = true;
+                    inst.assigned_mine = Some(mine_pos);
                 }
             }
         }
@@ -595,9 +593,9 @@ fn click_to_select_system(
     // Find nearest building via the same distance-based hit-test style as NPC selection.
     let building_select_radius = 24.0_f32;
     let mut best_building_dist = building_select_radius;
-    let mut best_building: Option<(BuildingKind, usize, Vec2, Option<usize>)> = None;
+    let mut best_building: Option<(BuildingKind, Vec2, usize)> = None;
     for i in 0..npc_count {
-        let Some((kind, bidx)) = click.building_slots.get_building(i) else { continue };
+        let Some((kind, _)) = click.building_slots.get_building(i) else { continue };
         let px = positions[i * 2];
         let py = positions[i * 2 + 1];
         if px < -9000.0 { continue; }
@@ -607,7 +605,7 @@ fn click_to_select_system(
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < best_building_dist {
             best_building_dist = dist;
-            best_building = Some((kind, bidx, Vec2::new(px, py), Some(i)));
+            best_building = Some((kind, Vec2::new(px, py), i));
         }
     }
     // Fallback to clicked cell building when available.
@@ -617,23 +615,22 @@ fn click_to_select_system(
         let dy = world_pos.y - bpos.y;
         let dist = (dx * dx + dy * dy).sqrt();
         if dist < best_building_dist {
-            if let Some(bidx) = crate::world::find_building_data_index(&click.world_data, b.0, bpos) {
-                best_building = Some((b.0, bidx, bpos, None));
+            if let Some(inst) = click.building_slots.find_by_position(bpos) {
+                best_building = Some((b.0, bpos, inst.slot));
             }
         }
     }
 
     // Keep up to one NPC and one building selected from the same click.
     click.selected.0 = best_idx;
-    if let Some((kind, bidx, bpos, bslot)) = best_building {
+    if let Some((kind, bpos, bslot)) = best_building {
         let (bcol, brow) = grid.world_to_grid(bpos);
         *click.selected_building = SelectedBuilding {
             col: bcol,
             row: brow,
             active: true,
-            slot: bslot,
+            slot: Some(bslot),
             kind: Some(kind),
-            index: Some(bidx),
         };
 
         // Double-click fountain -> open Factions tab for that faction.
@@ -650,14 +647,13 @@ fn click_to_select_system(
         click.selected_building.active = false;
         click.selected_building.slot = None;
         click.selected_building.kind = None;
-        click.selected_building.index = None;
     }
 
     // Default active inspector tab by click proximity.
     if best_idx >= 0 && best_building.is_some() {
         let npc_x = positions[best_idx as usize * 2];
         let npc_y = positions[best_idx as usize * 2 + 1];
-        let (_, _, bpos, _) = best_building.unwrap_or((BuildingKind::Farm, 0, grid.grid_to_world(col, row), None));
+        let (_, bpos, _) = best_building.unwrap_or((BuildingKind::Farm, grid.grid_to_world(col, row), 0));
         let npc_dx = world_pos.x - npc_x;
         let npc_dy = world_pos.y - npc_y;
         let bld_dx = world_pos.x - bpos.x;

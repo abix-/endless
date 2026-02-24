@@ -18,6 +18,7 @@ pub fn setup(
     mut building_slots: ResMut<BuildingEntityMap>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
+    mut spawner_state: ResMut<SpawnerState>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut test_state: ResMut<TestState>,
@@ -32,8 +33,8 @@ pub fn setup(
     food_storage.init(1);
     faction_stats.init(2);
 
-    // Allocate building GPU slots so building_tower_system can read combat target for the fountain.
-    world::allocate_all_building_slots(&world_data, &mut slot_alloc, &mut building_slots);
+    // Create fountain instance directly
+    world::place_building_instance(&mut slot_alloc, &mut building_slots, &mut spawner_state, world::BuildingKind::Fountain, Vec2::new(400.0, 400.0), 0, 0, 0, 0);
 
     // One enemy NPC in fountain range; keep this NPC pinned in tick so tower fires repeatedly.
     let target_slot = slot_alloc.alloc().expect("slot alloc for target");

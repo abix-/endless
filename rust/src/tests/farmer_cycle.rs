@@ -10,7 +10,7 @@ use super::{TestState, TestSetupParams};
 
 pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<GrowthStates>) {
     params.add_town("FarmTown");
-    params.world_data.farms_mut().push(crate::world::PlacedBuilding::new(Vec2::new(400.0, 350.0), 0));
+    params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
     farm_states.kinds.push(crate::resources::GrowthKind::Farm);
     farm_states.states.push(FarmGrowthState::Growing);
     farm_states.progress.push(0.0);

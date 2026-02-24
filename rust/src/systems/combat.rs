@@ -499,9 +499,11 @@ pub fn building_damage_system(
         let new_hp = health.0;
         let max_hp = crate::constants::building_def(msg.kind).hp;
 
-        // Look up position and town for logging
-        let Some((pos, town_idx_u32)) = world.world_data.building_pos_town(msg.kind, msg.index) else { continue };
-        let town_idx = town_idx_u32 as usize;
+        // Look up position and town for logging (via BuildingEntityMap instance)
+        let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) else { continue };
+        let Some(inst) = world.building_slots.get_instance(slot) else { continue };
+        let pos = inst.position;
+        let town_idx = inst.town_idx as usize;
 
         // Mark dirty so healing_system knows to run
         if new_hp > 0.0 { world.dirty.buildings_need_healing = true; }
