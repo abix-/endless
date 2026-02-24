@@ -1231,7 +1231,6 @@ pub fn save_game_system(
     fs: SaveFactionState,
     npc_map: Res<NpcEntityMap>,
     npc_meta: Res<NpcMetaCache>,
-    building_slots: Res<BuildingEntityMap>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
     building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
@@ -1240,9 +1239,9 @@ pub fn save_game_system(
     request.save_requested = false;
 
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
-    let building_hp = collect_building_hp(&building_query, &building_slots);
+    let building_hp = collect_building_hp(&building_query, &ws.building_slots);
     let data = collect_save_data(
-        &ws.grid, &ws.world_data, &building_slots, &ws.town_grids, &ws.game_time,
+        &ws.grid, &ws.world_data, &ws.building_slots, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
@@ -1270,7 +1269,6 @@ pub fn autosave_system(
     fs: SaveFactionState,
     npc_map: Res<NpcEntityMap>,
     npc_meta: Res<NpcMetaCache>,
-    building_slots: Res<BuildingEntityMap>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
     building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
@@ -1287,9 +1285,9 @@ pub fn autosave_system(
     let Some(path) = autosave_path(slot) else { return };
 
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
-    let building_hp = collect_building_hp(&building_query, &building_slots);
+    let building_hp = collect_building_hp(&building_query, &ws.building_slots);
     let data = collect_save_data(
-        &ws.grid, &ws.world_data, &building_slots, &ws.town_grids, &ws.game_time,
+        &ws.grid, &ws.world_data, &ws.building_slots, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
         &ws.spawner_state, building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
