@@ -266,7 +266,7 @@ pub struct TownSlotInfo {
 /// runtime building placement (player and AI, town-grid and wilderness).
 pub fn place_building(
     grid: &mut WorldGrid,
-    world_data: &mut WorldData,
+    world_data: &WorldData,
     farm_states: &mut GrowthStates,
     food_storage: &mut FoodStorage,
     spawner_state: &mut SpawnerState,
@@ -307,23 +307,22 @@ pub fn place_building(
     let def = crate::constants::building_def(kind);
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
 
-    // Register in WorldData (still needed for data_idx-based slot lookups)
-    (def.place)(world_data, snapped, town_idx);
-    let data_idx = find_building_data_index(world_data, kind, snapped).unwrap_or(0);
-
     // Farm: register growth state
     if kind == BuildingKind::Farm {
         farm_states.push_farm(snapped, town_idx);
     }
 
-    // Spawner registration (no-op for non-spawner kinds)
-    register_spawner(spawner_state, kind, town_data_idx as i32, snapped, 0.0);
+    // Allocate GPU slot + create instance + register spawner
+    let patrol_order = if kind == BuildingKind::Waypoint {
+        building_slots.count_for_town(BuildingKind::Waypoint, town_idx) as u32
+    } else { 0 };
+    let wall_level = if kind == BuildingKind::Wall { 1 } else { 0 };
+    let Some(slot) = place_building_instance(slot_alloc, building_slots, spawner_state, kind, snapped, town_idx, faction, patrol_order, wall_level) else {
+        return Err("no GPU slots available");
+    };
 
-    // GPU slot allocation
-    allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(kind), def.is_tower);
-
-    // Spawn building entity + instance (BuildingEntityMap is source of truth)
-    if let Some(slot) = building_slots.get_slot(kind, data_idx) {
+    // Spawn building entity
+    {
         use crate::components::*;
         let entity = commands.spawn((
             NpcIndex(slot),
@@ -335,20 +334,11 @@ pub fn place_building(
             Building { kind },
         )).id();
         building_slots.set_entity(slot, entity);
-
-        let patrol_order = if kind == BuildingKind::Waypoint {
-            building_slots.count_for_town(BuildingKind::Waypoint, town_idx) as u32 - 1
-        } else { 0 };
-        let wall_level = if kind == BuildingKind::Wall { 1 } else { 0 };
-        building_slots.add_instance(crate::resources::BuildingInstance {
-            kind, position: snapped, town_idx, slot, entity, faction,
-            patrol_order, assigned_mine: None, manual_mine: false, wall_level,
-        });
     }
 
     // Wall auto-tile: update sprites for new wall + neighbors
     if kind == BuildingKind::Wall {
-        update_wall_sprites_around(grid, world_data, building_slots, gc, gr);
+        update_wall_sprites_around(grid, building_slots, gc, gr);
     }
 
     // Dirty flags
@@ -397,7 +387,6 @@ pub fn wall_autotile_variant(grid: &WorldGrid, col: usize, row: usize) -> u16 {
 /// Pushes GPU SetSpriteFrame updates for each wall found.
 pub fn update_wall_sprites_around(
     grid: &WorldGrid,
-    world_data: &WorldData,
     building_slots: &BuildingEntityMap,
     col: usize, row: usize,
 ) {
@@ -411,14 +400,12 @@ pub fn update_wall_sprites_around(
         if !is_wall_at(grid, c, r) { continue; }
         let variant = wall_autotile_variant(grid, c, r);
         let pos = grid.grid_to_world(c, r);
-        if let Some(data_idx) = find_building_data_index(world_data, BuildingKind::Wall, pos) {
-            if let Some(slot) = building_slots.get_slot(BuildingKind::Wall, data_idx) {
-                if let Ok(mut queue) = crate::messages::GPU_UPDATE_QUEUE.lock() {
-                    queue.push(GpuUpdate::SetSpriteFrame {
-                        idx: slot, col: wall_base + variant as f32, row: 0.0,
-                        atlas: crate::constants::ATLAS_BUILDING,
-                    });
-                }
+        if let Some(inst) = building_slots.find_by_position(pos) {
+            if let Ok(mut queue) = crate::messages::GPU_UPDATE_QUEUE.lock() {
+                queue.push(GpuUpdate::SetSpriteFrame {
+                    idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
+                    atlas: crate::constants::ATLAS_BUILDING,
+                });
             }
         }
     }
@@ -539,6 +526,11 @@ fn allocate_building_slot(
         return;
     };
     building_slots.insert(kind, data_idx, slot);
+    push_building_gpu_updates(slot, pos, faction, max_hp, tileset_idx, tower);
+}
+
+/// Push GPU updates for a building slot (position, faction, health, sprite).
+fn push_building_gpu_updates(slot: usize, pos: Vec2, faction: i32, max_hp: f32, tileset_idx: u16, tower: bool) {
     let flags = if tower { 3u32 } else { 0u32 };
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         queue.push(GpuUpdate::SetPosition { idx: slot, x: pos.x, y: pos.y });
@@ -552,6 +544,37 @@ fn allocate_building_slot(
             atlas: crate::constants::ATLAS_BUILDING,
         });
     }
+}
+
+/// Allocate GPU slot + create BuildingInstance + register spawner in one call.
+/// Returns the allocated slot, or None if no slots available.
+pub fn place_building_instance(
+    slot_alloc: &mut SlotAllocator,
+    building_map: &mut BuildingEntityMap,
+    spawner_state: &mut SpawnerState,
+    kind: BuildingKind,
+    pos: Vec2,
+    town_idx: u32,
+    faction: i32,
+    patrol_order: u32,
+    wall_level: u8,
+) -> Option<usize> {
+    use crate::constants::{building_def, tileset_index};
+    let def = building_def(kind);
+    let Some(slot) = slot_alloc.alloc() else {
+        warn!("No NPC slots available for building {:?}", kind);
+        return None;
+    };
+    let data_idx = building_map.iter_kind(kind).count();
+    building_map.insert(kind, data_idx, slot);
+    push_building_gpu_updates(slot, pos, faction, def.hp, tileset_index(kind), def.is_tower);
+    building_map.add_instance(crate::resources::BuildingInstance {
+        kind, position: pos, town_idx, slot,
+        entity: Entity::PLACEHOLDER, faction,
+        patrol_order, assigned_mine: None, manual_mine: false, wall_level,
+    });
+    register_spawner(spawner_state, kind, town_idx as i32, pos, -1.0);
+    Some(slot)
 }
 
 
@@ -610,58 +633,40 @@ fn read_placed_building_fields(world_data: &WorldData, kind: BuildingKind, index
     }
 }
 
-/// Spawn ECS entities for all alive buildings in WorldData and register in BuildingEntityMap.
-/// Buildings are ECS entities: NpcIndex, Position, Health, Faction, TownId, Speed(0), Building marker.
-/// Called after allocate_all_building_slots (needs BuildingEntityMap to know GPU slot per building).
+/// Spawn ECS entities for all building instances in BuildingEntityMap.
+/// Reads instances (which have Entity::PLACEHOLDER), spawns real entities, updates the map.
+/// `loaded_hp`: optional HP overrides keyed by slot.
 pub fn spawn_building_entities(
     commands: &mut Commands,
-    world_data: &WorldData,
     building_map: &mut BuildingEntityMap,
-    loaded_hp: Option<&std::collections::HashMap<String, Vec<f32>>>,
+    loaded_hp: Option<&std::collections::HashMap<usize, f32>>,
 ) {
     use crate::components::*;
-    use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
+    use crate::constants::building_def;
 
+    // Collect slots to iterate (can't mutate map while iterating)
+    let slots: Vec<usize> = building_map.all_slots().collect();
     let mut count = 0usize;
-    for def in BUILDING_REGISTRY {
-        for i in 0..(def.len)(world_data) {
-            if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
-                let Some(slot) = building_map.get_slot(def.kind, i) else { continue };
-
-                // Look up HP from loaded save data if available, else full HP
-                let hp = loaded_hp
-                    .and_then(|m| def.save_key.and_then(|k| m.get(k)).or_else(|| {
-                        // Fountain uses "towns" key indexed by town_data_idx
-                        if def.kind == BuildingKind::Fountain { m.get("towns") } else { None }
-                    }))
-                    .and_then(|v| v.get(i).copied())
-                    .unwrap_or(def.hp);
-                if hp <= 0.0 { continue; } // skip tombstoned buildings
-
-                let faction = if def.kind == BuildingKind::GoldMine { FACTION_NEUTRAL } else {
-                    world_data.towns.get(ti as usize).map(|t| t.faction).unwrap_or(0)
-                };
-                let entity = commands.spawn((
-                    NpcIndex(slot),
-                    Position::new(pos.x, pos.y),
-                    Health(hp),
-                    Faction(faction),
-                    TownId(ti as i32),
-                    Speed(0.0),
-                    Building { kind: def.kind },
-                )).id();
-                building_map.set_entity(slot, entity);
-
-                // Populate instance data from WorldData (dual-write, Phase 1)
-                let (patrol_order, assigned_mine, manual_mine, wall_level) =
-                    read_placed_building_fields(world_data, def.kind, i);
-                building_map.add_instance(crate::resources::BuildingInstance {
-                    kind: def.kind, position: pos, town_idx: ti, slot, entity, faction,
-                    patrol_order, assigned_mine, manual_mine, wall_level,
-                });
-                count += 1;
-            }
-        }
+    for slot in slots {
+        let Some(inst) = building_map.get_instance(slot) else { continue };
+        let def = building_def(inst.kind);
+        let hp = loaded_hp.and_then(|m| m.get(&slot).copied()).unwrap_or(def.hp);
+        if hp <= 0.0 { continue; }
+        let pos = inst.position;
+        let faction = inst.faction;
+        let town_idx = inst.town_idx;
+        let kind = inst.kind;
+        let entity = commands.spawn((
+            NpcIndex(slot),
+            Position::new(pos.x, pos.y),
+            Health(hp),
+            Faction(faction),
+            TownId(town_idx as i32),
+            Speed(0.0),
+            Building { kind },
+        )).id();
+        building_map.set_entity(slot, entity);
+        count += 1;
     }
     info!("Spawned {} building entities", count);
 }
@@ -818,16 +823,15 @@ pub fn setup_world(
     raider_state: &mut RaiderState,
 ) -> (Vec<crate::messages::SpawnNpcMsg>, Vec<crate::systems::AiPlayer>) {
     town_grids.grids.clear();
-    generate_world(config, grid, world_data, farm_states, town_grids);
+    building_slots.clear();
+    generate_world(config, grid, world_data, farm_states, town_grids, slot_alloc, building_slots, spawner_state);
+    building_slots.init_spatial(grid.width as f32 * grid.cell_size);
 
     let n = world_data.towns.len();
     food_storage.init(n);
     gold_storage.init(n);
     faction_stats.init(n);
     raider_state.init(n, 10);
-
-    init_world_buildings(world_data, spawner_state, slot_alloc, building_slots);
-    populate_building_instances(world_data, building_slots, grid.width as f32 * grid.cell_size);
 
     let npc_msgs = spawn_npcs_from_spawners(
         spawner_state, slot_alloc,
@@ -916,7 +920,7 @@ pub fn find_building_data_index(world_data: &WorldData, kind: BuildingKind, pos:
 /// Used by click-destroy, inspector-destroy, and building_damage_system (HP→0).
 pub fn destroy_building(
     grid: &mut WorldGrid,
-    world_data: &mut WorldData,
+    world_data: &WorldData,
     farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
     building_slots: &mut BuildingEntityMap,
@@ -945,14 +949,12 @@ pub fn destroy_building(
         cell.building = None;
     }
 
-    // Tombstone in WorldData (farm growth state must be found before tombstone moves position)
-    let def = crate::constants::building_def(kind);
+    // Growth state cleanup (farm growth state must be found before position removed)
     if kind == BuildingKind::Farm {
         if let Some(gi) = farm_states.find_farm_at(snapped) {
             farm_states.tombstone(gi);
         }
     }
-    (def.tombstone)(world_data, snapped);
 
     // Tombstone matching spawner entry
     if let Some(se) = spawner_state.0.iter_mut().find(|s| (s.position - snapped).length() < 1.0) {
@@ -961,7 +963,7 @@ pub fn destroy_building(
 
     // Wall auto-tile: update neighbor sprites after wall removed
     if kind == BuildingKind::Wall {
-        update_wall_sprites_around(grid, world_data, building_slots, gc, gr);
+        update_wall_sprites_around(grid, building_slots, gc, gr);
     }
 
     // Combat log — derive faction from building's town_idx
@@ -1658,6 +1660,9 @@ pub fn generate_world(
     world_data: &mut WorldData,
     farm_states: &mut GrowthStates,
     town_grids: &mut TownGrids,
+    slot_alloc: &mut SlotAllocator,
+    building_map: &mut BuildingEntityMap,
+    spawner_state: &mut SpawnerState,
 ) {
     use rand::Rng;
     let mut rng = rand::rng();
@@ -1725,7 +1730,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false);
+        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false, slot_alloc, building_map, spawner_state);
     }
 
     // Step 3: Place AI town centers (Builder AI, each gets unique faction)
@@ -1758,7 +1763,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false);
+        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false, slot_alloc, building_map, spawner_state);
     }
 
     // Step 4: Place raider town centers (Raider AI, each gets unique faction)
@@ -1789,7 +1794,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], true);
+        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], true, slot_alloc, building_map, spawner_state);
     }
 
     // Step 5: Generate terrain
@@ -1831,7 +1836,7 @@ pub fn generate_world(
         if let Some(cell) = grid.cell_mut(gc, gr) {
             cell.building = Some((BuildingKind::GoldMine, 0));
         }
-        world_data.get_mut(BuildingKind::GoldMine).push(PlacedBuilding::new(snapped, 0));
+        place_building_instance(slot_alloc, building_map, spawner_state, BuildingKind::GoldMine, snapped, 0, crate::constants::FACTION_NEUTRAL, 0, 0);
         farm_states.push_mine(snapped);
         mine_positions.push(snapped);
     }
@@ -1846,15 +1851,19 @@ pub fn generate_world(
 /// - Raider (`is_raider: true`): fountain + raider NPC homes (tents)
 pub fn place_buildings(
     grid: &mut WorldGrid,
-    world_data: &mut WorldData,
+    world_data: &WorldData,
     farm_states: &mut GrowthStates,
     center: Vec2,
     town_idx: u32,
     config: &WorldGenConfig,
     town_grid: &mut TownGrid,
     is_raider: bool,
+    slot_alloc: &mut SlotAllocator,
+    building_map: &mut BuildingEntityMap,
+    spawner_state: &mut SpawnerState,
 ) {
     let mut occupied = HashSet::new();
+    let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
 
     // Helper: place building at town grid (row, col), return snapped world position
     let mut place = |row: i32, col: i32, kind: BuildingKind, ti: u32, occ: &mut HashSet<(i32, i32)>| -> Vec2 {
@@ -1870,9 +1879,10 @@ pub fn place_buildings(
         snapped_pos
     };
 
-    // Center building at (0, 0)
+    // Center building at (0, 0) — Fountain
     let center_kind = BuildingKind::Fountain;
     place(0, 0, center_kind, town_idx, &mut occupied);
+    place_building_instance(slot_alloc, building_map, spawner_state, center_kind, center, town_idx, faction, 0, 0);
 
     // Count NPC homes needed (raider units for raider towns, village units for builder towns)
     let homes: usize = NPC_REGISTRY.iter()
@@ -1887,7 +1897,7 @@ pub fn place_buildings(
     for _ in 0..farms_count {
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied);
-        world_data.get_mut(BuildingKind::Farm).push(PlacedBuilding::new(pos, town_idx));
+        place_building_instance(slot_alloc, building_map, spawner_state, BuildingKind::Farm, pos, town_idx, faction, 0, 0);
         farm_states.push_farm(pos, town_idx as u32);
     }
 
@@ -1897,7 +1907,7 @@ pub fn place_buildings(
         for _ in 0..count {
             let Some((row, col)) = slot_iter.next() else { break };
             let pos = place(row, col, def.home_building, town_idx, &mut occupied);
-            world_data.get_mut(def.home_building).push(PlacedBuilding::new(pos, town_idx));
+            place_building_instance(slot_alloc, building_map, spawner_state, def.home_building, pos, town_idx, faction, 0, 0);
         }
     }
 
@@ -1915,12 +1925,7 @@ pub fn place_buildings(
         ];
         for (order, (row, col)) in corners.into_iter().enumerate() {
             let post_pos = place(row, col, BuildingKind::Waypoint, town_idx, &mut occupied);
-            world_data.get_mut(BuildingKind::Waypoint).push(PlacedBuilding {
-                position: post_pos,
-                town_idx,
-                patrol_order: order as u32,
-                ..PlacedBuilding::new(post_pos, town_idx)
-            });
+            place_building_instance(slot_alloc, building_map, spawner_state, BuildingKind::Waypoint, post_pos, town_idx, faction, order as u32, 0);
         }
     }
 

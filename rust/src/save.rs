@@ -1125,6 +1125,26 @@ fn collect_building_hp(
     map
 }
 
+/// Convert old HP format (save_key → Vec<f32>) to slot-keyed HashMap for spawn_building_entities.
+pub fn convert_building_hp_to_slots(
+    old_hp: &std::collections::HashMap<String, Vec<f32>>,
+    building_map: &BuildingEntityMap,
+    _world_data: &world::WorldData,
+) -> std::collections::HashMap<usize, f32> {
+    let mut result = std::collections::HashMap::new();
+    for def in crate::constants::BUILDING_REGISTRY {
+        let key = if def.kind == world::BuildingKind::Fountain { Some("towns") } else { def.save_key };
+        let Some(key) = key else { continue };
+        let Some(hps) = old_hp.get(key) else { continue };
+        for (i, &hp) in hps.iter().enumerate() {
+            if let Some(slot) = building_map.get_slot(def.kind, i) {
+                result.insert(slot, hp);
+            }
+        }
+    }
+    result
+}
+
 // ============================================================================
 // BEVY SYSTEMS
 // ============================================================================
@@ -1336,15 +1356,17 @@ pub fn load_game_system(
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 
-    // 4. Rebuild building GPU slots
+    // 4. Rebuild building GPU slots + instances
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
     tracking.building_slots.clear();
     world::allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
     world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
-
-    // 4b. Spawn building entities (ECS entities for all alive buildings)
     tracking.building_slots.init_spatial(world_size_px);
-    world::spawn_building_entities(&mut commands, &ws.world_data, &mut tracking.building_slots, Some(&save.building_hp));
+    world::populate_building_instances(&ws.world_data, &mut tracking.building_slots, world_size_px);
+
+    // 4b. Convert old HP format (String→Vec<f32>) to slot-keyed map, then spawn entities
+    let hp_by_slot = convert_building_hp_to_slots(&save.building_hp, &tracking.building_slots, &ws.world_data);
+    world::spawn_building_entities(&mut commands, &mut tracking.building_slots, Some(&hp_by_slot));
 
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(

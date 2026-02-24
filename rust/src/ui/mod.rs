@@ -247,9 +247,11 @@ fn game_load_system(
     allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
     world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
 
-    // Spawn building entities (ECS entities for all alive buildings)
+    // Populate instances + spawn building entities
     tracking.building_slots.init_spatial(world_size_px);
-    world::spawn_building_entities(&mut commands, &ws.world_data, &mut tracking.building_slots, Some(&save.building_hp));
+    world::populate_building_instances(&ws.world_data, &mut tracking.building_slots, world_size_px);
+    let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &tracking.building_slots, &ws.world_data);
+    world::spawn_building_entities(&mut commands, &mut tracking.building_slots, Some(&hp_by_slot));
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
@@ -320,7 +322,7 @@ fn game_startup_system(
     for msg in npc_msgs { spawn_writer.write(msg); }
 
     // Spawn building entities (ECS entities for all alive buildings)
-    world::spawn_building_entities(&mut commands, &world_state.world_data, &mut world_state.building_slots, None);
+    world::spawn_building_entities(&mut commands, &mut world_state.building_slots, None);
 
     // Game-specific post-setup: settings, policies, combat log
     *extra.mining_policy = MiningPolicy::default();

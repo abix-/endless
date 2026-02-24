@@ -1028,6 +1028,11 @@ impl BuildingEntityMap {
         self.to_slot.len()
     }
 
+    /// Iterate all instance slot keys.
+    pub fn all_slots(&self) -> impl Iterator<Item = usize> + '_ {
+        self.instances.keys().copied()
+    }
+
     // ── Instance API (new) ─────────────────────────────────────────────
 
     /// Add or update a building instance. Updates all indexes.

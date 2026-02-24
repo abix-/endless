@@ -785,18 +785,10 @@ pub fn endless_system(
         upgrades.levels.resize(num_towns, Vec::new());
         upgrades.levels[town_data_idx] = mg.upgrade_levels.clone();
 
-        // Place buildings
+        // Place buildings directly into BuildingEntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider);
+            world::place_buildings(&mut world_state.grid, &world_state.world_data, &mut world_state.farm_states, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.spawner_state);
         }
-        world::init_single_town_buildings(
-            town_data_idx, &world_state.world_data,
-            &mut world_state.spawner_state,
-            &mut world_state.slot_alloc, &mut world_state.building_slots,
-        );
-        // Populate BuildingEntityMap instances for new buildings (Entity::PLACEHOLDER until spawned)
-        let ws_px = world_state.grid.width as f32 * world_state.grid.cell_size;
-        world::populate_building_instances(&world_state.world_data, &mut world_state.building_slots, ws_px);
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
         // Activate AI
