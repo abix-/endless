@@ -344,6 +344,14 @@ pub fn place_building(
             Building { kind },
         )).id();
         building_slots.set_entity(slot, entity);
+
+        // Dual-write: populate instance data (read kind-specific fields from WorldData)
+        let (patrol_order, assigned_mine, manual_mine, wall_level) =
+            read_placed_building_fields(world_data, kind, data_idx);
+        building_slots.add_instance(crate::resources::BuildingInstance {
+            kind, position: snapped, town_idx: town_data_idx as u32, slot, entity, faction,
+            patrol_order, assigned_mine, manual_mine, wall_level,
+        });
     }
 
     // Wall auto-tile: update sprites for new wall + neighbors
@@ -594,6 +602,27 @@ pub fn allocate_all_building_slots(
     info!("Allocated {} building GPU slots", building_slots.len());
 }
 
+/// Read kind-specific PlacedBuilding fields from WorldData for a given building.
+/// Returns (patrol_order, assigned_mine, manual_mine, wall_level).
+fn read_placed_building_fields(world_data: &WorldData, kind: BuildingKind, index: usize) -> (u32, Option<Vec2>, bool, u8) {
+    match kind {
+        BuildingKind::Waypoint => {
+            let po = world_data.get(kind).get(index).map(|b| b.patrol_order).unwrap_or(0);
+            (po, None, false, 0)
+        }
+        BuildingKind::MinerHome => {
+            let (am, mm) = world_data.get(kind).get(index)
+                .map(|b| (b.assigned_mine, b.manual_mine)).unwrap_or((None, false));
+            (0, am, mm, 0)
+        }
+        BuildingKind::Wall => {
+            let wl = world_data.get(kind).get(index).map(|b| b.wall_level).unwrap_or(1);
+            (0, None, false, wl)
+        }
+        _ => (0, None, false, 0),
+    }
+}
+
 /// Spawn ECS entities for all alive buildings in WorldData and register in BuildingEntityMap.
 /// Buildings are ECS entities: NpcIndex, Position, Health, Faction, TownId, Speed(0), Building marker.
 /// Called after allocate_all_building_slots (needs BuildingEntityMap to know GPU slot per building).
@@ -635,6 +664,14 @@ pub fn spawn_building_entities(
                     Building { kind: def.kind },
                 )).id();
                 building_map.set_entity(slot, entity);
+
+                // Populate instance data from WorldData (dual-write, Phase 1)
+                let (patrol_order, assigned_mine, manual_mine, wall_level) =
+                    read_placed_building_fields(world_data, def.kind, i);
+                building_map.add_instance(crate::resources::BuildingInstance {
+                    kind: def.kind, position: pos, town_idx: ti, slot, entity, faction,
+                    patrol_order, assigned_mine, manual_mine, wall_level,
+                });
                 count += 1;
             }
         }

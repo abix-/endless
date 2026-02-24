@@ -919,16 +919,47 @@ impl SpawnerEntry {
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 
-/// Building identity map: (kind, data_idx) ↔ GPU slot ↔ Bevy Entity.
-/// Single source of truth for all building identity lookups.
+/// A single placed building instance. All runtime state for one building.
+#[derive(Clone)]
+pub struct BuildingInstance {
+    pub kind: crate::world::BuildingKind,
+    pub position: Vec2,
+    pub town_idx: u32,
+    pub slot: usize,
+    pub entity: Entity,
+    pub faction: i32,
+    // Kind-specific fields (zero/None for non-applicable kinds)
+    pub patrol_order: u32,           // Waypoint only
+    pub assigned_mine: Option<Vec2>, // MinerHome only
+    pub manual_mine: bool,           // MinerHome only
+    pub wall_level: u8,              // Wall only
+}
+
+/// Building identity map: single source of truth for all building instances.
+/// Stores all runtime building data (position, entity, kind-specific fields).
+/// Also provides O(1) spatial lookups (absorbs BuildingSpatialGrid).
 #[derive(Resource, Default)]
 pub struct BuildingEntityMap {
+    // Legacy index maps (Phase 1 compat — kept until all consumers migrated)
     to_slot: HashMap<(crate::world::BuildingKind, usize), usize>,
     from_slot: HashMap<usize, (crate::world::BuildingKind, usize)>,
     slot_to_entity: HashMap<usize, Entity>,
+
+    // Instance storage (new — primary data store)
+    instances: HashMap<usize, BuildingInstance>,          // slot → instance
+    by_kind: HashMap<crate::world::BuildingKind, Vec<usize>>, // kind → slot list
+    by_entity: HashMap<Entity, usize>,                    // entity → slot
+    by_grid_cell: HashMap<(i32, i32), usize>,             // (grid_col, grid_row) → slot
+
+    // Spatial grid (absorbs BuildingSpatialGrid)
+    spatial_cell_size: f32,
+    spatial_width: usize,
+    spatial_cells: Vec<Vec<usize>>,
 }
 
 impl BuildingEntityMap {
+    // ── Legacy identity API (kept for Phase 1 compat) ──────────────────
+
     pub fn insert(&mut self, kind: crate::world::BuildingKind, index: usize, slot: usize) {
         self.to_slot.insert((kind, index), slot);
         self.from_slot.insert(slot, (kind, index));
@@ -936,6 +967,13 @@ impl BuildingEntityMap {
 
     pub fn set_entity(&mut self, slot: usize, entity: Entity) {
         self.slot_to_entity.insert(slot, entity);
+        // Also update instance + by_entity if instance exists
+        if self.instances.contains_key(&slot) {
+            self.by_entity.insert(entity, slot);
+            if let Some(inst) = self.instances.get_mut(&slot) {
+                inst.entity = entity;
+            }
+        }
     }
 
     pub fn insert_full(&mut self, kind: crate::world::BuildingKind, index: usize, slot: usize, entity: Entity) {
@@ -947,6 +985,8 @@ impl BuildingEntityMap {
         if let Some(slot) = self.to_slot.remove(&(kind, index)) {
             self.from_slot.remove(&slot);
             self.slot_to_entity.remove(&slot);
+            // Also remove from instance storage
+            self.remove_instance(slot);
             Some(slot)
         } else {
             None
@@ -977,10 +1017,167 @@ impl BuildingEntityMap {
         self.to_slot.clear();
         self.from_slot.clear();
         self.slot_to_entity.clear();
+        self.instances.clear();
+        self.by_kind.clear();
+        self.by_entity.clear();
+        self.by_grid_cell.clear();
+        self.spatial_cells.iter_mut().for_each(|c| c.clear());
     }
 
     pub fn len(&self) -> usize {
         self.to_slot.len()
+    }
+
+    // ── Instance API (new) ─────────────────────────────────────────────
+
+    /// Add a building instance. Updates all indexes.
+    pub fn add_instance(&mut self, inst: BuildingInstance) {
+        let slot = inst.slot;
+        let kind = inst.kind;
+        self.by_entity.insert(inst.entity, slot);
+        self.by_kind.entry(kind).or_default().push(slot);
+        // Grid cell index (32px grid)
+        let gc = (inst.position.x / 32.0).floor() as i32;
+        let gr = (inst.position.y / 32.0).floor() as i32;
+        self.by_grid_cell.insert((gc, gr), slot);
+        // Spatial grid
+        self.spatial_insert(slot, inst.position);
+        self.instances.insert(slot, inst);
+    }
+
+    /// Remove an instance by slot. Returns removed instance if any.
+    fn remove_instance(&mut self, slot: usize) -> Option<BuildingInstance> {
+        if let Some(inst) = self.instances.remove(&slot) {
+            self.by_entity.remove(&inst.entity);
+            if let Some(slots) = self.by_kind.get_mut(&inst.kind) {
+                slots.retain(|&s| s != slot);
+            }
+            let gc = (inst.position.x / 32.0).floor() as i32;
+            let gr = (inst.position.y / 32.0).floor() as i32;
+            self.by_grid_cell.remove(&(gc, gr));
+            self.spatial_remove(slot, inst.position);
+            Some(inst)
+        } else {
+            None
+        }
+    }
+
+    /// Get instance by slot (read-only).
+    pub fn get_instance(&self, slot: usize) -> Option<&BuildingInstance> {
+        self.instances.get(&slot)
+    }
+
+    /// Get instance by slot (mutable).
+    pub fn get_instance_mut(&mut self, slot: usize) -> Option<&mut BuildingInstance> {
+        self.instances.get_mut(&slot)
+    }
+
+    /// Iterate all instances of a given kind.
+    pub fn iter_kind(&self, kind: crate::world::BuildingKind) -> impl Iterator<Item = &BuildingInstance> {
+        let slots = self.by_kind.get(&kind);
+        let instances = &self.instances;
+        slots.into_iter().flat_map(|v| v.iter()).filter_map(move |&s| instances.get(&s))
+    }
+
+    /// Iterate all instances of a given kind for a specific town.
+    pub fn iter_kind_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> impl Iterator<Item = &BuildingInstance> {
+        self.iter_kind(kind).filter(move |i| i.town_idx == town_idx)
+    }
+
+    /// Count alive buildings of a kind for a town.
+    pub fn count_for_town(&self, kind: crate::world::BuildingKind, town_idx: u32) -> usize {
+        self.iter_kind_for_town(kind, town_idx).count()
+    }
+
+    /// Count alive buildings per kind for a town.
+    pub fn building_counts(&self, town_idx: u32) -> HashMap<crate::world::BuildingKind, usize> {
+        let mut counts = HashMap::new();
+        for (kind, slots) in &self.by_kind {
+            let count = slots.iter().filter(|&&s| self.instances.get(&s).is_some_and(|i| i.town_idx == town_idx)).count();
+            if count > 0 { counts.insert(*kind, count); }
+        }
+        counts
+    }
+
+    /// Find instance by grid-snapped position (< 1px tolerance).
+    pub fn find_by_position(&self, pos: Vec2) -> Option<&BuildingInstance> {
+        let gc = (pos.x / 32.0).floor() as i32;
+        let gr = (pos.y / 32.0).floor() as i32;
+        self.by_grid_cell.get(&(gc, gr)).and_then(|&s| self.instances.get(&s))
+    }
+
+    /// Find instance by grid-snapped position (mutable).
+    pub fn find_by_position_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
+        let gc = (pos.x / 32.0).floor() as i32;
+        let gr = (pos.y / 32.0).floor() as i32;
+        let slot = self.by_grid_cell.get(&(gc, gr)).copied()?;
+        self.instances.get_mut(&slot)
+    }
+
+    /// Find slot by position.
+    pub fn slot_at_position(&self, pos: Vec2) -> Option<usize> {
+        let gc = (pos.x / 32.0).floor() as i32;
+        let gr = (pos.y / 32.0).floor() as i32;
+        self.by_grid_cell.get(&(gc, gr)).copied()
+    }
+
+    // ── Spatial grid (absorbs BuildingSpatialGrid) ─────────────────────
+
+    /// Initialize spatial grid dimensions.
+    pub fn init_spatial(&mut self, world_size_px: f32) {
+        self.spatial_cell_size = 256.0;
+        self.spatial_width = (world_size_px / self.spatial_cell_size).ceil() as usize + 1;
+        let total = self.spatial_width * self.spatial_width;
+        self.spatial_cells.resize_with(total, Vec::new);
+    }
+
+    /// Rebuild spatial grid from current instances. Called when dirty flag is set.
+    pub fn rebuild_spatial(&mut self) {
+        for cell in &mut self.spatial_cells { cell.clear(); }
+        let slots: Vec<(usize, Vec2)> = self.instances.values().map(|i| (i.slot, i.position)).collect();
+        for (slot, pos) in slots {
+            self.spatial_insert(slot, pos);
+        }
+    }
+
+    fn spatial_insert(&mut self, slot: usize, pos: Vec2) {
+        if self.spatial_width == 0 { return; }
+        let cx = (pos.x / self.spatial_cell_size) as usize;
+        let cy = (pos.y / self.spatial_cell_size) as usize;
+        if cx < self.spatial_width && cy < self.spatial_width {
+            self.spatial_cells[cy * self.spatial_width + cx].push(slot);
+        }
+    }
+
+    fn spatial_remove(&mut self, slot: usize, pos: Vec2) {
+        if self.spatial_width == 0 { return; }
+        let cx = (pos.x / self.spatial_cell_size) as usize;
+        let cy = (pos.y / self.spatial_cell_size) as usize;
+        if cx < self.spatial_width && cy < self.spatial_width {
+            let idx = cy * self.spatial_width + cx;
+            self.spatial_cells[idx].retain(|&s| s != slot);
+        }
+    }
+
+    /// Iterate all buildings in cells overlapping the AABB (pos ± radius).
+    /// Caller must do fine distance check if needed.
+    pub fn for_each_nearby(&self, pos: Vec2, radius: f32, mut f: impl FnMut(&BuildingInstance)) {
+        if self.spatial_width == 0 { return; }
+        let cs = self.spatial_cell_size;
+        let min_cx = ((pos.x - radius).max(0.0) / cs) as usize;
+        let max_cx = (((pos.x + radius) / cs) as usize).min(self.spatial_width - 1);
+        let min_cy = ((pos.y - radius).max(0.0) / cs) as usize;
+        let max_cy = (((pos.y + radius) / cs) as usize).min(self.spatial_width - 1);
+        for cy in min_cy..=max_cy {
+            let row = cy * self.spatial_width;
+            for cx in min_cx..=max_cx {
+                for &slot in &self.spatial_cells[row + cx] {
+                    if let Some(inst) = self.instances.get(&slot) {
+                        f(inst);
+                    }
+                }
+            }
+        }
     }
 }
 
