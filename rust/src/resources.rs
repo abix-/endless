@@ -1296,10 +1296,10 @@ impl Default for PolicySet {
 /// Auto-mining cache and per-mine enable state.
 #[derive(Resource, Default)]
 pub struct MiningPolicy {
-    /// Per-town discovered gold mine indices within policy radius.
+    /// Per-town discovered gold mine slots within policy radius.
     pub discovered_mines: Vec<Vec<usize>>,
-    /// Per-gold-mine global enabled toggle.
-    pub mine_enabled: Vec<bool>,
+    /// Per-gold-mine enabled toggle, keyed by BuildingEntityMap slot.
+    pub mine_enabled: HashMap<usize, bool>,
 }
 
 // ============================================================================

@@ -1202,15 +1202,12 @@ fn building_inspector_content(
         }
 
         BuildingKind::GoldMine => {
-            if let Some(mine_idx) = world_data.gold_mine_at(world_pos) {
-                ui.label(format!("Name: {}", crate::ui::gold_mine_name(mine_idx)));
-                if mine_idx >= mining_policy.mine_enabled.len() {
-                    mining_policy.mine_enabled.resize(mine_idx + 1, true);
-                }
-                let enabled = mining_policy.mine_enabled[mine_idx];
+            if let Some(mine_inst) = bld.building_map.find_by_position(world_pos) {
+                ui.label(format!("Name: Gold Mine (slot {})", mine_inst.slot));
+                let enabled = *mining_policy.mine_enabled.get(&mine_inst.slot).unwrap_or(&true);
                 let label = if enabled { "Auto-mining: ON" } else { "Auto-mining: OFF" };
                 if ui.button(label).clicked() {
-                    mining_policy.mine_enabled[mine_idx] = !enabled;
+                    mining_policy.mine_enabled.insert(mine_inst.slot, !enabled);
                     dirty.mining = true;
                 }
             }
@@ -1469,9 +1466,9 @@ fn building_inspector_content(
                     info.push_str("Rest point\n");
                 }
                 BuildingKind::GoldMine => {
-                    if let Some(mine_idx) = world_data.gold_mine_at(world_pos) {
-                        info.push_str(&format!("Name: {}\n", crate::ui::gold_mine_name(mine_idx)));
-                        let enabled = mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true);
+                    if let Some(mine_inst) = bld.building_map.find_by_position(world_pos) {
+                        info.push_str(&format!("Gold Mine (slot {})\n", mine_inst.slot));
+                        let enabled = *mining_policy.mine_enabled.get(&mine_inst.slot).unwrap_or(&true);
                         info.push_str(if enabled { "Auto-mining: ON\n" } else { "Auto-mining: OFF\n" });
                     }
                     if let Some(gi) = bld.farm_states.positions.iter().position(|p| (*p - world_pos).length() < 1.0) {

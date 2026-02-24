@@ -322,7 +322,7 @@ pub fn spawner_respawn_system(
 
 /// Rebuild auto-mining discovery + assignments when mining topology/policy changes.
 pub fn mining_policy_system(
-    mut world_data: ResMut<WorldData>,
+    world_data: Res<WorldData>,
     mut building_map: ResMut<BuildingEntityMap>,
     policies: Res<TownPolicies>,
     spawner_state: Res<SpawnerState>,
@@ -335,11 +335,8 @@ pub fn mining_policy_system(
     if !dirty.mining { return; }
     dirty.mining = false;
 
-    // Mine discovery uses gold_mines() vec indices (mine_idx) since mine_enabled is indexed by them
+    // Mine discovery: iterate BuildingEntityMap gold mines, keyed by slot
     mining.discovered_mines.resize(world_data.towns.len(), Vec::new());
-    if mining.mine_enabled.len() < world_data.gold_mines().len() {
-        mining.mine_enabled.resize(world_data.gold_mines().len(), true);
-    }
 
     for town_idx in 0..world_data.towns.len() {
         let town = &world_data.towns[town_idx];
@@ -354,10 +351,11 @@ pub fn mining_policy_system(
         let r2 = radius * radius;
 
         let mut discovered = Vec::new();
-        for (mine_idx, mine) in world_data.gold_mines().iter().enumerate() {
-            let d = mine.position - town.center;
+        for inst in building_map.iter_kind(BuildingKind::GoldMine) {
+            let d = inst.position - town.center;
             if d.length_squared() <= r2 {
-                discovered.push(mine_idx);
+                mining.mine_enabled.entry(inst.slot).or_insert(true);
+                discovered.push(inst.slot);
             }
         }
         mining.discovered_mines[town_idx] = discovered;
@@ -366,17 +364,17 @@ pub fn mining_policy_system(
     for town_idx in 0..world_data.towns.len() {
         if world_data.towns[town_idx].faction < 0 { continue; }
 
-        let enabled_mines: Vec<usize> = mining.discovered_mines[town_idx]
+        let enabled_slots: Vec<usize> = mining.discovered_mines[town_idx]
             .iter()
             .copied()
-            .filter(|&mi| mi < mining.mine_enabled.len() && mining.mine_enabled[mi])
+            .filter(|&slot| *mining.mine_enabled.get(&slot).unwrap_or(&true))
             .collect();
 
-        let enabled_positions: Vec<Vec2> = enabled_mines.iter()
-            .filter_map(|&mi| world_data.gold_mines().get(mi).map(|m| m.position))
+        let enabled_positions: Vec<Vec2> = enabled_slots.iter()
+            .filter_map(|&slot| building_map.get_instance(slot).map(|i| i.position))
             .collect();
 
-        // Collect auto-assign miner home slots via BuildingEntityMap
+        // Collect auto-assign miner home slots
         let mut auto_home_slots: Vec<usize> = Vec::new();
         for entry in spawner_state.0.iter() {
             if entry.building_kind != 3 || entry.town_idx != town_idx as i32 || entry.npc_slot < 0 {
@@ -400,12 +398,6 @@ pub fn mining_policy_system(
                     if let Some(inst_mut) = building_map.get_instance_mut(slot) {
                         inst_mut.assigned_mine = None;
                     }
-                    // Dual-write to WorldData
-                    if let Some((_, mh_idx)) = building_map.get_building(slot) {
-                        if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
-                            mh_mut.assigned_mine = None;
-                        }
-                    }
                 }
             }
         }
@@ -414,11 +406,6 @@ pub fn mining_policy_system(
             for &slot in &auto_home_slots {
                 if let Some(inst_mut) = building_map.get_instance_mut(slot) {
                     inst_mut.assigned_mine = None;
-                }
-                if let Some((_, mh_idx)) = building_map.get_building(slot) {
-                    if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
-                        mh_mut.assigned_mine = None;
-                    }
                 }
             }
             continue;
@@ -429,11 +416,6 @@ pub fn mining_policy_system(
             let mine_pos = enabled_positions[i % enabled_positions.len()];
             if let Some(inst_mut) = building_map.get_instance_mut(slot) {
                 inst_mut.assigned_mine = Some(mine_pos);
-            }
-            if let Some((_, mh_idx)) = building_map.get_building(slot) {
-                if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
-                    mh_mut.assigned_mine = Some(mine_pos);
-                }
             }
         }
     }

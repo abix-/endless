@@ -775,51 +775,44 @@ fn policies_content(
     if mining_policy.discovered_mines.len() <= town_idx {
         mining_policy.discovered_mines.resize(town_idx + 1, Vec::new());
     }
-    if mining_policy.mine_enabled.len() < world_data.gold_mines().len() {
-        mining_policy.mine_enabled.resize(world_data.gold_mines().len(), true);
-    }
 
     let discovered = mining_policy.discovered_mines[town_idx].clone();
     let mut enabled_count = 0usize;
-    for &mine_idx in &discovered {
-        if mine_idx < mining_policy.mine_enabled.len() && mining_policy.mine_enabled[mine_idx] {
+    for &slot in &discovered {
+        if *mining_policy.mine_enabled.get(&slot).unwrap_or(&true) {
             enabled_count += 1;
         }
     }
 
-    let mut assigned_per_mine: Vec<usize> = vec![0; world_data.gold_mines().len()];
-    // Count auto-assigned miners per mine via BuildingEntityMap
+    // Count auto-assigned miners per mine (keyed by mine slot)
+    let mut assigned_per_mine: HashMap<usize, usize> = HashMap::new();
     for inst in building_map.iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32) {
         if inst.manual_mine { continue; }
         let Some(mine_pos) = inst.assigned_mine else { continue; };
-        let Some(mine_idx) = world_data.gold_mine_at(mine_pos) else { continue; };
-        if let Some(c) = assigned_per_mine.get_mut(mine_idx) {
-            *c += 1;
+        if let Some(mine_inst) = building_map.find_by_position(mine_pos) {
+            *assigned_per_mine.entry(mine_inst.slot).or_default() += 1;
         }
     }
-    let assigned_auto: usize = assigned_per_mine.iter().sum();
+    let assigned_auto: usize = assigned_per_mine.values().sum();
 
     ui.label(format!("{}/{} mines enabled, {} miners assigned", enabled_count, discovered.len(), assigned_auto));
 
     if discovered.is_empty() {
         ui.small("No discovered mines in radius.");
     } else {
-        for &mine_idx in &discovered {
-            let Some(mine) = world_data.gold_mines().get(mine_idx) else { continue };
-            let dist = mine.position.distance(world_data.towns[town_idx].center);
-            let mut enabled = mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true);
-            let mine_name = crate::ui::gold_mine_name(mine_idx);
-            let assigned_here = assigned_per_mine.get(mine_idx).copied().unwrap_or(0);
+        for (display_idx, &slot) in discovered.iter().enumerate() {
+            let Some(mine_inst) = building_map.get_instance(slot) else { continue };
+            let dist = mine_inst.position.distance(world_data.towns[town_idx].center);
+            let mut enabled = *mining_policy.mine_enabled.get(&slot).unwrap_or(&true);
+            let mine_name = crate::ui::gold_mine_name(display_idx);
+            let assigned_here = assigned_per_mine.get(&slot).copied().unwrap_or(0);
             ui.horizontal(|ui| {
                 if ui.checkbox(&mut enabled, "").changed() {
-                    if mine_idx >= mining_policy.mine_enabled.len() {
-                        mining_policy.mine_enabled.resize(mine_idx + 1, true);
-                    }
-                    mining_policy.mine_enabled[mine_idx] = enabled;
+                    mining_policy.mine_enabled.insert(slot, enabled);
                     dirty.mining = true;
                 }
                 if ui.button(mine_name).on_hover_text("Jump to mine").clicked() {
-                    *jump_target = Some(mine.position);
+                    *jump_target = Some(mine_inst.position);
                 }
                 ui.small(format!("{:.0}px, {} assigned", dist, assigned_here));
             });
@@ -1125,7 +1118,7 @@ fn rebuild_factions_cache(
         let mines_discovered = discovered.map(|v| v.len()).unwrap_or(0);
         let mines_enabled = discovered.map(|v| {
             v.iter()
-                .filter(|&&mine_idx| mining_policy.mine_enabled.get(mine_idx).copied().unwrap_or(true))
+                .filter(|&&slot| *mining_policy.mine_enabled.get(&slot).unwrap_or(&true))
                 .count()
         }).unwrap_or(0);
         let spawner_count = factions.spawner_state.0.iter()
