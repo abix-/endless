@@ -19,7 +19,6 @@ pub fn setup(
     mut params: TestSetupParams,
     mut farm_states: ResMut<GrowthStates>,
     mut world_grid: ResMut<WorldGrid>,
-    mut building_hp: ResMut<BuildingHpState>,
 ) {
     // Init WorldGrid so rebuild_building_grid_system populates BuildingSpatialGrid
     world_grid.width = 25;
@@ -44,13 +43,11 @@ pub fn setup(
         farm_states.progress.push(1.0);
         farm_states.positions.push(Vec2::new(fx, fy));
         farm_states.town_indices.push(Some(0));
-        building_hp.hps.entry(world::BuildingKind::Farm).or_default().push(crate::constants::building_def(world::BuildingKind::Farm).hp);
     }
 
     // 5 beds near town 0
     for i in 0..5 {
         params.add_bed(300.0 + (i as f32 * 50.0), 450.0);
-        building_hp.hps.entry(world::BuildingKind::Bed).or_default().push(crate::constants::building_def(world::BuildingKind::Bed).hp);
     }
 
     // 4 waypoints (square patrol around town)
@@ -61,7 +58,6 @@ pub fn setup(
             patrol_order: order as u32,
             ..world::PlacedBuilding::new(Vec2::new(gx, gy), 0)
         });
-        building_hp.hps.entry(world::BuildingKind::Waypoint).or_default().push(crate::constants::building_def(world::BuildingKind::Waypoint).hp);
     }
 
     // Spawner buildings: FarmerHomes, ArcherHomes, Tents (for respawn system)
@@ -69,23 +65,16 @@ pub fn setup(
         let pos = Vec2::new(300.0 + (i as f32 * 50.0), 450.0);
         let def = crate::constants::building_def(world::BuildingKind::FarmerHome);
         (def.place)(&mut params.world_data, pos, 0);
-        (def.hps_mut)(&mut building_hp).push(def.hp);
     }
     for _ in 0..2 {
         let def = crate::constants::building_def(world::BuildingKind::ArcherHome);
         (def.place)(&mut params.world_data, Vec2::new(400.0, 400.0), 0);
-        (def.hps_mut)(&mut building_hp).push(def.hp);
     }
     for i in 0..5 {
         let pos = Vec2::new(380.0 + (i as f32 * 10.0), 100.0);
         let def = crate::constants::building_def(world::BuildingKind::Tent);
         (def.place)(&mut params.world_data, pos, 1);
-        (def.hps_mut)(&mut building_hp).push(def.hp);
     }
-
-    // Town HP entries (Fountain for both towns)
-    building_hp.towns.push(crate::constants::building_def(world::BuildingKind::Fountain).hp);
-    building_hp.towns.push(crate::constants::building_def(world::BuildingKind::Fountain).hp);
 
     // Resources
     params.init_economy(2);

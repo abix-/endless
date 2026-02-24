@@ -795,7 +795,7 @@ pub fn endless_system(
         }
         world::init_single_town_buildings(
             town_data_idx, &world_state.world_data,
-            &mut world_state.spawner_state, &mut world_state.building_hp,
+            &mut world_state.spawner_state,
             &mut world_state.slot_alloc, &mut world_state.building_slots,
         );
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);

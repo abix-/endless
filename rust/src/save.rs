@@ -128,8 +128,9 @@ pub struct SaveData {
     // Spawners
     pub spawners: Vec<SpawnerSave>,
 
-    // Building HP
-    pub building_hp: BuildingHpState,
+    // Building HP (keyed by registry save_key + "towns" for fountains)
+    #[serde(default)]
+    pub building_hp: std::collections::HashMap<String, Vec<f32>>,
 
     // Upgrades + policies
     pub upgrades: Vec<Vec<u8>>,
@@ -480,7 +481,7 @@ pub fn collect_save_data(
     gold_storage: &GoldStorage,
     farm_states: &GrowthStates,
     spawner_state: &SpawnerState,
-    building_hp: &BuildingHpState,
+    building_hp: std::collections::HashMap<String, Vec<f32>>,
     upgrades: &TownUpgrades,
     policies: &TownPolicies,
     auto_upgrade: &AutoUpgrade,
@@ -531,8 +532,7 @@ pub fn collect_save_data(
         respawn_timer: s.respawn_timer,
     }).collect();
 
-    // Building HP — direct clone (BuildingHpState has serde derives)
-    let building_hp_save = building_hp.clone();
+    let building_hp_save = building_hp;
 
     // Upgrades (already Vec<Vec<u8>>)
     let upgrades_save: Vec<Vec<u8>> = upgrades.levels.clone();
@@ -713,7 +713,6 @@ pub fn apply_save(
     gold_storage: &mut GoldStorage,
     farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
-    building_hp: &mut BuildingHpState,
     upgrades: &mut TownUpgrades,
     policies: &mut TownPolicies,
     auto_upgrade: &mut AutoUpgrade,
@@ -807,9 +806,6 @@ pub fn apply_save(
         npc_slot: s.npc_slot,
         respawn_timer: s.respawn_timer,
     }).collect();
-
-    // Building HP — direct clone (BuildingHpState has serde derives)
-    *building_hp = save.building_hp.clone();
 
     // Upgrades
     upgrades.levels = save.upgrades.iter().map(|v| {
@@ -1060,7 +1056,6 @@ pub struct SaveWorldState<'w> {
     pub gold_storage: ResMut<'w, GoldStorage>,
     pub farm_states: ResMut<'w, GrowthStates>,
     pub spawner_state: ResMut<'w, SpawnerState>,
-    pub building_hp: ResMut<'w, BuildingHpState>,
     pub upgrades: ResMut<'w, TownUpgrades>,
     pub policies: ResMut<'w, TownPolicies>,
     pub auto_upgrade: ResMut<'w, AutoUpgrade>,
@@ -1098,6 +1093,45 @@ pub struct LoadNpcTracking<'w> {
 }
 
 // ============================================================================
+// BUILDING HP — entity-based save/load bridge
+// ============================================================================
+
+/// Build building HP hashmap from entity queries for save format.
+/// Produces the same JSON as the old BuildingHpState serde.
+fn collect_building_hp(
+    building_query: &Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
+    building_slots: &BuildingSlotMap,
+    world_data: &WorldData,
+) -> std::collections::HashMap<String, Vec<f32>> {
+    use std::collections::HashMap;
+    // Build slot → hp lookup from entities
+    let mut slot_hp: HashMap<usize, f32> = HashMap::new();
+    for (_, npc_idx, health) in building_query.iter() {
+        slot_hp.insert(npc_idx.0, health.0);
+    }
+    let mut map = HashMap::new();
+    // "towns" = fountain HP indexed by town_data_idx
+    let town_hps: Vec<f32> = world_data.towns.iter().enumerate().map(|(i, _)| {
+        building_slots.get_slot(world::BuildingKind::Fountain, i)
+            .and_then(|s| slot_hp.get(&s).copied())
+            .unwrap_or(0.0)
+    }).collect();
+    map.insert("towns".into(), town_hps);
+    // Per-kind HP vecs matching WorldData indices
+    for def in crate::constants::BUILDING_REGISTRY {
+        if let Some(key) = def.save_key {
+            let hps: Vec<f32> = (0..(def.len)(world_data)).map(|i| {
+                building_slots.get_slot(def.kind, i)
+                    .and_then(|s| slot_hp.get(&s).copied())
+                    .unwrap_or(0.0)
+            }).collect();
+            map.insert(key.into(), hps);
+        }
+    }
+    map
+}
+
+// ============================================================================
 // BEVY SYSTEMS
 // ============================================================================
 
@@ -1122,17 +1156,20 @@ pub fn save_game_system(
     fs: SaveFactionState,
     npc_map: Res<NpcEntityMap>,
     npc_meta: Res<NpcMetaCache>,
+    building_slots: Res<BuildingSlotMap>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
+    building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
 ) {
     if !request.save_requested { return; }
     request.save_requested = false;
 
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
+    let building_hp = collect_building_hp(&building_query, &building_slots, &ws.world_data);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
-        &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
+        &ws.spawner_state, building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
@@ -1158,8 +1195,10 @@ pub fn autosave_system(
     fs: SaveFactionState,
     npc_map: Res<NpcEntityMap>,
     npc_meta: Res<NpcMetaCache>,
+    building_slots: Res<BuildingSlotMap>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
+    building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
 ) {
     if request.autosave_hours <= 0 || !ws.game_time.hour_ticked { return; }
 
@@ -1173,10 +1212,11 @@ pub fn autosave_system(
     let Some(path) = autosave_path(slot) else { return };
 
     let npcs = collect_npc_data(&core_query, &extras_query, &npc_map, &npc_meta);
+    let building_hp = collect_building_hp(&building_query, &building_slots, &ws.world_data);
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
-        &ws.spawner_state, &ws.building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
+        &ws.spawner_state, building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
@@ -1295,7 +1335,7 @@ pub fn load_game_system(
         &save,
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
         &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
-        &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
+        &mut ws.spawner_state, &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state, &mut fs.endless,
@@ -1307,6 +1347,10 @@ pub fn load_game_system(
     tracking.building_slots.clear();
     world::allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
     world::update_all_wall_sprites(&ws.grid, &ws.world_data, &tracking.building_slots);
+
+    // 4b. Spawn building entities (ECS entities for all alive buildings)
+    world::spawn_building_entities(&mut commands, &ws.world_data, &tracking.building_slots, &mut tracking.npc_map, Some(&save.building_hp));
+
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(
         &save, &mut commands,

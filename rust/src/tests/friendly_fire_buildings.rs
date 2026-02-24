@@ -25,7 +25,6 @@ pub fn setup(
     mut world_grid: ResMut<world::WorldGrid>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut building_hp: ResMut<BuildingHpState>,
     mut test_state: ResMut<TestState>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
 ) {
@@ -54,7 +53,6 @@ pub fn setup(
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
         world_data.farms_mut().push(world::PlacedBuilding::new(pos, 0));
-        building_hp.hps.entry(BuildingKind::Farm).or_default().push(building_def(BuildingKind::Farm).hp);
 
         let (gc, gr) = world_grid.world_to_grid(pos);
         if let Some(cell) = world_grid.cell_mut(gc, gr) {
@@ -116,7 +114,7 @@ pub fn tick(
     combat_debug: Res<CombatDebug>,
     health_debug: Res<HealthDebug>,
     proj_alloc: Res<ProjSlotAllocator>,
-    building_hp: Res<BuildingHpState>,
+    building_query: Query<(&crate::components::Building, &crate::components::Health), Without<crate::components::Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
@@ -131,12 +129,13 @@ pub fn tick(
     }));
 
     let alive = npc_query.iter().count();
-    let farm_hps = building_hp.hps.get(&BuildingKind::Farm).map(|v| v.as_slice()).unwrap_or(&[]);
-    let damaged_farms = farm_hps.iter().filter(|&&hp| hp < building_def(BuildingKind::Farm).hp).count();
-    let min_farm_hp = farm_hps
-        .iter()
-        .copied()
-        .fold(building_def(BuildingKind::Farm).hp, f32::min);
+    let max_farm_hp = building_def(BuildingKind::Farm).hp;
+    let farm_entities: Vec<f32> = building_query.iter()
+        .filter(|(b, _)| b.kind == BuildingKind::Farm)
+        .map(|(_, h)| h.0)
+        .collect();
+    let damaged_farms = farm_entities.iter().filter(|&&hp| hp < max_farm_hp).count();
+    let min_farm_hp = farm_entities.iter().copied().fold(max_farm_hp, f32::min);
 
     match test.phase {
         // Phase 1: target acquired.

@@ -179,7 +179,7 @@ pub struct BottomPanelData<'w> {
 
 /// Bundled resources for building inspector.
 #[derive(SystemParam)]
-pub struct BuildingInspectorData<'w> {
+pub struct BuildingInspectorData<'w, 's> {
     selected_building: Res<'w, SelectedBuilding>,
     grid: Res<'w, WorldGrid>,
     farm_states: Res<'w, GrowthStates>,
@@ -189,7 +189,9 @@ pub struct BuildingInspectorData<'w> {
     gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
-    building_hp: ResMut<'w, BuildingHpState>,
+    npc_map: Res<'w, NpcEntityMap>,
+    building_slots: Res<'w, BuildingSlotMap>,
+    building_health: Query<'w, 's, &'static mut Health, With<Building>>,
 }
 
 #[derive(SystemParam)]
@@ -249,7 +251,7 @@ pub fn bottom_panel_system(
     mut meta_cache: ResMut<NpcMetaCache>,
     mut bld_data: BuildingInspectorData,
     mut world_data: ResMut<WorldData>,
-    health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
+    health_query: Query<(&NpcIndex, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
     equip_query: Query<(
         &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
         Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
@@ -548,7 +550,7 @@ pub fn combat_log_system(
 /// DirectControl group summary — shown when DC units exist but no single NPC selected.
 fn dc_group_inspector(
     ui: &mut egui::Ui,
-    health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
+    health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
     equip_query: &Query<(
         &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
         Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
@@ -603,7 +605,7 @@ fn inspector_content(
     rename_state: &mut InspectorRenameState,
     bld_data: &mut BuildingInspectorData,
     world_data: &mut WorldData,
-    health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), Without<Dead>>,
+    health_query: &Query<(&NpcIndex, &Health, &CachedStats, &Energy), (Without<Dead>, Without<Building>)>,
     equip_query: &Query<(
         &NpcIndex, Option<&EquippedWeapon>, Option<&EquippedHelmet>, Option<&EquippedArmor>,
         Option<&Starving>, Option<&SquadId>, Option<&CarriedGold>, &BaseAttackType, &Speed,
@@ -1232,11 +1234,15 @@ fn building_inspector_content(
                 ui.label(format!("Tier: {} (Lv.{})", tier_name, level));
                 ui.label(format!("Max HP: {:.0}", tier_hp));
 
-                // Show current HP from BuildingHpState
+                // Show current HP from building entity
                 if let Some(wall_idx) = world_data.get(BuildingKind::Wall).iter()
                     .position(|w| (w.position - world_pos).length() < 1.0)
                 {
-                    if let Some(hp) = bld.building_hp.get(BuildingKind::Wall, wall_idx) {
+                    let hp = bld.building_slots.get_slot(BuildingKind::Wall, wall_idx)
+                        .and_then(|s| bld.npc_map.0.get(&s))
+                        .and_then(|&e| bld.building_health.get(e).ok())
+                        .map(|h| h.0);
+                    if let Some(hp) = hp {
                         let color = if hp > tier_hp * 0.5 {
                             egui::Color32::from_rgb(80, 200, 80)
                         } else {
@@ -1295,8 +1301,12 @@ fn building_inspector_content(
                         if let Some(wall_idx) = world_data.get(BuildingKind::Wall).iter()
                             .position(|w| (w.position - world_pos).length() < 1.0)
                         {
-                            if let Some(hp) = bld.building_hp.get_mut(BuildingKind::Wall, wall_idx) {
-                                *hp = new_hp;
+                            if let Some(slot) = bld.building_slots.get_slot(BuildingKind::Wall, wall_idx) {
+                                if let Some(&entity) = bld.npc_map.0.get(&slot) {
+                                    if let Ok(mut health) = bld.building_health.get_mut(entity) {
+                                        health.0 = new_hp;
+                                    }
+                                }
                             }
                         }
                         dirty.building_grid = true;
@@ -1369,10 +1379,13 @@ fn building_inspector_content(
     if settings.debug_coordinates {
         ui.separator();
         let data_idx = crate::world::find_building_data_index(world_data, kind, world_pos);
-        let (hp, max_hp) = data_idx
-            .and_then(|i| bld.building_hp.get(kind, i))
-            .map(|hp| (hp, BuildingHpState::max_hp(kind)))
-            .unwrap_or((0.0, 0.0));
+        let max_hp = crate::constants::building_def(kind).hp;
+        let hp = data_idx
+            .and_then(|i| bld.building_slots.get_slot(kind, i))
+            .and_then(|s| bld.npc_map.0.get(&s))
+            .and_then(|&e| bld.building_health.get(e).ok())
+            .map(|h| h.0)
+            .unwrap_or(0.0);
 
         ui.label(format!("Pos: ({:.0}, {:.0})  Grid: ({}, {})", world_pos.x, world_pos.y, col, row));
         ui.label(format!("HP: {:.0}/{:.0}  Kind: {:?}", hp, max_hp, kind));

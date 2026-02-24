@@ -44,7 +44,7 @@ pub fn setup(
         &config,
         &mut world_grid, &mut world_data,
         &mut farm_states, &mut town_grids,
-        &mut bld.spawner_state, &mut bld.building_hp,
+        &mut bld.spawner_state,
         &mut bld.slot_alloc, &mut bld.building_slots,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut raider_state,
@@ -61,7 +61,7 @@ pub fn setup(
     game_time.time_scale = 1.0;
 
     test_state.counters.insert("initial_towns".into(), total_towns as u32);
-    test_state.counters.insert("initial_fountain_hp".into(), bld.building_hp.towns.len() as u32);
+    test_state.counters.insert("initial_fountain_hp".into(), total_towns as u32);
 
     test_state.phase_name = "Checking AI towns...".into();
     info!("endless-mode: setup — {} towns, 6000x6000 world, endless enabled", total_towns);
@@ -70,7 +70,7 @@ pub fn setup(
 pub fn tick(
     world_data: Res<world::WorldData>,
     world_grid: Res<world::WorldGrid>,
-    building_hp: Res<BuildingHpState>,
+    building_query: Query<(&crate::components::Building, &crate::components::Health, &crate::components::TownId), Without<crate::components::Dead>>,
     endless: Res<EndlessMode>,
     ai_state: Res<AiPlayerState>,
     migration_state: Res<MigrationState>,
@@ -93,7 +93,7 @@ pub fn tick(
                 .filter(|(_, t)| t.faction > 0)
                 .collect();
             let ai_count = ai_towns.len();
-            let fountain_count = building_hp.towns.len();
+            let fountain_count = world_data.towns.len();
 
             test.phase_name = format!("ai_towns={} fountains={}", ai_count, fountain_count);
 
@@ -119,11 +119,14 @@ pub fn tick(
         // Phase 2: Destroy builder AI Fountain
         2 => {
             let target = test.count("target_town") as usize;
-            let hp = building_hp.towns.get(target).copied().unwrap_or(0.0);
+            let hp = building_query.iter()
+                .find(|(b, _, t)| b.kind == BuildingKind::Fountain && t.0 as usize == target)
+                .map(|(_, h, _)| h.0)
+                .unwrap_or(0.0);
             test.phase_name = format!("fountain[{}] hp={:.0}", target, hp);
 
             if !test.get_flag("damage_sent") {
-                let max_hp = BuildingHpState::max_hp(BuildingKind::Fountain);
+                let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
                 damage_writer.write(BuildingDamageMsg {
                     kind: BuildingKind::Fountain, index: target,
                     amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
@@ -183,7 +186,7 @@ pub fn tick(
                     "migration active: on_boat={}, members={}, is_raider={}",
                     mg.boat_slot.is_some(), mg.member_slots.len(), mg.is_raider
                 ));
-            } else if current > initial && building_hp.towns.len() > initial_fountains {
+            } else if current > initial && world_data.towns.len() > initial_fountains {
                 test.pass_phase(elapsed, format!("migration already settled (towns {}->{})", initial, current));
                 test.set_flag("already_settled", true);
             } else if elapsed > 60.0 {
@@ -242,7 +245,7 @@ pub fn tick(
         // Phase 8: New town has buildings + AI player active
         8 => {
             let initial_fountains = test.count("initial_fountain_hp") as usize;
-            let current_fountains = building_hp.towns.len();
+            let current_fountains = world_data.towns.len();
             let new_town_idx = test.count("migration_town_idx") as usize;
 
             let has_new_fountain = current_fountains > initial_fountains;
@@ -258,7 +261,7 @@ pub fn tick(
                 // Record game hour + snapshot for raider phase
                 test.counters.insert("phase8_hour".into(), game_time.total_hours() as u32);
                 test.counters.insert("towns_after_builder".into(), world_data.towns.len() as u32);
-                test.counters.insert("fountains_after_builder".into(), building_hp.towns.len() as u32);
+                test.counters.insert("fountains_after_builder".into(), world_data.towns.len() as u32);
                 test.pass_phase(elapsed, format!("settled: {} new buildings, AI active", new_town_buildings));
             } else if elapsed > 30.0 {
                 test.fail_phase(elapsed, format!("new_fountain={} buildings={} ai_active={}", has_new_fountain, new_town_buildings, ai_active));
@@ -293,11 +296,14 @@ pub fn tick(
         // Phase 10: Destroy raider fountain
         10 => {
             let target = test.count("raider_target_town") as usize;
-            let hp = building_hp.towns.get(target).copied().unwrap_or(0.0);
+            let hp = building_query.iter()
+                .find(|(b, _, t)| b.kind == BuildingKind::Fountain && t.0 as usize == target)
+                .map(|(_, h, _)| h.0)
+                .unwrap_or(0.0);
             test.phase_name = format!("raider fountain[{}] hp={:.0}", target, hp);
 
             if !test.get_flag("raider_damage_sent") {
-                let max_hp = BuildingHpState::max_hp(BuildingKind::Fountain);
+                let max_hp = crate::constants::building_def(BuildingKind::Fountain).hp;
                 damage_writer.write(BuildingDamageMsg {
                     kind: BuildingKind::Fountain, index: target,
                     amount: max_hp + 100.0, attacker_faction: 0, attacker: -1,
@@ -357,7 +363,7 @@ pub fn tick(
                     "raider migration active: on_boat={}, members={}, is_raider={}",
                     mg.boat_slot.is_some(), mg.member_slots.len(), mg.is_raider
                 ));
-            } else if current > initial && building_hp.towns.len() > initial_fountains {
+            } else if current > initial && world_data.towns.len() > initial_fountains {
                 test.pass_phase(elapsed, format!("raider migration already settled (towns {}->{})", initial, current));
                 test.set_flag("raider_already_settled", true);
             } else if elapsed > 60.0 {
@@ -416,7 +422,7 @@ pub fn tick(
         // Phase 16: Raider new town has buildings + AI active → COMPLETE
         16 => {
             let initial_fountains = test.count("fountains_after_builder") as usize;
-            let current_fountains = building_hp.towns.len();
+            let current_fountains = world_data.towns.len();
             let new_town_idx = test.count("raider_migration_town_idx") as usize;
 
             let has_new_fountain = current_fountains > initial_fountains;

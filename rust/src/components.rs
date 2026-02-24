@@ -395,6 +395,14 @@ pub struct Migrating;
 #[derive(Component)]
 pub struct SquadId(pub i32);
 
+/// Marker: entity is a building (not a walking NPC).
+/// Buildings are NPC-like entities with Speed(0.0) on the building atlas.
+/// They share GPU slots, NpcEntityMap registration, and the death pipeline with NPCs.
+#[derive(Component, Clone, Copy)]
+pub struct Building {
+    pub kind: crate::world::BuildingKind,
+}
+
 /// Marker: farm is visually Ready (food icon overlay).
 #[derive(Component)]
 pub struct FarmReadyMarker {

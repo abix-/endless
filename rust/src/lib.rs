@@ -36,7 +36,7 @@ use resources::{
     FoodStorage, GoldStorage, FactionStats, RaiderState, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     TowerState, FollowSelected, TownPolicies, SpawnerState, SelectedBuilding,
-    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest, BuildingHpState,
+    AutoUpgrade, SquadState, HelpCatalog, DestroyRequest,
     DirtyFlags, Difficulty, HealingZoneCache, GameAudio, PlaySfxMsg, TutorialState, MiningPolicy,
 };
 use systems::{AiPlayerConfig, AiPlayerState};
@@ -237,7 +237,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<DestroyRequest>()
        .init_resource::<TowerState>()
        .init_resource::<SpawnerState>()
-       .init_resource::<BuildingHpState>()
        .init_resource::<resources::BuildingSlotMap>()
        .init_resource::<resources::BuildingHpRender>()
        .init_resource::<SquadState>()
@@ -322,7 +321,8 @@ pub fn build_app(app: &mut App) {
        ).in_set(Step::Behavior))
        .add_systems(Update, sync_patrol_perimeter_system.before(rebuild_patrol_routes_system).in_set(Step::Behavior))
        .add_systems(Update, ai_squad_commander_system.after(ai_decision_system).before(decision_system).in_set(Step::Behavior))
-       .add_systems(Update, (building_damage_system, sync_building_hp_render).chain().in_set(Step::Behavior))
+       .add_systems(Update, building_damage_system.in_set(Step::Behavior))
+       .add_systems(Update, sync_building_hp_render.after(building_damage_system).in_set(Step::Behavior))
        .add_systems(Update, collect_gpu_updates.after(Step::Behavior).run_if(game_active.clone()))
        // Debug settings sync + tick logging
        .add_systems(Update, (sync_debug_settings, debug_tick_system).run_if(game_active.clone()))

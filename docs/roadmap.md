@@ -111,6 +111,45 @@ Completed bundle work moved to [completed.md](completed.md).
 - [ ] Keep bundles flat (no nested `SystemParam` bundles inside other bundles) unless required to break Bevy param-count limits.
 - [ ] Re-baseline and document actual parameter-count reductions after refactor, then verify with `cargo check`.
 
+**Stage 16.5: Buildings as ECS Entities** (see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
+
+*Done when: buildings spawn as ECS entities via `materialize_npc`, register in `NpcEntityMap`, die via `death_system` -> `death_cleanup_system` -> despawn, and all redundant building infrastructure (`BuildingHpState`, `BuildingSlotMap`, `BuildingSpatialGrid`, tombstone guards) is deleted.*
+
+Phase 1 -- Buildings enter NPC lifecycle (dual-write to WorldData):
+- [ ] `Building { kind }` marker component in `components.rs`
+- [ ] `spawn_building_entities()` runs after init/load: iterates `BUILDING_REGISTRY`, spawns entities with `NpcIndex`, `Position`, `Health`, `Faction`, `TownId`, `Speed(0.0)`, `Building` marker, registers in `NpcEntityMap`
+- [ ] `place_building()` spawns entity after existing WorldData write
+- [ ] `destroy_building()` inserts `Dead` component (reuses `death_system` -> `death_cleanup_system` pipeline), still tombstones in WorldData (dual-write)
+- [ ] `attack_system`: add `building_query: Query<(), With<Building>>` to skip buildings for NPC melee (buildings in `NpcEntityMap` would otherwise match)
+- [ ] `process_proj_hits`: entity-based building detection via `building_query.contains()` instead of `BuildingSlotMap`
+- [ ] `death_cleanup_system`: handle `Building` entities (skip NPC-specific cleanup like farm release, pop stats)
+- [ ] Save/load: despawn building entities pre-load, spawn from WorldData post-load
+- [ ] `cleanup_game`: include building entity despawn
+
+Phase 2 -- HP migration:
+- [ ] `building_damage_system` writes to `Health` component instead of `BuildingHpState`
+- [ ] `sync_building_hp_render` queries entities instead of `BuildingHpState`
+- [ ] Delete `BuildingHpState`
+
+Phase 3 -- Spatial grid migration:
+- [ ] Replace `BuildingSpatialGrid` with entity queries or WorldGrid cell lookups
+
+Phase 4 -- Merge damage pipelines:
+- [ ] Delete `BuildingDamageMsg`, projectile hits emit `DamageMsg` for both NPCs and buildings
+- [ ] `damage_system` handles both (building death triggers grid cleanup)
+
+Phase 5 -- AI/Economy/Behavior migration:
+- [ ] Replace `world_data.farms()` / `waypoints()` with entity queries
+- [ ] Delete `town_building_slots!` macro
+
+Phase 6 -- Save/Load migration:
+- [ ] Serialize building entities directly, delete WorldData.buildings serialization
+
+Phase 7 -- Final cleanup:
+- [ ] Delete `WorldData.buildings`, `PlacedBuilding`, tombstone pattern, `BuildingSlotMap`
+- [ ] Strip `BUILDING_REGISTRY` fn pointers (keep only static definition fields)
+- [ ] `WorldGrid.cells[].building` stores `Option<Entity>`
+
 **Stage 17: AI Expansion & Mine Control**
 
 *Done when: AI towns grow beyond their starting 7×7 grid, compete for gold mines via patrol routes, and a passive AI that doesn't expand gets outcompeted and dies.*
@@ -338,6 +377,7 @@ Implementation guides for upcoming stages. Once built, spec content rolls into r
 | Tech Tree (Chunks 3-4) | 25 | [specs/tech-tree.md](specs/tech-tree.md) |
 | NPC Skills & Proficiency | 21 | [specs/npc-skills.md](specs/npc-skills.md) |
 | GPU-Native NPC Rendering | 16 | [specs/gpu-native-npc-rendering.md](specs/gpu-native-npc-rendering.md) |
+| Buildings as ECS Entities | 16.5 | [specs/buildings-as-entities.md](specs/buildings-as-entities.md) |
 
 ## Performance
 

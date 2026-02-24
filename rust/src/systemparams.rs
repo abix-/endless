@@ -12,7 +12,6 @@ pub struct WorldState<'w> {
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub town_grids: ResMut<'w, crate::world::TownGrids>,
     pub building_occupancy: ResMut<'w, crate::world::BuildingOccupancy>,
-    pub building_hp: ResMut<'w, BuildingHpState>,
     pub spawner_state: ResMut<'w, SpawnerState>,
     pub farm_states: ResMut<'w, GrowthStates>,
     pub dirty: ResMut<'w, DirtyFlags>,

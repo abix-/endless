@@ -4,12 +4,24 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::{TowerStats, ItemKind, building_def};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, TowerKindState, BuildingHpState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, TowerKindState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingSlotMap;
 use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, is_alive};
+
+/// Bundled params for building destruction side effects (loot, endless respawn).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct BuildingDeathExtra<'w> {
+    npc_meta: Res<'w, NpcMetaCache>,
+    squad_state: Res<'w, crate::resources::SquadState>,
+    ai_state: ResMut<'w, crate::systems::AiPlayerState>,
+    endless: ResMut<'w, crate::resources::EndlessMode>,
+    upgrades: Res<'w, crate::systems::stats::TownUpgrades>,
+    food_storage: Res<'w, crate::resources::FoodStorage>,
+    gold_storage: Res<'w, crate::resources::GoldStorage>,
+}
 
 /// Decrement attack cooldown timers each frame.
 pub fn cooldown_system(
@@ -45,6 +57,7 @@ pub fn cooldown_system(
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
     mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job, Option<&ManualTarget>, Option<&SquadId>), Without<Dead>>,
+    building_query: Query<(), With<Building>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
@@ -170,8 +183,13 @@ pub fn attack_system(
 
         let ti = target_idx as usize;
 
-        // Validate GPU target: must be a real live enemy NPC (not building slot, self, or stale)
-        if ti == i || !npc_map.0.contains_key(&ti) {
+        // Validate GPU target: must be a real live enemy NPC (not building, self, or stale)
+        if ti == i {
+            if combat_state.is_fighting() { *combat_state = CombatState::None; }
+            continue;
+        }
+        let target_entity = npc_map.0.get(&ti);
+        if target_entity.is_none() || target_entity.is_some_and(|&e| building_query.contains(e)) {
             if combat_state.is_fighting() { *combat_state = CombatState::None; }
             continue;
         }
@@ -297,6 +315,8 @@ pub fn process_proj_hits(
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
     building_slots: Res<BuildingSlotMap>,
+    npc_map: Res<NpcEntityMap>,
+    building_query: Query<&Building>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_proj_hits");
@@ -317,8 +337,11 @@ pub fn process_proj_hits(
             };
 
             if damage > 0.0 {
-                // Check if the hit NPC slot is actually a building
-                if let Some((kind, index)) = building_slots.get_building(npc_idx as usize) {
+                // Check if the hit slot is a building entity
+                let building_hit = npc_map.0.get(&(npc_idx as usize))
+                    .and_then(|&e| building_query.get(e).ok())
+                    .and_then(|b| building_slots.get_building(npc_idx as usize).map(|(_, index)| (b.kind, index)));
+                if let Some((kind, index)) = building_hit {
                     let attacker_faction = if slot < proj_writes.factions.len() {
                         proj_writes.factions[slot]
                     } else { 0 };
@@ -456,31 +479,31 @@ pub fn building_tower_system(
 /// Process building damage messages: decrement HP, destroy when HP reaches 0.
 /// On destruction, grants loot (half building cost as food) to the attacker NPC.
 pub fn building_damage_system(
+    mut commands: Commands,
     mut damage_reader: MessageReader<BuildingDamageMsg>,
     mut world: WorldState,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
-    npc_map: Res<NpcEntityMap>,
+    mut npc_map: ResMut<NpcEntityMap>,
+    mut building_health: Query<&mut Health, With<Building>>,
     mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction, Option<&DirectControl>), Without<Dead>>,
-    npc_meta: Res<NpcMetaCache>,
-    squad_state: Res<crate::resources::SquadState>,
-    mut ai_state: ResMut<crate::systems::AiPlayerState>,
-    mut endless: ResMut<crate::resources::EndlessMode>,
-    upgrades: Res<crate::systems::stats::TownUpgrades>,
-    food_storage: Res<crate::resources::FoodStorage>,
-    gold_storage: Res<crate::resources::GoldStorage>,
+    mut extra: BuildingDeathExtra,
 ) {
     let _t = timings.scope("building_damage");
     for msg in damage_reader.read() {
         if matches!(msg.kind, BuildingKind::GoldMine | BuildingKind::Road) { continue; } // mines + roads are indestructible
-        let Some(hp) = world.building_hp.get_mut(msg.kind, msg.index) else { continue };
-        if *hp <= 0.0 { continue; } // already dead
 
-        *hp -= msg.amount;
-        let new_hp = (*hp).max(0.0);
-        let max_hp = BuildingHpState::max_hp(msg.kind);
+        // Look up building entity via BuildingSlotMap → NpcEntityMap
+        let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) else { continue };
+        let Some(&entity) = npc_map.0.get(&slot) else { continue };
+        let Ok(mut health) = building_health.get_mut(entity) else { continue };
+        if health.0 <= 0.0 { continue; } // already dead
+
+        health.0 = (health.0 - msg.amount).max(0.0);
+        let new_hp = health.0;
+        let max_hp = crate::constants::building_def(msg.kind).hp;
 
         // Look up position and town for logging
         let Some((pos, town_idx_u32)) = world.world_data.building_pos_town(msg.kind, msg.index) else { continue };
@@ -500,12 +523,9 @@ pub fn building_damage_system(
             game_time.day(), game_time.hour(), game_time.minute(),
             format!("{:?} in {} hit by {} for {:.0} ({:.0}/{:.0} HP)", msg.kind, town_name, attacker_name, msg.amount, new_hp, max_hp));
 
-        *hp = new_hp;
-
-        // Sync HP to GPU building slot
-        if let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) {
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: new_hp }));
-        }
+        // GPU sync (damage flash + health bar)
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: new_hp }));
+        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: slot, intensity: 1.0 }));
 
         if new_hp > 0.0 { continue; } // still alive
 
@@ -522,17 +542,17 @@ pub fn building_damage_system(
 
         let _ = world::destroy_building(
             &mut world.grid, &mut world.world_data, &mut world.farm_states,
-            &mut world.spawner_state, &mut world.building_hp,
-            &mut world.slot_alloc, &mut world.building_slots,
+            &mut world.spawner_state, &mut world.building_slots,
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
+            &mut commands, &mut npc_map,
         );
         world.dirty.mark_building_changed(msg.kind);
 
         // Town center destroyed — deactivate AI player (town becomes leaderless)
         if matches!(msg.kind, BuildingKind::Fountain) {
-            if let Some(player) = ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
+            if let Some(player) = extra.ai_state.players.iter_mut().find(|p| p.town_data_idx == town_idx) {
                 player.active = false;
             }
             combat_log.push(CombatEventKind::Raid, defender_faction,
@@ -541,18 +561,18 @@ pub fn building_damage_system(
             info!("{} (town_idx={}) defeated — AI deactivated", town_name, town_idx);
 
             // Endless mode: queue replacement AI scaled to player strength
-            if endless.enabled {
+            if extra.endless.enabled {
                 let is_raider = world.world_data.towns.get(town_idx)
                     .map(|t| t.sprite_type == 1).unwrap_or(true);
                 let player_town = world.world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
-                let player_levels = upgrades.town_levels(player_town);
-                let frac = endless.strength_fraction;
+                let player_levels = extra.upgrades.town_levels(player_town);
+                let frac = extra.endless.strength_fraction;
                 let scaled_levels: Vec<u8> = player_levels.iter()
                     .map(|&lv| (lv as f32 * frac).round() as u8)
                     .collect();
-                let starting_food = (food_storage.food.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
-                let starting_gold = (gold_storage.gold.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
-                endless.pending_spawns.push(crate::resources::PendingAiSpawn {
+                let starting_food = (extra.food_storage.food.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
+                let starting_gold = (extra.gold_storage.gold.get(player_town).copied().unwrap_or(0) as f32 * frac) as i32;
+                extra.endless.pending_spawns.push(crate::resources::PendingAiSpawn {
                     delay_remaining: crate::constants::ENDLESS_RESPAWN_DELAY_HOURS,
                     is_raider,
                     upgrade_levels: scaled_levels,
@@ -579,7 +599,7 @@ pub fn building_damage_system(
                 let attacker_slot = msg.attacker as usize;
                 if let Some(&attacker_entity) = npc_map.0.get(&attacker_slot) {
                     if let Ok((npc_idx, mut activity, home, faction, dc)) = loot_query.get_mut(attacker_entity) {
-                        let dc_keep_fighting = dc.is_some() && squad_state.dc_no_return;
+                        let dc_keep_fighting = dc.is_some() && extra.squad_state.dc_no_return;
 
                         if matches!(&*activity, Activity::Returning { .. }) {
                             activity.add_loot(drop.item, amount);
@@ -591,8 +611,8 @@ pub fn building_damage_system(
                         }
 
                         let item_name = match drop.item { ItemKind::Food => "food", ItemKind::Gold => "gold" };
-                        let killer_name = &npc_meta.0[npc_idx.0].name;
-                        let killer_job = crate::job_name(npc_meta.0[npc_idx.0].job);
+                        let killer_name = &extra.npc_meta.0[npc_idx.0].name;
+                        let killer_job = crate::job_name(extra.npc_meta.0[npc_idx.0].job);
                         combat_log.push(CombatEventKind::Loot, faction.0,
                             game_time.day(), game_time.hour(), game_time.minute(),
                             format!("{} '{}' looted {} {} from {:?}", killer_job, killer_name, amount, item_name, msg.kind));
@@ -603,18 +623,25 @@ pub fn building_damage_system(
     }
 }
 
-/// Populate BuildingHpRender from BuildingHpState + WorldData (only damaged buildings).
+/// Populate BuildingHpRender from building entity Health (only damaged buildings).
 pub fn sync_building_hp_render(
-    building_hp: Res<BuildingHpState>,
-    world_data: Res<WorldData>,
+    query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
+    gpu_state: Res<GpuReadState>,
     mut render: ResMut<crate::resources::BuildingHpRender>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("sync_hp_render");
     render.positions.clear();
     render.health_pcts.clear();
-    for (pos, pct) in building_hp.iter_damaged(&world_data) {
-        render.positions.push(pos);
-        render.health_pcts.push(pct);
+    let positions = &gpu_state.positions;
+    for (building, npc_idx, health) in query.iter() {
+        let max_hp = crate::constants::building_def(building.kind).hp;
+        if health.0 <= 0.0 || health.0 >= max_hp { continue; }
+        let idx = npc_idx.0;
+        if idx * 2 + 1 >= positions.len() { continue; }
+        let x = positions[idx * 2];
+        let y = positions[idx * 2 + 1];
+        render.positions.push(Vec2::new(x, y));
+        render.health_pcts.push(health.0 / max_hp);
     }
 }

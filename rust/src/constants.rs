@@ -3,7 +3,6 @@
 use bevy::prelude::Vec2;
 use crate::components::{Job, BaseAttackType};
 use crate::world::{BuildingKind, WorldData, PlacedBuilding, is_alive};
-use crate::resources::BuildingHpState;
 use serde_json::Value as JsonValue;
 
 /// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
@@ -703,10 +702,6 @@ pub struct BuildingDef {
     pub pos_town: fn(&WorldData, usize) -> Option<(Vec2, u32)>,
     /// Count alive buildings of this kind for a given town_idx.
     pub count_for_town: fn(&WorldData, u32) -> usize,
-    /// Immutable access to this kind's HP vec.
-    pub hps: fn(&BuildingHpState) -> &[f32],
-    /// Mutable access to this kind's HP vec.
-    pub hps_mut: fn(&mut BuildingHpState) -> &mut Vec<f32>,
     /// Save key in JSON (None for Fountain which uses towns vec).
     pub save_key: Option<&'static str>,
     /// Serialize this kind's WorldData vec to JSON.
@@ -751,8 +746,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.towns.len(),
         pos_town: |wd, i| wd.towns.get(i).filter(|t| is_alive(t.center)).map(|t| (t.center, i as u32)),
         count_for_town: |wd, ti| if wd.towns.get(ti as usize).map(|t| is_alive(t.center)).unwrap_or(false) { 1 } else { 0 },
-        hps: |hp| &hp.towns,
-        hps_mut: |hp| &mut hp.towns,
         save_key: None, save_vec: |_| JsonValue::Null, load_vec: |_, _| {},
         is_unit_home: false,
         place: |_, _, _| {},
@@ -772,8 +765,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::Bed).len(),
         pos_town: |wd, i| wd.get(BuildingKind::Bed).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::Bed).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::Bed).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::Bed).or_default(),
         save_key: Some("beds"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::Bed)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::Bed, serde_json::from_value(v).unwrap_or_default()); },
@@ -796,8 +787,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::Waypoint).len(),
         pos_town: |wd, i| wd.get(BuildingKind::Waypoint).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::Waypoint).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::Waypoint).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::Waypoint).or_default(),
         save_key: Some("waypoints"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::Waypoint)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::Waypoint, serde_json::from_value(v).unwrap_or_default()); },
@@ -820,8 +809,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::Farm).len(),
         pos_town: |wd, i| wd.get(BuildingKind::Farm).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::Farm).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::Farm).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::Farm).or_default(),
         save_key: Some("farms"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::Farm)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::Farm, serde_json::from_value(v).unwrap_or_default()); },
@@ -845,8 +832,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::FarmerHome).len(),
         pos_town: |wd, i| wd.get(BuildingKind::FarmerHome).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::FarmerHome).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::FarmerHome).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::FarmerHome).or_default(),
         save_key: Some("farmer_homes"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::FarmerHome)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::FarmerHome, serde_json::from_value(v).unwrap_or_default()); },
@@ -870,8 +855,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::ArcherHome).len(),
         pos_town: |wd, i| wd.get(BuildingKind::ArcherHome).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::ArcherHome).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::ArcherHome).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::ArcherHome).or_default(),
         save_key: Some("archer_homes"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::ArcherHome)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::ArcherHome, serde_json::from_value(v).unwrap_or_default()); },
@@ -894,8 +877,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::Tent).len(),
         pos_town: |wd, i| wd.get(BuildingKind::Tent).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::Tent).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::Tent).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::Tent).or_default(),
         save_key: Some("tents"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::Tent)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::Tent, serde_json::from_value(v).unwrap_or_default()); },
@@ -917,8 +898,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::GoldMine).len(),
         pos_town: |wd, i| wd.get(BuildingKind::GoldMine).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, 0)),
         count_for_town: |wd, _| wd.get(BuildingKind::GoldMine).iter().filter(|b| is_alive(b.position)).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::GoldMine).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::GoldMine).or_default(),
         save_key: Some("gold_mines"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::GoldMine)).unwrap(),
         load_vec: |wd, v| {
@@ -952,8 +931,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::MinerHome).len(),
         pos_town: |wd, i| wd.get(BuildingKind::MinerHome).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::MinerHome).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::MinerHome).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::MinerHome).or_default(),
         save_key: Some("miner_homes"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::MinerHome)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::MinerHome, serde_json::from_value(v).unwrap_or_default()); },
@@ -977,8 +954,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::CrossbowHome).len(),
         pos_town: |wd, i| wd.get(BuildingKind::CrossbowHome).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::CrossbowHome).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::CrossbowHome).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::CrossbowHome).or_default(),
         save_key: Some("crossbow_homes"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::CrossbowHome)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::CrossbowHome, serde_json::from_value(v).unwrap_or_default()); },
@@ -1002,8 +977,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::FighterHome).len(),
         pos_town: |wd, i| wd.get(BuildingKind::FighterHome).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::FighterHome).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::FighterHome).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::FighterHome).or_default(),
         save_key: Some("fighter_homes"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::FighterHome)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::FighterHome, serde_json::from_value(v).unwrap_or_default()); },
@@ -1026,8 +999,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::Road).len(),
         pos_town: |wd, i| wd.get(BuildingKind::Road).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::Road).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::Road).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::Road).or_default(),
         save_key: Some("roads"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::Road)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::Road, serde_json::from_value(v).unwrap_or_default()); },
@@ -1050,8 +1021,6 @@ pub const BUILDING_REGISTRY: &[BuildingDef] = &[
         len: |wd| wd.get(BuildingKind::Wall).len(),
         pos_town: |wd, i| wd.get(BuildingKind::Wall).get(i).filter(|b| is_alive(b.position)).map(|b| (b.position, b.town_idx)),
         count_for_town: |wd, ti| wd.get(BuildingKind::Wall).iter().filter(|b| is_alive(b.position) && b.town_idx == ti).count(),
-        hps: |hp| hp.hps.get(&BuildingKind::Wall).map(|v| v.as_slice()).unwrap_or(&[]),
-        hps_mut: |hp| hp.hps.entry(BuildingKind::Wall).or_default(),
         save_key: Some("walls"),
         save_vec: |wd| serde_json::to_value(wd.get(BuildingKind::Wall)).unwrap(),
         load_vec: |wd, v| { wd.buildings.insert(BuildingKind::Wall, serde_json::from_value(v).unwrap_or_default()); },

@@ -255,7 +255,10 @@ fn vertex_npc(in: NpcVertexInput) -> VertexOutput {
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Building sprite (atlas_id 7) — must come before bar branches to avoid discard
     if is_building_atlas(in.atlas_id) {
-        let tex_color = textureSample(building_texture, building_sampler, in.uv);
+        // Snap V to texel center to prevent cross-layer bleeding after interpolation
+        let tex_h = camera.bldg_layers * 32.0;
+        let snapped_v = (floor(in.uv.y * tex_h) + 0.5) / tex_h;
+        let tex_color = textureSample(building_texture, building_sampler, vec2<f32>(in.uv.x, snapped_v));
         if tex_color.a < 0.1 { discard; }
         return vec4<f32>(tex_color.rgb * in.color.rgb, tex_color.a);
     }

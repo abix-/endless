@@ -1,9 +1,8 @@
 //! ECS Resources - Shared state accessible by all systems
 
 use bevy::prelude::*;
-use serde::{Serialize, Deserialize};
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use crate::constants::MAX_NPC_COUNT;
 
@@ -919,102 +918,6 @@ impl SpawnerEntry {
 /// All building spawners in the world. Each FarmerHome/ArcherHome/Tent/MinerHome gets one entry.
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
-
-/// Hit points for all buildings. Each Vec is parallel to the matching Vec in WorldData.
-/// Non-unit-home buildings have named fields; unit homes use dynamic BTreeMap via registry.
-#[derive(Resource, Default, Clone)]
-pub struct BuildingHpState {
-    pub towns: Vec<f32>,      // indexed by town_data_idx (all town centers)
-    /// All building HP vecs, keyed by BuildingKind.
-    pub hps: BTreeMap<crate::world::BuildingKind, Vec<f32>>,
-}
-
-// Custom serde: flatten hps into top-level keys using registry save_key
-// so the JSON format stays identical to the old named-field format.
-impl Serialize for BuildingHpState {
-    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeMap;
-        let mut map = ser.serialize_map(None)?;
-        map.serialize_entry("towns", &self.towns)?;
-        for def in crate::constants::BUILDING_REGISTRY {
-            if let Some(key) = def.save_key {
-                let hp_vec = self.hps.get(&def.kind).map(|v| v.as_slice()).unwrap_or(&[]);
-                map.serialize_entry(key, hp_vec)?;
-            }
-        }
-        map.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for BuildingHpState {
-    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
-        let raw: HashMap<String, Vec<f32>> = HashMap::deserialize(de)?;
-        let mut hp = BuildingHpState::default();
-        for (key, val) in &raw {
-            if key == "towns" {
-                hp.towns = val.clone();
-            } else {
-                // Look up by save_key in registry
-                for def in crate::constants::BUILDING_REGISTRY {
-                    if def.save_key == Some(key.as_str()) {
-                        hp.hps.insert(def.kind, val.clone());
-                        break;
-                    }
-                }
-            }
-        }
-        Ok(hp)
-    }
-}
-
-impl BuildingHpState {
-    /// Push a new HP entry for a newly placed building.
-    pub fn push_for(&mut self, kind: crate::world::BuildingKind) {
-        let def = crate::constants::building_def(kind);
-        (def.hps_mut)(self).push(def.hp);
-    }
-
-    /// Get mutable HP for a building by kind and index.
-    pub fn get_mut(&mut self, kind: crate::world::BuildingKind, index: usize) -> Option<&mut f32> {
-        self.hps_mut(kind).get_mut(index)
-    }
-
-    /// Get the HP vec for a building kind (mutable).
-    pub fn hps_mut(&mut self, kind: crate::world::BuildingKind) -> &mut Vec<f32> {
-        (crate::constants::building_def(kind).hps_mut)(self)
-    }
-
-    /// Get the HP vec for a building kind (immutable).
-    pub fn hps(&self, kind: crate::world::BuildingKind) -> &[f32] {
-        (crate::constants::building_def(kind).hps)(self)
-    }
-
-    /// Get current HP for a building by kind and index.
-    pub fn get(&self, kind: crate::world::BuildingKind, index: usize) -> Option<f32> {
-        self.hps(kind).get(index).copied()
-    }
-
-    /// Get max HP for a building by kind.
-    pub fn max_hp(kind: crate::world::BuildingKind) -> f32 {
-        crate::constants::building_def(kind).hp
-    }
-
-    /// Iterate all damaged buildings: yields (position, hp_pct).
-    pub fn iter_damaged(&self, world_data: &crate::world::WorldData) -> Vec<(bevy::prelude::Vec2, f32)> {
-        use crate::constants::BUILDING_REGISTRY;
-        let mut result = Vec::new();
-        for def in BUILDING_REGISTRY {
-            let hps = self.hps(def.kind);
-            for (idx, &hp) in hps.iter().enumerate() {
-                if hp <= 0.0 || hp >= def.hp { continue; }
-                if let Some((pos, _)) = world_data.building_pos_town(def.kind, idx) {
-                    result.push((pos, hp / def.hp));
-                }
-            }
-        }
-        result
-    }
-}
 
 /// Bidirectional map between buildings and NPC GPU slots.
 /// Buildings occupy NPC slots for GPU collision detection (invisible, speed=0).

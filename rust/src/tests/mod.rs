@@ -63,7 +63,6 @@ pub struct CleanupExtra<'w> {
     pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
     pub spawner_state: ResMut<'w, crate::resources::SpawnerState>,
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
-    pub building_hp: ResMut<'w, crate::resources::BuildingHpState>,
 }
 
 #[derive(SystemParam)]
@@ -99,7 +98,6 @@ pub struct TestSetupParams<'w> {
 #[derive(SystemParam)]
 pub struct BuildingInitParams<'w> {
     pub spawner_state: ResMut<'w, SpawnerState>,
-    pub building_hp: ResMut<'w, BuildingHpState>,
     pub slot_alloc: ResMut<'w, SlotAllocator>,
     pub building_slots: ResMut<'w, BuildingSlotMap>,
 }
@@ -969,7 +967,6 @@ fn cleanup_test_world(
     *extra.world_grid = Default::default();
     *extra.debug_flags = Default::default();
     *extra.spawner_state = Default::default();
-    *extra.building_hp = Default::default();
     extra.tilemap_spawned.0 = false;
 
     *endless_cleanup.endless = Default::default();

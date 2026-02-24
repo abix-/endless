@@ -30,11 +30,13 @@ use crate::constants::UpgradeStatKind;
 
 /// Mutable world resources needed for AI building. Bundled to stay under Bevy's 16-param limit.
 #[derive(SystemParam)]
-pub struct AiBuildRes<'w> {
+pub struct AiBuildRes<'w, 's> {
     world: WorldState<'w>,
     food_storage: ResMut<'w, FoodStorage>,
     upgrade_queue: ResMut<'w, UpgradeQueue>,
     policies: ResMut<'w, TownPolicies>,
+    commands: Commands<'w, 's>,
+    npc_map: ResMut<'w, NpcEntityMap>,
 }
 
 /// Alive buildings for a town as `(row, col)` grid slots. Returns an iterator.
@@ -957,14 +959,15 @@ fn sync_town_perimeter_waypoints(
     world_data: &mut WorldData,
     farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
-    building_hp: &mut BuildingHpState,
-    slot_alloc: &mut SlotAllocator,
+    _slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingSlotMap,
     combat_log: &mut CombatLog,
     game_time: &GameTime,
     town_grids: &world::TownGrids,
     town_data_idx: usize,
     personality: AiPersonality,
+    commands: &mut Commands,
+    npc_map: &mut NpcEntityMap,
 ) -> usize {
     // Prune waypoints not in the personality's ideal outer ring.
     // When the town area expands, the ring shifts outward and inner waypoints are destroyed.
@@ -987,9 +990,10 @@ fn sync_town_perimeter_waypoints(
     let mut removed = 0usize;
     for (row, col) in prune_slots {
         if world::destroy_building(
-            grid, world_data, farm_states, spawner_state, building_hp,
-            slot_alloc, building_slots, combat_log, game_time,
+            grid, world_data, farm_states, spawner_state,
+            building_slots, combat_log, game_time,
             row, col, center, "waypoint pruned (not on outer ring)",
+            commands, npc_map,
         ).is_ok() {
             removed += 1;
         }
@@ -1002,10 +1006,12 @@ fn sync_town_perimeter_waypoints(
 
 /// Dirty-flag-gated maintenance: keep in-town patrol waypoints on the building-driven perimeter.
 pub fn sync_patrol_perimeter_system(
+    mut commands: Commands,
     mut world: WorldState,
     ai_state: Res<AiPlayerState>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
+    mut npc_map: ResMut<NpcEntityMap>,
     timings: Res<SystemTimings>,
 ) {
     // Dirty-flag system: only runs when perimeter-affecting state changed.
@@ -1025,7 +1031,6 @@ pub fn sync_patrol_perimeter_system(
             &mut world.world_data,
             &mut world.farm_states,
             &mut world.spawner_state,
-            &mut world.building_hp,
             &mut world.slot_alloc,
             &mut world.building_slots,
             &mut combat_log,
@@ -1033,6 +1038,8 @@ pub fn sync_patrol_perimeter_system(
             &world.town_grids,
             town_idx,
             personality,
+            &mut commands,
+            &mut npc_map,
         );
     }
 
@@ -1535,7 +1542,6 @@ fn try_build_at_slot(
         &mut res.world.grid,
         &mut res.world.world_data,
         &mut res.world.farm_states,
-        &mut res.world.building_hp,
         &mut res.food_storage,
         &mut res.world.spawner_state,
         &mut res.world.slot_alloc,
@@ -1546,6 +1552,8 @@ fn try_build_at_slot(
         pos,
         cost,
         &res.world.town_grids,
+        &mut res.commands,
+        &mut res.npc_map,
     ).ok().map(|_| format!("built {label}"))
 }
 
@@ -1727,9 +1735,10 @@ fn try_build_road_grid(
         let pos = world::town_grid_to_world(center, r, c);
         if world::place_building(
             &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
-            &mut res.world.building_hp, &mut res.food_storage, &mut res.world.spawner_state,
+            &mut res.food_storage, &mut res.world.spawner_state,
             &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
             BuildingKind::Road, ctx.tdi, pos, cost, &res.world.town_grids,
+            &mut res.commands, &mut res.npc_map,
         ).is_ok() {
             placed += 1;
         }
@@ -1798,9 +1807,10 @@ fn execute_action(
             let pos = world::town_grid_to_world(ctx.center, row, col);
             if world::place_building(
                 &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
-                &mut res.world.building_hp, &mut res.food_storage, &mut res.world.spawner_state,
+                &mut res.food_storage, &mut res.world.spawner_state,
                 &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
                 world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &res.world.town_grids,
+                &mut res.commands, &mut res.npc_map,
             ).is_ok() {
                 recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, ctx.ti);
                 Some("built waypoint".into())

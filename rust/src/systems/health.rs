@@ -5,7 +5,7 @@ use bevy::ecs::system::SystemParam;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingHpState, BuildingSlotMap};
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingSlotMap};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES};
 use crate::constants::UpgradeStatKind;
 use crate::systems::economy::*;
@@ -23,6 +23,7 @@ pub struct CleanupResources<'w> {
     pub slots: ResMut<'w, SlotAllocator>,
     pub farm_occupancy: ResMut<'w, BuildingOccupancy>,
     pub dirty: ResMut<'w, DirtyFlags>,
+    pub building_slots: ResMut<'w, BuildingSlotMap>,
 }
 
 /// Apply queued damage to Health component and sync to GPU.
@@ -84,7 +85,7 @@ pub fn death_system(
 /// Remove dead entities, hide on GPU by setting position to -9999, recycle slot.
 pub fn death_cleanup_system(
     mut commands: Commands,
-    query: Query<(Entity, &NpcIndex, &Job, &TownId, &Faction, &Activity, Option<&AssignedFarm>, Option<&WorkPosition>), With<Dead>>,
+    query: Query<(Entity, &NpcIndex, &Faction, &TownId, Option<&Job>, Option<&Activity>, Option<&AssignedFarm>, Option<&WorkPosition>, Option<&Building>), With<Dead>>,
     mut res: CleanupResources,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut combat_log: ResMut<CombatLog>,
@@ -99,7 +100,7 @@ pub fn death_cleanup_system(
         res.dirty.squads = true;
         res.dirty.ai_squads = true;
     }
-    for (entity, npc_idx, job, town_id, faction, activity, assigned_farm, work_position) in query.iter() {
+    for (entity, npc_idx, faction, town_id, job, activity, assigned_farm, work_position, building) in query.iter() {
         let idx = npc_idx.0;
 
         // Deselect if the selected NPC died
@@ -108,10 +109,25 @@ pub fn death_cleanup_system(
         }
         commands.entity(entity).despawn();
         despawn_count += 1;
-        pop_dec_alive(&mut res.pop_stats, *job, town_id.0);
-        pop_inc_dead(&mut res.pop_stats, *job, town_id.0);
-        if matches!(activity, Activity::Working | Activity::MiningAtMine) {
-            pop_dec_working(&mut res.pop_stats, *job, town_id.0);
+
+        // Building entities: clean up maps, GPU slot, BuildingSlotMap — skip NPC-specific logic
+        if building.is_some() {
+            if let Some((kind, data_idx)) = res.building_slots.get_building(idx) {
+                res.building_slots.remove_by_building(kind, data_idx);
+            }
+            res.npc_map.0.remove(&idx);
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 0.0 }));
+            res.slots.free(idx);
+            continue;
+        }
+
+        // NPC-specific cleanup
+        let job = job.copied().unwrap_or(Job::Farmer);
+        pop_dec_alive(&mut res.pop_stats, job, town_id.0);
+        pop_inc_dead(&mut res.pop_stats, job, town_id.0);
+        if matches!(activity, Some(Activity::Working) | Some(Activity::MiningAtMine)) {
+            pop_dec_working(&mut res.pop_stats, job, town_id.0);
         }
 
         // Release assigned farm if any
@@ -124,7 +140,7 @@ pub fn death_cleanup_system(
             res.farm_occupancy.release(wp.0);
         }
 
-        if *job == Job::Miner {
+        if job == Job::Miner {
             res.dirty.mining = true;
         }
 
@@ -212,14 +228,12 @@ pub fn update_healing_zone_cache(
 /// Starving NPCs are capped at 50% HP.
 pub fn healing_system(
     mut commands: Commands,
-    mut query: Query<(Entity, &NpcIndex, &mut Health, &CachedStats, &Faction, &TownId, Option<&Healing>, Option<&Starving>), Without<Dead>>,
+    mut query: Query<(Entity, &NpcIndex, &mut Health, &CachedStats, &Faction, &TownId, Option<&Healing>, Option<&Starving>), (Without<Dead>, Without<Building>)>,
+    mut building_query: Query<(&NpcIndex, &mut Health, &Faction, &Building), Without<Dead>>,
     gpu_state: Res<GpuReadState>,
     cache: Res<HealingZoneCache>,
     time: Res<Time>,
     game_time: Res<GameTime>,
-    world_data: Res<WorldData>,
-    mut building_hp: ResMut<BuildingHpState>,
-    building_slots: Res<BuildingSlotMap>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut debug: ResMut<HealthDebug>,
     mut dirty: ResMut<DirtyFlags>,
@@ -298,33 +312,31 @@ pub fn healing_system(
         }
     }
 
-    // Heal damaged buildings in same-faction fountain range (registry-driven).
+    // Heal damaged buildings in same-faction fountain range (entity-driven).
     if dirty.buildings_need_healing {
         let mut any_damaged = false;
-        for def in crate::constants::BUILDING_REGISTRY {
-            let hps = building_hp.hps_mut(def.kind);
-            for (idx, hp) in hps.iter_mut().enumerate() {
-                if *hp <= 0.0 || *hp >= def.hp { continue; }
-                any_damaged = true;
-                let Some((pos, town_idx)) = world_data.building_pos_town(def.kind, idx) else { continue };
-                let faction = world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-                if faction < 0 { continue; }
-                let zones = cache.by_faction.get(faction as usize).map(|v| v.as_slice()).unwrap_or(&[]);
-                let mut zone_heal_rate = 0.0f32;
-                for zone in zones {
-                    let dx = pos.x - zone.center.x;
-                    let dy = pos.y - zone.center.y;
-                    if dx * dx + dy * dy <= zone.radius_sq {
-                        zone_heal_rate = zone.heal_rate;
-                        break;
-                    }
-                }
-                if zone_heal_rate <= 0.0 { continue; }
-                *hp = (*hp + zone_heal_rate * dt).min(def.hp);
-                if let Some(slot) = building_slots.get_slot(def.kind, idx) {
-                    gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: *hp }));
+        for (npc_idx, mut health, faction, building) in building_query.iter_mut() {
+            let max_hp = crate::constants::building_def(building.kind).hp;
+            if health.0 <= 0.0 || health.0 >= max_hp { continue; }
+            any_damaged = true;
+            let idx = npc_idx.0;
+            if idx * 2 + 1 >= positions.len() { continue; }
+            let x = positions[idx * 2];
+            let y = positions[idx * 2 + 1];
+            if faction.0 < 0 { continue; }
+            let zones = cache.by_faction.get(faction.0 as usize).map(|v| v.as_slice()).unwrap_or(&[]);
+            let mut zone_heal_rate = 0.0f32;
+            for zone in zones {
+                let dx = x - zone.center.x;
+                let dy = y - zone.center.y;
+                if dx * dx + dy * dy <= zone.radius_sq {
+                    zone_heal_rate = zone.heal_rate;
+                    break;
                 }
             }
+            if zone_heal_rate <= 0.0 { continue; }
+            health.0 = (health.0 + zone_heal_rate * dt).min(max_hp);
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: health.0 }));
         }
         if !any_damaged { dirty.buildings_need_healing = false; }
     }

@@ -232,7 +232,7 @@ fn game_load_system(
         &save,
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
         &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
-        &mut ws.spawner_state, &mut ws.building_hp, &mut ws.upgrades, &mut ws.policies,
+        &mut ws.spawner_state, &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state, &mut fs.endless,
@@ -247,6 +247,9 @@ fn game_load_system(
     // Allocate GPU slots for buildings (collision via GPU compute)
     allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
     world::update_all_wall_sprites(&ws.grid, &ws.world_data, &tracking.building_slots);
+
+    // Spawn building entities (ECS entities for all alive buildings)
+    world::spawn_building_entities(&mut commands, &ws.world_data, &tracking.building_slots, &mut tracking.npc_map, Some(&save.building_hp));
 
     // Spawn NPC entities from save data
     crate::save::spawn_npcs_from_save(
@@ -281,6 +284,7 @@ fn game_load_system(
 /// Initialize the world and spawn NPCs when entering Playing state.
 /// Skips world gen if load_on_enter was handled by game_load_system.
 fn game_startup_system(
+    mut commands: Commands,
     config: Res<WorldGenConfig>,
     mut world_state: WorldState,
     mut food_storage: ResMut<FoodStorage>,
@@ -290,6 +294,7 @@ fn game_startup_system(
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut game_time: ResMut<GameTime>,
     mut camera_query: Query<&mut Transform, With<crate::render::MainCamera>>,
+    mut npc_map: ResMut<NpcEntityMap>,
     mut extra: StartupExtra,
 ) {
     // If game_load_system already populated the world, skip world gen.
@@ -307,13 +312,16 @@ fn game_startup_system(
         &config,
         &mut world_state.grid, &mut world_state.world_data,
         &mut world_state.farm_states, &mut world_state.town_grids,
-        &mut world_state.spawner_state, &mut world_state.building_hp,
+        &mut world_state.spawner_state,
         &mut world_state.slot_alloc, &mut world_state.building_slots,
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
     );
     let total = npc_msgs.len();
     for msg in npc_msgs { spawn_writer.write(msg); }
+
+    // Spawn building entities (ECS entities for all alive buildings)
+    world::spawn_building_entities(&mut commands, &world_state.world_data, &world_state.building_slots, &mut npc_map, None);
 
     // Game-specific post-setup: settings, policies, combat log
     *extra.mining_policy = MiningPolicy::default();
@@ -669,6 +677,7 @@ fn slot_right_click_system(
 
 /// Left-click places the currently selected building into any valid slot in buildable area.
 fn build_place_click_system(
+    mut commands: Commands,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,
@@ -679,6 +688,7 @@ fn build_place_click_system(
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     _difficulty: Res<Difficulty>,
+    mut npc_map: ResMut<NpcEntityMap>,
 ) {
     if build_ctx.selected_build.is_none() && !build_ctx.destroy_mode { return; }
     let just_pressed = mouse.just_pressed(MouseButton::Left);
@@ -723,11 +733,11 @@ fn build_place_click_system(
 
         let _ = world::destroy_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut world_state.spawner_state, &mut world_state.building_hp,
-            &mut world_state.slot_alloc, &mut world_state.building_slots,
+            &mut world_state.spawner_state, &mut world_state.building_slots,
             &mut combat_log, &game_time,
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
+            &mut commands, &mut npc_map,
         );
         if let Some(bk) = bld_kind {
             world_state.dirty.mark_building_changed(bk);
@@ -744,9 +754,10 @@ fn build_place_click_system(
         let cost = crate::constants::building_cost(kind);
         if world::place_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut world_state.building_hp, &mut food_storage, &mut world_state.spawner_state,
+            &mut food_storage, &mut world_state.spawner_state,
             &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
             kind, town_data_idx, world_pos, cost, &world_state.town_grids,
+            &mut commands, &mut npc_map,
         ).is_ok() {
             let label = crate::constants::building_def(kind).label;
             combat_log.push(
@@ -777,9 +788,10 @@ fn build_place_click_system(
             let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
             if world::place_building(
                 &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-                &mut world_state.building_hp, &mut food_storage, &mut world_state.spawner_state,
+                &mut food_storage, &mut world_state.spawner_state,
                 &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
                 kind, town_data_idx, cell_pos, cost, &world_state.town_grids,
+                &mut commands, &mut npc_map,
             ).is_ok() { placed += 1; }
         }
         if placed > 0 {
@@ -807,9 +819,10 @@ fn build_place_click_system(
 
         world::place_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut world_state.building_hp, &mut food_storage, &mut world_state.spawner_state,
+            &mut food_storage, &mut world_state.spawner_state,
             &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
             kind, town_data_idx, pos, cost, &world_state.town_grids,
+            &mut commands, &mut npc_map,
         ).is_ok()
     };
 
@@ -1254,8 +1267,10 @@ fn draw_slot_indicators(
 
 /// Process destroy requests from the building inspector.
 fn process_destroy_system(
+    mut commands: Commands,
     mut request: ResMut<DestroyRequest>,
     mut world_state: WorldState,
+    mut npc_map: ResMut<NpcEntityMap>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
     mut selected_building: ResMut<SelectedBuilding>,
@@ -1289,11 +1304,11 @@ fn process_destroy_system(
 
     if world::destroy_building(
         &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-        &mut world_state.spawner_state, &mut world_state.building_hp,
-        &mut world_state.slot_alloc, &mut world_state.building_slots,
+        &mut world_state.spawner_state, &mut world_state.building_slots,
         &mut combat_log, &game_time,
         trow, tcol, center,
         &format!("Destroyed building in {}", town_name),
+        &mut commands, &mut npc_map,
     ).is_ok() {
         selected_building.active = false;
         if let Some(bk) = bld_kind {
@@ -1401,7 +1416,6 @@ fn game_cleanup_system(
     *world.world_state.spawner_state = Default::default();
     *world.ai_state = Default::default();
     *world.gold_storage = Default::default();
-    *world.world_state.building_hp = Default::default();
     *building_hp_render = Default::default();
     world.render_config.npc = Default::default();
     world.render_config.proj = Default::default();

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-23d
+
+- **buildings as ECS entities (phase 1+2)** — buildings now spawn as ECS entities with `Building` marker component, reusing the NPC lifecycle (`NpcEntityMap`, `death_system`, `death_cleanup_system`); deleted `BuildingHpState` entirely (~95 lines) — entity `Health` is the single source of truth for building HP; `building_damage_system` writes entity Health directly (via `BuildingDeathExtra` SystemParam to stay within Bevy's 16-param limit); `sync_building_hp_render` queries building entities; save/load uses `HashMap<String, Vec<f32>>` (identical JSON format); removed `hps`/`hps_mut` fn pointer fields from all 13 `BUILDING_REGISTRY` entries; fixed Bevy query conflict (NPC health query vs building health mutation) that silently broke the entire EguiPrimaryContextPass schedule
+
 ## 2026-02-23c
 
 - **wall T-junctions + cross sprites** — added cross (4-way) and T-junction (3-way) wall sprites from `wood_walls_131x32.png`; 4 T-junction rotations for all orientations; nearest-neighbor atlas sampling + half-pixel UV inset to eliminate rendering artifacts at layer boundaries

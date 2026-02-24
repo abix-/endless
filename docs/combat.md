@@ -166,17 +166,19 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 - DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. `Building::is_tower()` and the shader handle the rest.
 
 ### 9. building_damage_system (combat.rs, Step::Behavior)
+- Uses `BuildingDeathExtra` SystemParam bundle (NpcMetaCache, SquadState, AiPlayerState, EndlessMode, TownUpgrades, FoodStorage, GoldStorage) to stay within Bevy's 16-parameter limit
 - Reads `BuildingDamageMsg` events via `MessageReader`
-- Decrements `BuildingHpState` by `msg.amount` for the target building kind + index
+- Decrements entity `Health` component on the building entity (looked up via `BuildingSlotMap.get_slot()` → `NpcEntityMap` → entity)
 - Looks up position/town via `WorldData::building_pos_town()` (single dispatch method for all building kinds)
 - Sets `DirtyFlags.buildings_need_healing` when a building survives damage (hp > 0)
-- Syncs HP to GPU: looks up NPC slot via `BuildingSlotMap.get_slot()`, writes `GpuUpdate::SetHealth` with new HP
+- Syncs HP to GPU: writes `GpuUpdate::SetHealth` with new HP
 - Skips already-dead buildings (HP <= 0) and indestructible buildings (GoldMine, Road)
 - When HP reaches 0:
   1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
-  2. Calls `destroy_building()` shared helper (grid clear + WorldData tombstone + spawner tombstone + HP zero + combat log + free building NPC slot)
-  3. Kills linked NPC via `GpuUpdate::HideNpc` + `SetHealth(0.0)`
-  4. **Building loot**: `BuildingDef::loot_drop()` method returns `cost / 2` as food (None if cost 0). Attacker set to `Activity::Returning { loot }`, targets home. Accumulates into existing loot. DC keep-fighting override same as xp_grant_system (skip disengage + skip home target when `dc_no_return`).
+  2. Calls `destroy_building()` shared helper (grid clear + WorldData tombstone + spawner tombstone + combat log + free building NPC slot)
+  3. Inserts `Dead` on building entity (reuses death_cleanup_system pipeline)
+  4. Kills linked NPC via `GpuUpdate::HideNpc` + `SetHealth(0.0)`
+  5. **Building loot**: `BuildingDef::loot_drop()` method returns `cost / 2` as food (None if cost 0). Attacker set to `Activity::Returning { loot }`, targets home. Accumulates into existing loot. DC keep-fighting override same as xp_grant_system (skip disengage + skip home target when `dc_no_return`).
 - Profiled under `"building_damage"` scope
 
 ## Slot Recycling
@@ -207,7 +209,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + building_tower_system + building attack fallback) |
 | CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 |
 | CPU → GPU | Tower flags | `allocate_building_slot` sets `npc_flags = 3` (bits 0+1) for tower buildings (fountains). Shader runs combat targeting for these slots. |
-| CPU → GPU | Building HP sync | `building_damage_system` writes `GpuUpdate::SetHealth` to sync building GPU slot HP after damage |
+| CPU → GPU | Building HP sync | `building_damage_system` writes entity `Health` + `GpuUpdate::SetHealth` to sync building GPU slot HP after damage |
 | GPU | Building collision | Buildings occupy NPC GPU slots (speed=0, hidden sprite). Projectile compute shader detects hits via NPC spatial grid. `process_proj_hits` routes building slot hits to `BuildingDamageMsg` via `BuildingSlotMap` lookup. |
 
 ## Debug

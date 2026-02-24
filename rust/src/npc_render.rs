@@ -1254,7 +1254,7 @@ impl FromWorld for NpcPipeline {
         let camera_bind_group_layout = BindGroupLayoutDescriptor::new(
             "npc_camera_bind_group_layout",
             &BindGroupLayoutEntries::sequential(
-                ShaderStages::VERTEX,
+                ShaderStages::VERTEX_FRAGMENT,
                 (uniform_buffer::<CameraUniform>(false),),
             ),
         );
