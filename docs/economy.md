@@ -224,9 +224,10 @@ Both player build menu and AI player use `building_cost()` for affordability che
 
 ### mining_policy_system
 - Gated by `DirtyFlags.mining` — only runs when mining topology/policy changes (radius slider, mine toggle, miner spawn/death)
-- **Discovery**: scans `WorldData.gold_mines` within `PolicySet.mining_radius` of each faction-0 town center, populates `MiningPolicy.discovered_mines[town_idx]`
-- **Distribution**: collects alive auto-assigned miners per town (skips `MinerHome.manual_mine == true`), round-robin assigns across enabled discovered mines via `MinerHome.assigned_mine`
+- **Discovery**: scans `BuildingEntityMap.iter_kind(GoldMine)` within `PolicySet.mining_radius` of each faction-0 town center, populates `MiningPolicy.discovered_mines[town_idx]`
+- **Distribution**: collects alive auto-assigned miners per town (skips `manual_mine == true` on `BuildingInstance`), round-robin assigns across enabled discovered mines via `BuildingInstance.assigned_mine`
 - **Stale clearing**: if assigned mine falls outside radius or disabled, clears `assigned_mine` on auto-assigned miners
+- **mine_enabled**: keyed by GPU slot (`HashMap<usize, bool>`) instead of sequential index, decoupled from WorldData ordering
 - `MAX_MINE_OCCUPANCY` in `constants.rs` limits concurrent miners per mine; behavior system (`decision_system`) skips full mines
 
 ### squad_cleanup_system

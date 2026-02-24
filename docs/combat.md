@@ -147,7 +147,7 @@ Execution order is **chained** — each system completes before the next starts.
 ### 7. sync_waypoint_slots (combat.rs)
 
 - Gated by `DirtyFlags.waypoint_slots` — skips entirely when no waypoints built/destroyed/loaded
-- Scans `WorldData.waypoints` for slot mismatches:
+- Scans `BuildingEntityMap.iter_kind(Waypoint)` for slot mismatches:
   - **Alive post, no slot** (`position.x > -9000 && npc_slot == None`): allocates `SlotAllocator` index, emits GPU updates (SetPosition, SetTarget, SetSpeed=0, SetHealth=999, SetSpriteFrame col=-1). Sprite col=-1 makes the slot invisible to NPC renderer. SetTarget=position causes GPU to immediately mark settled.
   - **Tombstoned post, has slot** (`position.x < -9000 && npc_slot == Some`): emits `HideNpc`, frees slot
 - Faction set in a second pass (borrow split: `iter_mut` on waypoints prevents reading towns simultaneously)
@@ -169,13 +169,13 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 - Uses `BuildingDeathExtra` SystemParam bundle (NpcMetaCache, SquadState, AiPlayerState, EndlessMode, TownUpgrades, FoodStorage, GoldStorage) to stay within Bevy's 16-parameter limit
 - Reads `BuildingDamageMsg` events via `MessageReader`
 - Decrements entity `Health` component on the building entity (looked up via `BuildingEntityMap.get_entity_by_building(kind, idx)` → entity)
-- Looks up position/town via `WorldData::building_pos_town()` (single dispatch method for all building kinds)
+- Looks up position/town via `BuildingEntityMap::get_instance(slot)` (position + town_idx from `BuildingInstance`)
 - Sets `DirtyFlags.buildings_need_healing` when a building survives damage (hp > 0)
 - Syncs HP to GPU: writes `GpuUpdate::SetHealth` with new HP
 - Skips already-dead buildings (HP <= 0) and indestructible buildings (GoldMine, Road)
 - When HP reaches 0:
   1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
-  2. Calls `destroy_building()` shared helper (grid clear + WorldData tombstone + spawner tombstone + combat log + free building NPC slot)
+  2. Calls `destroy_building()` shared helper (grid clear + spawner tombstone + combat log + mark building entity Dead)
   3. Inserts `Dead` on building entity (reuses death_cleanup_system pipeline)
   4. Kills linked NPC via `GpuUpdate::HideNpc` + `SetHealth(0.0)`
   5. **Building loot**: `BuildingDef::loot_drop()` method returns `cost / 2` as food (None if cost 0). Attacker set to `Activity::Returning { loot }`, targets home. Accumulates into existing loot. DC keep-fighting override same as xp_grant_system (skip disengage + skip home target when `dc_no_return`).

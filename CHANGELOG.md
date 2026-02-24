@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-24a
+
+- **BuildingEntityMap sole source of truth** — completed full migration from `WorldData.buildings` to `BuildingEntityMap` across 24 files; deleted `WorldData.buildings: BTreeMap` and all 13 legacy accessor methods (`farms()`/`beds()`/`get()`/`get_mut()` etc.), `miner_home_at()`, `gold_mine_at()`; stripped 8 fn pointer fields from `BuildingDef` struct (`len`/`pos_town`/`count_for_town`/`save_vec`/`load_vec`/`place`/`tombstone`/`find_index`) and all 14×8 implementations from `BUILDING_REGISTRY`; migrated all callers (combat, ai_player, behavior, spawn, game_hud, render, save/load, economy) to `BuildingEntityMap` methods; removed `SelectedBuilding.index` (data_idx), standardized on GPU slot everywhere; moved `building_slots` from `LoadNpcTracking` to `SaveWorldState`; re-keyed `mine_enabled` from `Vec<bool>` to `HashMap<slot, bool>`; decoupled farm/mine growth states from sequential WorldData indices; save/load serializes building instances from `BuildingEntityMap` (backward-compatible with old save format); `build_patrol_route` uses `BuildingEntityMap::iter_kind_for_town(Waypoint)` instead of WorldData; world gen creates building instances directly in `BuildingEntityMap`; net ~350 lines deleted in final cleanup pass
+
 ## 2026-02-23e
 
 - **separate building entity map** — replaced `BuildingSlotMap` with `BuildingEntityMap` that owns all building identity: `(kind, idx) ↔ slot ↔ Entity`; buildings removed from `NpcEntityMap` entirely — `NpcEntityMap` is now NPC-only; removed `building_query.contains()` guards from `attack_system` and `process_proj_hits` (buildings naturally rejected by `NpcEntityMap` lookup); `building_damage_system` uses `BuildingEntityMap.get_entity_by_building()` directly; `BuildingInspectorData` simplified from 2 resources to 1; abandoned phases 3-7 of buildings-as-entities spec (further merging was counterproductive)

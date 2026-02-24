@@ -12,10 +12,10 @@ NPC decision-making and state transitions. All run in `Step::Behavior` after com
 Activity is preserved through combat — a Raiding NPC stays `Activity::Raiding` while `CombatState::Fighting`. When combat ends, the NPC resumes its previous activity.
 
 The system uses **SystemParam bundles** for farm and economy parameters:
-- `FarmParams`: farm states, `BuildingOccupancy` tracking, world data
+- `FarmParams`: farm states, `BuildingOccupancy` tracking, `BuildingEntityMap`
 - `EconomyParams`: food storage, food events, population stats
 - `DecisionExtras`: npc logs, combat log, policies, squad state, timings, town upgrades
-- `Res<BuildingSpatialGrid>`: CPU-side spatial grid for O(1) building lookups (farms, waypoints, towns, gold mines)
+- `Res<BuildingEntityMap>`: sole source of truth for all building instance lookups (farms, waypoints, towns, gold mines)
 
 Priority order (first match wins), with three-tier throttling via `NpcDecisionConfig.interval`:
 
@@ -288,7 +288,7 @@ Rest is scored when energy < `ENERGY_HUNGRY` (50), Eat only when energy < `ENERG
 
 ## Patrol Cycle
 
-Patrol units (archers, crossbows, and fighters, identified by `Job::is_patrol_unit()`) have a `PatrolRoute` with ordered posts (built from WorldData at spawn). The cycle:
+Patrol units (archers, crossbows, and fighters, identified by `Job::is_patrol_unit()`) have a `PatrolRoute` with ordered posts (built from `BuildingEntityMap` at spawn via `build_patrol_route`). The cycle:
 
 1. Spawn → walk to post 0 (`Patrolling`)
 2. Arrive → stand at post (`OnDuty`, ticks counting)

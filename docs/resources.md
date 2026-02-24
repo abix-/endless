@@ -45,12 +45,12 @@ Static world data, immutable after initialization.
 
 | Resource | Data | Purpose |
 |----------|------|---------|
-| WorldData | towns, buildings (BTreeMap\<BuildingKind, Vec\<PlacedBuilding\>\>) | All building positions and metadata |
+| WorldData | towns: `Vec<Town>` | Town center positions, factions, names |
 | SpawnerState | `Vec<SpawnerEntry>` — one per unit-home spawner or MinerHome | Building→NPC links + respawn timers |
 | BuildingOccupancy | private `HashMap<(i32,i32), i32>` — position → worker count | Building assignment (claim/release/is_occupied/count/clear) |
 | FarmStates | `Vec<FarmGrowthState>` + `Vec<f32>` progress + `Vec<Vec2>` positions | Per-farm growth tracking; methods: `push_farm()`, `harvest()`, `tombstone()` (resets all 3 vecs, marks position offscreen), `find_farm_at(pos) -> Option<usize>` (position-based GrowthStates index lookup — searches by GrowthKind::Farm + position proximity, avoids WorldData index mismatch when farms are built after mines) |
 | MineStates | `Vec<f32>` gold + `Vec<f32>` max_gold + `Vec<Vec2>` positions | Per-mine gold tracking |
-| BuildingEntityMap | `BuildingInstance` storage + bidirectional slot maps + 256px spatial grid + by_kind/by_entity/by_grid_cell indexes | Single source of truth for all runtime building instances — replaces old `BuildingSlotMap`, `BuildingSpatialGrid`, and building entries in `NpcEntityMap`; stores `BuildingInstance` (kind, position, town_idx, slot, entity, faction, patrol_order, assigned_mine, manual_mine, wall_level); methods: `add_instance`/`remove_instance`/`get_instance[_mut]`/`find_by_position`/`iter_kind`/`iter_kind_for_town`/`count_for_town`/`building_counts`/`for_each_nearby` (spatial) + legacy slot maps for GPU: `insert`/`get_slot`/`get_building`/`get_entity`/`get_entity_by_building` |
+| BuildingEntityMap | `BuildingInstance` storage + 256px spatial grid + by_kind/by_entity/by_grid_cell indexes | Sole source of truth for all building instance data (no WorldData.buildings); stores `BuildingInstance` (kind, position, town_idx, slot, entity, faction, patrol_order, assigned_mine, manual_mine, wall_level); methods: `add_instance`/`remove_instance`/`get_instance[_mut]`/`find_by_position`/`iter_kind`/`iter_kind_for_town`/`count_for_town`/`building_counts`/`gold_mine_index`/`for_each_nearby` (spatial); GPU slot maps: `insert`/`get_slot`/`get_building`/`get_entity`/`get_entity_by_building` |
 | DirtyFlags | `building_grid`, `patrols`, `patrol_perimeter`, `healing_zones`, `waypoint_slots`, `squads`, `mining`, `buildings_need_healing` (all bool), `patrol_swap: Option<(usize, usize)>` | Centralized dirty flags for gated rebuild systems; all default `true` so first frame rebuilds (except `buildings_need_healing` = false); `buildings_need_healing` set by `building_damage_system` on hits, cleared by `healing_system` when no damaged buildings remain; `waypoint_slots` triggers NPC slot alloc/free in `sync_waypoint_slots`; `squads` gates `squad_cleanup_system` (set by death/spawn/UI); `mining` gates `mining_policy_system`; `patrol_perimeter` gates `sync_patrol_perimeter_system`; `patrol_swap` queues patrol order swap from UI; `mark_building_changed(kind)` helper sets the right combo of flags for build/destroy events |
 | TownGrids | `Vec<TownGrid>` — one per town (villager + raider) | Per-town building slot unlock tracking |
 | GameAudio | `music_volume: f32`, `sfx_volume: f32`, `music_speed: f32`, `tracks: Vec<Handle<AudioSource>>`, `last_track: Option<usize>`, `loop_current: bool`, `play_next: Option<usize>` | Runtime audio state; tracks loaded at Startup, jukebox picks random no-repeat track; `loop_current` repeats same track on finish; `play_next` set by UI for explicit track selection; volume + speed synced from UserSettings |
@@ -60,11 +60,10 @@ Static world data, immutable after initialization.
 | Struct | Fields |
 |--------|--------|
 | Town | name, center (Vec2), faction, sprite_type (0=fountain, 1=tent) |
-| PlacedBuilding | position (Vec2), town_idx (u32), patrol_order (u32, waypoint-only), assigned_mine (Option\<Vec2\>, miner-only), manual_mine (bool, miner-only) — unified struct for all building types; type aliases `Farm`=`Bed`=`Waypoint`=`UnitHome`=`MinerHome`=`GoldMine`=`PlacedBuilding` for backward compat |
 
-All buildings stored in `WorldData.buildings: BTreeMap<BuildingKind, Vec<PlacedBuilding>>`. Legacy accessors `farms()`/`beds()`/`waypoints()`/`miner_homes()`/`gold_mines()` (and `_mut()` variants) wrap `get(Kind)`/`get_mut(Kind)`. `PlacedBuilding::new(pos, town_idx)` constructor defaults optional fields to zero/None. `#[serde(default)]` on optional fields ensures old saves without `patrol_order`/`assigned_mine` load cleanly.
+`WorldData` contains only towns. All building instance data lives in `BuildingEntityMap` — there is no `buildings` BTreeMap. `PlacedBuilding` struct survives only in `save.rs` for backward-compatible deserialization of old save files.
 
-Helper functions: `building_pos_town(kind, index)` → `Option<(Vec2, u32)>` delegates to `BUILDING_REGISTRY` fn pointer (no per-kind match), `building_len(kind)` delegates to registry. Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_nearest_free`, `find_within_radius`, `find_nearest_enemy_building`) all use `BuildingEntityMap.for_each_nearby()` for O(1) cell lookups. Building counts use `BuildingEntityMap.count_for_town()` / `building_counts()`.
+Spatial queries (`find_nearest_location`, `find_location_within_radius`, `find_nearest_free`, `find_within_radius`, `find_nearest_enemy_building`) all use `BuildingEntityMap.for_each_nearby()` for O(1) cell lookups. Building counts use `BuildingEntityMap.count_for_town()` / `building_counts()`.
 
 ### World Grid
 
@@ -96,7 +95,7 @@ Per-town slot tracking for the building system. Each town (villager and raider) 
 
 Coordinate helpers: `town_grid_to_world(center, row, col)`, `world_to_town_grid(center, world_pos)`, `build_bounds(grid) -> (min_row, max_row, min_col, max_col)`, `is_slot_buildable(grid, row, col)`, `find_town_slot(world_pos, towns, grids)`.
 
-Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, pushes to WorldData via registry `def.place`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `remove_building()` tombstones position to (-99999, -99999) in WorldData, clears grid cell. `destroy_building()` shared helper consolidates all destroy side effects: `remove_building()` + spawner tombstone + insert `Dead` on building entity + GPU slot free + combat log — used by click-destroy, inspector-destroy, `building_damage_system` (HP→0), and waypoint pruning. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid)` scans a town grid for buildable cells. Fountains and gold mines cannot be destroyed.
+Building placement: `place_building()` is the single entry point for all runtime building placement (player UI and AI, town-grid and wilderness). Takes `world_pos`, validates cell (exists, empty, not water), rejects foreign territory, deducts food, places on WorldGrid, creates `BuildingInstance` in `BuildingEntityMap`, auto-assigns waypoint `patrol_order`, pushes FarmStates for farms, registers spawner, spawns building entity (with `Building` marker + `Health` + `NpcIndex` + `Faction` + `TownId`), allocates building GPU slot, and marks DirtyFlags. `destroy_building()` shared helper consolidates all destroy side effects: grid cell clear + spawner tombstone + insert `Dead` on building entity + combat log — used by click-destroy, inspector-destroy, `building_damage_system` (HP→0), and waypoint pruning. `is_alive(pos)` checks tombstone status (single source of truth for `pos.x > -9000.0`). `empty_slots(tg, center, grid)` scans a town grid for buildable cells. Fountains and gold mines cannot be destroyed.
 
 Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficulty scaling): Farm=2, FarmerHome=2, MinerHome=4, ArcherHome=4, CrossbowHome=8, Waypoint=1, Tent=3. All properties defined in `BUILDING_REGISTRY`.
 
@@ -106,7 +105,7 @@ Building costs: `building_cost(kind)` in `constants.rs`. Flat costs (no difficul
 |----------|------|---------|---------|
 | FoodStorage | `Vec<i32>` — food count per town | economy systems (arrival, eating) | economy systems, UI |
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery (arrival_system) | UI (top bar) |
-| MiningPolicy | `discovered_mines: Vec<Vec<usize>>`, `mine_enabled: Vec<bool>` | mining_policy_system | UI (policies tab, mine inspector) |
+| MiningPolicy | `discovered_mines: Vec<Vec<usize>>`, `mine_enabled: HashMap<usize, bool>` (keyed by GPU slot) | mining_policy_system | UI (policies tab, mine inspector) |
 | FoodEvents | delivered: `Vec<FoodDelivered>`, consumed: `Vec<FoodConsumed>` | behavior systems | UI (poll and drain) |
 
 `FoodStorage.init(count)` initializes per-town counters. Villager towns and raider towns share the same indexing.
@@ -220,7 +219,7 @@ Replaces per-entity `FleeThreshold`/`WoundedThreshold` components for standard N
 | Resource | Data | Purpose |
 |----------|------|---------|
 | SelectedNpc | `i32` (-1 = none) | Currently selected NPC for inspector panel |
-| SelectedBuilding | `{ col, row, active }` (default inactive) | Currently selected building grid cell for building inspector |
+| SelectedBuilding | `{ col, row, kind, slot, active }` (default inactive) | Currently selected building — kind + GPU slot for direct BuildingEntityMap lookup |
 | FollowSelected | `bool` (default false) | When true, camera tracks selected NPC position each frame |
 
 ## Test Framework

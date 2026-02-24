@@ -108,7 +108,7 @@ Linear scan elimination (20K scale):
 
 CRITICAL — per-NPC per-tick (O(NPCs × buildings) each frame):
 - [ ] `behavior.rs:1013,1050` — farmer/miner work assignment scans ALL `GrowthStates.positions` to find a farm/mine. With 2K farmers × 2K farms = 4M distance calcs/tick. Fix: add spatial grid (`by_grid_cell: HashMap<(i32,i32), Vec<usize>>`) to `GrowthStates` in `resources.rs`, add `find_at(pos)` / `iter_in_radius(pos, r)` methods, update `push()` and `tombstone()` to maintain index. Migrate behavior.rs lines 1013, 1050, 442, 822.
-- [ ] `behavior.rs:1033` — every miner scans `miner_homes().iter().find(|mh| length() < 1.0)` to look up assigned mine. Fix: replace with `BuildingEntityMap::find_by_position(home.0)` which is already O(1) via `by_grid_cell`.
+- [x] `behavior.rs:1033` — miner home lookup migrated to `BuildingEntityMap::find_by_position(home.0)` (O(1) via `by_grid_cell`).
 - [ ] `behavior.rs:442,822` — arriving miners scan all GrowthStates positions with `length() < 30.0` radius check. Fix: use GrowthStates spatial grid `iter_in_radius(mine_pos, 30.0)`.
 
 HIGH — per-building per-tick:
@@ -116,14 +116,14 @@ HIGH — per-building per-tick:
 - [ ] `economy.rs:398` — stale mine assignment check: `enabled_positions.iter().any(|p| length() < 1.0)` per auto-home slot. Fix: build `HashSet<(i32,i32)>` of enabled grid cells (snapped positions), check O(1).
 
 MEDIUM — per-event (building destroy/place):
-- [ ] `constants.rs:752-1030` — all 13 `BUILDING_REGISTRY` entries have `tombstone` and `find_index` closures doing `iter().find(|b| length() < 1.0)` / `iter().position()`. Fix: route through `BuildingEntityMap::find_by_position()` → get kind+index → direct index access. These closures are called from `destroy_building` and building inspector.
+- [x] `constants.rs` — all `BUILDING_REGISTRY` fn pointers (`tombstone`, `find_index`, `len`, `pos_town`, `count_for_town`, `save_vec`, `load_vec`, `place`) deleted. Callers migrated to `BuildingEntityMap` methods.
 - [ ] `world.rs:973` — `destroy_building` tombstones spawner via `spawner_state.0.iter_mut().find(|s| length() < 1.0)`. Fix: look up spawner slot from `BuildingEntityMap` or add `by_grid_cell` to `SpawnerState`.
 - [ ] `combat.rs:534` — building destroyed: finds NPC slot via `spawner_state.0.iter().find(|s| length() < 1.0)`. Fix: store `npc_slot` on `BuildingInstance`, or use `BuildingEntityMap` spatial lookup.
-- [ ] `world.rs:896,901` — `miner_home_at` / `gold_mine_at` do linear scan of all miner homes / gold mines. Fix: delegate to `BuildingEntityMap::find_by_position()`.
+- [x] `world.rs` — `miner_home_at` / `gold_mine_at` deleted. Callers use `BuildingEntityMap::find_by_position()` and `BuildingEntityMap::gold_mine_index()`.
 - [ ] `resources.rs:565` — `GrowthStates::find_farm_at` scans all growth positions. Fix: add `by_grid_cell` HashMap to `GrowthStates` (same fix as CRITICAL item above).
 
 LOW — UI only (click handler, not per-tick):
-- [ ] `game_hud.rs:1218,1306,1331,1450,1479,1501` — multiple position-based linear scans on building click. Fix: migrate to `BuildingEntityMap::find_by_position()`.
+- [x] `game_hud.rs` — building inspector position-based linear scans migrated to `BuildingEntityMap::find_by_position()` and `get_instance(slot)`.
 - [ ] `game_hud.rs:135-142` — spawner count for tutorial: filters all spawners to count farmer/archer/xbow homes. Fix: pre-computed count on `BuildingEntityMap` or `DirtyFlags`-gated cache.
 
 Implementation order: (1) GrowthStates spatial grid (biggest win), (2) behavior.rs miner home via BuildingEntityMap, (3) economy.rs spawner/mine lookups, (4) BUILDING_REGISTRY closures, (5) SpawnerState spatial index, (6) UI click migrations.
@@ -152,10 +152,10 @@ Completed:
 - [x] Delete `BuildingSpatialGrid`, `BuildingRef`, `BuildingSlotMap`, `BuildingHpState`, `town_building_slots!` macro
 
 Remaining:
-- [ ] Decouple growth_states/mine_enabled from sequential WorldData indices (re-key by slot or position)
-- [ ] Serialize building instances from `BuildingEntityMap` instead of WorldData
-- [ ] Delete `WorldData.buildings`, `PlacedBuilding`, tombstone pattern, `is_alive()`
-- [ ] Strip `BUILDING_REGISTRY` fn pointers (keep only static definition fields)
+- [x] Decouple growth_states/mine_enabled from sequential WorldData indices (re-key by slot or position)
+- [x] Serialize building instances from `BuildingEntityMap` instead of WorldData
+- [x] Delete `WorldData.buildings` and all legacy accessors — `BuildingEntityMap` is sole source of truth
+- [x] Strip `BUILDING_REGISTRY` fn pointers (keep only static definition fields)
 - [ ] `WorldGrid.cells[].building` stores `Option<Entity>`
 
 **Stage 17: AI Expansion & Mine Control**
