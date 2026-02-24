@@ -247,7 +247,7 @@ fn game_load_system(
 
     // Allocate GPU slots for buildings (collision via GPU compute)
     allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
-    world::update_all_wall_sprites(&ws.grid, &ws.world_data, &tracking.building_slots);
+    world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
 
     // Spawn building entities (ECS entities for all alive buildings)
     tracking.building_slots.init_spatial(world_size_px);
@@ -382,6 +382,7 @@ fn tutorial_init_system(
     mut tutorial: ResMut<TutorialState>,
     settings: Res<crate::settings::UserSettings>,
     world_data: Res<world::WorldData>,
+    building_map: Res<BuildingEntityMap>,
     camera_query: Query<&Transform, With<crate::render::MainCamera>>,
     game_time: Res<GameTime>,
     time: Res<Time<Real>>,
@@ -398,11 +399,12 @@ fn tutorial_init_system(
     let player_town = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
 
     // Snapshot initial building counts for completion checks
-    tutorial.initial_farms = world_data.farms().iter().filter(|f| f.town_idx as usize == player_town).count();
-    tutorial.initial_farmer_homes = world_data.get(BuildingKind::FarmerHome).iter().filter(|h| h.town_idx as usize == player_town).count();
-    tutorial.initial_waypoints = world_data.waypoints().iter().filter(|g| g.town_idx as usize == player_town).count();
-    tutorial.initial_archer_homes = world_data.get(BuildingKind::ArcherHome).iter().filter(|a| a.town_idx as usize == player_town).count();
-    tutorial.initial_miner_homes = world_data.miner_homes().iter().filter(|m| m.town_idx as usize == player_town).count();
+    let pt = player_town as u32;
+    tutorial.initial_farms = building_map.count_for_town(BuildingKind::Farm, pt);
+    tutorial.initial_farmer_homes = building_map.count_for_town(BuildingKind::FarmerHome, pt);
+    tutorial.initial_waypoints = building_map.count_for_town(BuildingKind::Waypoint, pt);
+    tutorial.initial_archer_homes = building_map.count_for_town(BuildingKind::ArcherHome, pt);
+    tutorial.initial_miner_homes = building_map.count_for_town(BuildingKind::MinerHome, pt);
 
     // Snapshot camera start position
     if let Ok(transform) = camera_query.single() {

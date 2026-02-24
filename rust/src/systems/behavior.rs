@@ -1176,21 +1176,22 @@ pub fn rebuild_patrol_routes_system(
 
     // Apply pending patrol order swap from UI
     if let Some((a, b)) = dirty.patrol_swap.take() {
-        if a < world_data.waypoints().len() && b < world_data.waypoints().len() {
-            let order_a = world_data.waypoints()[a].patrol_order;
-            let order_b = world_data.waypoints()[b].patrol_order;
-            world_data.waypoints_mut()[a].patrol_order = order_b;
-            world_data.waypoints_mut()[b].patrol_order = order_a;
-            // Dual-write to BuildingEntityMap
-            if let Some(slot_a) = building_map.get_slot(BuildingKind::Waypoint, a) {
-                if let Some(inst) = building_map.get_instance_mut(slot_a) {
-                    inst.patrol_order = order_b;
-                }
+        let slot_a = building_map.get_slot(BuildingKind::Waypoint, a);
+        let slot_b = building_map.get_slot(BuildingKind::Waypoint, b);
+        if let (Some(sa), Some(sb)) = (slot_a, slot_b) {
+            let order_a = building_map.get_instance(sa).map(|i| i.patrol_order).unwrap_or(0);
+            let order_b = building_map.get_instance(sb).map(|i| i.patrol_order).unwrap_or(0);
+            // Write to BuildingEntityMap
+            if let Some(inst) = building_map.get_instance_mut(sa) {
+                inst.patrol_order = order_b;
             }
-            if let Some(slot_b) = building_map.get_slot(BuildingKind::Waypoint, b) {
-                if let Some(inst) = building_map.get_instance_mut(slot_b) {
-                    inst.patrol_order = order_a;
-                }
+            if let Some(inst) = building_map.get_instance_mut(sb) {
+                inst.patrol_order = order_a;
+            }
+            // Dual-write to WorldData
+            if a < world_data.waypoints().len() && b < world_data.waypoints().len() {
+                world_data.waypoints_mut()[a].patrol_order = order_b;
+                world_data.waypoints_mut()[b].patrol_order = order_a;
             }
         }
     }

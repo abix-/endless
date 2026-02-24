@@ -1347,7 +1347,7 @@ pub fn load_game_system(
     tracking.bgrid.rebuild(&ws.world_data, world_size_px);
     tracking.building_slots.clear();
     world::allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
-    world::update_all_wall_sprites(&ws.grid, &ws.world_data, &tracking.building_slots);
+    world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
 
     // 4b. Spawn building entities (ECS entities for all alive buildings)
     tracking.building_slots.init_spatial(world_size_px);

@@ -1446,10 +1446,8 @@ fn building_inspector_content(
                     }
                 }
                 BuildingKind::Waypoint => {
-                    if let Some(wp_idx) = world_data.get(BuildingKind::Waypoint).iter()
-                        .position(|w| (w.position - world_pos).length() < 1.0)
-                    {
-                        info.push_str(&format!("Patrol order: {}\n", world_data.get(BuildingKind::Waypoint)[wp_idx].patrol_order));
+                    if let Some(wp_inst) = bld.building_map.find_by_position(world_pos) {
+                        info.push_str(&format!("Patrol order: {}\n", wp_inst.patrol_order));
                     }
                 }
                 BuildingKind::Fountain => {

@@ -310,9 +310,7 @@ pub fn place_building(
 
     // Waypoint: set patrol_order on the just-pushed entry
     if kind == BuildingKind::Waypoint {
-        let order = world_data.get(BuildingKind::Waypoint).iter()
-            .filter(|w| w.town_idx == town_idx && is_alive(w.position))
-            .count() as u32 - 1; // -1 because we just pushed this one
+        let order = building_slots.count_for_town(BuildingKind::Waypoint, town_idx) as u32 - 1;
         if let Some(wp) = world_data.get_mut(BuildingKind::Waypoint).last_mut() {
             wp.patrol_order = order;
         }
@@ -435,21 +433,17 @@ pub fn update_wall_sprites_around(
 /// Set auto-tile sprites for all walls in the world. Call after allocate_all_building_slots.
 pub fn update_all_wall_sprites(
     grid: &WorldGrid,
-    world_data: &WorldData,
     building_slots: &BuildingEntityMap,
 ) {
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
-    for (i, b) in world_data.get(BuildingKind::Wall).iter().enumerate() {
-        if !is_alive(b.position) { continue; }
-        let (gc, gr) = grid.world_to_grid(b.position);
+    for inst in building_slots.iter_kind(BuildingKind::Wall) {
+        let (gc, gr) = grid.world_to_grid(inst.position);
         let variant = wall_autotile_variant(grid, gc, gr);
-        if let Some(slot) = building_slots.get_slot(BuildingKind::Wall, i) {
-            if let Ok(mut queue) = crate::messages::GPU_UPDATE_QUEUE.lock() {
-                queue.push(GpuUpdate::SetSpriteFrame {
-                    idx: slot, col: wall_base + variant as f32, row: 0.0,
-                    atlas: crate::constants::ATLAS_BUILDING,
-                });
-            }
+        if let Ok(mut queue) = crate::messages::GPU_UPDATE_QUEUE.lock() {
+            queue.push(GpuUpdate::SetSpriteFrame {
+                idx: inst.slot, col: wall_base + variant as f32, row: 0.0,
+                atlas: crate::constants::ATLAS_BUILDING,
+            });
         }
     }
 }
