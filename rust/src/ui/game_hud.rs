@@ -189,8 +189,7 @@ pub struct BuildingInspectorData<'w, 's> {
     gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
-    npc_map: Res<'w, NpcEntityMap>,
-    building_slots: Res<'w, BuildingSlotMap>,
+    building_map: Res<'w, BuildingEntityMap>,
     building_health: Query<'w, 's, &'static mut Health, With<Building>>,
 }
 
@@ -1238,9 +1237,8 @@ fn building_inspector_content(
                 if let Some(wall_idx) = world_data.get(BuildingKind::Wall).iter()
                     .position(|w| (w.position - world_pos).length() < 1.0)
                 {
-                    let hp = bld.building_slots.get_slot(BuildingKind::Wall, wall_idx)
-                        .and_then(|s| bld.npc_map.0.get(&s))
-                        .and_then(|&e| bld.building_health.get(e).ok())
+                    let hp = bld.building_map.get_entity_by_building(BuildingKind::Wall, wall_idx)
+                        .and_then(|e| bld.building_health.get(e).ok())
                         .map(|h| h.0);
                     if let Some(hp) = hp {
                         let color = if hp > tier_hp * 0.5 {
@@ -1301,11 +1299,9 @@ fn building_inspector_content(
                         if let Some(wall_idx) = world_data.get(BuildingKind::Wall).iter()
                             .position(|w| (w.position - world_pos).length() < 1.0)
                         {
-                            if let Some(slot) = bld.building_slots.get_slot(BuildingKind::Wall, wall_idx) {
-                                if let Some(&entity) = bld.npc_map.0.get(&slot) {
-                                    if let Ok(mut health) = bld.building_health.get_mut(entity) {
-                                        health.0 = new_hp;
-                                    }
+                            if let Some(entity) = bld.building_map.get_entity_by_building(BuildingKind::Wall, wall_idx) {
+                                if let Ok(mut health) = bld.building_health.get_mut(entity) {
+                                    health.0 = new_hp;
                                 }
                             }
                         }
@@ -1381,9 +1377,8 @@ fn building_inspector_content(
         let data_idx = crate::world::find_building_data_index(world_data, kind, world_pos);
         let max_hp = crate::constants::building_def(kind).hp;
         let hp = data_idx
-            .and_then(|i| bld.building_slots.get_slot(kind, i))
-            .and_then(|s| bld.npc_map.0.get(&s))
-            .and_then(|&e| bld.building_health.get(e).ok())
+            .and_then(|i| bld.building_map.get_entity_by_building(kind, i))
+            .and_then(|e| bld.building_health.get(e).ok())
             .map(|h| h.0)
             .unwrap_or(0.0);
 
@@ -1593,7 +1588,7 @@ pub fn selection_overlay_system(
     selected: Res<SelectedNpc>,
     selected_building: Res<SelectedBuilding>,
     gpu_state: Res<GpuReadState>,
-    building_slots: Res<BuildingSlotMap>,
+    building_slots: Res<BuildingEntityMap>,
     grid: Res<WorldGrid>,
     world_data: Res<WorldData>,
     camera_query: Query<(&Transform, &Projection), With<crate::render::MainCamera>>,

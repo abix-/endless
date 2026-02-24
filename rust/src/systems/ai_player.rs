@@ -36,7 +36,6 @@ pub struct AiBuildRes<'w, 's> {
     upgrade_queue: ResMut<'w, UpgradeQueue>,
     policies: ResMut<'w, TownPolicies>,
     commands: Commands<'w, 's>,
-    npc_map: ResMut<'w, NpcEntityMap>,
 }
 
 /// Alive buildings for a town as `(row, col)` grid slots. Returns an iterator.
@@ -960,14 +959,13 @@ fn sync_town_perimeter_waypoints(
     farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
     _slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
+    building_slots: &mut BuildingEntityMap,
     combat_log: &mut CombatLog,
     game_time: &GameTime,
     town_grids: &world::TownGrids,
     town_data_idx: usize,
     personality: AiPersonality,
     commands: &mut Commands,
-    npc_map: &mut NpcEntityMap,
 ) -> usize {
     // Prune waypoints not in the personality's ideal outer ring.
     // When the town area expands, the ring shifts outward and inner waypoints are destroyed.
@@ -993,7 +991,7 @@ fn sync_town_perimeter_waypoints(
             grid, world_data, farm_states, spawner_state,
             building_slots, combat_log, game_time,
             row, col, center, "waypoint pruned (not on outer ring)",
-            commands, npc_map,
+            commands,
         ).is_ok() {
             removed += 1;
         }
@@ -1011,7 +1009,6 @@ pub fn sync_patrol_perimeter_system(
     ai_state: Res<AiPlayerState>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
-    mut npc_map: ResMut<NpcEntityMap>,
     timings: Res<SystemTimings>,
 ) {
     // Dirty-flag system: only runs when perimeter-affecting state changed.
@@ -1039,7 +1036,6 @@ pub fn sync_patrol_perimeter_system(
             town_idx,
             personality,
             &mut commands,
-            &mut npc_map,
         );
     }
 
@@ -1553,7 +1549,6 @@ fn try_build_at_slot(
         cost,
         &res.world.town_grids,
         &mut res.commands,
-        &mut res.npc_map,
     ).ok().map(|_| format!("built {label}"))
 }
 
@@ -1738,7 +1733,7 @@ fn try_build_road_grid(
             &mut res.food_storage, &mut res.world.spawner_state,
             &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
             BuildingKind::Road, ctx.tdi, pos, cost, &res.world.town_grids,
-            &mut res.commands, &mut res.npc_map,
+            &mut res.commands,
         ).is_ok() {
             placed += 1;
         }
@@ -1810,7 +1805,7 @@ fn execute_action(
                 &mut res.food_storage, &mut res.world.spawner_state,
                 &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
                 world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &res.world.town_grids,
-                &mut res.commands, &mut res.npc_map,
+                &mut res.commands,
             ).is_ok() {
                 recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, ctx.ti);
                 Some("built waypoint".into())

@@ -16,7 +16,7 @@ pub struct WorldState<'w> {
     pub farm_states: ResMut<'w, GrowthStates>,
     pub dirty: ResMut<'w, DirtyFlags>,
     pub slot_alloc: ResMut<'w, SlotAllocator>,
-    pub building_slots: ResMut<'w, BuildingSlotMap>,
+    pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
 /// Mutable economy resources shared by gameplay systems.

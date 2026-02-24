@@ -15,7 +15,7 @@ const MISMATCH_EPSILON: f32 = 8.0;
 
 pub fn setup(
     mut slot_alloc: ResMut<SlotAllocator>,
-    mut building_slots: ResMut<BuildingSlotMap>,
+    mut building_slots: ResMut<BuildingEntityMap>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut food_storage: ResMut<FoodStorage>,

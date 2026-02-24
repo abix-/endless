@@ -919,23 +919,34 @@ impl SpawnerEntry {
 #[derive(Resource, Default)]
 pub struct SpawnerState(pub Vec<SpawnerEntry>);
 
-/// Bidirectional map between buildings and NPC GPU slots.
-/// Buildings occupy NPC slots for GPU collision detection (invisible, speed=0).
+/// Building identity map: (kind, data_idx) ↔ GPU slot ↔ Bevy Entity.
+/// Single source of truth for all building identity lookups.
 #[derive(Resource, Default)]
-pub struct BuildingSlotMap {
+pub struct BuildingEntityMap {
     to_slot: HashMap<(crate::world::BuildingKind, usize), usize>,
     from_slot: HashMap<usize, (crate::world::BuildingKind, usize)>,
+    slot_to_entity: HashMap<usize, Entity>,
 }
 
-impl BuildingSlotMap {
+impl BuildingEntityMap {
     pub fn insert(&mut self, kind: crate::world::BuildingKind, index: usize, slot: usize) {
         self.to_slot.insert((kind, index), slot);
         self.from_slot.insert(slot, (kind, index));
     }
 
+    pub fn set_entity(&mut self, slot: usize, entity: Entity) {
+        self.slot_to_entity.insert(slot, entity);
+    }
+
+    pub fn insert_full(&mut self, kind: crate::world::BuildingKind, index: usize, slot: usize, entity: Entity) {
+        self.insert(kind, index, slot);
+        self.set_entity(slot, entity);
+    }
+
     pub fn remove_by_building(&mut self, kind: crate::world::BuildingKind, index: usize) -> Option<usize> {
         if let Some(slot) = self.to_slot.remove(&(kind, index)) {
             self.from_slot.remove(&slot);
+            self.slot_to_entity.remove(&slot);
             Some(slot)
         } else {
             None
@@ -954,9 +965,18 @@ impl BuildingSlotMap {
         self.from_slot.contains_key(&slot)
     }
 
+    pub fn get_entity(&self, slot: usize) -> Option<Entity> {
+        self.slot_to_entity.get(&slot).copied()
+    }
+
+    pub fn get_entity_by_building(&self, kind: crate::world::BuildingKind, index: usize) -> Option<Entity> {
+        self.get_slot(kind, index).and_then(|s| self.get_entity(s))
+    }
+
     pub fn clear(&mut self) {
         self.to_slot.clear();
         self.from_slot.clear();
+        self.slot_to_entity.clear();
     }
 
     pub fn len(&self) -> usize {

@@ -8,7 +8,7 @@ use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitStat
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
-use crate::resources::BuildingSlotMap;
+use crate::resources::BuildingEntityMap;
 use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, is_alive};
 
 /// Bundled params for building destruction side effects (loot, endless respawn).
@@ -57,7 +57,6 @@ pub fn cooldown_system(
 /// GPU finds nearest enemy, Bevy checks range and applies damage.
 pub fn attack_system(
     mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job, Option<&ManualTarget>, Option<&SquadId>), Without<Dead>>,
-    building_query: Query<(), With<Building>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
     mut debug: ResMut<CombatDebug>,
@@ -189,7 +188,7 @@ pub fn attack_system(
             continue;
         }
         let target_entity = npc_map.0.get(&ti);
-        if target_entity.is_none() || target_entity.is_some_and(|&e| building_query.contains(e)) {
+        if target_entity.is_none() {
             if combat_state.is_fighting() { *combat_state = CombatState::None; }
             continue;
         }
@@ -314,9 +313,7 @@ pub fn process_proj_hits(
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
-    building_slots: Res<BuildingSlotMap>,
-    npc_map: Res<NpcEntityMap>,
-    building_query: Query<&Building>,
+    building_map: Res<BuildingEntityMap>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_proj_hits");
@@ -337,10 +334,8 @@ pub fn process_proj_hits(
             };
 
             if damage > 0.0 {
-                // Check if the hit slot is a building entity
-                let building_hit = npc_map.0.get(&(npc_idx as usize))
-                    .and_then(|&e| building_query.get(e).ok())
-                    .and_then(|b| building_slots.get_building(npc_idx as usize).map(|(_, index)| (b.kind, index)));
+                // Check if the hit slot is a building
+                let building_hit = building_map.get_building(npc_idx as usize);
                 if let Some((kind, index)) = building_hit {
                     let attacker_faction = if slot < proj_writes.factions.len() {
                         proj_writes.factions[slot]
@@ -384,7 +379,7 @@ fn fire_towers(
     dt: f32,
     positions: &[f32],
     combat_targets: &[i32],
-    building_slots: &BuildingSlotMap,
+    building_slots: &BuildingEntityMap,
     proj_alloc: &mut ProjSlotAllocator,
     state: &mut TowerKindState,
     buildings: &[(Vec2, i32, TowerStats, BuildingKind)],
@@ -445,7 +440,7 @@ pub fn building_tower_system(
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
     upgrades: Res<TownUpgrades>,
-    building_slots: Res<BuildingSlotMap>,
+    building_slots: Res<BuildingEntityMap>,
     mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
@@ -486,7 +481,7 @@ pub fn building_damage_system(
     game_time: Res<GameTime>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     timings: Res<SystemTimings>,
-    mut npc_map: ResMut<NpcEntityMap>,
+    npc_map: Res<NpcEntityMap>,
     mut building_health: Query<&mut Health, With<Building>>,
     mut loot_query: Query<(&NpcIndex, &mut Activity, &Home, &Faction, Option<&DirectControl>), Without<Dead>>,
     mut extra: BuildingDeathExtra,
@@ -495,9 +490,8 @@ pub fn building_damage_system(
     for msg in damage_reader.read() {
         if matches!(msg.kind, BuildingKind::GoldMine | BuildingKind::Road) { continue; } // mines + roads are indestructible
 
-        // Look up building entity via BuildingSlotMap → NpcEntityMap
-        let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) else { continue };
-        let Some(&entity) = npc_map.0.get(&slot) else { continue };
+        // Look up building entity via BuildingEntityMap
+        let Some(entity) = world.building_slots.get_entity_by_building(msg.kind, msg.index) else { continue };
         let Ok(mut health) = building_health.get_mut(entity) else { continue };
         if health.0 <= 0.0 { continue; } // already dead
 
@@ -524,8 +518,10 @@ pub fn building_damage_system(
             format!("{:?} in {} hit by {} for {:.0} ({:.0}/{:.0} HP)", msg.kind, town_name, attacker_name, msg.amount, new_hp, max_hp));
 
         // GPU sync (damage flash + health bar)
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: new_hp }));
-        gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: slot, intensity: 1.0 }));
+        if let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) {
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: new_hp }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: slot, intensity: 1.0 }));
+        }
 
         if new_hp > 0.0 { continue; } // still alive
 
@@ -546,7 +542,7 @@ pub fn building_damage_system(
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),
-            &mut commands, &mut npc_map,
+            &mut commands,
         );
         world.dirty.mark_building_changed(msg.kind);
 

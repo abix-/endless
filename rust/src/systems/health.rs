@@ -5,7 +5,7 @@ use bevy::ecs::system::SystemParam;
 use crate::components::*;
 use crate::constants::STARVING_HP_CAP;
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg};
-use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingSlotMap};
+use crate::resources::{NpcEntityMap, HealthDebug, PopulationStats, KillStats, NpcsByTownCache, SlotAllocator, GpuReadState, FactionStats, CombatLog, CombatEventKind, NpcMetaCache, GameTime, SelectedNpc, SystemTimings, HealingZoneCache, DirtyFlags, BuildingEntityMap};
 use crate::systems::stats::{CombatConfig, TownUpgrades, UPGRADES};
 use crate::constants::UpgradeStatKind;
 use crate::systems::economy::*;
@@ -23,7 +23,7 @@ pub struct CleanupResources<'w> {
     pub slots: ResMut<'w, SlotAllocator>,
     pub farm_occupancy: ResMut<'w, BuildingOccupancy>,
     pub dirty: ResMut<'w, DirtyFlags>,
-    pub building_slots: ResMut<'w, BuildingSlotMap>,
+    pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
 /// Apply queued damage to Health component and sync to GPU.
@@ -110,12 +110,11 @@ pub fn death_cleanup_system(
         commands.entity(entity).despawn();
         despawn_count += 1;
 
-        // Building entities: clean up maps, GPU slot, BuildingSlotMap — skip NPC-specific logic
+        // Building entities: clean up BuildingEntityMap + GPU slot — skip NPC-specific logic
         if building.is_some() {
             if let Some((kind, data_idx)) = res.building_slots.get_building(idx) {
                 res.building_slots.remove_by_building(kind, data_idx);
             }
-            res.npc_map.0.remove(&idx);
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::HideNpc { idx }));
             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx, health: 0.0 }));
             res.slots.free(idx);

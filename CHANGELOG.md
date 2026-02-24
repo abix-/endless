@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-23e
+
+- **separate building entity map** — replaced `BuildingSlotMap` with `BuildingEntityMap` that owns all building identity: `(kind, idx) ↔ slot ↔ Entity`; buildings removed from `NpcEntityMap` entirely — `NpcEntityMap` is now NPC-only; removed `building_query.contains()` guards from `attack_system` and `process_proj_hits` (buildings naturally rejected by `NpcEntityMap` lookup); `building_damage_system` uses `BuildingEntityMap.get_entity_by_building()` directly; `BuildingInspectorData` simplified from 2 resources to 1; abandoned phases 3-7 of buildings-as-entities spec (further merging was counterproductive)
+
 ## 2026-02-23d
 
 - **buildings as ECS entities (phase 1+2)** — buildings now spawn as ECS entities with `Building` marker component, reusing the NPC lifecycle (`NpcEntityMap`, `death_system`, `death_cleanup_system`); deleted `BuildingHpState` entirely (~95 lines) — entity `Health` is the single source of truth for building HP; `building_damage_system` writes entity Health directly (via `BuildingDeathExtra` SystemParam to stay within Bevy's 16-param limit); `sync_building_hp_render` queries building entities; save/load uses `HashMap<String, Vec<f32>>` (identical JSON format); removed `hps`/`hps_mut` fn pointer fields from all 13 `BUILDING_REGISTRY` entries; fixed Bevy query conflict (NPC health query vs building health mutation) that silently broke the entire EguiPrimaryContextPass schedule

@@ -99,7 +99,7 @@ pub struct TestSetupParams<'w> {
 pub struct BuildingInitParams<'w> {
     pub spawner_state: ResMut<'w, SpawnerState>,
     pub slot_alloc: ResMut<'w, SlotAllocator>,
-    pub building_slots: ResMut<'w, BuildingSlotMap>,
+    pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
 impl TestSetupParams<'_> {

@@ -88,7 +88,7 @@ Execution order is **chained** — each system completes before the next starts.
 - **Hold fire**: if NPC's squad has `hold_fire == true` and no `ManualTarget`, target is set to -1 (skip auto-engage). Reads `SquadState` via `SquadId`.
 - Falls back to `GpuReadState.combat_targets` for NPCs without manual target or hold-fire.
 - **Skips** NPCs with `Activity::Returning`, `Activity::GoingToRest`, or `Activity::Resting` (prevents combat while heading home, going to bed, or sleeping)
-- **Validates GPU target** before engaging — rejects self-targets (`ti == i`), non-NPC slots (`NpcEntityMap` lookup), same-faction or neutral targets (`GpuReadState.factions`), and dead targets (`GpuReadState.health <= 0`). Invalid targets clear `CombatState` and skip.
+- **Validates GPU target** before engaging — rejects self-targets (`ti == i`), non-NPC slots (`NpcEntityMap` lookup — buildings are not in `NpcEntityMap` so building targets naturally rejected), same-faction or neutral targets (`GpuReadState.factions`), and dead targets (`GpuReadState.health <= 0`). Invalid targets clear `CombatState` and skip.
 - If target is valid (not -1), passes validation, and in bounds:
   - Sets `CombatState::Fighting { origin }` (stores current position)
   - **In range**: sets `SetTarget` to own position (stand ground — stops GPU movement, NPC holds position while shooting). Projectile dodge from GPU shader provides evasion.
@@ -168,7 +168,7 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 ### 9. building_damage_system (combat.rs, Step::Behavior)
 - Uses `BuildingDeathExtra` SystemParam bundle (NpcMetaCache, SquadState, AiPlayerState, EndlessMode, TownUpgrades, FoodStorage, GoldStorage) to stay within Bevy's 16-parameter limit
 - Reads `BuildingDamageMsg` events via `MessageReader`
-- Decrements entity `Health` component on the building entity (looked up via `BuildingSlotMap.get_slot()` → `NpcEntityMap` → entity)
+- Decrements entity `Health` component on the building entity (looked up via `BuildingEntityMap.get_entity_by_building(kind, idx)` → entity)
 - Looks up position/town via `WorldData::building_pos_town()` (single dispatch method for all building kinds)
 - Sets `DirtyFlags.buildings_need_healing` when a building survives damage (hp > 0)
 - Syncs HP to GPU: writes `GpuUpdate::SetHealth` with new HP
@@ -210,7 +210,7 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 |
 | CPU → GPU | Tower flags | `allocate_building_slot` sets `npc_flags = 3` (bits 0+1) for tower buildings (fountains). Shader runs combat targeting for these slots. |
 | CPU → GPU | Building HP sync | `building_damage_system` writes entity `Health` + `GpuUpdate::SetHealth` to sync building GPU slot HP after damage |
-| GPU | Building collision | Buildings occupy NPC GPU slots (speed=0, hidden sprite). Projectile compute shader detects hits via NPC spatial grid. `process_proj_hits` routes building slot hits to `BuildingDamageMsg` via `BuildingSlotMap` lookup. |
+| GPU | Building collision | Buildings occupy NPC GPU slots (speed=0, hidden sprite). Projectile compute shader detects hits via NPC spatial grid. `process_proj_hits` routes building slot hits to `BuildingDamageMsg` via `BuildingEntityMap.is_building()` / `.get_building()` lookup. |
 
 ## Debug
 

@@ -14,7 +14,7 @@ Buildings share the same GPU pipeline as NPCs (same `SlotAllocator`, same GPU up
 
 - `WorldData.buildings: BTreeMap<BuildingKind, Vec<PlacedBuilding>>` -- replaced by ECS queries
 - ~~`BuildingHpState`~~ -- **DONE (Phase 2)**: deleted, replaced by entity `Health` component
-- `BuildingSlotMap` -- replaced by `NpcEntityMap` (buildings get `NpcIndex` like NPCs)
+- `BuildingSlotMap` -- replaced by `BuildingEntityMap` (buildings get their own entity map, separate from `NpcEntityMap`)
 - `BuildingSpatialGrid` -- rebuilt from entity queries or WorldGrid
 - `BUILDING_REGISTRY` fn pointers: `len`, `pos_town`, `tombstone`, `find_index` (~~`hps`, `hps_mut`~~ deleted in Phase 2)
 - `PlacedBuilding` struct
@@ -128,32 +128,13 @@ if let Some(&entity) = npc_map.0.get(&(npc_idx as usize)) {
 - `sync_building_hp_render` queries entities
 - Delete `BuildingHpState`
 
-## Phase 3: BuildingSpatialGrid -> entity queries
+## Separation Decision (post Phase 2)
 
-- Rebuild from `Query<(&Building, &Position, &Faction, &TownId, &NpcIndex)>`
-- Or replace with WorldGrid cell lookups
+Phases 3-7 (merge all building infrastructure into NPC infrastructure) were **abandoned**. Buildings and NPCs share ECS entity lifecycle and GPU slot allocation, but they are fundamentally different entity types. Merging them further (e.g., combining `NpcEntityMap` + `BuildingSlotMap` into one map) made systems confusing — every NPC system needed `Without<Building>` guards and `building_query.contains()` checks.
 
-## Phase 4: Merge damage pipelines
+Instead, `BuildingSlotMap` was replaced by `BuildingEntityMap` — a single resource for all building identity: `(kind, idx) ↔ slot ↔ Entity`. Buildings are NOT in `NpcEntityMap`. This gives buildings their own identity infrastructure while still sharing ECS components (`Health`, `Faction`, `TownId`, `NpcIndex`) and the death pipeline (`death_system` → `death_cleanup_system`).
 
-- Delete `BuildingDamageMsg` -- projectile hits write `DamageMsg` for both NPCs and buildings
-- `damage_system` handles both (building death triggers `destroy_building` for grid cleanup)
-
-## Phase 5: AI/Economy/Behavior
-
-- Replace `world_data.farms()` / `waypoints()` with entity queries
-- Delete `town_building_slots!` macro
-
-## Phase 6: Save/Load
-
-- Serialize building entities directly
-- Delete WorldData.buildings serialization
-
-## Phase 7: Final cleanup
-
-- Delete `WorldData.buildings`, `PlacedBuilding`, tombstone pattern
-- Strip `BUILDING_REGISTRY` fn pointers: remove `len`, `pos_town`, `count_for_town`, `hps`, `hps_mut`, `save_vec`, `load_vec`, `place`, `tombstone`, `find_index`, `is_unit_home`. Keep static definition fields: `kind`, `hp`, `cost`, `tile`, `label`, `help`, `tooltip`, `placement`, `is_tower`, `tower_stats`, `spawner`, `on_place`, `display`, `player_buildable`, `raider_buildable`
-- `WorldGrid.cells[].building` stores `Option<Entity>`
-- Delete `BuildingSlotMap` (fully replaced by `NpcEntityMap`)
+Remaining WorldData infrastructure (`buildings: BTreeMap`, `PlacedBuilding`, `BuildingSpatialGrid`, tombstone pattern) stays as-is — it works and removing it would be high risk for low benefit.
 
 ---
 

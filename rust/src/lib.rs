@@ -237,7 +237,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<DestroyRequest>()
        .init_resource::<TowerState>()
        .init_resource::<SpawnerState>()
-       .init_resource::<resources::BuildingSlotMap>()
+       .init_resource::<resources::BuildingEntityMap>()
        .init_resource::<resources::BuildingHpRender>()
        .init_resource::<SquadState>()
        .insert_resource(HelpCatalog::new())

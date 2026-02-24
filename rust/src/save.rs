@@ -1089,7 +1089,7 @@ pub struct LoadNpcTracking<'w> {
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
     pub bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     pub healing_cache: ResMut<'w, HealingZoneCache>,
-    pub building_slots: ResMut<'w, BuildingSlotMap>,
+    pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
 // ============================================================================
@@ -1100,7 +1100,7 @@ pub struct LoadNpcTracking<'w> {
 /// Produces the same JSON as the old BuildingHpState serde.
 fn collect_building_hp(
     building_query: &Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
-    building_slots: &BuildingSlotMap,
+    building_slots: &BuildingEntityMap,
     world_data: &WorldData,
 ) -> std::collections::HashMap<String, Vec<f32>> {
     use std::collections::HashMap;
@@ -1156,7 +1156,7 @@ pub fn save_game_system(
     fs: SaveFactionState,
     npc_map: Res<NpcEntityMap>,
     npc_meta: Res<NpcMetaCache>,
-    building_slots: Res<BuildingSlotMap>,
+    building_slots: Res<BuildingEntityMap>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
     building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
@@ -1195,7 +1195,7 @@ pub fn autosave_system(
     fs: SaveFactionState,
     npc_map: Res<NpcEntityMap>,
     npc_meta: Res<NpcMetaCache>,
-    building_slots: Res<BuildingSlotMap>,
+    building_slots: Res<BuildingEntityMap>,
     core_query: Query<NpcCoreQuery, Without<Dead>>,
     extras_query: Query<NpcExtrasQuery, Without<Dead>>,
     building_query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
@@ -1349,7 +1349,7 @@ pub fn load_game_system(
     world::update_all_wall_sprites(&ws.grid, &ws.world_data, &tracking.building_slots);
 
     // 4b. Spawn building entities (ECS entities for all alive buildings)
-    world::spawn_building_entities(&mut commands, &ws.world_data, &tracking.building_slots, &mut tracking.npc_map, Some(&save.building_hp));
+    world::spawn_building_entities(&mut commands, &ws.world_data, &mut tracking.building_slots, Some(&save.building_hp));
 
     // 5. Spawn NPC entities from save data
     spawn_npcs_from_save(

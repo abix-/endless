@@ -34,7 +34,7 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{GrowthStates, FoodStorage, GoldStorage, FactionStats, RaiderState, SpawnerState, SpawnerEntry, BuildingSlotMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
+use crate::resources::{GrowthStates, FoodStorage, GoldStorage, FactionStats, RaiderState, SpawnerState, SpawnerEntry, BuildingEntityMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
 use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
 
 /// True if a position has not been tombstoned (i.e. the entity still exists).
@@ -271,7 +271,7 @@ pub fn place_building(
     food_storage: &mut FoodStorage,
     spawner_state: &mut SpawnerState,
     slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
+    building_slots: &mut BuildingEntityMap,
     dirty: &mut DirtyFlags,
     kind: BuildingKind,
     town_data_idx: usize,
@@ -279,7 +279,6 @@ pub fn place_building(
     cost: i32,
     town_grids: &TownGrids,
     commands: &mut Commands,
-    npc_map: &mut crate::resources::NpcEntityMap,
 ) -> Result<(), &'static str> {
     let (gc, gr) = grid.world_to_grid(world_pos);
     let snapped = grid.grid_to_world(gc, gr);
@@ -344,7 +343,7 @@ pub fn place_building(
             Speed(0.0),
             Building { kind },
         )).id();
-        npc_map.0.insert(slot, entity);
+        building_slots.set_entity(slot, entity);
     }
 
     // Wall auto-tile: update sprites for new wall + neighbors
@@ -399,7 +398,7 @@ pub fn wall_autotile_variant(grid: &WorldGrid, col: usize, row: usize) -> u16 {
 pub fn update_wall_sprites_around(
     grid: &WorldGrid,
     world_data: &WorldData,
-    building_slots: &BuildingSlotMap,
+    building_slots: &BuildingEntityMap,
     col: usize, row: usize,
 ) {
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
@@ -429,7 +428,7 @@ pub fn update_wall_sprites_around(
 pub fn update_all_wall_sprites(
     grid: &WorldGrid,
     world_data: &WorldData,
-    building_slots: &BuildingSlotMap,
+    building_slots: &BuildingEntityMap,
 ) {
     let wall_base = crate::constants::tileset_index(BuildingKind::Wall) as f32;
     for (i, b) in world_data.get(BuildingKind::Wall).iter().enumerate() {
@@ -531,7 +530,7 @@ pub fn register_spawner(
 /// `tower` = true enables GPU combat targeting for this building (bit 0 + bit 1 in npc_flags).
 fn allocate_building_slot(
     slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
+    building_slots: &mut BuildingEntityMap,
     kind: BuildingKind,
     data_idx: usize,
     pos: Vec2,
@@ -566,7 +565,7 @@ fn allocate_building_slot(
 pub fn allocate_all_building_slots(
     world_data: &WorldData,
     slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
+    building_slots: &mut BuildingEntityMap,
 ) {
     use crate::constants::{building_def, tileset_index, FACTION_NEUTRAL, BUILDING_REGISTRY};
 
@@ -574,7 +573,7 @@ pub fn allocate_all_building_slots(
         world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0)
     };
 
-    let alloc = |slot_alloc: &mut SlotAllocator, building_slots: &mut BuildingSlotMap,
+    let alloc = |slot_alloc: &mut SlotAllocator, building_slots: &mut BuildingEntityMap,
                  kind: BuildingKind, idx: usize, pos: Vec2, faction: i32| {
         let def = building_def(kind);
         allocate_building_slot(slot_alloc, building_slots, kind, idx,
@@ -595,14 +594,13 @@ pub fn allocate_all_building_slots(
     info!("Allocated {} building GPU slots", building_slots.len());
 }
 
-/// Spawn ECS entities for all alive buildings in WorldData and register in NpcEntityMap.
-/// Buildings become NPC-like entities: NpcIndex, Position, Health, Faction, TownId, Speed(0), Building marker.
-/// Called after allocate_all_building_slots (needs BuildingSlotMap to know GPU slot per building).
+/// Spawn ECS entities for all alive buildings in WorldData and register in BuildingEntityMap.
+/// Buildings are ECS entities: NpcIndex, Position, Health, Faction, TownId, Speed(0), Building marker.
+/// Called after allocate_all_building_slots (needs BuildingEntityMap to know GPU slot per building).
 pub fn spawn_building_entities(
     commands: &mut Commands,
     world_data: &WorldData,
-    building_slots: &BuildingSlotMap,
-    npc_map: &mut crate::resources::NpcEntityMap,
+    building_map: &mut BuildingEntityMap,
     loaded_hp: Option<&std::collections::HashMap<String, Vec<f32>>>,
 ) {
     use crate::components::*;
@@ -612,7 +610,7 @@ pub fn spawn_building_entities(
     for def in BUILDING_REGISTRY {
         for i in 0..(def.len)(world_data) {
             if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
-                let Some(slot) = building_slots.get_slot(def.kind, i) else { continue };
+                let Some(slot) = building_map.get_slot(def.kind, i) else { continue };
 
                 // Look up HP from loaded save data if available, else full HP
                 let hp = loaded_hp
@@ -636,7 +634,7 @@ pub fn spawn_building_entities(
                     Speed(0.0),
                     Building { kind: def.kind },
                 )).id();
-                npc_map.0.insert(slot, entity);
+                building_map.set_entity(slot, entity);
                 count += 1;
             }
         }
@@ -650,7 +648,7 @@ pub fn init_world_buildings(
     world_data: &WorldData,
     spawner_state: &mut SpawnerState,
     slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
+    building_slots: &mut BuildingEntityMap,
 ) {
     spawner_state.0.clear();
     building_slots.clear();
@@ -669,7 +667,7 @@ pub fn init_single_town_buildings(
     world_data: &WorldData,
     spawner_state: &mut SpawnerState,
     slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
+    building_slots: &mut BuildingEntityMap,
 ) {
     use crate::constants::{tileset_index, FACTION_NEUTRAL, BUILDING_REGISTRY};
 
@@ -760,7 +758,7 @@ pub fn setup_world(
     town_grids: &mut TownGrids,
     spawner_state: &mut SpawnerState,
     slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingSlotMap,
+    building_slots: &mut BuildingEntityMap,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
     faction_stats: &mut FactionStats,
@@ -869,14 +867,13 @@ pub fn destroy_building(
     world_data: &mut WorldData,
     farm_states: &mut GrowthStates,
     spawner_state: &mut SpawnerState,
-    building_slots: &mut BuildingSlotMap,
+    building_slots: &mut BuildingEntityMap,
     combat_log: &mut CombatLog,
     game_time: &GameTime,
     row: i32, col: i32,
     town_center: Vec2,
     reason: &str,
     commands: &mut Commands,
-    npc_map: &mut crate::resources::NpcEntityMap,
 ) -> Result<(), &'static str> {
     let world_pos = town_grid_to_world(town_center, row, col);
     let (gc, gr) = grid.world_to_grid(world_pos);
@@ -889,10 +886,8 @@ pub fn destroy_building(
 
     // Mark building entity as Dead (death_cleanup_system handles despawn + GPU hide + slot free)
     if let Some(idx) = hp_index {
-        if let Some(slot) = building_slots.get_slot(kind, idx) {
-            if let Some(&entity) = npc_map.0.get(&slot) {
-                commands.entity(entity).insert(crate::components::Dead);
-            }
+        if let Some(entity) = building_slots.get_entity_by_building(kind, idx) {
+            commands.entity(entity).insert(crate::components::Dead);
         }
     }
 
