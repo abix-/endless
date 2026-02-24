@@ -207,30 +207,26 @@ pub fn starvation_system(
 pub fn farm_visual_system(
     mut commands: Commands,
     growth_states: Res<GrowthStates>,
-    world_data: Res<crate::world::WorldData>,
     markers: Query<(Entity, &FarmReadyMarker)>,
     mut prev_states: Local<Vec<FarmGrowthState>>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("farm_visual");
-    // Only process farm entries (first N entries matching WorldData.farms)
-    let farm_count = world_data.farms().len();
-    prev_states.resize(farm_count, FarmGrowthState::Growing);
-    for farm_idx in 0..farm_count.min(growth_states.states.len()) {
-        let state = &growth_states.states[farm_idx];
-        let prev = prev_states[farm_idx];
+    prev_states.resize(growth_states.states.len(), FarmGrowthState::Growing);
+    for (idx, kind) in growth_states.kinds.iter().enumerate() {
+        if *kind != crate::resources::GrowthKind::Farm { continue; }
+        let Some(state) = growth_states.states.get(idx) else { continue };
+        let prev = prev_states[idx];
         if *state == FarmGrowthState::Ready && prev == FarmGrowthState::Growing {
-            if world_data.farms().get(farm_idx).is_some() {
-                commands.spawn(FarmReadyMarker { farm_idx });
-            }
+            commands.spawn(FarmReadyMarker { farm_idx: idx });
         } else if *state == FarmGrowthState::Growing && prev == FarmGrowthState::Ready {
             for (entity, marker) in markers.iter() {
-                if marker.farm_idx == farm_idx {
+                if marker.farm_idx == idx {
                     commands.entity(entity).despawn();
                 }
             }
         }
-        prev_states[farm_idx] = *state;
+        prev_states[idx] = *state;
     }
 }
 

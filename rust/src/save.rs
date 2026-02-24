@@ -515,12 +515,11 @@ pub fn collect_save_data(
     }).collect();
 
     // Farm growth (v2: farms only, mines stored separately in mine_growth)
-    let farm_count = world_data.farms().len();
-    let farm_growth: Vec<FarmGrowthSave> = farm_states.states.iter().zip(farm_states.progress.iter())
-        .take(farm_count)
-        .map(|(s, p)| FarmGrowthSave {
-            state: match s { FarmGrowthState::Growing => 0, FarmGrowthState::Ready => 1 },
-            progress: *p,
+    let farm_growth: Vec<FarmGrowthSave> = farm_states.kinds.iter().enumerate()
+        .filter(|(_, k)| **k == GrowthKind::Farm)
+        .map(|(i, _)| FarmGrowthSave {
+            state: match farm_states.states.get(i) { Some(FarmGrowthState::Ready) => 1, _ => 0 },
+            progress: farm_states.progress.get(i).copied().unwrap_or(0.0),
         }).collect();
 
     // Spawners
@@ -590,16 +589,12 @@ pub fn collect_save_data(
         food: food_storage.food.clone(),
         gold: gold_storage.gold.clone(),
         farm_growth,
-        mine_growth: {
-            let farm_count = world_data.farms().len();
-            farm_states.states.iter().enumerate()
-                .filter(|(i, _)| *i >= farm_count)
-                .zip(farm_states.progress.iter().skip(farm_count))
-                .map(|((_, s), p)| FarmGrowthSave {
-                    state: match s { FarmGrowthState::Growing => 0, FarmGrowthState::Ready => 1 },
-                    progress: *p,
-                }).collect()
-        },
+        mine_growth: farm_states.kinds.iter().enumerate()
+            .filter(|(_, k)| **k == GrowthKind::Mine)
+            .map(|(i, _)| FarmGrowthSave {
+                state: match farm_states.states.get(i) { Some(FarmGrowthState::Ready) => 1, _ => 0 },
+                progress: farm_states.progress.get(i).copied().unwrap_or(0.0),
+            }).collect(),
         spawners,
         building_hp: building_hp_save,
         upgrades: upgrades_save,

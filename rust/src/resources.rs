@@ -716,7 +716,7 @@ pub struct UiState {
     pub left_panel_open: bool,
     pub left_panel_tab: LeftPanelTab,
     pub combat_log_visible: bool,
-    /// Index into world_data.miner_homes — next click assigns a gold mine.
+    /// MinerHome building data index — next click assigns a gold mine.
     pub assigning_mine: Option<usize>,
     /// Double-click on fountain sets this to the faction number; Factions tab consumes it.
     pub pending_faction_select: Option<i32>,
