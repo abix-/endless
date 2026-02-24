@@ -515,7 +515,7 @@ fn build_overlay_instances(
         let pos = inst.position;
         if pos.x < -9000.0 { continue; }
 
-        let ready = inst.growth_state == crate::resources::FarmGrowthState::Ready;
+        let ready = inst.growth_ready;
         match inst.kind {
             crate::world::BuildingKind::Farm => {
                 let color = if ready {

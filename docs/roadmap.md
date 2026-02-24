@@ -107,7 +107,7 @@ Every-frame review backlog:
 Linear scan elimination (20K scale):
 
 CRITICAL — per-NPC per-tick (O(NPCs × buildings) each frame):
-- [x] `behavior.rs:1013,1050` — farmer/miner work assignment: `GrowthStates` deleted, farmer scan uses `BuildingEntityMap::iter_kind_for_town(Farm, town_id)` O(k), miner scan uses `iter_kind(GoldMine)` O(k). Growth fields (`growth_state`, `growth_progress`) absorbed into `BuildingInstance`. `BuildingInstance::harvest()` method for Ready→Growing transition.
+- [x] `behavior.rs:1013,1050` — farmer/miner work assignment: `GrowthStates` deleted, farmer scan uses `BuildingEntityMap::iter_kind_for_town(Farm, town_id)` O(k), miner scan uses `iter_kind(GoldMine)` O(k). Growth fields (`growth_ready`, `growth_progress`) absorbed into `BuildingInstance`. `BuildingInstance::harvest()` method for Ready→Growing transition.
 - [x] `behavior.rs:1033` — miner home lookup migrated to `BuildingEntityMap::find_by_position(home.0)` (O(1) via `by_grid_cell`).
 - [x] `behavior.rs:442,822` — arriving miners use `BuildingEntityMap::find_mine_at[_mut](pos)` O(1) via spatial grid.
 
@@ -177,8 +177,8 @@ Mostly complete (see [completed.md](completed.md)).
 *Done when: mines grow gold like farms grow food (tended-only, 4-hour cycle), any faction's miner can harvest a ready mine, and growth is unified on BuildingInstance for both farms and mines.*
 
 Unify mine growth onto BuildingInstance (farm growth already migrated — `GrowthStates` deleted):
-- [x] `GrowthStates` resource deleted — `growth_state`/`growth_progress` fields live on `BuildingInstance` (farms already use these)
-- [ ] Mine growth uses same `BuildingInstance` fields: `growth_state: FarmGrowthState`, `growth_progress: f32` (rename `FarmGrowthState` → `GrowthState`)
+- [x] `GrowthStates` resource deleted — `growth_ready`/`growth_progress` fields live on `BuildingInstance` (farms already use these)
+- [x] Mine growth uses same `BuildingInstance` fields: `growth_ready: bool`, `growth_progress: f32` (`FarmGrowthState` enum deleted — replaced with bool)
 - [ ] `harvest()` generalized: Farm credits food to town, Mine credits `MINE_EXTRACT_PER_CYCLE` gold to harvester's town
 - [ ] `growth_system` replaces both `farm_growth_system` and `mine_regen_system` — farms: passive + tended rates (unchanged), mines: tended-only (`MINE_TENDED_GROWTH_RATE` = 0.25/hr, 4 hours to ready)
 - [ ] Miner behavior: walk to mine → claim occupancy → tend (accelerate growth) → harvest when Ready → return with gold. Same pattern as farmer but for gold.

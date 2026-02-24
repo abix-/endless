@@ -66,7 +66,7 @@ pub fn tick(
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let farm_inst = building_map.iter_kind(crate::world::BuildingKind::Farm).next();
-    let farm_state = farm_inst.map(|i| i.growth_state).unwrap_or(FarmGrowthState::Growing);
+    let farm_ready = farm_inst.map(|i| i.growth_ready).unwrap_or(false);
     let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
     let town_food = food_storage.food.first().copied().unwrap_or(0);
     let raider_food = food_storage.food.get(1).copied().unwrap_or(0);
@@ -74,29 +74,29 @@ pub fn tick(
     match test.phase {
         // Phase 1: Farm is Growing
         1 => {
-            test.phase_name = format!("farm={:?} progress={:.2}", farm_state, farm_progress);
-            if farm_state == FarmGrowthState::Growing {
+            test.phase_name = format!("ready={} progress={:.2}", farm_ready, farm_progress);
+            if !farm_ready {
                 test.pass_phase(elapsed, format!("Growing at {:.0}%", farm_progress * 100.0));
             } else if elapsed > 3.0 {
-                test.fail_phase(elapsed, format!("farm={:?}", farm_state));
+                test.fail_phase(elapsed, format!("ready={}", farm_ready));
             }
         }
         // Phase 2: Farm transitions to Ready
         2 => {
-            test.phase_name = format!("farm={:?} progress={:.2}", farm_state, farm_progress);
-            if farm_state == FarmGrowthState::Ready {
+            test.phase_name = format!("ready={} progress={:.2}", farm_ready, farm_progress);
+            if farm_ready {
                 test.pass_phase(elapsed, format!("Ready!"));
             } else if elapsed > 30.0 {
-                test.fail_phase(elapsed, format!("farm={:?} progress={:.2}", farm_state, farm_progress));
+                test.fail_phase(elapsed, format!("ready={} progress={:.2}", farm_ready, farm_progress));
             }
         }
         // Phase 3: Farmer harvests → town food increases
         3 => {
-            test.phase_name = format!("town_food={} farm={:?}", town_food, farm_state);
+            test.phase_name = format!("town_food={} farm={:?}", town_food, farm_ready);
             if town_food > 0 {
                 test.pass_phase(elapsed, format!("town_food={}", town_food));
             } else if elapsed > 40.0 {
-                test.fail_phase(elapsed, format!("town_food=0 farm={:?}", farm_state));
+                test.fail_phase(elapsed, format!("town_food=0 farm={:?}", farm_ready));
             }
         }
         // Phase 4: Raider forage adds food over time

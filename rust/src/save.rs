@@ -522,7 +522,7 @@ pub fn collect_save_data(
     // Farm growth (serialized from BuildingInstance growth fields)
     let farm_growth: Vec<FarmGrowthSave> = building_slots.iter_kind(crate::world::BuildingKind::Farm)
         .map(|i| FarmGrowthSave {
-            state: if i.growth_state == FarmGrowthState::Ready { 1 } else { 0 },
+            state: if i.growth_ready { 1 } else { 0 },
             progress: i.growth_progress,
         }).collect();
 
@@ -597,7 +597,7 @@ pub fn collect_save_data(
         farm_growth,
         mine_growth: building_slots.iter_kind(crate::world::BuildingKind::GoldMine)
             .map(|i| FarmGrowthSave {
-                state: if i.growth_state == FarmGrowthState::Ready { 1 } else { 0 },
+                state: if i.growth_ready { 1 } else { 0 },
                 progress: i.growth_progress,
             }).collect(),
         spawners,
@@ -1156,7 +1156,6 @@ pub fn restore_growth_from_save(
     save: &SaveData,
     building_map: &mut BuildingEntityMap,
 ) {
-    use crate::resources::FarmGrowthState;
 
     // Farms — sort by slot to match save order
     let mut farm_slots: Vec<usize> = building_map.iter_kind(world::BuildingKind::Farm)
@@ -1170,7 +1169,7 @@ pub fn restore_growth_from_save(
     for (i, &slot) in farm_slots.iter().enumerate() {
         if let Some(inst) = building_map.get_instance_mut(slot) {
             if let Some(fg) = farm_growth.get(i) {
-                inst.growth_state = if fg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing };
+                inst.growth_ready = fg.state == 1;
                 inst.growth_progress = fg.progress;
             }
         }
@@ -1183,7 +1182,7 @@ pub fn restore_growth_from_save(
     for (i, &slot) in mine_slots.iter().enumerate() {
         if let Some(inst) = building_map.get_instance_mut(slot) {
             if let Some(mg) = save.mine_growth.get(i) {
-                inst.growth_state = if mg.state == 1 { FarmGrowthState::Ready } else { FarmGrowthState::Growing };
+                inst.growth_ready = mg.state == 1;
                 inst.growth_progress = mg.progress;
             }
         }

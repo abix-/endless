@@ -1127,13 +1127,10 @@ fn building_inspector_content(
     match kind {
         BuildingKind::Farm => {
             if let Some(inst) = bld.building_map.find_farm_at(world_pos) {
-                let state_name = match inst.growth_state {
-                    FarmGrowthState::Growing => "Growing",
-                    FarmGrowthState::Ready => "Ready to harvest",
-                };
+                let state_name = if inst.growth_ready { "Ready to harvest" } else { "Growing" };
                 ui.label(format!("Status: {}", state_name));
 
-                let color = if inst.growth_state == FarmGrowthState::Ready {
+                let color = if inst.growth_ready {
                     egui::Color32::from_rgb(200, 200, 60)
                 } else {
                     egui::Color32::from_rgb(80, 180, 80)
@@ -1194,7 +1191,7 @@ fn building_inspector_content(
             }
             if let Some(inst) = bld.building_map.find_mine_at(world_pos) {
                 let progress = inst.growth_progress;
-                let ready = inst.growth_state == FarmGrowthState::Ready;
+                let ready = inst.growth_ready;
                 let label = if ready { "Ready to harvest" } else { &format!("Growing: {:.0}%", progress * 100.0) };
                 ui.label(label);
                 let color = if ready {
@@ -1400,10 +1397,7 @@ fn building_inspector_content(
             match kind {
                 BuildingKind::Farm => {
                     if let Some(inst) = bld.building_map.find_farm_at(world_pos) {
-                        let state_name = match inst.growth_state {
-                            FarmGrowthState::Growing => "Growing",
-                            FarmGrowthState::Ready => "Ready to harvest",
-                        };
+                        let state_name = if inst.growth_ready { "Ready to harvest" } else { "Growing" };
                         info.push_str(&format!("Status: {}\n", state_name));
                         info.push_str(&format!("Growth: {:.0}%\n", inst.growth_progress * 100.0));
                         let occupants = bld.farm_occupancy.count(world_pos);
@@ -1440,7 +1434,7 @@ fn building_inspector_content(
                         info.push_str(if enabled { "Auto-mining: ON\n" } else { "Auto-mining: OFF\n" });
                     }
                     if let Some(inst) = bld.building_map.find_mine_at(world_pos) {
-                        if inst.growth_state == FarmGrowthState::Ready {
+                        if inst.growth_ready {
                             info.push_str("Ready to harvest\n");
                         } else {
                             info.push_str(&format!("Growing: {:.0}%\n", inst.growth_progress * 100.0));

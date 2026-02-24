@@ -17,7 +17,7 @@ pub fn setup(mut params: TestSetupParams, mut building_map: ResMut<BuildingEntit
         let fx = 300.0 + (i as f32 * 100.0);
         params.add_building(crate::world::BuildingKind::Farm, fx, FARM_Y, 0);
         if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(fx, FARM_Y)) {
-            inst.growth_state = FarmGrowthState::Ready;
+            inst.growth_ready = true;
             inst.growth_progress = 1.0;
         }
         params.add_bed(fx, 550.0);

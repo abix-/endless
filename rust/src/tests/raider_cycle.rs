@@ -27,7 +27,7 @@ pub fn setup(
         let fx = 350.0 + (i as f32 * 50.0);
         params.add_building(crate::world::BuildingKind::Farm, fx, 350.0, 0);
         if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(fx, 350.0)) {
-            inst.growth_state = FarmGrowthState::Ready;
+            inst.growth_ready = true;
             inst.growth_progress = 1.0;
         }
     }

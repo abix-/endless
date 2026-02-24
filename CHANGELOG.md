@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-24d
+
+- **kill FarmGrowthState enum** — deleted `FarmGrowthState` enum entirely; replaced `growth_state: FarmGrowthState` with `growth_ready: bool` on `BuildingInstance` (false = growing, true = ready to harvest); updated `BuildingInstance::harvest()`, `growth_system`, `farm_visual_system` (now `Local<HashMap<usize, bool>>`), all 5 behavior.rs harvest/assignment checks, save/load, game_hud inspector/tooltips, npc_render overlay, and 5 test files; pure type simplification, no logic changes
+
 ## 2026-02-24c
 
 - **kill GrowthStates — absorb into BuildingInstance** — deleted `GrowthStates` resource, `GrowthKind` enum, and all methods (`push_farm`, `push_mine`, `find_farm_at`, `harvest`, `tombstone`) entirely; `growth_state: FarmGrowthState` and `growth_progress: f32` fields on `BuildingInstance` are now the sole source of truth; added `BuildingInstance::harvest()` method (Ready→Growing transition + yield + combat log); added `find_farm_at[_mut]`/`find_mine_at[_mut]`/`iter_growable[_mut]` methods to `BuildingEntityMap` for O(1) spatial lookups; **CRITICAL perf fix**: farmer work assignment changed from O(N) full GrowthStates scan to O(k) via `iter_kind_for_town(Farm, town_id)`, miner assignment via `iter_kind(GoldMine)`; migrated 7 behavior.rs call sites (farmer harvest, GoingToWork arrival, raider steal, mine arrival, MiningAtMine harvest, farmer work scan, miner scan); migrated growth_system, farm_visual_system, build_overlay_instances to read from BuildingInstance; `FarmReadyMarker.farm_idx` → `farm_slot` (building slot); migrated save/load (`restore_growth_from_save` sets growth fields on BuildingInstance from save data); updated game_hud inspector (4 sections), world.rs (removed push_farm/push_mine calls), economy.rs, ui/mod.rs; removed from WorldState SystemParam, lib.rs registration; updated 12 test files; fixed spawner `respawn_timer` init from -1.0 to 0.0 in `place_building_instance`

@@ -110,7 +110,7 @@ pub fn growth_system(
         let is_mine = inst.kind == BuildingKind::GoldMine;
         if !is_farm && !is_mine { continue; }
         if inst.position.x < -9000.0 { continue; }
-        if inst.growth_state != FarmGrowthState::Growing { continue; }
+        if inst.growth_ready { continue; }
 
         let is_tended = farm_occupancy.is_occupied(inst.position);
 
@@ -131,7 +131,7 @@ pub fn growth_system(
         if growth_rate > 0.0 {
             inst.growth_progress += growth_rate * hours_elapsed;
             if inst.growth_progress >= 1.0 {
-                inst.growth_state = FarmGrowthState::Ready;
+                inst.growth_ready = true;
                 inst.growth_progress = 1.0;
             }
         }
@@ -208,22 +208,22 @@ pub fn farm_visual_system(
     mut commands: Commands,
     building_map: Res<BuildingEntityMap>,
     markers: Query<(Entity, &FarmReadyMarker)>,
-    mut prev_states: Local<HashMap<usize, FarmGrowthState>>,
+    mut prev_ready: Local<HashMap<usize, bool>>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("farm_visual");
     for inst in building_map.iter_kind(BuildingKind::Farm) {
-        let prev = prev_states.get(&inst.slot).copied().unwrap_or(FarmGrowthState::Growing);
-        if inst.growth_state == FarmGrowthState::Ready && prev == FarmGrowthState::Growing {
+        let was_ready = prev_ready.get(&inst.slot).copied().unwrap_or(false);
+        if inst.growth_ready && !was_ready {
             commands.spawn(FarmReadyMarker { farm_slot: inst.slot });
-        } else if inst.growth_state == FarmGrowthState::Growing && prev == FarmGrowthState::Ready {
+        } else if !inst.growth_ready && was_ready {
             for (entity, marker) in markers.iter() {
                 if marker.farm_slot == inst.slot {
                     commands.entity(entity).despawn();
                 }
             }
         }
-        prev_states.insert(inst.slot, inst.growth_state);
+        prev_ready.insert(inst.slot, inst.growth_ready);
     }
 }
 

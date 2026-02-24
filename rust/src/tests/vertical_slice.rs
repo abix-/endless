@@ -39,7 +39,7 @@ pub fn setup(
     for &(fx, fy) in &FARMS {
         params.add_building(world::BuildingKind::Farm, fx, fy, 0);
         if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(fx, fy)) {
-            inst.growth_state = FarmGrowthState::Ready;
+            inst.growth_ready = true;
             inst.growth_progress = 1.0;
         }
     }

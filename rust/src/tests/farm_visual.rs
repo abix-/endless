@@ -43,24 +43,24 @@ pub fn tick(
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
     let farm_inst = building_map.iter_kind(crate::world::BuildingKind::Farm).next();
-    let farm_state = farm_inst.map(|i| i.growth_state);
+    let farm_ready = farm_inst.map(|i| i.growth_ready);
     let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
     let marker_count = marker_query.iter().count();
 
     match test.phase {
         // Phase 1: Farm is Growing, no FarmReadyMarker entities
         1 => {
-            test.phase_name = format!("state={:?} prog={:.2} markers={}", farm_state, farm_progress, marker_count);
-            if farm_state == Some(FarmGrowthState::Growing) && marker_count == 0 {
+            test.phase_name = format!("ready={:?} prog={:.2} markers={}", farm_ready, farm_progress, marker_count);
+            if farm_ready == Some(false) && marker_count == 0 {
                 test.pass_phase(elapsed, "Farm Growing, no markers");
             } else if elapsed > 5.0 {
-                test.fail_phase(elapsed, format!("state={:?} markers={}", farm_state, marker_count));
+                test.fail_phase(elapsed, format!("ready={:?} markers={}", farm_ready, marker_count));
             }
         }
         // Phase 2: Farm reaches Ready → FarmReadyMarker entity exists
         2 => {
-            test.phase_name = format!("state={:?} prog={:.2} markers={}", farm_state, farm_progress, marker_count);
-            if farm_state == Some(FarmGrowthState::Ready) {
+            test.phase_name = format!("ready={:?} prog={:.2} markers={}", farm_ready, farm_progress, marker_count);
+            if farm_ready == Some(true) {
                 if marker_count > 0 {
                     test.pass_phase(elapsed, format!("FarmReadyMarker spawned (count={})", marker_count));
                 } else {
@@ -73,12 +73,12 @@ pub fn tick(
         }
         // Phase 3: Farmer harvests → FarmReadyMarker despawned, farm back to Growing
         3 => {
-            test.phase_name = format!("state={:?} markers={}", farm_state, marker_count);
-            if farm_state == Some(FarmGrowthState::Growing) && marker_count == 0 {
+            test.phase_name = format!("ready={:?} markers={}", farm_ready, marker_count);
+            if farm_ready == Some(false) && marker_count == 0 {
                 test.pass_phase(elapsed, "Harvested: marker removed, farm Growing again");
                 test.complete(elapsed);
             } else if elapsed > 45.0 {
-                test.fail_phase(elapsed, format!("state={:?} markers={}", farm_state, marker_count));
+                test.fail_phase(elapsed, format!("ready={:?} markers={}", farm_ready, marker_count));
             }
         }
         _ => {}

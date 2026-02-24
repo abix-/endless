@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, FarmGrowthState, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags, BuildingEntityMap};
+use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags, BuildingEntityMap};
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
@@ -402,7 +402,7 @@ pub fn decision_system(
                         let pos = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
                         let ready_farm_pos = find_location_within_radius(pos, &building_map, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
-                            .and_then(|(_, fp)| building_map.find_farm_at(fp).filter(|i| i.growth_state == FarmGrowthState::Ready).map(|_| fp));
+                            .and_then(|(_, fp)| building_map.find_farm_at(fp).filter(|i| i.growth_ready).map(|_| fp));
 
                         if let Some(fp) = ready_farm_pos {
                             let food = building_map.find_farm_at_mut(fp).map(|i| i.harvest(combat_log, &game_time, faction.0)).unwrap_or(0);
@@ -435,7 +435,7 @@ pub fn decision_system(
                     let mine_pos = *mine_pos;
                     // Arrived at gold mine — check BuildingInstance for harvest or tend
                     if let Some(inst) = building_map.find_mine_at_mut(mine_pos) {
-                        if inst.growth_state == FarmGrowthState::Ready {
+                        if inst.growth_ready {
                             // Mine ready — harvest immediately
                             let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                             let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
@@ -815,7 +815,7 @@ pub fn decision_system(
             if let Ok(wp) = work_query.get(entity) {
                 let mine_pos = wp.0;
                 if let Some(inst) = building_map.find_mine_at_mut(mine_pos) {
-                    if inst.growth_state == FarmGrowthState::Ready {
+                    if inst.growth_ready {
                         // Mine ready — harvest gold and return home
                         let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                         let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
@@ -1007,7 +1007,7 @@ pub fn decision_system(
                         let mut best: Option<(i32, f32, Vec2)> = None; // (priority, dist, pos)
                         for inst in building_map.iter_kind_for_town(BuildingKind::Farm, town_id.0 as u32) {
                             if farms.occupancy.is_occupied(inst.position) { continue; }
-                            let ready = inst.growth_state == FarmGrowthState::Ready;
+                            let ready = inst.growth_ready;
                             let priority = if ready { 0 } else { 1 };
                             let dist = current_pos.distance(inst.position);
                             if best.is_none() || (priority, dist as i32) < (best.unwrap().0, best.unwrap().1 as i32) {
@@ -1040,7 +1040,7 @@ pub fn decision_system(
                             let mut best_mine: Option<(i32, i32, f32, Vec2)> = None; // (priority, occupants, dist, pos)
                             for inst in building_map.iter_kind(BuildingKind::GoldMine) {
                                 let occupant_count = farms.occupancy.count(inst.position);
-                                let ready = inst.growth_state == FarmGrowthState::Ready;
+                                let ready = inst.growth_ready;
                                 let priority = if ready { 0 } else if occupant_count == 0 { 1 } else { 2 };
                                 let dist = current_pos.distance(inst.position);
                                 if best_mine.is_none() || (priority, occupant_count, dist as i32) < (best_mine.unwrap().0, best_mine.unwrap().1, best_mine.unwrap().2 as i32) {

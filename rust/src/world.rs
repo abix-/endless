@@ -493,7 +493,7 @@ pub fn place_building_instance(
         patrol_order, assigned_mine: None, manual_mine: false, wall_level,
         npc_slot: -1,
         respawn_timer: if has_spawner { 0.0 } else { -2.0 },
-        growth_state: crate::resources::FarmGrowthState::Growing,
+        growth_ready: false,
         growth_progress: 0.0,
     });
     Some(slot)

@@ -516,13 +516,6 @@ impl GoldStorage {
     }
 }
 
-/// Growth state for farms and mines.
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
-pub enum FarmGrowthState {
-    #[default]
-    Growing,
-    Ready,
-}
 
 /// Per-faction statistics.
 #[derive(Clone, Default)]
@@ -818,15 +811,15 @@ pub struct BuildingInstance {
     pub wall_level: u8,              // Wall only
     pub npc_slot: i32,               // Spawner buildings only (-1 = no NPC alive)
     pub respawn_timer: f32,          // Spawner buildings only (-1.0 = not respawning)
-    pub growth_state: FarmGrowthState, // Farm/Mine only (Growing or Ready)
-    pub growth_progress: f32,        // Farm/Mine only (0.0 to 1.0)
+    pub growth_ready: bool,             // Farm/Mine only (false = growing, true = ready to harvest)
+    pub growth_progress: f32,            // Farm/Mine only (0.0 to 1.0)
 }
 
 impl BuildingInstance {
     /// Harvest a Ready farm/mine. Resets to Growing, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold). Returns 0 if not Ready.
     pub fn harvest(&mut self, combat_log: &mut CombatLog, game_time: &GameTime, faction: i32) -> i32 {
-        if self.growth_state != FarmGrowthState::Ready { return 0; }
-        self.growth_state = FarmGrowthState::Growing;
+        if !self.growth_ready { return 0; }
+        self.growth_ready = false;
         self.growth_progress = 0.0;
         match self.kind {
             crate::world::BuildingKind::Farm => {
