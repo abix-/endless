@@ -228,7 +228,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<HealingZoneCache>()
        .init_resource::<SystemTimings>()
        .init_resource::<world::WorldGrid>()
-       .init_resource::<world::BuildingSpatialGrid>()
        .init_resource::<world::WorldGenConfig>()
        .init_resource::<UiState>()
        .init_resource::<CombatLog>()

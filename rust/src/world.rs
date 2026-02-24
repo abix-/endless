@@ -1200,88 +1200,10 @@ pub fn find_by_pos<W: Worksite>(sites: &[W], pos: Vec2) -> Option<usize> {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BuildingKind { Fountain, Bed, Waypoint, Farm, FarmerHome, ArcherHome, Tent, GoldMine, MinerHome, CrossbowHome, FighterHome, Road, Wall }
 
-#[derive(Clone, Copy)]
-pub struct BuildingRef {
-    pub kind: BuildingKind,
-    pub index: usize,
-    pub town_idx: u32,
-    pub faction: i32,
-    pub position: Vec2,
-}
-
-/// CPU-side spatial grid for O(1) building lookups.
-/// Cell size 256px → 31×31 cells for an 8000px world.
-#[derive(Resource, Default)]
-pub struct BuildingSpatialGrid {
-    cell_size: f32,
-    width: usize,
-    height: usize,
-    cells: Vec<Vec<BuildingRef>>,
-}
-
-impl BuildingSpatialGrid {
-    /// Rebuild grid from current WorldData. Called once per frame.
-    pub fn rebuild(&mut self, world: &WorldData, world_size_px: f32) {
-        self.cell_size = 256.0;
-        self.width = (world_size_px / self.cell_size).ceil() as usize + 1;
-        self.height = self.width;
-        let total = self.width * self.height;
-        self.cells.resize_with(total, Vec::new);
-        for cell in &mut self.cells { cell.clear(); }
-
-        // Helper: look up faction from town_idx
-        let faction_of = |tidx: u32| -> i32 {
-            world.towns.get(tidx as usize).map(|t| t.faction).unwrap_or(0)
-        };
-
-        // Generic loop: registry-driven building ref insertion
-        for def in crate::constants::BUILDING_REGISTRY {
-            for i in 0..(def.len)(world) {
-                if let Some((pos, ti)) = (def.pos_town)(world, i) {
-                    let faction = if def.kind == BuildingKind::GoldMine { -1 } else { faction_of(ti) };
-                    let town_idx = if def.kind == BuildingKind::GoldMine { u32::MAX } else { ti };
-                    self.insert(BuildingRef {
-                        kind: def.kind, index: i, town_idx, faction, position: pos,
-                    });
-                }
-            }
-        }
-    }
-
-    fn insert(&mut self, bref: BuildingRef) {
-        let cx = (bref.position.x / self.cell_size) as usize;
-        let cy = (bref.position.y / self.cell_size) as usize;
-        if cx < self.width && cy < self.height {
-            self.cells[cy * self.width + cx].push(bref);
-        }
-    }
-
-    /// Iterate all buildings in cells overlapping the AABB (pos ± radius).
-    /// Caller must do fine distance check in the closure if needed.
-    pub fn for_each_nearby(&self, pos: Vec2, radius: f32, mut f: impl FnMut(&BuildingRef)) {
-        if self.width == 0 || self.height == 0 { return; }
-        let min_cx = ((pos.x - radius).max(0.0) / self.cell_size) as usize;
-        let max_cx = (((pos.x + radius) / self.cell_size) as usize).min(self.width - 1);
-        let min_cy = ((pos.y - radius).max(0.0) / self.cell_size) as usize;
-        let max_cy = (((pos.y + radius) / self.cell_size) as usize).min(self.height - 1);
-        for cy in min_cy..=max_cy {
-            let row = cy * self.width;
-            for cx in min_cx..=max_cx {
-                for bref in &self.cells[row + cx] {
-                    f(bref);
-                }
-            }
-        }
-    }
-}
-
 /// Rebuild building spatial grid. Only runs when DirtyFlags::building_grid is set.
-/// Rebuilds both legacy BuildingSpatialGrid and BuildingEntityMap's spatial grid.
 pub fn rebuild_building_grid_system(
-    mut bgrid: ResMut<BuildingSpatialGrid>,
     mut building_map: ResMut<BuildingEntityMap>,
     mut dirty: ResMut<DirtyFlags>,
-    world_data: Res<WorldData>,
     grid: Res<WorldGrid>,
     timings: Res<SystemTimings>,
 ) {
@@ -1289,7 +1211,6 @@ pub fn rebuild_building_grid_system(
     if grid.width == 0 || !dirty.building_grid { return; }
     dirty.building_grid = false;
     let world_size_px = grid.width as f32 * grid.cell_size;
-    bgrid.rebuild(&world_data, world_size_px);
     building_map.init_spatial(world_size_px);
     building_map.rebuild_spatial();
 }

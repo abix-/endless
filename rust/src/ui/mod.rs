@@ -239,9 +239,7 @@ fn game_load_system(
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 
-    // Rebuild spatial grid
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    tracking.bgrid.rebuild(&ws.world_data, world_size_px);
     *tracking.dirty = DirtyFlags::default();
     *mining_policy = MiningPolicy::default();
 

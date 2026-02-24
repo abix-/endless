@@ -1087,7 +1087,6 @@ pub struct LoadNpcTracking<'w> {
     pub dirty: ResMut<'w, DirtyFlags>,
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
-    pub bgrid: ResMut<'w, world::BuildingSpatialGrid>,
     pub healing_cache: ResMut<'w, HealingZoneCache>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
@@ -1342,9 +1341,8 @@ pub fn load_game_system(
         &mut tracking.npcs_by_town, &mut tracking.slots,
     );
 
-    // 4. Rebuild spatial grid + building GPU slots
+    // 4. Rebuild building GPU slots
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    tracking.bgrid.rebuild(&ws.world_data, world_size_px);
     tracking.building_slots.clear();
     world::allocate_all_building_slots(&ws.world_data, &mut tracking.slots, &mut tracking.building_slots);
     world::update_all_wall_sprites(&ws.grid, &tracking.building_slots);
