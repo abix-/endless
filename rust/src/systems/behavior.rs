@@ -19,12 +19,12 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, GrowthStates, FarmGrowthState, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags};
+use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, GrowthStates, FarmGrowthState, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags, BuildingEntityMap};
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
 use crate::constants::UpgradeStatKind;
-use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, BuildingSpatialGrid, BuildingKind};
+use crate::world::{WorldData, LocationKind, find_nearest_free, find_location_within_radius, find_within_radius, BuildingOccupancy, BuildingKind};
 
 // ============================================================================
 // SYSTEM PARAM BUNDLES - Logical groupings for scalability
@@ -258,7 +258,7 @@ pub fn decision_system(
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
     npc_config: Res<crate::resources::NpcDecisionConfig>,
-    bgrid: Res<BuildingSpatialGrid>,
+    building_map: Res<BuildingEntityMap>,
 ) {
     let _t = extras.timings.scope("decision");
     let profiling = extras.timings.enabled;
@@ -350,12 +350,12 @@ pub fn decision_system(
                                 }
                             });
 
-                        if let Some((_bldg_idx, farm_pos)) = find_within_radius(search_pos, &bgrid, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
+                        if let Some((_bldg_idx, farm_pos)) = find_within_radius(search_pos, &building_map, BuildingKind::Farm, FARM_ARRIVAL_RADIUS, town_id.0 as u32) {
                             let occupied = farms.occupancy.is_occupied(farm_pos);
 
                             if occupied {
                                 // Farm already has a farmer — find a free one in own town
-                                if let Some(free_pos) = find_nearest_free(search_pos, &bgrid, BuildingKind::Farm, &farms.occupancy, Some(town_id.0 as u32)) {
+                                if let Some(free_pos) = find_nearest_free(search_pos, &building_map, BuildingKind::Farm, &farms.occupancy, Some(town_id.0 as u32)) {
                                     *activity = Activity::GoingToWork;
                                     commands.entity(entity).insert(WorkPosition(free_pos));
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: free_pos.x, y: free_pos.y }));
@@ -402,7 +402,7 @@ pub fn decision_system(
                     if idx * 2 + 1 < positions.len() {
                         let pos = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
-                        let ready_farm = find_location_within_radius(pos, &bgrid, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
+                        let ready_farm = find_location_within_radius(pos, &building_map, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
                             .and_then(|(_, fp)| farms.states.find_farm_at(fp).map(|gi| (gi, fp)))
                             .filter(|(gi, _)| {
                                 farms.states.states.get(*gi) == Some(&FarmGrowthState::Ready)
@@ -698,7 +698,7 @@ pub fn decision_system(
         if *job == Job::Farmer && matches!(*activity, Activity::GoingToWork) && (idx + frame) % think_buckets == 0 {
             if let Ok(wp) = work_query.get(entity) {
                 if farms.occupancy.is_occupied(wp.0) {
-                    if let Some(free) = find_nearest_free(wp.0, &bgrid, BuildingKind::Farm, &farms.occupancy, Some(town_id.0 as u32)) {
+                    if let Some(free) = find_nearest_free(wp.0, &building_map, BuildingKind::Farm, &farms.occupancy, Some(town_id.0 as u32)) {
                         commands.entity(entity).insert(WorkPosition(free));
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: free.x, y: free.y }));
                         npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "Farm taken, retargeting");
@@ -1164,6 +1164,7 @@ pub fn on_duty_tick_system(
 pub fn rebuild_patrol_routes_system(
     mut commands: Commands,
     mut world_data: ResMut<WorldData>,
+    mut building_map: ResMut<BuildingEntityMap>,
     mut dirty: ResMut<DirtyFlags>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
     missing_route: Query<(Entity, &TownId, &Job), (Without<Dead>, Without<PatrolRoute>)>,
@@ -1180,6 +1181,17 @@ pub fn rebuild_patrol_routes_system(
             let order_b = world_data.waypoints()[b].patrol_order;
             world_data.waypoints_mut()[a].patrol_order = order_b;
             world_data.waypoints_mut()[b].patrol_order = order_a;
+            // Dual-write to BuildingEntityMap
+            if let Some(slot_a) = building_map.get_slot(BuildingKind::Waypoint, a) {
+                if let Some(inst) = building_map.get_instance_mut(slot_a) {
+                    inst.patrol_order = order_b;
+                }
+            }
+            if let Some(slot_b) = building_map.get_slot(BuildingKind::Waypoint, b) {
+                if let Some(inst) = building_map.get_instance_mut(slot_b) {
+                    inst.patrol_order = order_a;
+                }
+            }
         }
     }
 

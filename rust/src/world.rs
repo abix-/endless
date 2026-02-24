@@ -459,9 +459,8 @@ pub fn update_all_wall_sprites(
 pub fn resolve_spawner_npc(
     entry: &SpawnerEntry,
     towns: &[Town],
-    bgrid: &BuildingSpatialGrid,
+    bmap: &crate::resources::BuildingEntityMap,
     occupancy: &BuildingOccupancy,
-    miner_homes: &[PlacedBuilding],
 ) -> (i32, i32, f32, f32, i32, i32, &'static str, &'static str) {
     use crate::constants::{SpawnBehavior, BUILDING_REGISTRY, npc_def};
     use crate::components::Job;
@@ -484,13 +483,13 @@ pub fn resolve_spawner_npc(
     match spawner.behavior {
         SpawnBehavior::FindNearestFarm => {
             let farm = find_nearest_free(
-                entry.position, bgrid, BuildingKind::Farm, occupancy, Some(entry.town_idx as u32),
+                entry.position, bmap, BuildingKind::Farm, occupancy, Some(entry.town_idx as u32),
             ).unwrap_or(entry.position);
             (spawner.job, town_faction, farm.x, farm.y, -1, spawner.attack_type, npc_label, def.label)
         }
         SpawnBehavior::FindNearestWaypoint => {
             let post_idx = find_location_within_radius(
-                entry.position, bgrid, LocationKind::Waypoint, f32::MAX,
+                entry.position, bmap, LocationKind::Waypoint, f32::MAX,
             ).map(|(idx, _)| idx as i32).unwrap_or(-1);
             (spawner.job, town_faction, -1.0, -1.0, post_idx, spawner.attack_type, npc_label, def.label)
         }
@@ -500,12 +499,12 @@ pub fn resolve_spawner_npc(
             (spawner.job, raider_faction, -1.0, -1.0, -1, spawner.attack_type, npc_label, def.label)
         }
         SpawnBehavior::Miner => {
-            let assigned = miner_homes.iter()
-                .find(|mh| (mh.position - entry.position).length() < 1.0)
-                .and_then(|mh| mh.assigned_mine);
+            let assigned = bmap.find_by_position(entry.position)
+                .filter(|inst| inst.kind == BuildingKind::MinerHome)
+                .and_then(|inst| inst.assigned_mine);
             let mine = assigned.unwrap_or_else(|| {
                 find_nearest_free(
-                    entry.position, bgrid, BuildingKind::GoldMine, occupancy, None,
+                    entry.position, bmap, BuildingKind::GoldMine, occupancy, None,
                 ).unwrap_or(entry.position)
             });
             (spawner.job, town_faction, mine.x, mine.y, -1, spawner.attack_type, npc_label, def.label)
@@ -730,20 +729,49 @@ pub fn init_single_town_buildings(
     }
 }
 
+/// Populate BuildingEntityMap instances from WorldData (Entity::PLACEHOLDER).
+/// Called during setup before entities exist, so spatial queries work for spawner resolution.
+/// `spawn_building_entities` later replaces these with real entities via upsert.
+pub fn populate_building_instances(
+    world_data: &WorldData,
+    building_map: &mut BuildingEntityMap,
+    world_size_px: f32,
+) {
+    use crate::constants::{BUILDING_REGISTRY, FACTION_NEUTRAL};
+    building_map.init_spatial(world_size_px);
+    for def in BUILDING_REGISTRY {
+        for i in 0..(def.len)(world_data) {
+            if let Some((pos, ti)) = (def.pos_town)(world_data, i) {
+                let Some(slot) = building_map.get_slot(def.kind, i) else { continue };
+                if building_map.get_instance(slot).is_some() { continue; } // already populated
+                let faction = if def.kind == BuildingKind::GoldMine { FACTION_NEUTRAL } else {
+                    world_data.towns.get(ti as usize).map(|t| t.faction).unwrap_or(0)
+                };
+                let (patrol_order, assigned_mine, manual_mine, wall_level) =
+                    read_placed_building_fields(world_data, def.kind, i);
+                building_map.add_instance(crate::resources::BuildingInstance {
+                    kind: def.kind, position: pos, town_idx: ti, slot,
+                    entity: Entity::PLACEHOLDER, faction,
+                    patrol_order, assigned_mine, manual_mine, wall_level,
+                });
+            }
+        }
+    }
+}
+
 /// Spawn one NPC per building spawner. Returns messages for the caller to write.
 fn spawn_npcs_from_spawners(
     spawner_state: &mut SpawnerState,
     slot_alloc: &mut SlotAllocator,
     towns: &[Town],
-    bgrid: &BuildingSpatialGrid,
-    miner_homes: &[PlacedBuilding],
+    building_map: &BuildingEntityMap,
 ) -> Vec<crate::messages::SpawnNpcMsg> {
     let mut claimed = BuildingOccupancy::default();
     let mut msgs = Vec::new();
     for entry in spawner_state.0.iter_mut() {
         let Some(slot) = slot_alloc.alloc() else { break };
         let (job, faction, work_x, work_y, starting_post, attack_type, _, _) =
-            resolve_spawner_npc(entry, towns, bgrid, &claimed, miner_homes);
+            resolve_spawner_npc(entry, towns, building_map, &claimed);
         if work_x > 0.0 { claimed.claim(Vec2::new(work_x, work_y)); }
         msgs.push(crate::messages::SpawnNpcMsg {
             slot_idx: slot,
@@ -811,12 +839,11 @@ pub fn setup_world(
     raider_state.init(n, 10);
 
     init_world_buildings(world_data, spawner_state, slot_alloc, building_slots);
+    populate_building_instances(world_data, building_slots, grid.width as f32 * grid.cell_size);
 
-    let mut bgrid = BuildingSpatialGrid::default();
-    bgrid.rebuild(world_data, grid.width as f32 * grid.cell_size);
     let npc_msgs = spawn_npcs_from_spawners(
         spawner_state, slot_alloc,
-        &world_data.towns, &bgrid, &world_data.miner_homes(),
+        &world_data.towns, building_slots,
     );
     let ai_players = create_ai_players(world_data, town_grids);
 
@@ -975,14 +1002,14 @@ pub enum LocationKind {
 }
 
 /// Find nearest location of a given kind (no radius limit, position only).
-pub fn find_nearest_location(from: Vec2, bgrid: &BuildingSpatialGrid, kind: LocationKind) -> Option<Vec2> {
-    find_location_within_radius(from, bgrid, kind, f32::MAX).map(|(_, pos)| pos)
+pub fn find_nearest_location(from: Vec2, bmap: &crate::resources::BuildingEntityMap, kind: LocationKind) -> Option<Vec2> {
+    find_location_within_radius(from, bmap, kind, f32::MAX).map(|(_, pos)| pos)
 }
 
 /// Find nearest location of a given kind within radius. Returns (index, position).
 pub fn find_location_within_radius(
     from: Vec2,
-    bgrid: &BuildingSpatialGrid,
+    bmap: &crate::resources::BuildingEntityMap,
     kind: LocationKind,
     radius: f32,
 ) -> Option<(usize, Vec2)> {
@@ -996,19 +1023,19 @@ pub fn find_location_within_radius(
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
-    bgrid.for_each_nearby(from, radius, |bref| {
+    bmap.for_each_nearby(from, radius, |inst| {
         let matches = if is_town {
-            bref.kind == BuildingKind::Fountain
+            inst.kind == BuildingKind::Fountain
         } else {
-            bref.kind == bkind
+            inst.kind == bkind
         };
         if !matches { return; }
-        let dx = bref.position.x - from.x;
-        let dy = bref.position.y - from.y;
+        let dx = inst.position.x - from.x;
+        let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
         if d2 <= r2 && d2 < best_d2 {
             best_d2 = d2;
-            result = Some((bref.index, bref.position));
+            result = Some((inst.slot, inst.position));
         }
     });
     result
@@ -1018,31 +1045,31 @@ pub fn find_location_within_radius(
 /// Raiders: only ArcherHome, Waypoint. Archers/others: any enemy building.
 /// Returns (kind, index, position) of nearest enemy building.
 pub fn find_nearest_enemy_building(
-    from: Vec2, bgrid: &BuildingSpatialGrid, npc_faction: i32, npc_job: i32, radius: f32,
+    from: Vec2, bmap: &crate::resources::BuildingEntityMap, npc_faction: i32, npc_job: i32, radius: f32,
 ) -> Option<(BuildingKind, usize, Vec2)> {
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(BuildingKind, usize, Vec2)> = None;
     let is_raider = npc_job == 2;
-    bgrid.for_each_nearby(from, radius, |bref| {
-        if bref.faction == npc_faction { return; } // same faction
-        if bref.faction < 0 { return; } // no faction (gold mines)
+    bmap.for_each_nearby(from, radius, |inst| {
+        if inst.faction == npc_faction { return; } // same faction
+        if inst.faction < 0 { return; } // no faction (gold mines)
         // Skip non-targetable building types (enemy fountains ARE targetable)
-        match bref.kind {
+        match inst.kind {
             BuildingKind::GoldMine | BuildingKind::Bed => return,
-            BuildingKind::Fountain if bref.faction == 0 => return, // protect player fountain
+            BuildingKind::Fountain if inst.faction == 0 => return, // protect player fountain
             _ => {}
         }
         // Raiders only target military buildings + walls (breach defenses)
-        if is_raider && !matches!(bref.kind, BuildingKind::ArcherHome | BuildingKind::CrossbowHome | BuildingKind::Waypoint | BuildingKind::Wall) {
+        if is_raider && !matches!(inst.kind, BuildingKind::ArcherHome | BuildingKind::CrossbowHome | BuildingKind::Waypoint | BuildingKind::Wall) {
             return;
         }
-        let dx = bref.position.x - from.x;
-        let dy = bref.position.y - from.y;
+        let dx = inst.position.x - from.x;
+        let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
         if d2 <= r2 && d2 < best_d2 {
             best_d2 = d2;
-            result = Some((bref.kind, bref.index, bref.position));
+            result = Some((inst.kind, inst.slot, inst.position));
         }
     });
     result
@@ -1051,22 +1078,22 @@ pub fn find_nearest_enemy_building(
 /// Find the nearest enemy building within radius, filtered to specific building kinds.
 /// Returns (kind, index, position) of nearest matching enemy building.
 pub fn find_nearest_enemy_building_filtered(
-    from: Vec2, bgrid: &BuildingSpatialGrid, npc_faction: i32, radius: f32,
+    from: Vec2, bmap: &crate::resources::BuildingEntityMap, npc_faction: i32, radius: f32,
     allowed_kinds: &[BuildingKind],
 ) -> Option<(BuildingKind, usize, Vec2)> {
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(BuildingKind, usize, Vec2)> = None;
-    bgrid.for_each_nearby(from, radius, |bref| {
-        if bref.faction == npc_faction { return; }
-        if bref.faction < 0 { return; }
-        if !allowed_kinds.contains(&bref.kind) { return; }
-        let dx = bref.position.x - from.x;
-        let dy = bref.position.y - from.y;
+    bmap.for_each_nearby(from, radius, |inst| {
+        if inst.faction == npc_faction { return; }
+        if inst.faction < 0 { return; }
+        if !allowed_kinds.contains(&inst.kind) { return; }
+        let dx = inst.position.x - from.x;
+        let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
         if d2 <= r2 && d2 < best_d2 {
             best_d2 = d2;
-            result = Some((bref.kind, bref.index, bref.position));
+            result = Some((inst.kind, inst.slot, inst.position));
         }
     });
     result
@@ -1118,34 +1145,34 @@ impl Worksite for PlacedBuilding {
 /// Find nearest unoccupied building of `kind`, optionally filtered by town.
 pub fn find_nearest_free(
     from: Vec2,
-    bgrid: &BuildingSpatialGrid,
+    bmap: &crate::resources::BuildingEntityMap,
     kind: BuildingKind,
     occupancy: &BuildingOccupancy,
     town_idx: Option<u32>,
 ) -> Option<Vec2> {
     let mut best_d2 = f32::MAX;
     let mut result: Option<Vec2> = None;
-    bgrid.for_each_nearby(from, f32::MAX, |bref| {
-        if bref.kind != kind { return; }
+    bmap.for_each_nearby(from, f32::MAX, |inst| {
+        if inst.kind != kind { return; }
         if let Some(tid) = town_idx {
-            if bref.town_idx != tid { return; }
+            if inst.town_idx != tid { return; }
         }
-        if occupancy.is_occupied(bref.position) { return; }
-        let dx = bref.position.x - from.x;
-        let dy = bref.position.y - from.y;
+        if occupancy.is_occupied(inst.position) { return; }
+        let dx = inst.position.x - from.x;
+        let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
         if d2 < best_d2 {
             best_d2 = d2;
-            result = Some(bref.position);
+            result = Some(inst.position);
         }
     });
     result
 }
 
-/// Find nearest building of `kind` within radius, filtered by town. Returns (index, position).
+/// Find nearest building of `kind` within radius, filtered by town. Returns (slot, position).
 pub fn find_within_radius(
     from: Vec2,
-    bgrid: &BuildingSpatialGrid,
+    bmap: &crate::resources::BuildingEntityMap,
     kind: BuildingKind,
     radius: f32,
     town_idx: u32,
@@ -1153,14 +1180,14 @@ pub fn find_within_radius(
     let r2 = radius * radius;
     let mut best_d2 = f32::MAX;
     let mut result: Option<(usize, Vec2)> = None;
-    bgrid.for_each_nearby(from, radius, |bref| {
-        if bref.kind != kind || bref.town_idx != town_idx { return; }
-        let dx = bref.position.x - from.x;
-        let dy = bref.position.y - from.y;
+    bmap.for_each_nearby(from, radius, |inst| {
+        if inst.kind != kind || inst.town_idx != town_idx { return; }
+        let dx = inst.position.x - from.x;
+        let dy = inst.position.y - from.y;
         let d2 = dx * dx + dy * dy;
         if d2 <= r2 && d2 < best_d2 {
             best_d2 = d2;
-            result = Some((bref.index, bref.position));
+            result = Some((inst.slot, inst.position));
         }
     });
     result
@@ -1254,9 +1281,11 @@ impl BuildingSpatialGrid {
     }
 }
 
-/// Rebuild building spatial grid from WorldData. Only runs when DirtyFlags::building_grid is set.
+/// Rebuild building spatial grid. Only runs when DirtyFlags::building_grid is set.
+/// Rebuilds both legacy BuildingSpatialGrid and BuildingEntityMap's spatial grid.
 pub fn rebuild_building_grid_system(
     mut bgrid: ResMut<BuildingSpatialGrid>,
+    mut building_map: ResMut<BuildingEntityMap>,
     mut dirty: ResMut<DirtyFlags>,
     world_data: Res<WorldData>,
     grid: Res<WorldGrid>,
@@ -1265,7 +1294,10 @@ pub fn rebuild_building_grid_system(
     let _t = timings.scope("rebuild_grid");
     if grid.width == 0 || !dirty.building_grid { return; }
     dirty.building_grid = false;
-    bgrid.rebuild(&world_data, grid.width as f32 * grid.cell_size);
+    let world_size_px = grid.width as f32 * grid.cell_size;
+    bgrid.rebuild(&world_data, world_size_px);
+    building_map.init_spatial(world_size_px);
+    building_map.rebuild_spatial();
 }
 
 // ============================================================================

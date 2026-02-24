@@ -240,7 +240,8 @@ fn game_load_system(
     );
 
     // Rebuild spatial grid
-    tracking.bgrid.rebuild(&ws.world_data, ws.grid.width as f32 * ws.grid.cell_size);
+    let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
+    tracking.bgrid.rebuild(&ws.world_data, world_size_px);
     *tracking.dirty = DirtyFlags::default();
     *mining_policy = MiningPolicy::default();
 
@@ -249,6 +250,7 @@ fn game_load_system(
     world::update_all_wall_sprites(&ws.grid, &ws.world_data, &tracking.building_slots);
 
     // Spawn building entities (ECS entities for all alive buildings)
+    tracking.building_slots.init_spatial(world_size_px);
     world::spawn_building_entities(&mut commands, &ws.world_data, &mut tracking.building_slots, Some(&save.building_hp));
 
     // Spawn NPC entities from save data

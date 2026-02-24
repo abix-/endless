@@ -17,7 +17,7 @@ use crate::constants::*;
 use crate::resources::*;
 use crate::systemparams::WorldState;
 use crate::components::{Dead, Job, NpcIndex, SquadUnit, TownId};
-use crate::world::{self, BuildingKind, WorldData, WorldGrid, BuildingSpatialGrid};
+use crate::world::{self, BuildingKind, WorldData, WorldGrid};
 use crate::systems::stats::{UpgradeQueue, TownUpgrades, upgrade_node, upgrade_available, upgrade_unlocked, upgrade_cost, expansion_cost, UPGRADES};
 use crate::constants::UpgradeStatKind;
 
@@ -1942,29 +1942,29 @@ impl AiPersonality {
 
 /// Pick nearest enemy farm as raider squad target.
 fn pick_raider_farm_target(
-    bgrid: &BuildingSpatialGrid,
+    building_map: &BuildingEntityMap,
     center: Vec2,
     faction: i32,
 ) -> Option<(BuildingKind, usize, Vec2)> {
     let mut best_d2 = f32::MAX;
     let mut result: Option<(BuildingKind, usize, Vec2)> = None;
     let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-    bgrid.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |bref| {
-        if bref.faction == faction || bref.faction < 0 { return; }
-        if bref.kind != BuildingKind::Farm { return; }
-        let dx = bref.position.x - center.x;
-        let dy = bref.position.y - center.y;
+    building_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
+        if inst.faction == faction || inst.faction < 0 { return; }
+        if inst.kind != BuildingKind::Farm { return; }
+        let dx = inst.position.x - center.x;
+        let dy = inst.position.y - center.y;
         let d2 = dx * dx + dy * dy;
         if d2 <= r2 && d2 < best_d2 {
             best_d2 = d2;
-            result = Some((bref.kind, bref.index, bref.position));
+            result = Some((inst.kind, inst.slot, inst.position));
         }
     });
     result
 }
 
 fn pick_ai_target_unclaimed(
-    bgrid: &BuildingSpatialGrid,
+    building_map: &BuildingEntityMap,
     center: Vec2,
     faction: i32,
     personality: AiPersonality,
@@ -1977,16 +1977,16 @@ fn pick_ai_target_unclaimed(
         let mut best_d2 = f32::MAX;
         let mut result: Option<(BuildingKind, usize, Vec2)> = None;
         let r2 = AI_ATTACK_SEARCH_RADIUS * AI_ATTACK_SEARCH_RADIUS;
-        bgrid.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |bref| {
-            if bref.faction == faction || bref.faction < 0 { return; }
-            if !allowed_kinds.contains(&bref.kind) { return; }
-            if claimed.contains(&(bref.kind, bref.index)) { return; }
-            let dx = bref.position.x - center.x;
-            let dy = bref.position.y - center.y;
+        building_map.for_each_nearby(center, AI_ATTACK_SEARCH_RADIUS, |inst| {
+            if inst.faction == faction || inst.faction < 0 { return; }
+            if !allowed_kinds.contains(&inst.kind) { return; }
+            if claimed.contains(&(inst.kind, inst.slot)) { return; }
+            let dx = inst.position.x - center.x;
+            let dy = inst.position.y - center.y;
             let d2 = dx * dx + dy * dy;
             if d2 <= r2 && d2 < best_d2 {
                 best_d2 = d2;
-                result = Some((bref.kind, bref.index, bref.position));
+                result = Some((inst.kind, inst.slot, inst.position));
             }
         });
         result
@@ -2015,7 +2015,7 @@ pub fn ai_squad_commander_system(
     mut ai_state: ResMut<AiPlayerState>,
     mut squad_state: ResMut<SquadState>,
     world_data: Res<WorldData>,
-    bgrid: Res<BuildingSpatialGrid>,
+    building_map: Res<BuildingEntityMap>,
     military: Query<(&TownId, &NpcIndex), (With<SquadUnit>, Without<Dead>)>,
     mut combat_log: ResMut<CombatLog>,
     game_time: Res<GameTime>,
@@ -2211,9 +2211,9 @@ pub fn ai_squad_commander_system(
 
                 // Pick target based on AI kind
                 let target = match kind {
-                    AiKind::Raider => pick_raider_farm_target(&bgrid, center, faction),
+                    AiKind::Raider => pick_raider_farm_target(&building_map, center, faction),
                     AiKind::Builder => pick_ai_target_unclaimed(
-                        &bgrid, center, faction, personality, SquadRole::Attack, &claimed_targets,
+                        &building_map, center, faction, personality, SquadRole::Attack, &claimed_targets,
                     ),
                 };
 

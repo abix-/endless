@@ -11,7 +11,7 @@ use crate::systemparams::{EconomyState, WorldState};
 use crate::constants::{FARM_BASE_GROWTH_RATE, FARM_TENDED_GROWTH_RATE, RAIDER_FORAGE_RATE, STARVING_SPEED_MULT, SPAWNER_RESPAWN_HOURS,
     RAIDER_SETTLE_RADIUS, MIGRATION_BASE_SIZE, BOAT_SPEED, ATLAS_BOAT, ENDLESS_RESPAWN_DELAY_HOURS,
 };
-use crate::world::{self, WorldData, BuildingKind, BuildingOccupancy, BuildingSpatialGrid, TownGrids, Biome};
+use crate::world::{self, WorldData, BuildingKind, BuildingOccupancy, TownGrids, Biome};
 use crate::messages::{SpawnNpcMsg, GpuUpdate, GpuUpdateMsg};
 use crate::systems::stats::{TownUpgrades, UPGRADES};
 use crate::constants::UpgradeStatKind;
@@ -251,7 +251,7 @@ pub fn spawner_respawn_system(
     mut combat_log: ResMut<CombatLog>,
     farm_occupancy: Res<BuildingOccupancy>,
     timings: Res<SystemTimings>,
-    bgrid: Res<BuildingSpatialGrid>,
+    building_map: Res<BuildingEntityMap>,
     mut dirty: ResMut<DirtyFlags>,
 ) {
     let _t = timings.scope("spawner_respawn");
@@ -285,7 +285,7 @@ pub fn spawner_respawn_system(
                 let town_data_idx = entry.town_idx as usize;
 
                 let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
-                    world::resolve_spawner_npc(entry, &world_data.towns, &bgrid, &farm_occupancy, world_data.miner_homes());
+                    world::resolve_spawner_npc(entry, &world_data.towns, &building_map, &farm_occupancy);
 
                 // Home = spawner building position (house/barracks/tent)
                 let (home_x, home_y) = (entry.position.x, entry.position.y);
@@ -323,6 +323,7 @@ pub fn spawner_respawn_system(
 /// Rebuild auto-mining discovery + assignments when mining topology/policy changes.
 pub fn mining_policy_system(
     mut world_data: ResMut<WorldData>,
+    mut building_map: ResMut<BuildingEntityMap>,
     policies: Res<TownPolicies>,
     spawner_state: Res<SpawnerState>,
     npc_map: Res<NpcEntityMap>,
@@ -334,6 +335,7 @@ pub fn mining_policy_system(
     if !dirty.mining { return; }
     dirty.mining = false;
 
+    // Mine discovery uses gold_mines() vec indices (mine_idx) since mine_enabled is indexed by them
     mining.discovered_mines.resize(world_data.towns.len(), Vec::new());
     if mining.mine_enabled.len() < world_data.gold_mines().len() {
         mining.mine_enabled.resize(world_data.gold_mines().len(), true);
@@ -374,7 +376,8 @@ pub fn mining_policy_system(
             .filter_map(|&mi| world_data.gold_mines().get(mi).map(|m| m.position))
             .collect();
 
-        let mut auto_homes: Vec<usize> = Vec::new();
+        // Collect auto-assign miner home slots via BuildingEntityMap
+        let mut auto_home_slots: Vec<usize> = Vec::new();
         for entry in spawner_state.0.iter() {
             if entry.building_kind != 3 || entry.town_idx != town_idx as i32 || entry.npc_slot < 0 {
                 continue;
@@ -382,41 +385,55 @@ pub fn mining_policy_system(
             if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
                 continue;
             }
-            let Some(mh_idx) = world_data.miner_home_at(entry.position) else {
-                continue;
-            };
-            if world_data.miner_homes()[mh_idx].manual_mine {
-                continue;
-            }
-            auto_homes.push(mh_idx);
+            let Some(inst) = building_map.find_by_position(entry.position) else { continue };
+            if inst.kind != BuildingKind::MinerHome { continue; }
+            if inst.manual_mine { continue; }
+            auto_home_slots.push(inst.slot);
         }
 
-        for &mh_idx in &auto_homes {
-            let Some(mh) = world_data.miner_homes().get(mh_idx) else { continue };
-            if let Some(pos) = mh.assigned_mine {
+        // Clear stale assignments (mine disabled or no longer discovered)
+        for &slot in &auto_home_slots {
+            let Some(inst) = building_map.get_instance(slot) else { continue };
+            if let Some(pos) = inst.assigned_mine {
                 let still_enabled = enabled_positions.iter().any(|p| (*p - pos).length() < 1.0);
                 if !still_enabled {
-                    // clear stale assignment if disabled or no longer discovered
-                    if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
-                        mh_mut.assigned_mine = None;
+                    if let Some(inst_mut) = building_map.get_instance_mut(slot) {
+                        inst_mut.assigned_mine = None;
+                    }
+                    // Dual-write to WorldData
+                    if let Some((_, mh_idx)) = building_map.get_building(slot) {
+                        if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
+                            mh_mut.assigned_mine = None;
+                        }
                     }
                 }
             }
         }
 
         if enabled_positions.is_empty() {
-            for &mh_idx in &auto_homes {
-                if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
-                    mh_mut.assigned_mine = None;
+            for &slot in &auto_home_slots {
+                if let Some(inst_mut) = building_map.get_instance_mut(slot) {
+                    inst_mut.assigned_mine = None;
+                }
+                if let Some((_, mh_idx)) = building_map.get_building(slot) {
+                    if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
+                        mh_mut.assigned_mine = None;
+                    }
                 }
             }
             continue;
         }
 
-        for (i, &mh_idx) in auto_homes.iter().enumerate() {
+        // Round-robin assign mines to auto homes
+        for (i, &slot) in auto_home_slots.iter().enumerate() {
             let mine_pos = enabled_positions[i % enabled_positions.len()];
-            if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
-                mh_mut.assigned_mine = Some(mine_pos);
+            if let Some(inst_mut) = building_map.get_instance_mut(slot) {
+                inst_mut.assigned_mine = Some(mine_pos);
+            }
+            if let Some((_, mh_idx)) = building_map.get_building(slot) {
+                if let Some(mh_mut) = world_data.miner_homes_mut().get_mut(mh_idx) {
+                    mh_mut.assigned_mine = Some(mine_pos);
+                }
             }
         }
     }
@@ -799,6 +816,9 @@ pub fn endless_system(
             &mut world_state.spawner_state,
             &mut world_state.slot_alloc, &mut world_state.building_slots,
         );
+        // Populate BuildingEntityMap instances for new buildings (Entity::PLACEHOLDER until spawned)
+        let ws_px = world_state.grid.width as f32 * world_state.grid.cell_size;
+        world::populate_building_instances(&world_state.world_data, &mut world_state.building_slots, ws_px);
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 
         // Activate AI

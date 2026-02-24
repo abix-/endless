@@ -9,7 +9,7 @@ use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
 use crate::resources::BuildingEntityMap;
-use crate::world::{self, WorldData, BuildingKind, BuildingSpatialGrid, is_alive};
+use crate::world::{self, WorldData, BuildingKind, is_alive};
 
 /// Bundled params for building destruction side effects (loot, endless respawn).
 #[derive(bevy::ecs::system::SystemParam)]
@@ -62,7 +62,7 @@ pub fn attack_system(
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     npc_map: Res<NpcEntityMap>,
-    bgrid: Res<BuildingSpatialGrid>,
+    bmap: Res<BuildingEntityMap>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
     squad_state: Res<crate::resources::SquadState>,
@@ -144,7 +144,7 @@ pub fn attack_system(
             if x < -9000.0 { continue; } // dead/hidden
 
             if let Some((_bkind, _bidx, bpos)) = world::find_nearest_enemy_building(
-                Vec2::new(x, y), &bgrid, faction.0, job_id, cached.range,
+                Vec2::new(x, y), &bmap, faction.0, job_id, cached.range,
             ) {
                 // In range and cooldown ready — fire at building
                 if timer.0 <= 0.0 {

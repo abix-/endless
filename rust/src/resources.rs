@@ -1030,10 +1030,22 @@ impl BuildingEntityMap {
 
     // ── Instance API (new) ─────────────────────────────────────────────
 
-    /// Add a building instance. Updates all indexes.
+    /// Add or update a building instance. Updates all indexes.
+    /// If the slot already exists, removes old index entries first to avoid duplicates.
     pub fn add_instance(&mut self, inst: BuildingInstance) {
         let slot = inst.slot;
         let kind = inst.kind;
+        // Remove old index entries if updating an existing slot
+        if let Some(old) = self.instances.remove(&slot) {
+            self.by_entity.remove(&old.entity);
+            if let Some(slots) = self.by_kind.get_mut(&old.kind) {
+                slots.retain(|&s| s != slot);
+            }
+            let old_gc = (old.position.x / 32.0).floor() as i32;
+            let old_gr = (old.position.y / 32.0).floor() as i32;
+            self.by_grid_cell.remove(&(old_gc, old_gr));
+            self.spatial_remove(slot, old.position);
+        }
         self.by_entity.insert(inst.entity, slot);
         self.by_kind.entry(kind).or_default().push(slot);
         // Grid cell index (32px grid)
