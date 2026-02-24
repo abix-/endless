@@ -304,17 +304,12 @@ pub fn place_building(
         cell.building = Some((kind, town_idx));
     }
 
-    // Register in WorldData via building registry
     let def = crate::constants::building_def(kind);
-    (def.place)(world_data, snapped, town_idx);
+    let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
 
-    // Waypoint: set patrol_order on the just-pushed entry
-    if kind == BuildingKind::Waypoint {
-        let order = building_slots.count_for_town(BuildingKind::Waypoint, town_idx) as u32 - 1;
-        if let Some(wp) = world_data.get_mut(BuildingKind::Waypoint).last_mut() {
-            wp.patrol_order = order;
-        }
-    }
+    // Register in WorldData (still needed for data_idx-based slot lookups)
+    (def.place)(world_data, snapped, town_idx);
+    let data_idx = find_building_data_index(world_data, kind, snapped).unwrap_or(0);
 
     // Farm: register growth state
     if kind == BuildingKind::Farm {
@@ -325,11 +320,9 @@ pub fn place_building(
     register_spawner(spawner_state, kind, town_data_idx as i32, snapped, 0.0);
 
     // GPU slot allocation
-    let data_idx = find_building_data_index(world_data, kind, snapped).unwrap_or(0);
-    let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
     allocate_building_slot(slot_alloc, building_slots, kind, data_idx, snapped, faction, def.hp, crate::constants::tileset_index(kind), def.is_tower);
 
-    // Spawn building entity
+    // Spawn building entity + instance (BuildingEntityMap is source of truth)
     if let Some(slot) = building_slots.get_slot(kind, data_idx) {
         use crate::components::*;
         let entity = commands.spawn((
@@ -343,12 +336,13 @@ pub fn place_building(
         )).id();
         building_slots.set_entity(slot, entity);
 
-        // Dual-write: populate instance data (read kind-specific fields from WorldData)
-        let (patrol_order, assigned_mine, manual_mine, wall_level) =
-            read_placed_building_fields(world_data, kind, data_idx);
+        let patrol_order = if kind == BuildingKind::Waypoint {
+            building_slots.count_for_town(BuildingKind::Waypoint, town_idx) as u32 - 1
+        } else { 0 };
+        let wall_level = if kind == BuildingKind::Wall { 1 } else { 0 };
         building_slots.add_instance(crate::resources::BuildingInstance {
-            kind, position: snapped, town_idx: town_data_idx as u32, slot, entity, faction,
-            patrol_order, assigned_mine, manual_mine, wall_level,
+            kind, position: snapped, town_idx, slot, entity, faction,
+            patrol_order, assigned_mine: None, manual_mine: false, wall_level,
         });
     }
 
@@ -940,13 +934,10 @@ pub fn destroy_building(
     let (kind, bld_town_idx) = grid.cell(gc, gr)
         .and_then(|c| c.building)
         .ok_or("no building")?;
-    let hp_index = find_building_data_index(world_data, kind, snapped);
 
     // Mark building entity as Dead (death_cleanup_system handles despawn + GPU hide + slot free)
-    if let Some(idx) = hp_index {
-        if let Some(entity) = building_slots.get_entity_by_building(kind, idx) {
-            commands.entity(entity).insert(crate::components::Dead);
-        }
+    if let Some(inst) = building_slots.find_by_position(snapped) {
+        commands.entity(inst.entity).insert(crate::components::Dead);
     }
 
     // Clear grid cell

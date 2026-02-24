@@ -1075,19 +1075,12 @@ fn mine_assignment_ui(
     ui.small(if manual { "Mode: Manual" } else { "Mode: Auto-policy" });
     ui.horizontal(|ui| {
         if ui.button("Set Mine").clicked() {
-            // Dual-write manual_mine
-            if let Some(mh) = world_data.miner_homes_mut().get_mut(mh_idx) { mh.manual_mine = true; }
             if let Some(s) = slot { if let Some(inst) = building_map.get_instance_mut(s) { inst.manual_mine = true; } }
             dirty.mining = true;
             ui_state.assigning_mine = Some(mh_idx);
         }
         if assigned.is_some() || manual {
             if ui.button("Clear").clicked() {
-                // Dual-write clear
-                if let Some(mh) = world_data.miner_homes_mut().get_mut(mh_idx) {
-                    mh.manual_mine = false;
-                    mh.assigned_mine = None;
-                }
                 if let Some(s) = slot {
                     if let Some(inst) = building_map.get_instance_mut(s) {
                         inst.manual_mine = false;
@@ -1299,12 +1292,6 @@ fn building_inspector_content(
                         let new_level = (level + 1) as u8;
                         let new_hp = WALL_TIER_HP[level]; // level is 0-indexed for next tier
                         // Dual-write wall_level to WorldData
-                        if let Some(wall_mut) = world_data.get_mut(BuildingKind::Wall).iter_mut()
-                            .find(|w| (w.position - world_pos).length() < 1.0)
-                        {
-                            wall_mut.wall_level = new_level;
-                        }
-                        // Dual-write wall_level to BuildingEntityMap + update entity HP
                         if let Some(inst) = bld.building_map.find_by_position_mut(world_pos) {
                             inst.wall_level = new_level;
                             if let Ok(mut health) = bld.building_health.get_mut(inst.entity) {

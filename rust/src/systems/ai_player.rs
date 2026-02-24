@@ -69,28 +69,15 @@ fn recalc_waypoint_patrol_order_clockwise(
     // This guarantees stable clockwise ordering after add/remove operations.
     let Some(center) = world_data.towns.get(town_idx as usize).map(|t| t.center) else { return; };
 
-    // Collect (WorldData index, slot, position) for living waypoints of this town
-    let mut entries: Vec<(usize, usize, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
-        .map(|b| (0usize, b.slot, b.position)) // WorldData index filled below
+    // Collect (slot, position) for living waypoints of this town
+    let mut entries: Vec<(usize, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
+        .map(|b| (b.slot, b.position))
         .collect();
-
-    // We still need WorldData indices for dual-write
-    let wd_indices: Vec<usize> = world_data.waypoints().iter().enumerate()
-        .filter(|(_, w)| w.town_idx == town_idx && world::is_alive(w.position))
-        .map(|(i, _)| i)
-        .collect();
-
-    // Match by position to pair up slots with WorldData indices
-    for (ei, entry) in entries.iter_mut().enumerate() {
-        if let Some(&wi) = wd_indices.get(ei) {
-            entry.0 = wi;
-        }
-    }
 
     // Clockwise around town center, starting at north (+Y).
     entries.sort_by(|a, b| {
-        let pa = a.2 - center;
-        let pb = b.2 - center;
+        let pa = a.1 - center;
+        let pb = b.1 - center;
         let mut aa = pa.x.atan2(pa.y);
         let mut ab = pb.x.atan2(pb.y);
         if aa < 0.0 { aa += std::f32::consts::TAU; }
@@ -99,11 +86,7 @@ fn recalc_waypoint_patrol_order_clockwise(
             .then_with(|| pa.length_squared().partial_cmp(&pb.length_squared()).unwrap_or(std::cmp::Ordering::Equal))
     });
 
-    for (order, &(wd_idx, slot, _)) in entries.iter().enumerate() {
-        // Dual-write: WorldData + BuildingEntityMap
-        if let Some(wp) = world_data.waypoints_mut().get_mut(wd_idx) {
-            wp.patrol_order = order as u32;
-        }
+    for (order, &(slot, _)) in entries.iter().enumerate() {
         if let Some(inst) = building_map.get_instance_mut(slot) {
             inst.patrol_order = order as u32;
         }

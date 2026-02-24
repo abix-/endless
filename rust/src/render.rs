@@ -546,11 +546,6 @@ fn click_to_select_system(
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((dist, mine_pos)) = best {
             if dist < snap_radius {
-                // Dual-write to both WorldData and BuildingEntityMap
-                if let Some(mh) = click.world_data.miner_homes_mut().get_mut(mh_idx) {
-                    mh.manual_mine = true;
-                    mh.assigned_mine = Some(mine_pos);
-                }
                 if let Some(slot) = click.building_slots.get_slot(BuildingKind::MinerHome, mh_idx) {
                     if let Some(inst) = click.building_slots.get_instance_mut(slot) {
                         inst.manual_mine = true;

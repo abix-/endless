@@ -1163,7 +1163,7 @@ pub fn on_duty_tick_system(
 /// Rebuild all guards' patrol routes when WorldData changes (waypoint added/removed/reordered).
 pub fn rebuild_patrol_routes_system(
     mut commands: Commands,
-    mut world_data: ResMut<WorldData>,
+    world_data: Res<WorldData>,
     mut building_map: ResMut<BuildingEntityMap>,
     mut dirty: ResMut<DirtyFlags>,
     mut guards: Query<(&mut PatrolRoute, &TownId, &Job), Without<Dead>>,
@@ -1187,11 +1187,6 @@ pub fn rebuild_patrol_routes_system(
             }
             if let Some(inst) = building_map.get_instance_mut(sb) {
                 inst.patrol_order = order_a;
-            }
-            // Dual-write to WorldData
-            if a < world_data.waypoints().len() && b < world_data.waypoints().len() {
-                world_data.waypoints_mut()[a].patrol_order = order_b;
-                world_data.waypoints_mut()[b].patrol_order = order_a;
             }
         }
     }
