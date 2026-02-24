@@ -40,14 +40,6 @@ pub struct AiBuildRes<'w, 's> {
 
 /// Alive buildings for a town as `(row, col)` grid slots. Returns an iterator.
 /// Single source of truth for the alive + town ownership + coordinate conversion pipeline.
-macro_rules! town_building_slots {
-    ($list:expr, $ti:expr, $center:expr) => {
-        $list.iter()
-            .filter(|b| b.town_idx == $ti && world::is_alive(b.position))
-            .map(|b| world::world_to_town_grid($center, b.position))
-    }
-}
-
 const DEFAULT_MINING_RADIUS: f32 = 300.0;
 const MINING_RADIUS_STEP: f32 = 300.0;
 const MAX_MINING_RADIUS: f32 = 5000.0;
@@ -55,9 +47,8 @@ const MAX_MINING_RADIUS: f32 = 5000.0;
 const MAX_MINERS_PER_MINE: usize = 5;
 
 /// Initial mining radius: reaches at least the nearest gold mine, rounded up to step grid.
-pub fn initial_mining_radius(world_data: &WorldData, center: Vec2) -> f32 {
-    let nearest = world_data.gold_mines().iter()
-        .filter(|m| world::is_alive(m.position))
+pub fn initial_mining_radius(building_map: &BuildingEntityMap, center: Vec2) -> f32 {
+    let nearest = building_map.iter_kind(BuildingKind::GoldMine)
         .map(|m| (m.position - center).length())
         .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     match nearest {
@@ -70,6 +61,7 @@ pub fn initial_mining_radius(world_data: &WorldData, center: Vec2) -> f32 {
 
 fn recalc_waypoint_patrol_order_clockwise(
     world_data: &mut WorldData,
+    building_map: &mut BuildingEntityMap,
     town_idx: u32,
 ) {
     // Rebuild patrol order from geometry, not history:
@@ -77,31 +69,44 @@ fn recalc_waypoint_patrol_order_clockwise(
     // This guarantees stable clockwise ordering after add/remove operations.
     let Some(center) = world_data.towns.get(town_idx as usize).map(|t| t.center) else { return; };
 
-    let mut ids: Vec<usize> = world_data.waypoints().iter().enumerate()
+    // Collect (WorldData index, slot, position) for living waypoints of this town
+    let mut entries: Vec<(usize, usize, Vec2)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, town_idx)
+        .map(|b| (0usize, b.slot, b.position)) // WorldData index filled below
+        .collect();
+
+    // We still need WorldData indices for dual-write
+    let wd_indices: Vec<usize> = world_data.waypoints().iter().enumerate()
         .filter(|(_, w)| w.town_idx == town_idx && world::is_alive(w.position))
         .map(|(i, _)| i)
         .collect();
 
+    // Match by position to pair up slots with WorldData indices
+    for (ei, entry) in entries.iter_mut().enumerate() {
+        if let Some(&wi) = wd_indices.get(ei) {
+            entry.0 = wi;
+        }
+    }
+
     // Clockwise around town center, starting at north (+Y).
-    ids.sort_by(|&a, &b| {
-        let pa = world_data.waypoints()[a].position - center;
-        let pb = world_data.waypoints()[b].position - center;
-        // Convert vector to angle using atan2 so we can sort by rotation.
-        // We use (x,y) ordering intentionally to make 0 point at +Y ("north")
-        // for this game's patrol convention.
+    entries.sort_by(|a, b| {
+        let pa = a.2 - center;
+        let pb = b.2 - center;
         let mut aa = pa.x.atan2(pa.y);
         let mut ab = pb.x.atan2(pb.y);
-        // atan2 returns [-pi, pi]. Shift to [0, 2pi) for clean clockwise sort.
         if aa < 0.0 { aa += std::f32::consts::TAU; }
         if ab < 0.0 { ab += std::f32::consts::TAU; }
-        // Tie-breaker: if two waypoints share same angle, nearer one comes first.
-        // `length_squared()` avoids sqrt and preserves ordering.
         aa.partial_cmp(&ab).unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| pa.length_squared().partial_cmp(&pb.length_squared()).unwrap_or(std::cmp::Ordering::Equal))
     });
 
-    for (order, &idx) in ids.iter().enumerate() {
-        world_data.waypoints_mut()[idx].patrol_order = order as u32;
+    for (order, &(wd_idx, slot, _)) in entries.iter().enumerate() {
+        // Dual-write: WorldData + BuildingEntityMap
+        if let Some(wp) = world_data.waypoints_mut().get_mut(wd_idx) {
+            wp.patrol_order = order as u32;
+        }
+        if let Some(inst) = building_map.get_instance_mut(slot) {
+            inst.patrol_order = order as u32;
+        }
     }
 }
 
@@ -680,6 +685,7 @@ fn find_inner_slot(
 
 fn build_town_snapshot(
     world_data: &WorldData,
+    building_map: &BuildingEntityMap,
     grid: &WorldGrid,
     tg: &world::TownGrid,
     town_data_idx: usize,
@@ -691,10 +697,10 @@ fn build_town_snapshot(
     let center = town.center;
     let ti = town_data_idx as u32;
 
-    let farms = town_building_slots!(world_data.farms(), ti, center).collect();
-    let farmer_homes = town_building_slots!(world_data.get(BuildingKind::FarmerHome), ti, center).collect();
-    let archer_homes = town_building_slots!(world_data.get(BuildingKind::ArcherHome), ti, center).collect();
-    let crossbow_homes = town_building_slots!(world_data.get(BuildingKind::CrossbowHome), ti, center).collect();
+    let farms = building_map.iter_kind_for_town(BuildingKind::Farm, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
+    let farmer_homes = building_map.iter_kind_for_town(BuildingKind::FarmerHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
+    let archer_homes = building_map.iter_kind_for_town(BuildingKind::ArcherHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
+    let crossbow_homes = building_map.iter_kind_for_town(BuildingKind::CrossbowHome, ti).map(|b| world::world_to_town_grid(center, b.position)).collect();
     // Compute waypoint ring once and cache — reused for slot filtering and find_waypoint_slot
     let waypoint_ring = personality.waypoint_ring_slots(tg);
     let wp_slots: HashSet<(i32, i32)> = waypoint_ring.iter().copied().collect();
@@ -930,7 +936,7 @@ fn miner_toward_mine_score(mine_positions: &[Vec2], center: Vec2, slot: (i32, i3
 /// Uses cached ring from snapshot if available, otherwise computes fresh.
 fn find_waypoint_slot(
     tg: &world::TownGrid, center: Vec2, grid: &WorldGrid,
-    world_data: &WorldData, ti: u32, personality: AiPersonality,
+    building_map: &BuildingEntityMap, ti: u32, personality: AiPersonality,
     cached_ring: Option<&[(i32, i32)]>,
 ) -> Option<(i32, i32)> {
     let computed;
@@ -938,9 +944,9 @@ fn find_waypoint_slot(
         Some(ring) => ring,
         None => { computed = personality.waypoint_ring_slots(tg); &computed }
     };
-    let existing: HashSet<(i32, i32)> = town_building_slots!(
-        world_data.waypoints(), ti, center
-    ).collect();
+    let existing: HashSet<(i32, i32)> = building_map.iter_kind_for_town(BuildingKind::Waypoint, ti)
+        .map(|b| world::world_to_town_grid(center, b.position))
+        .collect();
 
     // Pick first ideal slot not already occupied by any building or road slot
     ideal.iter().copied()
@@ -977,9 +983,8 @@ fn sync_town_perimeter_waypoints(
     let ideal: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
 
     let mut prune_slots: Vec<(i32, i32)> = Vec::new();
-    for wp in world_data.waypoints() {
-        if wp.town_idx != ti || !world::is_alive(wp.position) { continue; }
-        let slot = world::world_to_town_grid(center, wp.position);
+    for b in building_slots.iter_kind_for_town(BuildingKind::Waypoint, ti) {
+        let slot = world::world_to_town_grid(center, b.position);
         if !ideal.contains(&slot) {
             prune_slots.push(slot);
         }
@@ -997,7 +1002,7 @@ fn sync_town_perimeter_waypoints(
         }
     }
     if removed > 0 {
-        recalc_waypoint_patrol_order_clockwise(world_data, ti);
+        recalc_waypoint_patrol_order_clockwise(world_data, building_slots, ti);
     }
     removed
 }
@@ -1057,15 +1062,14 @@ struct MineAnalysis {
     all_positions: Vec<Vec2>,
 }
 
-fn analyze_mines(world_data: &WorldData, center: Vec2, mining_radius: f32) -> MineAnalysis {
+fn analyze_mines(building_map: &BuildingEntityMap, center: Vec2, mining_radius: f32) -> MineAnalysis {
     // Single-pass analysis over alive gold mines.
     let radius_sq = mining_radius * mining_radius;
     let mut in_radius = 0usize;
     let mut outside_radius = 0usize;
     let mut all_positions = Vec::new();
 
-    for m in world_data.gold_mines() {
-        if !world::is_alive(m.position) { continue; }
+    for m in building_map.iter_kind(BuildingKind::GoldMine) {
         all_positions.push(m.position);
         if (m.position - center).length_squared() <= radius_sq {
             in_radius += 1;
@@ -1115,7 +1119,7 @@ impl TownContext {
             .unwrap_or(0.0);
         let mines = match kind {
             // Builder AIs use mine analysis for scoring/execution.
-            AiKind::Builder => Some(analyze_mines(&res.world.world_data, center, mining_radius)),
+            AiKind::Builder => Some(analyze_mines(&res.world.building_slots, center, mining_radius)),
             // Raider AIs don't use mining logic.
             AiKind::Raider => None,
         };
@@ -1177,7 +1181,7 @@ pub fn ai_decision_system(
         let _ = player; // end immutable borrow — mutable access needed later
         if !snapshots.towns.contains_key(&tdi) {
             if let Some(tg) = res.world.town_grids.grids.get(grid_idx) {
-                if let Some(snap) = build_town_snapshot(&res.world.world_data, &res.world.grid, tg, tdi, personality) {
+                if let Some(snap) = build_town_snapshot(&res.world.world_data, &res.world.building_slots, &res.world.grid, tg, tdi, personality) {
                     snapshots.towns.insert(tdi, snap);
                 }
             }
@@ -1366,7 +1370,7 @@ pub fn ai_decision_system(
                 let rw = personality.road_weight();
                 if rw > 0.0 && ctx.food >= building_cost(BuildingKind::Road) * 4 {
                     let road_candidates = count_road_candidates(
-                        &res.world.world_data, &res.world.town_grids, &res.world.grid,
+                        &res.world.building_slots, &res.world.town_grids, &res.world.grid,
                         ctx.ti, ctx.center, ctx.grid_idx, personality,
                     );
                     if road_candidates > 0 {
@@ -1617,15 +1621,17 @@ fn try_build_miner_home(
 /// Count available road candidate slots (road-pattern slots near economy buildings, minus existing roads).
 /// Used to gate road scoring so roads aren't scored when no candidates exist.
 fn count_road_candidates(
-    world_data: &world::WorldData, town_grids: &world::TownGrids, grid: &world::WorldGrid,
+    building_map: &BuildingEntityMap, town_grids: &world::TownGrids, grid: &world::WorldGrid,
     ti: u32, center: Vec2, grid_idx: usize, personality: AiPersonality,
 ) -> usize {
-    let econ_slots: Vec<(i32, i32)> = town_building_slots!(world_data.farms(), ti, center)
-        .chain(town_building_slots!(world_data.get(BuildingKind::FarmerHome), ti, center))
-        .chain(town_building_slots!(world_data.miner_homes(), ti, center))
+    let econ_slots: Vec<(i32, i32)> = building_map.iter_kind_for_town(BuildingKind::Farm, ti)
+        .chain(building_map.iter_kind_for_town(BuildingKind::FarmerHome, ti))
+        .chain(building_map.iter_kind_for_town(BuildingKind::MinerHome, ti))
+        .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
     if econ_slots.is_empty() { return 0; }
-    let road_slots: HashSet<(i32, i32)> = town_building_slots!(world_data.get(BuildingKind::Road), ti, center).collect();
+    let road_slots: HashSet<(i32, i32)> = building_map.iter_kind_for_town(BuildingKind::Road, ti)
+        .map(|b| world::world_to_town_grid(center, b.position)).collect();
     let (min_r, max_r, min_c, max_c) = town_grids.grids.get(grid_idx)
         .map(|g| world::build_bounds(g)).unwrap_or((-4, 3, -4, 3));
     // Aggressive: extend cardinal axes to 2× build radius for attack corridors
@@ -1664,17 +1670,19 @@ fn try_build_road_grid(
     let cost = building_cost(BuildingKind::Road);
     let ti = ctx.ti;
     let center = ctx.center;
-    let wd = &res.world.world_data;
+    let bmap = &res.world.building_slots;
 
     // Collect economy building positions as town grid coords
-    let econ_slots: Vec<(i32, i32)> = town_building_slots!(wd.farms(), ti, center)
-        .chain(town_building_slots!(wd.get(BuildingKind::FarmerHome), ti, center))
-        .chain(town_building_slots!(wd.miner_homes(), ti, center))
+    let econ_slots: Vec<(i32, i32)> = bmap.iter_kind_for_town(BuildingKind::Farm, ti)
+        .chain(bmap.iter_kind_for_town(BuildingKind::FarmerHome, ti))
+        .chain(bmap.iter_kind_for_town(BuildingKind::MinerHome, ti))
+        .map(|b| world::world_to_town_grid(center, b.position))
         .collect();
     if econ_slots.is_empty() { return None; }
 
     // Collect existing road positions for quick lookup
-    let road_slots: HashSet<(i32, i32)> = town_building_slots!(wd.get(BuildingKind::Road), ti, center).collect();
+    let road_slots: HashSet<(i32, i32)> = bmap.iter_kind_for_town(BuildingKind::Road, ti)
+        .map(|b| world::world_to_town_grid(center, b.position)).collect();
 
     // Generate candidate road cells on personality-specific pattern near economy buildings
     let mut candidates: HashMap<(i32, i32), i32> = HashMap::new();
@@ -1798,7 +1806,7 @@ fn execute_action(
             let cost = building_cost(BuildingKind::Waypoint);
             let tg = res.world.town_grids.grids.get(ctx.grid_idx)?;
             let cached_ring = snapshot.map(|s| s.waypoint_ring.as_slice());
-            let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.world_data, ctx.ti, personality, cached_ring)?;
+            let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.building_slots, ctx.ti, personality, cached_ring)?;
             let pos = world::town_grid_to_world(ctx.center, row, col);
             if world::place_building(
                 &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
@@ -1807,7 +1815,7 @@ fn execute_action(
                 world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &res.world.town_grids,
                 &mut res.commands,
             ).is_ok() {
-                recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, ctx.ti);
+                recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, &mut res.world.building_slots, ctx.ti);
                 Some("built waypoint".into())
             } else {
                 None

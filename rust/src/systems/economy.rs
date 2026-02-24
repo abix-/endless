@@ -530,6 +530,7 @@ pub struct MigrationResources<'w> {
 /// Returns (town_data_idx, grid_idx, faction).
 fn create_ai_town(
     world_data: &mut WorldData,
+    building_map: &BuildingEntityMap,
     town_grids: &mut TownGrids,
     res: &mut MigrationResources,
     ai_state: &mut AiPlayerState,
@@ -569,7 +570,7 @@ fn create_ai_town(
     let personality = personalities[rng.random_range(0..personalities.len())];
     if let Some(policy) = res.policies.policies.get_mut(town_data_idx) {
         *policy = personality.default_policies();
-        policy.mining_radius = super::ai_player::initial_mining_radius(world_data, center);
+        policy.mining_radius = super::ai_player::initial_mining_radius(building_map, center);
     }
     ai_state.players.push(AiPlayer {
         town_data_idx,
@@ -774,7 +775,7 @@ pub fn endless_system(
         let member_slots = mg.member_slots.clone();
 
         let (town_data_idx, grid_idx, _faction) = create_ai_town(
-            &mut world_state.world_data, &mut world_state.town_grids, &mut res, &mut ai_state,
+            &mut world_state.world_data, &world_state.building_slots, &mut world_state.town_grids, &mut res, &mut ai_state,
             mg.settle_target, is_raider,
         );
 

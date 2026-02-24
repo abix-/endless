@@ -346,7 +346,7 @@ fn game_startup_system(
         if let Some(policy) = extra.policies.policies.get_mut(player.town_data_idx) {
             *policy = player.personality.default_policies();
             if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
-                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(&world_state.world_data, town.center);
+                policy.mining_radius = crate::systems::ai_player::initial_mining_radius(&world_state.building_slots, town.center);
             }
         }
         if let Some(town) = world_state.world_data.towns.get(player.town_data_idx) {
