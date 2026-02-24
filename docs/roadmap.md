@@ -139,40 +139,22 @@ Completed bundle work moved to [completed.md](completed.md).
 
 **Stage 16.5: Buildings as ECS Entities** (see [specs/buildings-as-entities.md](specs/buildings-as-entities.md))
 
-*Done when: buildings spawn as ECS entities via `materialize_npc`, register in `NpcEntityMap`, die via `death_system` -> `death_cleanup_system` -> despawn, and all redundant building infrastructure (`BuildingHpState`, `BuildingSlotMap`, `BuildingSpatialGrid`, tombstone guards) is deleted.*
+*Done when: all redundant building infrastructure (`WorldData.buildings`, `PlacedBuilding`, tombstone guards) is deleted and `BuildingEntityMap` is the sole source of truth.*
 
-Phase 1 -- Buildings enter NPC lifecycle (dual-write to WorldData):
-- [ ] `Building { kind }` marker component in `components.rs`
-- [ ] `spawn_building_entities()` runs after init/load: iterates `BUILDING_REGISTRY`, spawns entities with `NpcIndex`, `Position`, `Health`, `Faction`, `TownId`, `Speed(0.0)`, `Building` marker, registers in `NpcEntityMap`
-- [ ] `place_building()` spawns entity after existing WorldData write
-- [ ] `destroy_building()` inserts `Dead` component (reuses `death_system` -> `death_cleanup_system` pipeline), still tombstones in WorldData (dual-write)
-- [ ] `attack_system`: add `building_query: Query<(), With<Building>>` to skip buildings for NPC melee (buildings in `NpcEntityMap` would otherwise match)
-- [ ] `process_proj_hits`: entity-based building detection via `building_query.contains()` instead of `BuildingSlotMap`
-- [ ] `death_cleanup_system`: handle `Building` entities (skip NPC-specific cleanup like farm release, pop stats)
-- [ ] Save/load: despawn building entities pre-load, spawn from WorldData post-load
-- [ ] `cleanup_game`: include building entity despawn
+Completed:
+- [x] Phase 1: Buildings as ECS entities (`Building` marker, `spawn_building_entities`, `place_building`/`destroy_building` dual-write, `death_cleanup_system` building branch)
+- [x] Phase 2: HP migration (`BuildingHpState` deleted, `Health` component used directly)
+- [x] `BuildingEntityMap` replaces `BuildingSlotMap` — bidirectional slot maps + entity tracking
+- [x] `BuildingEntityMap` absorbs `BuildingSpatialGrid` — `BuildingInstance` storage, spatial grid, per-kind/per-entity/per-grid-cell indexes
+- [x] Migrate all spatial queries to `BuildingEntityMap.for_each_nearby()`
+- [x] Migrate all building count reads to `BuildingEntityMap.count_for_town()` / `building_counts()`
+- [x] Migrate all consumer reads (tutorial, render, game_hud, left_panel, behavior, combat, ai_player, economy)
+- [x] Delete `BuildingSpatialGrid`, `BuildingRef`, `BuildingSlotMap`, `BuildingHpState`, `town_building_slots!` macro
 
-Phase 2 -- HP migration:
-- [ ] `building_damage_system` writes to `Health` component instead of `BuildingHpState`
-- [ ] `sync_building_hp_render` queries entities instead of `BuildingHpState`
-- [ ] Delete `BuildingHpState`
-
-Phase 3 -- Spatial grid migration:
-- [ ] Replace `BuildingSpatialGrid` with entity queries or WorldGrid cell lookups
-
-Phase 4 -- Merge damage pipelines:
-- [ ] Delete `BuildingDamageMsg`, projectile hits emit `DamageMsg` for both NPCs and buildings
-- [ ] `damage_system` handles both (building death triggers grid cleanup)
-
-Phase 5 -- AI/Economy/Behavior migration:
-- [ ] Replace `world_data.farms()` / `waypoints()` with entity queries
-- [ ] Delete `town_building_slots!` macro
-
-Phase 6 -- Save/Load migration:
-- [ ] Serialize building entities directly, delete WorldData.buildings serialization
-
-Phase 7 -- Final cleanup:
-- [ ] Delete `WorldData.buildings`, `PlacedBuilding`, tombstone pattern, `BuildingSlotMap`
+Remaining:
+- [ ] Decouple growth_states/mine_enabled from sequential WorldData indices (re-key by slot or position)
+- [ ] Serialize building instances from `BuildingEntityMap` instead of WorldData
+- [ ] Delete `WorldData.buildings`, `PlacedBuilding`, tombstone pattern, `is_alive()`
 - [ ] Strip `BUILDING_REGISTRY` fn pointers (keep only static definition fields)
 - [ ] `WorldGrid.cells[].building` stores `Option<Entity>`
 
