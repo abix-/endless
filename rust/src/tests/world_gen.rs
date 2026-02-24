@@ -13,7 +13,6 @@ pub fn setup(
     config: Res<world::WorldGenConfig>,
     mut food_storage: ResMut<FoodStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut farm_states: ResMut<GrowthStates>,
     mut town_grids: ResMut<world::TownGrids>,
     mut slot_alloc: ResMut<SlotAllocator>,
     mut building_slots: ResMut<BuildingEntityMap>,
@@ -22,7 +21,7 @@ pub fn setup(
     // Generate the world using our config (default: 2 towns)
     town_grids.grids.clear();
     building_slots.clear();
-    world::generate_world(&config, &mut world_grid, &mut world_data, &mut farm_states, &mut town_grids, &mut slot_alloc, &mut building_slots);
+    world::generate_world(&config, &mut world_grid, &mut world_data, &mut town_grids, &mut slot_alloc, &mut building_slots);
 
     // Init supporting resources based on generated world
     let total_towns = world_data.towns.len();

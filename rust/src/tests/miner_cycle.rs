@@ -11,7 +11,6 @@ use super::{TestState, TestSetupParams};
 
 pub fn setup(
     mut params: TestSetupParams,
-    mut farm_states: ResMut<GrowthStates>,
     mut gold_storage: ResMut<GoldStorage>,
 ) {
     params.add_town("MinerTown");
@@ -23,9 +22,8 @@ pub fn setup(
     // Place MinerHome building at (380,400)
     params.add_building(crate::world::BuildingKind::MinerHome, 380.0, 400.0, 0);
 
-    // Place GoldMine building at (400,300) + register in GrowthStates
+    // Place GoldMine building at (400,300)
     params.add_building(crate::world::BuildingKind::GoldMine, 400.0, 300.0, 0);
-    farm_states.push_mine(Vec2::new(400.0, 300.0));
 
     // Spawn miner (job=4) at town center, home at MinerHome
     let slot = params.slot_alloc.alloc().expect("slot alloc");

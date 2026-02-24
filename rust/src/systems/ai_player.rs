@@ -943,29 +943,24 @@ fn find_waypoint_slot(
 }
 
 fn sync_town_perimeter_waypoints(
-    grid: &mut WorldGrid,
-    world_data: &mut WorldData,
-    farm_states: &mut GrowthStates,
-    _slot_alloc: &mut SlotAllocator,
-    building_slots: &mut BuildingEntityMap,
+    world: &mut WorldState,
     combat_log: &mut CombatLog,
     game_time: &GameTime,
-    town_grids: &world::TownGrids,
     town_data_idx: usize,
     personality: AiPersonality,
     commands: &mut Commands,
 ) -> usize {
     // Prune waypoints not in the personality's ideal outer ring.
     // When the town area expands, the ring shifts outward and inner waypoints are destroyed.
-    let Some(town) = world_data.towns.get(town_data_idx) else { return 0; };
-    let Some(tg) = town_grids.grids.iter().find(|g| g.town_data_idx == town_data_idx) else { return 0; };
+    let Some(town) = world.world_data.towns.get(town_data_idx) else { return 0; };
+    let Some(tg) = world.town_grids.grids.iter().find(|g| g.town_data_idx == town_data_idx) else { return 0; };
     let center = town.center;
     let ti = town_data_idx as u32;
 
     let ideal: HashSet<(i32, i32)> = personality.waypoint_ring_slots(tg).into_iter().collect();
 
     let mut prune_slots: Vec<(i32, i32)> = Vec::new();
-    for b in building_slots.iter_kind_for_town(BuildingKind::Waypoint, ti) {
+    for b in world.building_slots.iter_kind_for_town(BuildingKind::Waypoint, ti) {
         let slot = world::world_to_town_grid(center, b.position);
         if !ideal.contains(&slot) {
             prune_slots.push(slot);
@@ -974,9 +969,8 @@ fn sync_town_perimeter_waypoints(
 
     let mut removed = 0usize;
     for (row, col) in prune_slots {
-        if world::destroy_building(
-            grid, world_data, farm_states,
-            building_slots, combat_log, game_time,
+        if world.destroy_building(
+            combat_log, game_time,
             row, col, center, "waypoint pruned (not on outer ring)",
             commands,
         ).is_ok() {
@@ -984,7 +978,7 @@ fn sync_town_perimeter_waypoints(
         }
     }
     if removed > 0 {
-        recalc_waypoint_patrol_order_clockwise(world_data, building_slots, ti);
+        recalc_waypoint_patrol_order_clockwise(&mut world.world_data, &mut world.building_slots, ti);
     }
     removed
 }
@@ -1011,17 +1005,8 @@ pub fn sync_patrol_perimeter_system(
     let mut removed_total = 0usize;
     for (town_idx, personality) in town_personalities {
         removed_total += sync_town_perimeter_waypoints(
-            &mut world.grid,
-            &mut world.world_data,
-            &mut world.farm_states,
-            &mut world.slot_alloc,
-            &mut world.building_slots,
-            &mut combat_log,
-            &game_time,
-            &world.town_grids,
-            town_idx,
-            personality,
-            &mut commands,
+            &mut world, &mut combat_log, &game_time,
+            town_idx, personality, &mut commands,
         );
     }
 
@@ -1519,20 +1504,8 @@ fn try_build_at_slot(
     col: i32,
 ) -> Option<String> {
     let pos = world::town_grid_to_world(center, row, col);
-    world::place_building(
-        &mut res.world.grid,
-        &mut res.world.world_data,
-        &mut res.world.farm_states,
-        &mut res.food_storage,
-        &mut res.world.slot_alloc,
-        &mut res.world.building_slots,
-        &mut res.world.dirty,
-        kind,
-        tdi,
-        pos,
-        cost,
-        &res.world.town_grids,
-        &mut res.commands,
+    res.world.place_building(
+        &mut res.food_storage, kind, tdi, pos, cost, &mut res.commands,
     ).ok().map(|_| format!("built {label}"))
 }
 
@@ -1716,12 +1689,8 @@ fn try_build_road_grid(
         if food < cost { break; }
 
         let pos = world::town_grid_to_world(center, r, c);
-        if world::place_building(
-            &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
-            &mut res.food_storage,
-            &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
-            BuildingKind::Road, ctx.tdi, pos, cost, &res.world.town_grids,
-            &mut res.commands,
+        if res.world.place_building(
+            &mut res.food_storage, BuildingKind::Road, ctx.tdi, pos, cost, &mut res.commands,
         ).is_ok() {
             placed += 1;
         }
@@ -1788,12 +1757,8 @@ fn execute_action(
             let cached_ring = snapshot.map(|s| s.waypoint_ring.as_slice());
             let (row, col) = find_waypoint_slot(tg, ctx.center, &res.world.grid, &res.world.building_slots, ctx.ti, personality, cached_ring)?;
             let pos = world::town_grid_to_world(ctx.center, row, col);
-            if world::place_building(
-                &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
-                &mut res.food_storage,
-                &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
-                world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &res.world.town_grids,
-                &mut res.commands,
+            if res.world.place_building(
+                &mut res.food_storage, world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &mut res.commands,
             ).is_ok() {
                 recalc_waypoint_patrol_order_clockwise(&mut res.world.world_data, &mut res.world.building_slots, ctx.ti);
                 Some("built waypoint".into())

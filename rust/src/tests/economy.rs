@@ -9,7 +9,7 @@ use super::{TestState, TestSetupParams};
 
 pub fn setup(
     mut params: TestSetupParams,
-    mut farm_states: ResMut<GrowthStates>,
+    mut building_map: ResMut<BuildingEntityMap>,
     mut raider_state: ResMut<RaiderState>,
 ) {
     // Villager town
@@ -21,13 +21,11 @@ pub fn setup(
         faction: 1,
         sprite_type: 1,
     });
-    // 1 farm near town — starts Growing
+    // 1 farm near town — starts Growing at 95%
     params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
-    farm_states.kinds.push(crate::resources::GrowthKind::Farm);
-    farm_states.states.push(FarmGrowthState::Growing);
-    farm_states.progress.push(0.95); // near ready so transition happens within 30s
-    farm_states.positions.push(Vec2::new(400.0, 350.0));
-    farm_states.town_indices.push(Some(0));
+    if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
+        inst.growth_progress = 0.95;
+    }
     params.add_bed(400.0, 450.0);
 
     params.init_economy(2);
@@ -60,15 +58,16 @@ pub fn tick(
     _farmer_query: Query<(), (With<Farmer>, Without<Dead>)>,
     npc_query: Query<(), (With<NpcIndex>, Without<Dead>)>,
     stealer_query: Query<(), (With<Stealer>, Without<Dead>)>,
-    farm_states: Res<GrowthStates>,
+    building_map: Res<BuildingEntityMap>,
     food_storage: Res<FoodStorage>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let farm_state = farm_states.states.first().copied().unwrap_or(FarmGrowthState::Growing);
-    let farm_progress = farm_states.progress.first().copied().unwrap_or(0.0);
+    let farm_inst = building_map.iter_kind(crate::world::BuildingKind::Farm).next();
+    let farm_state = farm_inst.map(|i| i.growth_state).unwrap_or(FarmGrowthState::Growing);
+    let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
     let town_food = food_storage.food.first().copied().unwrap_or(0);
     let raider_food = food_storage.food.get(1).copied().unwrap_or(0);
 

@@ -34,7 +34,7 @@ mod opt_vec2_as_array {
 
 use crate::components::Job;
 use crate::constants::{TOWN_GRID_SPACING, BASE_GRID_MIN, BASE_GRID_MAX, MAX_GRID_EXTENT, NPC_REGISTRY};
-use crate::resources::{GrowthStates, FoodStorage, GoldStorage, FactionStats, RaiderState, BuildingEntityMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
+use crate::resources::{FoodStorage, GoldStorage, FactionStats, RaiderState, BuildingEntityMap, CombatLog, CombatEventKind, GameTime, DirtyFlags, SystemTimings, SlotAllocator};
 use crate::messages::{GPU_UPDATE_QUEUE, GpuUpdate};
 
 /// True if a position has not been tombstoned (i.e. the entity still exists).
@@ -238,10 +238,9 @@ pub struct TownSlotInfo {
 /// Unified building placement: validate, pay, place on grid, register in WorldData,
 /// push spawner/HP/GPU slot, and mark dirty flags. Single entry point for all
 /// runtime building placement (player and AI, town-grid and wilderness).
-pub fn place_building(
+pub(crate) fn place_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
-    farm_states: &mut GrowthStates,
     food_storage: &mut FoodStorage,
     slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingEntityMap,
@@ -279,11 +278,6 @@ pub fn place_building(
 
     let def = crate::constants::building_def(kind);
     let faction = world_data.towns.get(town_data_idx).map(|t| t.faction).unwrap_or(0);
-
-    // Farm: register growth state
-    if kind == BuildingKind::Farm {
-        farm_states.push_farm(snapped, town_idx);
-    }
 
     // Allocate GPU slot + create instance + register spawner
     let patrol_order = if kind == BuildingKind::Waypoint {
@@ -498,7 +492,9 @@ pub fn place_building_instance(
         entity: Entity::PLACEHOLDER, faction,
         patrol_order, assigned_mine: None, manual_mine: false, wall_level,
         npc_slot: -1,
-        respawn_timer: if has_spawner { -1.0 } else { -2.0 },
+        respawn_timer: if has_spawner { 0.0 } else { -2.0 },
+        growth_state: crate::resources::FarmGrowthState::Growing,
+        growth_progress: 0.0,
     });
     Some(slot)
 }
@@ -612,7 +608,6 @@ pub fn setup_world(
     config: &WorldGenConfig,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    farm_states: &mut GrowthStates,
     town_grids: &mut TownGrids,
     slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingEntityMap,
@@ -623,7 +618,7 @@ pub fn setup_world(
 ) -> (Vec<crate::messages::SpawnNpcMsg>, Vec<crate::systems::AiPlayer>) {
     town_grids.grids.clear();
     building_slots.clear();
-    generate_world(config, grid, world_data, farm_states, town_grids, slot_alloc, building_slots);
+    generate_world(config, grid, world_data, town_grids, slot_alloc, building_slots);
     building_slots.init_spatial(grid.width as f32 * grid.cell_size);
 
     let n = world_data.towns.len();
@@ -684,10 +679,9 @@ pub fn expand_town_build_area(
 
 /// Consolidated building destruction: grid clear + growth tombstone + HP zero + combat log.
 /// Used by click-destroy, inspector-destroy, and building_damage_system (HP→0).
-pub fn destroy_building(
+pub(crate) fn destroy_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
-    farm_states: &mut GrowthStates,
     building_slots: &mut BuildingEntityMap,
     combat_log: &mut CombatLog,
     game_time: &GameTime,
@@ -712,13 +706,6 @@ pub fn destroy_building(
     // Clear grid cell
     if let Some(cell) = grid.cell_mut(gc, gr) {
         cell.building = None;
-    }
-
-    // Growth state cleanup (farm growth state must be found before position removed)
-    if kind == BuildingKind::Farm {
-        if let Some(gi) = farm_states.find_farm_at(snapped) {
-            farm_states.tombstone(gi);
-        }
     }
 
     // Wall auto-tile: update neighbor sprites after wall removed
@@ -1408,7 +1395,6 @@ pub fn generate_world(
     config: &WorldGenConfig,
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
-    farm_states: &mut GrowthStates,
     town_grids: &mut TownGrids,
     slot_alloc: &mut SlotAllocator,
     building_map: &mut BuildingEntityMap,
@@ -1479,7 +1465,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false, slot_alloc, building_map);
+        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, building_map);
     }
 
     // Step 3: Place AI town centers (Builder AI, each gets unique faction)
@@ -1512,7 +1498,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], false, slot_alloc, building_map);
+        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], false, slot_alloc, building_map);
     }
 
     // Step 4: Place raider town centers (Raider AI, each gets unique faction)
@@ -1543,7 +1529,7 @@ pub fn generate_world(
         let town_idx = town_data_idx as u32;
         town_grids.grids.push(TownGrid::new_base(town_data_idx));
         let gi = town_grids.grids.len() - 1;
-        place_buildings(grid, world_data, farm_states, center, town_idx, config, &mut town_grids.grids[gi], true, slot_alloc, building_map);
+        place_buildings(grid, world_data, center, town_idx, config,&mut town_grids.grids[gi], true, slot_alloc, building_map);
     }
 
     // Step 5: Generate terrain
@@ -1586,7 +1572,6 @@ pub fn generate_world(
             cell.building = Some((BuildingKind::GoldMine, 0));
         }
         place_building_instance(slot_alloc, building_map, BuildingKind::GoldMine, snapped, 0, crate::constants::FACTION_NEUTRAL, 0, 0);
-        farm_states.push_mine(snapped);
         mine_positions.push(snapped);
     }
 
@@ -1601,7 +1586,6 @@ pub fn generate_world(
 pub fn place_buildings(
     grid: &mut WorldGrid,
     world_data: &WorldData,
-    farm_states: &mut GrowthStates,
     center: Vec2,
     town_idx: u32,
     config: &WorldGenConfig,
@@ -1646,7 +1630,6 @@ pub fn place_buildings(
         let Some((row, col)) = slot_iter.next() else { break };
         let pos = place(row, col, BuildingKind::Farm, town_idx, &mut occupied);
         place_building_instance(slot_alloc, building_map, BuildingKind::Farm, pos, town_idx, faction, 0, 0);
-        farm_states.push_farm(pos, town_idx as u32);
     }
 
     // NPC homes from registry (filtered by is_raider_unit matching is_raider)

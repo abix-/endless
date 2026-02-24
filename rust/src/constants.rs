@@ -646,7 +646,7 @@ pub enum PlacementMode {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OnPlace {
     None,
-    /// Push to GrowthStates (farms).
+    /// Initialize farm growth on BuildingInstance.
     InitFarmGrowth,
 }
 

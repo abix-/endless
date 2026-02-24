@@ -47,15 +47,10 @@ fn grid_pos(row: usize, col: usize) -> Vec2 {
     )
 }
 
-pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<crate::resources::GrowthStates>) {
+pub fn setup(mut params: TestSetupParams) {
     params.add_town("VisualTown");
     params.add_bed(380.0, 420.0);
     params.add_building(crate::world::BuildingKind::Farm, 450.0, 400.0, 0);
-    farm_states.kinds.push(crate::resources::GrowthKind::Farm);
-    farm_states.states.push(crate::resources::FarmGrowthState::Growing);
-    farm_states.progress.push(0.0);
-    farm_states.positions.push(Vec2::new(450.0, 400.0));
-    farm_states.town_indices.push(Some(0));
     params.init_economy(1);
     params.game_time.time_scale = 0.0;
 

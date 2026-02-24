@@ -30,7 +30,7 @@ use messages::{SpawnNpcMsg, DamageMsg, BuildingDamageMsg, GpuUpdateMsg};
 use resources::{
     MigrationState, EndlessMode,
     NpcEntityMap, PopulationStats, GameConfig, GameTime,
-    GrowthStates, HealthDebug, CombatDebug, KillStats, SelectedNpc,
+    HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
     ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
     FoodStorage, GoldStorage, FactionStats, RaiderState, SystemTimings,
@@ -202,7 +202,6 @@ pub fn build_app(app: &mut App) {
        .init_resource::<GameTime>()
        .init_resource::<world::WorldData>()
        .init_resource::<world::BuildingOccupancy>()
-       .init_resource::<GrowthStates>()
        .init_resource::<HealthDebug>()
        .init_resource::<CombatDebug>()
        .init_resource::<KillStats>()

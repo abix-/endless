@@ -537,9 +537,7 @@ pub fn building_damage_system(
             .map(|i| i.npc_slot)
             .unwrap_or(-1);
 
-        let _ = world::destroy_building(
-            &mut world.grid, &mut world.world_data, &mut world.farm_states,
-            &mut world.building_slots,
+        let _ = world.destroy_building(
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),

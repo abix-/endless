@@ -26,16 +26,16 @@ Stages 1-13: [x] Complete (see [completed.md](completed.md))
 - [ ] Differentiate job base stats (raiders hit harder, archers are tankier, farmers are fragile)
 - [ ] Loss condition: all town NPCs dead + no spawners -> game over screen
 - [ ] Building construction time: 10s at 1x game speed (scales with time_scale), building is inert during construction
-  - `ConstructionQueue` resource with `ConstructionEntry` (position, total/remaining secs, spawner_idx, growth_idx)
-  - `place_building()` passes `respawn_timer = -1.0` (dormant) to `register_spawner()` and pushes a `ConstructionEntry`
+  - `ConstructionQueue` resource with `ConstructionEntry` (position, total/remaining secs, spawner_idx)
+  - `place_building()` passes `respawn_timer = -1.0` (dormant) and pushes a `ConstructionEntry`
   - `construction_tick_system` (every frame): count down `remaining -= delta * time_scale`, on completion set spawner timer to `0.0` / unfreeze farm growth
-  - Farms: add `under_construction: Vec<bool>` to `GrowthStates`, skip in `growth_system` when true
+  - Farms: add `under_construction: bool` to `BuildingInstance`, skip in `growth_system` when true
   - Spawner buildings (homes/tents): NPC doesn't spawn until construction completes (spawner stays dormant at `-1.0`)
   - Guard post turrets already start disabled — no extra suppression needed
   - Blue progress bar above building during construction via `ExtractResource` render data (same pattern as `BuildingHpRender`)
   - Render in `npc_render.rs` prepare function as misc instances (`atlas_id: 6.0`, blue tint, `health` = progress pct)
   - AI builds (`ai_player.rs`) use same `place_building()` path — construction delay applies to AI too
-  - Files: `constants.rs` (BUILDING_CONSTRUCT_SECS), `resources.rs` (ConstructionQueue + GrowthStates.under_construction), `world.rs` (place_building param), `systems/economy.rs` (new system + growth_system guard), `ui/mod.rs` + `systems/ai_player.rs` (pass queue), `lib.rs` + `gpu.rs` (register + extract), `npc_render.rs` (render bars)
+  - Files: `constants.rs` (BUILDING_CONSTRUCT_SECS), `resources.rs` (ConstructionQueue + BuildingInstance.under_construction), `world.rs` (place_building param), `systems/economy.rs` (new system + growth_system guard), `ui/mod.rs` + `systems/ai_player.rs` (pass queue), `lib.rs` + `gpu.rs` (register + extract), `npc_render.rs` (render bars)
 - [x] Endless mode: defeated AI towns become leaderless, toggle spawns replacement AI scaled to player strength
 - [x] Destructible enemy town centers (AI deactivated on destruction, NPCs/buildings persist)
 
@@ -107,9 +107,9 @@ Every-frame review backlog:
 Linear scan elimination (20K scale):
 
 CRITICAL — per-NPC per-tick (O(NPCs × buildings) each frame):
-- [ ] `behavior.rs:1013,1050` — farmer/miner work assignment scans ALL `GrowthStates.positions` to find a farm/mine. With 2K farmers × 2K farms = 4M distance calcs/tick. Fix: add spatial grid (`by_grid_cell: HashMap<(i32,i32), Vec<usize>>`) to `GrowthStates` in `resources.rs`, add `find_at(pos)` / `iter_in_radius(pos, r)` methods, update `push()` and `tombstone()` to maintain index. Migrate behavior.rs lines 1013, 1050, 442, 822.
+- [x] `behavior.rs:1013,1050` — farmer/miner work assignment: `GrowthStates` deleted, farmer scan uses `BuildingEntityMap::iter_kind_for_town(Farm, town_id)` O(k), miner scan uses `iter_kind(GoldMine)` O(k). Growth fields (`growth_state`, `growth_progress`) absorbed into `BuildingInstance`. `BuildingInstance::harvest()` method for Ready→Growing transition.
 - [x] `behavior.rs:1033` — miner home lookup migrated to `BuildingEntityMap::find_by_position(home.0)` (O(1) via `by_grid_cell`).
-- [ ] `behavior.rs:442,822` — arriving miners scan all GrowthStates positions with `length() < 30.0` radius check. Fix: use GrowthStates spatial grid `iter_in_radius(mine_pos, 30.0)`.
+- [x] `behavior.rs:442,822` — arriving miners use `BuildingEntityMap::find_mine_at[_mut](pos)` O(1) via spatial grid.
 
 HIGH — per-building per-tick:
 - [x] `economy.rs:381` — spawner state scan: migrated to `BuildingEntityMap::iter_kind_for_town(MinerHome, town_idx)`. SpawnerState deleted entirely — `npc_slot`/`respawn_timer` fields absorbed into `BuildingInstance`.
@@ -120,13 +120,13 @@ MEDIUM — per-event (building destroy/place):
 - [x] `world.rs:973` — `destroy_building` spawner tombstone: SpawnerState deleted; spawner fields live on `BuildingInstance`, cleaned up by instance removal.
 - [x] `combat.rs:534` — building destroyed NPC slot lookup: uses `BuildingEntityMap::find_by_position()` to read `npc_slot` from `BuildingInstance` (O(1)).
 - [x] `world.rs` — `miner_home_at` / `gold_mine_at` deleted. Callers use `BuildingEntityMap::find_by_position()` and `BuildingEntityMap::gold_mine_index()`.
-- [ ] `resources.rs:565` — `GrowthStates::find_farm_at` scans all growth positions. Fix: add `by_grid_cell` HashMap to `GrowthStates` (same fix as CRITICAL item above).
+- [x] `resources.rs` — `GrowthStates` deleted entirely; `BuildingEntityMap::find_farm_at()` uses O(1) spatial grid lookup.
 
 LOW — UI only (click handler, not per-tick):
 - [x] `game_hud.rs` — building inspector position-based linear scans migrated to `BuildingEntityMap::find_by_position()` and `get_instance(slot)`.
 - [x] `game_hud.rs:135-142` — spawner count for tutorial: uses `BuildingEntityMap::count_for_town()` and `iter_instances()` (SpawnerState deleted).
 
-Implementation order: (1) GrowthStates spatial grid (biggest win), (2) behavior.rs miner home via BuildingEntityMap — done, (3) economy.rs spawner/mine lookups — done (SpawnerState deleted), (4) BUILDING_REGISTRY closures — done, (5) SpawnerState — deleted entirely, (6) UI click migrations — done.
+Implementation order: (1) GrowthStates — deleted entirely, growth fields absorbed into BuildingInstance, (2) behavior.rs miner home via BuildingEntityMap — done, (3) economy.rs spawner/mine lookups — done (SpawnerState deleted), (4) BUILDING_REGISTRY closures — done, (5) SpawnerState — deleted entirely, (6) UI click migrations — done.
 
 Existing infrastructure to reuse: `BuildingEntityMap::find_by_position()` (`resources.rs:1115`) is O(1) via `by_grid_cell` HashMap. `BuildingEntityMap::iter_kind_for_town()` for filtered iteration. Spatial grid pattern at `resources.rs:1136-1160` (`init_spatial`, `rebuild_spatial`).
 
@@ -174,17 +174,16 @@ Mostly complete (see [completed.md](completed.md)).
 
 **Stage 18: Generic Growth & Contestable Mines**
 
-*Done when: mines grow gold like farms grow food (tended-only, 4-hour cycle), any faction's miner can harvest a ready mine, and FarmStates is generalized to GrowthStates handling both farms and mines.*
+*Done when: mines grow gold like farms grow food (tended-only, 4-hour cycle), any faction's miner can harvest a ready mine, and growth is unified on BuildingInstance for both farms and mines.*
 
-Refactor FarmStates → GrowthStates (see plan file `velvet-crunching-torvalds.md`):
-- [ ] `GrowthStates` resource with `GrowthKind` enum (Farm/Mine), replaces both `FarmStates` and `MineStates`
-- [ ] `push_farm(pos, town_idx)` / `push_mine(pos)` — mines have no town owner (contestable)
+Unify mine growth onto BuildingInstance (farm growth already migrated — `GrowthStates` deleted):
+- [x] `GrowthStates` resource deleted — `growth_state`/`growth_progress` fields live on `BuildingInstance` (farms already use these)
+- [ ] Mine growth uses same `BuildingInstance` fields: `growth_state: FarmGrowthState`, `growth_progress: f32` (rename `FarmGrowthState` → `GrowthState`)
 - [ ] `harvest()` generalized: Farm credits food to town, Mine credits `MINE_EXTRACT_PER_CYCLE` gold to harvester's town
 - [ ] `growth_system` replaces both `farm_growth_system` and `mine_regen_system` — farms: passive + tended rates (unchanged), mines: tended-only (`MINE_TENDED_GROWTH_RATE` = 0.25/hr, 4 hours to ready)
 - [ ] Miner behavior: walk to mine → claim occupancy → tend (accelerate growth) → harvest when Ready → return with gold. Same pattern as farmer but for gold.
-- [ ] Mine progress bar rendered at mine position (atlas_id=6.0, gold color) via GrowthStates misc instance buffer — not on the miner
+- [ ] Mine progress bar rendered at mine position (atlas_id=6.0, gold color) via BuildingEntityMap misc instance buffer — not on the miner
 - [ ] Delete: `MineStates`, `MiningProgress`, `MinerProgressRender`, `sync_miner_progress_render`, `mine_regen_system`, `MINE_MAX_GOLD`, `MINE_REGEN_RATE`, `MINE_WORK_HOURS`
-- [ ] Bulk rename `FarmStates` → `GrowthStates` across ~20 files (resources, systems, tests, UI, save)
 
 **Stage 19: Auto-Mining Policy**
 

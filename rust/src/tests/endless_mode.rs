@@ -20,7 +20,6 @@ pub fn setup(
     mut food_storage: ResMut<FoodStorage>,
     mut gold_storage: ResMut<GoldStorage>,
     mut faction_stats: ResMut<FactionStats>,
-    mut farm_states: ResMut<GrowthStates>,
     mut town_grids: ResMut<world::TownGrids>,
     mut bld: BuildingInitParams,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
@@ -43,7 +42,7 @@ pub fn setup(
     let (npc_msgs, ai_players) = world::setup_world(
         &config,
         &mut world_grid, &mut world_data,
-        &mut farm_states, &mut town_grids,
+        &mut town_grids,
         &mut bld.slot_alloc, &mut bld.building_slots,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut raider_state,

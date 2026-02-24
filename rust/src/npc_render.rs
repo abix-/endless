@@ -502,26 +502,22 @@ fn extract_camera_state(
 // OVERLAY INSTANCES (main world → render world, zero-clone)
 // =============================================================================
 
-/// Build overlay instances from GrowthStates + BuildingHpRender each frame.
+/// Build overlay instances from BuildingEntityMap (farm/mine growth) + BuildingHpRender each frame.
 /// Runs in main world PostUpdate. Future visual features push here instead of adding new resources.
 fn build_overlay_instances(
     mut overlay: ResMut<OverlayInstances>,
-    growth_states: Res<crate::resources::GrowthStates>,
+    building_map: Res<crate::resources::BuildingEntityMap>,
     building_hp: Res<crate::resources::BuildingHpRender>,
 ) {
     overlay.0.clear();
 
-    let count = growth_states.positions.len()
-        .min(growth_states.progress.len())
-        .min(growth_states.states.len())
-        .min(growth_states.kinds.len());
-    for i in 0..count {
-        let pos = growth_states.positions[i];
+    for inst in building_map.iter_growable() {
+        let pos = inst.position;
         if pos.x < -9000.0 { continue; }
 
-        let ready = growth_states.states[i] == crate::resources::FarmGrowthState::Ready;
-        match growth_states.kinds[i] {
-            crate::resources::GrowthKind::Farm => {
+        let ready = inst.growth_state == crate::resources::FarmGrowthState::Ready;
+        match inst.kind {
+            crate::world::BuildingKind::Farm => {
                 let color = if ready {
                     [1.0, 0.85, 0.0, 1.0]
                 } else {
@@ -531,25 +527,26 @@ fn build_overlay_instances(
                     position: [pos.x, pos.y],
                     sprite: [24.0, 9.0],
                     color,
-                    health: growth_states.progress[i].clamp(0.0, 1.0),
+                    health: inst.growth_progress.clamp(0.0, 1.0),
                     flash: 0.0,
                     scale: 16.0,
                     atlas_id: 1.0,
                     rotation: 0.0,
                 });
             }
-            crate::resources::GrowthKind::Mine => {
+            crate::world::BuildingKind::GoldMine => {
                 overlay.0.push(InstanceData {
                     position: [pos.x, pos.y + 12.0],
                     sprite: [0.0, 0.0],
                     color: [1.0, 0.85, 0.0, 1.0],
-                    health: growth_states.progress[i].clamp(0.0, 1.0),
+                    health: inst.growth_progress.clamp(0.0, 1.0),
                     flash: 0.0,
                     scale: 12.0,
                     atlas_id: 6.0,
                     rotation: 0.0,
                 });
             }
+            _ => {}
         }
     }
 

@@ -231,7 +231,7 @@ fn game_load_system(
     crate::save::apply_save(
         &save,
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
-        &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
+        &mut ws.food_storage, &mut ws.gold_storage,
         &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
@@ -246,7 +246,7 @@ fn game_load_system(
     // Load building instances from save → BuildingEntityMap
     crate::save::load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &ws.world_data, world_size_px);
     world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
-    crate::save::rebuild_growth_states_from_instances(&save, &mut ws.farm_states, &ws.building_slots);
+    crate::save::restore_growth_from_save(&save, &mut ws.building_slots);
     let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
     world::spawn_building_entities(&mut commands, &mut ws.building_slots, Some(&hp_by_slot));
 
@@ -309,7 +309,7 @@ fn game_startup_system(
     let (npc_msgs, ai_players) = world::setup_world(
         &config,
         &mut world_state.grid, &mut world_state.world_data,
-        &mut world_state.farm_states, &mut world_state.town_grids,
+        &mut world_state.town_grids,
         &mut world_state.slot_alloc, &mut world_state.building_slots,
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
@@ -748,12 +748,8 @@ fn build_place_click_system(
         if !just_pressed { return; }
         build_ctx.clear_drag();
         let cost = crate::constants::building_cost(kind);
-        if world::place_building(
-            &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut food_storage,
-            &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
-            kind, town_data_idx, world_pos, cost, &world_state.town_grids,
-            &mut commands,
+        if world_state.place_building(
+            &mut food_storage, kind, town_data_idx, world_pos, cost, &mut commands,
         ).is_ok() {
             let label = crate::constants::building_def(kind).label;
             combat_log.push(
@@ -782,12 +778,8 @@ fn build_place_click_system(
         let mut placed = 0usize;
         for (sr, sc) in slots_on_line(start, end) {
             let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
-            if world::place_building(
-                &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-                &mut food_storage,
-                &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
-                kind, town_data_idx, cell_pos, cost, &world_state.town_grids,
-                &mut commands,
+            if world_state.place_building(
+                &mut food_storage, kind, town_data_idx, cell_pos, cost, &mut commands,
             ).is_ok() { placed += 1; }
         }
         if placed > 0 {
@@ -813,12 +805,8 @@ fn build_place_click_system(
         let pos = world::town_grid_to_world(center, slot_row, slot_col);
         let cost = crate::constants::building_cost(kind);
 
-        world::place_building(
-            &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut food_storage,
-            &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
-            kind, town_data_idx, pos, cost, &world_state.town_grids,
-            &mut commands,
+        world_state.place_building(
+            &mut food_storage, kind, town_data_idx, pos, cost, &mut commands,
         ).is_ok()
     };
 
@@ -1297,9 +1285,7 @@ fn process_destroy_system(
     let world_pos = world_state.grid.grid_to_world(col, row);
     let (trow, tcol) = world::world_to_town_grid(center, world_pos);
 
-    if world::destroy_building(
-        &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-        &mut world_state.building_slots,
+    if world_state.destroy_building(
         &mut combat_log, &game_time,
         trow, tcol, center,
         &format!("Destroyed building in {}", town_name),
@@ -1400,7 +1386,6 @@ fn game_cleanup_system(
     world.world_state.slot_alloc.reset();
     *world.world_state.world_data = Default::default();
     *world.food_storage = Default::default();
-    *world.world_state.farm_states = Default::default();
     *world.faction_stats = Default::default();
     *world.gpu_state = Default::default();
     *world.game_time = Default::default();

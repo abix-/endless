@@ -7,14 +7,13 @@ use crate::resources::*;
 
 use super::{TestState, TestSetupParams};
 
-pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<GrowthStates>) {
+pub fn setup(mut params: TestSetupParams, mut building_map: ResMut<BuildingEntityMap>) {
     params.add_town("FarmVisTown");
     params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
-    farm_states.kinds.push(crate::resources::GrowthKind::Farm);
-    farm_states.states.push(FarmGrowthState::Growing);
-    farm_states.progress.push(0.95); // near ready so transition happens within 30s
-    farm_states.positions.push(Vec2::new(400.0, 350.0));
-    farm_states.town_indices.push(Some(0));
+    // Set progress near ready so transition happens within 30s
+    if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
+        inst.growth_progress = 0.95;
+    }
     params.add_bed(400.0, 450.0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;
@@ -37,14 +36,15 @@ pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<GrowthStates>)
 
 pub fn tick(
     marker_query: Query<&FarmReadyMarker>,
-    farm_states: Res<GrowthStates>,
+    building_map: Res<BuildingEntityMap>,
     time: Res<Time>,
     mut test: ResMut<TestState>,
 ) {
     let Some(elapsed) = test.tick_elapsed(&time) else { return; };
 
-    let farm_state = farm_states.states.first().copied();
-    let farm_progress = farm_states.progress.first().copied().unwrap_or(0.0);
+    let farm_inst = building_map.iter_kind(crate::world::BuildingKind::Farm).next();
+    let farm_state = farm_inst.map(|i| i.growth_state);
+    let farm_progress = farm_inst.map(|i| i.growth_progress).unwrap_or(0.0);
     let marker_count = marker_query.iter().count();
 
     match test.phase {

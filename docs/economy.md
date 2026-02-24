@@ -12,7 +12,7 @@ game_time_system (every frame)
     ▼ sets hour_ticked = true when hour changes
     │
     ├─ farm_growth_system (every frame, uses game-time delta)
-    │   └─ FarmStates: Growing → Ready when progress >= 1.0
+    │   └─ BuildingInstance: Growing → Ready when progress >= 1.0
     │
     ├─ raider_forage_system (hourly)
     │   └─ Each raider town gains RAIDER_FORAGE_RATE food
@@ -30,7 +30,7 @@ game_time_system (every frame)
     │   └─ Populates MinerProgressRender from miners with MiningProgress (positions + progress for GPU bar rendering)
     │
     ├─ farm_visual_system (every frame)
-    │   └─ FarmStates Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
+    │   └─ BuildingInstance Growing→Ready: spawn FarmReadyMarker; Ready→Growing: despawn
     │
     ├─ ai_decision_system (real-time interval, default 5s)
     │   └─ Per AI settlement: build → unlock slots → buy upgrades (food-gated, personality-driven)
@@ -54,13 +54,13 @@ game_time_system (every frame)
 ### growth_system (unified farms + mines)
 - Runs every frame, advances growth based on elapsed game time
 - Skips tombstoned entries (`position.x < -9000`) — destroyed farms/mines don't regrow
-- **GrowthStates resource**: tracks `Growing` vs `Ready` state, progress (0.0-1.0), and `GrowthKind` (Farm/Mine) per entry
+- **BuildingInstance fields**: `growth_state: FarmGrowthState` (Growing/Ready) and `growth_progress: f32` (0.0-1.0) on each Farm/Mine instance in `BuildingEntityMap`
 - **Hybrid growth model**:
   - Passive: `FARM_BASE_GROWTH_RATE` (0.08/hour) — ~12 game hours to full growth
   - Tended: `FARM_TENDED_GROWTH_RATE` (0.25/hour) — ~4 game hours with farmer working
 - Farm transitions to `Ready` when progress >= 1.0
 - Checks `BuildingOccupancy.is_occupied()` to determine if a farmer is tending
-- **FarmYield upgrade**: growth rate multiplied by `1.0 + level * 0.15` per-town (reads `TownUpgrades` via `farm.town_idx`)
+- **FarmYield upgrade**: growth rate multiplied by `1.0 + level * 0.15` per-town (reads `TownUpgrades` via `inst.town_idx`)
 
 ### raider_forage_system
 - Runs when `game_time.hour_ticked` is true
@@ -102,9 +102,9 @@ Farms have a growth cycle instead of infinite food:
 
 ```
 
-**Farm harvest** uses `GrowthStates::harvest()` (single source of truth for Ready → Growing transition):
-- `harvest(idx, combat_log, game_time, faction) -> i32` — resets to Growing, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold), logs to CombatLog. Returns 0 if not Ready.
-- All farm harvest callers use `GrowthStates::find_farm_at(pos)` for position-based index lookup (not WorldData farm index, which diverges from GrowthStates index when farms are built after mines).
+**Farm harvest** uses `BuildingInstance::harvest()` (single source of truth for Ready → Growing transition):
+- `harvest(&mut self, combat_log, game_time, faction) -> i32` — resets `growth_state` to Growing, `growth_progress` to 0.0, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold), logs to CombatLog. Returns 0 if not Ready.
+- All farm harvest callers use `BuildingEntityMap::find_farm_at[_mut](pos)` for O(1) position-based lookup via spatial grid.
 - All callers enter `Activity::Returning { loot }` and carry yield home — delivery happens via `arrival_system` proximity check. No caller instant-credits storage.
 - Called from 5 sites: arrival_system (working farmer harvest), decision_system (farmer GoingToWork arrival), decision_system (raider steal), decision_system (miner Mining arrival), decision_system (MiningAtMine harvest)
 
@@ -119,9 +119,9 @@ Farms have a growth cycle instead of infinite food:
 - If farm not ready: find a different farm (excludes current position, skips tombstoned); if no other farm found, return home
 - Logs "Stole food → Returning" vs "Farm not ready, seeking another" vs "No other farms, returning"
 
-**Farm destruction**: `FarmStates::tombstone(farm_idx)` resets all 3 parallel vecs (positions, states, progress) — called by `remove_building()` via `find_farm_at(pos)` position-based lookup. Tombstoned position (-99999) causes render pipeline to skip the crop sprite and `farm_growth_system` to skip growth.
+**Farm destruction**: Building removal from `BuildingEntityMap` handles cleanup. Tombstoned position (x < -9000) causes render pipeline to skip the crop sprite and `growth_system` to skip growth.
 
-**Visual feedback**: `farm_visual_system` watches `FarmStates` for state transitions and spawns/despawns `FarmReadyMarker` entities. Uses `Local<Vec<FarmGrowthState>>` to detect transitions without extra resources. Growing→Ready spawns a marker; Ready→Growing (harvest) despawns it.
+**Visual feedback**: `farm_visual_system` watches `BuildingEntityMap` Farm instances for state transitions and spawns/despawns `FarmReadyMarker` entities (keyed by `farm_slot: usize` — building slot). Uses `Local<HashMap<usize, FarmGrowthState>>` to detect transitions without extra resources. Growing→Ready spawns a marker; Ready→Growing (harvest) despawns it.
 
 ## Starvation
 
@@ -172,7 +172,7 @@ Raiders without a squad assignment wander near their town. The old `RaidQueue` g
 | GameTime | total_seconds, time_scale, paused, hour_ticked | game_time_system |
 | FoodStorage | `Vec<i32>` — food count per town | harvest, steal, forage, respawn |
 | FoodEvents | delivered/consumed event logs | arrival_system, decision_system |
-| FarmStates | Growing/Ready state + progress per farm | farm_growth_system, harvest/steal |
+| BuildingEntityMap | `BuildingInstance` with `growth_state` + `growth_progress` fields (farms + mines) | growth_system, harvest/steal |
 | GoldStorage | `Vec<i32>` — gold count per town | mining delivery, UI |
 | MineStates | gold, max_gold, positions per mine | mine_regen_system, mining behavior |
 | MinerProgressRender | positions + progress for active miners | sync_miner_progress_render → render world (ExtractResource) |

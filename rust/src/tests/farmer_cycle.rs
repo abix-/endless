@@ -4,18 +4,11 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::constants::ENERGY_WAKE_THRESHOLD;
-use crate::resources::*;
-
 use super::{TestState, TestSetupParams};
 
-pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<GrowthStates>) {
+pub fn setup(mut params: TestSetupParams) {
     params.add_town("FarmTown");
     params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
-    farm_states.kinds.push(crate::resources::GrowthKind::Farm);
-    farm_states.states.push(FarmGrowthState::Growing);
-    farm_states.progress.push(0.0);
-    farm_states.positions.push(Vec2::new(400.0, 350.0));
-    farm_states.town_indices.push(Some(0));
     params.add_bed(400.0, 450.0);
     params.init_economy(1);
     params.game_time.time_scale = 1.0;

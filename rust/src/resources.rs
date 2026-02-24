@@ -524,97 +524,6 @@ pub enum FarmGrowthState {
     Ready,
 }
 
-/// Whether a growth entry is a farm or a mine.
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
-pub enum GrowthKind {
-    #[default]
-    Farm,
-    Mine,
-}
-
-/// Unified growth tracking for farms and mines. Read by build_overlay_instances for rendering.
-#[derive(Resource, Default)]
-pub struct GrowthStates {
-    pub kinds: Vec<GrowthKind>,
-    pub states: Vec<FarmGrowthState>,
-    pub progress: Vec<f32>,
-    pub positions: Vec<Vec2>,
-    pub town_indices: Vec<Option<u32>>,  // Some(idx) for farms, None for mines
-}
-
-impl GrowthStates {
-    pub fn push_farm(&mut self, pos: Vec2, town_idx: u32) {
-        self.kinds.push(GrowthKind::Farm);
-        self.states.push(FarmGrowthState::Growing);
-        self.progress.push(0.0);
-        self.positions.push(pos);
-        self.town_indices.push(Some(town_idx));
-    }
-
-    pub fn push_mine(&mut self, pos: Vec2) {
-        self.kinds.push(GrowthKind::Mine);
-        self.states.push(FarmGrowthState::Growing);
-        self.progress.push(0.0);
-        self.positions.push(pos);
-        self.town_indices.push(None);
-    }
-
-    /// Find growth index for a farm at the given position (position-based, not WorldData-index-based).
-    pub fn find_farm_at(&self, pos: Vec2) -> Option<usize> {
-        self.positions.iter().enumerate()
-            .find(|(i, p)| self.kinds[*i] == GrowthKind::Farm && (**p - pos).length() < 1.0)
-            .map(|(i, _)| i)
-    }
-
-    pub fn tombstone(&mut self, idx: usize) {
-        if let Some(pos) = self.positions.get_mut(idx) {
-            *pos = Vec2::new(-99999.0, -99999.0);
-        }
-        if let Some(state) = self.states.get_mut(idx) {
-            *state = FarmGrowthState::Growing;
-        }
-        if let Some(progress) = self.progress.get_mut(idx) {
-            *progress = 0.0;
-        }
-    }
-
-    /// Harvest a Ready growth entry. Resets state, returns yield (0 if not ready).
-    /// All callers enter Returning with the yield — delivery happens via arrival_system.
-    pub fn harvest(
-        &mut self,
-        idx: usize,
-        combat_log: &mut CombatLog,
-        game_time: &GameTime,
-        faction: i32,
-    ) -> i32 {
-        if idx >= self.states.len() || self.states[idx] != FarmGrowthState::Ready {
-            return 0;
-        }
-        let kind = self.kinds[idx];
-        self.states[idx] = FarmGrowthState::Growing;
-        self.progress[idx] = 0.0;
-        match kind {
-            GrowthKind::Farm => {
-                combat_log.push(
-                    CombatEventKind::Harvest, faction,
-                    game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("Farm #{} harvested", idx),
-                );
-                1
-            }
-            GrowthKind::Mine => {
-                let gold = crate::constants::MINE_EXTRACT_PER_CYCLE;
-                combat_log.push(
-                    CombatEventKind::Harvest, faction,
-                    game_time.day(), game_time.hour(), game_time.minute(),
-                    format!("Mine #{} harvested ({} gold)", idx, gold),
-                );
-                gold
-            }
-        }
-    }
-}
-
 /// Per-faction statistics.
 #[derive(Clone, Default)]
 pub struct FactionStat {
@@ -909,6 +818,37 @@ pub struct BuildingInstance {
     pub wall_level: u8,              // Wall only
     pub npc_slot: i32,               // Spawner buildings only (-1 = no NPC alive)
     pub respawn_timer: f32,          // Spawner buildings only (-1.0 = not respawning)
+    pub growth_state: FarmGrowthState, // Farm/Mine only (Growing or Ready)
+    pub growth_progress: f32,        // Farm/Mine only (0.0 to 1.0)
+}
+
+impl BuildingInstance {
+    /// Harvest a Ready farm/mine. Resets to Growing, returns yield (farm=1 food, mine=MINE_EXTRACT_PER_CYCLE gold). Returns 0 if not Ready.
+    pub fn harvest(&mut self, combat_log: &mut CombatLog, game_time: &GameTime, faction: i32) -> i32 {
+        if self.growth_state != FarmGrowthState::Ready { return 0; }
+        self.growth_state = FarmGrowthState::Growing;
+        self.growth_progress = 0.0;
+        match self.kind {
+            crate::world::BuildingKind::Farm => {
+                combat_log.push(
+                    CombatEventKind::Harvest, faction,
+                    game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("Farm harvested at ({:.0},{:.0})", self.position.x, self.position.y),
+                );
+                1
+            }
+            crate::world::BuildingKind::GoldMine => {
+                let gold = crate::constants::MINE_EXTRACT_PER_CYCLE;
+                combat_log.push(
+                    CombatEventKind::Harvest, faction,
+                    game_time.day(), game_time.hour(), game_time.minute(),
+                    format!("Mine harvested ({} gold)", gold),
+                );
+                gold
+            }
+            _ => 0,
+        }
+    }
 }
 
 /// Building identity map: single source of truth for all building instances.
@@ -1123,6 +1063,32 @@ impl BuildingEntityMap {
         let gr = (pos.y / 32.0).floor() as i32;
         let slot = self.by_grid_cell.get(&(gc, gr)).copied()?;
         self.instances.get_mut(&slot)
+    }
+
+    /// Find farm at position (O(1) spatial lookup).
+    pub fn find_farm_at(&self, pos: Vec2) -> Option<&BuildingInstance> {
+        self.find_by_position(pos).filter(|i| i.kind == crate::world::BuildingKind::Farm)
+    }
+
+    /// Find farm at position (mutable).
+    pub fn find_farm_at_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
+        self.find_by_position_mut(pos).filter(|i| i.kind == crate::world::BuildingKind::Farm)
+    }
+
+    /// Find mine at position (O(1) spatial lookup).
+    pub fn find_mine_at(&self, pos: Vec2) -> Option<&BuildingInstance> {
+        self.find_by_position(pos).filter(|i| i.kind == crate::world::BuildingKind::GoldMine)
+    }
+
+    /// Find mine at position (mutable).
+    pub fn find_mine_at_mut(&mut self, pos: Vec2) -> Option<&mut BuildingInstance> {
+        self.find_by_position_mut(pos).filter(|i| i.kind == crate::world::BuildingKind::GoldMine)
+    }
+
+    /// Iterate all growable instances (Farm + GoldMine).
+    pub fn iter_growable(&self) -> impl Iterator<Item = &BuildingInstance> {
+        self.iter_kind(crate::world::BuildingKind::Farm)
+            .chain(self.iter_kind(crate::world::BuildingKind::GoldMine))
     }
 
     /// Find slot by position.

@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use crate::components::*;
 use crate::messages::{GpuUpdate, GpuUpdateMsg};
 use crate::constants::*;
-use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, GrowthStates, FarmGrowthState, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags, BuildingEntityMap};
+use crate::resources::{FoodDelivered, GpuReadState, GameTime, NpcLogCache, FarmGrowthState, CombatLog, TownPolicies, WorkSchedule, OffDutyBehavior, SquadState, SystemTimings, DirtyFlags, BuildingEntityMap};
 use crate::systemparams::EconomyState;
 use crate::systems::economy::*;
 use crate::systems::stats::UPGRADES;
@@ -35,7 +35,6 @@ use bevy::ecs::system::SystemParam;
 /// Farm-related resources
 #[derive(SystemParam)]
 pub struct FarmParams<'w> {
-    pub states: ResMut<'w, GrowthStates>,
     pub occupancy: ResMut<'w, BuildingOccupancy>,
     pub world: Res<'w, WorldData>,
 }
@@ -71,7 +70,7 @@ pub fn arrival_system(
     gpu_state: Res<GpuReadState>,
     game_time: Res<GameTime>,
     mut npc_logs: ResMut<NpcLogCache>,
-    mut farm_states: ResMut<GrowthStates>,
+    mut building_map: ResMut<BuildingEntityMap>,
     mut occupancy: ResMut<BuildingOccupancy>,
     mut frame_counter: Local<u32>,
     mut combat_log: ResMut<CombatLog>,
@@ -150,9 +149,9 @@ pub fn arrival_system(
         }
 
         // Harvest check: if farm became Ready while working, harvest and carry home
-        if let Some(gi) = farm_states.find_farm_at(farm_pos) {
+        if let Some(inst) = building_map.find_farm_at_mut(farm_pos) {
             let fac = world_data.towns.get(town.0 as usize).map(|t| t.faction).unwrap_or(0);
-            let food = farm_states.harvest(gi, &mut combat_log, &game_time, fac);
+            let food = inst.harvest(&mut combat_log, &game_time, fac);
             if food > 0 {
                 occupancy.release(farm_pos);
                 pop_dec_working(&mut economy.pop_stats, *job, town.0);
@@ -258,7 +257,7 @@ pub fn decision_system(
     game_time: Res<GameTime>,
     mut extras: DecisionExtras,
     npc_config: Res<crate::resources::NpcDecisionConfig>,
-    building_map: Res<BuildingEntityMap>,
+    mut building_map: ResMut<BuildingEntityMap>,
 ) {
     let _t = extras.timings.scope("decision");
     let profiling = extras.timings.enabled;
@@ -364,9 +363,9 @@ pub fn decision_system(
                                     *activity = Activity::Idle;
                                     npc_logs.push(idx, game_time.day(), game_time.hour(), game_time.minute(), "All farms occupied -> Idle");
                                 }
-                            } else if let Some(gi) = farms.states.find_farm_at(farm_pos) {
+                            } else if let Some(inst) = building_map.find_farm_at_mut(farm_pos) {
                                 // Check if farm is ready — harvest and carry home immediately
-                                let food = farms.states.harvest(gi, combat_log, &game_time, faction.0);
+                                let food = inst.harvest(combat_log, &game_time, faction.0);
                                 if food > 0 {
                                     *activity = Activity::Returning { loot: vec![(ItemKind::Food, food)] };
                                     gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -402,14 +401,11 @@ pub fn decision_system(
                     if idx * 2 + 1 < positions.len() {
                         let pos = Vec2::new(positions[idx * 2], positions[idx * 2 + 1]);
 
-                        let ready_farm = find_location_within_radius(pos, &building_map, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
-                            .and_then(|(_, fp)| farms.states.find_farm_at(fp).map(|gi| (gi, fp)))
-                            .filter(|(gi, _)| {
-                                farms.states.states.get(*gi) == Some(&FarmGrowthState::Ready)
-                            });
+                        let ready_farm_pos = find_location_within_radius(pos, &building_map, LocationKind::Farm, FARM_ARRIVAL_RADIUS)
+                            .and_then(|(_, fp)| building_map.find_farm_at(fp).filter(|i| i.growth_state == FarmGrowthState::Ready).map(|_| fp));
 
-                        if let Some((gi, _)) = ready_farm {
-                            let food = farms.states.harvest(gi, combat_log, &game_time, faction.0);
+                        if let Some(fp) = ready_farm_pos {
+                            let food = building_map.find_farm_at_mut(fp).map(|i| i.harvest(combat_log, &game_time, faction.0)).unwrap_or(0);
 
                             *activity = Activity::Returning { loot: vec![(ItemKind::Food, food.max(1))] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -437,13 +433,13 @@ pub fn decision_system(
                 }
                 Activity::Mining { mine_pos } => {
                     let mine_pos = *mine_pos;
-                    // Arrived at gold mine — check GrowthStates for harvest or tend
-                    if let Some(gi) = farms.states.positions.iter().position(|p| (*p - mine_pos).length() < 30.0) {
-                        if farms.states.states.get(gi) == Some(&FarmGrowthState::Ready) {
+                    // Arrived at gold mine — check BuildingInstance for harvest or tend
+                    if let Some(inst) = building_map.find_mine_at_mut(mine_pos) {
+                        if inst.growth_state == FarmGrowthState::Ready {
                             // Mine ready — harvest immediately
                             let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                             let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
-                            let base_gold = farms.states.harvest(gi, combat_log, &game_time, faction.0);
+                            let base_gold = inst.harvest(combat_log, &game_time, faction.0);
                             let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                             *activity = Activity::Returning { loot: vec![(ItemKind::Gold, gold_amount)] };
                             gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx, x: home.0.x, y: home.0.y }));
@@ -818,12 +814,12 @@ pub fn decision_system(
             let mut harvested = false;
             if let Ok(wp) = work_query.get(entity) {
                 let mine_pos = wp.0;
-                if let Some(gi) = farms.states.positions.iter().position(|p| (*p - mine_pos).length() < 30.0) {
-                    if farms.states.states.get(gi) == Some(&FarmGrowthState::Ready) {
+                if let Some(inst) = building_map.find_mine_at_mut(mine_pos) {
+                    if inst.growth_state == FarmGrowthState::Ready {
                         // Mine ready — harvest gold and return home
                         let town_levels = extras.town_upgrades.town_levels(town_id.0 as usize);
                         let yield_mult = UPGRADES.stat_mult(&town_levels, "Miner", UpgradeStatKind::Yield);
-                        let base_gold = farms.states.harvest(gi, combat_log, &game_time, faction.0);
+                        let base_gold = inst.harvest(combat_log, &game_time, faction.0);
                         let gold_amount = ((base_gold as f32) * yield_mult).round() as i32;
                         farms.occupancy.release(mine_pos);
                         commands.entity(entity).remove::<WorkPosition>();
@@ -1009,16 +1005,13 @@ pub fn decision_system(
                             Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                         } else { home.0 };
                         let mut best: Option<(i32, f32, Vec2)> = None; // (priority, dist, pos)
-                        for (gi, pos) in farms.states.positions.iter().enumerate() {
-                            if farms.states.kinds.get(gi) != Some(&crate::resources::GrowthKind::Farm) { continue; }
-                            if farms.states.town_indices.get(gi) != Some(&Some(town_id.0 as u32)) { continue; }
-                            if pos.x < -9000.0 { continue; }
-                            if farms.occupancy.is_occupied(*pos) { continue; }
-                            let ready = farms.states.states.get(gi) == Some(&FarmGrowthState::Ready);
+                        for inst in building_map.iter_kind_for_town(BuildingKind::Farm, town_id.0 as u32) {
+                            if farms.occupancy.is_occupied(inst.position) { continue; }
+                            let ready = inst.growth_state == FarmGrowthState::Ready;
                             let priority = if ready { 0 } else { 1 };
-                            let dist = current_pos.distance(*pos);
+                            let dist = current_pos.distance(inst.position);
                             if best.is_none() || (priority, dist as i32) < (best.unwrap().0, best.unwrap().1 as i32) {
-                                best = Some((priority, dist, *pos));
+                                best = Some((priority, dist, inst.position));
                             }
                         }
                         if let Some((_, _, farm_pos)) = best {
@@ -1037,7 +1030,7 @@ pub fn decision_system(
                             // Use assigned mine directly
                             Some(assigned_pos)
                         } else {
-                            // Find nearest mine (GrowthKind::Mine) that isn't occupied
+                            // Find nearest mine that isn't occupied
                             let current_pos = if idx * 2 + 1 < positions.len() {
                                 Vec2::new(positions[idx * 2], positions[idx * 2 + 1])
                             } else {
@@ -1045,17 +1038,13 @@ pub fn decision_system(
                             };
                             // Priority: ready > unoccupied > least-occupied
                             let mut best_mine: Option<(i32, i32, f32, Vec2)> = None; // (priority, occupants, dist, pos)
-                            for (gi, pos) in farms.states.positions.iter().enumerate() {
-                                if farms.states.kinds.get(gi) != Some(&crate::resources::GrowthKind::Mine) {
-                                    continue;
-                                }
-                                if pos.x < -9000.0 { continue; }
-                                let occupant_count = farms.occupancy.count(*pos);
-                                let ready = farms.states.states.get(gi) == Some(&FarmGrowthState::Ready);
+                            for inst in building_map.iter_kind(BuildingKind::GoldMine) {
+                                let occupant_count = farms.occupancy.count(inst.position);
+                                let ready = inst.growth_state == FarmGrowthState::Ready;
                                 let priority = if ready { 0 } else if occupant_count == 0 { 1 } else { 2 };
-                                let dist = current_pos.distance(*pos);
+                                let dist = current_pos.distance(inst.position);
                                 if best_mine.is_none() || (priority, occupant_count, dist as i32) < (best_mine.unwrap().0, best_mine.unwrap().1, best_mine.unwrap().2 as i32) {
-                                    best_mine = Some((priority, occupant_count, dist, *pos));
+                                    best_mine = Some((priority, occupant_count, dist, inst.position));
                                 }
                             }
                             best_mine.map(|(_, _, _, pos)| pos)

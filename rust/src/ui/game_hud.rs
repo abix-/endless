@@ -181,7 +181,6 @@ pub struct BottomPanelData<'w> {
 pub struct BuildingInspectorData<'w, 's> {
     selected_building: Res<'w, SelectedBuilding>,
     grid: Res<'w, WorldGrid>,
-    farm_states: Res<'w, GrowthStates>,
     farm_occupancy: Res<'w, BuildingOccupancy>,
     food_storage: ResMut<'w, FoodStorage>,
     gold_storage: ResMut<'w, GoldStorage>,
@@ -1127,29 +1126,25 @@ fn building_inspector_content(
     // Per-type details
     match kind {
         BuildingKind::Farm => {
-            // Find growth index by position (not WorldData index — GrowthStates has farms+mines)
-            if let Some(farm_idx) = bld.farm_states.find_farm_at(world_pos) {
-                if let Some(state) = bld.farm_states.states.get(farm_idx) {
-                    let state_name = match state {
-                        FarmGrowthState::Growing => "Growing",
-                        FarmGrowthState::Ready => "Ready to harvest",
-                    };
-                    ui.label(format!("Status: {}", state_name));
+            if let Some(inst) = bld.building_map.find_farm_at(world_pos) {
+                let state_name = match inst.growth_state {
+                    FarmGrowthState::Growing => "Growing",
+                    FarmGrowthState::Ready => "Ready to harvest",
+                };
+                ui.label(format!("Status: {}", state_name));
 
-                    if let Some(&progress) = bld.farm_states.progress.get(farm_idx) {
-                        let color = if *state == FarmGrowthState::Ready {
-                            egui::Color32::from_rgb(200, 200, 60)
-                        } else {
-                            egui::Color32::from_rgb(80, 180, 80)
-                        };
-                        ui.horizontal(|ui| {
-                            ui.label("Growth:");
-                            ui.add(egui::ProgressBar::new(progress)
-                                .text(format!("{:.0}%", progress * 100.0))
-                                .fill(color));
-                        });
-                    }
-                }
+                let color = if inst.growth_state == FarmGrowthState::Ready {
+                    egui::Color32::from_rgb(200, 200, 60)
+                } else {
+                    egui::Color32::from_rgb(80, 180, 80)
+                };
+                let progress = inst.growth_progress;
+                ui.horizontal(|ui| {
+                    ui.label("Growth:");
+                    ui.add(egui::ProgressBar::new(progress)
+                        .text(format!("{:.0}%", progress * 100.0))
+                        .fill(color));
+                });
 
                 // Show farmer working here
                 let occupants = bld.farm_occupancy.count(world_pos);
@@ -1197,10 +1192,9 @@ fn building_inspector_content(
                     dirty.mining = true;
                 }
             }
-            // Find mine in GrowthStates
-            if let Some(gi) = bld.farm_states.positions.iter().position(|p| (*p - world_pos).length() < 1.0) {
-                let progress = bld.farm_states.progress.get(gi).copied().unwrap_or(0.0);
-                let ready = bld.farm_states.states.get(gi) == Some(&FarmGrowthState::Ready);
+            if let Some(inst) = bld.building_map.find_mine_at(world_pos) {
+                let progress = inst.growth_progress;
+                let ready = inst.growth_state == FarmGrowthState::Ready;
                 let label = if ready { "Ready to harvest" } else { &format!("Growing: {:.0}%", progress * 100.0) };
                 ui.label(label);
                 let color = if ready {
@@ -1405,17 +1399,13 @@ fn building_inspector_content(
             }
             match kind {
                 BuildingKind::Farm => {
-                    if let Some(farm_idx) = bld.farm_states.find_farm_at(world_pos) {
-                        if let Some(state) = bld.farm_states.states.get(farm_idx) {
-                            let state_name = match state {
-                                FarmGrowthState::Growing => "Growing",
-                                FarmGrowthState::Ready => "Ready to harvest",
-                            };
-                            info.push_str(&format!("Status: {}\n", state_name));
-                            if let Some(&progress) = bld.farm_states.progress.get(farm_idx) {
-                                info.push_str(&format!("Growth: {:.0}%\n", progress * 100.0));
-                            }
-                        }
+                    if let Some(inst) = bld.building_map.find_farm_at(world_pos) {
+                        let state_name = match inst.growth_state {
+                            FarmGrowthState::Growing => "Growing",
+                            FarmGrowthState::Ready => "Ready to harvest",
+                        };
+                        info.push_str(&format!("Status: {}\n", state_name));
+                        info.push_str(&format!("Growth: {:.0}%\n", inst.growth_progress * 100.0));
                         let occupants = bld.farm_occupancy.count(world_pos);
                         info.push_str(&format!("Farmers: {}\n", occupants));
                     }
@@ -1449,13 +1439,11 @@ fn building_inspector_content(
                         let enabled = *mining_policy.mine_enabled.get(&mine_inst.slot).unwrap_or(&true);
                         info.push_str(if enabled { "Auto-mining: ON\n" } else { "Auto-mining: OFF\n" });
                     }
-                    if let Some(gi) = bld.farm_states.positions.iter().position(|p| (*p - world_pos).length() < 1.0) {
-                        let progress = bld.farm_states.progress.get(gi).copied().unwrap_or(0.0);
-                        let ready = bld.farm_states.states.get(gi) == Some(&FarmGrowthState::Ready);
-                        if ready {
+                    if let Some(inst) = bld.building_map.find_mine_at(world_pos) {
+                        if inst.growth_state == FarmGrowthState::Ready {
                             info.push_str("Ready to harvest\n");
                         } else {
-                            info.push_str(&format!("Growing: {:.0}%\n", progress * 100.0));
+                            info.push_str(&format!("Growing: {:.0}%\n", inst.growth_progress * 100.0));
                         }
                         let occupants = bld.farm_occupancy.count(world_pos);
                         if occupants > 0 {

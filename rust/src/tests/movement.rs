@@ -11,16 +11,15 @@ use super::{TestState, TestSetupParams};
 const SPAWN_Y: f32 = 500.0;
 const FARM_Y: f32 = 350.0;
 
-pub fn setup(mut params: TestSetupParams, mut farm_states: ResMut<GrowthStates>) {
+pub fn setup(mut params: TestSetupParams, mut building_map: ResMut<BuildingEntityMap>) {
     params.add_town("TestTown");
     for i in 0..3 {
         let fx = 300.0 + (i as f32 * 100.0);
         params.add_building(crate::world::BuildingKind::Farm, fx, FARM_Y, 0);
-        farm_states.kinds.push(crate::resources::GrowthKind::Farm);
-        farm_states.states.push(FarmGrowthState::Ready);
-        farm_states.progress.push(1.0);
-        farm_states.positions.push(Vec2::new(fx, FARM_Y));
-        farm_states.town_indices.push(Some(0));
+        if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(fx, FARM_Y)) {
+            inst.growth_state = FarmGrowthState::Ready;
+            inst.growth_progress = 1.0;
+        }
         params.add_bed(fx, 550.0);
     }
     params.init_economy(1);

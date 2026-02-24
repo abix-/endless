@@ -45,7 +45,6 @@ pub struct CleanupCore<'w> {
     pub slot_alloc: ResMut<'w, crate::resources::SlotAllocator>,
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub food_storage: ResMut<'w, crate::resources::FoodStorage>,
-    pub farm_states: ResMut<'w, crate::resources::GrowthStates>,
     pub faction_stats: ResMut<'w, crate::resources::FactionStats>,
     pub gpu_state: ResMut<'w, crate::resources::GpuReadState>,
     pub game_time: ResMut<'w, crate::resources::GameTime>,
@@ -963,7 +962,6 @@ fn cleanup_test_world(
     *core.slot_alloc = Default::default();
     *core.world_data = Default::default();
     *core.food_storage = Default::default();
-    *core.farm_states = Default::default();
     *core.faction_stats = Default::default();
     *core.gpu_state = Default::default();
     *core.game_time = Default::default();

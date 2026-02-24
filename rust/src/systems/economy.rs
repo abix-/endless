@@ -95,7 +95,7 @@ pub fn game_time_system(
 pub fn growth_system(
     time: Res<Time>,
     game_time: Res<GameTime>,
-    mut growth_states: ResMut<GrowthStates>,
+    mut building_map: ResMut<BuildingEntityMap>,
     farm_occupancy: Res<BuildingOccupancy>,
     upgrades: Res<TownUpgrades>,
     timings: Res<SystemTimings>,
@@ -105,34 +105,34 @@ pub fn growth_system(
 
     let hours_elapsed = game_time.delta(&time) / game_time.seconds_per_hour;
 
-    for i in 0..growth_states.states.len() {
-        if growth_states.positions[i].x < -9000.0 { continue; } // tombstoned
-        if growth_states.states[i] != FarmGrowthState::Growing { continue; }
+    for inst in building_map.iter_instances_mut() {
+        let is_farm = inst.kind == BuildingKind::Farm;
+        let is_mine = inst.kind == BuildingKind::GoldMine;
+        if !is_farm && !is_mine { continue; }
+        if inst.position.x < -9000.0 { continue; }
+        if inst.growth_state != FarmGrowthState::Growing { continue; }
 
-        let is_tended = farm_occupancy.is_occupied(growth_states.positions[i]);
+        let is_tended = farm_occupancy.is_occupied(inst.position);
 
-        let growth_rate = match growth_states.kinds[i] {
-            GrowthKind::Farm => {
-                let base_rate = if is_tended { FARM_TENDED_GROWTH_RATE } else { FARM_BASE_GROWTH_RATE };
-                let town = growth_states.town_indices[i].unwrap_or(0) as usize;
-                let town_levels = upgrades.town_levels(town);
-                base_rate * UPGRADES.stat_mult(&town_levels, "Farmer", UpgradeStatKind::Yield)
-            }
-            GrowthKind::Mine => {
-                let worker_count = farm_occupancy.count(growth_states.positions[i]);
-                if worker_count > 0 {
-                    crate::constants::MINE_TENDED_GROWTH_RATE * crate::constants::mine_productivity_mult(worker_count)
-                } else {
-                    0.0
-                }
+        let growth_rate = if is_farm {
+            let base_rate = if is_tended { FARM_TENDED_GROWTH_RATE } else { FARM_BASE_GROWTH_RATE };
+            let town = inst.town_idx as usize;
+            let town_levels = upgrades.town_levels(town);
+            base_rate * UPGRADES.stat_mult(&town_levels, "Farmer", UpgradeStatKind::Yield)
+        } else {
+            let worker_count = farm_occupancy.count(inst.position);
+            if worker_count > 0 {
+                crate::constants::MINE_TENDED_GROWTH_RATE * crate::constants::mine_productivity_mult(worker_count)
+            } else {
+                0.0
             }
         };
 
         if growth_rate > 0.0 {
-            growth_states.progress[i] += growth_rate * hours_elapsed;
-            if growth_states.progress[i] >= 1.0 {
-                growth_states.states[i] = FarmGrowthState::Ready;
-                growth_states.progress[i] = 1.0;
+            inst.growth_progress += growth_rate * hours_elapsed;
+            if inst.growth_progress >= 1.0 {
+                inst.growth_state = FarmGrowthState::Ready;
+                inst.growth_progress = 1.0;
             }
         }
     }
@@ -206,27 +206,24 @@ pub fn starvation_system(
 /// Growing→Ready: spawn marker. Ready→Growing (harvest): despawn marker.
 pub fn farm_visual_system(
     mut commands: Commands,
-    growth_states: Res<GrowthStates>,
+    building_map: Res<BuildingEntityMap>,
     markers: Query<(Entity, &FarmReadyMarker)>,
-    mut prev_states: Local<Vec<FarmGrowthState>>,
+    mut prev_states: Local<HashMap<usize, FarmGrowthState>>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("farm_visual");
-    prev_states.resize(growth_states.states.len(), FarmGrowthState::Growing);
-    for (idx, kind) in growth_states.kinds.iter().enumerate() {
-        if *kind != crate::resources::GrowthKind::Farm { continue; }
-        let Some(state) = growth_states.states.get(idx) else { continue };
-        let prev = prev_states[idx];
-        if *state == FarmGrowthState::Ready && prev == FarmGrowthState::Growing {
-            commands.spawn(FarmReadyMarker { farm_idx: idx });
-        } else if *state == FarmGrowthState::Growing && prev == FarmGrowthState::Ready {
+    for inst in building_map.iter_kind(BuildingKind::Farm) {
+        let prev = prev_states.get(&inst.slot).copied().unwrap_or(FarmGrowthState::Growing);
+        if inst.growth_state == FarmGrowthState::Ready && prev == FarmGrowthState::Growing {
+            commands.spawn(FarmReadyMarker { farm_slot: inst.slot });
+        } else if inst.growth_state == FarmGrowthState::Growing && prev == FarmGrowthState::Ready {
             for (entity, marker) in markers.iter() {
-                if marker.farm_idx == idx {
+                if marker.farm_slot == inst.slot {
                     commands.entity(entity).despawn();
                 }
             }
         }
-        prev_states[idx] = *state;
+        prev_states.insert(inst.slot, inst.growth_state);
     }
 }
 
@@ -782,7 +779,7 @@ pub fn endless_system(
 
         // Place buildings directly into BuildingEntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &world_state.world_data, &mut world_state.farm_states, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.slot_alloc, &mut world_state.building_slots);
+            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.slot_alloc, &mut world_state.building_slots);
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 

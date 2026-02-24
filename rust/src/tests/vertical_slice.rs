@@ -17,7 +17,7 @@ const FARMS: [(f32, f32); 5] = [
 /// Setup: populate world, spawn NPCs, init resources.
 pub fn setup(
     mut params: TestSetupParams,
-    mut farm_states: ResMut<GrowthStates>,
+    mut building_map: ResMut<BuildingEntityMap>,
     mut world_grid: ResMut<WorldGrid>,
 ) {
     // Init WorldGrid so rebuild_building_grid_system populates BuildingSpatialGrid
@@ -38,11 +38,10 @@ pub fn setup(
     // 5 farms near town 0
     for &(fx, fy) in &FARMS {
         params.add_building(world::BuildingKind::Farm, fx, fy, 0);
-        farm_states.kinds.push(crate::resources::GrowthKind::Farm);
-        farm_states.states.push(FarmGrowthState::Ready);
-        farm_states.progress.push(1.0);
-        farm_states.positions.push(Vec2::new(fx, fy));
-        farm_states.town_indices.push(Some(0));
+        if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(fx, fy)) {
+            inst.growth_state = FarmGrowthState::Ready;
+            inst.growth_progress = 1.0;
+        }
     }
 
     // 5 beds near town 0

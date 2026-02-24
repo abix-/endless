@@ -406,7 +406,7 @@ pub struct Building {
 /// Marker: farm is visually Ready (food icon overlay).
 #[derive(Component)]
 pub struct FarmReadyMarker {
-    pub farm_idx: usize,
+    pub farm_slot: usize,
 }
 
 // ============================================================================
