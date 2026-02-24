@@ -43,7 +43,6 @@ pub fn setup(
         &config,
         &mut world_grid, &mut world_data,
         &mut farm_states, &mut town_grids,
-        &mut bld.spawner_state,
         &mut bld.slot_alloc, &mut bld.building_slots,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut raider_state,

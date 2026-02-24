@@ -946,7 +946,6 @@ fn sync_town_perimeter_waypoints(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     farm_states: &mut GrowthStates,
-    spawner_state: &mut SpawnerState,
     _slot_alloc: &mut SlotAllocator,
     building_slots: &mut BuildingEntityMap,
     combat_log: &mut CombatLog,
@@ -976,7 +975,7 @@ fn sync_town_perimeter_waypoints(
     let mut removed = 0usize;
     for (row, col) in prune_slots {
         if world::destroy_building(
-            grid, world_data, farm_states, spawner_state,
+            grid, world_data, farm_states,
             building_slots, combat_log, game_time,
             row, col, center, "waypoint pruned (not on outer ring)",
             commands,
@@ -1015,7 +1014,6 @@ pub fn sync_patrol_perimeter_system(
             &mut world.grid,
             &mut world.world_data,
             &mut world.farm_states,
-            &mut world.spawner_state,
             &mut world.slot_alloc,
             &mut world.building_slots,
             &mut combat_log,
@@ -1142,11 +1140,11 @@ pub fn ai_decision_system(
     let snapshot_dirty = res.world.dirty.building_grid || res.world.dirty.mining || res.world.dirty.patrol_perimeter;
     if snapshot_dirty {
         snapshots.towns.clear();
-        // Recompute spawner counts per town (single pass over all spawners)
+        // Recompute spawner counts per town from BuildingEntityMap
         snapshots.spawner_counts.clear();
-        for s in res.world.spawner_state.0.iter() {
-            if world::is_alive(s.position) && s.is_population_spawner() {
-                *snapshots.spawner_counts.entry(s.town_idx as usize).or_default() += 1;
+        for inst in res.world.building_slots.iter_instances() {
+            if crate::constants::building_def(inst.kind).spawner.is_some() {
+                *snapshots.spawner_counts.entry(inst.town_idx as usize).or_default() += 1;
             }
         }
     }
@@ -1526,7 +1524,6 @@ fn try_build_at_slot(
         &mut res.world.world_data,
         &mut res.world.farm_states,
         &mut res.food_storage,
-        &mut res.world.spawner_state,
         &mut res.world.slot_alloc,
         &mut res.world.building_slots,
         &mut res.world.dirty,
@@ -1721,7 +1718,7 @@ fn try_build_road_grid(
         let pos = world::town_grid_to_world(center, r, c);
         if world::place_building(
             &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
-            &mut res.food_storage, &mut res.world.spawner_state,
+            &mut res.food_storage,
             &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
             BuildingKind::Road, ctx.tdi, pos, cost, &res.world.town_grids,
             &mut res.commands,
@@ -1793,7 +1790,7 @@ fn execute_action(
             let pos = world::town_grid_to_world(ctx.center, row, col);
             if world::place_building(
                 &mut res.world.grid, &mut res.world.world_data, &mut res.world.farm_states,
-                &mut res.food_storage, &mut res.world.spawner_state,
+                &mut res.food_storage,
                 &mut res.world.slot_alloc, &mut res.world.building_slots, &mut res.world.dirty,
                 world::BuildingKind::Waypoint, ctx.tdi, pos, cost, &res.world.town_grids,
                 &mut res.commands,

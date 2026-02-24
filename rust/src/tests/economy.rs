@@ -34,13 +34,10 @@ pub fn setup(
     params.food_storage.food[1] = 10; // raider town has food
     raider_state.init(1, 5);
     // Tent spawner so a raider can spawn via spawner_respawn_system
-    params.spawner_state.0.push(SpawnerEntry {
-        building_kind: 2,
-        town_idx: 1,
-        position: Vec2::new(400.0, 100.0),
-        npc_slot: -1,
-        respawn_timer: 0.0,
-    });
+    params.add_building(crate::world::BuildingKind::Tent, 400.0, 100.0, 1);
+    if let Some(inst) = params.building_slots.find_by_position_mut(Vec2::new(400.0, 100.0)) {
+        inst.respawn_timer = 0.0;
+    }
     params.game_time.time_scale = 1.0;
 
     // Spawn 1 farmer to tend the farm (speeds growth)

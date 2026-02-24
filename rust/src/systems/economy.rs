@@ -239,7 +239,6 @@ pub fn farm_visual_system(
 /// Only runs when game_time.hour_ticked is true.
 pub fn spawner_respawn_system(
     game_time: Res<GameTime>,
-    mut spawner_state: ResMut<SpawnerState>,
     npc_map: Res<NpcEntityMap>,
     mut slots: ResMut<SlotAllocator>,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
@@ -247,7 +246,7 @@ pub fn spawner_respawn_system(
     mut combat_log: ResMut<CombatLog>,
     farm_occupancy: Res<BuildingOccupancy>,
     timings: Res<SystemTimings>,
-    building_map: Res<BuildingEntityMap>,
+    mut building_map: ResMut<BuildingEntityMap>,
     mut dirty: ResMut<DirtyFlags>,
 ) {
     let _t = timings.scope("spawner_respawn");
@@ -255,56 +254,56 @@ pub fn spawner_respawn_system(
         return;
     }
 
-    for entry in spawner_state.0.iter_mut() {
-        // Skip tombstoned entries (building was destroyed)
-        if entry.position.x < -9000.0 {
-            continue;
-        }
+    // Collect spawner slots to avoid borrow conflict (need &mut for npc_slot/respawn_timer, & for resolve)
+    let spawner_slots: Vec<usize> = building_map.iter_instances()
+        .filter(|i| i.respawn_timer > -2.0)
+        .map(|i| i.slot)
+        .collect();
+
+    for bld_slot in spawner_slots {
+        let Some(inst) = building_map.get_instance(bld_slot) else { continue };
 
         // Check if linked NPC died
-        if entry.npc_slot >= 0 {
-            if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
-                entry.npc_slot = -1;
-                entry.respawn_timer = SPAWNER_RESPAWN_HOURS;
-                if entry.building_kind == crate::constants::tileset_index(BuildingKind::MinerHome) as i32 {
-                    dirty.mining = true;
-                }
+        if inst.npc_slot >= 0 && !npc_map.0.contains_key(&(inst.npc_slot as usize)) {
+            let is_miner_home = inst.kind == BuildingKind::MinerHome;
+            if let Some(inst_mut) = building_map.get_instance_mut(bld_slot) {
+                inst_mut.npc_slot = -1;
+                inst_mut.respawn_timer = SPAWNER_RESPAWN_HOURS;
             }
+            if is_miner_home { dirty.mining = true; }
         }
 
+        let Some(inst) = building_map.get_instance(bld_slot) else { continue };
         // Count down respawn timer (>= 0.0 catches newly-built spawners at 0.0)
-        if entry.respawn_timer >= 0.0 {
-            entry.respawn_timer -= 1.0;
-            if entry.respawn_timer <= 0.0 {
+        if inst.respawn_timer >= 0.0 {
+            let new_timer = inst.respawn_timer - 1.0;
+            if let Some(inst_mut) = building_map.get_instance_mut(bld_slot) {
+                inst_mut.respawn_timer = new_timer;
+            }
+            if new_timer <= 0.0 {
                 // Spawn replacement NPC
                 let Some(slot) = slots.alloc() else { continue };
-                let town_data_idx = entry.town_idx as usize;
+                let Some(inst) = building_map.get_instance(bld_slot) else { continue };
+                let town_data_idx = inst.town_idx as usize;
 
                 let (job, faction, work_x, work_y, starting_post, attack_type, job_name, building_name) =
-                    world::resolve_spawner_npc(entry, &world_data.towns, &building_map, &farm_occupancy);
+                    world::resolve_spawner_npc(inst, &world_data.towns, &building_map, &farm_occupancy);
 
-                // Home = spawner building position (house/barracks/tent)
-                let (home_x, home_y) = (entry.position.x, entry.position.y);
+                let pos = inst.position;
+                let is_miner_home = inst.kind == BuildingKind::MinerHome;
 
                 spawn_writer.write(SpawnNpcMsg {
                     slot_idx: slot,
-                    x: entry.position.x,
-                    y: entry.position.y,
-                    job,
-                    faction,
-                    town_idx: town_data_idx as i32,
-                    home_x,
-                    home_y,
-                    work_x,
-                    work_y,
-                    starting_post,
-                    attack_type,
+                    x: pos.x, y: pos.y,
+                    job, faction, town_idx: town_data_idx as i32,
+                    home_x: pos.x, home_y: pos.y,
+                    work_x, work_y, starting_post, attack_type,
                 });
-                entry.npc_slot = slot as i32;
-                entry.respawn_timer = -1.0;
-                if entry.building_kind == crate::constants::tileset_index(BuildingKind::MinerHome) as i32 {
-                    dirty.mining = true;
+                if let Some(inst_mut) = building_map.get_instance_mut(bld_slot) {
+                    inst_mut.npc_slot = slot as i32;
+                    inst_mut.respawn_timer = -1.0;
                 }
+                if is_miner_home { dirty.mining = true; }
 
                 combat_log.push(
                     CombatEventKind::Spawn, faction,
@@ -321,7 +320,6 @@ pub fn mining_policy_system(
     world_data: Res<WorldData>,
     mut building_map: ResMut<BuildingEntityMap>,
     policies: Res<TownPolicies>,
-    spawner_state: Res<SpawnerState>,
     npc_map: Res<NpcEntityMap>,
     mut mining: ResMut<MiningPolicy>,
     mut dirty: ResMut<DirtyFlags>,
@@ -369,27 +367,24 @@ pub fn mining_policy_system(
         let enabled_positions: Vec<Vec2> = enabled_slots.iter()
             .filter_map(|&slot| building_map.get_instance(slot).map(|i| i.position))
             .collect();
+        let enabled_grid_cells: std::collections::HashSet<(i32,i32)> = enabled_positions.iter()
+            .map(|p| ((p.x / 32.0).floor() as i32, (p.y / 32.0).floor() as i32))
+            .collect();
 
-        // Collect auto-assign miner home slots
-        let mut auto_home_slots: Vec<usize> = Vec::new();
-        for entry in spawner_state.0.iter() {
-            if entry.building_kind != 3 || entry.town_idx != town_idx as i32 || entry.npc_slot < 0 {
-                continue;
-            }
-            if !npc_map.0.contains_key(&(entry.npc_slot as usize)) {
-                continue;
-            }
-            let Some(inst) = building_map.find_by_position(entry.position) else { continue };
-            if inst.kind != BuildingKind::MinerHome { continue; }
-            if inst.manual_mine { continue; }
-            auto_home_slots.push(inst.slot);
-        }
+        // Collect auto-assign miner home slots (O(town's miner homes) instead of O(all spawners))
+        let auto_home_slots: Vec<usize> = building_map
+            .iter_kind_for_town(BuildingKind::MinerHome, town_idx as u32)
+            .filter(|inst| !inst.manual_mine && inst.npc_slot >= 0
+                && npc_map.0.contains_key(&(inst.npc_slot as usize)))
+            .map(|inst| inst.slot)
+            .collect();
 
         // Clear stale assignments (mine disabled or no longer discovered)
         for &slot in &auto_home_slots {
             let Some(inst) = building_map.get_instance(slot) else { continue };
             if let Some(pos) = inst.assigned_mine {
-                let still_enabled = enabled_positions.iter().any(|p| (*p - pos).length() < 1.0);
+                let cell = ((pos.x / 32.0).floor() as i32, (pos.y / 32.0).floor() as i32);
+                let still_enabled = enabled_grid_cells.contains(&cell);
                 if !still_enabled {
                     if let Some(inst_mut) = building_map.get_instance_mut(slot) {
                         inst_mut.assigned_mine = None;
@@ -787,7 +782,7 @@ pub fn endless_system(
 
         // Place buildings directly into BuildingEntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &world_state.world_data, &mut world_state.farm_states, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.spawner_state);
+            world::place_buildings(&mut world_state.grid, &world_state.world_data, &mut world_state.farm_states, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.slot_alloc, &mut world_state.building_slots);
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 

@@ -92,7 +92,7 @@ Completed work moved to [completed.md](completed.md).
 Every-frame review backlog:
 - [ ] `decision_system`: reduce per-frame allocation/log pressure in hot paths (avoid unconditional `format!`/log string churn for high-N NPC loops; gate expensive logs behind debug/selection or lower-frequency sampling).
 - [ ] `damage_system` debug stats: gate `query.iter().count()` and sample collection behind debug flag to avoid unconditional extra iteration each frame.
-- [ ] `top_bar_system` HUD counts: replace repeated `spawner_state` full scans with cached/incremental counters.
+- [x] `top_bar_system` HUD counts: `spawner_state` scans replaced by `BuildingEntityMap::iter_instances()` (SpawnerState deleted).
 - [ ] `sync_building_hp_render`: rebuild only when `BuildingHpState`/`WorldData` changes (or via dirty flag), not every frame.
 - [ ] DirtyFlags regression tests (state transitions + load): add automated coverage for cleanup/enter behavior.
   - Add tests (likely in `tests/vertical_slice.rs` or dedicated `tests/dirty_flags.rs`) that exercise:
@@ -112,21 +112,21 @@ CRITICAL — per-NPC per-tick (O(NPCs × buildings) each frame):
 - [ ] `behavior.rs:442,822` — arriving miners scan all GrowthStates positions with `length() < 30.0` radius check. Fix: use GrowthStates spatial grid `iter_in_radius(mine_pos, 30.0)`.
 
 HIGH — per-building per-tick:
-- [ ] `economy.rs:381` — spawner state scan: iterates ALL `spawner_state.0` entries to find miner homes for a town. Fix: use `BuildingEntityMap::iter_kind_for_town(MinerHome, town_idx)` instead.
-- [ ] `economy.rs:398` — stale mine assignment check: `enabled_positions.iter().any(|p| length() < 1.0)` per auto-home slot. Fix: build `HashSet<(i32,i32)>` of enabled grid cells (snapped positions), check O(1).
+- [x] `economy.rs:381` — spawner state scan: migrated to `BuildingEntityMap::iter_kind_for_town(MinerHome, town_idx)`. SpawnerState deleted entirely — `npc_slot`/`respawn_timer` fields absorbed into `BuildingInstance`.
+- [x] `economy.rs:398` — stale mine assignment check: replaced `enabled_positions.iter().any(|p| length() < 1.0)` with `HashSet<(i32,i32)>` of enabled grid cells, O(1) lookup per slot.
 
 MEDIUM — per-event (building destroy/place):
 - [x] `constants.rs` — all `BUILDING_REGISTRY` fn pointers (`tombstone`, `find_index`, `len`, `pos_town`, `count_for_town`, `save_vec`, `load_vec`, `place`) deleted. Callers migrated to `BuildingEntityMap` methods.
-- [ ] `world.rs:973` — `destroy_building` tombstones spawner via `spawner_state.0.iter_mut().find(|s| length() < 1.0)`. Fix: look up spawner slot from `BuildingEntityMap` or add `by_grid_cell` to `SpawnerState`.
-- [ ] `combat.rs:534` — building destroyed: finds NPC slot via `spawner_state.0.iter().find(|s| length() < 1.0)`. Fix: store `npc_slot` on `BuildingInstance`, or use `BuildingEntityMap` spatial lookup.
+- [x] `world.rs:973` — `destroy_building` spawner tombstone: SpawnerState deleted; spawner fields live on `BuildingInstance`, cleaned up by instance removal.
+- [x] `combat.rs:534` — building destroyed NPC slot lookup: uses `BuildingEntityMap::find_by_position()` to read `npc_slot` from `BuildingInstance` (O(1)).
 - [x] `world.rs` — `miner_home_at` / `gold_mine_at` deleted. Callers use `BuildingEntityMap::find_by_position()` and `BuildingEntityMap::gold_mine_index()`.
 - [ ] `resources.rs:565` — `GrowthStates::find_farm_at` scans all growth positions. Fix: add `by_grid_cell` HashMap to `GrowthStates` (same fix as CRITICAL item above).
 
 LOW — UI only (click handler, not per-tick):
 - [x] `game_hud.rs` — building inspector position-based linear scans migrated to `BuildingEntityMap::find_by_position()` and `get_instance(slot)`.
-- [ ] `game_hud.rs:135-142` — spawner count for tutorial: filters all spawners to count farmer/archer/xbow homes. Fix: pre-computed count on `BuildingEntityMap` or `DirtyFlags`-gated cache.
+- [x] `game_hud.rs:135-142` — spawner count for tutorial: uses `BuildingEntityMap::count_for_town()` and `iter_instances()` (SpawnerState deleted).
 
-Implementation order: (1) GrowthStates spatial grid (biggest win), (2) behavior.rs miner home via BuildingEntityMap, (3) economy.rs spawner/mine lookups, (4) BUILDING_REGISTRY closures, (5) SpawnerState spatial index, (6) UI click migrations.
+Implementation order: (1) GrowthStates spatial grid (biggest win), (2) behavior.rs miner home via BuildingEntityMap — done, (3) economy.rs spawner/mine lookups — done (SpawnerState deleted), (4) BUILDING_REGISTRY closures — done, (5) SpawnerState — deleted entirely, (6) UI click migrations — done.
 
 Existing infrastructure to reuse: `BuildingEntityMap::find_by_position()` (`resources.rs:1115`) is O(1) via `by_grid_cell` HashMap. `BuildingEntityMap::iter_kind_for_town()` for filtered iteration. Spatial grid pattern at `resources.rs:1136-1160` (`init_spatial`, `rebuild_spatial`).
 

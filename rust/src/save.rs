@@ -481,7 +481,6 @@ pub fn collect_save_data(
     food_storage: &FoodStorage,
     gold_storage: &GoldStorage,
     farm_states: &GrowthStates,
-    spawner_state: &SpawnerState,
     building_hp: std::collections::HashMap<String, Vec<f32>>,
     upgrades: &TownUpgrades,
     policies: &TownPolicies,
@@ -529,14 +528,16 @@ pub fn collect_save_data(
             progress: farm_states.progress.get(i).copied().unwrap_or(0.0),
         }).collect();
 
-    // Spawners
-    let spawners: Vec<SpawnerSave> = spawner_state.0.iter().map(|s| SpawnerSave {
-        building_kind: s.building_kind,
-        town_idx: s.town_idx,
-        position: v2(s.position),
-        npc_slot: s.npc_slot,
-        respawn_timer: s.respawn_timer,
-    }).collect();
+    // Spawners (serialized from BuildingEntityMap spawner instances)
+    let spawners: Vec<SpawnerSave> = building_slots.iter_instances()
+        .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
+        .map(|i| SpawnerSave {
+            building_kind: crate::constants::tileset_index(i.kind) as i32,
+            town_idx: i.town_idx as i32,
+            position: v2(i.position),
+            npc_slot: i.npc_slot,
+            respawn_timer: i.respawn_timer,
+        }).collect();
 
     let building_hp_save = building_hp;
 
@@ -714,7 +715,6 @@ pub fn apply_save(
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
     _farm_states: &mut GrowthStates,
-    spawner_state: &mut SpawnerState,
     upgrades: &mut TownUpgrades,
     policies: &mut TownPolicies,
     auto_upgrade: &mut AutoUpgrade,
@@ -763,16 +763,7 @@ pub fn apply_save(
     food_storage.food = save.food.clone();
     gold_storage.gold = save.gold.clone();
 
-    // Growth states are rebuilt after building instances are loaded (in load_game_system)
-
-    // Spawners
-    spawner_state.0 = save.spawners.iter().map(|s| SpawnerEntry {
-        building_kind: s.building_kind,
-        town_idx: s.town_idx,
-        position: to_vec2(s.position),
-        npc_slot: s.npc_slot,
-        respawn_timer: s.respawn_timer,
-    }).collect();
+    // Growth states + spawner state are rebuilt in load_building_instances_from_save
 
     // Upgrades
     upgrades.levels = save.upgrades.iter().map(|v| {
@@ -1022,7 +1013,6 @@ pub struct SaveWorldState<'w> {
     pub food_storage: ResMut<'w, FoodStorage>,
     pub gold_storage: ResMut<'w, GoldStorage>,
     pub farm_states: ResMut<'w, GrowthStates>,
-    pub spawner_state: ResMut<'w, SpawnerState>,
     pub upgrades: ResMut<'w, TownUpgrades>,
     pub policies: ResMut<'w, TownPolicies>,
     pub auto_upgrade: ResMut<'w, AutoUpgrade>,
@@ -1114,7 +1104,6 @@ pub fn load_building_instances_from_save(
     save: &SaveData,
     slot_alloc: &mut SlotAllocator,
     building_map: &mut BuildingEntityMap,
-    spawner_state: &mut SpawnerState,
     world_data: &WorldData,
     world_size_px: f32,
 ) {
@@ -1126,7 +1115,7 @@ pub fn load_building_instances_from_save(
     for (i, town) in world_data.towns.iter().enumerate() {
         if !world::is_alive(town.center) { continue; }
         world::place_building_instance(
-            slot_alloc, building_map, spawner_state,
+            slot_alloc, building_map,
             world::BuildingKind::Fountain, town.center, i as u32, town.faction, 0, 0,
         );
     }
@@ -1141,7 +1130,7 @@ pub fn load_building_instances_from_save(
             let faction = if def.kind == world::BuildingKind::GoldMine { FACTION_NEUTRAL }
                 else { world_data.towns.get(b.town_idx as usize).map(|t| t.faction).unwrap_or(0) };
             world::place_building_instance(
-                slot_alloc, building_map, spawner_state,
+                slot_alloc, building_map,
                 def.kind, b.position, b.town_idx, faction,
                 b.patrol_order, b.wall_level,
             );
@@ -1154,6 +1143,16 @@ pub fn load_building_instances_from_save(
             }
         }
     }
+
+    // Restore spawner state (npc_slot, respawn_timer) from save data
+    for s in &save.spawners {
+        let pos = to_vec2(s.position);
+        if let Some(inst) = building_map.find_by_position_mut(pos) {
+            inst.npc_slot = s.npc_slot;
+            inst.respawn_timer = s.respawn_timer;
+        }
+    }
+
     info!("Loaded {} building instances from save", building_map.len());
 }
 
@@ -1243,7 +1242,7 @@ pub fn save_game_system(
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &ws.building_slots, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
-        &ws.spawner_state, building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
+        building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
@@ -1289,7 +1288,7 @@ pub fn autosave_system(
     let data = collect_save_data(
         &ws.grid, &ws.world_data, &ws.building_slots, &ws.town_grids, &ws.game_time,
         &ws.food_storage, &ws.gold_storage, &ws.farm_states,
-        &ws.spawner_state, building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
+        building_hp, &ws.upgrades, &ws.policies, &ws.auto_upgrade,
         &ws.squad_state, &fs.raider_state, &fs.faction_stats,
         &fs.kill_stats, &fs.ai_state, &fs.migration_state, &fs.endless, npcs,
     );
@@ -1409,7 +1408,7 @@ pub fn load_game_system(
         &save,
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
         &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
-        &mut ws.spawner_state, &mut ws.upgrades, &mut ws.policies,
+        &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state, &mut fs.endless,
@@ -1418,7 +1417,7 @@ pub fn load_game_system(
 
     // 4. Load building instances from save data → BuildingEntityMap
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &mut ws.spawner_state, &ws.world_data, world_size_px);
+    load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &ws.world_data, world_size_px);
     world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
 
     // 4b. Rebuild growth states from instances

@@ -893,31 +893,6 @@ pub struct TowerState {
 // BUILDING SPAWNERS
 // ============================================================================
 
-/// Tracks one building spawner (FarmerHome, ArcherHome, Tent, or MinerHome) and its linked NPC.
-#[derive(Clone, Default)]
-pub struct SpawnerEntry {
-    pub building_kind: i32,   // derived from Building::spawner_kind(): 0=FarmerHome, 1=ArcherHome, 2=Tent, 3=MinerHome, 4=CrossbowHome
-    pub town_idx: i32,        // town data index (villager or raider town)
-    pub position: Vec2,       // building world position
-    pub npc_slot: i32,        // linked NPC slot (-1 = no NPC alive)
-    pub respawn_timer: f32,   // game hours remaining (-1 = not respawning)
-}
-
-impl SpawnerEntry {
-    /// True if this entry is a population-spawning building (has a spawner def in registry).
-    #[inline]
-    pub fn is_population_spawner(&self) -> bool {
-        crate::constants::BUILDING_REGISTRY
-            .get(self.building_kind as usize)
-            .and_then(|d| d.spawner.as_ref())
-            .is_some()
-    }
-}
-
-/// All building spawners in the world. Each FarmerHome/ArcherHome/Tent/MinerHome gets one entry.
-#[derive(Resource, Default)]
-pub struct SpawnerState(pub Vec<SpawnerEntry>);
-
 /// A single placed building instance. All runtime state for one building.
 #[derive(Clone)]
 pub struct BuildingInstance {
@@ -932,6 +907,8 @@ pub struct BuildingInstance {
     pub assigned_mine: Option<Vec2>, // MinerHome only
     pub manual_mine: bool,           // MinerHome only
     pub wall_level: u8,              // Wall only
+    pub npc_slot: i32,               // Spawner buildings only (-1 = no NPC alive)
+    pub respawn_timer: f32,          // Spawner buildings only (-1.0 = not respawning)
 }
 
 /// Building identity map: single source of truth for all building instances.
@@ -1086,6 +1063,16 @@ impl BuildingEntityMap {
     /// Get instance by slot (mutable).
     pub fn get_instance_mut(&mut self, slot: usize) -> Option<&mut BuildingInstance> {
         self.instances.get_mut(&slot)
+    }
+
+    /// Iterate all instances.
+    pub fn iter_instances(&self) -> impl Iterator<Item = &BuildingInstance> {
+        self.instances.values()
+    }
+
+    /// Iterate all instances (mutable).
+    pub fn iter_instances_mut(&mut self) -> impl Iterator<Item = &mut BuildingInstance> {
+        self.instances.values_mut()
     }
 
     /// Iterate all instances of a given kind.

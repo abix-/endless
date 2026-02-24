@@ -232,7 +232,7 @@ fn game_load_system(
         &save,
         &mut ws.grid, &mut ws.world_data, &mut ws.town_grids, &mut ws.game_time,
         &mut ws.food_storage, &mut ws.gold_storage, &mut ws.farm_states,
-        &mut ws.spawner_state, &mut ws.upgrades, &mut ws.policies,
+        &mut ws.upgrades, &mut ws.policies,
         &mut ws.auto_upgrade, &mut ws.squad_state, &mut fs.raider_state,
         &mut fs.faction_stats, &mut fs.kill_stats, &mut fs.ai_state,
         &mut fs.migration_state, &mut fs.endless,
@@ -244,7 +244,7 @@ fn game_load_system(
     *mining_policy = MiningPolicy::default();
 
     // Load building instances from save → BuildingEntityMap
-    crate::save::load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &mut ws.spawner_state, &ws.world_data, world_size_px);
+    crate::save::load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &ws.world_data, world_size_px);
     world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
     crate::save::rebuild_growth_states_from_instances(&save, &mut ws.farm_states, &ws.building_slots);
     let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
@@ -310,7 +310,6 @@ fn game_startup_system(
         &config,
         &mut world_state.grid, &mut world_state.world_data,
         &mut world_state.farm_states, &mut world_state.town_grids,
-        &mut world_state.spawner_state,
         &mut world_state.slot_alloc, &mut world_state.building_slots,
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
@@ -730,9 +729,7 @@ fn build_place_click_system(
         if !is_destructible { return; }
         let bld_kind = cell_building.map(|(k, _)| k);
 
-        let _ = world::destroy_building(
-            &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut world_state.spawner_state, &mut world_state.building_slots,
+        let _ = world_state.destroy_building(
             &mut combat_log, &game_time,
             row, col, center,
             &format!("Destroyed building at ({},{}) in {}", row, col, town_name),
@@ -753,7 +750,7 @@ fn build_place_click_system(
         let cost = crate::constants::building_cost(kind);
         if world::place_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut food_storage, &mut world_state.spawner_state,
+            &mut food_storage,
             &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
             kind, town_data_idx, world_pos, cost, &world_state.town_grids,
             &mut commands,
@@ -787,7 +784,7 @@ fn build_place_click_system(
             let cell_pos = world_state.grid.grid_to_world(sc as usize, sr as usize);
             if world::place_building(
                 &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-                &mut food_storage, &mut world_state.spawner_state,
+                &mut food_storage,
                 &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
                 kind, town_data_idx, cell_pos, cost, &world_state.town_grids,
                 &mut commands,
@@ -818,7 +815,7 @@ fn build_place_click_system(
 
         world::place_building(
             &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-            &mut food_storage, &mut world_state.spawner_state,
+            &mut food_storage,
             &mut world_state.slot_alloc, &mut world_state.building_slots, &mut world_state.dirty,
             kind, town_data_idx, pos, cost, &world_state.town_grids,
             &mut commands,
@@ -1302,7 +1299,7 @@ fn process_destroy_system(
 
     if world::destroy_building(
         &mut world_state.grid, &mut world_state.world_data, &mut world_state.farm_states,
-        &mut world_state.spawner_state, &mut world_state.building_slots,
+        &mut world_state.building_slots,
         &mut combat_log, &game_time,
         trow, tcol, center,
         &format!("Destroyed building in {}", town_name),
@@ -1411,7 +1408,6 @@ fn game_cleanup_system(
     world.tilemap_spawned.0 = false;
     *world.world_state.town_grids = Default::default();
     *world.build_menu_ctx = Default::default();
-    *world.world_state.spawner_state = Default::default();
     *world.ai_state = Default::default();
     *world.gold_storage = Default::default();
     *building_hp_render = Default::default();

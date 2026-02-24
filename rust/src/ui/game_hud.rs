@@ -6,7 +6,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
-use crate::constants::{building_def, npc_def, tileset_index, ItemKind, ResourceKind, WALL_TIER_HP, WALL_TIER_NAMES, WALL_UPGRADE_COSTS};
+use crate::constants::{building_def, npc_def, ItemKind, ResourceKind, WALL_TIER_HP, WALL_TIER_NAMES, WALL_UPGRADE_COSTS};
 use crate::components::*;
 use crate::gpu::NpcGpuState;
 use crate::render::MainCamera;
@@ -30,7 +30,7 @@ pub fn top_bar_system(
     gold_storage: Res<GoldStorage>,
     world_data: Res<WorldData>,
     mut ui_state: ResMut<UiState>,
-    spawner_state: Res<SpawnerState>,
+    building_map: Res<BuildingEntityMap>,
     catalog: Res<HelpCatalog>,
     time: Res<Time>,
     mut avg_fps: Local<f32>,
@@ -129,17 +129,16 @@ pub fn top_bar_system(
                     let farmers = pop_stats.0.get(&(0, 0)).map(|s| s.alive).unwrap_or(0);
                     let guards = pop_stats.0.get(&(1, 0)).map(|s| s.alive).unwrap_or(0);
                     let crossbows = pop_stats.0.get(&(5, 0)).map(|s| s.alive).unwrap_or(0);
-                    let sk_farmer = crate::constants::tileset_index(BuildingKind::FarmerHome) as i32;
-                    let sk_archer = crate::constants::tileset_index(BuildingKind::ArcherHome) as i32;
-                    let sk_xbow = crate::constants::tileset_index(BuildingKind::CrossbowHome) as i32;
-                    let houses = spawner_state.0.iter().filter(|s| s.building_kind == sk_farmer && s.town_idx == 0 && is_alive(s.position)).count();
-                    let barracks = spawner_state.0.iter().filter(|s| s.building_kind == sk_archer && s.town_idx == 0 && is_alive(s.position)).count();
-                    let xbow_homes = spawner_state.0.iter().filter(|s| s.building_kind == sk_xbow && s.town_idx == 0 && is_alive(s.position)).count();
+                    let houses = building_map.count_for_town(BuildingKind::FarmerHome, 0);
+                    let barracks = building_map.count_for_town(BuildingKind::ArcherHome, 0);
+                    let xbow_homes = building_map.count_for_town(BuildingKind::CrossbowHome, 0);
                     tipped(ui, format!("Archers: {}/{}", guards, barracks), catalog.0.get("archers").unwrap_or(&""));
                     tipped(ui, format!("Crossbow: {}/{}", crossbows, xbow_homes), catalog.0.get("crossbow").unwrap_or(&""));
                     tipped(ui, format!("Farmers: {}/{}", farmers, houses), catalog.0.get("farmers").unwrap_or(&""));
                     let total_alive: i32 = pop_stats.0.values().map(|s| s.alive).sum();
-                    let total_spawners = spawner_state.0.iter().filter(|s| is_alive(s.position)).count();
+                    let total_spawners: usize = building_map.iter_instances()
+                        .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
+                        .count();
                     tipped(ui, format!("Pop: {}/{}", total_alive, total_spawners), catalog.0.get("pop").unwrap_or(&""));
                 });
             });
@@ -184,7 +183,6 @@ pub struct BuildingInspectorData<'w, 's> {
     grid: Res<'w, WorldGrid>,
     farm_states: Res<'w, GrowthStates>,
     farm_occupancy: Res<'w, BuildingOccupancy>,
-    spawner_state: Res<'w, SpawnerState>,
     food_storage: ResMut<'w, FoodStorage>,
     gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
@@ -1303,16 +1301,13 @@ fn building_inspector_content(
 
         _ => {
             if let Some(spawner) = def.spawner {
-                let spawner_kind = tileset_index(def.kind) as i32;
                 let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
-                if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
-                    e.building_kind == spawner_kind
-                        && (e.position - world_pos).length() < 1.0
-                        && is_alive(e.position)
-                }) {
+                if let Some(inst) = bld.building_map.find_by_position(world_pos)
+                    .filter(|i| crate::constants::building_def(i.kind).spawner.is_some())
+                {
                     ui.label(format!("Spawns: {}", spawns_label));
-                    if entry.npc_slot >= 0 {
-                        let slot = entry.npc_slot as usize;
+                    if inst.npc_slot >= 0 {
+                        let slot = inst.npc_slot as usize;
                         if slot < meta_cache.0.len() {
                             let meta = &meta_cache.0[slot];
                             ui.label(format!("NPC: {} (Lv.{})", meta.name, meta.level));
@@ -1341,9 +1336,9 @@ fn building_inspector_content(
                             }
                             ui.label(format!("Home: ({:.0}, {:.0})", home.0.x, home.0.y));
                         }
-                    } else if entry.respawn_timer > 0.0 {
+                    } else if inst.respawn_timer > 0.0 {
                         ui.colored_label(egui::Color32::from_rgb(200, 200, 40),
-                            format!("Respawning in {:.0}h", entry.respawn_timer));
+                            format!("Respawning in {:.0}h", inst.respawn_timer));
                     } else {
                         ui.colored_label(egui::Color32::from_rgb(200, 200, 40), "Spawning...");
                     }
@@ -1473,16 +1468,11 @@ fn building_inspector_content(
             }
             // Append spawner NPC state
             if let Some(spawner) = def.spawner {
-                let spawner_kind = tileset_index(def.kind) as i32;
-                if let Some(entry) = bld.spawner_state.0.iter().find(|e| {
-                    e.building_kind == spawner_kind
-                        && (e.position - world_pos).length() < 1.0
-                        && is_alive(e.position)
-                }) {
+                if let Some(inst) = bld.building_map.find_by_position(world_pos) {
                     let spawns_label = npc_def(Job::from_i32(spawner.job)).label;
                     info.push_str(&format!("Spawns: {}\n", spawns_label));
-                    if entry.npc_slot >= 0 {
-                        let slot = entry.npc_slot as usize;
+                    if inst.npc_slot >= 0 {
+                        let slot = inst.npc_slot as usize;
                         if slot < meta_cache.0.len() {
                             let meta = &meta_cache.0[slot];
                             info.push_str(&format!("NPC: {} (Lv.{}) slot={}\n", meta.name, meta.level, slot));
@@ -1508,8 +1498,8 @@ fn building_inspector_content(
                             }
                             info.push_str(&format!("Home: ({:.0}, {:.0})\n", home.0.x, home.0.y));
                         }
-                    } else if entry.respawn_timer > 0.0 {
-                        info.push_str(&format!("Respawning in {:.0}h\n", entry.respawn_timer));
+                    } else if inst.respawn_timer > 0.0 {
+                        info.push_str(&format!("Respawning in {:.0}h\n", inst.respawn_timer));
                     }
                 }
             }

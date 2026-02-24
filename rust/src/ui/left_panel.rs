@@ -116,7 +116,7 @@ pub struct FactionsParams<'w> {
     ai_state: Res<'w, AiPlayerState>,
     food_storage: Res<'w, FoodStorage>,
     gold_storage: Res<'w, GoldStorage>,
-    spawner_state: Res<'w, SpawnerState>,
+    building_map_fac: Res<'w, BuildingEntityMap>,
     faction_stats: Res<'w, FactionStats>,
     upgrades: Res<'w, TownUpgrades>,
     combat_config: Res<'w, CombatConfig>,
@@ -1079,13 +1079,11 @@ fn rebuild_factions_cache(
 
         let buildings = building_map.building_counts(ti);
 
-        let ti_i32 = tdi as i32;
         let npcs: std::collections::HashMap<BuildingKind, usize> = crate::constants::BUILDING_REGISTRY.iter()
             .filter(|def| def.spawner.is_some())
             .map(|def| {
-                let ti = crate::constants::tileset_index(def.kind) as i32;
-                let count = factions.spawner_state.0.iter()
-                    .filter(|s| s.building_kind == ti && s.town_idx == ti_i32 && s.npc_slot >= 0 && is_alive(s.position)).count();
+                let count = factions.building_map_fac.iter_kind_for_town(def.kind, tdi as u32)
+                    .filter(|i| i.npc_slot >= 0 && is_alive(i.position)).count();
                 (def.kind, count)
             })
             .collect();
@@ -1121,10 +1119,9 @@ fn rebuild_factions_cache(
                 .filter(|&&slot| *mining_policy.mine_enabled.get(&slot).unwrap_or(&true))
                 .count()
         }).unwrap_or(0);
-        let spawner_count = factions.spawner_state.0.iter()
-            .filter(|s| is_alive(s.position))
-            .filter(|s| s.town_idx == tdi as i32)
-            .filter(|s| s.is_population_spawner())
+        let spawner_count = factions.building_map_fac.iter_instances()
+            .filter(|i| is_alive(i.position) && i.town_idx == tdi as u32
+                && crate::constants::building_def(i.kind).spawner.is_some())
             .count() as i32;
         let reserve_food = personality
             .map(|p| p.food_reserve_per_spawner() * spawner_count)

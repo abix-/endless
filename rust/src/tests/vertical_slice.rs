@@ -83,13 +83,9 @@ pub fn setup(
             starting_post: -1,
             attack_type: 0,
         });
-        params.spawner_state.0.push(SpawnerEntry {
-            building_kind: 0, // FarmerHome
-            town_idx: 0,
-            position: Vec2::new(300.0 + (i as f32 * 50.0), 450.0),
-            npc_slot: slot as i32,
-            respawn_timer: -1.0,
-        });
+        if let Some(inst) = params.building_slots.find_by_position_mut(Vec2::new(300.0 + (i as f32 * 50.0), 450.0)) {
+            inst.npc_slot = slot as i32;
+        }
     }
 
     // Spawn 2 guards + register spawners
@@ -104,13 +100,9 @@ pub fn setup(
             starting_post: i,
             attack_type: 0,
         });
-        params.spawner_state.0.push(SpawnerEntry {
-            building_kind: 1, // ArcherHome
-            town_idx: 0,
-            position: Vec2::new(400.0, 400.0),
-            npc_slot: slot as i32,
-            respawn_timer: -1.0,
-        });
+        if let Some(inst) = params.building_slots.find_by_position_mut(Vec2::new(400.0, 400.0)) {
+            inst.npc_slot = slot as i32;
+        }
     }
 
     // Spawn 5 raiders + register spawners
@@ -125,13 +117,9 @@ pub fn setup(
             starting_post: -1,
             attack_type: 0,
         });
-        params.spawner_state.0.push(SpawnerEntry {
-            building_kind: 2, // Tent
-            town_idx: 1,
-            position: Vec2::new(380.0 + (i as f32 * 10.0), 100.0),
-            npc_slot: slot as i32,
-            respawn_timer: -1.0,
-        });
+        if let Some(inst) = params.building_slots.find_by_position_mut(Vec2::new(380.0 + (i as f32 * 10.0), 100.0)) {
+            inst.npc_slot = slot as i32;
+        }
     }
 
     params.test_state.phase_name = "Waiting for spawns...".into();

@@ -61,7 +61,6 @@ pub struct CleanupExtra<'w> {
     pub proj_alloc: ResMut<'w, crate::resources::ProjSlotAllocator>,
     pub world_grid: ResMut<'w, crate::world::WorldGrid>,
     pub debug_flags: ResMut<'w, crate::resources::DebugFlags>,
-    pub spawner_state: ResMut<'w, crate::resources::SpawnerState>,
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
 }
 
@@ -92,13 +91,11 @@ pub struct TestSetupParams<'w> {
     pub faction_stats: ResMut<'w, FactionStats>,
     pub game_time: ResMut<'w, GameTime>,
     pub test_state: ResMut<'w, TestState>,
-    pub spawner_state: ResMut<'w, SpawnerState>,
 }
 
 /// Shared test setup params bundle — stays under 16-param limit.
 #[derive(SystemParam)]
 pub struct BuildingInitParams<'w> {
-    pub spawner_state: ResMut<'w, SpawnerState>,
     pub slot_alloc: ResMut<'w, SlotAllocator>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
@@ -122,13 +119,13 @@ impl TestSetupParams<'_> {
     /// Add a building instance at the given position for a town.
     pub fn add_building(&mut self, kind: world::BuildingKind, x: f32, y: f32, town_idx: u32) {
         let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, &mut self.spawner_state, kind, Vec2::new(x, y), town_idx, faction, 0, 0);
+        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, kind, Vec2::new(x, y), town_idx, faction, 0, 0);
     }
 
     /// Add a waypoint with patrol_order at the given position for a town.
     pub fn add_waypoint(&mut self, x: f32, y: f32, town_idx: u32, patrol_order: u32) {
         let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, &mut self.spawner_state, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0);
+        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0);
     }
 
     /// Init food_storage + faction_stats for N towns.
@@ -979,7 +976,6 @@ fn cleanup_test_world(
     *extra.proj_alloc = Default::default();
     *extra.world_grid = Default::default();
     *extra.debug_flags = Default::default();
-    *extra.spawner_state = Default::default();
     extra.tilemap_spawned.0 = false;
 
     *endless_cleanup.endless = Default::default();

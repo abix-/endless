@@ -532,15 +532,14 @@ pub fn building_damage_system(
             .map(|t| t.center).unwrap_or_default();
         let (trow, tcol) = world::world_to_town_grid(center, pos);
 
-        // Capture linked NPC slot BEFORE destroy_building tombstones the spawner
-        let npc_slot = world.spawner_state.0.iter()
-            .find(|s| (s.position - pos).length() < 1.0)
-            .map(|s| s.npc_slot)
+        // Capture linked NPC slot from BuildingInstance (O(1) lookup)
+        let npc_slot = world.building_slots.find_by_position(pos)
+            .map(|i| i.npc_slot)
             .unwrap_or(-1);
 
         let _ = world::destroy_building(
             &mut world.grid, &mut world.world_data, &mut world.farm_states,
-            &mut world.spawner_state, &mut world.building_slots,
+            &mut world.building_slots,
             &mut combat_log, &game_time,
             trow, tcol, center,
             &format!("{:?} destroyed in {}", msg.kind, town_name),

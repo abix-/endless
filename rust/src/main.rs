@@ -65,6 +65,9 @@ fn install_crash_handler() {
         }
         dialog.push_str("\n(Ctrl+C copies this dialog text too)");
 
+        // Always print to stderr so terminal users see the error
+        eprintln!("\n{report}");
+
         // Show native Windows message box
         #[cfg(target_os = "windows")]
         {
