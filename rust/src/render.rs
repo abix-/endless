@@ -352,7 +352,7 @@ struct ClickSelectParams<'w> {
     selected_building: ResMut<'w, SelectedBuilding>,
     squad_state: ResMut<'w, crate::resources::SquadState>,
     build_ctx: Res<'w, crate::resources::BuildMenuContext>,
-    building_slots: Res<'w, crate::resources::BuildingEntityMap>,
+    building_slots: ResMut<'w, crate::resources::BuildingEntityMap>,
     ui_state: ResMut<'w, crate::resources::UiState>,
     world_data: ResMut<'w, WorldData>,
     npc_entity_map: Res<'w, crate::resources::NpcEntityMap>,
@@ -541,14 +541,21 @@ fn click_to_select_system(
     // Mine assignment — snap to nearest gold mine within radius
     if let Some(mh_idx) = click.ui_state.assigning_mine {
         let snap_radius = 60.0;
-        let best = click.world_data.gold_mines().iter()
-            .map(|m| (m.position.distance(world_pos), m.position))
+        let best = click.building_slots.iter_kind(BuildingKind::GoldMine)
+            .map(|inst| (inst.position.distance(world_pos), inst.position))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         if let Some((dist, mine_pos)) = best {
             if dist < snap_radius {
+                // Dual-write to both WorldData and BuildingEntityMap
                 if let Some(mh) = click.world_data.miner_homes_mut().get_mut(mh_idx) {
                     mh.manual_mine = true;
                     mh.assigned_mine = Some(mine_pos);
+                }
+                if let Some(slot) = click.building_slots.get_slot(BuildingKind::MinerHome, mh_idx) {
+                    if let Some(inst) = click.building_slots.get_instance_mut(slot) {
+                        inst.manual_mine = true;
+                        inst.assigned_mine = Some(mine_pos);
+                    }
                 }
             }
         }

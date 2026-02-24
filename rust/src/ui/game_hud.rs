@@ -189,7 +189,7 @@ pub struct BuildingInspectorData<'w, 's> {
     gold_storage: ResMut<'w, GoldStorage>,
     combat_config: Res<'w, CombatConfig>,
     town_upgrades: Res<'w, TownUpgrades>,
-    building_map: Res<'w, BuildingEntityMap>,
+    building_map: ResMut<'w, BuildingEntityMap>,
     building_health: Query<'w, 's, &'static mut Health, With<Building>>,
 }
 
@@ -846,10 +846,12 @@ fn inspector_content(
             let mh_idx = world_data.miner_home_at(hp);
             if let Some(mh_idx) = mh_idx {
                 ui.separator();
-                mine_assignment_ui(ui, world_data, mh_idx, hp, dirty, ui_state);
+                mine_assignment_ui(ui, world_data, &mut bld_data.building_map, mh_idx, hp, dirty, ui_state);
                 // Show mine productivity when actively mining
                 if is_mining_at_mine {
-                    if let Some(mine_pos) = world_data.miner_homes().get(mh_idx).and_then(|mh| mh.assigned_mine) {
+                    let slot = bld_data.building_map.get_slot(BuildingKind::MinerHome, mh_idx);
+                    let mine_pos = slot.and_then(|s| bld_data.building_map.get_instance(s)).and_then(|i| i.assigned_mine);
+                    if let Some(mine_pos) = mine_pos {
                         let occupants = bld_data.farm_occupancy.count(mine_pos);
                         if occupants > 0 {
                             let mult = crate::constants::mine_productivity_mult(occupants);
@@ -970,9 +972,9 @@ fn inspector_content(
             ));
             if meta.job == 4 {
                 if let Some(hp) = home_pos {
-                    if let Some(mh_idx) = world_data.miner_home_at(hp) {
-                        let assigned = world_data.miner_homes()[mh_idx].assigned_mine;
-                        let manual = world_data.miner_homes()[mh_idx].manual_mine;
+                    if let Some(inst) = bld_data.building_map.find_by_position(hp).filter(|i| i.kind == BuildingKind::MinerHome) {
+                        let assigned = inst.assigned_mine;
+                        let manual = inst.manual_mine;
                         if let Some(mine_pos) = assigned {
                             let dist = mine_pos.distance(hp);
                             if let Some(mine_idx) = world_data.gold_mine_at(mine_pos) {
@@ -985,7 +987,7 @@ fn inspector_content(
                         }
                         info.push_str(if manual { "Mode: Manual\n" } else { "Mode: Auto-policy\n" });
                         if is_mining_at_mine {
-                            if let Some(mine_pos) = world_data.miner_homes().get(mh_idx).and_then(|mh| mh.assigned_mine) {
+                            if let Some(mine_pos) = assigned {
                                 let occupants = bld_data.farm_occupancy.count(mine_pos);
                                 if occupants > 0 {
                                     let mult = crate::constants::mine_productivity_mult(occupants);
@@ -1048,13 +1050,18 @@ fn selected_building_info(
 fn mine_assignment_ui(
     ui: &mut egui::Ui,
     world_data: &mut WorldData,
+    building_map: &mut BuildingEntityMap,
     mh_idx: usize,
     ref_pos: Vec2,
     dirty: &mut DirtyFlags,
     ui_state: &mut UiState,
 ) {
-    let assigned = world_data.miner_homes_mut()[mh_idx].assigned_mine;
-    let manual = world_data.miner_homes_mut()[mh_idx].manual_mine;
+    // Read from BuildingEntityMap
+    let slot = building_map.get_slot(BuildingKind::MinerHome, mh_idx);
+    let (assigned, manual) = slot
+        .and_then(|s| building_map.get_instance(s))
+        .map(|inst| (inst.assigned_mine, inst.manual_mine))
+        .unwrap_or((None, false));
     if let Some(mine_pos) = assigned {
         let dist = mine_pos.distance(ref_pos);
         if let Some(mine_idx) = world_data.gold_mine_at(mine_pos) {
@@ -1068,14 +1075,25 @@ fn mine_assignment_ui(
     ui.small(if manual { "Mode: Manual" } else { "Mode: Auto-policy" });
     ui.horizontal(|ui| {
         if ui.button("Set Mine").clicked() {
-            world_data.miner_homes_mut()[mh_idx].manual_mine = true;
+            // Dual-write manual_mine
+            if let Some(mh) = world_data.miner_homes_mut().get_mut(mh_idx) { mh.manual_mine = true; }
+            if let Some(s) = slot { if let Some(inst) = building_map.get_instance_mut(s) { inst.manual_mine = true; } }
             dirty.mining = true;
             ui_state.assigning_mine = Some(mh_idx);
         }
         if assigned.is_some() || manual {
             if ui.button("Clear").clicked() {
-                world_data.miner_homes_mut()[mh_idx].manual_mine = false;
-                world_data.miner_homes_mut()[mh_idx].assigned_mine = None;
+                // Dual-write clear
+                if let Some(mh) = world_data.miner_homes_mut().get_mut(mh_idx) {
+                    mh.manual_mine = false;
+                    mh.assigned_mine = None;
+                }
+                if let Some(s) = slot {
+                    if let Some(inst) = building_map.get_instance_mut(s) {
+                        inst.manual_mine = false;
+                        inst.assigned_mine = None;
+                    }
+                }
                 dirty.mining = true;
             }
         }
@@ -1154,10 +1172,8 @@ fn building_inspector_content(
         }
 
         BuildingKind::Waypoint => {
-            if let Some(wp_idx) = world_data.get(BuildingKind::Waypoint).iter()
-                .position(|w| (w.position - world_pos).length() < 1.0)
-            {
-                ui.label(format!("Patrol order: {}", world_data.get(BuildingKind::Waypoint)[wp_idx].patrol_order));
+            if let Some(inst) = bld.building_map.find_by_position(world_pos) {
+                ui.label(format!("Patrol order: {}", inst.patrol_order));
             }
         }
 
@@ -1224,22 +1240,16 @@ fn building_inspector_content(
 
         BuildingKind::Wall => {
             // Wall tier info + upgrade button
-            if let Some(wall) = world_data.get(BuildingKind::Wall).iter()
-                .find(|w| (w.position - world_pos).length() < 1.0)
-            {
-                let level = wall.wall_level.max(1) as usize;
+            if let Some(wall_inst) = bld.building_map.find_by_position(world_pos) {
+                let level = wall_inst.wall_level.max(1) as usize;
                 let tier_name = WALL_TIER_NAMES.get(level - 1).unwrap_or(&"Wall");
                 let tier_hp = WALL_TIER_HP.get(level - 1).copied().unwrap_or(80.0);
                 ui.label(format!("Tier: {} (Lv.{})", tier_name, level));
                 ui.label(format!("Max HP: {:.0}", tier_hp));
 
                 // Show current HP from building entity
-                if let Some(wall_idx) = world_data.get(BuildingKind::Wall).iter()
-                    .position(|w| (w.position - world_pos).length() < 1.0)
                 {
-                    let hp = bld.building_map.get_entity_by_building(BuildingKind::Wall, wall_idx)
-                        .and_then(|e| bld.building_health.get(e).ok())
-                        .map(|h| h.0);
+                    let hp = bld.building_health.get(wall_inst.entity).ok().map(|h| h.0);
                     if let Some(hp) = hp {
                         let color = if hp > tier_hp * 0.5 {
                             egui::Color32::from_rgb(80, 200, 80)
@@ -1291,18 +1301,17 @@ fn building_inspector_content(
                         // Upgrade wall level + HP
                         let new_level = (level + 1) as u8;
                         let new_hp = WALL_TIER_HP[level]; // level is 0-indexed for next tier
+                        // Dual-write wall_level to WorldData
                         if let Some(wall_mut) = world_data.get_mut(BuildingKind::Wall).iter_mut()
                             .find(|w| (w.position - world_pos).length() < 1.0)
                         {
                             wall_mut.wall_level = new_level;
                         }
-                        if let Some(wall_idx) = world_data.get(BuildingKind::Wall).iter()
-                            .position(|w| (w.position - world_pos).length() < 1.0)
-                        {
-                            if let Some(entity) = bld.building_map.get_entity_by_building(BuildingKind::Wall, wall_idx) {
-                                if let Ok(mut health) = bld.building_health.get_mut(entity) {
-                                    health.0 = new_hp;
-                                }
+                        // Dual-write wall_level to BuildingEntityMap + update entity HP
+                        if let Some(inst) = bld.building_map.find_by_position_mut(world_pos) {
+                            inst.wall_level = new_level;
+                            if let Ok(mut health) = bld.building_health.get_mut(inst.entity) {
+                                health.0 = new_hp;
                             }
                         }
                         dirty.building_grid = true;
@@ -1364,7 +1373,7 @@ fn building_inspector_content(
                     ui.separator();
                     let mh_idx = world_data.miner_home_at(world_pos);
                     if let Some(mh_idx) = mh_idx {
-                        mine_assignment_ui(ui, world_data, mh_idx, world_pos, dirty, ui_state);
+                        mine_assignment_ui(ui, world_data, &mut bld.building_map, mh_idx, world_pos, dirty, ui_state);
                     }
                 }
             }
