@@ -2,7 +2,7 @@
 
 ## Overview
 
-GPU-accelerated projectiles with WGSL compute shader for movement and spatial grid collision detection. Supports up to 50,000 simultaneous projectiles with slot reuse via `ProjSlotAllocator`. Runs as a render graph node after NPC compute, sharing the NPC spatial grid for collision queries.
+GPU-accelerated projectiles with WGSL compute shader for movement and spatial grid collision detection. Supports up to 50,000 simultaneous projectiles with slot reuse via `ProjSlotAllocator`. Runs as a render graph node after NPC compute, sharing the unified entity spatial grid for collision queries against both NPCs and buildings.
 
 ## Data Flow
 
@@ -53,22 +53,26 @@ One thread per projectile. Computes cell from `floor(pos / cell_size)`, atomical
 For each active projectile:
 1. **Lifetime**: `lifetime -= delta`. If <= 0, deactivate, hide at (-9999, -9999), and write `proj_hits[i] = (-2, 0)` (expired sentinel for CPU slot recycling).
 2. **Movement**: `pos += velocity * delta`
-3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood of NPC spatial grid:
+3. **Collision**: Skip if already hit. Compute grid cell, scan 3x3 neighborhood of entity spatial grid (contains both NPCs and buildings):
    - Skip same faction or neutral faction -1 (no friendly fire)
-   - Skip dead NPCs (`health <= 0`)
+   - Skip dead entities (`health <= 0`)
    - Oriented rectangle collision (long along velocity, thin perpendicular)
-   - If hit: write `hit = ivec2(npc_idx, 0)`, deactivate, hide.
+   - If hit: write `hit = ivec2(entity_idx, 0)`, deactivate, hide. `entity_idx < npc_count` = NPC hit, `entity_idx >= npc_count` = building hit.
 
 ## Hit Processing
 
-`ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` handles two phases:
+`ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` routes hits to NPCs or buildings:
 
-**NPC hits** (from GPU hit buffer):
 ```
 for slot in 0..min(proj_alloc.next, hit_state.len()):
     skip if proj_writes.active[slot] == 0 (inactive, stale in readback)
     if hit.x >= 0 and hit.y == 0 (collision):
-        push DamageMsg { npc_index: hit.x, amount: damage }
+        if hit.x >= npc_count:
+            bld_slot = hit.x - npc_count
+            look up (kind, data_idx) via BuildingEntityMap.get_building(bld_slot)
+            push BuildingDamageMsg { kind, index, amount, attacker_faction, attacker }
+        else:
+            push DamageMsg { npc_index: hit.x, amount: damage }
         recycle slot via ProjSlotAllocator
         send ProjGpuUpdate::Deactivate to GPU
     if hit.x == -2 (expired sentinel):
@@ -76,7 +80,7 @@ for slot in 0..min(proj_alloc.next, hit_state.len()):
         send ProjGpuUpdate::Deactivate to GPU
 ```
 
-Buildings are no longer in the NPC GPU buffer — they use separate `BuildingSlots` and `BuildingGpuState`. Building damage is applied directly by `attack_system` when firing at buildings (emits `BuildingDamageMsg` immediately, projectile spawned with `damage: 0.0` as visual only). The projectile GPU collision only detects NPC hits.
+Entity buffer layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = buildings. The GPU collision scans the unified entity spatial grid, so projectiles hit both NPCs and buildings automatically via faction check (no friendly fire on same-faction buildings).
 
 ## GPU Buffers
 
@@ -93,15 +97,15 @@ Buildings are no longer in the NPC GPU buffer — they use separate `BuildingSlo
 | 6 | proj_active | i32 | 4B | RW | 1=active, 0=inactive |
 | 7 | proj_hits | vec2\<i32\> | 8B | RW | (npc_idx, processed). Init -1. |
 
-### Shared NPC Buffers (read-only)
+### Shared Entity Buffers (read-only — contains NPCs + buildings)
 
 | Binding | Name | Source |
 |---------|------|--------|
-| 8 | npc_positions | NpcGpuBuffers.positions |
-| 9 | npc_factions | NpcGpuBuffers.factions |
-| 10 | npc_healths | NpcGpuBuffers.healths |
-| 11 | grid_counts | NpcGpuBuffers.grid_counts |
-| 12 | grid_data | NpcGpuBuffers.grid_data |
+| 8 | entity_positions | EntityGpuBuffers.positions |
+| 9 | entity_factions | EntityGpuBuffers.factions |
+| 10 | entity_healths | EntityGpuBuffers.healths |
+| 11 | grid_counts | EntityGpuBuffers.grid_counts |
+| 12 | grid_data | EntityGpuBuffers.grid_data |
 
 ### Projectile Spatial Grid (built by modes 0+1, read by NPC compute for dodge)
 
@@ -115,7 +119,7 @@ Buildings are no longer in the NPC GPU buffer — they use separate `BuildingSlo
 | Binding | Field | Default | Purpose |
 |---------|-------|---------|---------|
 | 13 | proj_count | 0 | Active projectile count (from ProjSlotAllocator.next) |
-| | npc_count | 0 | NPC count for bounds checking |
+| | npc_count | 0 | NPC count (legacy, kept for compat) |
 | | delta | 0.016 | Frame delta time |
 | | hit_half_length | 10.0 | Oriented rectangle half-length along velocity (px) |
 | | hit_half_width | 5.0 | Oriented rectangle half-width perpendicular to velocity (px) |
@@ -124,6 +128,7 @@ Buildings are no longer in the NPC GPU buffer — they use separate `BuildingSlo
 | | cell_size | 128.0 | Pixels per grid cell |
 | | max_per_cell | 48 | Max entries per grid cell |
 | | mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=movement+collision) |
+| | entity_count | 0 | Total entity count for collision bounds (npc_count + building_count) |
 
 ## Slot Lifecycle
 

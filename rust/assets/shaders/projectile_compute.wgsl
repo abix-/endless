@@ -16,6 +16,7 @@ struct ProjParams {
     cell_size: f32,
     max_per_cell: u32,
     mode: u32,
+    entity_count: u32,
 }
 
 // Projectile buffers (read_write)
@@ -28,10 +29,10 @@ struct ProjParams {
 @group(0) @binding(6) var<storage, read_write> proj_active: array<i32>;
 @group(0) @binding(7) var<storage, read_write> proj_hits: array<vec2<i32>>;
 
-// NPC buffers (read only — shared from NPC compute pipeline)
-@group(0) @binding(8)  var<storage, read> npc_positions: array<vec2<f32>>;
-@group(0) @binding(9)  var<storage, read> npc_factions: array<i32>;
-@group(0) @binding(10) var<storage, read> npc_healths: array<f32>;
+// Entity buffers (read only — shared from NPC compute pipeline, contains NPCs + buildings)
+@group(0) @binding(8)  var<storage, read> entity_positions: array<vec2<f32>>;
+@group(0) @binding(9)  var<storage, read> entity_factions: array<i32>;
+@group(0) @binding(10) var<storage, read> entity_healths: array<f32>;
 
 // Spatial grid (read only — built by NPC compute modes 0+1)
 @group(0) @binding(11) var<storage, read> grid_counts: array<i32>;
@@ -129,7 +130,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let gw = i32(params.grid_width);
     let gh = i32(params.grid_height);
     let mpc = i32(params.max_per_cell);
-    let nc = i32(params.npc_count);
+    let ec = i32(params.entity_count);
 
     for (var dy: i32 = -1; dy <= 1; dy++) {
         for (var dx: i32 = -1; dx <= 1; dx++) {
@@ -143,18 +144,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let count = min(grid_counts[cell_idx], mpc);
 
             for (var n: i32 = 0; n < count; n++) {
-                let npc_idx = grid_data[cell_idx * mpc + n];
+                let entity_idx = grid_data[cell_idx * mpc + n];
 
-                if (npc_idx < 0 || npc_idx >= nc) { continue; }
+                if (entity_idx < 0 || entity_idx >= ec) { continue; }
 
                 // Skip same faction (no friendly fire)
-                if (npc_factions[npc_idx] == my_faction || npc_factions[npc_idx] == -1) { continue; }
+                if (entity_factions[entity_idx] == my_faction || entity_factions[entity_idx] == -1) { continue; }
 
-                // Skip dead NPCs
-                if (npc_healths[npc_idx] <= 0.0) { continue; }
+                // Skip dead entities
+                if (entity_healths[entity_idx] <= 0.0) { continue; }
 
-                let npc_pos = npc_positions[npc_idx];
-                let diff = npc_pos - pos;
+                let entity_pos = entity_positions[entity_idx];
+                let diff = entity_pos - pos;
 
                 var hit = false;
                 if (use_oriented) {
@@ -169,8 +170,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 }
 
                 if (hit) {
-                    // HIT — record target, deactivate, hide
-                    proj_hits[i] = vec2<i32>(npc_idx, 0);  // 0 = not processed yet
+                    // HIT — record target index (NPC or building), deactivate, hide
+                    proj_hits[i] = vec2<i32>(entity_idx, 0);  // 0 = not processed yet
                     proj_active[i] = 0;
                     proj_positions[i] = vec2<f32>(-9999.0, -9999.0);
                     return;

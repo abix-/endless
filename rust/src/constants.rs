@@ -7,7 +7,16 @@ use crate::world::BuildingKind;
 pub const MAX_NPC_COUNT: usize = 100000;
 
 /// Maximum buildings with GPU slots. Building GPU buffers are pre-allocated to this size.
-pub const MAX_BUILDINGS: usize = 5000;
+pub const MAX_BUILDINGS: usize = MAX_NPC_COUNT;
+
+/// Total entity capacity: NPCs + buildings share unified GPU collision buffers.
+pub const MAX_ENTITIES: usize = MAX_NPC_COUNT + MAX_BUILDINGS;
+
+/// Entity flag bits for unified entity_flags GPU buffer.
+/// Bit 0: combat targeting enabled (archers, raiders, towers).
+pub const ENTITY_FLAG_COMBAT: u32 = 1;
+/// Bit 1: entity is a building (skip separation/NPC targeting in compute shader).
+pub const ENTITY_FLAG_BUILDING: u32 = 2;
 
 // ============================================================================
 // UPGRADE STAT DEFINITIONS (used by NpcDef to declare upgradeable stats)

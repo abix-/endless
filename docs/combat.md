@@ -60,8 +60,8 @@ DamageMsg (from process_proj_hits)             GPU movement
         │
         ▼
   building_tower_system
-  (fountains via fire_towers,
-   CPU-side nearest-enemy scan)
+  (fountains via GPU combat_targets,
+   reads readback at npc_count + bld_slot)
 ```
 
 attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or applies point-blank damage for melee. The projectile system ([projectiles.md](projectiles.md)) handles movement, collision detection, hit readback, and slot recycling.
@@ -166,15 +166,15 @@ Execution order is **chained** — each system completes before the next starts.
 
 ### 8. building_tower_system (combat.rs)
 
-Generalized tower system for any building kind that auto-shoots. Uses a shared `fire_towers()` helper parameterized by `BuildingKind`, `TowerStats`, and a `(Vec2, i32)` slice of (position, faction).
+Tower auto-attack using GPU spatial grid targeting. Towers are in the unified entity buffer (at index `npc_count + bld_slot`) with `ENTITY_FLAG_BUILDING | ENTITY_FLAG_COMBAT`. The GPU compute shader MODE 2 runs the same combat targeting scan for towers as for NPC combatants — finding the nearest enemy NPC via the spatial grid.
 
 - **TowerState** resource: holds per-kind `TowerKindState` with `timers: Vec<f32>` and `attack_enabled: Vec<bool>`
 - **TowerStats** struct in `constants.rs`: `range`, `damage`, `cooldown`, `proj_speed`, `proj_lifetime`
 - State length auto-syncs with building count each tick
 - **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `is_alive(town.center)` every tick (all alive town centers shoot). Strong enough to defend spawn area.
-- **CPU-side targeting**: Buildings are no longer in the NPC GPU buffer. `fire_towers()` scans NPC positions/factions/health arrays from `GpuReadState` directly (CPU brute-force over `npc_count` slots). For each enabled tower, finds nearest enemy NPC within range (different faction, health > 0, position not hidden). Buildings are few (~10-50 towers), so O(towers × npcs) is acceptable.
-- `fire_towers()` loop: for each enabled building, CPU finds nearest enemy NPC, validates range, fires `ProjGpuUpdate::Spawn` with `shooter: -1`
-- DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. `Building::is_tower()` and the shader handle the rest.
+- **GPU-side targeting**: Reads `GpuReadState.combat_targets[npc_count + bld_slot]` from readback buffer. The GPU found the nearest enemy via the spatial grid (same O(1) grid lookup as NPC targeting). `combat_range` = 400.0 to cover `FOUNTAIN_TOWER.range`. Only targets with `target < npc_count` are valid (towers only shoot NPCs, not other buildings).
+- Tower loop: for each enabled building, look up building slot via `BuildingEntityMap.get_slot(Fountain, town_idx)`, read GPU target, fire `ProjGpuUpdate::Spawn` with `shooter: -1`
+- DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. Building flags in `world.rs` + extract mapping in `npc_render.rs` handle the GPU side.
 
 ### 9. building_damage_system (combat.rs, Step::Behavior)
 - Uses `BuildingDeathExtra` SystemParam bundle (NpcMetaCache, SquadState, AiPlayerState, EndlessMode, TownUpgrades, FoodStorage, GoldStorage) to stay within Bevy's 16-parameter limit
@@ -227,8 +227,9 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + building_tower_system + building attack fallback) |
 | CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 |
 | CPU → GPU | Building HP sync | `building_damage_system` writes entity `Health` + `GpuUpdate::BldSetHealth` to sync building HP in `BuildingGpuState` |
-| CPU | Building targeting | `fire_towers()` scans NPC `GpuReadState.positions/factions/health` CPU-side (buildings no longer in NPC GPU buffer) |
-| CPU | Building damage | `attack_system` emits `BuildingDamageMsg` directly on building attack; projectile is visual-only (`damage: 0.0`) |
+| GPU → CPU | Tower targeting | `building_tower_system` reads `GpuReadState.combat_targets[npc_count + bld_slot]` — GPU spatial grid targeting (same as NPC targeting) |
+| GPU → CPU | Projectile building hits | `process_proj_hits`: `hit_idx >= npc_count` → `BuildingDamageMsg` via `BuildingEntityMap.get_building(bld_slot)` |
+| CPU | Building attack fallback | `attack_system` emits `BuildingDamageMsg` directly on building attack; projectile is visual-only (`damage: 0.0`) |
 
 ## Debug
 

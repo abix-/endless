@@ -10,10 +10,12 @@ GPU compute uses Bevy's render graph with wgpu/WGSL. The compute shader `shaders
 Main World (ECS)                       Render World (GPU)
 │                                      │
 │  ExtractResourcePlugin (1 clone/frame):
-├─ RenderFrameConfig ───────────────▶ ExtractResource (bundles NpcGpuData + ProjGpuData + NpcSpriteTexture + ReadbackHandles)
+├─ RenderFrameConfig ───────────────▶ ExtractResource (bundles NpcGpuData + ProjGpuData + NpcSpriteTexture + ReadbackHandles + tile_flags)
 │
 │  Extract<Res<T>> (zero-clone immutable reads):
 ├─ NpcGpuState ──────────────────────▶ extract_npc_data (per-buffer dirty flags → GPU writes)
+├─ BuildingGpuState ─────────────────▶ extract_npc_data (building pos/faction/health/flags appended at npc_count offset)
+├─ BuildingSlots ────────────────────▶ extract_npc_data (building count for offset calculation)
 ├─ NpcVisualUpload ──────────────────▶ extract_npc_data (visual + equip arrays → GPU writes)
 ├─ ProjBufferWrites ─────────────────▶ extract_proj_data (per-dirty-index compute writes)
 ├─ ProjPositionState ────────────────▶ extract_proj_data (projectile instance buffer)
@@ -36,8 +38,8 @@ Main World (ECS)                       Render World (GPU)
 │                                      │
 │                                      ├─ NpcComputeNode (render graph, 3 passes)
 │                                      │   ├─ Mode 0: clear grid (atomicStore 0)
-│                                      │   ├─ Mode 1: build grid (atomicAdd NPC indices)
-│                                      │   ├─ Mode 2: separation + movement + combat targeting
+│                                      │   ├─ Mode 1: build grid (atomicAdd entity indices — NPCs + buildings)
+│                                      │   ├─ Mode 2: movement (NPCs) + combat targeting (NPCs + towers)
 │                                      │   └─ copy positions + combat_targets + factions + healths + threat_counts → ReadbackHandles assets
 │                                      │
 │                                      ├─ ProjectileComputeNode (render graph, 3 passes, after NpcComputeNode)
@@ -75,9 +77,13 @@ ECS → GPU (upload):
     Both arrays reset to -1.0 sentinel each frame; phantom slots (waypoints) have no ECS entity and stay hidden
 
   extract_npc_data (ExtractSchedule, zero-clone):
-    Extract<Res<NpcGpuState>> → hybrid writes to NpcGpuBuffers:
+    Extract<Res<NpcGpuState>> → hybrid writes to EntityGpuBuffers [0..npc_count]:
       GPU-authoritative (positions/arrivals): per-dirty-index write_buffer (~10-50 calls/frame)
       CPU-authoritative (targets/speeds/factions/healths/flags): 1 bulk write_buffer per dirty buffer
+    Extract<Res<BuildingGpuState>> → writes to EntityGpuBuffers [npc_count..entity_count]:
+      positions: per-dirty-index writes at byte offset (npc_count + idx) * 8
+      factions/healths: bulk writes at byte offset npc_count * 4
+      entity_flags: ENTITY_FLAG_BUILDING for all, + ENTITY_FLAG_COMBAT for towers
     Extract<Res<NpcVisualUpload>> → bulk write_buffer to NpcVisualBuffers
 
 GPU → ECS (readback, Bevy async Readback):
@@ -107,26 +113,28 @@ Note: `sprite_indices` and `flash_values` live in `NpcGpuState`. Colors and equi
 
 ## NPC Compute Shader (npc_compute.wgsl)
 
-Workgroup size: 64 threads. 3 dispatches per frame with different `mode` uniform values. Each mode dispatches `ceil(count / 64)` workgroups (mode 0 uses `ceil(grid_cells / 64)`).
+Workgroup size: 64 threads. 3 dispatches per frame with different `mode` uniform values. Mode 0 dispatches `ceil(grid_cells / 64)` workgroups. Modes 1 and 2 dispatch `ceil(entity_count / 64)` workgroups where `entity_count = npc_count + building_count`.
 
 ### Mode 0: Clear Grid
 One thread per grid cell. Atomically clears `grid_counts[cell]` to 0. Early exit if `i >= grid_cells`.
 
 ### Mode 1: Build Grid
-One thread per NPC. Computes cell from `floor(pos / cell_size)`, atomically increments `grid_counts[cell]`, writes NPC index into `grid_data[cell * max_per_cell + slot]`. Skips hidden NPCs (pos.x < -9000).
+One thread per entity (`entity_count` = NPCs + buildings). Computes cell from `floor(pos / cell_size)`, atomically increments `grid_counts[cell]`, writes entity index into `grid_data[cell * max_per_cell + slot]`. Skips hidden entities (pos.x < -9000). Buildings are included in the grid so projectile collision can find them.
 
-### Mode 2: Separation + Movement + Combat Targeting
-One thread per NPC. Three-tier optimization based on NPC type:
+### Mode 2: Movement + Combat Targeting
+One thread per entity (`entity_count`). Entity type determined by `entity_flags` bitmask:
 
-**Note**: Buildings are no longer in the NPC GPU buffer. They use separate `BuildingSlots` (max=5K) and `BuildingGpuState` for rendering. Tower targeting (fountains) is handled CPU-side by `fire_towers()` scanning NPC `GpuReadState` directly.
+**Buildings without combat** (`entity_flags & ENTITY_BUILDING` set, `entity_flags & ENTITY_FLAG_COMBAT` unset — farms, beds, etc.): Early return. Writes `combat_targets[i] = -1`, `threat_counts[i] = 0`. No movement, no targeting.
 
-**Tier 2 — Non-combatants (npc_flags bit 0 = 0, farmers/miners)**: Full separation + movement. Threat scan uses `threat_radius` (7×7=49 cells). Skips the expensive combat targeting scan (9×9=81 cells). Writes `combat_targets[i] = -1`.
+**Towers** (`entity_flags & ENTITY_BUILDING` + `entity_flags & ENTITY_FLAG_COMBAT` — fountains): Skip movement (speed=0), run combat targeting scan. `combat_targets[i]` set to nearest enemy NPC. CPU reads this via readback to fire projectiles.
 
-**Tier 3 — Combatants (npc_flags bit 0 = 1, archers/raiders/fighters)**: Full separation + movement + combat targeting. Scans `combat_range` radius (9×9=81 cells) for both threat assessment and nearest enemy targeting.
+**Non-combatant NPCs** (`entity_flags` bit 0 = 0, farmers/miners): Full separation + movement. Threat scan uses `threat_radius` (7×7=49 cells). Skips the expensive combat targeting scan (9×9=81 cells). Writes `combat_targets[i] = -1`.
 
-Four phases per thread (tiers 2+3):
+**Combatant NPCs** (`entity_flags` bit 0 = 1, archers/raiders/fighters): Full separation + movement + combat targeting. Scans `combat_range` radius (9×9=81 cells) for both threat assessment and nearest enemy targeting.
 
-**Separation + dodge** (single 3x3 grid scan): For each neighbor within `separation_radius`, computes push-away force proportional to overlap. **Skips neighbors with speed=0** (buildings are collision-only, no separation force). Asymmetric push: moving NPCs (settled=0) push through settled ones (0.2x strength), settled NPCs get shoved by movers (2.0x). Same-faction neighbors get 1.5x push to spread out convoys. Exact overlaps use golden angle spread. Dodge is computed in the same loop: for moving NPCs approaching other moving NPCs within 2x `separation_radius`, dodges perpendicular to movement direction. Detects head-on (0.5), crossing (0.4), and overtaking (0.3) scenarios via dot-product convergence check. Consistent side-picking via index comparison (`i < j`). Dodge scaled by `strength * 0.7`. Total avoidance clamped to `speed * 1.5` to prevent wild overshoot.
+Four phases per NPC thread (speed > 0):
+
+**Separation + dodge** (single 3x3 grid scan): For each neighbor within `separation_radius`, computes push-away force proportional to overlap. **Skips neighbors with `ENTITY_BUILDING` flag** (buildings are collision-only, no separation force). Asymmetric push: moving NPCs (settled=0) push through settled ones (0.2x strength), settled NPCs get shoved by movers (2.0x). Same-faction neighbors get 1.5x push to spread out convoys. Exact overlaps use golden angle spread. Dodge is computed in the same loop: for moving NPCs approaching other moving NPCs within 2x `separation_radius`, dodges perpendicular to movement direction. Detects head-on (0.5), crossing (0.4), and overtaking (0.3) scenarios via dot-product convergence check. Consistent side-picking via index comparison (`i < j`). Dodge scaled by `strength * 0.7`. Total avoidance clamped to `speed * 1.5` to prevent wild overshoot.
 
 **Projectile dodge** (spatial grid scan): After separation, scans 3x3 neighborhood of the projectile spatial grid (built by projectile compute modes 0+1 in the previous frame). For each enemy projectile within 60px heading toward the NPC (approach dot > 0.3), computes a perpendicular dodge force. Direction is away from the projectile's path (consistent side-picking via `select`). Urgency scales linearly with proximity (closer = stronger). Normalized and scaled to `speed * 1.5`. Applied as a separate force in the position update (`movement + avoidance + proj_dodge`), independent of avoidance clamping. 1-frame latency is acceptable: at 60fps, an arrow at speed 500 moves ~8px — within the 60px dodge radius.
 
@@ -139,13 +147,13 @@ Four phases per thread (tiers 2+3):
 
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 
-**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (300px, 9×9 cells) for combatants, `threat_radius` (200px, 7×7 cells) for non-combatants. For each NPC in neighboring cells, checks: alive (health > 0), not self. Buildings are no longer in the NPC buffer — they have separate GPU state and slot allocators. Building attacks are handled CPU-side via `find_nearest_enemy_building()`. Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting (tier 3 only) tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
+**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (400px, 9×9 cells) for combatants and towers, `threat_radius` (200px, 7×7 cells) for non-combatants. For each entity in neighboring cells, checks: alive (health > 0), not self. **Skips entities with `ENTITY_BUILDING` flag** (buildings can be shot by projectiles but are not valid targets for NPC/tower combat targeting — prevents towers shooting buildings). Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). For towers, CPU reads `combat_targets[npc_count + bld_slot]` via readback to fire projectiles. Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
 
 ## GPU Buffers
 
-### Compute Buffers (gpu.rs NpcGpuBuffers)
+### Compute Buffers (gpu.rs EntityGpuBuffers)
 
-Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`. GPU→CPU readback uses Bevy's async `Readback` + `ReadbackComplete` pattern via `ShaderStorageBuffer` assets (no manual staging buffers).
+Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write`, sized to `MAX_ENTITIES` (= MAX_NPC_COUNT + MAX_BUILDINGS = 200K). Layout: `[0..npc_count]` = NPCs, `[npc_count..entity_count]` = buildings. GPU→CPU readback uses Bevy's async `Readback` + `ReadbackComplete` pattern via `ShaderStorageBuffer` assets (no manual staging buffers).
 
 | Binding | Name | Type | Per-NPC Size | Uploaded From | Purpose |
 |---------|------|------|-------------|---------------|---------|
@@ -166,7 +174,7 @@ Created once in `init_npc_compute_pipeline`. All storage buffers are `read_write
 | 14 | proj_velocities | vec2\<f32\>[] | — | ProjGpuBuffers.velocities (read) | Projectile velocities for approach check |
 | 15 | proj_factions | i32[] | — | ProjGpuBuffers.factions (read) | Projectile factions for friendly fire skip |
 | 16 | threat_counts | u32 | 4B | Not uploaded | Packed threat assessment: (enemies << 16 \| allies) per NPC |
-| 17 | npc_flags | u32 | 4B | NpcGpuState.npc_flags | Bit 0: combat scan enabled (archers/raiders/fighters). Bit 1: tower building (skip movement, run combat targeting). Fountains = 3 (bits 0+1). Other buildings + farmers/miners = 0. |
+| 17 | entity_flags | u32 | 4B | NpcGpuState.npc_flags (NPCs) / BuildingGpuState.flags mapped (buildings) | Bit 0 (ENTITY_FLAG_COMBAT): combat targeting scan enabled. Bit 1 (ENTITY_FLAG_BUILDING): is a building (skip movement/separation). NPCs: archers/raiders/fighters = 1, farmers/miners = 0. Buildings: non-tower = 2, tower (fountain) = 3 (bits 0+1). |
 | 18 | tile_flags | u32[] | 4B/cell | RenderFrameConfig.tile_flags | Per-world-grid-cell bitfield (1024×1024 max). Terrain bits 0-4 (Grass=1, Forest=2, Water=4, Rock=8, Dirt=16), building bits 5+ (Road=32, Wall=64). Bits 8-11 encode wall owner faction (4 bits, 16 factions). Populated by `populate_tile_flags` system from WorldGrid biome + buildings + WorldData (for wall faction lookup). |
 
 ### NPC Visual Storage Buffers (npc_render.rs)
@@ -200,13 +208,14 @@ Built by `build_visual_upload` from ECS components (EquippedArmor, EquippedHelme
 | max_per_cell | 48 | Max NPCs per cell |
 | arrival_threshold | 8.0 | Distance to mark as arrived |
 | mode | 0 | Dispatch mode (0=clear grid, 1=build grid, 2=separation+movement+targeting) |
-| combat_range | 300.0 | Maximum distance for combat targeting |
+| combat_range | 400.0 | Maximum distance for combat targeting (covers FOUNTAIN_TOWER.range=400) |
 | proj_max_per_cell | 48 | Max projectiles per spatial grid cell (for dodge scan) |
 | dodge_unlocked | 0 | Whether projectile dodge is enabled (tech tree unlock) |
 | threat_radius | 200.0 | Radius for threat assessment enemy/ally counting |
 | tile_grid_width | 0 | World grid columns (for tile_flags lookup) |
 | tile_grid_height | 0 | World grid rows (for tile_flags lookup) |
 | tile_cell_size | 0.0 | World grid cell size in pixels (for tile_flags lookup) |
+| entity_count | 0 | Total entities: npc_count + building_count (set each frame from SlotAllocator + BuildingSlots) |
 
 ## Spatial Grid
 
@@ -218,7 +227,7 @@ Built on GPU each frame via 3-mode dispatch with atomic operations:
 - **Total cells**: 65,536
 - **Memory**: grid_counts = 256KB, grid_data = 12MB
 
-NPCs are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode 1 inserts NPCs via `atomicAdd`, mode 2 uses 3x3 neighborhood for separation/dodge forces and `combat_range / cell_size + 1` radius for combat targeting.
+All entities (NPCs + buildings) are binned by `floor(pos / cell_size)`. Mode 0 clears all cell counts, mode 1 inserts all entities via `atomicAdd`, mode 2 uses 3x3 neighborhood for separation/dodge forces and `combat_range / cell_size + 1` radius for combat targeting. Buildings are in the grid so projectile collision can find them; combat targeting skips entities with `ENTITY_BUILDING` flag.
 
 ## NPC Rendering
 
@@ -233,7 +242,11 @@ The render shader (`shaders/npc_render.wgsl`) shares `calc_uv()`, `world_to_clip
 
 ```rust
 const WORKGROUP_SIZE: u32 = 64;
-const MAX_NPCS: u32 = 100000;
+const MAX_NPC_COUNT: usize = 100_000;
+const MAX_BUILDINGS: usize = 100_000;
+const MAX_ENTITIES: usize = MAX_NPC_COUNT + MAX_BUILDINGS;  // 200K — all entity buffers sized to this
+const ENTITY_FLAG_COMBAT: u32 = 1;    // bit 0: combat targeting enabled
+const ENTITY_FLAG_BUILDING: u32 = 2;  // bit 1: is a building (skip movement/separation)
 const GRID_WIDTH: u32 = 256;
 const GRID_HEIGHT: u32 = 256;
 const MAX_PER_CELL: u32 = 48;

@@ -8,7 +8,7 @@
 //! - PostUpdate: populate_gpu_state drains queue → NpcGpuState
 //! - PostUpdate: build_visual_upload packs ECS + NpcGpuState → NpcVisualUpload
 //! - Extract: extract_npc_data reads both via Extract<Res<T>> (immutable, zero clone)
-//!   → writes compute data per-dirty-index to NpcGpuBuffers
+//!   → writes compute data per-dirty-index to EntityGpuBuffers
 //!   → writes visual/equip data in bulk to NpcVisualBuffers
 
 use bevy::{
@@ -32,7 +32,7 @@ use bevy::{
 use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
-use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS};
+use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS, MAX_ENTITIES};
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
 use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, BuildingSlots, SystemTimings};
 use crate::systems::stats::{self, TownUpgrades};
@@ -78,6 +78,7 @@ pub struct NpcGpuData {
     pub tile_grid_width: u32,
     pub tile_grid_height: u32,
     pub tile_cell_size: f32,
+    pub entity_count: u32,
 }
 
 impl Default for NpcGpuData {
@@ -93,13 +94,14 @@ impl Default for NpcGpuData {
             max_per_cell: MAX_PER_CELL,
             arrival_threshold: 8.0,
             mode: 0,
-            combat_range: 300.0,
+            combat_range: 400.0,
             proj_max_per_cell: MAX_PER_CELL,
             dodge_unlocked: 0,
             threat_radius: 200.0,
             tile_grid_width: 0,
             tile_grid_height: 0,
             tile_cell_size: 32.0,
+            entity_count: 0,
         }
     }
 }
@@ -579,6 +581,7 @@ pub struct ProjGpuData {
     pub cell_size: f32,
     pub max_per_cell: u32,
     pub mode: u32,
+    pub entity_count: u32,
 }
 
 impl Default for ProjGpuData {
@@ -594,6 +597,7 @@ impl Default for ProjGpuData {
             cell_size: 128.0,
             max_per_cell: MAX_PER_CELL,
             mode: 0,
+            entity_count: 0,
         }
     }
 }
@@ -725,7 +729,8 @@ fn setup_readback_buffers(
     };
     let combat_target_buf = {
         // Initialize with -1 per slot so zeroed memory isn't misread as "target NPC 0"
-        let init_targets: Vec<i32> = vec![-1; MAX_NPCS as usize];
+        // Entity-sized: includes tower building slots for GPU combat targeting
+        let init_targets: Vec<i32> = vec![-1; MAX_ENTITIES];
         let mut buf = ShaderStorageBuffer::new(bytemuck::cast_slice(&init_targets), RenderAssetUsages::RENDER_WORLD);
         buf.buffer_description.usage |= BufferUsages::COPY_DST | BufferUsages::COPY_SRC;
         buffers.add(buf)
@@ -880,6 +885,7 @@ struct ProjectileComputeLabel;
 fn update_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
     slots: Res<SlotAllocator>,
+    building_slots: Res<BuildingSlots>,
     time: Res<Time>,
     game_time: Res<GameTime>,
     upgrades: Res<TownUpgrades>,
@@ -889,6 +895,7 @@ fn update_gpu_data(
     let _t = timings.scope("update_gpu_data");
     let dt = game_time.delta(&time);
     config.npc.count = slots.count() as u32;
+    config.npc.entity_count = (slots.count() + building_slots.count()) as u32;
     config.npc.delta = dt;
 
     let player_town_idx = world_data.towns.iter().position(|t| t.faction == 0).unwrap_or(0);
@@ -953,7 +960,7 @@ fn populate_tile_flags(
 
 /// GPU buffers for NPC compute and rendering.
 #[derive(Resource)]
-pub struct NpcGpuBuffers {
+pub struct EntityGpuBuffers {
     // Compute buffers
     pub positions: Buffer,
     pub targets: Buffer,
@@ -966,7 +973,7 @@ pub struct NpcGpuBuffers {
     pub healths: Buffer,
     pub combat_targets: Buffer,
     pub threat_counts: Buffer,
-    pub npc_flags: Buffer,
+    pub entity_flags: Buffer,
     pub tile_flags: Buffer,
 }
 
@@ -1038,22 +1045,23 @@ fn init_npc_compute_pipeline(
     let grid_cells = (GRID_WIDTH * GRID_HEIGHT) as usize;
     let grid_data_size = grid_cells * MAX_PER_CELL as usize;
 
-    // Create GPU buffers
-    let buffers = NpcGpuBuffers {
+    // Create GPU buffers — entity-sized for unified NPC + building collision
+    let max_ents = MAX_ENTITIES as usize;
+    let buffers = EntityGpuBuffers {
         positions: render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("npc_positions"),
-            contents: bytemuck::cast_slice(&vec![-9999.0f32; MAX_NPCS as usize * 2]),
+            label: Some("entity_positions"),
+            contents: bytemuck::cast_slice(&vec![-9999.0f32; max_ents * 2]),
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
         }),
         targets: render_device.create_buffer(&BufferDescriptor {
-            label: Some("npc_targets"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<[f32; 2]>()) as u64,
+            label: Some("entity_targets"),
+            size: (max_ents * std::mem::size_of::<[f32; 2]>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
         speeds: render_device.create_buffer(&BufferDescriptor {
-            label: Some("npc_speeds"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<f32>()) as u64,
+            label: Some("entity_speeds"),
+            size: (max_ents * std::mem::size_of::<f32>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
@@ -1070,43 +1078,43 @@ fn init_npc_compute_pipeline(
             mapped_at_creation: false,
         }),
         arrivals: render_device.create_buffer(&BufferDescriptor {
-            label: Some("arrivals"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
+            label: Some("entity_arrivals"),
+            size: (max_ents * std::mem::size_of::<i32>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
         backoff: render_device.create_buffer(&BufferDescriptor {
-            label: Some("backoff"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
+            label: Some("entity_backoff"),
+            size: (max_ents * std::mem::size_of::<i32>()) as u64,
             usage: BufferUsages::STORAGE,
             mapped_at_creation: false,
         }),
         factions: render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("factions"),
-            contents: bytemuck::cast_slice(&vec![-1i32; MAX_NPCS as usize]),
+            label: Some("entity_factions"),
+            contents: bytemuck::cast_slice(&vec![-1i32; max_ents]),
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
         }),
         healths: render_device.create_buffer(&BufferDescriptor {
-            label: Some("healths"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<f32>()) as u64,
+            label: Some("entity_healths"),
+            size: (max_ents * std::mem::size_of::<f32>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
         combat_targets: render_device.create_buffer(&BufferDescriptor {
-            label: Some("combat_targets"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<i32>()) as u64,
+            label: Some("entity_combat_targets"),
+            size: (max_ents * std::mem::size_of::<i32>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
         threat_counts: render_device.create_buffer(&BufferDescriptor {
-            label: Some("threat_counts"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<u32>()) as u64,
+            label: Some("entity_threat_counts"),
+            size: (max_ents * std::mem::size_of::<u32>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }),
-        npc_flags: render_device.create_buffer(&BufferDescriptor {
-            label: Some("npc_flags"),
-            size: (MAX_NPCS as usize * std::mem::size_of::<u32>()) as u64,
+        entity_flags: render_device.create_buffer(&BufferDescriptor {
+            label: Some("entity_flags"),
+            size: (max_ents * std::mem::size_of::<u32>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
@@ -1158,7 +1166,7 @@ fn init_npc_compute_pipeline(
                 storage_buffer_read_only::<Vec<i32>>(false),      // proj_factions
                 // 16: threat counts output (packed enemies<<16 | allies)
                 storage_buffer::<Vec<u32>>(false),
-                // 17: npc_flags (bit 0: combat scan enabled)
+                // 17: entity_flags (bit 0: combat scan, bit 1: building)
                 storage_buffer_read_only::<Vec<u32>>(false),
                 // 18: tile_flags (bitfield per world grid cell: bit 0=road)
                 storage_buffer_read_only::<Vec<u32>>(false),
@@ -1192,7 +1200,7 @@ fn init_npc_compute_pipeline(
 fn prepare_npc_bind_groups(
     mut commands: Commands,
     pipeline: Option<Res<NpcComputePipeline>>,
-    buffers: Option<Res<NpcGpuBuffers>>,
+    buffers: Option<Res<EntityGpuBuffers>>,
     proj_buffers: Option<Res<ProjGpuBuffers>>,
     config: Option<Res<RenderFrameConfig>>,
     render_device: Res<RenderDevice>,
@@ -1246,7 +1254,7 @@ fn prepare_npc_bind_groups(
     );
 
     let threat_bind = buffers.threat_counts.as_entire_buffer_binding();
-    let flags_bind = buffers.npc_flags.as_entire_buffer_binding();
+    let flags_bind = buffers.entity_flags.as_entire_buffer_binding();
     let tile_bind = buffers.tile_flags.as_entire_buffer_binding();
 
     let mode0 = render_device.create_bind_group(
@@ -1383,7 +1391,8 @@ impl render_graph::Node for NpcComputeNode {
         let pipeline = world.resource::<NpcComputePipeline>();
 
         let npc_count = config.npc.count;
-        if npc_count == 0 {
+        let entity_count = config.npc.entity_count;
+        if entity_count == 0 {
             return Ok(());
         }
 
@@ -1394,7 +1403,7 @@ impl render_graph::Node for NpcComputeNode {
 
         let grid_cells = GRID_WIDTH * GRID_HEIGHT;
         let grid_wg = (grid_cells + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
-        let npc_wg = (npc_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+        let entity_wg = (entity_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
 
         // Pass 0: Clear spatial grid
         {
@@ -1406,34 +1415,34 @@ impl render_graph::Node for NpcComputeNode {
             pass.dispatch_workgroups(grid_wg, 1, 1);
         }
 
-        // Pass 1: Build spatial grid (insert NPCs into cells)
+        // Pass 1: Build spatial grid (insert all entities into cells)
         {
             let mut pass = render_context
                 .command_encoder()
                 .begin_compute_pass(&ComputePassDescriptor::default());
             pass.set_bind_group(0, &bind_groups.mode1, &[]);
             pass.set_pipeline(compute_pipeline);
-            pass.dispatch_workgroups(npc_wg, 1, 1);
+            pass.dispatch_workgroups(entity_wg, 1, 1);
         }
 
-        // Pass 2: Movement + combat targeting
+        // Pass 2: Movement (NPCs) + combat targeting (NPCs + towers)
         {
             let mut pass = render_context
                 .command_encoder()
                 .begin_compute_pass(&ComputePassDescriptor::default());
             pass.set_bind_group(0, &bind_groups.mode2, &[]);
             pass.set_pipeline(compute_pipeline);
-            pass.dispatch_workgroups(npc_wg, 1, 1);
+            pass.dispatch_workgroups(entity_wg, 1, 1);
         }
 
         // Copy positions + combat_targets → readback ShaderStorageBuffer assets
         // Bevy's Readback component will async-read these and fire ReadbackComplete
-        let buffers = world.resource::<NpcGpuBuffers>();
+        let buffers = world.resource::<EntityGpuBuffers>();
         let handles = &world.resource::<RenderFrameConfig>().readback;
         let render_assets = world.resource::<RenderAssets<GpuShaderStorageBuffer>>();
 
         let pos_copy_size = (npc_count as u64) * std::mem::size_of::<[f32; 2]>() as u64;
-        let ct_copy_size = (npc_count as u64) * std::mem::size_of::<i32>() as u64;
+        let ct_copy_size = (entity_count as u64) * std::mem::size_of::<i32>() as u64;  // entity_count: includes tower targets
 
         if let Some(rb_pos) = render_assets.get(&handles.npc_positions) {
             render_context.command_encoder().copy_buffer_to_buffer(
@@ -1481,6 +1490,7 @@ impl render_graph::Node for NpcComputeNode {
 fn update_proj_gpu_data(
     mut config: ResMut<RenderFrameConfig>,
     slots: Res<SlotAllocator>,
+    building_slots: Res<BuildingSlots>,
     proj_alloc: Res<crate::resources::ProjSlotAllocator>,
     time: Res<Time>,
     game_time: Res<GameTime>,
@@ -1490,6 +1500,7 @@ fn update_proj_gpu_data(
     let dt = game_time.delta(&time);
     config.proj.proj_count = proj_alloc.next as u32;
     config.proj.npc_count = slots.count() as u32;
+    config.proj.entity_count = (slots.count() + building_slots.count()) as u32;
     config.proj.delta = dt;
 }
 
@@ -1620,7 +1631,7 @@ fn prepare_proj_bind_groups(
     mut commands: Commands,
     pipeline: Option<Res<ProjComputePipeline>>,
     proj_buffers: Option<Res<ProjGpuBuffers>>,
-    npc_buffers: Option<Res<NpcGpuBuffers>>,
+    entity_buffers: Option<Res<EntityGpuBuffers>>,
     config: Option<Res<RenderFrameConfig>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -1633,7 +1644,7 @@ fn prepare_proj_bind_groups(
 
     let Some(pipeline) = pipeline else { return };
     let Some(proj) = proj_buffers else { return };
-    let Some(npc) = npc_buffers else { return };
+    let Some(ent) = entity_buffers else { return };
     let Some(config) = config else { return };
 
     let layout = &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
@@ -1646,11 +1657,11 @@ fn prepare_proj_bind_groups(
         proj.lifetimes.as_entire_buffer_binding(),
         proj.active.as_entire_buffer_binding(),
         proj.hits.as_entire_buffer_binding(),
-        npc.positions.as_entire_buffer_binding(),
-        npc.factions.as_entire_buffer_binding(),
-        npc.healths.as_entire_buffer_binding(),
-        npc.grid_counts.as_entire_buffer_binding(),
-        npc.grid_data.as_entire_buffer_binding(),
+        ent.positions.as_entire_buffer_binding(),
+        ent.factions.as_entire_buffer_binding(),
+        ent.healths.as_entire_buffer_binding(),
+        ent.grid_counts.as_entire_buffer_binding(),
+        ent.grid_data.as_entire_buffer_binding(),
     );
 
     let mut p0 = config.proj.clone(); p0.mode = 0;

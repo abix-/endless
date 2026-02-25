@@ -1042,6 +1042,7 @@ pub struct LoadNpcTracking<'w> {
     pub tilemap_spawned: ResMut<'w, crate::render::TilemapSpawned>,
     pub building_hp_render: ResMut<'w, BuildingHpRender>,
     pub healing_cache: ResMut<'w, HealingZoneCache>,
+    pub bld_gpu_state: ResMut<'w, crate::gpu::BuildingGpuState>,
 }
 
 // ============================================================================
@@ -1385,6 +1386,8 @@ pub fn load_game_system(
     *tracking.combat_log = Default::default();
     *tracking.gpu_state = Default::default();
     *tracking.building_hp_render = Default::default();
+    *tracking.building_alloc = Default::default();
+    *tracking.bld_gpu_state = Default::default();
     *tracking.dirty = DirtyFlags::default();
     tracking.tilemap_spawned.0 = false; // Force tilemap rebuild with new terrain
 

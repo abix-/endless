@@ -2,9 +2,9 @@
 
 use bevy::prelude::*;
 use crate::components::*;
-use crate::constants::{TowerStats, ItemKind, building_def};
+use crate::constants::{ItemKind, building_def};
 use crate::messages::{GpuUpdate, GpuUpdateMsg, DamageMsg, BuildingDamageMsg, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, TowerKindState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
+use crate::resources::{CombatDebug, GpuReadState, ProjSlotAllocator, ProjHitState, TowerState, SystemTimings, CombatLog, CombatEventKind, GameTime, NpcEntityMap, NpcMetaCache};
 use crate::systems::stats::{TownUpgrades, resolve_town_tower_stats};
 use crate::systemparams::WorldState;
 use crate::gpu::ProjBufferWrites;
@@ -315,26 +315,30 @@ pub fn attack_system(
 }
 
 /// Process GPU projectile hits: convert to DamageMsg or BuildingDamageMsg events and recycle slots.
-/// Building hits are detected by the GPU collision pipeline (buildings occupy NPC slots with speed=0).
-/// Runs before attack_system so freed slots can be reused for new projectiles.
+/// Entity buffer layout: [0..npc_count] = NPCs, [npc_count..entity_count] = buildings.
+/// hit_idx >= npc_count means building hit, routed via BuildingEntityMap.
 pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
+    mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
+    slots: Res<crate::resources::SlotAllocator>,
+    bmap: Res<BuildingEntityMap>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_proj_hits");
+    let npc_count = slots.count();
     let max_slot = proj_alloc.next.min(hit_state.0.len());
     for (slot, hit) in hit_state.0[..max_slot].iter().enumerate() {
         if slot < proj_writes.active.len() && proj_writes.active[slot] == 0 {
             continue;
         }
 
-        let npc_idx = hit[0];
+        let hit_idx = hit[0];
         let processed = hit[1];
 
-        if npc_idx >= 0 && processed == 0 {
+        if hit_idx >= 0 && processed == 0 {
             let damage = if slot < proj_writes.damages.len() {
                 proj_writes.damages[slot]
             } else {
@@ -342,24 +346,38 @@ pub fn process_proj_hits(
             };
 
             if damage > 0.0 {
-                // Buildings are on separate GPU buffers now — all NPC-buffer hits are NPC hits
                 let shooter = if slot < proj_writes.shooters.len() {
                     proj_writes.shooters[slot]
                 } else {
                     -1
                 };
-                damage_events.write(DamageMsg {
-                    npc_index: npc_idx as usize,
-                    amount: damage,
-                    attacker: shooter,
-                });
+                let idx = hit_idx as usize;
+                if idx >= npc_count {
+                    // Building hit: entity index = npc_count + bld_slot
+                    let bld_slot = idx - npc_count;
+                    if let Some((kind, data_idx)) = bmap.get_building(bld_slot) {
+                        let attacker_faction = proj_writes.factions.get(slot).copied().unwrap_or(-1);
+                        building_damage_events.write(BuildingDamageMsg {
+                            kind, index: data_idx, amount: damage,
+                            attacker_faction,
+                            attacker: shooter,
+                        });
+                    }
+                } else {
+                    // NPC hit
+                    damage_events.write(DamageMsg {
+                        npc_index: idx,
+                        amount: damage,
+                        attacker: shooter,
+                    });
+                }
             }
 
             proj_alloc.free(slot);
             if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
                 queue.push(ProjGpuUpdate::Deactivate { idx: slot });
             }
-        } else if npc_idx == -2 {
+        } else if hit_idx == -2 {
             proj_alloc.free(slot);
             if let Ok(mut queue) = PROJ_GPU_UPDATE_QUEUE.lock() {
                 queue.push(ProjGpuUpdate::Deactivate { idx: slot });
@@ -369,56 +387,66 @@ pub fn process_proj_hits(
     hit_state.0.clear();
 }
 
-/// Shared tower loop: CPU-side nearest-enemy targeting, fire projectiles.
-/// Buildings are on separate GPU buffers, so tower targeting is done CPU-side
-/// by scanning NPC positions/factions (towers are few, so CPU iteration is fine).
-fn fire_towers(
-    dt: f32,
-    npc_positions: &[f32],
-    npc_factions: &[i32],
-    npc_health: &[f32],
-    npc_count: usize,
-    proj_alloc: &mut ProjSlotAllocator,
-    state: &mut TowerKindState,
-    buildings: &[(Vec2, i32, TowerStats, BuildingKind)],
+/// Building tower auto-attack: reads GPU combat_targets readback for tower building slots.
+/// GPU spatial grid targeting finds nearest enemy — same path as NPC targeting.
+/// Entity index for tower = npc_count + building_slot.
+pub fn building_tower_system(
+    time: Res<Time>,
+    game_time: Res<GameTime>,
+    gpu_state: Res<GpuReadState>,
+    world_data: Res<WorldData>,
+    upgrades: Res<TownUpgrades>,
+    slots: Res<crate::resources::SlotAllocator>,
+    bmap: Res<BuildingEntityMap>,
+    mut tower: ResMut<TowerState>,
+    mut proj_alloc: ResMut<ProjSlotAllocator>,
+    timings: Res<SystemTimings>,
 ) {
-    for (i, &(pos, faction, stats, _kind)) in buildings.iter().enumerate() {
-        if i >= state.attack_enabled.len() || !state.attack_enabled[i] { continue; }
+    let _t = timings.scope("building_tower");
+    let dt = game_time.delta(&time);
+    let npc_count = slots.count();
+
+    // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
+    while tower.town.timers.len() < world_data.towns.len() {
+        tower.town.timers.push(0.0);
+        tower.town.attack_enabled.push(false);
+    }
+    for (i, town) in world_data.towns.iter().enumerate() {
+        if i < tower.town.attack_enabled.len() {
+            tower.town.attack_enabled[i] = is_alive(town.center);
+        }
+    }
+
+    for (i, town) in world_data.towns.iter().enumerate() {
+        if i >= tower.town.attack_enabled.len() || !tower.town.attack_enabled[i] { continue; }
 
         // Decrement cooldown
-        if i < state.timers.len() && state.timers[i] > 0.0 {
-            state.timers[i] = (state.timers[i] - dt).max(0.0);
-            if state.timers[i] > 0.0 { continue; }
+        if i < tower.town.timers.len() && tower.town.timers[i] > 0.0 {
+            tower.town.timers[i] = (tower.town.timers[i] - dt).max(0.0);
+            if tower.town.timers[i] > 0.0 { continue; }
         }
 
-        // CPU-side: find nearest enemy NPC within range
-        let range_sq = stats.range * stats.range;
-        let mut best_dist_sq = f32::MAX;
-        let mut best_target: Option<usize> = None;
+        let stats = resolve_town_tower_stats(&upgrades.town_levels(i));
+        let pos = town.center;
+        let faction = town.faction;
 
-        for j in 0..npc_count {
-            let jf = npc_factions.get(j).copied().unwrap_or(-1);
-            if jf < 0 || jf == faction { continue; }
-            let jh = npc_health.get(j).copied().unwrap_or(0.0);
-            if jh <= 0.0 { continue; }
-            let jx = npc_positions.get(j * 2).copied().unwrap_or(-9999.0);
-            let jy = npc_positions.get(j * 2 + 1).copied().unwrap_or(-9999.0);
-            if jx < -9000.0 { continue; }
-            let dx = jx - pos.x;
-            let dy = jy - pos.y;
-            let d2 = dx * dx + dy * dy;
-            if d2 < best_dist_sq && d2 <= range_sq {
-                best_dist_sq = d2;
-                best_target = Some(j);
-            }
-        }
+        // Look up tower building slot via BuildingEntityMap (Fountain is the tower building)
+        let bld_slot = bmap.get_slot(BuildingKind::Fountain, i);
+        let Some(bld_slot) = bld_slot else { continue };
 
-        let Some(target) = best_target else { continue };
-        let tx = npc_positions[target * 2];
-        let ty = npc_positions[target * 2 + 1];
+        // Read GPU combat_targets for this tower's entity index
+        let entity_idx = npc_count + bld_slot;
+        let target = gpu_state.combat_targets.get(entity_idx).copied().unwrap_or(-1);
+        if target < 0 || target as usize >= npc_count { continue; } // only target NPCs
+
+        let ti = target as usize;
+        let tx = gpu_state.positions.get(ti * 2).copied().unwrap_or(-9999.0);
+        let ty = gpu_state.positions.get(ti * 2 + 1).copied().unwrap_or(-9999.0);
+        if tx < -9000.0 { continue; }
+
         let dx = tx - pos.x;
         let dy = ty - pos.y;
-        let dist = best_dist_sq.sqrt();
+        let dist = (dx * dx + dy * dy).sqrt();
 
         if dist > 1.0 {
             if let Some(proj_slot) = proj_alloc.alloc() {
@@ -438,49 +466,10 @@ fn fire_towers(
                 }
             }
         }
-        if i < state.timers.len() {
-            state.timers[i] = stats.cooldown;
+        if i < tower.town.timers.len() {
+            tower.town.timers[i] = stats.cooldown;
         }
     }
-}
-
-/// Building tower auto-attack: tower buildings fire at nearby enemies using GPU combat targets.
-pub fn building_tower_system(
-    time: Res<Time>,
-    game_time: Res<GameTime>,
-    gpu_state: Res<GpuReadState>,
-    world_data: Res<WorldData>,
-    upgrades: Res<TownUpgrades>,
-    slots: Res<crate::resources::SlotAllocator>,
-    mut tower: ResMut<TowerState>,
-    mut proj_alloc: ResMut<ProjSlotAllocator>,
-    timings: Res<SystemTimings>,
-) {
-    let _t = timings.scope("building_tower");
-    let dt = game_time.delta(&time);
-
-    // --- Towns: sync state, refresh enabled from sprite_type == 0 (fountain) every tick ---
-    while tower.town.timers.len() < world_data.towns.len() {
-        tower.town.timers.push(0.0);
-        tower.town.attack_enabled.push(false);
-    }
-    for (i, town) in world_data.towns.iter().enumerate() {
-        if i < tower.town.attack_enabled.len() {
-            tower.town.attack_enabled[i] = is_alive(town.center);
-        }
-    }
-    let town_buildings: Vec<_> = world_data.towns.iter().enumerate()
-        .map(|(i, t)| {
-            let levels = upgrades.town_levels(i);
-            let kind = BuildingKind::Fountain;
-            (t.center, t.faction, resolve_town_tower_stats(&levels), kind)
-        })
-        .collect();
-
-    let npc_count = slots.count();
-    fire_towers(dt, &gpu_state.positions, &gpu_state.factions, &gpu_state.health,
-        npc_count, &mut proj_alloc,
-        &mut tower.town, &town_buildings);
 }
 
 /// Process building damage messages: decrement HP, destroy when HP reaches 0.

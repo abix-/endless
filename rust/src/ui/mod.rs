@@ -241,6 +241,8 @@ fn game_load_system(
 
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
     *tracking.dirty = DirtyFlags::default();
+    *tracking.building_alloc = Default::default();
+    *tracking.bld_gpu_state = Default::default();
     *mining_policy = MiningPolicy::default();
 
     // Load building instances from save → BuildingEntityMap
@@ -1312,6 +1314,7 @@ struct CleanupWorld<'w> {
     gpu_state: ResMut<'w, GpuReadState>,
     render_config: ResMut<'w, crate::gpu::RenderFrameConfig>,
     npc_gpu_state: ResMut<'w, crate::gpu::NpcGpuState>,
+    bld_gpu_state: ResMut<'w, crate::gpu::BuildingGpuState>,
     npc_visual_upload: ResMut<'w, crate::gpu::NpcVisualUpload>,
     proj_buffer_writes: ResMut<'w, crate::gpu::ProjBufferWrites>,
     game_time: ResMut<'w, GameTime>,
@@ -1400,6 +1403,7 @@ fn game_cleanup_system(
     world.render_config.npc = Default::default();
     world.render_config.proj = Default::default();
     *world.npc_gpu_state = Default::default();
+    *world.bld_gpu_state = Default::default();
     *world.npc_visual_upload = Default::default();
     *world.proj_buffer_writes = Default::default();
 

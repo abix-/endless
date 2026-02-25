@@ -3,8 +3,8 @@
 // =============================================================================
 // 3-pass dispatch per frame:
 //   Mode 0: Clear spatial grid
-//   Mode 1: Build spatial grid (insert NPCs into cells)
-//   Mode 2: Separation + movement + combat targeting via grid
+//   Mode 1: Build spatial grid (insert all entities into cells)
+//   Mode 2: Movement (NPCs) + combat targeting (NPCs + towers) via grid
 
 struct Params {
     count: u32,
@@ -24,6 +24,7 @@ struct Params {
     tile_grid_width: u32,
     tile_grid_height: u32,
     tile_cell_size: f32,
+    entity_count: u32,
 }
 
 // Storage buffers matching Rust bind group layout
@@ -46,19 +47,21 @@ struct Params {
 @group(0) @binding(14) var<storage, read> proj_velocities: array<vec2<f32>>;
 @group(0) @binding(15) var<storage, read> proj_factions: array<i32>;
 
-// Threat assessment output: packed (enemies << 16 | allies) per NPC
+// Threat assessment output: packed (enemies << 16 | allies) per entity
 @group(0) @binding(16) var<storage, read_write> threat_counts: array<u32>;
 
-// NPC flags: bit 0 = combat scan enabled (archers/raiders/waypoints)
-@group(0) @binding(17) var<storage, read> npc_flags: array<u32>;
+// Entity flags: bit 0 = combat scan enabled, bit 1 = building
+@group(0) @binding(17) var<storage, read> entity_flags: array<u32>;
 
 // Tile flags: 1 u32 per world grid cell, bitfield for tile modifiers
-// Bit 0: TILE_ROAD (1.5x speed)
 @group(0) @binding(18) var<storage, read> tile_flags: array<u32>;
 const TILE_ROAD: u32 = 32u;  // bit 5
 const TILE_WALL: u32 = 64u;  // bit 6 — blocks enemy faction NPCs
 const WALL_FACTION_SHIFT: u32 = 8u;  // bits 8-11 encode wall owner faction
 const WALL_FACTION_MASK: u32 = 0xFu;
+
+// Entity type flags
+const ENTITY_BUILDING: u32 = 2u;  // bit 1: skip separation/NPC targeting
 
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -75,13 +78,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // =========================================================================
-    // MODE 1: Build spatial grid (insert NPCs into cells)
+    // MODE 1: Build spatial grid (insert all entities — NPCs + buildings)
     // =========================================================================
     if (params.mode == 1u) {
-        if (i >= params.count) { return; }
+        if (i >= params.entity_count) { return; }
         let pos = positions[i];
 
-        // Skip hidden/dead NPCs
+        // Skip hidden/dead entities
         if (pos.x < -9000.0) { return; }
 
         let cx = i32(pos.x / params.cell_size);
@@ -102,28 +105,48 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // =========================================================================
-    // MODE 2: Separation + Movement + Combat Targeting
+    // MODE 2: Movement (NPCs) + Combat Targeting (NPCs + towers)
     // =========================================================================
-    if (i >= params.count) { return; }
+    if (i >= params.entity_count) { return; }
 
     var pos = positions[i];
-    let goal = goals[i];
     var speed = speeds[i];
-    var settled = arrivals[i];
-    var my_backoff = backoff[i];
 
-    // Skip dead/hidden NPCs
+    // Skip dead/hidden entities
     if (pos.x < -9000.0) {
         combat_targets[i] = -1;
         threat_counts[i] = 0u;
         return;
     }
 
+    let my_faction = factions[i];
+    let my_flags = entity_flags[i];
+    let is_building = (my_flags & ENTITY_BUILDING) != 0u;
+    let needs_combat = (my_flags & 1u) != 0u;
+
+    // Buildings without combat scan: early return (no movement, no targeting)
+    if (is_building && !needs_combat) {
+        combat_targets[i] = -1;
+        threat_counts[i] = 0u;
+        return;
+    }
+
+    // Grid constants (shared by movement + combat targeting)
+    let gw = i32(params.grid_width);
+    let gh = i32(params.grid_height);
+    let mpc = i32(params.max_per_cell);
+
+    // --- Movement, separation, dodge (only for moving NPCs, speed > 0) ---
+    if (speed > 0.0) {
+    let goal = goals[i];
+    var settled = arrivals[i];
+    var my_backoff = backoff[i];
+
     // Tile: pre-compute road status (reused by speed bonus, collision bypass, attraction)
     var my_on_road = false;
     var my_tcol = 0u;
     var my_trow = 0u;
-    if (speed > 0.0 && params.tile_cell_size > 0.0) {
+    if (params.tile_cell_size > 0.0) {
         my_tcol = u32(pos.x / params.tile_cell_size);
         my_trow = u32(pos.y / params.tile_cell_size);
         if (my_tcol < params.tile_grid_width && my_trow < params.tile_grid_height) {
@@ -135,22 +158,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    // Grid constants (shared by movement + combat targeting)
-    let gw = i32(params.grid_width);
-    let gh = i32(params.grid_height);
-    let mpc = i32(params.max_per_cell);
-    let my_faction = factions[i];
-
-    // Buildings (speed=0): skip movement. Towers (bit 1) continue to combat targeting.
-    let is_tower = (npc_flags[i] & 2u) != 0u;
-    if (speed == 0.0 && !is_tower) {
-        combat_targets[i] = -1;
-        threat_counts[i] = 0u;
-        return;
-    }
-
-    // --- Movement, separation, dodge (only for moving NPCs, not towers) ---
-    if (speed > 0.0) {
     let to_goal = goal - pos;
     let dist_to_goal = length(to_goal);
     let wants_goal = settled == 0;
@@ -190,10 +197,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             for (var n: i32 = 0; n < cell_count; n++) {
                 let j = grid_data[cell_base + n];
                 if (j == i32(i)) { continue; }
-                if (j < 0 || u32(j) >= params.count) { continue; }
+                if (j < 0 || u32(j) >= params.entity_count) { continue; }
 
                 let other_pos = positions[j];
-                if (speeds[j] == 0.0) { continue; }  // Skip buildings (collision-only)
+                if ((entity_flags[j] & ENTITY_BUILDING) != 0u) { continue; }  // skip buildings in separation
                 var diff = pos - other_pos;
                 let dist_sq = dot(diff, diff);
                 let neighbor_settled = arrivals[j];
@@ -451,6 +458,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     } // end if (speed > 0.0)
 
     // --- Combat targeting + threat assessment via spatial grid ---
+    // Runs for NPCs (speed>0) and towers (building + combat flag).
     // Uses wider search radius than separation (combat_range >> separation_radius)
     // Threat assessment piggybacks on this scan (threat_radius <= combat_range)
 
@@ -460,7 +468,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    let needs_combat = (npc_flags[i] & 1u) != 0u;
     let scan_range = select(params.threat_radius, params.combat_range, needs_combat);
     let range_sq = scan_range * scan_range;
     let threat_radius_sq = params.threat_radius * params.threat_radius;
@@ -489,11 +496,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let other3 = grid_data[cell_idx3 * mpc + n3];
 
                 if (other3 < 0 || other3 == i32(i)) { continue; }
-                if (u32(other3) >= params.count) { continue; }
+                if (u32(other3) >= params.entity_count) { continue; }
 
                 let other_hp = healths[other3];
                 if (other_hp <= 0.0) { continue; }
-                if (speeds[other3] == 0.0) { continue; } // Skip buildings (collision-only)
+                if ((entity_flags[other3] & ENTITY_BUILDING) != 0u) { continue; }  // skip buildings as targets
 
                 let other_pos3 = positions[other3];
                 let diff3 = pos - other_pos3;

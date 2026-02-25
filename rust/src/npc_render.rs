@@ -42,8 +42,9 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-use crate::constants::MAX_NPC_COUNT;
-use crate::gpu::{NpcGpuState, NpcGpuBuffers, NpcVisualUpload, ProjBufferWrites, ProjGpuBuffers, RenderFrameConfig};
+use crate::constants::{MAX_NPC_COUNT, ENTITY_FLAG_BUILDING, ENTITY_FLAG_COMBAT};
+use crate::gpu::{NpcGpuState, BuildingGpuState, EntityGpuBuffers, NpcVisualUpload, ProjBufferWrites, ProjGpuBuffers, RenderFrameConfig};
+use crate::resources::BuildingSlots;
 use crate::render::{CameraState, MainCamera};
 
 // =============================================================================
@@ -745,9 +746,11 @@ fn write_dirty_i32(queue: &RenderQueue, buf: &Buffer, data: &[i32], indices: &[u
 /// Zero-clone NPC extract: reads main world via Extract<Res<T>>, writes directly to GPU.
 fn extract_npc_data(
     gpu_state: Extract<Res<NpcGpuState>>,
+    bld_state: Extract<Res<BuildingGpuState>>,
+    bld_slots: Extract<Res<BuildingSlots>>,
     config: Extract<Res<RenderFrameConfig>>,
     visual_upload: Extract<Res<NpcVisualUpload>>,
-    gpu_buffers: Option<Res<NpcGpuBuffers>>,
+    gpu_buffers: Option<Res<EntityGpuBuffers>>,
     visual_buffers: Option<Res<NpcVisualBuffers>>,
     render_queue: Res<RenderQueue>,
 ) {
@@ -767,10 +770,43 @@ fn extract_npc_data(
         if gpu_state.dirty_speeds    { write_bulk(&render_queue, &gpu_bufs.speeds, &gpu_state.speeds, n); }
         if gpu_state.dirty_factions  { write_bulk(&render_queue, &gpu_bufs.factions, &gpu_state.factions, n); }
         if gpu_state.dirty_healths   { write_bulk(&render_queue, &gpu_bufs.healths, &gpu_state.healths, n); }
-        if gpu_state.dirty_flags     { write_bulk(&render_queue, &gpu_bufs.npc_flags, &gpu_state.npc_flags, n); }
+        if gpu_state.dirty_flags     { write_bulk(&render_queue, &gpu_bufs.entity_flags, &gpu_state.npc_flags, n); }
         // Road flags: upload when present (rebuilt when roads change)
         if !config.tile_flags.is_empty() {
             render_queue.write_buffer(&gpu_bufs.tile_flags, 0, bytemuck::cast_slice(&config.tile_flags));
+        }
+
+        // --- Append building data at offset npc_count into entity buffers ---
+        let bc = bld_slots.count();
+        let bld = &*bld_state;
+        if bld.dirty_positions {
+            for &idx in &bld.position_dirty_indices {
+                if idx * 2 + 1 < bld.positions.len() {
+                    let dst_byte = ((n + idx) * 2 * 4) as u64;
+                    render_queue.write_buffer(&gpu_bufs.positions, dst_byte,
+                        bytemuck::cast_slice(&bld.positions[idx * 2..idx * 2 + 2]));
+                }
+            }
+        }
+        if bld.dirty_factions && bc > 0 {
+            render_queue.write_buffer(&gpu_bufs.factions, (n * 4) as u64,
+                bytemuck::cast_slice(&bld.factions[..bc]));
+        }
+        if bld.dirty_healths && bc > 0 {
+            render_queue.write_buffer(&gpu_bufs.healths, (n * 4) as u64,
+                bytemuck::cast_slice(&bld.healths[..bc]));
+        }
+        // Map building flags to entity_flags: all buildings get ENTITY_FLAG_BUILDING,
+        // towers (flag bit 0 set in building flags) also get ENTITY_FLAG_COMBAT
+        if (bld.dirty_flags || bld.dirty_positions) && bc > 0 {
+            let bld_entity_flags: Vec<u32> = bld.flags[..bc].iter()
+                .map(|&f| {
+                    let mut ef = ENTITY_FLAG_BUILDING;
+                    if f & 1 != 0 { ef |= ENTITY_FLAG_COMBAT; }
+                    ef
+                }).collect();
+            render_queue.write_buffer(&gpu_bufs.entity_flags, (n * 4) as u64,
+                bytemuck::cast_slice(&bld_entity_flags));
         }
     }
 
@@ -894,7 +930,7 @@ fn prepare_npc_buffers(
     render_queue: Res<RenderQueue>,
     pipeline: Option<Res<NpcPipeline>>,
     pipeline_cache: Res<PipelineCache>,
-    gpu_buffers: Option<Res<NpcGpuBuffers>>,
+    gpu_buffers: Option<Res<EntityGpuBuffers>>,
     existing_render: Option<ResMut<NpcRenderBuffers>>,
     existing_visual: Option<ResMut<NpcVisualBuffers>>,
 ) {
