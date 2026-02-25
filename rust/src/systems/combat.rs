@@ -59,6 +59,7 @@ pub fn attack_system(
     mut query: Query<(Entity, &NpcIndex, &CachedStats, &mut AttackTimer, &Faction, &mut CombatState, &Activity, &Job, Option<&ManualTarget>, Option<&SquadId>), Without<Dead>>,
     mut gpu_updates: MessageWriter<GpuUpdateMsg>,
     mut damage_events: MessageWriter<DamageMsg>,
+    mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut debug: ResMut<CombatDebug>,
     gpu_state: Res<GpuReadState>,
     npc_map: Res<NpcEntityMap>,
@@ -143,7 +144,7 @@ pub fn attack_system(
             let (x, y) = (positions[i * 2], positions[i * 2 + 1]);
             if x < -9000.0 { continue; } // dead/hidden
 
-            if let Some((_bkind, _bidx, bpos)) = world::find_nearest_enemy_building(
+            if let Some((bkind, bidx, bpos)) = world::find_nearest_enemy_building(
                 Vec2::new(x, y), &bmap, faction.0, job_id, cached.range,
             ) {
                 // In range and cooldown ready — fire at building
@@ -154,6 +155,7 @@ pub fn attack_system(
                     if dist > 1.0 {
                         // Stand ground while shooting building
                         gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetTarget { idx: i, x, y }));
+                        // Spawn visual projectile (no GPU collision with buildings)
                         if let Some(proj_slot) = proj_alloc.alloc() {
                             let dir_x = dx / dist;
                             let dir_y = dy / dist;
@@ -163,13 +165,21 @@ pub fn attack_system(
                                     x, y,
                                     vx: dir_x * cached.projectile_speed,
                                     vy: dir_y * cached.projectile_speed,
-                                    damage: cached.damage,
+                                    damage: 0.0, // visual only — damage applied directly below
                                     faction: faction.0,
                                     shooter: i as i32,
                                     lifetime: cached.projectile_lifetime,
                                 });
                             }
                         }
+                        // Apply building damage directly (buildings not in NPC GPU buffer)
+                        building_damage_events.write(BuildingDamageMsg {
+                            kind: bkind,
+                            index: bidx,
+                            amount: cached.damage,
+                            attacker_faction: faction.0,
+                            attacker: i as i32,
+                        });
                         timer.0 = cached.cooldown;
                         attacks += 1;
                     }
@@ -309,11 +319,9 @@ pub fn attack_system(
 /// Runs before attack_system so freed slots can be reused for new projectiles.
 pub fn process_proj_hits(
     mut damage_events: MessageWriter<DamageMsg>,
-    mut building_damage_events: MessageWriter<BuildingDamageMsg>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     proj_writes: Res<ProjBufferWrites>,
     mut hit_state: ResMut<ProjHitState>,
-    building_map: Res<BuildingEntityMap>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("process_proj_hits");
@@ -334,30 +342,17 @@ pub fn process_proj_hits(
             };
 
             if damage > 0.0 {
-                // Check if the hit slot is a building
-                let building_hit = building_map.get_building(npc_idx as usize);
-                if let Some((kind, index)) = building_hit {
-                    let attacker_faction = if slot < proj_writes.factions.len() {
-                        proj_writes.factions[slot]
-                    } else { 0 };
-                    let attacker = if slot < proj_writes.shooters.len() {
-                        proj_writes.shooters[slot]
-                    } else { -1 };
-                    building_damage_events.write(BuildingDamageMsg {
-                        kind, index, amount: damage, attacker_faction, attacker,
-                    });
+                // Buildings are on separate GPU buffers now — all NPC-buffer hits are NPC hits
+                let shooter = if slot < proj_writes.shooters.len() {
+                    proj_writes.shooters[slot]
                 } else {
-                    let shooter = if slot < proj_writes.shooters.len() {
-                        proj_writes.shooters[slot]
-                    } else {
-                        -1
-                    };
-                    damage_events.write(DamageMsg {
-                        npc_index: npc_idx as usize,
-                        amount: damage,
-                        attacker: shooter,
-                    });
-                }
+                    -1
+                };
+                damage_events.write(DamageMsg {
+                    npc_index: npc_idx as usize,
+                    amount: damage,
+                    attacker: shooter,
+                });
             }
 
             proj_alloc.free(slot);
@@ -374,19 +369,21 @@ pub fn process_proj_hits(
     hit_state.0.clear();
 }
 
-/// Shared tower loop: for each building with attack enabled, check GPU combat target, fire projectile.
+/// Shared tower loop: CPU-side nearest-enemy targeting, fire projectiles.
+/// Buildings are on separate GPU buffers, so tower targeting is done CPU-side
+/// by scanning NPC positions/factions (towers are few, so CPU iteration is fine).
 fn fire_towers(
     dt: f32,
-    positions: &[f32],
-    combat_targets: &[i32],
-    building_slots: &BuildingEntityMap,
+    npc_positions: &[f32],
+    npc_factions: &[i32],
+    npc_health: &[f32],
+    npc_count: usize,
     proj_alloc: &mut ProjSlotAllocator,
     state: &mut TowerKindState,
     buildings: &[(Vec2, i32, TowerStats, BuildingKind)],
 ) {
-    for (i, &(pos, faction, stats, kind)) in buildings.iter().enumerate() {
+    for (i, &(pos, faction, stats, _kind)) in buildings.iter().enumerate() {
         if i >= state.attack_enabled.len() || !state.attack_enabled[i] { continue; }
-        let Some(slot) = building_slots.get_slot(kind, i) else { continue };
 
         // Decrement cooldown
         if i < state.timers.len() && state.timers[i] > 0.0 {
@@ -394,21 +391,35 @@ fn fire_towers(
             if state.timers[i] > 0.0 { continue; }
         }
 
-        // Read GPU combat_targets for nearest enemy
-        let target_idx = combat_targets.get(slot).copied().unwrap_or(-1);
-        if target_idx < 0 { continue; }
-        let target = target_idx as usize;
+        // CPU-side: find nearest enemy NPC within range
+        let range_sq = stats.range * stats.range;
+        let mut best_dist_sq = f32::MAX;
+        let mut best_target: Option<usize> = None;
 
-        let tx = positions.get(target * 2).copied().unwrap_or(-9999.0);
-        let ty = positions.get(target * 2 + 1).copied().unwrap_or(-9999.0);
-        if tx < -9000.0 { continue; }
+        for j in 0..npc_count {
+            let jf = npc_factions.get(j).copied().unwrap_or(-1);
+            if jf < 0 || jf == faction { continue; }
+            let jh = npc_health.get(j).copied().unwrap_or(0.0);
+            if jh <= 0.0 { continue; }
+            let jx = npc_positions.get(j * 2).copied().unwrap_or(-9999.0);
+            let jy = npc_positions.get(j * 2 + 1).copied().unwrap_or(-9999.0);
+            if jx < -9000.0 { continue; }
+            let dx = jx - pos.x;
+            let dy = jy - pos.y;
+            let d2 = dx * dx + dy * dy;
+            if d2 < best_dist_sq && d2 <= range_sq {
+                best_dist_sq = d2;
+                best_target = Some(j);
+            }
+        }
 
+        let Some(target) = best_target else { continue };
+        let tx = npc_positions[target * 2];
+        let ty = npc_positions[target * 2 + 1];
         let dx = tx - pos.x;
         let dy = ty - pos.y;
-        let dist_sq = dx * dx + dy * dy;
-        if dist_sq > stats.range * stats.range { continue; }
+        let dist = best_dist_sq.sqrt();
 
-        let dist = dist_sq.sqrt();
         if dist > 1.0 {
             if let Some(proj_slot) = proj_alloc.alloc() {
                 let dir_x = dx / dist;
@@ -440,7 +451,7 @@ pub fn building_tower_system(
     gpu_state: Res<GpuReadState>,
     world_data: Res<WorldData>,
     upgrades: Res<TownUpgrades>,
-    building_slots: Res<BuildingEntityMap>,
+    slots: Res<crate::resources::SlotAllocator>,
     mut tower: ResMut<TowerState>,
     mut proj_alloc: ResMut<ProjSlotAllocator>,
     timings: Res<SystemTimings>,
@@ -466,8 +477,9 @@ pub fn building_tower_system(
         })
         .collect();
 
-    fire_towers(dt, &gpu_state.positions, &gpu_state.combat_targets,
-        &building_slots, &mut proj_alloc,
+    let npc_count = slots.count();
+    fire_towers(dt, &gpu_state.positions, &gpu_state.factions, &gpu_state.health,
+        npc_count, &mut proj_alloc,
         &mut tower.town, &town_buildings);
 }
 
@@ -519,10 +531,9 @@ pub fn building_damage_system(
             game_time.day(), game_time.hour(), game_time.minute(),
             format!("{:?} in {} hit by {} for {:.0} ({:.0}/{:.0} HP)", msg.kind, town_name, attacker_name, msg.amount, new_hp, max_hp));
 
-        // GPU sync (damage flash + health bar)
+        // GPU sync (damage flash + health bar) — building buffer
         if let Some(slot) = world.building_slots.get_slot(msg.kind, msg.index) {
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetHealth { idx: slot, health: new_hp }));
-            gpu_updates.write(GpuUpdateMsg(GpuUpdate::SetDamageFlash { idx: slot, intensity: 1.0 }));
+            gpu_updates.write(GpuUpdateMsg(GpuUpdate::BldSetHealth { idx: slot, health: new_hp }));
         }
 
         if new_hp > 0.0 { continue; } // still alive
@@ -621,14 +632,14 @@ pub fn building_damage_system(
 /// Populate BuildingHpRender from building entity Health (only damaged buildings).
 pub fn sync_building_hp_render(
     query: Query<(&Building, &NpcIndex, &Health), Without<Dead>>,
-    gpu_state: Res<GpuReadState>,
+    bld_gpu_state: Res<crate::gpu::BuildingGpuState>,
     mut render: ResMut<crate::resources::BuildingHpRender>,
     timings: Res<SystemTimings>,
 ) {
     let _t = timings.scope("sync_hp_render");
     render.positions.clear();
     render.health_pcts.clear();
-    let positions = &gpu_state.positions;
+    let positions = &bld_gpu_state.positions;
     for (building, npc_idx, health) in query.iter() {
         let max_hp = crate::constants::building_def(building.kind).hp;
         if health.0 <= 0.0 || health.0 >= max_hp { continue; }

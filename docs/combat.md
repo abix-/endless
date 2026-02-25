@@ -41,11 +41,17 @@ DamageMsg (from process_proj_hits)             GPU movement
         │
         ▼
   death_cleanup_system
-  ├─ despawn entity
-  ├─ HideNpc → GPU (-9999)
-  ├─ Release AssignedFarm
-  ├─ Update FactionStats, KillStats, PopulationStats
-  └─ SlotAllocator.free(idx)
+  ├─ NPC branch:
+  │   ├─ despawn entity
+  │   ├─ HideNpc → GPU (-9999)
+  │   ├─ Release AssignedFarm
+  │   ├─ Update FactionStats, KillStats, PopulationStats
+  │   └─ SlotAllocator.free(idx)
+  └─ Building branch:
+      ├─ despawn entity
+      ├─ BldHide + BldSetHealth(0) → BuildingGpuState
+      ├─ Remove from BuildingEntityMap
+      └─ BuildingSlots.free(idx)
         │
         ▼
   sync_waypoint_slots
@@ -55,7 +61,7 @@ DamageMsg (from process_proj_hits)             GPU movement
         ▼
   building_tower_system
   (fountains via fire_towers,
-   read combat_targets[slot])
+   CPU-side nearest-enemy scan)
 ```
 
 attack_system fires projectiles via `PROJ_GPU_UPDATE_QUEUE` when in range, or applies point-blank damage for melee. The projectile system ([projectiles.md](projectiles.md)) handles movement, collision detection, hit readback, and slot recycling.
@@ -102,7 +108,7 @@ Execution order is **chained** — each system completes before the next starts.
   - **Archers/Crossbows**: target any enemy building type (except non-targetable)
   - "Enemy" = building faction != NPC faction (uses `BuildingRef.faction` field)
   - If found and cooldown ready: stand ground (SetTarget to own pos), fire projectile toward building position, reset cooldown
-  - Building damage is projectile-based: `process_proj_hits` checks active projectiles against `BuildingSpatialGrid` and sends `BuildingDamageMsg` on collision (see [projectiles.md](projectiles.md))
+  - Building damage is applied directly: `attack_system` emits `BuildingDamageMsg` immediately on cooldown-ready building attack. Projectile spawned with `damage: 0.0` (visual only — buildings are not in the NPC GPU buffer so no GPU collision possible).
   - NPCs don't chase buildings — pure attack of opportunity when nearby with nothing better to do
 
 ### 3. damage_system (health.rs)
@@ -143,6 +149,11 @@ Execution order is **chained** — each system completes before the next starts.
   7. Remove from `NpcsByTownCache`
   8. Deselect if `SelectedNpc` matches dying NPC (clears inspector panel)
   9. `SlotAllocator.free(idx)` — recycle slot for future spawns
+- **Building-specific cleanup** (detected via `Building` component):
+  1. Remove from `BuildingEntityMap` via `get_building(idx)` → `remove_by_building(kind, data_idx)`
+  2. `GpuUpdate::BldHide + BldSetHealth(0)` → BuildingGpuState
+  3. `BuildingSlots.free(idx)` — recycle building slot
+  4. Skip all NPC-specific logic (population stats, faction stats, etc.)
 
 ### 7. sync_waypoint_slots (combat.rs)
 
@@ -161,8 +172,8 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 - **TowerStats** struct in `constants.rs`: `range`, `damage`, `cooldown`, `proj_speed`, `proj_lifetime`
 - State length auto-syncs with building count each tick
 - **Fountains**: `FOUNTAIN_TOWER` (range=400, damage=15, cooldown=1.5s, proj_speed=350, proj_lifetime=1.5s). Always-on — `attack_enabled` refreshed from `is_alive(town.center)` every tick (all alive town centers shoot). Strong enough to defend spawn area.
-- GPU integration: `allocate_building_slot` sets `npc_flags = 3` (bit 0 = combat scan, bit 1 = tower) for fountain buildings. Shader skips movement for towers but runs combat targeting → `combat_targets[slot]` populated by GPU.
-- `fire_towers()` loop: for each enabled building, reads `GpuReadState.combat_targets[slot]` (O(1) GPU targeting), validates range, fires `ProjGpuUpdate::Spawn` with `shooter: -1`
+- **CPU-side targeting**: Buildings are no longer in the NPC GPU buffer. `fire_towers()` scans NPC positions/factions/health arrays from `GpuReadState` directly (CPU brute-force over `npc_count` slots). For each enabled tower, finds nearest enemy NPC within range (different faction, health > 0, position not hidden). Buildings are few (~10-50 towers), so O(towers × npcs) is acceptable.
+- `fire_towers()` loop: for each enabled building, CPU finds nearest enemy NPC, validates range, fires `ProjGpuUpdate::Spawn` with `shooter: -1`
 - DRY: adding a new tower building kind requires a `TowerStats` const, a `TowerKindState` field in `TowerState`, and a block in `building_tower_system`. `Building::is_tower()` and the shader handle the rest.
 
 ### 9. building_damage_system (combat.rs, Step::Behavior)
@@ -171,7 +182,7 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 - Decrements entity `Health` component on the building entity (looked up via `BuildingEntityMap.get_entity_by_building(kind, idx)` → entity)
 - Looks up position/town via `BuildingEntityMap::get_instance(slot)` (position + town_idx from `BuildingInstance`)
 - Sets `DirtyFlags.buildings_need_healing` when a building survives damage (hp > 0)
-- Syncs HP to GPU: writes `GpuUpdate::SetHealth` with new HP
+- Syncs HP to GPU: writes `GpuUpdate::BldSetHealth` with new HP (routed to `BuildingGpuState`)
 - Skips already-dead buildings (HP <= 0) and indestructible buildings (GoldMine, Road)
 - When HP reaches 0:
   1. Captures linked NPC slot from `SpawnerState` by position match **before** destroy (tombstoning changes position)
@@ -184,11 +195,18 @@ Generalized tower system for any building kind that auto-shoots. Uses a shared `
 ## Slot Recycling
 
 ```
-Spawn: SlotAllocator.alloc() ──▶ pop free list (or next++)
-                                        ▲
-Death: death_cleanup_system ────────────┘
-       SlotAllocator.free(idx)
+NPC Spawn:  SlotAllocator.alloc()  ──▶ pop free list (or next++)
+                                              ▲
+NPC Death:  death_cleanup_system  ────────────┘
+            SlotAllocator.free(idx)
+
+Building:   BuildingSlots.alloc()  ──▶ pop free list (or next++)
+                                              ▲
+Bld Death:  death_cleanup_system  ────────────┘
+            BuildingSlots.free(idx)
 ```
+
+NPCs and buildings use separate slot allocators (`SlotAllocator` max=100K, `BuildingSlots` max=5K) backed by a shared `SlotPool` inner type. This eliminates slot collisions that previously occurred when buildings and NPCs shared the same pool.
 
 Slots are raw `usize` indices without generational counters. This is safe because:
 1. Combat systems are **chained** — damage is applied and death is processed in the same frame
@@ -208,9 +226,9 @@ Slots are raw `usize` indices without generational counters. This is safe becaus
 | CPU → GPU | Chase target | `GpuUpdate::SetTarget` when out of attack range |
 | CPU → GPU | Fire projectile | `ProjGpuUpdate::Spawn` via `PROJ_GPU_UPDATE_QUEUE` (attack_system + building_tower_system + building attack fallback) |
 | CPU → GPU | Guard post slots | `sync_waypoint_slots` allocates NPC slots for waypoints, sets position/faction/speed=0/health=999/sprite=-1 |
-| CPU → GPU | Tower flags | `allocate_building_slot` sets `npc_flags = 3` (bits 0+1) for tower buildings (fountains). Shader runs combat targeting for these slots. |
-| CPU → GPU | Building HP sync | `building_damage_system` writes entity `Health` + `GpuUpdate::SetHealth` to sync building GPU slot HP after damage |
-| GPU | Building collision | Buildings occupy NPC GPU slots (speed=0, hidden sprite). Projectile compute shader detects hits via NPC spatial grid. `process_proj_hits` routes building slot hits to `BuildingDamageMsg` via `BuildingEntityMap.is_building()` / `.get_building()` lookup. |
+| CPU → GPU | Building HP sync | `building_damage_system` writes entity `Health` + `GpuUpdate::BldSetHealth` to sync building HP in `BuildingGpuState` |
+| CPU | Building targeting | `fire_towers()` scans NPC `GpuReadState.positions/factions/health` CPU-side (buildings no longer in NPC GPU buffer) |
+| CPU | Building damage | `attack_system` emits `BuildingDamageMsg` directly on building attack; projectile is visual-only (`damage: 0.0`) |
 
 ## Debug
 

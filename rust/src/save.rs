@@ -1035,6 +1035,7 @@ pub struct LoadNpcTracking<'w> {
     pub npc_meta: ResMut<'w, NpcMetaCache>,
     pub npcs_by_town: ResMut<'w, NpcsByTownCache>,
     pub slots: ResMut<'w, SlotAllocator>,
+    pub building_alloc: ResMut<'w, crate::resources::BuildingSlots>,
     pub combat_log: ResMut<'w, CombatLog>,
     pub gpu_state: ResMut<'w, GpuReadState>,
     pub dirty: ResMut<'w, DirtyFlags>,
@@ -1097,7 +1098,7 @@ pub fn convert_building_hp_to_slots(
 /// Handles backward compat: deserializes PlacedBuilding vecs, skips tombstoned (is_alive check).
 pub fn load_building_instances_from_save(
     save: &SaveData,
-    slot_alloc: &mut SlotAllocator,
+    slot_alloc: &mut crate::resources::BuildingSlots,
     building_map: &mut BuildingEntityMap,
     world_data: &WorldData,
     world_size_px: f32,
@@ -1401,7 +1402,7 @@ pub fn load_game_system(
 
     // 4. Load building instances from save data → BuildingEntityMap
     let world_size_px = ws.grid.width as f32 * ws.grid.cell_size;
-    load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &ws.world_data, world_size_px);
+    load_building_instances_from_save(&save, &mut tracking.building_alloc, &mut ws.building_slots, &ws.world_data, world_size_px);
     world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
 
     // 4b. Restore growth state from save data onto BuildingInstances

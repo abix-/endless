@@ -20,6 +20,7 @@ const TARGET_Y: f32 = 320.0;
 
 pub fn setup(
     mut slot_alloc: ResMut<SlotAllocator>,
+    mut building_alloc: ResMut<BuildingSlots>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
     mut building_slots: ResMut<BuildingEntityMap>,
@@ -53,7 +54,7 @@ pub fn setup(
     // Friendly vertical farm wall in projectile lane.
     for y in FARM_WALL_Y {
         let pos = Vec2::new(FARM_WALL_X, y);
-        world::place_building_instance(&mut slot_alloc, &mut building_slots, world::BuildingKind::Farm, pos, 0, 0, 0, 0);
+        world::place_building_instance(&mut building_alloc, &mut building_slots, world::BuildingKind::Farm, pos, 0, 0, 0, 0);
 
         let (gc, gr) = world_grid.world_to_grid(pos);
         if let Some(cell) = world_grid.cell_mut(gc, gr) {

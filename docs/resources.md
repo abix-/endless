@@ -11,9 +11,10 @@ Defined in: `rust/src/resources.rs`, `rust/src/world.rs`
 | Resource | Type | Writers | Readers |
 |----------|------|---------|---------|
 | NpcEntityMap | `HashMap<usize, Entity>` | spawn_npc_system, death_cleanup_system | damage_system (slot → entity lookup) |
-| SlotAllocator | `{ next, free: Vec }` | spawn_npc_system (alloc), death_cleanup_system (free) | GPU compute dispatch, UI, tests |
+| SlotAllocator | `SlotPool` wrapper (max=100K) | spawn_npc_system (alloc), death_cleanup_system (free) | GPU compute dispatch, UI, tests |
+| BuildingSlots | `SlotPool` wrapper (max=5K) | place_building_instance (alloc), death_cleanup_system (free) | Building GPU state, rendering |
 
-`SlotAllocator` uses LIFO free list — most recently freed slot is reused first. `next` is the high-water mark. Two query methods: `count()` returns high-water mark (for GPU dispatch bounds), `alive()` returns `next - free.len()` (for UI display). Single source of truth for all NPC counting. See [spawn.md](spawn.md).
+Both `SlotAllocator` and `BuildingSlots` wrap a shared `SlotPool` inner type with LIFO free list. `next` is the high-water mark. Two query methods: `count()` returns high-water mark, `alive()` returns `next - free.len()`. Separate allocators prevent slot collisions between NPCs and buildings. See [spawn.md](spawn.md).
 
 ## NPC UI Caches
 
@@ -140,10 +141,13 @@ Pushed via `GAME_CONFIG_STAGING` static. Drained by `drain_game_config` system.
 | Resource | Data | Status |
 |----------|------|--------|
 | GpuReadState | positions, combat_targets, health, factions, npc_count | Populated via staging buffer readback each frame |
+| BuildingGpuState | positions, factions, healths, sprite_indices, flash_values, flags + dirty tracking | CPU-side GPU state for buildings; populated by `Bld*` GpuUpdate variants; read by building rendering + healing system |
 | NpcSpriteTexture | handle (char atlas), world_handle (world atlas), extras_handle (extras atlas), building_handle (building atlas) | Shared with instanced renderer for texture bind group |
 | ProjSlotAllocator | next, free list, max (50,000) | Active — allocates projectile slots |
 
-`GpuReadState` is populated each frame by staging buffer readback. Used by combat systems, position sync, and test assertions.
+`GpuReadState` is populated each frame by staging buffer readback. Used by combat systems (including `fire_towers` for CPU-side tower targeting), position sync, and test assertions.
+
+`BuildingGpuState` holds building visual data on the CPU side — not uploaded to GPU compute. Building rendering reads from this state to build `BuildingBodyInstances` (instance buffer path). Building healing reads positions from this state.
 
 ## Stats & Upgrades
 
@@ -320,7 +324,7 @@ Both unlock slots when full (sets terrain to Dirt) and buy upgrades with surplus
 
 ## Building HP — Entity Health as Source of Truth
 
-Buildings are ECS entities with `Building` marker component + `Health` component (same as NPCs). There is no separate HP store — entity `Health` is the single source of truth. Lookup chain: `BuildingEntityMap.get_entity_by_building(kind, idx)` → entity → `Health`. Buildings are NOT in `NpcEntityMap` — they have their own `BuildingEntityMap` resource for all identity needs (slot ↔ entity ↔ building kind/index). Save/load serializes building HP as `HashMap<String, Vec<f32>>` (identical JSON format as the old `BuildingHpState`). `sync_building_hp_render` queries building entities to extract damaged building positions + HP fractions for GPU HP bar rendering.
+Buildings are ECS entities with `Building` marker component + `Health` component (same as NPCs). There is no separate HP store — entity `Health` is the single source of truth. Lookup chain: `BuildingEntityMap.get_entity_by_building(kind, idx)` → entity → `Health`. Buildings are NOT in `NpcEntityMap` — they have their own `BuildingEntityMap` resource for all identity needs (slot ↔ entity ↔ building kind/index). Buildings use a separate slot allocator (`BuildingSlots`, max=5K) from NPCs (`SlotAllocator`, max=100K), and a separate CPU-side GPU state (`BuildingGpuState`) for rendering. Save/load serializes building HP as `HashMap<String, Vec<f32>>` (identical JSON format as the old `BuildingHpState`). `sync_building_hp_render` queries building entities to extract damaged building positions + HP fractions for GPU HP bar rendering (reads positions from `BuildingGpuState`).
 
 ## Known Issues
 

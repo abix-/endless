@@ -58,7 +58,7 @@ Three message types used for intra-ECS communication:
 
 ## GPU Update Messages
 
-Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector system `collect_gpu_updates` runs after Step::Behavior and drains all messages into `GPU_UPDATE_QUEUE` with a single Mutex lock. Then `populate_gpu_state` (PostUpdate) drains the queue into `NpcGpuState` flat arrays with per-buffer dirty flags (7 bools: `dirty_positions`, `dirty_targets`, `dirty_speeds`, `dirty_factions`, `dirty_healths`, `dirty_arrivals`, `dirty_flags`). GPU-authoritative buffers (positions/arrivals) also track per-index dirty lists for sparse writes. `build_visual_upload` (chained after) packs ECS visual data into `NpcVisualUpload`. Both are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
+Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector system `collect_gpu_updates` runs after Step::Behavior and drains all messages into `GPU_UPDATE_QUEUE` with a single Mutex lock. Then `populate_gpu_state` (PostUpdate) drains the queue and routes updates: NPC variants go to `NpcGpuState` flat arrays with per-buffer dirty flags (7 bools: `dirty_positions`, `dirty_targets`, `dirty_speeds`, `dirty_factions`, `dirty_healths`, `dirty_arrivals`, `dirty_flags`); `Bld*` variants go to `BuildingGpuState` (positions, factions, healths, sprite_indices, flash_values, flags + dirty tracking). GPU-authoritative buffers (positions/arrivals) also track per-index dirty lists for sparse writes. `build_visual_upload` (chained after) packs ECS visual data into `NpcVisualUpload`. Both are read by `extract_npc_data` during Extract via `Extract<Res<T>>` (zero-clone) and written directly to GPU buffers.
 
 | Variant | Fields | Producer Systems |
 |---------|--------|------------------|
@@ -72,6 +72,14 @@ Systems emit `GpuUpdateMsg` via `MessageWriter<GpuUpdateMsg>`. The collector sys
 | SetSpriteFrame | idx, col, row, atlas | spawn_npc_system (atlas: 0.0=character, 1.0=world) |
 | SetDamageFlash | idx, intensity | damage_system (1.0 on hit, decays at 5.0/s in populate_gpu_state) |
 | SetFlags | idx, flags | spawn_npc_system, building slot allocation (bit 0: combat scan enabled) |
+| BldSetPosition | idx, x, y | place_building_instance (building GPU state) |
+| BldSetFaction | idx, faction | place_building_instance |
+| BldSetHealth | idx, health | place_building_instance, building_damage_system, healing_system |
+| BldSetSpriteFrame | idx, col, row, atlas | place_building_instance |
+| BldSetFlags | idx, flags | place_building_instance |
+| BldHide | idx | death_cleanup_system (building branch) |
+
+`Bld*` variants are routed to `BuildingGpuState` by `populate_gpu_state`. NPC variants are routed to `NpcGpuState`. Both share the same message queue (`GpuUpdateMsg`).
 
 **Removed (replaced by `build_visual_upload`):** SetColor, SetHealing, SetSleeping, SetEquipSprite — visual state is now derived from ECS components each frame by `build_visual_upload` (see [gpu-compute.md](gpu-compute.md)).
 
@@ -100,9 +108,13 @@ GPU readback statics (`GPU_READ_STATE`, `PROJ_HIT_STATE`, `PROJ_POSITION_STATE`)
 
 ## Slot Management
 
-`SlotAllocator` (Bevy Resource) manages NPC slot indices with an internal free list. Slots are allocated in `spawn_npc_system` and recycled in `death_cleanup_system`. LIFO reuse — most recently freed slot is allocated first.
+All three allocators share a `SlotPool` inner type (LIFO free list, high-water mark tracking) with type-safe Bevy Resource wrappers:
 
-`ProjSlotAllocator` (Bevy Resource) manages projectile slot indices with an internal free list. Slots are allocated in `attack_system` and recycled in `process_proj_hits` (on collision or expiry).
+`SlotAllocator` (NPC slots, max=100K) wraps `SlotPool`. Allocated in `spawn_npc_system`, recycled in `death_cleanup_system`.
+
+`BuildingSlots` (building slots, max=5K) wraps `SlotPool`. Allocated in `place_building_instance`, recycled in `death_cleanup_system` (building branch). Separate from NPC slots to prevent slot collisions.
+
+`ProjSlotAllocator` (projectile slots, max=50K) manages projectile slot indices. Allocated in `attack_system`, recycled in `process_proj_hits`.
 
 ## Bevy Resources for State
 

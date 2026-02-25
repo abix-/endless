@@ -32,7 +32,7 @@ use resources::{
     NpcEntityMap, PopulationStats, GameConfig, GameTime,
     HealthDebug, CombatDebug, KillStats, SelectedNpc,
     NpcMetaCache, NpcsByTownCache, NpcLogCache, FoodEvents,
-    ResetFlag, GpuReadState, SlotAllocator, ProjSlotAllocator,
+    ResetFlag, GpuReadState, SlotAllocator, BuildingSlots, ProjSlotAllocator,
     FoodStorage, GoldStorage, FactionStats, RaiderState, SystemTimings,
     DebugFlags, ProjHitState, ProjPositionState, UiState, CombatLog, BuildMenuContext,
     TowerState, FollowSelected, TownPolicies, SelectedBuilding,
@@ -218,6 +218,7 @@ pub fn build_app(app: &mut App) {
        .init_resource::<ProjHitState>()
        .init_resource::<ProjPositionState>()
        .init_resource::<SlotAllocator>()
+       .init_resource::<BuildingSlots>()
        .init_resource::<ProjSlotAllocator>()
        .init_resource::<FoodStorage>()
        .init_resource::<GoldStorage>()

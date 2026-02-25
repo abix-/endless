@@ -32,9 +32,9 @@ use bevy::{
 use std::borrow::Cow;
 
 use crate::components::{NpcIndex, Faction, Job, Healing, Activity, EquippedWeapon, EquippedHelmet, EquippedArmor, Dead};
-use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind};
+use crate::constants::{FOOD_SPRITE, GOLD_SPRITE, ItemKind, MAX_BUILDINGS};
 use crate::messages::{GpuUpdate, GPU_UPDATE_QUEUE, ProjGpuUpdate, PROJ_GPU_UPDATE_QUEUE};
-use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, SystemTimings};
+use crate::resources::{GameTime, GpuReadState, ProjHitState, ProjPositionState, SlotAllocator, BuildingSlots, SystemTimings};
 use crate::systems::stats::{self, TownUpgrades};
 use crate::world::WorldData;
 
@@ -272,6 +272,103 @@ impl NpcGpuState {
                     self.dirty_flags = true;
                 }
             }
+            // Building variants — handled by BuildingGpuState
+            GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
+            GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
+            GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldHide { .. } => {}
+        }
+    }
+}
+
+// =============================================================================
+// BUILDING GPU STATE (mirrors NpcGpuState but no movement/targeting buffers)
+// =============================================================================
+
+/// Persistent per-building GPU data. Buildings don't move or target, so no
+/// targets/speeds/arrivals/backoff. Same dirty-tracking pattern as NpcGpuState.
+#[derive(Resource)]
+pub struct BuildingGpuState {
+    pub positions: Vec<f32>,      // [x, y] per building, stride 2
+    pub factions: Vec<i32>,       // one per building
+    pub healths: Vec<f32>,        // one per building
+    pub sprite_indices: Vec<f32>, // [col, row, atlas, 0] per building, stride 4
+    pub flash_values: Vec<f32>,   // damage flash, one per building
+    pub flags: Vec<u32>,          // bit flags, one per building
+    // Dirty tracking
+    pub dirty_positions: bool,
+    pub dirty_factions: bool,
+    pub dirty_healths: bool,
+    pub dirty_flags: bool,
+    pub position_dirty_indices: Vec<usize>,
+}
+
+impl Default for BuildingGpuState {
+    fn default() -> Self {
+        let max = MAX_BUILDINGS;
+        Self {
+            positions: vec![-9999.0; max * 2],
+            factions: vec![-1; max],
+            healths: vec![0.0; max],
+            sprite_indices: vec![0.0; max * 4],
+            flash_values: vec![0.0; max],
+            flags: vec![0; max],
+            dirty_positions: false,
+            dirty_factions: false,
+            dirty_healths: false,
+            dirty_flags: false,
+            position_dirty_indices: Vec::new(),
+        }
+    }
+}
+
+impl BuildingGpuState {
+    pub fn apply(&mut self, update: &GpuUpdate) {
+        match update {
+            GpuUpdate::BldSetPosition { idx, x, y } => {
+                let i = *idx * 2;
+                if i + 1 < self.positions.len() {
+                    self.positions[i] = *x;
+                    self.positions[i + 1] = *y;
+                    self.dirty_positions = true;
+                    self.position_dirty_indices.push(*idx);
+                }
+            }
+            GpuUpdate::BldSetFaction { idx, faction } => {
+                if *idx < self.factions.len() {
+                    self.factions[*idx] = *faction;
+                    self.dirty_factions = true;
+                }
+            }
+            GpuUpdate::BldSetHealth { idx, health } => {
+                if *idx < self.healths.len() {
+                    self.healths[*idx] = *health;
+                    self.dirty_healths = true;
+                }
+            }
+            GpuUpdate::BldSetSpriteFrame { idx, col, row, atlas } => {
+                let i = *idx * 4;
+                if i + 3 < self.sprite_indices.len() {
+                    self.sprite_indices[i] = *col;
+                    self.sprite_indices[i + 1] = *row;
+                    self.sprite_indices[i + 2] = *atlas;
+                }
+            }
+            GpuUpdate::BldSetFlags { idx, flags } => {
+                if *idx < self.flags.len() {
+                    self.flags[*idx] = *flags;
+                    self.dirty_flags = true;
+                }
+            }
+            GpuUpdate::BldHide { idx } => {
+                let i = *idx * 2;
+                if i + 1 < self.positions.len() {
+                    self.positions[i] = -9999.0;
+                    self.positions[i + 1] = -9999.0;
+                    self.dirty_positions = true;
+                    self.position_dirty_indices.push(*idx);
+                }
+            }
+            _ => {} // NPC variants — not for us
         }
     }
 }
@@ -401,32 +498,64 @@ pub fn build_visual_upload(
     }
 }
 
-/// Drain GPU_UPDATE_QUEUE and apply updates to NpcGpuState.
+/// Drain GPU_UPDATE_QUEUE and apply updates to NpcGpuState + BuildingGpuState.
 /// Runs in main world each frame before extraction.
-pub fn populate_gpu_state(mut state: ResMut<NpcGpuState>, time: Res<Time>, slots: Res<SlotAllocator>, timings: Res<SystemTimings>) {
+pub fn populate_gpu_state(
+    mut npc_state: ResMut<NpcGpuState>,
+    mut bld_state: ResMut<BuildingGpuState>,
+    time: Res<Time>,
+    slots: Res<SlotAllocator>,
+    bld_slots: Res<BuildingSlots>,
+    timings: Res<SystemTimings>,
+) {
     let _t = timings.scope("populate_gpu");
-    // Reset per-buffer dirty flags + GPU-authoritative dirty indices
-    state.dirty_positions = false;
-    state.dirty_targets = false;
-    state.dirty_speeds = false;
-    state.dirty_factions = false;
-    state.dirty_healths = false;
-    state.dirty_arrivals = false;
-    state.dirty_flags = false;
-    state.position_dirty_indices.clear();
-    state.arrival_dirty_indices.clear();
+    // Reset NPC dirty flags
+    npc_state.dirty_positions = false;
+    npc_state.dirty_targets = false;
+    npc_state.dirty_speeds = false;
+    npc_state.dirty_factions = false;
+    npc_state.dirty_healths = false;
+    npc_state.dirty_arrivals = false;
+    npc_state.dirty_flags = false;
+    npc_state.position_dirty_indices.clear();
+    npc_state.arrival_dirty_indices.clear();
+
+    // Reset building dirty flags
+    bld_state.dirty_positions = false;
+    bld_state.dirty_factions = false;
+    bld_state.dirty_healths = false;
+    bld_state.dirty_flags = false;
+    bld_state.position_dirty_indices.clear();
 
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
         for update in queue.drain(..) {
-            state.apply(&update);
+            // Route to correct state based on variant
+            match &update {
+                GpuUpdate::BldSetPosition { .. } | GpuUpdate::BldSetFaction { .. } |
+                GpuUpdate::BldSetHealth { .. } | GpuUpdate::BldSetSpriteFrame { .. } |
+                GpuUpdate::BldSetFlags { .. } | GpuUpdate::BldHide { .. } => {
+                    bld_state.apply(&update);
+                }
+                _ => {
+                    npc_state.apply(&update);
+                }
+            }
         }
     }
 
-    // Decay damage flash values (1.0 → 0.0 in ~0.2s)
+    // Decay NPC damage flash values (1.0 → 0.0 in ~0.2s)
     let dt = time.delta_secs();
     const FLASH_DECAY_RATE: f32 = 5.0;
-    let active = slots.count().min(state.flash_values.len());
-    for flash in state.flash_values[..active].iter_mut() {
+    let active = slots.count().min(npc_state.flash_values.len());
+    for flash in npc_state.flash_values[..active].iter_mut() {
+        if *flash > 0.0 {
+            *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
+        }
+    }
+
+    // Decay building damage flash values
+    let bld_active = bld_slots.count().min(bld_state.flash_values.len());
+    for flash in bld_state.flash_values[..bld_active].iter_mut() {
         if *flash > 0.0 {
             *flash = (*flash - dt * FLASH_DECAY_RATE).max(0.0);
         }
@@ -700,6 +829,7 @@ impl Plugin for GpuComputePlugin {
         // Initialize resources in main world
         app.init_resource::<RenderFrameConfig>()
             .init_resource::<NpcGpuState>()
+            .init_resource::<BuildingGpuState>()
             .init_resource::<NpcVisualUpload>()
             .init_resource::<ProjBufferWrites>()
             .add_systems(Update, (update_gpu_data, update_proj_gpu_data, populate_tile_flags))

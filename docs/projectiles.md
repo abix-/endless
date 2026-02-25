@@ -63,16 +63,12 @@ For each active projectile:
 
 `ReadbackComplete` observers write hit results and positions directly to `Res<ProjHitState>` and `Res<ProjPositionState>` (Bevy async readback, no manual staging). `process_proj_hits` handles two phases:
 
-**NPC + Building hits** (from GPU hit buffer):
+**NPC hits** (from GPU hit buffer):
 ```
 for slot in 0..min(proj_alloc.next, hit_state.len()):
     skip if proj_writes.active[slot] == 0 (inactive, stale in readback)
     if hit.x >= 0 and hit.y == 0 (collision):
-        if BuildingSlotMap.is_building(hit.x):
-            look up (kind, index) via BuildingSlotMap.get_building()
-            push BuildingDamageMsg { kind, index, amount, attacker_faction }
-        else:
-            push DamageMsg { npc_index: hit.x, amount: damage }
+        push DamageMsg { npc_index: hit.x, amount: damage }
         recycle slot via ProjSlotAllocator
         send ProjGpuUpdate::Deactivate to GPU
     if hit.x == -2 (expired sentinel):
@@ -80,7 +76,7 @@ for slot in 0..min(proj_alloc.next, hit_state.len()):
         send ProjGpuUpdate::Deactivate to GPU
 ```
 
-Buildings occupy NPC GPU slots (speed=0, sprite hidden via col=-1). The projectile compute shader detects building hits through the NPC spatial grid — no separate CPU building collision pass needed. `BuildingSlotMap` routes hits to `BuildingDamageMsg` vs `DamageMsg`.
+Buildings are no longer in the NPC GPU buffer — they use separate `BuildingSlots` and `BuildingGpuState`. Building damage is applied directly by `attack_system` when firing at buildings (emits `BuildingDamageMsg` immediately, projectile spawned with `damage: 0.0` as visual only). The projectile GPU collision only detects NPC hits.
 
 ## GPU Buffers
 

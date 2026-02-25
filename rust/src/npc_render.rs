@@ -145,6 +145,11 @@ pub struct NpcVisualBuffers {
 }
 
 /// Main-world overlay instances, rebuilt each frame. Zero-clone extracted to render world.
+/// Building body instances, built each frame from BuildingGpuState.
+/// Replaces the old storage-buffer path for building body rendering.
+#[derive(Resource, Default)]
+pub struct BuildingBodyInstances(pub Vec<InstanceData>);
+
 /// Any system that needs to render building/farm/mine overlays pushes InstanceData here.
 #[derive(Resource, Default)]
 pub struct OverlayInstances(pub Vec<InstanceData>);
@@ -152,6 +157,13 @@ pub struct OverlayInstances(pub Vec<InstanceData>);
 /// Instance buffer for building overlays (farms, building HP bars, mine progress).
 #[derive(Resource)]
 pub struct BuildingOverlayBuffers {
+    pub instances: RawBufferVec<InstanceData>,
+    pub count: u32,
+}
+
+/// Instance buffer for building body rendering (separate from NPC storage buffer path).
+#[derive(Resource)]
+pub struct BuildingBodyRenderBuffers {
     pub instances: RawBufferVec<InstanceData>,
     pub count: u32,
 }
@@ -244,6 +256,39 @@ impl<P: PhaseItem, const BODY_ONLY: bool> RenderCommand<P> for DrawStoragePass<B
     }
 }
 
+/// Draw command for building bodies using instance buffer (decoupled from NPC compute).
+pub struct DrawBuildingBody;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawBuildingBody {
+    type Param = (SRes<NpcRenderBuffers>, SRes<BuildingBodyRenderBuffers>);
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    fn render<'w>(
+        _item: &P,
+        _view: ROQueryItem<'w, 'w, Self::ViewQuery>,
+        _entity: Option<ROQueryItem<'w, 'w, Self::ItemQuery>>,
+        params: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let (npc_buffers, body_buffers) = params;
+        let npc_buffers = npc_buffers.into_inner();
+        let body_buffers = body_buffers.into_inner();
+
+        if body_buffers.count == 0 { return RenderCommandResult::Skip; }
+        let Some(instance_buffer) = body_buffers.instances.buffer() else {
+            return RenderCommandResult::Skip;
+        };
+
+        pass.set_vertex_buffer(0, npc_buffers.vertex_buffer.slice(..));
+        pass.set_vertex_buffer(1, instance_buffer.slice(..));
+        pass.set_index_buffer(npc_buffers.index_buffer.slice(..), IndexFormat::Uint16);
+        pass.draw_indexed(0..6, 0, 0..body_buffers.count);
+
+        RenderCommandResult::Success
+    }
+}
+
 /// Draw command for building overlay instance buffer path (farms, building HP bars, mine progress).
 pub struct DrawBuildingOverlay;
 
@@ -321,12 +366,12 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetNpcCameraBindGroup<I>
     }
 }
 
-/// Building body draw commands (storage buffer, layer 0, building atlas only).
+/// Building body draw commands (instance buffer, decoupled from NPC compute).
 type DrawBuildingBodyCommands = (
     SetItemPipeline,
     SetNpcTextureBindGroup<0>,
     SetNpcCameraBindGroup<1>,
-    DrawStoragePass<true>,
+    DrawBuildingBody,
 );
 
 /// NPC body draw commands (storage buffer, layer 0, non-building only).
@@ -407,8 +452,9 @@ pub struct NpcRenderPlugin;
 impl Plugin for NpcRenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OverlayInstances>()
+            .init_resource::<BuildingBodyInstances>()
             .add_systems(Startup, (spawn_npc_batch, spawn_proj_batch))
-            .add_systems(PostUpdate, build_overlay_instances);
+            .add_systems(PostUpdate, (build_building_body_instances, build_overlay_instances));
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -423,7 +469,7 @@ impl Plugin for NpcRenderPlugin {
             .init_resource::<SpecializedRenderPipelines<NpcPipeline>>()
             .add_systems(
                 ExtractSchedule,
-                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data, extract_overlay_instances),
+                (extract_npc_batch, extract_proj_batch, extract_camera_state, extract_npc_data, extract_proj_data, extract_overlay_instances, extract_building_body_instances),
             )
             .add_systems(
                 Render,
@@ -501,6 +547,49 @@ fn extract_camera_state(
 // =============================================================================
 // OVERLAY INSTANCES (main world → render world, zero-clone)
 // =============================================================================
+
+/// Build building body instances from BuildingGpuState for instance-buffer rendering.
+/// Buildings are few (<500), so rebuilding each frame is cheap.
+fn build_building_body_instances(
+    bld_state: Res<crate::gpu::BuildingGpuState>,
+    bld_slots: Res<crate::resources::BuildingSlots>,
+    mut instances: ResMut<BuildingBodyInstances>,
+) {
+    instances.0.clear();
+    let count = bld_slots.count();
+    for idx in 0..count {
+        let i2 = idx * 2;
+        let x = bld_state.positions.get(i2).copied().unwrap_or(-9999.0);
+        let y = bld_state.positions.get(i2 + 1).copied().unwrap_or(-9999.0);
+        if x < -9000.0 { continue; } // hidden/dead
+
+        let col = bld_state.sprite_indices.get(idx * 4).copied().unwrap_or(-1.0);
+        if col < 0.0 { continue; } // no sprite assigned
+
+        let row = bld_state.sprite_indices.get(idx * 4 + 1).copied().unwrap_or(0.0);
+        let atlas = bld_state.sprite_indices.get(idx * 4 + 2).copied().unwrap_or(1.0);
+        let flash = bld_state.flash_values.get(idx).copied().unwrap_or(0.0);
+        let faction = bld_state.factions.get(idx).copied().unwrap_or(0);
+        let health = bld_state.healths.get(idx).copied().unwrap_or(0.0);
+
+        let (r, g, b, a) = if faction == 0 {
+            (1.0, 1.0, 1.0, 1.0)
+        } else {
+            crate::constants::raider_faction_color(faction)
+        };
+
+        instances.0.push(InstanceData {
+            position: [x, y],
+            sprite: [col, row],
+            color: [r, g, b, a],
+            health,
+            flash,
+            scale: 32.0,
+            atlas_id: atlas,
+            rotation: 0.0,
+        });
+    }
+}
 
 /// Build overlay instances from BuildingEntityMap (farm/mine growth) + BuildingHpRender each frame.
 /// Runs in main world PostUpdate. Future visual features push here instead of adding new resources.
@@ -589,6 +678,32 @@ fn extract_overlay_instances(
         let count = instances.len() as u32;
         instances.write_buffer(&render_device, &render_queue);
         commands.insert_resource(BuildingOverlayBuffers { instances, count });
+    }
+}
+
+/// Zero-clone extract: reads BuildingBodyInstances from main world, writes to BuildingBodyRenderBuffers.
+fn extract_building_body_instances(
+    mut commands: Commands,
+    body: Extract<Res<BuildingBodyInstances>>,
+    existing: Option<ResMut<BuildingBodyRenderBuffers>>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
+    if let Some(mut buf) = existing {
+        buf.instances.clear();
+        for inst in body.0.iter() {
+            buf.instances.push(*inst);
+        }
+        buf.count = buf.instances.len() as u32;
+        buf.instances.write_buffer(&render_device, &render_queue);
+    } else {
+        let mut instances = RawBufferVec::new(BufferUsages::VERTEX);
+        for inst in body.0.iter() {
+            instances.push(*inst);
+        }
+        let count = instances.len() as u32;
+        instances.write_buffer(&render_device, &render_queue);
+        commands.insert_resource(BuildingBodyRenderBuffers { instances, count });
     }
 }
 
@@ -1001,6 +1116,7 @@ fn queue_npcs(
     render_buffers: Option<Res<NpcRenderBuffers>>,
     visual_buffers: Option<Res<NpcVisualBuffers>>,
     overlay_buffers: Option<Res<BuildingOverlayBuffers>>,
+    body_buffers: Option<Res<BuildingBodyRenderBuffers>>,
     config: Option<Res<RenderFrameConfig>>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
     views: Query<(Entity, &ExtractedView, &Msaa)>,
@@ -1015,8 +1131,9 @@ fn queue_npcs(
     let has_npcs = visual_buffers.as_ref().is_some_and(|vb| vb.bind_group.is_some())
         && config.as_ref().is_some_and(|c| c.npc.count > 0);
     let has_building_overlays = overlay_buffers.as_ref().is_some_and(|m| m.count > 0);
+    let has_building_bodies = body_buffers.as_ref().is_some_and(|b| b.count > 0);
 
-    if !has_npcs && !has_building_overlays { return; }
+    if !has_npcs && !has_building_overlays && !has_building_bodies { return; }
 
     let building_body_draw = draw_functions.read().id::<DrawBuildingBodyCommands>();
     let building_overlay_draw = draw_functions.read().id::<DrawBuildingOverlayCommands>();
@@ -1029,9 +1146,10 @@ fn queue_npcs(
         };
 
         for batch_entity in &npc_batch {
-            if has_npcs {
+            // Building bodies: instance buffer path (decoupled from NPC compute)
+            if has_building_bodies {
                 let building_body_pid = pipelines.specialize(
-                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), Some(StorageDrawMode::BuildingBody)),
+                    &pipeline_cache, &pipeline, (view.hdr, msaa.samples(), None),
                 );
                 queue_phase_item(transparent_phase, building_body_draw, building_body_pid, ORDER_BUILDING_BODY, view_entity, batch_entity);
             }

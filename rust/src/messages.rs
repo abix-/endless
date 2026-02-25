@@ -98,6 +98,14 @@ pub enum GpuUpdate {
     SetDamageFlash { idx: usize, intensity: f32 },
     /// Set NPC flags (bit 0: combat scan enabled)
     SetFlags { idx: usize, flags: u32 },
+
+    // -- Building variants (same data, routed to building GPU buffers) --
+    BldSetPosition { idx: usize, x: f32, y: f32 },
+    BldSetFaction { idx: usize, faction: i32 },
+    BldSetHealth { idx: usize, health: f32 },
+    BldSetSpriteFrame { idx: usize, col: f32, row: f32, atlas: f32 },
+    BldSetFlags { idx: usize, flags: u32 },
+    BldHide { idx: usize },
 }
 
 pub static GPU_UPDATE_QUEUE: Mutex<Vec<GpuUpdate>> = Mutex::new(Vec::new());

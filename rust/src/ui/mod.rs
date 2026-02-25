@@ -244,7 +244,7 @@ fn game_load_system(
     *mining_policy = MiningPolicy::default();
 
     // Load building instances from save → BuildingEntityMap
-    crate::save::load_building_instances_from_save(&save, &mut tracking.slots, &mut ws.building_slots, &ws.world_data, world_size_px);
+    crate::save::load_building_instances_from_save(&save, &mut tracking.building_alloc, &mut ws.building_slots, &ws.world_data, world_size_px);
     world::update_all_wall_sprites(&ws.grid, &ws.building_slots);
     crate::save::restore_growth_from_save(&save, &mut ws.building_slots);
     let hp_by_slot = crate::save::convert_building_hp_to_slots(&save.building_hp, &ws.building_slots, &ws.world_data);
@@ -310,7 +310,8 @@ fn game_startup_system(
         &config,
         &mut world_state.grid, &mut world_state.world_data,
         &mut world_state.town_grids,
-        &mut world_state.slot_alloc, &mut world_state.building_slots,
+        &mut world_state.slot_alloc, &mut world_state.building_alloc,
+        &mut world_state.building_slots,
         &mut food_storage, &mut extra.gold_storage,
         &mut faction_stats, &mut raider_state,
     );

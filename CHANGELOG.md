@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-02-25a
+
+- **separate NPC and building GPU buffers** — extracted `SlotPool` shared inner type with `SlotAllocator` (NPCs, max=100K) and `BuildingSlots` (buildings, max=5K) as type-safe wrappers; added `BuildingGpuState` resource (CPU-side positions/factions/healths/sprites/flash/flags with dirty tracking); added 6 `Bld*` variants to `GpuUpdate` enum routed by `populate_gpu_state`; building rendering moved from NPC storage-buffer path to instance-buffer path (`BuildingBodyInstances` + `BuildingBodyRenderBuffers` + `DrawBuildingBody`); tower targeting rewritten CPU-side (`fire_towers` scans NPC `GpuReadState` directly); building damage applied directly by `attack_system` via `BuildingDamageMsg` (projectile is visual-only); `process_proj_hits` simplified (no building collision check); `death_cleanup_system` uses `BuildingSlots` for building branch; updated 32 files across world gen, save/load, tests, UI, combat, health, economy, rendering
+
 ## 2026-02-24e
 
 - **roadmap cleanup** — migrated ~40 checked items from stages 14-22 to completed.md; collapsed Stage 19 into completed stages line; removed linear scan elimination section (all done); cleaned up GPU extract/rendering/buildings-as-entities completed stubs; removed 3 completed spec entries from Specs table; net -87 lines in roadmap making current sprint (Stage 14: Tension) immediately scannable

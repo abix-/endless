@@ -14,6 +14,7 @@ pub struct WorldState<'w> {
     pub building_occupancy: ResMut<'w, crate::world::BuildingOccupancy>,
     pub dirty: ResMut<'w, DirtyFlags>,
     pub slot_alloc: ResMut<'w, SlotAllocator>,
+    pub building_alloc: ResMut<'w, BuildingSlots>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
@@ -29,7 +30,7 @@ impl WorldState<'_> {
     ) -> Result<(), &'static str> {
         crate::world::place_building(
             &mut self.grid, &self.world_data,
-            food_storage, &mut self.slot_alloc, &mut self.building_slots,
+            food_storage, &mut self.building_alloc, &mut self.building_slots,
             &mut self.dirty, kind, town_data_idx, world_pos, cost,
             &self.town_grids, commands,
         )

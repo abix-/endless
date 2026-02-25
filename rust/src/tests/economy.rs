@@ -9,7 +9,6 @@ use super::{TestState, TestSetupParams};
 
 pub fn setup(
     mut params: TestSetupParams,
-    mut building_map: ResMut<BuildingEntityMap>,
     mut raider_state: ResMut<RaiderState>,
 ) {
     // Villager town
@@ -23,7 +22,7 @@ pub fn setup(
     });
     // 1 farm near town — starts Growing at 95%
     params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
-    if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
+    if let Some(inst) = params.building_slots.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
         inst.growth_progress = 0.95;
     }
     params.add_bed(400.0, 450.0);

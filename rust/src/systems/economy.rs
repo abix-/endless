@@ -779,7 +779,7 @@ pub fn endless_system(
 
         // Place buildings directly into BuildingEntityMap
         if let Some(town_grid) = world_state.town_grids.grids.get_mut(grid_idx) {
-            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.slot_alloc, &mut world_state.building_slots);
+            world::place_buildings(&mut world_state.grid, &world_state.world_data, mg.settle_target, town_data_idx as u32, &config, town_grid, is_raider, &mut world_state.building_alloc, &mut world_state.building_slots);
         }
         world::stamp_dirt(&mut world_state.grid, &[mg.settle_target]);
 

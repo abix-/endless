@@ -66,7 +66,8 @@ Main World (ECS)                       Render World (GPU)
 ```
 ECS → GPU (upload):
   GpuUpdateMsg → collect_gpu_updates → GPU_UPDATE_QUEUE
-    → populate_gpu_state → NpcGpuState (per-buffer dirty flags + per-index tracking for GPU-authoritative buffers)
+    → populate_gpu_state → NpcGpuState (NPC variants, per-buffer dirty flags)
+                         → BuildingGpuState (Bld* variants, CPU-side building visual state)
 
   build_visual_upload (PostUpdate, chained after populate_gpu_state):
     Single O(N) pass: ECS query + NpcGpuState → NpcVisualUpload
@@ -117,9 +118,7 @@ One thread per NPC. Computes cell from `floor(pos / cell_size)`, atomically incr
 ### Mode 2: Separation + Movement + Combat Targeting
 One thread per NPC. Three-tier optimization based on NPC type:
 
-**Tier 1 — Buildings (speed=0, not tower)**: Early exit. Writes `combat_targets[i] = -1`, `threat_counts[i] = 0`, returns. Buildings are in the grid for projectile collision only — they don't move, separate, or target.
-
-**Tier 1b — Tower buildings (speed=0, npc_flags bit 1 = 1)**: Skip movement/separation but run combat targeting. Fountains use this tier — GPU finds their nearest enemy, CPU `building_tower_system` reads `combat_targets[slot]` and fires projectiles.
+**Note**: Buildings are no longer in the NPC GPU buffer. They use separate `BuildingSlots` (max=5K) and `BuildingGpuState` for rendering. Tower targeting (fountains) is handled CPU-side by `fire_towers()` scanning NPC `GpuReadState` directly.
 
 **Tier 2 — Non-combatants (npc_flags bit 0 = 0, farmers/miners)**: Full separation + movement. Threat scan uses `threat_radius` (7×7=49 cells). Skips the expensive combat targeting scan (9×9=81 cells). Writes `combat_targets[i] = -1`.
 
@@ -140,7 +139,7 @@ Four phases per thread (tiers 2+3):
 
 **Movement with lateral steering**: Moves toward goal at full speed (no backoff persistence penalty). When avoidance pushes against the goal direction (alignment < -0.3), the NPC steers laterally (perpendicular to goal, in the direction avoidance is pushing) at 60% speed instead of slowing down. This routes NPCs around obstacles rather than jamming them. Backoff increments +1 when blocked, decrements -3 when clear, cap at 30.
 
-**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (300px, 9×9 cells) for combatants, `threat_radius` (200px, 7×7 cells) for non-combatants. For each NPC in neighboring cells, checks: alive (health > 0), not self, **not a building (speed > 0)**. Buildings are excluded from both combat targeting and threat counts — building attacks are handled CPU-side via `find_nearest_enemy_building()`. Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting (tier 3 only) tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
+**Combat targeting + threat assessment**: Scan radius depends on tier — `combat_range` (300px, 9×9 cells) for combatants, `threat_radius` (200px, 7×7 cells) for non-combatants. For each NPC in neighboring cells, checks: alive (health > 0), not self. Buildings are no longer in the NPC buffer — they have separate GPU state and slot allocators. Building attacks are handled CPU-side via `find_nearest_enemy_building()`. Faction -1 (neutral) is treated as same-faction — never targeted, never counted as enemy. Combat targeting (tier 3 only) tracks nearest enemy by squared distance → `combat_targets[i]` (-1 if none or non-combatant). Threat assessment counts enemies and allies within `threat_radius`, packs both into a single u32 → `threat_counts[i]` as `(enemies << 16) | allies`. CPU decision_system unpacks these for flee threshold calculations.
 
 ## GPU Buffers
 

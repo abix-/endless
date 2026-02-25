@@ -34,18 +34,22 @@ Fresh spawns pass `NpcSpawnOverrides::default()` (all None — uses generated va
 
 ## Slot Allocation
 
-`SlotAllocator` (Bevy Resource, defined in `resources.rs`):
+Both `SlotAllocator` (NPCs, max=100K) and `BuildingSlots` (buildings, max=5K) wrap a shared `SlotPool` inner type (defined in `resources.rs`):
 
 ```rust
-pub struct SlotAllocator {
+pub struct SlotPool {
     pub next: usize,      // High-water mark
-    pub free: Vec<usize>, // Recycled slots from dead NPCs
+    pub max: usize,       // Capacity cap
+    pub free: Vec<usize>, // Recycled slots
 }
 ```
 
-`alloc()` pops from the free list first, falls back to incrementing `next`. `free()` pushes onto the free list. Both spawn (`spawn_npc_system`) and death (`death_cleanup_system`) use this resource. LIFO reuse — most recently freed slot is allocated first.
+`alloc()` pops from the free list first, falls back to incrementing `next` (capped at `max`). `free()` pushes onto the free list. LIFO reuse — most recently freed slot is allocated first. `SlotAllocator` and `BuildingSlots` both implement `Deref`/`DerefMut` to `SlotPool`.
 
-GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next`). Dead NPC slots within this range are hidden via sentinel position (-9999) and culled by the renderer. No separate dispatch count resource needed.
+NPC slots: allocated in `spawn_npc_system`, recycled in `death_cleanup_system`.
+Building slots: allocated in `place_building_instance`, recycled in `death_cleanup_system` (building branch).
+
+GPU dispatch count comes from `SlotAllocator.count()` (the high-water mark `next`). Dead NPC slots within this range are hidden via sentinel position (-9999) and culled by the renderer.
 
 ## Spawn Parameters
 

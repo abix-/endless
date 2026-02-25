@@ -15,6 +15,7 @@ const MISMATCH_EPSILON: f32 = 8.0;
 
 pub fn setup(
     mut slot_alloc: ResMut<SlotAllocator>,
+    mut building_alloc: ResMut<BuildingSlots>,
     mut building_slots: ResMut<BuildingEntityMap>,
     mut spawn_events: MessageWriter<SpawnNpcMsg>,
     mut world_data: ResMut<world::WorldData>,
@@ -33,7 +34,7 @@ pub fn setup(
     faction_stats.init(2);
 
     // Create fountain instance directly
-    world::place_building_instance(&mut slot_alloc, &mut building_slots, world::BuildingKind::Fountain, Vec2::new(400.0, 400.0), 0, 0, 0, 0);
+    world::place_building_instance(&mut building_alloc, &mut building_slots, world::BuildingKind::Fountain, Vec2::new(400.0, 400.0), 0, 0, 0, 0);
 
     // One enemy NPC in fountain range; keep this NPC pinned in tick so tower fires repeatedly.
     let target_slot = slot_alloc.alloc().expect("slot alloc for target");

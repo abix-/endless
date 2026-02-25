@@ -3,8 +3,11 @@
 use crate::components::{Job, BaseAttackType};
 use crate::world::BuildingKind;
 
-/// Maximum NPCs the system can handle. Buffers are pre-allocated to this size.
+/// Maximum NPCs the system can handle. NPC GPU buffers are pre-allocated to this size.
 pub const MAX_NPC_COUNT: usize = 100000;
+
+/// Maximum buildings with GPU slots. Building GPU buffers are pre-allocated to this size.
+pub const MAX_BUILDINGS: usize = 5000;
 
 // ============================================================================
 // UPGRADE STAT DEFINITIONS (used by NpcDef to declare upgradeable stats)

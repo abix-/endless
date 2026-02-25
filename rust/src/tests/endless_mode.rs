@@ -21,6 +21,7 @@ pub fn setup(
     mut gold_storage: ResMut<GoldStorage>,
     mut faction_stats: ResMut<FactionStats>,
     mut town_grids: ResMut<world::TownGrids>,
+    mut slot_alloc: ResMut<SlotAllocator>,
     mut bld: BuildingInitParams,
     mut spawn_writer: MessageWriter<SpawnNpcMsg>,
     mut endless: ResMut<EndlessMode>,
@@ -43,7 +44,8 @@ pub fn setup(
         &config,
         &mut world_grid, &mut world_data,
         &mut town_grids,
-        &mut bld.slot_alloc, &mut bld.building_slots,
+        &mut slot_alloc, &mut bld.building_alloc,
+        &mut bld.building_slots,
         &mut food_storage, &mut gold_storage,
         &mut faction_stats, &mut raider_state,
     );

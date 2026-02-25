@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 use crate::components::*;
 use crate::resources::*;
-use crate::world::{self, WorldGrid, WorldCell};
+use crate::world;
 
 use super::{TestState, TestSetupParams};
 
@@ -17,15 +17,7 @@ const FARMS: [(f32, f32); 5] = [
 /// Setup: populate world, spawn NPCs, init resources.
 pub fn setup(
     mut params: TestSetupParams,
-    mut building_map: ResMut<BuildingEntityMap>,
-    mut world_grid: ResMut<WorldGrid>,
 ) {
-    // Init WorldGrid so rebuild_building_grid_system populates BuildingSpatialGrid
-    world_grid.width = 25;
-    world_grid.height = 25;
-    world_grid.cell_size = 32.0;
-    world_grid.cells = vec![WorldCell::default(); 25 * 25];
-
     // World data: 2 towns
     params.add_town("Harvest");
     params.world_data.towns.push(world::Town {
@@ -38,7 +30,7 @@ pub fn setup(
     // 5 farms near town 0
     for &(fx, fy) in &FARMS {
         params.add_building(world::BuildingKind::Farm, fx, fy, 0);
-        if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(fx, fy)) {
+        if let Some(inst) = params.building_slots.find_farm_at_mut(Vec2::new(fx, fy)) {
             inst.growth_ready = true;
             inst.growth_progress = 1.0;
         }

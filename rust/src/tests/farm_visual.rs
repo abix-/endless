@@ -7,11 +7,11 @@ use crate::resources::*;
 
 use super::{TestState, TestSetupParams};
 
-pub fn setup(mut params: TestSetupParams, mut building_map: ResMut<BuildingEntityMap>) {
+pub fn setup(mut params: TestSetupParams) {
     params.add_town("FarmVisTown");
     params.add_building(crate::world::BuildingKind::Farm, 400.0, 350.0, 0);
     // Set progress near ready so transition happens within 30s
-    if let Some(inst) = building_map.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
+    if let Some(inst) = params.building_slots.find_farm_at_mut(Vec2::new(400.0, 350.0)) {
         inst.growth_progress = 0.95;
     }
     params.add_bed(400.0, 450.0);

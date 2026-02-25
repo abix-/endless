@@ -405,17 +405,18 @@ pub struct FoodEvents {
 // PHASE 11.7: RESOURCES REPLACING STATICS
 // ============================================================================
 
-/// NPC slot allocator. Manages slot indices with free list for reuse.
-#[derive(Resource, Default)]
-pub struct SlotAllocator {
+/// Shared slot allocator logic. Wraps a free-list allocator with configurable max.
+pub struct SlotPool {
     pub next: usize,
+    pub max: usize,
     pub free: Vec<usize>,
 }
 
-impl SlotAllocator {
+impl SlotPool {
+    pub fn new(max: usize) -> Self { Self { next: 0, max, free: Vec::new() } }
     pub fn alloc(&mut self) -> Option<usize> {
         self.free.pop().or_else(|| {
-            if self.next < MAX_NPC_COUNT {
+            if self.next < self.max {
                 let idx = self.next;
                 self.next += 1;
                 Some(idx)
@@ -430,6 +431,40 @@ impl SlotAllocator {
     /// Currently alive: allocated minus freed. Use for UI display counts.
     pub fn alive(&self) -> usize { self.next - self.free.len() }
     pub fn reset(&mut self) { self.next = 0; self.free.clear(); }
+}
+
+/// NPC slot allocator. Manages slot indices 0..MAX_NPC_COUNT with free list for reuse.
+#[derive(Resource)]
+pub struct SlotAllocator(pub SlotPool);
+
+impl Default for SlotAllocator {
+    fn default() -> Self { Self(SlotPool::new(MAX_NPC_COUNT)) }
+}
+
+impl std::ops::Deref for SlotAllocator {
+    type Target = SlotPool;
+    fn deref(&self) -> &SlotPool { &self.0 }
+}
+
+impl std::ops::DerefMut for SlotAllocator {
+    fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
+}
+
+/// Building slot allocator. Manages slot indices 0..MAX_BUILDINGS with free list for reuse.
+#[derive(Resource)]
+pub struct BuildingSlots(pub SlotPool);
+
+impl Default for BuildingSlots {
+    fn default() -> Self { Self(SlotPool::new(crate::constants::MAX_BUILDINGS)) }
+}
+
+impl std::ops::Deref for BuildingSlots {
+    type Target = SlotPool;
+    fn deref(&self) -> &SlotPool { &self.0 }
+}
+
+impl std::ops::DerefMut for BuildingSlots {
+    fn deref_mut(&mut self) -> &mut SlotPool { &mut self.0 }
 }
 
 /// Projectile slot allocator. Replaces FREE_PROJ_SLOTS static.

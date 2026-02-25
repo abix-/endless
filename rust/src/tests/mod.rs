@@ -43,11 +43,15 @@ use crate::world;
 #[derive(SystemParam)]
 pub struct CleanupCore<'w> {
     pub slot_alloc: ResMut<'w, crate::resources::SlotAllocator>,
+    pub building_alloc: ResMut<'w, crate::resources::BuildingSlots>,
     pub world_data: ResMut<'w, crate::world::WorldData>,
     pub food_storage: ResMut<'w, crate::resources::FoodStorage>,
     pub faction_stats: ResMut<'w, crate::resources::FactionStats>,
     pub gpu_state: ResMut<'w, crate::resources::GpuReadState>,
     pub game_time: ResMut<'w, crate::resources::GameTime>,
+    pub building_map: ResMut<'w, crate::resources::BuildingEntityMap>,
+    pub npc_map: ResMut<'w, crate::resources::NpcEntityMap>,
+    pub bld_gpu_state: ResMut<'w, crate::gpu::BuildingGpuState>,
 }
 
 #[derive(SystemParam)]
@@ -83,6 +87,7 @@ pub struct CleanupEndless<'w> {
 #[derive(SystemParam)]
 pub struct TestSetupParams<'w> {
     pub slot_alloc: ResMut<'w, SlotAllocator>,
+    pub building_alloc: ResMut<'w, BuildingSlots>,
     pub spawn_events: MessageWriter<'w, SpawnNpcMsg>,
     pub world_data: ResMut<'w, world::WorldData>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
@@ -90,18 +95,26 @@ pub struct TestSetupParams<'w> {
     pub faction_stats: ResMut<'w, FactionStats>,
     pub game_time: ResMut<'w, GameTime>,
     pub test_state: ResMut<'w, TestState>,
+    pub world_grid: ResMut<'w, world::WorldGrid>,
 }
 
 /// Shared test setup params bundle — stays under 16-param limit.
 #[derive(SystemParam)]
 pub struct BuildingInitParams<'w> {
-    pub slot_alloc: ResMut<'w, SlotAllocator>,
+    pub building_alloc: ResMut<'w, BuildingSlots>,
     pub building_slots: ResMut<'w, BuildingEntityMap>,
 }
 
 impl TestSetupParams<'_> {
     /// Add a default faction-0 town at (400,400).
+    /// Auto-inits WorldGrid on first call so building atlas composites correctly.
     pub fn add_town(&mut self, name: &str) {
+        if self.world_grid.width == 0 {
+            self.world_grid.width = 25;
+            self.world_grid.height = 25;
+            self.world_grid.cell_size = 32.0;
+            self.world_grid.cells = vec![world::WorldCell::default(); 25 * 25];
+        }
         self.world_data.towns.push(world::Town {
             name: name.into(),
             center: Vec2::new(400.0, 400.0),
@@ -118,13 +131,13 @@ impl TestSetupParams<'_> {
     /// Add a building instance at the given position for a town.
     pub fn add_building(&mut self, kind: world::BuildingKind, x: f32, y: f32, town_idx: u32) {
         let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, kind, Vec2::new(x, y), town_idx, faction, 0, 0);
+        world::place_building_instance(&mut self.building_alloc, &mut self.building_slots, kind, Vec2::new(x, y), town_idx, faction, 0, 0);
     }
 
     /// Add a waypoint with patrol_order at the given position for a town.
     pub fn add_waypoint(&mut self, x: f32, y: f32, town_idx: u32, patrol_order: u32) {
         let faction = self.world_data.towns.get(town_idx as usize).map(|t| t.faction).unwrap_or(0);
-        world::place_building_instance(&mut self.slot_alloc, &mut self.building_slots, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0);
+        world::place_building_instance(&mut self.building_alloc, &mut self.building_slots, world::BuildingKind::Waypoint, Vec2::new(x, y), town_idx, faction, patrol_order, 0);
     }
 
     /// Init food_storage + faction_stats for N towns.
@@ -400,8 +413,8 @@ pub fn register_tests(app: &mut App) {
     // movement
     registry.tests.push(TestEntry {
         name: "movement".into(),
-        description: "NPCs get targets, GPU moves them, arrive at destination".into(),
-        phase_count: 3,
+        description: "Farmer lifecycle: spawn from home, walk to farm, work, rest at home".into(),
+        phase_count: 5,
         time_scale: 1.0,
     });
     app.add_systems(OnEnter(AppState::Running),
@@ -960,6 +973,10 @@ fn cleanup_test_world(
     }
 
     *core.slot_alloc = Default::default();
+    *core.building_alloc = Default::default();
+    core.building_map.clear();
+    core.npc_map.0.clear();
+    *core.bld_gpu_state = Default::default();
     *core.world_data = Default::default();
     *core.food_storage = Default::default();
     *core.faction_stats = Default::default();

@@ -242,7 +242,7 @@ pub(crate) fn place_building(
     grid: &mut WorldGrid,
     world_data: &WorldData,
     food_storage: &mut FoodStorage,
-    slot_alloc: &mut SlotAllocator,
+    slot_alloc: &mut crate::resources::BuildingSlots,
     building_slots: &mut BuildingEntityMap,
     dirty: &mut DirtyFlags,
     kind: BuildingKind,
@@ -452,13 +452,11 @@ pub fn resolve_spawner_npc(
 fn push_building_gpu_updates(slot: usize, pos: Vec2, faction: i32, max_hp: f32, tileset_idx: u16, tower: bool) {
     let flags = if tower { 3u32 } else { 0u32 };
     if let Ok(mut queue) = GPU_UPDATE_QUEUE.lock() {
-        queue.push(GpuUpdate::SetPosition { idx: slot, x: pos.x, y: pos.y });
-        queue.push(GpuUpdate::SetTarget { idx: slot, x: pos.x, y: pos.y });
-        queue.push(GpuUpdate::SetFaction { idx: slot, faction });
-        queue.push(GpuUpdate::SetHealth { idx: slot, health: max_hp });
-        queue.push(GpuUpdate::SetSpeed { idx: slot, speed: 0.0 });
-        queue.push(GpuUpdate::SetFlags { idx: slot, flags });
-        queue.push(GpuUpdate::SetSpriteFrame {
+        queue.push(GpuUpdate::BldSetPosition { idx: slot, x: pos.x, y: pos.y });
+        queue.push(GpuUpdate::BldSetFaction { idx: slot, faction });
+        queue.push(GpuUpdate::BldSetHealth { idx: slot, health: max_hp });
+        queue.push(GpuUpdate::BldSetFlags { idx: slot, flags });
+        queue.push(GpuUpdate::BldSetSpriteFrame {
             idx: slot, col: tileset_idx as f32, row: 0.0,
             atlas: crate::constants::ATLAS_BUILDING,
         });
@@ -468,7 +466,7 @@ fn push_building_gpu_updates(slot: usize, pos: Vec2, faction: i32, max_hp: f32, 
 /// Allocate GPU slot + create BuildingInstance + register spawner in one call.
 /// Returns the allocated slot, or None if no slots available.
 pub fn place_building_instance(
-    slot_alloc: &mut SlotAllocator,
+    slot_alloc: &mut crate::resources::BuildingSlots,
     building_map: &mut BuildingEntityMap,
     kind: BuildingKind,
     pos: Vec2,
@@ -480,7 +478,7 @@ pub fn place_building_instance(
     use crate::constants::{building_def, tileset_index};
     let def = building_def(kind);
     let Some(slot) = slot_alloc.alloc() else {
-        warn!("No NPC slots available for building {:?}", kind);
+        warn!("No building slots available for {:?}", kind);
         return None;
     };
     let data_idx = building_map.iter_kind(kind).count();
@@ -610,6 +608,7 @@ pub fn setup_world(
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
     slot_alloc: &mut SlotAllocator,
+    building_alloc: &mut crate::resources::BuildingSlots,
     building_slots: &mut BuildingEntityMap,
     food_storage: &mut FoodStorage,
     gold_storage: &mut GoldStorage,
@@ -618,7 +617,7 @@ pub fn setup_world(
 ) -> (Vec<crate::messages::SpawnNpcMsg>, Vec<crate::systems::AiPlayer>) {
     town_grids.grids.clear();
     building_slots.clear();
-    generate_world(config, grid, world_data, town_grids, slot_alloc, building_slots);
+    generate_world(config, grid, world_data, town_grids, building_alloc, building_slots);
     building_slots.init_spatial(grid.width as f32 * grid.cell_size);
 
     let n = world_data.towns.len();
@@ -1396,7 +1395,7 @@ pub fn generate_world(
     grid: &mut WorldGrid,
     world_data: &mut WorldData,
     town_grids: &mut TownGrids,
-    slot_alloc: &mut SlotAllocator,
+    slot_alloc: &mut crate::resources::BuildingSlots,
     building_map: &mut BuildingEntityMap,
 ) {
     use rand::Rng;
@@ -1591,7 +1590,7 @@ pub fn place_buildings(
     config: &WorldGenConfig,
     town_grid: &mut TownGrid,
     is_raider: bool,
-    slot_alloc: &mut SlotAllocator,
+    slot_alloc: &mut crate::resources::BuildingSlots,
     building_map: &mut BuildingEntityMap,
 ) {
     let mut occupied = HashSet::new();
